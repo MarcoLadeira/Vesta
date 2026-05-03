@@ -391,22 +391,37 @@ def _write_shell_wrappers(home: Path) -> list[str]:
 
 
 def _write_shell_aliases(home: Path) -> list[Path]:
-    profiles = [
+    powershell_profiles = [
         home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1",
         home / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1",
     ]
     written = []
     bin_dir = opai_home(home) / "bin"
-    block = f"""{PS_START_MARKER}
+    powershell_block = f"""{PS_START_MARKER}
 function op {{ python -m opai @args }}
 function opai {{ python -m opai @args }}
 function codex {{ & "{bin_dir / "opai-codex.ps1"}" @args }}
 function claude {{ & "{bin_dir / "opai-claude.ps1"}" @args }}
 function copilot {{ & "{bin_dir / "opai-copilot.ps1"}" @args }}
 {PS_END_MARKER}"""
-    for profile in profiles:
+    for profile in powershell_profiles:
         existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
-        written.append(_write(profile, _replace_shell_block(existing, block)))
+        written.append(
+            _write(profile, _replace_shell_block(existing, powershell_block))
+        )
+
+    posix_profiles = [home / ".profile", home / ".bashrc", home / ".zshrc"]
+    posix_bin = opai_home(home) / "bin"
+    posix_block = f"""{PS_START_MARKER}
+op() {{ python -m opai "$@"; }}
+opai() {{ python -m opai "$@"; }}
+codex() {{ "{posix_bin / "opai-codex"}" "$@"; }}
+claude() {{ "{posix_bin / "opai-claude"}" "$@"; }}
+copilot() {{ "{posix_bin / "opai-copilot"}" "$@"; }}
+{PS_END_MARKER}"""
+    for profile in posix_profiles:
+        existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
+        written.append(_write(profile, _replace_shell_block(existing, posix_block)))
     return written
 
 

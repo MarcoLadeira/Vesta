@@ -58,7 +58,7 @@ $env:OPAI_WITH_TOOLS = "1"
 irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
 ```
 
-On Windows, the installer writes managed PowerShell functions for `op`, `opai`, `codex`, `claude`, and `copilot`. The AI-client wrappers activate OPai in the current project, print a blue `Using OPai` badge plus the OPai mascot graphic, then launch the real CLI command. Cross-platform wrapper launch is available through `op launch <codex|claude|copilot>`.
+The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project, print a blue `Using OPai` badge plus the OPai mascot graphic, then launch the real CLI command. Cross-platform wrapper launch is also available through `op launch <codex|claude|copilot>`.
 
 Developer install:
 

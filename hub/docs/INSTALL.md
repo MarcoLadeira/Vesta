@@ -75,7 +75,7 @@ opai launch claude
 opai launch copilot
 ```
 
-The one-command installer writes PowerShell command aliases that shadow `op`, `opai`, `codex`, `claude`, and `copilot` with OPai wrappers by default. To opt out from a local checkout:
+The one-command installer writes managed shell aliases that shadow `op`, `opai`, `codex`, `claude`, and `copilot` with OPai wrappers by default. PowerShell profiles are supported on Windows; `.profile`, `.bashrc`, and `.zshrc` are written for POSIX shells. To opt out from a local checkout:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoShellAliases

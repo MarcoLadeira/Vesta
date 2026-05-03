@@ -151,6 +151,27 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertIn("function op { python -m opai @args }", text)
             self.assertIn("function opai { python -m opai @args }", text)
 
+    def test_shell_aliases_include_posix_ai_client_wrappers(self):
+        with (
+            tempfile.TemporaryDirectory() as project_tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
+            project = Path(project_tmp)
+            home = Path(home_tmp)
+
+            install_global_integrations(
+                project,
+                home=home,
+                targets=["shell"],
+                install_shell_aliases=True,
+            )
+
+            profile = home / ".profile"
+            text = profile.read_text(encoding="utf-8")
+            self.assertIn('op() { python -m opai "$@"; }', text)
+            self.assertIn('opai() { python -m opai "$@"; }', text)
+            self.assertIn("opai-codex", text)
+
 
 if __name__ == "__main__":
     unittest.main()
