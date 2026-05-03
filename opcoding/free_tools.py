@@ -150,14 +150,30 @@ def tools_doctor(root: Path) -> dict[str, Any]:
     }
 
 
+def _workflow_files(root: Path) -> list[str]:
+    workflows = root / ".github" / "workflows"
+    if not workflows.exists():
+        return []
+    files = sorted(
+        {
+            path
+            for pattern in ("*.yml", "*.yaml")
+            for path in workflows.glob(pattern)
+            if path.is_file()
+        }
+    )
+    return [str(path.relative_to(root)) for path in files]
+
+
 def run_tool(root: Path, name: str, timeout: int = 300) -> dict[str, Any]:
-    if name == "actionlint" and not (root / ".github" / "workflows").exists():
+    actionlint_files = _workflow_files(root) if name == "actionlint" else []
+    if name == "actionlint" and not actionlint_files:
         return {
             "ok": True,
             "tool": name,
             "command": "actionlint",
             "returncode": 0,
-            "output_tail": "skipped: no .github/workflows directory in this project",
+            "output_tail": "skipped: no GitHub Actions workflow files in this project",
         }
     commands = {
         "ruff": [
@@ -215,11 +231,7 @@ def run_tool(root: Path, name: str, timeout: int = 300) -> dict[str, Any]:
             ".",
             "--no-banner",
         ],
-        "actionlint": [
-            str(go_bin(root, "actionlint")),
-            ".github/workflows/*.yml",
-            ".github/workflows/*.yaml",
-        ],
+        "actionlint": [str(go_bin(root, "actionlint")), *actionlint_files],
         "osv-scanner": [str(go_bin(root, "osv-scanner")), "scan", "."],
     }
     command = commands.get(name)

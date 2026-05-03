@@ -25,6 +25,21 @@ class ToolsAndMorphTests(unittest.TestCase):
         self.assertIn("--skip-editable", result["command"])
         self.assertNotIn("unknown tool", result.get("error", ""))
 
+    def test_actionlint_uses_concrete_workflow_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "ci.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("name: ci\non: [push]\njobs: {}\n", encoding="utf-8")
+
+            result = run_tool(root, "actionlint", timeout=1)
+
+        command = " ".join(result["command"])
+        self.assertIn(".github", command)
+        self.assertIn("ci.yml", command)
+        self.assertNotIn("*.yml", command)
+        self.assertNotIn("*.yaml", command)
+
     def test_morph_payload_uses_fast_model(self):
         payload = build_morph_payload("Add error handling", "code", "updated")
         self.assertEqual(payload["model"], "morph-v3-fast")

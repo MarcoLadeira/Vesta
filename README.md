@@ -1,14 +1,50 @@
 # OPai
 
-OPai 0.1.0 pre-alpha is a local-first AI tools hub for coding, automation, agents, MCP servers, prompts, workflows, and project context. It is designed to make AI-assisted development feel close to "one prompt to build, one prompt to ship" while keeping expensive models behind routing, budgets, and confirmation.
+![OPai mascot](opai/assets/opai-mascot.png)
 
-Default posture: local tools first, cache and summaries second, cheap models third, strong models only when evidence says they are worth it.
+OPai 0.1.0 pre-alpha is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, and cost controls.
+
+The goal is simple: make AI-assisted development feel close to "one prompt to build, one prompt to ship" without blindly burning expensive model credits.
+
+Default posture:
+
+```text
+local tools -> cache/context -> cheap model -> strong model -> GPT-5.5 Max only when justified
+```
 
 Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `opcoding`.
 
+## What OPai Gives You
+
+- A branded `op` CLI for project activation, routing, scans, doctors, dashboards, and release checks.
+- Automatic project instructions for Codex, Claude Code, and GitHub Copilot where those tools read local instruction files.
+- Superpowers as part of OPai when installed at `~/.codex/superpowers/skills`.
+- A local-first tool registry for coding, testing, GitOps, security, MCP, docs, local models, browser automation, and deployment helpers.
+- Cost-aware routing that gathers git diffs, tests, profiles, registry data, logs, and cached context before model escalation.
+- Safe command policies for destructive shell commands, Git operations, cloud calls, and secret-bearing logs.
+- A packaged OP AI Hub foundation with tools, agents, workflows, prompts, model routing, MCP config examples, and docs.
+
 ## Install
 
-From this folder:
+From GitHub:
+
+```powershell
+git clone https://github.com/MarcoLadeira/OPai.git
+cd OPai
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -ShellAliases
+op status
+```
+
+macOS/Linux:
+
+```sh
+git clone https://github.com/MarcoLadeira/OPai.git
+cd OPai
+sh ./install.sh --shell-aliases
+op status
+```
+
+From this folder during development:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
@@ -23,7 +59,7 @@ To also shadow supported AI CLI commands with OPai launch wrappers:
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -ShellAliases
 ```
 
-That installs managed PowerShell functions for `codex`, `claude`, and `copilot` which print a blue `Using OPai` badge and OPai mascot graphic before launching the real CLI command.
+On Windows, `-ShellAliases` installs managed PowerShell functions for `op`, `opai`, `codex`, `claude`, and `copilot`. The AI-client wrappers activate OPai in the current project, print a blue `Using OPai` badge plus the OPai mascot graphic, then launch the real CLI command. Cross-platform wrapper launch is available through `op launch <codex|claude|copilot>`.
 
 Developer install:
 
@@ -38,6 +74,35 @@ Optional free local tools:
 ```powershell
 op install --with-tools
 ```
+
+After the first install, restart terminal sessions and AI coding clients so native skill discovery can see OPai and Superpowers.
+
+## Use OPai In Any Project
+
+Run this in a project once:
+
+```powershell
+op activate --repair --shell-aliases
+op status
+```
+
+Then start coding through an OPai-aware wrapper:
+
+```powershell
+op launch codex
+op launch claude
+op launch copilot
+```
+
+Or use the shadowed commands after shell aliases load:
+
+```powershell
+codex
+claude
+copilot
+```
+
+OPai writes managed instruction blocks to `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.opaihub/` so new AI sessions know to use local evidence, Superpowers, safety gates, and cost controls first.
 
 ## OPai Commands
 
