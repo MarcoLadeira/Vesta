@@ -16,7 +16,7 @@ macOS/Linux:
 curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
 ```
 
-The remote installer clones or updates OPai under `~/.opai/source`, installs the `op`/`opai` CLI, writes global AI-client discovery files, enables Superpowers discovery when available, and installs persistent AI-client shell wrappers by default.
+The remote installer clones or updates OPai under `~/.opai/source`, installs the `op`/`opai` CLI, activates the project you ran it from, writes global AI-client discovery files, clones or updates the free open-source Superpowers repo, enables Superpowers discovery, and installs persistent AI-client shell wrappers by default.
 
 After first install, restart terminals and AI coding clients once, then run:
 
@@ -28,6 +28,13 @@ To download the heavier free local tool bundle during install:
 
 ```powershell
 $env:OPAI_WITH_TOOLS = "1"
+irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
+```
+
+To skip the Superpowers network clone in locked-down environments:
+
+```powershell
+$env:OPAI_NO_SUPERPOWERS = "1"
 irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
 ```
 
@@ -66,6 +73,8 @@ The default `opai install` writes safe global discovery files so supported AI co
 - `~/.agents/skills/opai/SKILL.md`
 - `~/.claude/CLAUDE.md` managed OPai block
 - `~/.opai/integrations/copilot-instructions.md`
+- `~/.codex/superpowers`: Superpowers source checkout
+- `~/.agents/skills/superpowers`: native skill discovery bridge
 
 For terminal CLIs, OPai can print the badge before launching the AI client:
 
@@ -111,6 +120,8 @@ pip install "opai[terminal-ui]"
 ```
 
 Closed desktop apps may not expose a place for OPai to draw a bottom-right status label. OPai still installs discovery/instruction files for clients that support local skills, memory, or project instructions.
+
+Project activation writes OPai managed blocks at the top of `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`. This keeps OPai visible even in projects that already have long instruction files.
 
 ## Python Editable Install
 

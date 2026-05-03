@@ -86,6 +86,18 @@
       "failure_handling": "Block on confirmed secrets."
     },
     {
+      "id": "release_prepare",
+      "trigger": "Release, deploy, publish, or production shipping request",
+      "inputs": ["diff", "test evidence", "security evidence", "release target"],
+      "steps": ["route cost", "release preflight", "targeted tests", "security scan", "rollback plan"],
+      "agents_used": ["gitops", "testing", "security", "deployment-ci", "cost-controller"],
+      "tools_used": ["opai publish status", "opcoding test", "detect-secrets", "op-hub sandbox check"],
+      "cost_policy": "L0/L1 evidence first; ask before L3/cloud/deploy",
+      "permission_policy": "read-only until explicit release, push, deploy, or cloud confirmation",
+      "output_artifacts": ["release readiness report", "rollback plan", "PR/release notes draft"],
+      "failure_handling": "Block on failing tests, secrets, missing rollback plan, or unconfirmed deploy action."
+    },
+    {
       "id": "docs_generation",
       "trigger": "Docs requested or release prep",
       "inputs": ["context", "diff", "templates"],

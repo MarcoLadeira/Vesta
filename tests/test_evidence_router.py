@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from opaihub.evidence import collect_evidence
+from opaihub.loader import registry_items
 from opaihub.router import route_task
 
 
@@ -55,6 +56,23 @@ class EvidenceRouterTests(unittest.TestCase):
         self.assertEqual(decision["model_tier"], "L3")
         self.assertTrue(decision["requires_confirmation"])
         self.assertIn("ask before deploy/cloud action", decision["safety_gates"])
+
+    def test_router_returns_registry_backed_workflows(self):
+        workflow_ids = {
+            workflow["id"] for workflow in registry_items("workflows", Path.cwd())
+        }
+        tasks = [
+            "show git status",
+            "fix failing tests",
+            "security review",
+            "deploy production release",
+            "add a feature",
+        ]
+
+        for task in tasks:
+            with self.subTest(task=task):
+                decision = route_task(Path.cwd(), task)
+                self.assertIn(decision["workflow"], workflow_ids)
 
 
 if __name__ == "__main__":

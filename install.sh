@@ -4,7 +4,10 @@ set -eu
 OPAI_REPO_URL="${OPAI_REPO_URL:-https://github.com/MarcoLadeira/OPai.git}"
 OPAI_BRANCH="${OPAI_BRANCH:-main}"
 OPAI_INSTALL_ROOT="${OPAI_INSTALL_ROOT:-$HOME/.opai/source}"
+OPAI_PROJECT_ROOT="${OPAI_PROJECT_ROOT:-$(pwd)}"
+OPAI_PYTHON="${OPAI_PYTHON:-python}"
 WITH_TOOLS="${OPAI_WITH_TOOLS:-0}"
+NO_SUPERPOWERS="${OPAI_NO_SUPERPOWERS:-0}"
 SHELL_ALIASES=1
 
 for arg in "$@"; do
@@ -19,6 +22,9 @@ for arg in "$@"; do
   fi
   if [ "$arg" = "--no-shell-aliases" ]; then
     SHELL_ALIASES=0
+  fi
+  if [ "$arg" = "--no-superpowers" ]; then
+    NO_SUPERPOWERS=1
   fi
 done
 
@@ -53,20 +59,24 @@ fi
 
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
-python -m pip install -e "$ROOT" --no-deps
+"$OPAI_PYTHON" -m pip install -e "$ROOT" --no-deps
 
 INSTALL_ARGS="--no-tools"
 if [ "$WITH_TOOLS" = "1" ]; then
   INSTALL_ARGS="--with-tools"
 fi
+if [ "$NO_SUPERPOWERS" = "1" ]; then
+  INSTALL_ARGS="$INSTALL_ARGS --no-superpowers"
+fi
 if [ "$SHELL_ALIASES" = "1" ]; then
   INSTALL_ARGS="$INSTALL_ARGS --shell-aliases"
 fi
 
-python -m opai install --project "$ROOT" $INSTALL_ARGS
+"$OPAI_PYTHON" -m opai install --project "$OPAI_PROJECT_ROOT" $INSTALL_ARGS
 
 printf "\nOPai 0.1.0 pre-alpha installed permanently.\n"
 printf "Source: %s\n" "$ROOT"
+printf "Activated project: %s\n" "$OPAI_PROJECT_ROOT"
 printf "Restart terminals and AI clients once so aliases and skills reload.\n"
 printf "Use in any repo: op status\n"
 printf "Launch with OPai: op launch codex\n"

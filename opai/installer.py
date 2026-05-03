@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from opaihub.validator import validate_all
 def install_project(
     project_root: Path,
     install_tools: bool = False,
+    install_superpowers: bool = True,
     timeout: int = 300,
     global_integrations: bool = False,
     install_shell_aliases: bool = False,
@@ -29,7 +31,7 @@ def install_project(
 
     if install_tools:
         command = [
-            "python",
+            sys.executable,
             "-m",
             "opcoding",
             "tools",
@@ -52,6 +54,7 @@ def install_project(
         root,
         install_global=global_integrations,
         install_shell_aliases=install_shell_aliases,
+        install_superpowers=install_superpowers,
     )
 
     manifest = {
@@ -67,6 +70,7 @@ def install_project(
         },
         "network_actions": network_actions,
         "activation": activation,
+        "superpowers_auto_install": install_superpowers,
         "global_integrations": activation.get("global_integrations"),
         "next_steps": [
             "opai doctor",

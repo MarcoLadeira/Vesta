@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
+import subprocess  # nosec B404
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,6 +20,7 @@ START_MARKER = "<!-- OPai managed block: start -->"
 END_MARKER = "<!-- OPai managed block: end -->"
 PS_START_MARKER = "# OPai managed block: start"
 PS_END_MARKER = "# OPai managed block: end"
+SUPERPOWERS_REPO = "https://github.com/obra/superpowers.git"
 
 
 def now_iso() -> str:
@@ -31,6 +35,14 @@ def render_statusline(width: int | None = None, color: bool = True) -> str:
     return render_badge(
         width or shutil.get_terminal_size((80, 20)).columns, color=color
     )
+
+
+def _ps_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _python_executable() -> str:
+    return sys.executable or "python"
 
 
 def instruction_text(project_root: Path | None = None) -> str:
@@ -55,11 +67,13 @@ Use OPai as the local-first routing layer for coding and automation:
 5. Keep context small: diffs, summaries, and targeted files before broad file dumps.
 6. If Superpowers skills are available, use them as part of OPai: start with `superpowers:using-superpowers`, use `superpowers:systematic-debugging` for bugs, and use `superpowers:test-driven-development` for code changes.
 
+If the active project has `.opaihub/project-instructions.md` or an OPai managed block in `AGENTS.md`, `CLAUDE.md`, or `.github/copilot-instructions.md`, treat that project-local guidance as the session entrypoint.
+
 When the client supports a status line or session badge, show `{STATUS_TEXT}`.
 """
 
 
-def codex_skill_text(project_root: Path) -> str:
+def codex_skill_text(project_root: Path | None = None) -> str:
     body = instruction_text(project_root)
     return f"""---
 name: opai
@@ -70,7 +84,7 @@ description: Use when starting a coding session, when OPai is installed, or when
 """
 
 
-def copilot_instruction_text(project_root: Path) -> str:
+def copilot_instruction_text(project_root: Path | None = None) -> str:
     return (
         instruction_text(project_root)
         + "\nFor GitHub Copilot project use, copy or include this in `.github/copilot-instructions.md`.\n"
@@ -85,11 +99,12 @@ OPai {__version__} {__release_stage__} is active for this project: `{project_roo
 
 Default workflow for AI coding in this project:
 
-1. Run or reason from `opai route "<task>"` before expensive model work.
-2. Use local evidence first: git status/diff, project profile, tests, logs, linters, registry metadata, and cached context.
-3. Use Superpowers as part of OPai when available: `superpowers:using-superpowers`, `superpowers:systematic-debugging`, `superpowers:test-driven-development`, and verification before completion.
-4. Prefer OPai tools and workflows before cloud calls: `opai doctor`, `opai scan`, `opai tools`, `opai hub list-tools`, `opai hub analytics status`.
-5. Do not push, merge, deploy, delete, run destructive commands, or use paid/cloud AI without explicit user confirmation.
+1. Treat this OPai block as the first session checklist, even when other project instructions exist below it.
+2. Run or reason from `opai route "<task>"` before expensive model work.
+3. Use local evidence first: git status/diff, project profile, tests, logs, linters, registry metadata, and cached context.
+4. Use Superpowers as part of OPai when available: `superpowers:using-superpowers`, `superpowers:systematic-debugging`, `superpowers:test-driven-development`, and verification before completion.
+5. Prefer OPai tools and workflows before cloud calls: `opai doctor`, `opai scan`, `opai tools`, `opai hub list-tools`, `opai hub analytics status`.
+6. Do not push, merge, deploy, delete, run destructive commands, or use paid/cloud AI without explicit user confirmation.
 
 Session badge/status text: {STATUS_TEXT}
 {END_MARKER}"""
@@ -128,6 +143,19 @@ def _replace_managed_block(existing: str, block: str) -> str:
     return _replace_block(existing, block, START_MARKER, END_MARKER)
 
 
+def _replace_managed_block_at_top(existing: str, block: str) -> str:
+    start = existing.find(START_MARKER)
+    end = existing.find(END_MARKER)
+    if start != -1 and end != -1 and end > start:
+        end += len(END_MARKER)
+        remainder = (existing[:start] + existing[end:]).strip()
+    else:
+        remainder = existing.strip()
+    if remainder:
+        return f"{block}\n\n{remainder}\n"
+    return block + "\n"
+
+
 def _replace_shell_block(existing: str, block: str) -> str:
     without_html = _replace_block(existing, "", START_MARKER, END_MARKER).strip()
     return _replace_block(without_html, block, PS_START_MARKER, PS_END_MARKER)
@@ -141,7 +169,7 @@ OPai is installed. Read `{opai_home(home) / "instructions" / "OPAI.md"}` for loc
 
 Session badge/status text: {STATUS_TEXT}
 {END_MARKER}"""
-    return _write(claude, _replace_managed_block(existing, block))
+    return _write(claude, _replace_managed_block_at_top(existing, block))
 
 
 def _write_project_instructions(project_root: Path) -> list[str]:
@@ -153,7 +181,9 @@ def _write_project_instructions(project_root: Path) -> list[str]:
         project_root / ".github" / "copilot-instructions.md",
     ]:
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
-        written.append(str(_write(path, _replace_managed_block(existing, block))))
+        written.append(
+            str(_write(path, _replace_managed_block_at_top(existing, block)))
+        )
     written.append(
         str(_write(project_root / ".opaihub" / "project-instructions.md", block))
     )
@@ -171,16 +201,65 @@ def _planned_project_files(project_root: Path) -> list[str]:
     ]
 
 
-def ensure_superpowers_bridge(home: Path | None = None) -> dict[str, Any]:
+def _install_superpowers_source(
+    repo_root: Path, repo_url: str = SUPERPOWERS_REPO, timeout: int = 120
+) -> dict[str, Any]:
+    git = shutil.which("git")
+    if not git:
+        return {
+            "status": "missing_git",
+            "reason": "Git is required to install Superpowers automatically.",
+        }
+    repo_root.parent.mkdir(parents=True, exist_ok=True)
+    if (repo_root / ".git").exists():
+        command = [git, "-C", str(repo_root), "pull", "--ff-only"]
+    elif repo_root.exists():
+        return {
+            "status": "blocked",
+            "reason": f"Superpowers target already exists but is not a Git checkout: {repo_root}",
+        }
+    else:
+        command = [git, "clone", "--depth", "1", repo_url, str(repo_root)]
+    try:
+        completed = subprocess.run(  # nosec
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except OSError as exc:
+        return {"status": "failed", "reason": str(exc)}
+    except subprocess.TimeoutExpired:
+        return {"status": "timeout", "reason": "Superpowers install timed out."}
+    return {
+        "status": "ok" if completed.returncode == 0 else "failed",
+        "returncode": completed.returncode,
+        "command": command,
+        "output_tail": (completed.stdout + completed.stderr)[-1600:],
+    }
+
+
+def ensure_superpowers_bridge(
+    home: Path | None = None,
+    auto_install: bool = False,
+    timeout: int = 120,
+) -> dict[str, Any]:
     user_home = (home or Path.home()).expanduser().resolve()
-    source = user_home / ".codex" / "superpowers" / "skills"
+    repo_root = user_home / ".codex" / "superpowers"
+    source = repo_root / "skills"
     target = user_home / ".agents" / "skills" / "superpowers"
+    install_result = None
+    if auto_install and not source.exists():
+        install_result = _install_superpowers_source(repo_root, timeout=timeout)
     result: dict[str, Any] = {
         "source": str(source),
         "target": str(target),
         "available": source.exists(),
         "enabled": False,
         "mode": "missing",
+        "auto_install": auto_install,
+        "install": install_result,
     }
     if target.exists():
         return {**result, "enabled": True, "mode": "existing"}
@@ -204,6 +283,7 @@ def activate_project(
     home: Path | None = None,
     install_global: bool = True,
     install_shell_aliases: bool = False,
+    install_superpowers: bool = False,
     dry_run: bool = False,
     repair: bool = False,
 ) -> dict[str, Any]:
@@ -216,6 +296,7 @@ def activate_project(
             "project_files": _planned_project_files(root),
             "global_integrations": install_global,
             "shell_aliases": install_shell_aliases,
+            "install_superpowers": install_superpowers,
             "repair": repair,
             "superpowers": {
                 "source": str(user_home / ".codex" / "superpowers" / "skills"),
@@ -226,7 +307,7 @@ def activate_project(
         }
     attached = attach_project(root)
     project_files = _write_project_instructions(root)
-    superpowers = ensure_superpowers_bridge(user_home)
+    superpowers = ensure_superpowers_bridge(user_home, auto_install=install_superpowers)
     global_result = (
         install_global_integrations(
             root,
@@ -234,6 +315,7 @@ def activate_project(
             targets=["codex", "claude", "copilot", "shell"],
             install_shell_aliases=install_shell_aliases,
             ensure_superpowers=True,
+            install_superpowers=False,
         )
         if install_global
         else None
@@ -275,6 +357,16 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
         for tool in ["codex", "claude", "copilot"]
     }
     global_status = load_global_status(user_home)
+    instruction_status = {}
+    for name, path in instruction_files.items():
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        instruction_status[name] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "opai_block": START_MARKER in text and END_MARKER in text,
+            "opai_block_at_top": text.lstrip().startswith(START_MARKER),
+            "superpowers_reference": "Superpowers" in text,
+        }
     return {
         "brand": __brand__,
         "version": __version__,
@@ -284,10 +376,7 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
             "activated": state.exists() and activation.exists(),
             "state": str(state),
             "activation": str(activation),
-            "instructions": {
-                name: {"path": str(path), "exists": path.exists()}
-                for name, path in instruction_files.items()
-            },
+            "instructions": instruction_status,
         },
         "global": {
             "installed": bool(global_status.get("installed")),
@@ -313,6 +402,7 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
 
 
 def _powershell_wrapper(tool: str) -> str:
+    python = _ps_quote(_python_executable())
     fallback = ""
     if tool == "copilot":
         fallback = """
@@ -329,10 +419,17 @@ if (-not $Command) {
     [string[]] $Args
 )
 
+$OpaiPython = {python}
 $env:OPAI_ACTIVE = "1"
 $env:OPAI_STATUS = "{STATUS_TEXT}"
-python -m opai activate --quiet --project .
-python -m opai welcome --compact --animate --frames 7 --delay 0.045
+& $OpaiPython -m opai activate --quiet --project .
+if ($LASTEXITCODE -ne 0) {{
+    Write-Warning "OPai activation failed; launching {tool} in degraded mode."
+}}
+& $OpaiPython -m opai welcome --compact --animate --frames 7 --delay 0.045
+if ($LASTEXITCODE -ne 0) {{
+    Write-Warning "OPai welcome failed; continuing with {tool}."
+}}
 
 $Command = Get-Command {tool} -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 {fallback}
@@ -347,22 +444,25 @@ exit $LASTEXITCODE
 
 
 def _posix_wrapper(tool: str) -> str:
+    python = shlex.quote(_python_executable())
     if tool == "copilot":
         return f"""#!/usr/bin/env sh
+OPAI_PYTHON={python}
 export OPAI_ACTIVE=1
 export OPAI_STATUS="{STATUS_TEXT}"
-python -m opai activate --quiet --project .
-python -m opai welcome --compact --animate --frames 7 --delay 0.045
+"$OPAI_PYTHON" -m opai activate --quiet --project . || printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
+"$OPAI_PYTHON" -m opai welcome --compact --animate --frames 7 --delay 0.045 || printf '%s\\n' "OPai welcome failed; continuing with {tool}." >&2
 if command -v copilot >/dev/null 2>&1; then
   exec copilot "$@"
 fi
 exec gh copilot "$@"
 """
     return f"""#!/usr/bin/env sh
+OPAI_PYTHON={python}
 export OPAI_ACTIVE=1
 export OPAI_STATUS="{STATUS_TEXT}"
-python -m opai activate --quiet --project .
-python -m opai welcome --compact --animate --frames 7 --delay 0.045
+"$OPAI_PYTHON" -m opai activate --quiet --project . || printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
+"$OPAI_PYTHON" -m opai welcome --compact --animate --frames 7 --delay 0.045 || printf '%s\\n' "OPai welcome failed; continuing with {tool}." >&2
 exec {tool} "$@"
 """
 
@@ -397,9 +497,10 @@ def _write_shell_aliases(home: Path) -> list[Path]:
     ]
     written = []
     bin_dir = opai_home(home) / "bin"
+    python_ps = _ps_quote(_python_executable())
     powershell_block = f"""{PS_START_MARKER}
-function op {{ python -m opai @args }}
-function opai {{ python -m opai @args }}
+function op {{ & {python_ps} -m opai @args }}
+function opai {{ & {python_ps} -m opai @args }}
 function codex {{ & "{bin_dir / "opai-codex.ps1"}" @args }}
 function claude {{ & "{bin_dir / "opai-claude.ps1"}" @args }}
 function copilot {{ & "{bin_dir / "opai-copilot.ps1"}" @args }}
@@ -412,9 +513,10 @@ function copilot {{ & "{bin_dir / "opai-copilot.ps1"}" @args }}
 
     posix_profiles = [home / ".profile", home / ".bashrc", home / ".zshrc"]
     posix_bin = opai_home(home) / "bin"
+    python_sh = shlex.quote(_python_executable())
     posix_block = f"""{PS_START_MARKER}
-op() {{ python -m opai "$@"; }}
-opai() {{ python -m opai "$@"; }}
+op() {{ {python_sh} -m opai "$@"; }}
+opai() {{ {python_sh} -m opai "$@"; }}
 codex() {{ "{posix_bin / "opai-codex"}" "$@"; }}
 claude() {{ "{posix_bin / "opai-claude"}" "$@"; }}
 copilot() {{ "{posix_bin / "opai-copilot"}" "$@"; }}
@@ -431,6 +533,7 @@ def install_global_integrations(
     targets: list[str] | None = None,
     install_shell_aliases: bool = False,
     ensure_superpowers: bool = True,
+    install_superpowers: bool = False,
 ) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     user_home = (home or Path.home()).expanduser().resolve()
@@ -441,24 +544,20 @@ def install_global_integrations(
     base = opai_home(user_home)
     written: list[str] = []
     written.append(str(_write(base / "status.txt", STATUS_TEXT + "\n")))
-    written.append(
-        str(_write(base / "instructions" / "OPAI.md", instruction_text(root)))
-    )
+    written.append(str(_write(base / "instructions" / "OPAI.md", instruction_text())))
 
     if "codex" in selected:
         written.append(
             str(
                 _write(
                     user_home / ".agents" / "skills" / "opai" / "SKILL.md",
-                    codex_skill_text(root),
+                    codex_skill_text(),
                 )
             )
         )
     if "claude" in selected:
         written.append(
-            str(
-                _write(base / "integrations" / "claude-code.md", instruction_text(root))
-            )
+            str(_write(base / "integrations" / "claude-code.md", instruction_text()))
         )
         written.append(str(_write_claude_memory(root, user_home)))
     if "copilot" in selected:
@@ -466,7 +565,7 @@ def install_global_integrations(
             str(
                 _write(
                     base / "integrations" / "copilot-instructions.md",
-                    copilot_instruction_text(root),
+                    copilot_instruction_text(),
                 )
             )
         )
@@ -474,7 +573,11 @@ def install_global_integrations(
         written.extend(_write_shell_wrappers(user_home))
         if install_shell_aliases:
             written.extend(str(path) for path in _write_shell_aliases(user_home))
-    superpowers = ensure_superpowers_bridge(user_home) if ensure_superpowers else None
+    superpowers = (
+        ensure_superpowers_bridge(user_home, auto_install=install_superpowers)
+        if ensure_superpowers
+        else None
+    )
 
     manifest = {
         "brand": __brand__,

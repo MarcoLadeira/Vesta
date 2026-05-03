@@ -23,13 +23,43 @@ from opai.terminal_ui import build_welcome, play_animation
 from opaihub.cli import main as hub_main
 from opaihub.router import route_task
 
+PROJECT_ROOT_MARKERS = [
+    ".opaihub",
+    ".git",
+    "pyproject.toml",
+    "package.json",
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock",
+    "bun.lock",
+    "bun.lockb",
+    "Cargo.toml",
+    "go.mod",
+    "composer.json",
+    "Gemfile",
+    "mix.exs",
+    "pom.xml",
+    "build.gradle",
+    "settings.gradle",
+    "Dockerfile",
+]
+
 
 def print_json(data: Any) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
+def discover_project_root(start: Path) -> Path:
+    path = start.expanduser().resolve()
+    current = path.parent if path.is_file() else path
+    for candidate in [current, *current.parents]:
+        if any((candidate / marker).exists() for marker in PROJECT_ROOT_MARKERS):
+            return candidate
+    return current
+
+
 def _project(value: str | None) -> Path:
-    return Path(value or ".").expanduser().resolve()
+    return discover_project_root(Path(value or "."))
 
 
 def cmd_version(args: argparse.Namespace) -> int:
@@ -52,6 +82,7 @@ def cmd_install(args: argparse.Namespace) -> int:
         install_project(
             root,
             install_tools=args.install_tools,
+            install_superpowers=not args.no_superpowers,
             timeout=args.timeout,
             global_integrations=args.global_integrations,
             install_shell_aliases=args.shell_aliases,
@@ -168,7 +199,8 @@ def cmd_launch(args: argparse.Namespace) -> int:
 
 def cmd_route(args: argparse.Namespace) -> int:
     root = _project(args.project)
-    activate_project(root, install_global=False)
+    if args.activate:
+        activate_project(root, install_global=False)
     print_json(route_task(root, args.task))
     return 0
 
@@ -178,6 +210,7 @@ def cmd_activate(args: argparse.Namespace) -> int:
         _project(args.project),
         install_global=not args.project_only,
         install_shell_aliases=args.shell_aliases,
+        install_superpowers=args.install_superpowers,
         dry_run=args.dry_run,
         repair=args.repair,
     )
@@ -241,6 +274,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Install PowerShell aliases for codex/claude/copilot",
     )
+    p.add_argument(
+        "--no-superpowers",
+        action="store_true",
+        help="Skip automatic Superpowers install during OPai install",
+    )
     p.add_argument("--timeout", type=int, default=300)
     p.set_defaults(func=cmd_install, install_tools=False)
 
@@ -300,6 +338,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Install PowerShell aliases for AI CLIs",
     )
     p.add_argument(
+        "--install-superpowers",
+        action="store_true",
+        help="Clone or update Superpowers before linking skills",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Show activation writes without changing files",
@@ -339,6 +382,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("task")
     p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--activate",
+        action="store_true",
+        help="Also write OPai project activation files before routing",
+    )
     p.set_defaults(func=cmd_route)
 
     for name, hub_args in {
