@@ -20,7 +20,9 @@ class OPaiFinishTests(unittest.TestCase):
     def test_install_project_creates_local_state_without_network(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            result = install_project(root, install_tools=False)
+            result = install_project(
+                root, install_tools=False, install_superpowers=False
+            )
 
             self.assertEqual(result["brand"], "OPai")
             self.assertEqual(result["version"], "0.1.0")

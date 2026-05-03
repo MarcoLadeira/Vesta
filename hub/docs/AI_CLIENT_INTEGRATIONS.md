@@ -29,9 +29,13 @@ opai launch copilot
 - `~/.opai/status.txt`: contains `Using OPai`.
 - `~/.opai/instructions/OPAI.md`: shared local-first policy.
 - `~/.agents/skills/opai/SKILL.md`: Codex-style skill discovery.
+- `~/.codex/superpowers`: Superpowers checkout installed by the default installer.
+- `~/.agents/skills/superpowers`: Superpowers discovery bridge.
 - `~/.claude/CLAUDE.md`: managed OPai memory block.
 - `~/.opai/integrations/copilot-instructions.md`: Copilot instruction seed.
 - `~/.opai/bin/opai-codex*`, `opai-claude*`, `opai-copilot*`: terminal launch wrappers.
+
+For each project, `opai activate` writes the OPai managed block at the top of `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md` so clients see OPai before older project notes.
 
 ## Badge Behavior
 

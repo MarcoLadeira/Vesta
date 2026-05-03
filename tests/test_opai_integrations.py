@@ -1,12 +1,16 @@
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from opai.cli import discover_project_root
 from opai.integrations import (
     activate_project,
     ensure_superpowers_bridge,
     install_global_integrations,
     load_global_status,
+    project_status,
     render_statusline,
 )
 
@@ -114,6 +118,60 @@ class OPaiIntegrationTests(unittest.TestCase):
                 "Superpowers", (project / "AGENTS.md").read_text(encoding="utf-8")
             )
 
+    def test_project_activation_prepends_opai_block_to_existing_instructions(self):
+        with (
+            tempfile.TemporaryDirectory() as project_tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
+            project = Path(project_tmp)
+            home = Path(home_tmp)
+            existing = (
+                "# Existing Project Instructions\n\nKeep this project-specific note."
+            )
+            (project / "AGENTS.md").write_text(existing, encoding="utf-8")
+
+            activate_project(project, home=home, install_global=False)
+
+            text = (project / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("<!-- OPai managed block: start -->"))
+            self.assertIn(existing, text)
+            self.assertLess(
+                text.index("OPai Project Active"),
+                text.index("# Existing Project Instructions"),
+            )
+
+    def test_global_opai_skill_is_project_neutral(self):
+        with (
+            tempfile.TemporaryDirectory() as project_tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
+            project = Path(project_tmp)
+            home = Path(home_tmp)
+
+            install_global_integrations(project, home=home, targets=["codex"])
+
+            text = (home / ".agents" / "skills" / "opai" / "SKILL.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn(str(project), text)
+            self.assertIn("Use the current working directory", text)
+
+    def test_project_status_reports_opai_block_position(self):
+        with (
+            tempfile.TemporaryDirectory() as project_tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
+            project = Path(project_tmp)
+            home = Path(home_tmp)
+
+            activate_project(project, home=home, install_global=False)
+
+            status = project_status(project, home=home)
+            agents = status["project"]["instructions"]["agents"]
+            self.assertTrue(agents["opai_block"])
+            self.assertTrue(agents["opai_block_at_top"])
+            self.assertTrue(agents["superpowers_reference"])
+
     def test_shell_wrappers_activate_each_project_before_launching(self):
         with (
             tempfile.TemporaryDirectory() as project_tmp,
@@ -127,7 +185,8 @@ class OPaiIntegrationTests(unittest.TestCase):
             wrapper = (home / ".opai" / "bin" / "opai-codex.ps1").read_text(
                 encoding="utf-8"
             )
-            self.assertIn("python -m opai activate --quiet --project .", wrapper)
+            self.assertIn("-m opai activate --quiet --project .", wrapper)
+            self.assertIn("degraded mode", wrapper)
 
     def test_shell_aliases_include_op_brand_command(self):
         with (
@@ -148,8 +207,63 @@ class OPaiIntegrationTests(unittest.TestCase):
                 home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
             )
             text = profile.read_text(encoding="utf-8")
-            self.assertIn("function op { python -m opai @args }", text)
-            self.assertIn("function opai { python -m opai @args }", text)
+            self.assertIn("function op { & ", text)
+            self.assertIn("-m opai @args", text)
+            self.assertIn("function opai { & ", text)
+
+    def test_shell_aliases_include_posix_ai_client_wrappers(self):
+        with (
+            tempfile.TemporaryDirectory() as project_tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
+            project = Path(project_tmp)
+            home = Path(home_tmp)
+
+            install_global_integrations(
+                project,
+                home=home,
+                targets=["shell"],
+                install_shell_aliases=True,
+            )
+
+            profile = home / ".profile"
+            text = profile.read_text(encoding="utf-8")
+            self.assertIn("op() { ", text)
+            self.assertIn('-m opai "$@"; }', text)
+            self.assertIn("opai() { ", text)
+            self.assertIn("opai-codex", text)
+
+    def test_project_root_detection_walks_up_from_nested_directory(self):
+        with tempfile.TemporaryDirectory() as project_tmp:
+            project = Path(project_tmp)
+            nested = project / "src" / "app"
+            nested.mkdir(parents=True)
+            (project / "package.json").write_text("{}", encoding="utf-8")
+
+            self.assertEqual(discover_project_root(nested), project.resolve())
+
+    def test_route_command_is_read_only_by_default(self):
+        with tempfile.TemporaryDirectory() as project_tmp:
+            project = Path(project_tmp)
+            (project / "package.json").write_text("{}", encoding="utf-8")
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "opai",
+                    "--project",
+                    str(project),
+                    "route",
+                    "fix a bug",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertFalse((project / ".opaihub").exists())
 
 
 if __name__ == "__main__":

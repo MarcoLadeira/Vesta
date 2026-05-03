@@ -18,7 +18,7 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 
 - A branded `op` CLI for project activation, routing, scans, doctors, dashboards, and release checks.
 - Automatic project instructions for Codex, Claude Code, and GitHub Copilot where those tools read local instruction files.
-- Superpowers as part of OPai when installed at `~/.codex/superpowers/skills`.
+- Superpowers as part of OPai; the default installer fetches the free open-source Superpowers repo and exposes its skills through native discovery.
 - A local-first tool registry for coding, testing, GitOps, security, MCP, docs, local models, browser automation, and deployment helpers.
 - Cost-aware routing that gathers git diffs, tests, profiles, registry data, logs, and cached context before model escalation.
 - Safe command policies for destructive shell commands, Git operations, cloud calls, and secret-bearing logs.
@@ -26,23 +26,21 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 
 ## Install
 
-From GitHub:
+Windows PowerShell:
 
 ```powershell
-git clone https://github.com/MarcoLadeira/OPai.git
-cd OPai
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -ShellAliases
+irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
 op status
 ```
 
 macOS/Linux:
 
 ```sh
-git clone https://github.com/MarcoLadeira/OPai.git
-cd OPai
-sh ./install.sh --shell-aliases
+curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
 op status
 ```
+
+That one command clones or updates OPai under `~/.opai/source`, installs the `op`/`opai` CLI, activates the project you ran it from, writes OPai discovery files, installs and enables Superpowers discovery, and installs persistent AI-client shell wrappers by default. After first install, restart terminals and AI coding clients once so aliases and skills reload.
 
 From this folder during development:
 
@@ -51,15 +49,23 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 op doctor
 ```
 
-If Windows says `op` is not on `PATH`, use `python -m opai doctor`.
+If Windows says `op` is not on `PATH` before your shell profile reloads, use `python -m opai doctor`.
 
-To also shadow supported AI CLI commands with OPai launch wrappers:
+To opt into heavier free local tool downloads during install:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -ShellAliases
+$env:OPAI_WITH_TOOLS = "1"
+irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
 ```
 
-On Windows, `-ShellAliases` installs managed PowerShell functions for `op`, `opai`, `codex`, `claude`, and `copilot`. The AI-client wrappers activate OPai in the current project, print a blue `Using OPai` badge plus the OPai mascot graphic, then launch the real CLI command. Cross-platform wrapper launch is available through `op launch <codex|claude|copilot>`.
+To skip the Superpowers network clone in locked-down environments:
+
+```powershell
+$env:OPAI_NO_SUPERPOWERS = "1"
+irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
+```
+
+The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project, print a blue `Using OPai` badge plus the OPai mascot graphic, then launch the real CLI command. Cross-platform wrapper launch is also available through `op launch <codex|claude|copilot>`.
 
 Developer install:
 
@@ -102,7 +108,7 @@ claude
 copilot
 ```
 
-OPai writes managed instruction blocks to `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.opaihub/` so new AI sessions know to use local evidence, Superpowers, safety gates, and cost controls first.
+OPai writes managed instruction blocks to the top of `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.opaihub/` so new AI sessions know to use local evidence, Superpowers, safety gates, and cost controls first.
 
 ## OPai Commands
 
@@ -145,7 +151,7 @@ opai hub team init --mode solo
 
 Global integration files are written under `~/.opai/`, `~/.agents/skills/opai/`, and managed client-specific instruction files where supported. Closed desktop apps may not expose a UI surface that OPai can draw into directly; OPai provides the blue statusline command, mascot welcome screen, CLI wrappers, and discovery/instruction files for clients that support them. The ANSI image renderer uses Pillow when available and falls back cleanly to ASCII.
 
-Superpowers is treated as part of OPai when it is installed at `~/.codex/superpowers/skills`; OPai activation ensures it is visible to native skill discovery at `~/.agents/skills/superpowers`. Restart Codex/Claude/Copilot after first activation so skills are rediscovered.
+Superpowers is treated as part of OPai. The default installer clones or updates it under `~/.codex/superpowers`, then OPai activation ensures it is visible to native skill discovery at `~/.agents/skills/superpowers`. Restart Codex/Claude/Copilot after first activation so skills are rediscovered.
 
 ## Legacy Name
 
