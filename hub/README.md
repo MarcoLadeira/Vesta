@@ -17,6 +17,8 @@ python -m opaihub scan
 python -m opaihub list-tools
 python -m opaihub list-agents
 python -m opaihub list-workflows
+python -m opaihub skills list
+python -m opaihub models recommend "fix failing tests cheaply"
 python -m opaihub tool health --id ruff
 python -m opaihub doctor
 ```

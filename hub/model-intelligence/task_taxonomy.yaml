@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "default_task_type": {
+    "id": "general_coding",
+    "description": "General coding help with unclear complexity.",
+    "default_tier": "L1",
+    "signals": [],
+    "escalation_conditions": ["requirements remain ambiguous after local scan"]
+  },
+  "task_types": [
+    {
+      "id": "gitops_summary",
+      "description": "Summarize status, diffs, branches, commits, or PR metadata.",
+      "default_tier": "L0",
+      "signals": ["git", "status", "diff", "commit", "branch", "pr", "pull request", "changed files"],
+      "escalation_conditions": ["diff is large and behavior impact is unclear"]
+    },
+    {
+      "id": "test_failure_debug",
+      "description": "Investigate failing tests, errors, tracebacks, or logs.",
+      "default_tier": "L1",
+      "signals": ["test", "tests", "failing", "failure", "traceback", "error", "log", "debug"],
+      "escalation_conditions": ["local reproduction fails", "multiple subsystems fail together"]
+    },
+    {
+      "id": "small_patch",
+      "description": "Make a small, bounded code change.",
+      "default_tier": "L1",
+      "signals": ["fix", "bug", "small", "patch", "change", "edit"],
+      "escalation_conditions": ["patch touches shared contracts", "tests reveal hidden architecture coupling"]
+    },
+    {
+      "id": "feature_build",
+      "description": "Plan and implement a new feature or multi-file behavior.",
+      "default_tier": "L2",
+      "signals": ["feature", "build", "implement", "add", "workflow", "agent", "integration"],
+      "escalation_conditions": ["feature spans multiple modules", "new architecture boundary is needed"]
+    },
+    {
+      "id": "architecture_design",
+      "description": "Design architecture, major refactors, or cross-system plans.",
+      "default_tier": "L3",
+      "signals": ["architecture", "design", "system", "platform", "massive", "roadmap", "strategy"],
+      "escalation_conditions": ["high blast radius", "security or cost policy depends on design"]
+    },
+    {
+      "id": "release_security",
+      "description": "Prepare production release, security review, rollback, or deployment gates.",
+      "default_tier": "L3",
+      "signals": ["release", "deploy", "production", "publish", "security", "secret", "vulnerability", "rollback"],
+      "escalation_conditions": ["deployment is irreversible", "secrets or auth are involved"]
+    },
+    {
+      "id": "documentation",
+      "description": "Generate or update docs from existing code and diffs.",
+      "default_tier": "L1",
+      "signals": ["docs", "documentation", "readme", "explain", "guide"],
+      "escalation_conditions": ["docs require product positioning or architecture judgment"]
+    },
+    {
+      "id": "refactor_codemod",
+      "description": "Perform refactors, migrations, or codemods.",
+      "default_tier": "L2",
+      "signals": ["refactor", "codemod", "migrate", "rename", "cleanup"],
+      "escalation_conditions": ["structural rewrite affects public APIs"]
+    }
+  ]
+}

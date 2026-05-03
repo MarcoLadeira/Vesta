@@ -21,7 +21,9 @@ from opai.installer import install_project
 from opai.publish import publish_status, write_publish_status
 from opai.terminal_ui import build_welcome, play_animation
 from opaihub.cli import main as hub_main
+from opaihub.model_intelligence import recommend_model
 from opaihub.router import route_task
+from opaihub.skills import skill_items, skill_status
 
 PROJECT_ROOT_MARKERS = [
     ".opaihub",
@@ -202,6 +204,27 @@ def cmd_route(args: argparse.Namespace) -> int:
     if args.activate:
         activate_project(root, install_global=False)
     print_json(route_task(root, args.task))
+    return 0
+
+
+def cmd_models(args: argparse.Namespace) -> int:
+    root = _project(args.project)
+    if args.models_command == "recommend":
+        print_json(recommend_model(root, args.task))
+    return 0
+
+
+def cmd_skills(args: argparse.Namespace) -> int:
+    root = _project(args.project)
+    if args.skills_command == "list":
+        if args.json:
+            print_json(skill_items(root))
+        else:
+            for item in skill_items(root):
+                default = " default" if item.get("enabled_by_default") else ""
+                print(f"{item['id']}: {item['name']} [{item['cost_policy']}]{default}")
+    elif args.skills_command == "doctor":
+        print_json(skill_status(root))
     return 0
 
 
@@ -388,6 +411,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also write OPai project activation files before routing",
     )
     p.set_defaults(func=cmd_route)
+
+    p = sub.add_parser("models", help="Model recommendation and routing helpers")
+    models_sub = p.add_subparsers(dest="models_command", required=True)
+    mo = models_sub.add_parser("recommend")
+    mo.add_argument("task")
+    mo.set_defaults(func=cmd_models)
+
+    p = sub.add_parser("skills", help="OPai skill registry helpers")
+    skills_sub = p.add_subparsers(dest="skills_command", required=True)
+    sk = skills_sub.add_parser("list")
+    sk.add_argument("--json", action="store_true")
+    sk.set_defaults(func=cmd_skills)
+    sk = skills_sub.add_parser("doctor")
+    sk.set_defaults(func=cmd_skills)
 
     for name, hub_args in {
         "scan": ["scan"],

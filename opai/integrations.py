@@ -12,6 +12,8 @@ from typing import Any
 
 from opai import __brand__, __release_stage__, __version__
 from opai.terminal_ui import render_badge
+from opaihub.loader import hub_root
+from opaihub.skills import skill_items
 from opaihub.state import attach_project, state_dir
 
 
@@ -82,6 +84,60 @@ description: Use when starting a coding session, when OPai is installed, or when
 
 {body}
 """
+
+
+def ensure_opai_skill_library(
+    project_root: Path, home: Path | None = None
+) -> dict[str, Any]:
+    root = project_root.expanduser().resolve()
+    user_home = (home or Path.home()).expanduser().resolve()
+    source_hub = hub_root(root)
+    source_skills = source_hub / "skills"
+    target_root = user_home / ".agents" / "skills" / "opai"
+    registry_source = source_skills / "registry.yaml"
+    written: list[str] = []
+    missing: list[str] = []
+
+    target_root.mkdir(parents=True, exist_ok=True)
+    if registry_source.exists():
+        written.append(
+            str(
+                _write(
+                    target_root / "registry.yaml",
+                    registry_source.read_text(encoding="utf-8"),
+                )
+            )
+        )
+    else:
+        missing.append("registry.yaml")
+
+    for skill in skill_items(root):
+        skill_id = str(skill.get("id", "")).strip()
+        relative_path = str(skill.get("path", "")).strip()
+        if not skill_id or not relative_path:
+            missing.append(skill_id or "<missing-id>")
+            continue
+        source_path = source_hub / relative_path
+        if not source_path.exists():
+            missing.append(skill_id)
+            continue
+        written.append(
+            str(
+                _write(
+                    target_root / skill_id / "SKILL.md",
+                    source_path.read_text(encoding="utf-8"),
+                )
+            )
+        )
+
+    return {
+        "status": "installed" if not missing else "partial",
+        "source": str(source_skills),
+        "target": str(target_root),
+        "count": len(skill_items(root)),
+        "missing": missing,
+        "written": written,
+    }
 
 
 def copilot_instruction_text(project_root: Path | None = None) -> str:
@@ -555,6 +611,10 @@ def install_global_integrations(
                 )
             )
         )
+        opai_skills = ensure_opai_skill_library(root, user_home)
+        written.extend(opai_skills["written"])
+    else:
+        opai_skills = None
     if "claude" in selected:
         written.append(
             str(_write(base / "integrations" / "claude-code.md", instruction_text()))
@@ -589,9 +649,11 @@ def install_global_integrations(
         "shell_aliases_installed": install_shell_aliases,
         "installed_at": now_iso(),
         "written": written,
+        "opai_skills": opai_skills,
         "superpowers": superpowers,
         "notes": [
             "Codex can discover the OPai skill from ~/.agents/skills/opai.",
+            "The OPai skill library is copied into ~/.agents/skills/opai for cross-repo discovery.",
             "OPai ensures ~/.agents/skills/superpowers when ~/.codex/superpowers/skills is available.",
             "Claude Code receives a managed global memory block when target claude is selected.",
             "Copilot support is instruction-file based; client UI support varies.",

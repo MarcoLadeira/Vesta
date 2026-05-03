@@ -13,9 +13,11 @@ from .health import health_all, health_history, run_health_check
 from .loader import hub_root, load_named_registry, registry_items
 from .local_models import discover_local_models
 from .mcp import render_mcp_config, write_mcp_config
+from .model_intelligence import recommend_model
 from .registry_writer import add_tool_entry, build_tool_entry
 from .sandbox import classify_command
 from .scheduler import create_schedule, list_schedules
+from .skills import skill_items, skill_status
 from .state import (
     attach_project,
     effective_mcp_servers,
@@ -240,6 +242,23 @@ def cmd_models(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.models_command == "discover-local":
         print_json(discover_local_models(root))
+    elif args.models_command == "recommend":
+        print_json(recommend_model(root, args.task))
+    return 0
+
+
+def cmd_skills(args: argparse.Namespace) -> int:
+    root = _project(args.project)
+    if args.skills_command == "list":
+        items = skill_items(root)
+        if args.json:
+            print_json(items)
+        else:
+            for item in items:
+                default = " default" if item.get("enabled_by_default") else ""
+                print(f"{item['id']}: {item['name']} [{item['cost_policy']}]{default}")
+    elif args.skills_command == "doctor":
+        print_json(skill_status(root))
     return 0
 
 
@@ -433,6 +452,17 @@ def build_parser() -> argparse.ArgumentParser:
     models_sub = p.add_subparsers(dest="models_command", required=True)
     mo = models_sub.add_parser("discover-local")
     mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser("recommend")
+    mo.add_argument("task")
+    mo.set_defaults(func=cmd_models)
+
+    p = sub.add_parser("skills")
+    skills_sub = p.add_subparsers(dest="skills_command", required=True)
+    sk = skills_sub.add_parser("list")
+    sk.add_argument("--json", action="store_true")
+    sk.set_defaults(func=cmd_skills)
+    sk = skills_sub.add_parser("doctor")
+    sk.set_defaults(func=cmd_skills)
 
     p = sub.add_parser("health")
     health_sub = p.add_subparsers(dest="health_command", required=True)

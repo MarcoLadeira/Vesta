@@ -124,6 +124,10 @@ opai welcome          print the OPai mascot, badge, and quick commands
 opai welcome --animate animate the OPai mascot in place
 opai integrate install install global AI-client discovery files
 opai launch codex     print OPai badge, then run codex
+opai route "<task>"   collect local evidence before expensive model work
+opai models recommend "<task>" choose the cheapest capable model tier
+opai skills list      list OPai-managed skills exposed to Codex discovery
+opai skills doctor    verify OPai skill files and registry paths
 opai scan             summarize hub registries
 opai doctor           validate registries and tool health
 opai tools            list registered tools
@@ -142,6 +146,8 @@ opai welcome --compact --animate --frames 7
 opai welcome --image ansi
 opai welcome --image ascii
 opai welcome --image kitty
+opai models recommend "fix failing tests cheaply"
+opai skills doctor
 opai hub discover tools
 opai hub sandbox check --command "git reset --hard"
 opai hub schedule create daily_hub_check --cadence daily
@@ -152,6 +158,8 @@ opai hub team init --mode solo
 Global integration files are written under `~/.opai/`, `~/.agents/skills/opai/`, and managed client-specific instruction files where supported. Closed desktop apps may not expose a UI surface that OPai can draw into directly; OPai provides the blue statusline command, mascot welcome screen, CLI wrappers, and discovery/instruction files for clients that support them. The ANSI image renderer uses Pillow when available and falls back cleanly to ASCII.
 
 Superpowers is treated as part of OPai. The default installer clones or updates it under `~/.codex/superpowers`, then OPai activation ensures it is visible to native skill discovery at `~/.agents/skills/superpowers`. Restart Codex/Claude/Copilot after first activation so skills are rediscovered.
+
+OPai also publishes its own skill library under `~/.agents/skills/opai/`. That folder contains the root `opai` skill plus 35 focused OPai skills for routing, model selection, testing, debugging, GitOps, security, refactors, MCP setup, local models, and release preflight.
 
 ## Legacy Name
 
@@ -194,6 +202,7 @@ Docs:
 - `hub/docs/ADDING_TOOLS.md`
 - `hub/docs/ADDING_AGENTS.md`
 - `hub/docs/ADDING_WORKFLOWS.md`
+- `hub/docs/SKILLS_AND_MODEL_ROUTING.md`
 - `hub/docs/WORKFLOWS.md`
 
 This first-third implementation includes:
