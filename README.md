@@ -26,23 +26,21 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 
 ## Install
 
-From GitHub:
+Windows PowerShell:
 
 ```powershell
-git clone https://github.com/MarcoLadeira/OPai.git
-cd OPai
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -ShellAliases
+irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
 op status
 ```
 
 macOS/Linux:
 
 ```sh
-git clone https://github.com/MarcoLadeira/OPai.git
-cd OPai
-sh ./install.sh --shell-aliases
+curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
 op status
 ```
+
+That one command clones or updates OPai under `~/.opai/source`, installs the `op`/`opai` CLI, writes OPai discovery files, enables Superpowers discovery when available, and installs persistent AI-client shell wrappers by default. After first install, restart terminals and AI coding clients once so aliases and skills reload.
 
 From this folder during development:
 
@@ -51,15 +49,16 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 op doctor
 ```
 
-If Windows says `op` is not on `PATH`, use `python -m opai doctor`.
+If Windows says `op` is not on `PATH` before your shell profile reloads, use `python -m opai doctor`.
 
-To also shadow supported AI CLI commands with OPai launch wrappers:
+To opt into heavier free local tool downloads during install:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -ShellAliases
+$env:OPAI_WITH_TOOLS = "1"
+irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
 ```
 
-On Windows, `-ShellAliases` installs managed PowerShell functions for `op`, `opai`, `codex`, `claude`, and `copilot`. The AI-client wrappers activate OPai in the current project, print a blue `Using OPai` badge plus the OPai mascot graphic, then launch the real CLI command. Cross-platform wrapper launch is available through `op launch <codex|claude|copilot>`.
+On Windows, the installer writes managed PowerShell functions for `op`, `opai`, `codex`, `claude`, and `copilot`. The AI-client wrappers activate OPai in the current project, print a blue `Using OPai` badge plus the OPai mascot graphic, then launch the real CLI command. Cross-platform wrapper launch is available through `op launch <codex|claude|copilot>`.
 
 Developer install:
 

@@ -28,6 +28,25 @@ class PackagedHubTests(unittest.TestCase):
 
         self.assertIn("opai-cli", {tool["id"] for tool in tools})
 
+    def test_windows_installer_supports_one_command_remote_bootstrap(self):
+        text = Path("install.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("OPAI_REPO_URL", text)
+        self.assertIn(".opai", text)
+        self.assertIn("source", text)
+        self.assertIn("git clone", text)
+        self.assertIn("--shell-aliases", text)
+        self.assertIn("NoShellAliases", text)
+
+    def test_posix_installer_supports_one_command_remote_bootstrap(self):
+        text = Path("install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("OPAI_REPO_URL", text)
+        self.assertIn(".opai/source", text)
+        self.assertIn("git clone", text)
+        self.assertIn("--shell-aliases", text)
+        self.assertIn("--no-shell-aliases", text)
+
 
 if __name__ == "__main__":
     unittest.main()

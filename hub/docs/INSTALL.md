@@ -2,7 +2,36 @@
 
 OPai 0.1.0 pre-alpha installs as a small Python CLI with local registry files. The default install creates `.opaihub/` project state, validates registries, and writes dashboards. It does not enable paid APIs, cloud model calls, or destructive automation.
 
-## One Command From A Local Checkout
+## One Command Install
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
+```
+
+macOS/Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
+```
+
+The remote installer clones or updates OPai under `~/.opai/source`, installs the `op`/`opai` CLI, writes global AI-client discovery files, enables Superpowers discovery when available, and installs persistent AI-client shell wrappers by default.
+
+After first install, restart terminals and AI coding clients once, then run:
+
+```sh
+op status
+```
+
+To download the heavier free local tool bundle during install:
+
+```powershell
+$env:OPAI_WITH_TOOLS = "1"
+irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
+```
+
+## Local Checkout Install
 
 Windows:
 
@@ -19,7 +48,7 @@ sh ./install.sh
 Then run:
 
 ```sh
-opai doctor
+op doctor
 ```
 
 If your Python scripts directory is not on `PATH`, use:
@@ -46,10 +75,10 @@ opai launch claude
 opai launch copilot
 ```
 
-To install PowerShell command aliases that shadow `codex`, `claude`, and `copilot` with OPai wrappers:
+The one-command installer writes PowerShell command aliases that shadow `op`, `opai`, `codex`, `claude`, and `copilot` with OPai wrappers by default. To opt out from a local checkout:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -ShellAliases
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoShellAliases
 ```
 
 The visible badge text is:
@@ -98,7 +127,7 @@ opai install --with-tools
 
 This may download free open-source tools such as linters and scanners. It still does not enable paid model APIs.
 
-## Future Public Install Shape
+## Future Package Install Shape
 
 When OPai is published, the intended user flow is:
 
@@ -114,4 +143,4 @@ pipx install git+https://github.com/<owner>/opai.git
 opai install
 ```
 
-Avoid copy-paste installers that pipe remote scripts directly into a shell. OPai's own sandbox policy treats that pattern as denied.
+OPai keeps remote script install small and reviewable; the script clones a normal Git checkout instead of hiding the project inside opaque shell logic.
