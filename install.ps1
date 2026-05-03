@@ -80,7 +80,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$InstallArgs = @("--project", $Root, "install")
+$InstallArgs = @("install", "--project", $Root)
 if ($InstallTools) {
     $InstallArgs += "--with-tools"
 } else {

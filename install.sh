@@ -63,7 +63,7 @@ if [ "$SHELL_ALIASES" = "1" ]; then
   INSTALL_ARGS="$INSTALL_ARGS --shell-aliases"
 fi
 
-python -m opai --project "$ROOT" install $INSTALL_ARGS
+python -m opai install --project "$ROOT" $INSTALL_ARGS
 
 printf "\nOPai 0.1.0 pre-alpha installed permanently.\n"
 printf "Source: %s\n" "$ROOT"

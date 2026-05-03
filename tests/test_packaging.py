@@ -37,6 +37,7 @@ class PackagedHubTests(unittest.TestCase):
         self.assertIn("git clone", text)
         self.assertIn("--shell-aliases", text)
         self.assertIn("NoShellAliases", text)
+        self.assertIn('"install", "--project", $Root', text)
 
     def test_posix_installer_supports_one_command_remote_bootstrap(self):
         text = Path("install.sh").read_text(encoding="utf-8")
@@ -46,6 +47,7 @@ class PackagedHubTests(unittest.TestCase):
         self.assertIn("git clone", text)
         self.assertIn("--shell-aliases", text)
         self.assertIn("--no-shell-aliases", text)
+        self.assertIn("python -m opai install --project \"$ROOT\"", text)
 
 
 if __name__ == "__main__":
