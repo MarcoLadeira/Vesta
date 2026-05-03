@@ -156,6 +156,24 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertNotIn(str(project), text)
             self.assertIn("Use the current working directory", text)
 
+    def test_global_opai_integration_installs_opai_skill_library(self):
+        with (
+            tempfile.TemporaryDirectory() as project_tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
+            project = Path(project_tmp)
+            home = Path(home_tmp)
+
+            result = install_global_integrations(project, home=home, targets=["codex"])
+
+            opai_skill_root = home / ".agents" / "skills" / "opai"
+            self.assertTrue((opai_skill_root / "SKILL.md").exists())
+            self.assertTrue((opai_skill_root / "registry.yaml").exists())
+            self.assertTrue((opai_skill_root / "model-selection" / "SKILL.md").exists())
+            self.assertTrue((opai_skill_root / "security-audit" / "SKILL.md").exists())
+            self.assertGreaterEqual(result["opai_skills"]["count"], 25)
+            self.assertEqual(result["opai_skills"]["missing"], [])
+
     def test_project_status_reports_opai_block_position(self):
         with (
             tempfile.TemporaryDirectory() as project_tmp,

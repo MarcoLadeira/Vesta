@@ -497,6 +497,401 @@
       "docs_url": "https://playwright.dev/",
       "notes": "Optional because browser installs can be heavy.",
       "enabled_by_default": false
+    },
+    {
+      "id": "routellm",
+      "name": "RouteLLM",
+      "category": "local-models",
+      "description": "Optional LLM router for sending simpler tasks to cheaper models and escalating harder tasks to stronger models.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "low",
+      "permission_level": "medium",
+      "local_first": false,
+      "open_source": true,
+      "requires_api_key": true,
+      "env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "install_command": "pip install \"routellm[serve,eval]\"",
+      "run_command": "python -m routellm.openai_server --routers mf --config config.example.yaml",
+      "health_check": {
+        "command": "python -c \"import routellm\""
+      },
+      "inputs": [
+        "chat request",
+        "strong model",
+        "weak model",
+        "routing threshold"
+      ],
+      "outputs": [
+        "routed model request",
+        "routing evaluation"
+      ],
+      "tags": [
+        "model-routing",
+        "cost-control",
+        "evals"
+      ],
+      "docs_url": "https://github.com/lm-sys/RouteLLM",
+      "notes": "Disabled by default because most useful modes require model API keys; evaluate on OPai prompt traces before enabling.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "litellm",
+      "name": "LiteLLM",
+      "category": "cloud-models",
+      "description": "Optional OpenAI-compatible gateway for model providers, fallbacks, routing, budgets, and spend tracking.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "low",
+      "permission_level": "medium",
+      "local_first": false,
+      "open_source": true,
+      "requires_api_key": true,
+      "env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "install_command": "pip install litellm",
+      "run_command": "litellm --config litellm.yaml",
+      "health_check": {
+        "command": "python -c \"import litellm\""
+      },
+      "inputs": [
+        "model request",
+        "provider config",
+        "budget policy"
+      ],
+      "outputs": [
+        "provider response",
+        "usage metadata"
+      ],
+      "tags": [
+        "llm-gateway",
+        "fallbacks",
+        "budget"
+      ],
+      "docs_url": "https://docs.litellm.ai/",
+      "notes": "Use as an optional gateway after OPai deterministic routing; never store provider keys in repo files.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "promptfoo",
+      "name": "Promptfoo",
+      "category": "testing",
+      "description": "Optional prompt and model evaluation CLI for comparing model quality on OPai task fixtures before routing changes.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "low",
+      "permission_level": "medium",
+      "local_first": false,
+      "open_source": true,
+      "requires_api_key": true,
+      "env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "install_command": "npm install -g promptfoo",
+      "run_command": "promptfoo eval",
+      "health_check": {
+        "command": "promptfoo --version"
+      },
+      "inputs": [
+        "prompt fixtures",
+        "providers",
+        "assertions"
+      ],
+      "outputs": [
+        "eval results",
+        "model comparison"
+      ],
+      "tags": [
+        "evals",
+        "model-selection",
+        "prompts"
+      ],
+      "docs_url": "https://www.promptfoo.dev/docs/getting-started/",
+      "notes": "Disabled by default because cloud-provider evals can spend credits; run local fixtures and cached outputs first.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "repomix",
+      "name": "Repomix",
+      "category": "context",
+      "description": "Optional repository packer that creates AI-friendly codebase context bundles for planning and review.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "npm install -g repomix",
+      "run_command": "repomix",
+      "health_check": {
+        "command": "repomix --version"
+      },
+      "inputs": [
+        "repository files",
+        "ignore rules"
+      ],
+      "outputs": [
+        "packed context file"
+      ],
+      "tags": [
+        "context",
+        "repo-map",
+        "compression"
+      ],
+      "docs_url": "https://repomix.com/guide/",
+      "notes": "Use with OPai diff/context policies; avoid packing secrets, build outputs, or large generated files.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "ast-grep",
+      "name": "ast-grep",
+      "category": "coding",
+      "description": "Optional structural search and rewrite tool for deterministic multi-file refactors before AI reasoning.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "npm install -g @ast-grep/cli",
+      "run_command": "ast-grep --help",
+      "health_check": {
+        "command": "ast-grep --version"
+      },
+      "inputs": [
+        "code pattern",
+        "rewrite rule",
+        "source files"
+      ],
+      "outputs": [
+        "matches",
+        "rewritten files"
+      ],
+      "tags": [
+        "codemod",
+        "refactor",
+        "structural-search"
+      ],
+      "docs_url": "https://ast-grep.github.io/",
+      "notes": "Prefer dry-run matching before write mode; pair with tests for refactors.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "semgrep",
+      "name": "Semgrep",
+      "category": "security",
+      "description": "Optional static analysis tool for finding insecure patterns and code-quality issues across many languages.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "free-network",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "pip install semgrep",
+      "run_command": "semgrep scan --config auto",
+      "health_check": {
+        "command": "semgrep --version"
+      },
+      "inputs": [
+        "source files",
+        "rules"
+      ],
+      "outputs": [
+        "security findings",
+        "code findings"
+      ],
+      "tags": [
+        "sast",
+        "security",
+        "static-analysis"
+      ],
+      "docs_url": "https://semgrep.dev/docs/introduction",
+      "notes": "Use local rules when possible; remote registry/config modes can use network and should be explicit.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "category": "coding",
+      "description": "Optional terminal AI pair programmer for Git-aware code edits when the user explicitly wants an external coding agent.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "low",
+      "permission_level": "high",
+      "local_first": false,
+      "open_source": true,
+      "requires_api_key": true,
+      "env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "install_command": "pip install aider-chat",
+      "run_command": "aider",
+      "health_check": {
+        "command": "aider --version"
+      },
+      "inputs": [
+        "task",
+        "repository files",
+        "model config"
+      ],
+      "outputs": [
+        "code edits",
+        "git diff"
+      ],
+      "tags": [
+        "agent",
+        "coding",
+        "terminal"
+      ],
+      "docs_url": "https://aider.chat/docs/",
+      "notes": "Disabled by default because it can edit files and spend model credits; OPai should route and summarize before launching it.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "continue-dev",
+      "name": "Continue",
+      "category": "coding",
+      "description": "Optional open-source AI coding assistant for IDE, CLI, and CI workflows with configurable local or cloud models.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "low",
+      "permission_level": "medium",
+      "local_first": false,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "see Continue docs for IDE or CLI installation",
+      "run_command": "cn --help",
+      "health_check": null,
+      "inputs": [
+        "IDE context",
+        "task",
+        "model config"
+      ],
+      "outputs": [
+        "code suggestions",
+        "agent actions"
+      ],
+      "tags": [
+        "ide",
+        "agent",
+        "local-models"
+      ],
+      "docs_url": "https://docs.continue.dev/index",
+      "notes": "Use local provider config first; treat cloud model providers as explicit opt-in.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "category": "local-models",
+      "description": "Optional local model runner for open-weight models and OpenAI-compatible local workflows.",
+      "status": "optional",
+      "type": "local",
+      "cost_level": "free",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "install from Ollama docs",
+      "run_command": "ollama list",
+      "health_check": {
+        "command": "ollama --version"
+      },
+      "inputs": [
+        "local prompt",
+        "model name"
+      ],
+      "outputs": [
+        "local model response"
+      ],
+      "tags": [
+        "local-llm",
+        "offline",
+        "cheap-model"
+      ],
+      "docs_url": "https://docs.ollama.com/",
+      "notes": "OPai should detect installed models before recommending downloads; model pulls require confirmation.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "lm-studio",
+      "name": "LM Studio",
+      "category": "local-models",
+      "description": "Optional desktop local LLM runtime with local chat and OpenAI-like local server support.",
+      "status": "optional",
+      "type": "local",
+      "cost_level": "free",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": false,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "install from LM Studio docs",
+      "run_command": "lms --help",
+      "health_check": null,
+      "inputs": [
+        "local prompt",
+        "model name"
+      ],
+      "outputs": [
+        "local model response",
+        "OpenAI-like local endpoint"
+      ],
+      "tags": [
+        "local-llm",
+        "desktop",
+        "openai-compatible"
+      ],
+      "docs_url": "https://lmstudio.ai/docs",
+      "notes": "Useful for non-terminal local model management; OPai should never assume it is installed.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "context7-mcp",
+      "name": "Context7 MCP",
+      "category": "mcp",
+      "description": "Optional MCP documentation server for up-to-date library docs and examples inside agent context.",
+      "status": "optional",
+      "type": "cloud-optional",
+      "cost_level": "free-network",
+      "permission_level": "medium",
+      "local_first": false,
+      "open_source": false,
+      "requires_api_key": false,
+      "env_vars": [
+        "CONTEXT7_API_KEY"
+      ],
+      "install_command": "configure https://mcp.context7.com/mcp in your MCP client",
+      "run_command": "MCP client managed",
+      "health_check": null,
+      "inputs": [
+        "library name",
+        "topic",
+        "token limit"
+      ],
+      "outputs": [
+        "version-specific documentation",
+        "code examples"
+      ],
+      "tags": [
+        "docs",
+        "mcp",
+        "research"
+      ],
+      "docs_url": "https://context7.com/docs",
+      "notes": "Network tool; enable per project only when current docs are needed and local docs are insufficient.",
+      "enabled_by_default": false
     }
   ]
 }

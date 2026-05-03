@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "deterministic-local-tools",
+      "name": "Deterministic Local Tools",
+      "tier": "L0",
+      "provider": "opai",
+      "provider_type": "local",
+      "cost_level": "free",
+      "requires_api_key": false,
+      "enabled_by_default": true,
+      "confirmation_required": false,
+      "strengths": ["gitops_summary", "documentation"],
+      "quality_by_task": {"gitops_summary": 0.96, "documentation": 0.7},
+      "reliability": 0.98
+    },
+    {
+      "id": "local-coder-small",
+      "name": "Local Small Coding Model",
+      "tier": "L1",
+      "provider": "ollama-or-lmstudio",
+      "provider_type": "local",
+      "cost_level": "free",
+      "requires_api_key": false,
+      "enabled_by_default": true,
+      "confirmation_required": false,
+      "strengths": ["test_failure_debug", "small_patch", "documentation"],
+      "quality_by_task": {"test_failure_debug": 0.76, "small_patch": 0.73, "documentation": 0.78},
+      "reliability": 0.74
+    },
+    {
+      "id": "cheap-cloud-coder",
+      "name": "Cheap Cloud Coding Model",
+      "tier": "L2",
+      "provider": "openai-compatible",
+      "provider_type": "cloud",
+      "cost_level": "low",
+      "requires_api_key": true,
+      "enabled_by_default": true,
+      "confirmation_required": true,
+      "strengths": ["feature_build", "refactor_codemod", "test_failure_debug", "small_patch"],
+      "quality_by_task": {"feature_build": 0.82, "refactor_codemod": 0.84, "test_failure_debug": 0.81, "small_patch": 0.86},
+      "reliability": 0.86
+    },
+    {
+      "id": "strong-frontier-coder",
+      "name": "Strong Frontier Coding Model",
+      "tier": "L3",
+      "provider": "frontier-cloud",
+      "provider_type": "cloud",
+      "cost_level": "high",
+      "requires_api_key": true,
+      "enabled_by_default": true,
+      "confirmation_required": true,
+      "strengths": ["architecture_design", "release_security", "feature_build", "refactor_codemod"],
+      "quality_by_task": {"architecture_design": 0.93, "release_security": 0.92, "feature_build": 0.9, "refactor_codemod": 0.9},
+      "reliability": 0.92
+    },
+    {
+      "id": "gpt-5-5-max-gated",
+      "name": "GPT-5.5 Max Gated Escalation",
+      "tier": "L4",
+      "provider": "openai",
+      "provider_type": "cloud",
+      "cost_level": "very-high",
+      "requires_api_key": true,
+      "enabled_by_default": false,
+      "confirmation_required": true,
+      "strengths": ["architecture_design", "release_security"],
+      "quality_by_task": {"architecture_design": 0.98, "release_security": 0.97},
+      "reliability": 0.95
+    }
+  ]
+}

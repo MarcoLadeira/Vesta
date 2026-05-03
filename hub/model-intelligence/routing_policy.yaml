@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "confirmation_required_at_or_above": "L3",
+  "weights": {
+    "task_fit": 0.35,
+    "eval_score": 0.25,
+    "context_fit": 0.15,
+    "reliability": 0.10,
+    "privacy_fit": 0.10,
+    "cost_penalty": 0.25
+  },
+  "escalation_path": [
+    "L0 deterministic scripts and cached context",
+    "L1 local small model or cheap local summarizer",
+    "L2 cheap cloud coding model with confirmation if cloud is required",
+    "L3 strong frontier model with explicit confirmation",
+    "L4 GPT-5.5 Max only after cheaper routes fail or task is high-risk"
+  ],
+  "hard_rules": [
+    "Never execute paid or cloud models without explicit user confirmation.",
+    "Prefer local tools and reusable context for git, docs, tests, and scans.",
+    "Escalate only with evidence: failing logs, diff, repo profile, and attempted local checks."
+  ]
+}
