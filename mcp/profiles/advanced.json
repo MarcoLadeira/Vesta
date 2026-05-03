@@ -1,0 +1,24 @@
+{
+  "name": "advanced-opt-in",
+  "enabled": [
+    "filesystem-readonly",
+    "git-local",
+    "testing-local",
+    "memory-local",
+    "package-lookup"
+  ],
+  "optional": [
+    "github",
+    "browser-web",
+    "database"
+  ],
+  "roots": [
+    "${PROJECT_ROOT}"
+  ],
+  "rules": {
+    "github_default": "read-only",
+    "database_default": "read-only-local-dev",
+    "browser_default": "localhost-first",
+    "write_tools_require_confirmation": true
+  }
+}

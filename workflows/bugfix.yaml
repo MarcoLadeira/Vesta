@@ -1,0 +1,9 @@
+name: bugfix
+steps:
+  - op: fix
+    args: ["--cmd", "{{failing_command}}"]
+  - op: test
+    args: ["--cmd", "{{targeted_command}}"]
+  - op: review
+    args: []
+cost_policy: reproduce_before_ai

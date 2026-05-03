@@ -1,0 +1,43 @@
+schema_version: 1
+paths:
+  allowed:
+    - "${PROJECT_ROOT}"
+    - "${PROJECT_ROOT}/hub"
+    - "${PROJECT_ROOT}/.opcoding"
+  forbidden:
+    - "${PROJECT_ROOT}/.git"
+    - "${PROJECT_ROOT}/.env"
+    - "${PROJECT_ROOT}/.opcoding-tools"
+    - "${HOME}/.ssh"
+    - "${HOME}/.aws"
+shell:
+  default: deny_unknown
+  allow_readonly:
+    - "git status"
+    - "git diff"
+    - "git log"
+    - "python -m opcoding"
+    - "python -m opaihub"
+  require_confirmation:
+    - "git push"
+    - "git merge"
+    - "git rebase"
+    - "git branch -D"
+    - "rm -rf"
+    - "Remove-Item -Recurse"
+    - "npm publish"
+    - "docker compose down -v"
+    - "deploy"
+cloud:
+  default: disabled
+  require_confirmation:
+    - any paid API
+    - any write API
+    - any upload of source code
+mcp:
+  default_roots: ["${PROJECT_ROOT}"]
+  write_servers_disabled_by_default: true
+logging:
+  redact_secrets: true
+  no_raw_api_keys: true
+  store_command_output: redacted_tail

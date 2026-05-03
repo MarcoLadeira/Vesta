@@ -1,0 +1,12 @@
+style: concise
+max_default_tokens: 1200
+answer_shape: "goal, steps, tests, risks"
+avoid:
+  - broad rewrites
+  - repeating full files
+  - loading entire repository
+  - speculative dependency upgrades
+require:
+  - smallest relevant context
+  - redacted logs
+  - exact verification command

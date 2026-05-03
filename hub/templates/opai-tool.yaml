@@ -1,0 +1,25 @@
+{
+  "id": "example-tool",
+  "name": "Example Tool",
+  "category": "coding",
+  "description": "Short practical description.",
+  "status": "optional",
+  "type": "local-open-source",
+  "cost_level": "free",
+  "permission_level": "low",
+  "local_first": true,
+  "open_source": true,
+  "requires_api_key": false,
+  "env_vars": [],
+  "install_command": "document the install command",
+  "run_command": "example-tool --help",
+  "health_check": {
+    "command": "example-tool --version"
+  },
+  "inputs": ["files"],
+  "outputs": ["findings"],
+  "tags": ["example"],
+  "docs_url": "https://example.invalid/docs",
+  "notes": "Disable by default if cloud, paid, or high permission.",
+  "enabled_by_default": false
+}

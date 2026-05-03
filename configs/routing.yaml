@@ -1,0 +1,23 @@
+default_route: L0
+rules:
+  - match: ["git status", "diff", "commit message", "branch name", "scan"]
+    route: L0
+  - match: ["summarize", "explain", "where is"]
+    route: L1
+  - match: ["fix", "implement", "add", "write tests"]
+    route: L2
+  - match: ["architecture", "security", "auth", "deploy", "migration"]
+    route: L3
+  - match: ["data loss", "incident", "rewrite whole", "complex distributed"]
+    route: L4
+context_limits:
+  L1: 8000
+  L2: 18000
+  L3: 50000
+  L4: 120000
+pre_ai_required:
+  - scan project profile
+  - collect diff or failing log
+  - redact secrets
+  - check prompt cache
+  - estimate token and cost budget

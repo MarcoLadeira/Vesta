@@ -1,0 +1,28 @@
+install_root: ".opcoding-tools"
+default_set: "core"
+sets:
+  core:
+    python:
+      - ruff
+      - bandit
+      - pip-audit
+      - detect-secrets
+    node:
+      - pyright
+      - markdownlint-cli2
+      - prettier
+      - "@biomejs/biome"
+  security:
+    go:
+      - github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
+      - github.com/gitleaks/gitleaks/v8@latest
+      - github.com/rhysd/actionlint/cmd/actionlint@latest
+network_policy:
+  install_requires_network: true
+  run_local_by_default: true
+  link_checking_disabled_by_default: true
+  vulnerability_db_queries_are_opt_in: true
+cost_policy:
+  no_paid_ai_calls: true
+  no_cloud_writes: true
+  model_calls_forbidden: true

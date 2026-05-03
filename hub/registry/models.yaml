@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "L0-local-tools",
+      "name": "Local deterministic tools",
+      "tier": "L0",
+      "provider": "local",
+      "cost_level": "free",
+      "requires_api_key": false,
+      "enabled_by_default": true,
+      "use_for": ["git status", "lint", "test", "scan", "format", "health"],
+      "confirmation_required": false
+    },
+    {
+      "id": "L1-cache-local-model",
+      "name": "Cache or local lightweight model",
+      "tier": "L1",
+      "provider": "local",
+      "cost_level": "free-or-low",
+      "requires_api_key": false,
+      "enabled_by_default": true,
+      "use_for": ["summaries", "simple explanation", "classification"],
+      "confirmation_required": false
+    },
+    {
+      "id": "L2-cheap-coding-model",
+      "name": "Cheap coding model",
+      "tier": "L2",
+      "provider": "cloud-optional",
+      "cost_level": "low",
+      "requires_api_key": true,
+      "enabled_by_default": false,
+      "use_for": ["small implementation", "test writing", "bug hypotheses"],
+      "confirmation_required": "when budget soft limit exceeded"
+    },
+    {
+      "id": "L3-strong-model",
+      "name": "Strong reasoning/coding model",
+      "tier": "L3",
+      "provider": "cloud-optional",
+      "cost_level": "medium-high",
+      "requires_api_key": true,
+      "enabled_by_default": false,
+      "use_for": ["architecture", "security reasoning", "complex debugging"],
+      "confirmation_required": "when context or budget threshold exceeded"
+    },
+    {
+      "id": "L4-max-model",
+      "name": "GPT-5.5 Max or equivalent",
+      "tier": "L4",
+      "provider": "cloud-optional",
+      "cost_level": "expensive",
+      "requires_api_key": true,
+      "enabled_by_default": false,
+      "use_for": ["last resort", "high-risk design", "failed lower tiers"],
+      "confirmation_required": true
+    },
+    {
+      "id": "morph-v3-fast",
+      "name": "Morph v3 Fast",
+      "tier": "apply-model",
+      "provider": "morphllm",
+      "cost_level": "paid-optional",
+      "requires_api_key": true,
+      "enabled_by_default": false,
+      "use_for": ["fast code apply after local planning"],
+      "confirmation_required": true
+    }
+  ]
+}

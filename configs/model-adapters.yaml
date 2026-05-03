@@ -1,0 +1,13 @@
+execution_default: prepare_only
+environment_commands:
+  L1: OPCODING_MODEL_L1_COMMAND
+  L2: OPCODING_MODEL_L2_COMMAND
+  L3: OPCODING_MODEL_L3_COMMAND
+  L4: OPCODING_MODEL_L4_COMMAND
+  morph_api_key: MORPH_API_KEY
+rules:
+  - L4 requires --confirm-expensive
+  - no command is executed unless --execute-model is passed
+  - prompt bundles are cached before execution
+  - all prompts must use redacted project context
+  - Morph execution requires explicit --execute and --confirm-spend

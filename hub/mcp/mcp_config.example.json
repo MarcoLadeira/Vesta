@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${PROJECT_ROOT}"],
+      "enabled": true,
+      "notes": "Restrict roots to the active project."
+    },
+    "testing": {
+      "command": "python",
+      "args": ["-m", "opcoding", "test", "${PROJECT_ROOT}", "--dry-run"],
+      "enabled": true,
+      "notes": "Use targeted tests before full suites."
+    },
+    "memory": {
+      "command": "python",
+      "args": ["-m", "opcoding", "memory", "${PROJECT_ROOT}", "list"],
+      "enabled": true,
+      "notes": "Project-local memory only."
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "enabled": false,
+      "notes": "Read-only by default; requires explicit project opt-in."
+    }
+  }
+}

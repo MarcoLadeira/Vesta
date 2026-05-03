@@ -1,0 +1,12 @@
+detect:
+  files: [package.json]
+  lockfiles: [package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lockb]
+commands:
+  install: "{runner} install"
+  build: "{runner} run build"
+  test: "{runner} test"
+  lint: "{runner} run lint"
+  typecheck: "{runner} run typecheck"
+targeted_tests:
+  jest: "{runner} test -- {files}"
+  vitest: "{runner} test -- {files}"

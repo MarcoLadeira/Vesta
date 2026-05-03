@@ -1,0 +1,11 @@
+name: review
+steps:
+  - op: git
+    args: ["summary"]
+  - op: git
+    args: ["secrets"]
+  - op: review
+    args: []
+  - op: test
+    args: ["--dry-run"]
+cost_policy: static_checks_before_model

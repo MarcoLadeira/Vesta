@@ -1,0 +1,17 @@
+opcoding_home: "${OPCODING_HOME}"
+phase: "1-mvp"
+local_first: true
+default_project_profile: ".opcoding/project.json"
+default_project_context: ".opcoding/context.md"
+auto_refresh_context_after_scan: true
+require_confirmation_for:
+  - expensive_model
+  - destructive_shell
+  - external_write_api
+  - git_push
+  - branch_delete
+  - production_deploy
+never_prompt_with:
+  - ".env"
+  - "private keys"
+  - "raw production logs containing secrets"

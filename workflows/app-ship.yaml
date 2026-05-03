@@ -1,0 +1,20 @@
+name: app-ship
+steps:
+  - op: init
+    args: ["{{project}}"]
+  - op: ship
+    args: ["{{task}}", "--project", "{{project}}"]
+  - op: agents
+    args: ["{{task}}", "--project", "{{project}}"]
+  - op: test
+    args: ["{{project}}", "--dry-run"]
+  - op: review
+    args: ["{{project}}"]
+  - op: deploy
+    args: ["{{project}}"]
+cost_policy: no_model_without_execute_flag
+confirmation_required:
+  - expensive_model
+  - push
+  - deploy
+  - publish

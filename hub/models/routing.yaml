@@ -1,0 +1,33 @@
+schema_version: 1
+tiers:
+  L0:
+    description: deterministic local tools and registry lookups
+    default: true
+    confirmation_required: false
+  L1:
+    description: cache or local lightweight model
+    confirmation_required: false
+  L2:
+    description: cheap coding/reasoning model
+    confirmation_required: when_budget_soft_limit_exceeded
+  L3:
+    description: strong reasoning model
+    confirmation_required: when_context_large_or_budget_low
+  L4:
+    description: GPT-5.5 Max or equivalent
+    confirmation_required: always
+routing_rules:
+  git_status: L0
+  tool_health: L0
+  local_lint_test_scan: L0
+  context_summary_from_cache: L1
+  small_code_patch_after_local_evidence: L2
+  architecture_security_or_deploy_design: L3
+  repeated_failed_lower_tiers_or_incident: L4
+pre_ai_requirements:
+  - collect local evidence first
+  - check cache
+  - compress context
+  - redact secrets
+  - estimate token and dollar cost
+  - confirm if cloud or expensive

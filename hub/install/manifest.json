@@ -1,0 +1,25 @@
+{
+  "brand": "OPai",
+  "version": "0.1.0",
+  "release_stage": "pre-alpha",
+  "entrypoints": {
+    "primary": "opai",
+    "legacy_coding": "op",
+    "hub": "op-hub"
+  },
+  "safe_install_commands": {
+    "windows_local": "powershell -ExecutionPolicy Bypass -File .\\install.ps1",
+    "windows_with_shell_aliases": "powershell -ExecutionPolicy Bypass -File .\\install.ps1 -ShellAliases",
+    "posix_local": "sh ./install.sh",
+    "posix_with_shell_aliases": "sh ./install.sh --shell-aliases",
+    "editable_python": "python -m pip install -e . --no-deps && opai install --no-tools"
+  },
+  "optional_tool_install": "opai install --with-tools",
+  "notes": [
+    "Default install creates local OPai state and dashboards only.",
+    "Default CLI install also writes safe global OPai discovery files.",
+    "Shell command shadowing requires --shell-aliases.",
+    "No paid or cloud services are enabled by default.",
+    "Optional tool installation may download free open-source packages."
+  ]
+}

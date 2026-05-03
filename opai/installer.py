@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from opai import __brand__, __release_stage__, __version__
+from opai.integrations import activate_project
+from opaihub.command_runner import run_policy_command
+from opaihub.dashboard import build_dashboard
+from opaihub.dashboard_html import build_dashboard_html
+from opaihub.state import attach_project, state_dir
+from opaihub.validator import validate_all
+
+
+def install_project(
+    project_root: Path,
+    install_tools: bool = False,
+    timeout: int = 300,
+    global_integrations: bool = False,
+    install_shell_aliases: bool = False,
+) -> dict[str, Any]:
+    root = project_root.expanduser().resolve()
+    attach = attach_project(root)
+    validation = validate_all(root)
+    markdown_dashboard = build_dashboard(root)
+    html_dashboard = build_dashboard_html(root)
+    network_actions: list[dict[str, Any]] = []
+
+    if install_tools:
+        command = [
+            "python",
+            "-m",
+            "opcoding",
+            "tools",
+            str(root),
+            "install",
+            "--set",
+            "core",
+        ]
+        completed = run_policy_command(command, root, timeout=timeout)
+        network_actions.append(
+            {
+                "command": command,
+                "returncode": completed.returncode,
+                "status": "ok" if completed.returncode == 0 else "failed",
+                "output_tail": completed.combined_output[-1600:],
+            }
+        )
+
+    activation = activate_project(
+        root,
+        install_global=global_integrations,
+        install_shell_aliases=install_shell_aliases,
+    )
+
+    manifest = {
+        "brand": __brand__,
+        "version": __version__,
+        "release_stage": __release_stage__,
+        "project_root": str(root),
+        "state_path": attach["state_path"],
+        "validation_ok": validation["ok"],
+        "dashboards": {
+            "markdown": str(markdown_dashboard),
+            "html": str(html_dashboard),
+        },
+        "network_actions": network_actions,
+        "activation": activation,
+        "global_integrations": activation.get("global_integrations"),
+        "next_steps": [
+            "opai doctor",
+            "opai scan",
+            "opai tools",
+            "opai dashboard --html",
+            "opai statusline",
+        ],
+    }
+    path = state_dir(root) / "install.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return manifest

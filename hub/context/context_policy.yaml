@@ -1,0 +1,27 @@
+schema_version: 1
+load_order:
+  - user task
+  - project profile
+  - current diff
+  - failing logs
+  - targeted files
+  - cached summaries
+  - official docs snippets
+never_load_by_default:
+  - .git
+  - .opcoding-tools
+  - node_modules
+  - dist
+  - build
+  - target
+  - .env
+  - secret files
+compression:
+  summarize_after_chars: 16000
+  prefer_diff_based_context: true
+  reuse_project_context: true
+  store_memory_summaries: true
+deduplication:
+  cache_prompt_hashes: true
+  batch_agents_with_shared_context: true
+  avoid_duplicate_tool_calls: true

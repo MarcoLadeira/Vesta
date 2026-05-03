@@ -1,0 +1,62 @@
+name: OPai CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test and package
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.13"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Python check tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff bandit pip-audit detect-secrets
+
+      - name: Install OPai editable
+        run: python -m pip install -e . --no-deps
+
+      - name: Format check
+        run: python -m ruff format --check .
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Tests
+        run: python -m unittest discover -s tests
+
+      - name: Registry validation
+        run: python -m opaihub validate
+
+      - name: Security scan
+        run: python -m bandit -r opai opaihub opcoding -q
+
+      - name: Dependency audit
+        run: python -m pip_audit . --progress-spinner off --skip-editable
+
+      - name: Secret scan
+        run: >
+          detect-secrets scan --all-files
+          --exclude-files "(^|[\\/])\\.opcoding-tools([\\/]|$)|(^|[\\/])\\.ruff_cache([\\/]|$)|(^|[\\/])\\.opcoding([\\/]|$)|(^|[\\/])\\.opaihub([\\/]|$)|(^|[\\/])opai[\\/]assets[\\/].*\\.png$"
+          --exclude-lines "MORPH_API_KEY|api_key_env|api_key_present"
+
+      - name: Isolated install smoke
+        run: python scripts/smoke-install.py

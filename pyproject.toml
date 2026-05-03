@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opai"
+version = "0.1.0"
+description = "OPai 0.1.0 pre-alpha: local-first AI tools hub with cost-aware coding workflows."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+terminal-ui = ["Pillow>=10"]
+
+[project.scripts]
+opai = "opai.cli:main"
+op = "opai.cli:main"
+op-hub = "opaihub.cli:main"
+opcoding = "opcoding.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/opai/local-first-ai-hub"
+Documentation = "https://github.com/opai/local-first-ai-hub/blob/main/hub/docs/OP_AI_HUB_OVERVIEW.md"
+
+[tool.setuptools.packages.find]
+include = ["opai", "opai.*", "opaihub", "opaihub.*", "opcoding", "opcoding.*"]
+exclude = ["tests", "tests.*"]
+
+[tool.setuptools.package-data]
+opai = ["assets/*"]
+opaihub = ["data/hub/**/*"]
+
+[tool.opai]
+brand = "OPai"
+release = "0.1.0-pre-alpha"
+default_mode = "local-first"
+
+[tool.opcoding]
+phase = "legacy-compatible"

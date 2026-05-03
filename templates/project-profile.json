@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "name": "",
+  "root": "",
+  "languages": [],
+  "frameworks": [],
+  "package_managers": [],
+  "commands": {
+    "install": "",
+    "build": "",
+    "test": "",
+    "targeted_test": "",
+    "lint": "",
+    "typecheck": ""
+  },
+  "git": {
+    "default_branch": "main",
+    "remote": ""
+  },
+  "risk": {
+    "production": false,
+    "handles_secrets": false
+  }
+}

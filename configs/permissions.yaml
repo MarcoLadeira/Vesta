@@ -1,0 +1,34 @@
+filesystem:
+  default: project_root_only
+  write_requires_project_root: true
+  deny:
+    - ".git"
+    - ".env"
+    - "*.pem"
+    - "*.key"
+    - "id_rsa*"
+shell:
+  allow:
+    - "git status"
+    - "git diff"
+    - "git log"
+    - "npm test"
+    - "pytest"
+    - "dotnet test"
+    - "go test"
+    - "cargo test"
+  confirm:
+    - "git push"
+    - "git merge"
+    - "git rebase"
+    - "git branch -D"
+    - "npm publish"
+    - "docker compose down -v"
+    - "deploy"
+  deny:
+    - "curl * | sh"
+    - "Invoke-WebRequest * | iex"
+logging:
+  redact_secrets: true
+  store_prompt_text: false
+  store_command_output: redacted

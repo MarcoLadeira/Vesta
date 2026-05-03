@@ -1,0 +1,18 @@
+levels:
+  L0:
+    kind: local_tool
+    description: deterministic scripts, shell, git, tests, scanners
+  L1:
+    kind: cache_or_local_model
+    description: cached answer or local lightweight code model
+  L2:
+    kind: cheap_cloud_model
+    description: small coding task after local evidence collection
+  L3:
+    kind: strong_cloud_model
+    description: complex architecture, security, debugging, or broad edits
+  L4:
+    kind: max_reasoning
+    name: gpt-5.5-max
+    require_confirmation: true
+    description: last resort for high-risk or failed lower-level attempts

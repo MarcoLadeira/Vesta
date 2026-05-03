@@ -1,0 +1,15 @@
+{
+  "config": {
+    "MD013": false,
+    "MD041": false
+  },
+  "globs": [
+    "**/*.md",
+    "!**/.opcoding-tools/**",
+    "!**/.opcoding/**",
+    "!**/.opaihub/**",
+    "!prompts/**",
+    "!hub/prompts/**",
+    "!templates/**"
+  ]
+}

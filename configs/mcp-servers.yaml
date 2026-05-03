@@ -1,0 +1,47 @@
+profiles:
+  default:
+    enabled:
+      - filesystem-readonly
+      - git-local
+      - testing-local
+      - memory-local
+    disabled_by_default:
+      - github
+      - browser-web
+      - database
+servers:
+  filesystem-readonly:
+    type: local
+    cost_risk: low
+    security_risk: medium
+    permissions: ["read project root", "write only when explicitly enabled"]
+  git-local:
+    type: local
+    cost_risk: low
+    security_risk: medium
+    permissions: ["status", "diff", "log", "no push or destructive ops"]
+  github:
+    type: official_remote_or_container
+    cost_risk: low
+    security_risk: medium
+    permissions: ["minimal OAuth/PAT scopes", "read-only default"]
+  shell:
+    type: local
+    cost_risk: low
+    security_risk: high
+    permissions: ["allowlist", "confirmation for destructive commands"]
+  testing-local:
+    type: custom_local
+    cost_risk: low
+    security_risk: medium
+    permissions: ["test commands only"]
+  memory-local:
+    type: custom_local
+    cost_risk: low
+    security_risk: medium
+    permissions: ["redacted project summaries only"]
+  package-lookup:
+    type: local_cache_plus_registry
+    cost_risk: low
+    security_risk: medium
+    permissions: ["read-only registry calls"]

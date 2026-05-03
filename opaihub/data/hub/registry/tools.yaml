@@ -1,0 +1,502 @@
+{
+  "schema_version": 1,
+  "categories": [
+    "coding",
+    "testing",
+    "gitops",
+    "mcp",
+    "research",
+    "web",
+    "docs",
+    "files",
+    "terminal",
+    "database",
+    "data",
+    "spreadsheet",
+    "image",
+    "audio",
+    "video",
+    "browser",
+    "productivity",
+    "automation",
+    "security",
+    "deployment",
+    "local-models",
+    "cloud-models",
+    "memory",
+    "context",
+    "miscellaneous"
+  ],
+  "tools": [
+    {
+      "id": "opai-cli",
+      "name": "OPai CLI",
+      "category": "automation",
+      "description": "Branded 0.1.0 pre-alpha CLI for one-command local OPai installation, hub access, dashboards, and low-cost workflow entry points.",
+      "status": "installed",
+      "type": "local",
+      "cost_level": "free",
+      "permission_level": "low",
+      "local_first": true,
+      "open_source": false,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "pip install -e .",
+      "run_command": "python -m opai --help",
+      "health_check": {
+        "command": "python -m opai --help"
+      },
+      "inputs": [
+        "project path",
+        "hub command"
+      ],
+      "outputs": [
+        "install manifest",
+        "registry views",
+        "dashboard paths"
+      ],
+      "tags": [
+        "opai",
+        "installer",
+        "hub",
+        "local-first"
+      ],
+      "docs_url": "hub/docs/INSTALL.md",
+      "notes": "Public brand wrapper over OP AI Hub; defaults do not install cloud tools or spend credits.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "opcoding-cli",
+      "name": "OPcoding CLI",
+      "category": "coding",
+      "description": "Local-first coding command spine for scan, context, routing, agents, tests, git, tools, and Morph.",
+      "status": "installed",
+      "type": "local",
+      "cost_level": "free",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": false,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "included",
+      "run_command": "python -m opcoding --help",
+      "health_check": {
+        "command": "python -m opcoding --help"
+      },
+      "inputs": [
+        "project path",
+        "task"
+      ],
+      "outputs": [
+        "scan",
+        "route",
+        "reports",
+        "artifacts"
+      ],
+      "tags": [
+        "coding",
+        "router",
+        "local-first"
+      ],
+      "docs_url": "docs/commands.md",
+      "notes": "Existing backend for OP AI Hub Phase 1.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "op-ai-hub-cli",
+      "name": "OP AI Hub CLI",
+      "category": "automation",
+      "description": "Registry-first hub CLI for tools, agents, workflows, MCP, cost, and health checks.",
+      "status": "installed",
+      "type": "local",
+      "cost_level": "free",
+      "permission_level": "low",
+      "local_first": true,
+      "open_source": false,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "included",
+      "run_command": "python -m opaihub --help",
+      "health_check": {
+        "command": "python -m opaihub --help"
+      },
+      "inputs": [
+        "registry metadata"
+      ],
+      "outputs": [
+        "lists",
+        "health",
+        "safe next steps"
+      ],
+      "tags": [
+        "hub",
+        "registry",
+        "cli"
+      ],
+      "docs_url": "hub/docs/OP_AI_HUB_OVERVIEW.md",
+      "notes": "Phase 1 is read-only except explicit registry edits.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "superpowers",
+      "name": "Superpowers for Codex",
+      "category": "productivity",
+      "description": "Workflow skills for disciplined planning, debugging, verification, branches, and subagents.",
+      "status": "installed",
+      "type": "local",
+      "cost_level": "free",
+      "permission_level": "low",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "git clone https://github.com/obra/superpowers.git ~/.codex/superpowers",
+      "run_command": "restart Codex for native discovery",
+      "health_check": {
+        "command": "cmd /c if exist \"%USERPROFILE%\\.agents\\skills\\superpowers\" (exit 0) else (exit 1)"
+      },
+      "inputs": [
+        "task context"
+      ],
+      "outputs": [
+        "skill instructions"
+      ],
+      "tags": [
+        "skills",
+        "workflow",
+        "codex"
+      ],
+      "docs_url": "https://github.com/obra/superpowers",
+      "notes": "Visible through ~/.agents/skills/superpowers junction.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "ruff",
+      "name": "Ruff",
+      "category": "coding",
+      "description": "Fast Python linting and formatting.",
+      "status": "installed",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "low",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "python -m opcoding tools . install --set core",
+      "run_command": "python -m opcoding tools . run ruff",
+      "health_check": {
+        "command": "python -m opcoding tools . doctor"
+      },
+      "inputs": [
+        "Python files"
+      ],
+      "outputs": [
+        "lint findings"
+      ],
+      "tags": [
+        "python",
+        "lint",
+        "format"
+      ],
+      "docs_url": "https://docs.astral.sh/ruff/",
+      "notes": "Installed under .opcoding-tools.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "bandit",
+      "name": "Bandit",
+      "category": "security",
+      "description": "Python security static analysis.",
+      "status": "installed",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "low",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "python -m opcoding tools . install --set core",
+      "run_command": "python -m opcoding tools . run bandit",
+      "health_check": {
+        "command": "python -m opcoding tools . doctor"
+      },
+      "inputs": [
+        "Python files"
+      ],
+      "outputs": [
+        "security findings"
+      ],
+      "tags": [
+        "python",
+        "security",
+        "sast"
+      ],
+      "docs_url": "https://bandit.readthedocs.io/",
+      "notes": "May flag false positives; review before blocking.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "detect-secrets",
+      "name": "detect-secrets",
+      "category": "security",
+      "description": "Secret scanning with local filters and exclusions.",
+      "status": "installed",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "low",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "python -m opcoding tools . install --set core",
+      "run_command": "python -m opcoding tools . run detect-secrets",
+      "health_check": {
+        "command": "python -m opcoding tools . doctor"
+      },
+      "inputs": [
+        "repository files"
+      ],
+      "outputs": [
+        "secret scan JSON"
+      ],
+      "tags": [
+        "secrets",
+        "security"
+      ],
+      "docs_url": "https://github.com/Yelp/detect-secrets",
+      "notes": "Default OPcoding command excludes tool/cache folders.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "gitleaks",
+      "name": "Gitleaks",
+      "category": "security",
+      "description": "Repository secret scanning.",
+      "status": "installed",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "python -m opcoding tools . install --set security",
+      "run_command": "python -m opcoding tools . run gitleaks",
+      "health_check": {
+        "command": "python -m opcoding tools . doctor"
+      },
+      "inputs": [
+        "repository files"
+      ],
+      "outputs": [
+        "secret findings"
+      ],
+      "tags": [
+        "secrets",
+        "git"
+      ],
+      "docs_url": "https://github.com/gitleaks/gitleaks",
+      "notes": "Use targeted scans for large repos.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "pyright",
+      "name": "Pyright",
+      "category": "testing",
+      "description": "Python static type checker.",
+      "status": "installed",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "low",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "python -m opcoding tools . install --set core",
+      "run_command": "python -m opcoding tools . run pyright",
+      "health_check": {
+        "command": "python -m opcoding tools . doctor"
+      },
+      "inputs": [
+        "Python files"
+      ],
+      "outputs": [
+        "type findings"
+      ],
+      "tags": [
+        "python",
+        "types"
+      ],
+      "docs_url": "https://www.npmjs.com/package/pyright",
+      "notes": "May need per-project config in Phase 2.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "markdownlint-cli2",
+      "name": "markdownlint-cli2",
+      "category": "docs",
+      "description": "Markdown linting.",
+      "status": "installed",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "low",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "python -m opcoding tools . install --set core",
+      "run_command": "python -m opcoding tools . run markdownlint",
+      "health_check": {
+        "command": "python -m opcoding tools . doctor"
+      },
+      "inputs": [
+        "Markdown files"
+      ],
+      "outputs": [
+        "lint findings"
+      ],
+      "tags": [
+        "docs",
+        "markdown"
+      ],
+      "docs_url": "https://www.npmjs.com/package/markdownlint-cli2",
+      "notes": "Configured by .markdownlint-cli2.jsonc.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "osv-scanner",
+      "name": "OSV-Scanner",
+      "category": "security",
+      "description": "Dependency vulnerability scanner.",
+      "status": "installed",
+      "type": "local-open-source",
+      "cost_level": "free-network",
+      "permission_level": "medium",
+      "local_first": false,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "python -m opcoding tools . install --set security",
+      "run_command": "python -m opcoding tools . run osv-scanner",
+      "health_check": null,
+      "inputs": [
+        "lockfiles",
+        "manifests"
+      ],
+      "outputs": [
+        "vulnerability findings"
+      ],
+      "tags": [
+        "deps",
+        "vulnerability"
+      ],
+      "docs_url": "https://google.github.io/osv-scanner/",
+      "notes": "Network vulnerability lookups are opt-in.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "morph-fast-apply",
+      "name": "Morph Fast Apply",
+      "category": "cloud-models",
+      "description": "Optional Morph LLM fast code apply adapter.",
+      "status": "optional",
+      "type": "cloud-paid-optional",
+      "cost_level": "paid",
+      "permission_level": "medium",
+      "local_first": false,
+      "open_source": false,
+      "requires_api_key": true,
+      "env_vars": [
+        "MORPH_API_KEY"
+      ],
+      "install_command": "included adapter",
+      "run_command": "python -m opcoding morph . apply-snippet --execute --confirm-spend",
+      "health_check": {
+        "command": "python -m opcoding morph . doctor"
+      },
+      "inputs": [
+        "instruction",
+        "code",
+        "update"
+      ],
+      "outputs": [
+        "model response"
+      ],
+      "tags": [
+        "morph",
+        "apply",
+        "optional"
+      ],
+      "docs_url": "docs/morph.md",
+      "notes": "Never runs unless --execute and --confirm-spend are both passed.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "sqlite-local",
+      "name": "SQLite Local",
+      "category": "database",
+      "description": "Local SQLite storage for memory and lightweight data tasks.",
+      "status": "available",
+      "type": "local",
+      "cost_level": "free",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "python stdlib sqlite3",
+      "run_command": "python -c \"import sqlite3; print(sqlite3.sqlite_version)\"",
+      "health_check": {
+        "command": "python -c \"import sqlite3\""
+      },
+      "inputs": [
+        "local database path"
+      ],
+      "outputs": [
+        "local database"
+      ],
+      "tags": [
+        "memory",
+        "database",
+        "local"
+      ],
+      "docs_url": "https://docs.python.org/3/library/sqlite3.html",
+      "notes": "Use project-scoped files only.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "playwright-optional",
+      "name": "Playwright",
+      "category": "browser",
+      "description": "Optional browser automation for UI checks and localhost inspection.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "npm install -D @playwright/test && npx playwright install",
+      "run_command": "npx playwright test",
+      "health_check": null,
+      "inputs": [
+        "URL",
+        "test script"
+      ],
+      "outputs": [
+        "screenshots",
+        "test report"
+      ],
+      "tags": [
+        "browser",
+        "testing",
+        "ui"
+      ],
+      "docs_url": "https://playwright.dev/",
+      "notes": "Optional because browser installs can be heavy.",
+      "enabled_by_default": false
+    }
+  ]
+}

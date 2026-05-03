@@ -1,0 +1,16 @@
+{
+  "id": "example-agent",
+  "name": "Example Agent",
+  "purpose": "One bounded job.",
+  "inputs": ["task", "local evidence"],
+  "outputs": ["short report"],
+  "tools_allowed": ["local deterministic tools first"],
+  "tools_forbidden": ["paid/cloud tools without confirmation"],
+  "cost_policy": "L0 first; escalate only with evidence.",
+  "permission_policy": "Read-only by default.",
+  "escalation_policy": "Ask before L3/L4 or cloud tools.",
+  "default_model_tier": "L0-local-tools",
+  "max_context_policy": "diffs and summaries first",
+  "run_triggers": ["explicit command"],
+  "stop_conditions": ["task solved", "budget exceeded", "needs confirmation"]
+}

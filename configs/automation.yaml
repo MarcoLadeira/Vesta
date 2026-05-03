@@ -1,0 +1,20 @@
+automatic_local_gates:
+  on_init:
+    - scan
+    - context
+    - mcp profile
+  before_commit:
+    - staged secret scan
+  before_pr:
+    - review
+    - targeted tests
+  before_deploy:
+    - full tests
+    - build
+    - rollback plan
+disabled_until_confirmed:
+  - git push
+  - deploy
+  - release publish
+  - external database write
+  - GPT-5.5 Max

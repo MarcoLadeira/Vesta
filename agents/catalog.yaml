@@ -1,0 +1,136 @@
+agents:
+  cost-controller:
+    purpose: Prevent unnecessary AI spend and enforce routing.
+    inputs: [task, token_estimate, budget, cache_state]
+    outputs: [route_level, required_pre_ai_steps, confirmation_required]
+    run_when: before any model call
+    do_not_run_when: never
+    tools: [op-cost, prompt-cache, budget-log]
+    cheap_first: Use deterministic routing and cached answers.
+    escalate_when: L4 trigger or repeated lower-level failure.
+  context-manager:
+    purpose: Maintain compact project summaries and relevant context.
+    inputs: [project_scan, git_status, docs, manifests]
+    outputs: [.opcoding/context.md, memory summaries]
+    run_when: onboarding, long sessions, large diffs
+    do_not_run_when: tiny no-code questions
+    tools: [op-scan, git diff, git log]
+    cheap_first: Diff summaries and file maps before model summaries.
+    escalate_when: architecture is unclear after local scan.
+  planning:
+    purpose: Convert task into scoped implementation steps.
+    inputs: [task, project_context, diff]
+    outputs: [plan, target_files, test_strategy]
+    run_when: features, bug fixes, refactors
+    do_not_run_when: direct git/status/test command
+    tools: [op-context, op-route, docs-cache]
+    cheap_first: Use template and project profile first.
+    escalate_when: cross-module design or high-risk migration.
+  code-architect:
+    purpose: Design contracts, boundaries, and architecture changes.
+    inputs: [requirements, existing_patterns, constraints]
+    outputs: [architecture_note, tradeoffs, migration_steps]
+    run_when: broad features or system design changes
+    do_not_run_when: isolated patch or test update
+    tools: [project_index, docs-cache, dependency_graph]
+    cheap_first: Reuse local conventions and adapters.
+    escalate_when: security, data model, or production impact.
+  implementation:
+    purpose: Apply minimal patches from an approved plan.
+    inputs: [plan, target_files, project_rules]
+    outputs: [patch, changed_files, verification_command]
+    run_when: plan is clear
+    do_not_run_when: task is ambiguous or destructive
+    tools: [filesystem, shell, formatter, tests]
+    cheap_first: Small local edits and deterministic formatters.
+    escalate_when: two failed local implementation attempts.
+  broken-code-fixer:
+    purpose: Diagnose and fix failing builds/tests/runtime errors.
+    inputs: [command, logs, stack_trace, recent_diff]
+    outputs: [cause, minimal_patch, verification_result]
+    run_when: error output exists
+    do_not_run_when: no reproducible failure
+    tools: [op-fix, op-test, git diff, rg]
+    cheap_first: Parse logs and reproduce locally before model use.
+    escalate_when: local hypotheses fail repeatedly.
+  testing:
+    purpose: Detect, run, create, and analyze tests.
+    inputs: [project_profile, diff, logs]
+    outputs: [targeted_command, results, missing_tests]
+    run_when: code changed or failure reported
+    do_not_run_when: docs-only changes
+    tools: [op-test, coverage, test logs]
+    cheap_first: Targeted tests before full suite.
+    escalate_when: failure cause is ambiguous after log analysis.
+  gitops:
+    purpose: Keep branches, commits, PRs, and rollback safe.
+    inputs: [git_status, diff, task]
+    outputs: [change_summary, commit_message, branch_name, pr_draft]
+    run_when: before commit, PR, release
+    do_not_run_when: no git repository
+    tools: [op-git, secret_scan, gh]
+    cheap_first: Use local git before GitHub MCP.
+    escalate_when: risky diff or release rollback planning.
+  code-review:
+    purpose: Find bugs, regressions, missing tests, and risky diffs.
+    inputs: [diff, tests, project_rules]
+    outputs: [findings, severity, suggested_checks]
+    run_when: PR review or before merge
+    do_not_run_when: generated-only diff unless requested
+    tools: [op-review, static_analysis, tests]
+    cheap_first: Heuristics and scanners before model review.
+    escalate_when: security, concurrency, or API behavior changes.
+  refactor:
+    purpose: Improve structure while preserving behavior.
+    inputs: [scope, goal, tests]
+    outputs: [refactor_plan, patch, verification]
+    run_when: scope and tests are known
+    do_not_run_when: code is already failing without diagnosis
+    tools: [AST tools, formatter, op-test]
+    cheap_first: Mechanical transforms first.
+    escalate_when: public API or architecture boundary changes.
+  documentation:
+    purpose: Produce README, API docs, decisions, and changelog text.
+    inputs: [code, diff, project_context]
+    outputs: [docs_patch, release_notes, explanation]
+    run_when: feature complete or release prep
+    do_not_run_when: behavior is still unstable
+    tools: [op-context, templates]
+    cheap_first: Generate from diff and templates.
+    escalate_when: complex conceptual docs are needed.
+  security:
+    purpose: Detect secrets, auth risks, vulnerable dependencies.
+    inputs: [diff, configs, dependencies]
+    outputs: [findings, remediation, block_status]
+    run_when: before commit/release or security-sensitive changes
+    do_not_run_when: never for release paths
+    tools: [secret_scan, dependency_audit, SAST]
+    cheap_first: Deterministic scanners first.
+    escalate_when: exploitability or threat-model reasoning is needed.
+  performance:
+    purpose: Diagnose bottlenecks from evidence.
+    inputs: [profiles, benchmarks, logs]
+    outputs: [bottleneck, benchmark_plan, patch_options]
+    run_when: measurable slowness exists
+    do_not_run_when: speculative optimization
+    tools: [profiler, benchmark, op-test]
+    cheap_first: Measure before reasoning.
+    escalate_when: algorithmic redesign is required.
+  dependency:
+    purpose: Audit and update packages safely.
+    inputs: [manifests, lockfiles, advisories]
+    outputs: [upgrade_plan, risk_notes, test_matrix]
+    run_when: dependency update or audit request
+    do_not_run_when: unrelated code tasks
+    tools: [package_manager, audit, package_lookup]
+    cheap_first: Registry/audit data before AI.
+    escalate_when: breaking migrations or security advisories.
+  deployment-ci:
+    purpose: Fix CI, deployment, release, and rollback workflows.
+    inputs: [ci_logs, workflow_files, project_profile]
+    outputs: [ci_patch, deploy_checklist, rollback_plan]
+    run_when: CI failing or release prep
+    do_not_run_when: local-only coding tasks
+    tools: [shell, docker, gh, GitHub MCP]
+    cheap_first: Parse logs and rerun local equivalents.
+    escalate_when: production-impacting deployment decisions.

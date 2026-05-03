@@ -1,0 +1,13 @@
+name: feature
+steps:
+  - op: context
+    args: ["--refresh"]
+  - op: route
+    args: ["{{task}}"]
+  - op: test
+    args: ["--dry-run"]
+  - op: review
+    args: []
+  - op: git
+    args: ["summary"]
+cost_policy: local_first_then_L2

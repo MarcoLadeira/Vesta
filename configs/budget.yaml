@@ -1,0 +1,10 @@
+monthly_usd_limit: 50.0
+daily_usd_limit: 5.0
+per_task_soft_limit_usd: 0.75
+per_task_hard_limit_usd: 3.0
+warn_at_percent: 70
+stop_at_percent: 95
+require_confirmation_for_level: L4
+cache_before_model: true
+batch_agents: true
+dedupe_similar_tasks: true

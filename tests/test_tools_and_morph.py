@@ -1,0 +1,51 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from opcoding.free_tools import run_tool, tools_doctor
+from opcoding.morph import build_morph_payload, morph_apply_snippet
+
+
+class ToolsAndMorphTests(unittest.TestCase):
+    def test_tools_doctor_reports_install_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            doctor = tools_doctor(root)
+            self.assertIn(".opcoding-tools", doctor["root"])
+            self.assertIn("ruff", doctor["installed"])
+
+    def test_pip_audit_is_a_registered_runnable_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = run_tool(root, "pip-audit", timeout=1)
+
+        self.assertEqual(result["tool"], "pip-audit")
+        self.assertIn("command", result)
+        self.assertIn(".", result["command"])
+        self.assertIn("--skip-editable", result["command"])
+        self.assertNotIn("unknown tool", result.get("error", ""))
+
+    def test_morph_payload_uses_fast_model(self):
+        payload = build_morph_payload("Add error handling", "code", "updated")
+        self.assertEqual(payload["model"], "morph-v3-fast")
+        self.assertIn(
+            "<instruction>Add error handling</instruction>",
+            payload["messages"][0]["content"],
+        )
+
+    def test_morph_blocks_secret_like_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = morph_apply_snippet(
+                root,
+                "Update code",
+                "const token = 'sk-123456789012345678901234';",
+                execute=True,
+                confirm_spend=True,
+            )
+            self.assertIn("blocked", result)
+            self.assertFalse(result["executed"])
+
+
+if __name__ == "__main__":
+    unittest.main()

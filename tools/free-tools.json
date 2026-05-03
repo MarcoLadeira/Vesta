@@ -1,0 +1,96 @@
+{
+  "python": [
+    {
+      "name": "ruff",
+      "purpose": "Fast Python linting and formatting",
+      "install": "pip install ruff",
+      "run": "ruff check .",
+      "cost": "free/local",
+      "network": "install only"
+    },
+    {
+      "name": "bandit",
+      "purpose": "Python security linting",
+      "install": "pip install bandit",
+      "run": "bandit -r .",
+      "cost": "free/local",
+      "network": "install only"
+    },
+    {
+      "name": "pip-audit",
+      "purpose": "Python dependency vulnerability audit",
+      "install": "pip install pip-audit",
+      "run": "pip-audit",
+      "cost": "free",
+      "network": "may query vulnerability data"
+    },
+    {
+      "name": "detect-secrets",
+      "purpose": "Baseline-based secret scanning",
+      "install": "pip install detect-secrets",
+      "run": "detect-secrets scan --all-files",
+      "cost": "free/local",
+      "network": "install only"
+    }
+  ],
+  "node": [
+    {
+      "name": "pyright",
+      "purpose": "Python static type checking",
+      "install": "npm install pyright",
+      "run": "pyright",
+      "cost": "free/local",
+      "network": "install only"
+    },
+    {
+      "name": "markdownlint-cli2",
+      "purpose": "Markdown linting",
+      "install": "npm install markdownlint-cli2",
+      "run": "markdownlint-cli2 \"**/*.md\"",
+      "cost": "free/local",
+      "network": "install only"
+    },
+    {
+      "name": "prettier",
+      "purpose": "Formatter for JS/TS/JSON/CSS/Markdown",
+      "install": "npm install prettier",
+      "run": "prettier --check .",
+      "cost": "free/local",
+      "network": "install only"
+    },
+    {
+      "name": "@biomejs/biome",
+      "purpose": "Fast JS/TS formatter and linter",
+      "install": "npm install @biomejs/biome",
+      "run": "biome check .",
+      "cost": "free/local",
+      "network": "install only"
+    }
+  ],
+  "go": [
+    {
+      "name": "osv-scanner",
+      "purpose": "Open-source dependency vulnerability scanning",
+      "install": "go install github.com/google/osv-scanner/cmd/osv-scanner@latest",
+      "run": "osv-scanner scan .",
+      "cost": "free",
+      "network": "install and vulnerability lookup"
+    },
+    {
+      "name": "gitleaks",
+      "purpose": "Secret scanning for repos and files",
+      "install": "go install github.com/zricethezav/gitleaks/v8@latest",
+      "run": "gitleaks detect --source .",
+      "cost": "free/local",
+      "network": "install only"
+    },
+    {
+      "name": "actionlint",
+      "purpose": "GitHub Actions workflow linting",
+      "install": "go install github.com/rhysd/actionlint/cmd/actionlint@latest",
+      "run": "actionlint",
+      "cost": "free/local",
+      "network": "install only"
+    }
+  ]
+}

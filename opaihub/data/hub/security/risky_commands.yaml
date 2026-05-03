@@ -1,0 +1,27 @@
+schema_version: 1
+deny:
+  - "curl * | sh"
+  - "Invoke-WebRequest * | iex"
+  - "iwr * | iex"
+  - "chmod -R 777"
+confirm:
+  - "git push"
+  - "git merge"
+  - "git rebase"
+  - "git reset --hard"
+  - "git clean -fd"
+  - "git branch -D"
+  - "Remove-Item -Recurse"
+  - "rm -rf"
+  - "docker system prune"
+  - "docker compose down -v"
+  - "npm publish"
+  - "twine upload"
+  - "terraform apply"
+  - "kubectl delete"
+  - "vercel --prod"
+  - "wrangler deploy"
+safe_examples:
+  - "git status --short --branch"
+  - "python -m unittest discover -s tests"
+  - "python -m opcoding tools . run ruff"

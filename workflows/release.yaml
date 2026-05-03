@@ -1,0 +1,11 @@
+name: release
+steps:
+  - op: test
+    args: ["--full"]
+  - op: git
+    args: ["secrets", "--staged"]
+  - op: review
+    args: []
+  - op: git
+    args: ["pr"]
+cost_policy: confirmation_for_deploy

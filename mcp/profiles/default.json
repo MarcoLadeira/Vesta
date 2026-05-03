@@ -1,0 +1,23 @@
+{
+  "name": "default-local-first",
+  "enabled": [
+    "filesystem-readonly",
+    "git-local",
+    "testing-local",
+    "memory-local"
+  ],
+  "disabled_by_default": [
+    "github",
+    "browser-web",
+    "database",
+    "package-lookup"
+  ],
+  "roots": [
+    "${PROJECT_ROOT}"
+  ],
+  "rules": {
+    "external_network_requires_reason": true,
+    "write_tools_require_confirmation": true,
+    "destructive_tools_forbidden_by_default": true
+  }
+}

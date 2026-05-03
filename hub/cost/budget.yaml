@@ -1,0 +1,24 @@
+schema_version: 1
+default_policy: local_first
+monthly_usd_limit: 50.0
+daily_usd_limit: 5.0
+per_workflow_soft_limit_usd: 0.75
+per_workflow_hard_limit_usd: 3.0
+warn_at_percent: 70
+stop_at_percent: 95
+free_first:
+  - deterministic scripts
+  - local registry lookup
+  - local scanners
+  - cached context
+  - local model when configured
+requires_confirmation:
+  - cloud model call
+  - paid API
+  - GPT-5.5 Max or equivalent
+  - context over 50000 estimated tokens
+  - workflow projected over hard limit
+logging:
+  store_estimates: true
+  store_prompts: false
+  redact_secrets: true

@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "workflows": [
+    {
+      "id": "new_project_onboarding",
+      "trigger": "New project attached to hub",
+      "inputs": ["project path"],
+      "steps": ["opcoding scan", "opcoding init", "opcoding context", "op-hub doctor"],
+      "agents_used": ["context-manager", "tool-health", "mcp-manager"],
+      "tools_used": ["opcoding-cli", "op-ai-hub-cli"],
+      "cost_policy": "L0 only",
+      "permission_policy": "read project files; write .opcoding profile only",
+      "output_artifacts": [".opcoding/project.json", ".opcoding/context.md", "hub scan report"],
+      "failure_handling": "Report missing commands and continue without AI."
+    },
+    {
+      "id": "feature_plan",
+      "trigger": "User asks to build or change behavior",
+      "inputs": ["task", "project context"],
+      "steps": ["route cost", "scan diff", "select planner", "produce plan", "dry-run tests"],
+      "agents_used": ["hub-router", "cost-controller", "coding-planner", "testing"],
+      "tools_used": ["opcoding plan", "opcoding test"],
+      "cost_policy": "L0/L1 first; L2 only after local evidence",
+      "permission_policy": "read-only planning",
+      "output_artifacts": ["feature plan", "test strategy"],
+      "failure_handling": "Ask for missing requirements."
+    },
+    {
+      "id": "bug_fix",
+      "trigger": "Bug report or failing command",
+      "inputs": ["error log", "command", "diff"],
+      "steps": ["reproduce", "parse failure", "find smallest files", "suggest patch", "verify"],
+      "agents_used": ["broken-code-fixer", "testing", "cost-controller"],
+      "tools_used": ["opcoding fix", "opcoding test", "ruff"],
+      "cost_policy": "local reproduction before AI",
+      "permission_policy": "project root only",
+      "output_artifacts": ["failure analysis", "patch plan"],
+      "failure_handling": "Escalate only after local hypotheses fail."
+    },
+    {
+      "id": "test_failure_debug",
+      "trigger": "Test command fails",
+      "inputs": ["test log", "recent diff"],
+      "steps": ["capture log", "extract clues", "run targeted test", "route if ambiguous"],
+      "agents_used": ["testing", "broken-code-fixer"],
+      "tools_used": ["opcoding test", "opcoding fix"],
+      "cost_policy": "no AI until logs and diff collected",
+      "permission_policy": "test commands only",
+      "output_artifacts": ["test log", "hypotheses"],
+      "failure_handling": "Stop if no reproducible failure."
+    },
+    {
+      "id": "pull_request_review",
+      "trigger": "Before PR or review request",
+      "inputs": ["base branch", "diff", "test evidence"],
+      "steps": ["secret scan", "diff review", "targeted tests", "PR summary"],
+      "agents_used": ["gitops", "code-review", "security"],
+      "tools_used": ["opcoding review", "opcoding git", "detect-secrets"],
+      "cost_policy": "static checks before model review",
+      "permission_policy": "no push/merge without confirmation",
+      "output_artifacts": ["review findings", "PR description"],
+      "failure_handling": "Block on secret findings."
+    },
+    {
+      "id": "dependency_update",
+      "trigger": "Dependency update or audit",
+      "inputs": ["manifests", "lockfiles"],
+      "steps": ["scan manifests", "audit", "plan update", "run tests"],
+      "agents_used": ["security", "testing", "cost-controller"],
+      "tools_used": ["osv-scanner", "pip-audit"],
+      "cost_policy": "network vulnerability checks are opt-in",
+      "permission_policy": "read-only until update approved",
+      "output_artifacts": ["dependency report", "test matrix"],
+      "failure_handling": "Keep existing lockfile if risk unclear."
+    },
+    {
+      "id": "security_audit",
+      "trigger": "Security review or before release",
+      "inputs": ["diff", "dependency files", "configs"],
+      "steps": ["secret scan", "SAST", "dependency audit", "risk summary"],
+      "agents_used": ["security", "code-review"],
+      "tools_used": ["detect-secrets", "gitleaks", "bandit", "osv-scanner"],
+      "cost_policy": "deterministic scanners first",
+      "permission_policy": "read-only scans",
+      "output_artifacts": ["security report"],
+      "failure_handling": "Block on confirmed secrets."
+    },
+    {
+      "id": "docs_generation",
+      "trigger": "Docs requested or release prep",
+      "inputs": ["context", "diff", "templates"],
+      "steps": ["build context", "generate docs from diff", "markdown lint"],
+      "agents_used": ["documentation", "context-manager"],
+      "tools_used": ["opcoding context", "markdownlint-cli2"],
+      "cost_policy": "templates first",
+      "permission_policy": "docs paths by default",
+      "output_artifacts": ["docs patch"],
+      "failure_handling": "Do not invent missing behavior."
+    },
+    {
+      "id": "research_brief",
+      "trigger": "Research task",
+      "inputs": ["question", "source requirements"],
+      "steps": ["check cache", "web/docs search if needed", "summarize with citations"],
+      "agents_used": ["research", "cost-controller"],
+      "tools_used": ["web-search", "docs"],
+      "cost_policy": "cache/search before model synthesis",
+      "permission_policy": "read-only web",
+      "output_artifacts": ["research brief"],
+      "failure_handling": "Report source gaps."
+    },
+    {
+      "id": "tool_installation",
+      "trigger": "New tool requested",
+      "inputs": ["tool metadata"],
+      "steps": ["dedupe registry", "license/cost check", "install plan", "health check"],
+      "agents_used": ["tool-discovery", "tool-installer", "tool-health"],
+      "tools_used": ["op-hub list-tools", "opcoding tools"],
+      "cost_policy": "free/local only by default",
+      "permission_policy": "project-local install preferred",
+      "output_artifacts": ["tool registry entry", "health result"],
+      "failure_handling": "Stop if paid/subscription required."
+    },
+    {
+      "id": "tool_health_check",
+      "trigger": "Doctor or scheduled check",
+      "inputs": ["tool registry"],
+      "steps": ["run safe health checks", "summarize missing tools"],
+      "agents_used": ["tool-health"],
+      "tools_used": ["op-hub tool health"],
+      "cost_policy": "L0 only",
+      "permission_policy": "read-only health commands",
+      "output_artifacts": ["health report"],
+      "failure_handling": "Report missing command."
+    },
+    {
+      "id": "daily_hub_check",
+      "trigger": "Manual daily check",
+      "inputs": ["project path"],
+      "steps": ["doctor", "tool health", "cost status", "git safety"],
+      "agents_used": ["tool-health", "cost-controller", "gitops"],
+      "tools_used": ["op-hub doctor", "opcoding git"],
+      "cost_policy": "L0 only",
+      "permission_policy": "read-only",
+      "output_artifacts": ["daily check report"],
+      "failure_handling": "Do not auto-fix."
+    },
+    {
+      "id": "local_model_setup",
+      "trigger": "User wants local models",
+      "inputs": ["hardware", "model preference"],
+      "steps": ["check hardware", "choose local runner", "download confirmation", "health check"],
+      "agents_used": ["local-model", "cost-controller"],
+      "tools_used": ["local-models"],
+      "cost_policy": "free local compute; ask before downloads",
+      "permission_policy": "no cloud by default",
+      "output_artifacts": ["local model plan"],
+      "failure_handling": "Fallback to L1 cache if no model installed."
+    },
+    {
+      "id": "mcp_server_setup",
+      "trigger": "MCP integration requested",
+      "inputs": ["server id", "project policy"],
+      "steps": ["registry lookup", "permission review", "render config", "doctor"],
+      "agents_used": ["mcp-manager", "security"],
+      "tools_used": ["op-hub mcp list", "opcoding mcp doctor"],
+      "cost_policy": "local MCP first",
+      "permission_policy": "roots and read-only default",
+      "output_artifacts": ["mcp config example", "risk report"],
+      "failure_handling": "Stop if server lacks path restrictions."
+    }
+  ]
+}

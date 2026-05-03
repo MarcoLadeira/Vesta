@@ -1,0 +1,16 @@
+provider: morphllm
+endpoint: "https://api.morphllm.com/v1/chat/completions"
+default_model: "morph-v3-fast"
+api_key_env: "MORPH_API_KEY"
+policy:
+  execute_default: false
+  require_confirm_spend: true
+  never_store_api_key: true
+  use_for:
+    - fast code apply
+    - deterministic edit merging
+    - patch acceleration after local plan
+  do_not_use_for:
+    - broad reasoning
+    - secret-containing code
+    - tasks that local tools can complete

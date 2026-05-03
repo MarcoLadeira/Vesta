@@ -1,0 +1,11 @@
+name: security-gate
+steps:
+  - op: git
+    args: ["{{project}}", "secrets", "--staged"]
+  - op: review
+    args: ["{{project}}"]
+  - op: mcp
+    args: ["{{project}}", "doctor"]
+blocks:
+  - secret-like staged diff
+  - missing confirmation for external write APIs

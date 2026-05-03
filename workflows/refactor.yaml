@@ -1,0 +1,9 @@
+name: refactor
+steps:
+  - op: test
+    args: ["--dry-run"]
+  - op: route
+    args: ["{{task}}"]
+  - op: review
+    args: []
+cost_policy: tests_first
