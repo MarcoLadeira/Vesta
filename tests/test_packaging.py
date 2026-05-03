@@ -47,7 +47,7 @@ class PackagedHubTests(unittest.TestCase):
         self.assertIn("git clone", text)
         self.assertIn("--shell-aliases", text)
         self.assertIn("--no-shell-aliases", text)
-        self.assertIn("python -m opai install --project \"$ROOT\"", text)
+        self.assertIn('python -m opai install --project "$ROOT"', text)
 
 
 if __name__ == "__main__":
