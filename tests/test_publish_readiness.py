@@ -1,16 +1,39 @@
 import tempfile
-import tomllib
 import unittest
 from pathlib import Path
 
 from opai.integrations import activate_project, project_status
 from opai.publish import publish_status
 
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
+
+
+def _project_scripts() -> dict[str, str]:
+    text = Path("pyproject.toml").read_text(encoding="utf-8")
+    if tomllib:
+        return tomllib.loads(text)["project"]["scripts"]
+
+    scripts: dict[str, str] = {}
+    in_scripts = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line == "[project.scripts]":
+            in_scripts = True
+            continue
+        if in_scripts and line.startswith("["):
+            break
+        if in_scripts and "=" in line:
+            key, value = line.split("=", 1)
+            scripts[key.strip()] = value.strip().strip('"')
+    return scripts
+
 
 class PublishReadinessTests(unittest.TestCase):
     def test_op_command_is_the_opai_cli(self):
-        data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-        scripts = data["project"]["scripts"]
+        scripts = _project_scripts()
 
         self.assertEqual(scripts["op"], "opai.cli:main")
         self.assertEqual(scripts["opai"], "opai.cli:main")

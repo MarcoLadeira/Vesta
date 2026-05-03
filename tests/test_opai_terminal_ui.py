@@ -39,7 +39,12 @@ class OPaiTerminalUITests(unittest.TestCase):
 
     def test_ansi_graphic_renders_from_image(self):
         graphic = render_graphic(mode="ansi", width=12)
-        self.assertIn("\033[48;2;", graphic)
+        try:
+            import PIL  # noqa: F401
+        except ModuleNotFoundError:
+            self.assertIn("OPai", graphic)
+        else:
+            self.assertIn("\033[48;2;", graphic)
         self.assertGreater(len(graphic.splitlines()), 3)
 
     def test_inline_graphic_uses_image_file(self):
