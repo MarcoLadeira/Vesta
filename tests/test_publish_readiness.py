@@ -2,8 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import opai.publish
 from opai.integrations import activate_project, project_status
-from opai.publish import publish_status
+from opai.publish import _scripts_from_toml_text, publish_status
 
 try:
     import tomllib
@@ -38,6 +39,19 @@ class PublishReadinessTests(unittest.TestCase):
         self.assertEqual(scripts["op"], "opai.cli:main")
         self.assertEqual(scripts["opai"], "opai.cli:main")
         self.assertEqual(scripts["opcoding"], "opcoding.cli:main")
+
+    def test_publish_parser_supports_python_310_without_tomllib(self):
+        original = opai.publish.tomllib
+        try:
+            opai.publish.tomllib = None
+            scripts = _scripts_from_toml_text(
+                '[project.scripts]\nop = "opai.cli:main"\nopai = "opai.cli:main"\n'
+            )
+        finally:
+            opai.publish.tomllib = original
+
+        self.assertEqual(scripts["op"], "opai.cli:main")
+        self.assertEqual(scripts["opai"], "opai.cli:main")
 
     def test_activation_dry_run_does_not_write_project_files(self):
         with tempfile.TemporaryDirectory() as project_tmp:

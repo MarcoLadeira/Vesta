@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
-import tomllib
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
 
 
 GENERATED_DIRS = [
@@ -26,12 +30,31 @@ def _gitignore_status(root: Path) -> dict[str, bool]:
     return {pattern: pattern in text for pattern in GENERATED_DIRS}
 
 
+def _scripts_from_toml_text(text: str) -> dict[str, str]:
+    if tomllib:
+        data = tomllib.loads(text)
+        return dict(data.get("project", {}).get("scripts", {}))
+
+    scripts: dict[str, str] = {}
+    in_scripts = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line == "[project.scripts]":
+            in_scripts = True
+            continue
+        if in_scripts and line.startswith("["):
+            break
+        if in_scripts and "=" in line:
+            key, value = line.split("=", 1)
+            scripts[key.strip()] = value.strip().strip('"')
+    return scripts
+
+
 def _script_status(root: Path) -> dict[str, str]:
     pyproject = root / "pyproject.toml"
     if not pyproject.exists():
         return {}
-    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    return dict(data.get("project", {}).get("scripts", {}))
+    return _scripts_from_toml_text(pyproject.read_text(encoding="utf-8"))
 
 
 def publish_status(root: Path) -> dict[str, Any]:
