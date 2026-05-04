@@ -145,11 +145,13 @@ def onboard_project(root: Path, force: bool = False) -> dict[str, Any]:
         write_json(
             budget_path,
             {
-                "daily_usd_limit": 5.0,
-                "monthly_usd_limit": 50.0,
-                "per_task_soft_limit_usd": 0.75,
-                "per_task_hard_limit_usd": 3.0,
-                "require_confirmation_for_level": "L4",
+                "daily_usd_limit": 0.5,
+                "monthly_usd_limit": 5.0,
+                "per_task_soft_limit_usd": 0.1,
+                "per_task_hard_limit_usd": 0.5,
+                "require_confirmation_for_level": "L2",
+                "store_prompts": False,
+                "max_context_chars": 6000,
             },
         )
 

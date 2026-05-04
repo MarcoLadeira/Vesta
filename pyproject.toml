@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opai"
-version = "0.1.0"
-description = "OPai 0.1.0 pre-alpha: local-first AI tools hub with cost-aware coding workflows."
+version = "0.1.1"
+description = "OPai 0.1.1 pre-alpha: local-first AI tools hub with cost-aware coding workflows."
 requires-python = ">=3.10"
 dependencies = []
 
@@ -32,7 +32,7 @@ opaihub = ["data/hub/**/*"]
 
 [tool.opai]
 brand = "OPai"
-release = "0.1.0-pre-alpha"
+release = "0.1.1-pre-alpha"
 default_mode = "local-first"
 
 [tool.opcoding]

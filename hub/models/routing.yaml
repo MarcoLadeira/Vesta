@@ -9,10 +9,10 @@ tiers:
     confirmation_required: false
   L2:
     description: cheap coding/reasoning model
-    confirmation_required: when_budget_soft_limit_exceeded
+    confirmation_required: always_if_cloud
   L3:
     description: strong reasoning model
-    confirmation_required: when_context_large_or_budget_low
+    confirmation_required: always
   L4:
     description: GPT-5.5 Max or equivalent
     confirmation_required: always
@@ -22,7 +22,8 @@ routing_rules:
   local_lint_test_scan: L0
   context_summary_from_cache: L1
   small_code_patch_after_local_evidence: L2
-  architecture_security_or_deploy_design: L3
+  architecture_security_or_deploy_design: L2
+  release_security_preflight: L0
   repeated_failed_lower_tiers_or_incident: L4
 pre_ai_requirements:
   - collect local evidence first

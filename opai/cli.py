@@ -203,7 +203,7 @@ def cmd_route(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.activate:
         activate_project(root, install_global=False)
-    print_json(route_task(root, args.task))
+    print_json(route_task(root, args.task, include_evidence=args.full_evidence))
     return 0
 
 
@@ -256,7 +256,7 @@ def cmd_publish(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="opai",
-        description="OPai 0.1.0 pre-alpha: local-first AI tools hub.",
+        description="OPai 0.1.1 pre-alpha: local-first AI tools hub.",
     )
     parser.add_argument("--project", default=".", help="Project root")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -409,6 +409,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--activate",
         action="store_true",
         help="Also write OPai project activation files before routing",
+    )
+    p.add_argument(
+        "--full-evidence",
+        action="store_true",
+        help="Include full local evidence instead of compact summaries",
     )
     p.set_defaults(func=cmd_route)
 

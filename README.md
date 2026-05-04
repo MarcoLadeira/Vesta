@@ -2,14 +2,14 @@
 
 ![OPai mascot](opai/assets/opai-mascot.png)
 
-OPai 0.1.0 pre-alpha is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, and cost controls.
+OPai 0.1.1 pre-alpha is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, and cost controls.
 
 The goal is simple: make AI-assisted development feel close to "one prompt to build, one prompt to ship" without blindly burning expensive model credits.
 
 Default posture:
 
 ```text
-local tools -> cache/context -> cheap model -> strong model -> GPT-5.5 Max only when justified
+deterministic tools -> compact cache/context -> local model -> confirmed cheap cloud -> strong model only after evidence
 ```
 
 Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `opcoding`.
@@ -24,23 +24,29 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 - Safe command policies for destructive shell commands, Git operations, cloud calls, and secret-bearing logs.
 - A packaged OP AI Hub foundation with tools, agents, workflows, prompts, model routing, MCP config examples, and docs.
 
-## Install
+## Install OPai Permanently
+
+One command installs OPai, activates the current project, links OPai + Superpowers skills, and adds persistent AI-client wrappers for future repos.
 
 Windows PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
-op status
 ```
 
 macOS/Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
+```
+
+Then restart your terminal and AI clients once, and check:
+
+```sh
 op status
 ```
 
-That one command clones or updates OPai under `~/.opai/source`, installs the `op`/`opai` CLI, activates the project you ran it from, writes OPai discovery files, installs and enables Superpowers discovery, and installs persistent AI-client shell wrappers by default. After first install, restart terminals and AI coding clients once so aliases and skills reload.
+The installer clones or updates OPai under `~/.opai/source`, installs the `op`/`opai` CLI, activates the project you ran it from, writes OPai discovery files, installs and enables Superpowers discovery, and installs persistent AI-client shell wrappers by default.
 
 From this folder during development:
 
@@ -83,6 +89,19 @@ op install --with-tools
 
 After the first install, restart terminal sessions and AI coding clients so native skill discovery can see OPai and Superpowers.
 
+## Ultra-Low Credit Mode
+
+OPai 0.1.1 is tuned to spend less than normal AI coding by default:
+
+- `opai route` returns compact local evidence instead of large logs and full diffs.
+- Release, deploy, security, and publish tasks start at local preflight, not strong AI.
+- Model prompts are not stored in cache unless `OPAI_STORE_PROMPTS=1`.
+- Default generated project budgets are `$0.50/day`, `$5/month`, and `$0.10` soft limit per task.
+- Context is capped to a compact 6,000 characters by default, with a hard 12,000-character guard.
+- Cloud model use, paid tools, deploys, destructive commands, and large contexts require confirmation.
+
+Use `opai route "<task>" --full-evidence` only when you need the larger diagnostic payload.
+
 ## Use OPai In Any Project
 
 Run this in a project once:
@@ -113,7 +132,7 @@ OPai writes managed instruction blocks to the top of `AGENTS.md`, `CLAUDE.md`, `
 ## OPai Commands
 
 ```text
-opai version          show OPai 0.1.0 pre-alpha
+opai version          show OPai 0.1.1 pre-alpha
 op version            same as opai version
 op activate           attach current project and ensure Superpowers/AI instructions
 op status             show activation, Superpowers, wrappers, and project state
@@ -195,6 +214,7 @@ python -m opaihub tool add --id my-tool --description "What it does"
 Docs:
 
 - `hub/docs/INSTALL.md`
+- `hub/docs/COST_REDUCTION_0_1_1.md`
 - `hub/docs/AI_CLIENT_INTEGRATIONS.md`
 - `hub/docs/OPAI_0_1_0_PRE_ALPHA.md`
 - `hub/docs/OP_AI_HUB_OVERVIEW.md`
@@ -204,6 +224,14 @@ Docs:
 - `hub/docs/ADDING_WORKFLOWS.md`
 - `hub/docs/SKILLS_AND_MODEL_ROUTING.md`
 - `hub/docs/WORKFLOWS.md`
+
+Community:
+
+- [Discussions](https://github.com/MarcoLadeira/OPai/discussions): questions, ideas, tool suggestions, and install help.
+- [Issues](https://github.com/MarcoLadeira/OPai/issues): reproducible bugs, cost regressions, security hardening, and roadmap tasks.
+- [CONTRIBUTING.md](CONTRIBUTING.md): local development and PR guidance.
+- [SECURITY.md](SECURITY.md): reporting and safety defaults.
+- [SUPPORT.md](SUPPORT.md): where to ask for help.
 
 This first-third implementation includes:
 

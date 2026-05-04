@@ -32,7 +32,7 @@
       "id": "opai-cli",
       "name": "OPai CLI",
       "category": "automation",
-      "description": "Branded 0.1.0 pre-alpha CLI for one-command local OPai installation, hub access, dashboards, and low-cost workflow entry points.",
+      "description": "Branded 0.1.1 pre-alpha CLI for one-command local OPai installation, hub access, dashboards, and low-cost workflow entry points.",
       "status": "installed",
       "type": "local",
       "cost_level": "free",

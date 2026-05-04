@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a capability for OPai.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow should OPai make easier, cheaper, or safer?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful version.
+    validations:
+      required: true
+  - type: dropdown
+    id: cost
+    attributes:
+      label: Cost impact
+      options:
+        - lowers cost
+        - neutral
+        - may increase cost but should be optional
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra context
+      description: Links, tools, examples, or similar projects.

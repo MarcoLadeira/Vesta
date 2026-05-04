@@ -46,8 +46,9 @@
     {
       "id": "release_security",
       "description": "Prepare production release, security review, rollback, or deployment gates.",
-      "default_tier": "L3",
+      "default_tier": "L0",
       "signals": ["release", "deploy", "production", "publish", "security", "secret", "vulnerability", "rollback"],
+      "requires_confirmation": true,
       "escalation_conditions": ["deployment is irreversible", "secrets or auth are involved"]
     },
     {

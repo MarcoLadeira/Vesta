@@ -117,7 +117,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "OPai 0.1.0 pre-alpha installed permanently."
+Write-Host "OPai 0.1.1 pre-alpha installed permanently."
 Write-Host "Source: $Root"
 Write-Host "Activated project: $ProjectRoot"
 Write-Host "Restart terminals and AI clients once so aliases and skills reload."

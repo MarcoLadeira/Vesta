@@ -1,0 +1,33 @@
+name: Cost or token regression
+description: Report a workflow that uses too many tokens, calls cloud tools too soon, or stores too much context.
+title: "[Cost]: "
+labels: ["cost", "bug"]
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow
+      description: What command or AI-client flow used too much context or credits?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected low-cost route
+      description: What should OPai have used first?
+      placeholder: local tests, diff summary, cached context, local model, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Paste redacted route output, budget report, or logs.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed secrets, tokens, private logs, and private code.
+          required: true

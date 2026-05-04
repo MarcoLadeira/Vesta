@@ -14,7 +14,7 @@ from opaihub.team import cloud_status, init_team
 
 class OPaiFinishTests(unittest.TestCase):
     def test_brand_metadata_is_pre_alpha(self):
-        self.assertEqual(__version__, "0.1.0")
+        self.assertEqual(__version__, "0.1.1")
         self.assertEqual(__release_stage__, "pre-alpha")
 
     def test_install_project_creates_local_state_without_network(self):
@@ -25,7 +25,7 @@ class OPaiFinishTests(unittest.TestCase):
             )
 
             self.assertEqual(result["brand"], "OPai")
-            self.assertEqual(result["version"], "0.1.0")
+            self.assertEqual(result["version"], "0.1.1")
             self.assertEqual(result["release_stage"], "pre-alpha")
             self.assertTrue((root / ".opaihub" / "project.json").exists())
             self.assertEqual(result["network_actions"], [])

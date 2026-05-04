@@ -64,6 +64,7 @@ def classify_task(project_root: Path, task: str) -> dict[str, Any]:
     return {
         "task_type": best.get("id", "general_coding"),
         "default_tier": best.get("default_tier", "L1"),
+        "requires_confirmation": best.get("requires_confirmation", False),
         "matched_signals": best_matches,
         "escalation_conditions": best.get("escalation_conditions", []),
         "description": best.get("description", ""),
@@ -144,10 +145,12 @@ def recommend_model(project_root: Path, task: str) -> dict[str, Any]:
         )
     candidates.sort(key=lambda item: item["score"], reverse=True)
     recommended = candidates[0] if candidates else {}
-    confirmation_required = bool(
-        recommended.get("confirmation_required")
-    ) or _tier_value(recommended.get("tier", "L1")) >= _tier_value(
-        policy.get("confirmation_required_at_or_above", "L3")
+    confirmation_required = bool(recommended.get("confirmation_required"))
+    confirmation_required = (
+        confirmation_required
+        or bool(classification.get("requires_confirmation"))
+        or _tier_value(recommended.get("tier", "L1"))
+        >= _tier_value(policy.get("confirmation_required_at_or_above", "L3"))
     )
     return {
         "task": task,

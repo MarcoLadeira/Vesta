@@ -17,12 +17,44 @@ MODEL_ENV = {
     "L4": "OPCODING_MODEL_L4_COMMAND",
 }
 
+DEFAULT_CONTEXT_MAX_CHARS = 6000
+HARD_CONTEXT_MAX_CHARS = 12000
 
-def _context(root: Path, max_chars: int = 18000) -> str:
+
+def _context(root: Path, max_chars: int | None = None) -> str:
+    requested = max_chars or int(
+        os.environ.get("OPAI_CONTEXT_MAX_CHARS", DEFAULT_CONTEXT_MAX_CHARS)
+    )
+    max_chars = min(requested, HARD_CONTEXT_MAX_CHARS)
     context_file = root / ".opcoding" / "context.md"
     if context_file.exists():
         return read_limited(context_file, max_chars)
     return build_context(root, load_profile(root))[:max_chars]
+
+
+def _build_prompt(task: str, route: dict[str, Any], context: str) -> str:
+    return "\n".join(
+        [
+            "You are an OPcoding coding agent.",
+            f"Route: {route['route']} - {route['route_description']}",
+            "Rules: use local evidence, minimize edits, avoid secrets, provide verification command.",
+            "Budget: use the smallest answer that can safely unblock the task.",
+            "",
+            "Compact project context:",
+            context,
+            "",
+            "Task:",
+            task,
+            "",
+            "Return: plan, target files, patch strategy, tests, risks.",
+        ]
+    )
+
+
+def _cacheable_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
+    if os.environ.get("OPAI_STORE_PROMPTS") == "1":
+        return bundle
+    return {key: value for key, value in bundle.items() if key != "prompt"}
 
 
 def build_model_bundle(
@@ -32,30 +64,20 @@ def build_model_bundle(
     context_hash = sha256_text(context)[:16]
     route = route_task(task, root=root, context_chars=len(context))
     key = prompt_key(task, context_hash, route["route"])
+    prompt = _build_prompt(task, route, context)
     cached = get_cached_bundle(root, key)
     if cached:
-        return {**cached, "cache_hit": True}
+        return {**cached, "prompt": prompt, "cache_hit": True}
 
-    prompt = "\n".join(
-        [
-            "You are an OPcoding coding agent.",
-            f"Route: {route['route']} - {route['route_description']}",
-            "Rules: use local evidence, minimize edits, avoid secrets, provide verification command.",
-            "",
-            "Project context:",
-            context,
-            "",
-            "Task:",
-            task,
-            "",
-            "Return: plan, target files, patch strategy, tests, risks.",
-        ]
-    )
     bundle: dict[str, Any] = {
         "task": task,
         "route": route,
         "context_hash": context_hash,
         "prompt": prompt,
+        "prompt_hash": sha256_text(prompt)[:16],
+        "prompt_chars": len(prompt),
+        "estimated_prompt_tokens": max(1, len(prompt) // 4),
+        "stored_prompt": os.environ.get("OPAI_STORE_PROMPTS") == "1",
         "cache_hit": False,
         "model_executed": False,
         "model_output": "",
@@ -82,5 +104,5 @@ def build_model_bundle(
         else:
             bundle["status"] = "no_model_command_configured"
 
-    put_prompt_bundle(root, key, bundle)
+    put_prompt_bundle(root, key, _cacheable_bundle(bundle))
     return bundle

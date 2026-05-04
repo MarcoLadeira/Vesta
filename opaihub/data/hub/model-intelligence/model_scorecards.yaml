@@ -11,8 +11,8 @@
       "requires_api_key": false,
       "enabled_by_default": true,
       "confirmation_required": false,
-      "strengths": ["gitops_summary", "documentation"],
-      "quality_by_task": {"gitops_summary": 0.96, "documentation": 0.7},
+      "strengths": ["gitops_summary", "documentation", "release_security"],
+      "quality_by_task": {"gitops_summary": 0.96, "documentation": 0.7, "release_security": 0.88},
       "reliability": 0.98
     },
     {

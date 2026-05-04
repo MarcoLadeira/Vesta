@@ -1,0 +1,20 @@
+title: "[Idea] "
+labels: ["idea"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: What should OPai do?
+    validations:
+      required: true
+  - type: textarea
+    id: local_first
+    attributes:
+      label: Local-first path
+      description: How could OPai do this with local tools or cheap routing first?
+  - type: textarea
+    id: risk
+    attributes:
+      label: Cost or permission risk
+      description: What should be disabled, gated, or confirmed?

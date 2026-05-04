@@ -44,7 +44,7 @@ def build_dashboard_html(project_root: Path) -> Path:
 </head>
 <body>
   <header>
-    <h1>OPai 0.1.0 pre-alpha</h1>
+    <h1>OPai 0.1.1 pre-alpha</h1>
     <p>Local-first AI tools hub for low-cost coding, automation, and project workflows.</p>
   </header>
   <main>

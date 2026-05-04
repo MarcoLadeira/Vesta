@@ -1,0 +1,52 @@
+name: Bug report
+description: Report something that is not working in OPai.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing OPai pre-alpha. Please avoid posting secrets, tokens, or private logs.
+  - type: input
+    id: version
+    attributes:
+      label: OPai version
+      placeholder: opai version
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Run ...
+        2. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: local_checks
+    attributes:
+      label: Local checks
+      description: Paste redacted output from op status, opai doctor, or failing tests.
+      render: text
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - install
+        - routing/cost
+        - skills/superpowers
+        - MCP
+        - GitHub/release
+        - docs
+        - other
+    validations:
+      required: true

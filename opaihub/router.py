@@ -7,6 +7,9 @@ from typing import Any
 from .evidence import collect_evidence
 
 
+MAX_ROUTE_TAIL_CHARS = 360
+
+
 def _has_any(text: str, terms: list[str]) -> bool:
     tokens = set(re.findall(r"[a-z0-9]+", text.lower()))
     for term in terms:
@@ -19,7 +22,36 @@ def _has_any(text: str, terms: list[str]) -> bool:
     return False
 
 
-def route_task(project_root: Path, task: str) -> dict[str, Any]:
+def _compact_command(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "returncode": result.get("returncode"),
+        "executed": result.get("executed", False),
+        "policy": result.get("policy"),
+        "output_tail": str(result.get("output_tail", ""))[-MAX_ROUTE_TAIL_CHARS:],
+    }
+
+
+def _compact_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    git = evidence.get("git", {})
+    return {
+        "cache_key": evidence.get("cache_key"),
+        "ai_used": evidence.get("ai_used", False),
+        "markers": evidence.get("markers", []),
+        "languages": evidence.get("languages", []),
+        "test_commands": evidence.get("test_commands", []),
+        "registry_counts": evidence.get("registry_counts", {}),
+        "git": {
+            "is_repo": git.get("is_repo", False),
+            "status": _compact_command(git.get("status", {})),
+            "changed_files": _compact_command(git.get("changed_files", {})),
+            "diff_stat": _compact_command(git.get("diff_stat", {})),
+        },
+    }
+
+
+def route_task(
+    project_root: Path, task: str, include_evidence: bool = False
+) -> dict[str, Any]:
     evidence = collect_evidence(project_root, task)
     lowered = task.lower()
 
@@ -58,22 +90,23 @@ def route_task(project_root: Path, task: str) -> dict[str, Any]:
         ]
     elif _has_any(lowered, ["security", "secret", "auth", "vulnerability"]):
         workflow = "security_audit"
-        model_tier = "L2"
+        model_tier = "L0"
+        requires_confirmation = True
         next_actions = [
             "run secret scan",
             "run dependency audit",
             "run static security checks",
-            "summarize findings before model review",
+            "summarize local findings before any model review",
         ]
     elif _has_any(lowered, ["deploy", "release", "ship", "production", "publish"]):
         workflow = "release_prepare"
-        model_tier = "L3"
+        model_tier = "L0"
         requires_confirmation = True
         next_actions = [
-            "run release preflight",
-            "run tests and security checks",
+            "run release preflight locally",
+            "run targeted tests and security checks",
             "prepare rollback plan",
-            "confirm before any cloud/deploy action",
+            "confirm before any cloud, deploy, or strong-model action",
         ]
         safety_gates.append("ask before deploy/cloud action")
     elif _has_any(lowered, ["fix", "bug", "implement", "add", "build", "refactor"]):
@@ -83,7 +116,7 @@ def route_task(project_root: Path, task: str) -> dict[str, Any]:
             ["build minimal context pack", "prefer cheap/local model for first pass"]
         )
 
-    return {
+    decision = {
         "task": task,
         "workflow": workflow,
         "model_tier": model_tier,
@@ -91,6 +124,9 @@ def route_task(project_root: Path, task: str) -> dict[str, Any]:
         "next_actions": next_actions,
         "safety_gates": safety_gates,
         "evidence_cache_key": evidence["cache_key"],
-        "evidence": evidence,
+        "evidence_summary": _compact_evidence(evidence),
         "policy": "local evidence first; no cloud or expensive model without escalation gate",
     }
+    if include_evidence:
+        decision["evidence"] = evidence
+    return decision

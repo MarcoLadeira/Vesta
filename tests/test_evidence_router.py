@@ -53,9 +53,38 @@ class EvidenceRouterTests(unittest.TestCase):
             decision = route_task(Path(tmp), "deploy production release")
 
         self.assertEqual(decision["workflow"], "release_prepare")
-        self.assertEqual(decision["model_tier"], "L3")
+        self.assertEqual(decision["model_tier"], "L0")
         self.assertTrue(decision["requires_confirmation"])
         self.assertIn("ask before deploy/cloud action", decision["safety_gates"])
+        self.assertIn("run release preflight locally", decision["next_actions"])
+
+    def test_route_returns_compact_evidence_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text("# demo\n", encoding="utf-8")
+
+            decision = route_task(root, "show git status")
+
+        self.assertIn("evidence_summary", decision)
+        self.assertNotIn("evidence", decision)
+        self.assertLessEqual(
+            len(decision["evidence_summary"]["git"]["status"]["output_tail"]), 360
+        )
+
+    def test_route_compact_evidence_redacts_secret_like_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            secret_name = "sk-testsecret1234567890.txt"
+            (root / secret_name).write_text("redacted\n", encoding="utf-8")
+            import subprocess
+
+            subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+
+            decision = route_task(root, "show git status")
+
+        output = decision["evidence_summary"]["git"]["status"]["output_tail"]
+        self.assertNotIn(secret_name, output)
+        self.assertIn("[REDACTED_SECRET]", output)
 
     def test_router_returns_registry_backed_workflows(self):
         workflow_ids = {
