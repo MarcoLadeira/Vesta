@@ -1,6 +1,6 @@
 # OPai Install
 
-OPai 0.1.0 pre-alpha installs as a small Python CLI with local registry files. The default install creates `.opaihub/` project state, validates registries, and writes dashboards. It does not enable paid APIs, cloud model calls, or destructive automation.
+OPai 0.1.1 pre-alpha installs as a small Python CLI with local registry files. The default install creates `.opaihub/` project state, validates registries, and writes dashboards. It does not enable paid APIs, cloud model calls, or destructive automation.
 
 ## One Command Install
 

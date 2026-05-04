@@ -1,6 +1,6 @@
 # OPai Install Layer
 
-OPai 0.1.0 pre-alpha installs as a local Python CLI. The default bootstrap does not call paid APIs, enable cloud tools, or install optional scanners.
+OPai 0.1.1 pre-alpha installs as a local Python CLI. The default bootstrap does not call paid APIs, enable cloud tools, or install optional scanners.
 
 ## Local Install
 

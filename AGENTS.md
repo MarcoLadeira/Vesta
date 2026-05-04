@@ -1,7 +1,7 @@
 <!-- OPai managed block: start -->
 # OPai Project Active
 
-OPai 0.1.0 pre-alpha is active for this project: `C:\Users\Frist\Documents\website\MarcoLadeiraWebsite\codingOP`.
+OPai 0.1.1 pre-alpha is active for this project: `C:\Users\Frist\Documents\website\MarcoLadeiraWebsite\codingOP`.
 
 Default workflow for AI coding in this project:
 

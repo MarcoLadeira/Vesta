@@ -46,5 +46,5 @@ def build_analytics_summary(project_root: Path) -> dict[str, Any]:
         "latest_failures": failures,
         "estimated_spend_usd": 0.0,
         "enabled_cloud_models": enabled_cloud_models,
-        "notes": "Analytics are local and file-based in 0.1.0 pre-alpha; no telemetry leaves the machine.",
+        "notes": "Analytics are local and file-based in 0.1.1 pre-alpha; no telemetry leaves the machine.",
     }

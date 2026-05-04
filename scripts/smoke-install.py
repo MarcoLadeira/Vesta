@@ -31,7 +31,7 @@ def main() -> int:
         root,
     )
     wheels = sorted(
-        wheelhouse.glob("opai-0.1.0-*.whl"),
+        wheelhouse.glob("opai-0.1.1-*.whl"),
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
@@ -55,7 +55,7 @@ def main() -> int:
             "--no-index",
             "--find-links",
             str(wheelhouse),
-            "opai==0.1.0",
+            "opai==0.1.1",
         ],
         root,
     )

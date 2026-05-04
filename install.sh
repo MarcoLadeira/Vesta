@@ -74,7 +74,7 @@ fi
 
 "$OPAI_PYTHON" -m opai install --project "$OPAI_PROJECT_ROOT" $INSTALL_ARGS
 
-printf "\nOPai 0.1.0 pre-alpha installed permanently.\n"
+printf "\nOPai 0.1.1 pre-alpha installed permanently.\n"
 printf "Source: %s\n" "$ROOT"
 printf "Activated project: %s\n" "$OPAI_PROJECT_ROOT"
 printf "Restart terminals and AI clients once so aliases and skills reload.\n"

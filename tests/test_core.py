@@ -29,11 +29,12 @@ class CoreSmokeTests(unittest.TestCase):
         self.assertEqual(route["route"], "L2")
         self.assertIn("refactor", route["agents"])
 
-    def test_shipping_routes_to_strong_model_and_deployment_agent(self):
+    def test_shipping_routes_to_cheap_model_and_deployment_agent(self):
         route = route_task("build and ship a small notes app")
-        self.assertEqual(route["route"], "L3")
+        self.assertEqual(route["route"], "L2")
         self.assertIn("implementation", route["agents"])
         self.assertIn("deployment-ci", route["agents"])
+        self.assertFalse(route["requires_confirmation"])
 
 
 if __name__ == "__main__":

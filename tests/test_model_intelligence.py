@@ -38,7 +38,8 @@ class ModelIntelligenceTests(unittest.TestCase):
         )
 
         self.assertEqual(result["task_type"], "release_security")
-        self.assertIn(result["recommended_model_tier"], {"L2", "L3"})
+        self.assertIn(result["recommended_model_tier"], {"L0", "L1", "L2"})
+        self.assertNotEqual(result["recommended_model_tier"], "L3")
         self.assertTrue(result["requires_confirmation"])
         self.assertIn("security", result["matched_signals"])
 

@@ -17,7 +17,8 @@ never_load_by_default:
   - .env
   - secret files
 compression:
-  summarize_after_chars: 16000
+  summarize_after_chars: 6000
+  hard_stop_after_chars: 12000
   prefer_diff_based_context: true
   reuse_project_context: true
   store_memory_summaries: true

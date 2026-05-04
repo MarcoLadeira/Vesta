@@ -1,4 +1,4 @@
-# Publishing OPai 0.1.0 Pre-Alpha
+# Publishing OPai 0.1.1 Pre-Alpha
 
 OPai should be published from the `codingOP` directory as its own git repository.
 Do not publish it from the parent website repository.
@@ -28,7 +28,7 @@ From `codingOP`:
 git init -b main
 git status --short
 git add .
-git commit -m "Initial OPai 0.1.0 pre-alpha"
+git commit -m "Initial OPai 0.1.1 pre-alpha"
 git remote add origin <your-git-url>
 git push -u origin main
 ```

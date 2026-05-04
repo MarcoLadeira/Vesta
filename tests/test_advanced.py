@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from opcoding.cache import prompt_cache_dir
 from opcoding.memory import add_decision, add_memory, list_memory
 from opcoding.mcp_manager import mcp_doctor, render_codex_mcp_config
 from opcoding.models import build_model_bundle
@@ -37,6 +38,13 @@ class AdvancedSmokeTests(unittest.TestCase):
             bundle = build_model_bundle(root, "explain project")
             self.assertFalse(bundle["model_executed"])
             self.assertIn("prompt", bundle)
+            self.assertLessEqual(bundle["prompt_chars"], 9000)
+
+            cache_files = list(prompt_cache_dir(root).glob("*.json"))
+            self.assertEqual(len(cache_files), 1)
+            cached_text = cache_files[0].read_text(encoding="utf-8")
+            self.assertNotIn('"prompt"', cached_text)
+            self.assertIn('"prompt_hash"', cached_text)
 
     def test_mcp_render_uses_project_root(self):
         with tempfile.TemporaryDirectory() as tmp:

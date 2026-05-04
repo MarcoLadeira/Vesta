@@ -1,6 +1,6 @@
 {
   "brand": "OPai",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "release_stage": "pre-alpha",
   "tagline": "Local-first AI tools hub for low-cost coding and automation.",
   "default_install_mode": "local-only",

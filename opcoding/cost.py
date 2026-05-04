@@ -23,6 +23,20 @@ LEVELS = {
     "L4": "GPT-5.5 Max reasoning, explicit confirmation required",
 }
 
+HIGH_RISK_TERMS = [
+    "architecture",
+    "migration",
+    "security",
+    "auth",
+    "payment",
+    "data loss",
+    "incident",
+    "production database",
+    "irreversible",
+]
+
+SHIP_TERMS = ["deploy", "release", "ship", "publish"]
+
 AGENT_KEYWORDS = {
     "planning": ["plan", "feature", "build", "create", "design"],
     "code-architect": ["architecture", "system", "database", "api", "scalable"],
@@ -108,22 +122,12 @@ def route_task(
         reasons.append(
             "coding help likely needed, but start with cheap model after local evidence"
         )
-    if any(
-        word in lowered
-        for word in [
-            "architecture",
-            "migration",
-            "security",
-            "auth",
-            "payment",
-            "production",
-            "deploy",
-            "release",
-            "ship",
-        ]
-    ):
+    if any(word in lowered for word in HIGH_RISK_TERMS):
         level = "L3"
         reasons.append("higher-risk design or production-impacting work")
+    elif any(word in lowered for word in SHIP_TERMS) and level < "L2":
+        level = "L2"
+        reasons.append("shipping work starts with local preflight and cheap model only")
     if any(
         phrase in lowered
         for phrase in [
@@ -174,10 +178,12 @@ def budget_report(root: Path) -> dict[str, Any]:
     budget = load_json(
         op_dir / "budget.json",
         {
-            "daily_usd_limit": 5.0,
-            "monthly_usd_limit": 50.0,
-            "per_task_soft_limit_usd": 0.75,
-            "per_task_hard_limit_usd": 3.0,
+            "daily_usd_limit": 0.5,
+            "monthly_usd_limit": 5.0,
+            "per_task_soft_limit_usd": 0.1,
+            "per_task_hard_limit_usd": 0.5,
+            "max_context_chars": 6000,
+            "store_prompts": False,
         },
     )
     usage_path = op_dir / "logs" / "ai-usage.jsonl"
@@ -199,7 +205,7 @@ def budget_report(root: Path) -> dict[str, Any]:
         "remaining_monthly_usd": round(
             float(budget.get("monthly_usd_limit", 0)) - total, 4
         ),
-        "policy": "local-first; L4 requires confirmation; cache before model",
+        "policy": "local-first; L2+ cloud requires confirmation; cache before model; do not store prompts by default",
     }
 
 
