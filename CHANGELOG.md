@@ -4,6 +4,9 @@
 
 - Severely reduced default token and credit usage:
   - `opai route` now returns compact evidence by default.
+  - `opai route` has an even smaller AI-facing summary path; full evidence is opt-in.
+  - `opai slim` writes AI-client ignore files and removes generated project bloat.
+  - AI CLI launch wrappers print a one-line badge by default; welcome graphics are opt-in.
   - Release, deploy, publish, and security tasks start with local preflight instead of strong-model routing.
   - `op ask` no longer stores full prompts by default.
   - Default context cap lowered to 6,000 characters with a 12,000-character hard guard.

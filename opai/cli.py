@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from opai import __brand__, __release_stage__, __version__
+from opai.context_slim import (
+    clean_generated_context,
+    context_bloat_report,
+    write_ai_ignore_files,
+)
 from opai.integrations import (
     activate_project,
     install_global_integrations,
@@ -22,7 +27,7 @@ from opai.publish import publish_status, write_publish_status
 from opai.terminal_ui import build_welcome, play_animation
 from opaihub.cli import main as hub_main
 from opaihub.model_intelligence import recommend_model
-from opaihub.router import route_task
+from opaihub.router import compact_decision, route_task
 from opaihub.skills import skill_items, skill_status
 
 PROJECT_ROOT_MARKERS = [
@@ -152,6 +157,23 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_slim(args: argparse.Namespace) -> int:
+    root = _project(args.project)
+    ignore_files = write_ai_ignore_files(root)
+    report = context_bloat_report(root)
+    payload: dict[str, Any] = {
+        "status": "cleaned" if args.clean else "reported",
+        "project_root": str(root),
+        "ai_ignore_files": ignore_files,
+        "report": report,
+    }
+    if args.clean:
+        payload["clean"] = clean_generated_context(root, dry_run=False)
+        payload["after"] = context_bloat_report(root)
+    print_json(payload)
+    return 0
+
+
 def cmd_launch(args: argparse.Namespace) -> int:
     activate_project(_project(args.project), install_global=True)
     command = shutil.which(args.tool)
@@ -173,7 +195,9 @@ def cmd_launch(args: argparse.Namespace) -> int:
             }
         )
         return 127
-    if args.no_animate:
+    if not args.welcome:
+        print(render_statusline())
+    elif args.no_animate:
         print(build_welcome(compact=True, image_mode=args.image))
     else:
         play_animation(
@@ -203,7 +227,9 @@ def cmd_route(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.activate:
         activate_project(root, install_global=False)
-    print_json(route_task(root, args.task, include_evidence=args.full_evidence))
+    include_evidence = args.full_evidence or args.verbose
+    decision = route_task(root, args.task, include_evidence=include_evidence)
+    print_json(decision if include_evidence else compact_decision(decision))
     return 0
 
 
@@ -317,6 +343,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", default=None, help="Project root")
     p.set_defaults(func=cmd_status)
 
+    p = sub.add_parser(
+        "slim",
+        help="Write AI ignore files and report or clean generated context bloat",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--clean",
+        action="store_true",
+        help="Remove generated project caches after writing AI ignore files",
+    )
+    p.set_defaults(func=cmd_slim)
+
     p = sub.add_parser("welcome")
     p.add_argument("--compact", action="store_true")
     p.add_argument(
@@ -394,6 +432,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         choices=["auto", "ansi", "ascii", "kitty", "iterm", "none"],
     )
+    p.add_argument(
+        "--welcome",
+        action="store_true",
+        help="Show the OPai mascot welcome screen before launching",
+    )
     p.add_argument("--no-animate", action="store_true")
     p.add_argument("--frames", type=int, default=8)
     p.add_argument("--delay", type=float, default=0.06)
@@ -414,6 +457,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--full-evidence",
         action="store_true",
         help="Include full local evidence instead of compact summaries",
+    )
+    p.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Alias for --full-evidence",
     )
     p.set_defaults(func=cmd_route)
 

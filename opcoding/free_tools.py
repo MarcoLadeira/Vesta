@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 from typing import Any
@@ -14,10 +15,35 @@ GO_TOOLS = [
     "github.com/zricethezav/gitleaks/v8@latest",
     "github.com/rhysd/actionlint/cmd/actionlint@latest",
 ]
+TOOLS_DIR_ENV = "OPAI_TOOLS_DIR"
+
+
+def _tool_cache_base() -> Path:
+    override = os.environ.get(TOOLS_DIR_ENV)
+    if override:
+        return Path(override).expanduser().resolve()
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data).expanduser().resolve() / "OPai" / "tool-cache"
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    if xdg_cache:
+        return Path(xdg_cache).expanduser().resolve() / "opai" / "tool-cache"
+    return Path.home().expanduser().resolve() / ".opai" / "tool-cache"
+
+
+def _project_cache_name(root: Path) -> str:
+    resolved = root.expanduser().resolve()
+    digest = hashlib.sha256(str(resolved).lower().encode("utf-8")).hexdigest()[:12]
+    safe_name = "".join(
+        char if char.isalnum() or char in {"-", "_"} else "-"
+        for char in resolved.name.lower()
+    ).strip("-")
+    return f"{safe_name or 'project'}-{digest}"
 
 
 def tools_root(root: Path) -> Path:
-    path = root / ".opcoding-tools"
+    path = _tool_cache_base() / _project_cache_name(root)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -145,8 +171,10 @@ def tools_doctor(root: Path) -> dict[str, Any]:
     }
     return {
         "root": str(tools_root(root)),
+        "legacy_project_root": str(root / ".opcoding-tools"),
+        "legacy_project_root_exists": (root / ".opcoding-tools").exists(),
         "installed": checks,
-        "policy": "free/local by default; network-heavy vulnerability/link checks are opt-in",
+        "policy": "free/local by default; tool cache lives outside project context; network-heavy vulnerability/link checks are opt-in",
     }
 
 

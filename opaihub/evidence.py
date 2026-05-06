@@ -77,19 +77,24 @@ def _detect_languages(root: Path, max_files: int = 1000) -> list[str]:
         ".cs": "csharp",
         ".java": "java",
     }
+    skip_prefixes = (
+        ".opai",
+        ".opcoding",
+        ".git",
+        ".venv",
+        "node_modules",
+        "__pycache__",
+    )
     found: set[str] = set()
     count = 0
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if any(
-            part.startswith(".opai") or part.startswith(".opcoding")
-            for part in path.parts
-        ):
+        if any(part.startswith(skip_prefixes) for part in path.parts):
             continue
-        count += 1
-        if count > max_files:
+        if count >= max_files:
             break
+        count += 1
         language = suffix_map.get(path.suffix.lower())
         if language:
             found.add(language)

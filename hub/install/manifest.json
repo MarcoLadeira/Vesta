@@ -8,6 +8,7 @@
     "hub": "op-hub"
   },
   "safe_install_commands": {
+    "pip_from_github": "pip install git+https://github.com/MarcoLadeira/OPai.git",
     "windows_local": "powershell -ExecutionPolicy Bypass -File .\\install.ps1",
     "windows_with_shell_aliases": "powershell -ExecutionPolicy Bypass -File .\\install.ps1 -ShellAliases",
     "posix_local": "sh ./install.sh",

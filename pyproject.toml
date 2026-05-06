@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "opai"
 version = "0.1.1"
-description = "OPai 0.1.1 pre-alpha: local-first AI tools hub with cost-aware coding workflows."
+description = "OPai pre-alpha: local-first AI coding hub with cost-aware routing, MCP-ready registries, and safe project workflows."
 requires-python = ">=3.10"
 dependencies = []
 
@@ -19,8 +19,11 @@ op-hub = "opaihub.cli:main"
 opcoding = "opcoding.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/opai/local-first-ai-hub"
-Documentation = "https://github.com/opai/local-first-ai-hub/blob/main/hub/docs/OP_AI_HUB_OVERVIEW.md"
+Homepage = "https://github.com/MarcoLadeira/OPai"
+Documentation = "https://github.com/MarcoLadeira/OPai/blob/main/hub/docs/OP_AI_HUB_OVERVIEW.md"
+Issues = "https://github.com/MarcoLadeira/OPai/issues"
+Discussions = "https://github.com/MarcoLadeira/OPai/discussions"
+Changelog = "https://github.com/MarcoLadeira/OPai/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["opai", "opai.*", "opaihub", "opaihub.*", "opcoding", "opcoding.*"]

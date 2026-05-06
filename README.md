@@ -21,6 +21,7 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 - Superpowers as part of OPai; the default installer fetches the free open-source Superpowers repo and exposes its skills through native discovery.
 - A local-first tool registry for coding, testing, GitOps, security, MCP, docs, local models, browser automation, and deployment helpers.
 - Cost-aware routing that gathers git diffs, tests, profiles, registry data, logs, and cached context before model escalation.
+- Compact-by-default AI-facing output: route summaries, launcher badges, and instruction blocks stay tiny unless you opt into full evidence or welcome graphics.
 - Safe command policies for destructive shell commands, Git operations, cloud calls, and secret-bearing logs.
 - A packaged OP AI Hub foundation with tools, agents, workflows, prompts, model routing, MCP config examples, and docs.
 
@@ -71,7 +72,7 @@ $env:OPAI_NO_SUPERPOWERS = "1"
 irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
 ```
 
-The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project, print a blue `Using OPai` badge plus the OPai mascot graphic, then launch the real CLI command. Cross-platform wrapper launch is also available through `op launch <codex|claude|copilot>`.
+The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project, print a blue one-line `Using OPai` badge, then launch the real CLI command. Set `OPAI_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
 
 Developer install:
 
@@ -87,6 +88,9 @@ Optional free local tools:
 op install --with-tools
 ```
 
+These tools install into an external OPai tool cache instead of dropping venvs
+or `node_modules` trees into every project.
+
 After the first install, restart terminal sessions and AI coding clients so native skill discovery can see OPai and Superpowers.
 
 ## Ultra-Low Credit Mode
@@ -94,6 +98,7 @@ After the first install, restart terminal sessions and AI coding clients so nati
 OPai 0.1.1 is tuned to spend less than normal AI coding by default:
 
 - `opai route` returns compact local evidence instead of large logs and full diffs.
+- `opai slim` writes AI-client ignore files and reports generated context bloat.
 - Release, deploy, security, and publish tasks start at local preflight, not strong AI.
 - Model prompts are not stored in cache unless `OPAI_STORE_PROMPTS=1`.
 - Default generated project budgets are `$0.50/day`, `$5/month`, and `$0.10` soft limit per task.
@@ -119,6 +124,12 @@ op launch claude
 op launch copilot
 ```
 
+The default launch path prints only the one-line badge. To see the mascot:
+
+```powershell
+op launch claude --welcome
+```
+
 Or use the shadowed commands after shell aliases load:
 
 ```powershell
@@ -127,7 +138,7 @@ claude
 copilot
 ```
 
-OPai writes managed instruction blocks to the top of `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.opaihub/` so new AI sessions know to use local evidence, Superpowers, safety gates, and cost controls first.
+OPai writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.opaihub/` so new AI sessions know to use local evidence, Superpowers, safety gates, and cost controls first. It also writes `.claudeignore`, `.cursorignore`, `.aiderignore`, `.continueignore`, `.geminiignore`, and `.opaiignore` so generated caches stay out of model context.
 
 ## OPai Commands
 
@@ -136,14 +147,17 @@ opai version          show OPai 0.1.1 pre-alpha
 op version            same as opai version
 op activate           attach current project and ensure Superpowers/AI instructions
 op status             show activation, Superpowers, wrappers, and project state
+op slim               write AI ignore files and report generated context bloat
+op slim --clean       remove generated caches that waste AI context
 op publish status     show git/publish readiness
 opai install          create local .opaihub state and dashboards
 opai statusline       print the right-aligned "Using OPai" badge
 opai welcome          print the OPai mascot, badge, and quick commands
 opai welcome --animate animate the OPai mascot in place
 opai integrate install install global AI-client discovery files
-opai launch codex     print OPai badge, then run codex
-opai route "<task>"   collect local evidence before expensive model work
+opai launch codex     print one OPai badge line, then run codex
+opai route "<task>"   print compact local-first routing decision
+opai route --full-evidence "<task>" print full evidence only when needed
 opai models recommend "<task>" choose the cheapest capable model tier
 opai skills list      list OPai-managed skills exposed to Codex discovery
 opai skills doctor    verify OPai skill files and registry paths

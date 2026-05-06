@@ -13,6 +13,13 @@ def run(argv: list[str], cwd: Path) -> None:
     subprocess.run(argv, cwd=str(cwd), check=True)
 
 
+def project_version(root: Path) -> str:
+    for line in (root / "pyproject.toml").read_text(encoding="utf-8").splitlines():
+        if line.strip().startswith("version"):
+            return line.split("=", 1)[1].strip().strip('"')
+    raise SystemExit("No project version found in pyproject.toml.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Build and smoke-test an isolated OPai wheel install."
@@ -20,67 +27,89 @@ def main() -> int:
     parser.add_argument(
         "--keep-venv", action="store_true", help="Keep the temporary smoke-test venv"
     )
+    parser.add_argument(
+        "--work-dir",
+        help="Optional external smoke-test work directory. Defaults to a temp folder.",
+    )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
-    wheelhouse = root / ".opaihub" / "wheelhouse"
-    wheelhouse.mkdir(parents=True, exist_ok=True)
+    version = project_version(root)
+    work_dir = Path(args.work_dir).expanduser().resolve() if args.work_dir else None
+    created_work_dir = False
+    if work_dir is None:
+        work_dir = Path(tempfile.mkdtemp(prefix="opai-smoke-")).resolve()
+        created_work_dir = True
+    work_dir.mkdir(parents=True, exist_ok=True)
 
-    run(
-        [sys.executable, "-m", "pip", "wheel", ".", "--no-deps", "-w", str(wheelhouse)],
-        root,
-    )
-    wheels = sorted(
-        wheelhouse.glob("opai-0.1.1-*.whl"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    if not wheels:
-        raise SystemExit("No OPai wheel was built.")
+    try:
+        wheelhouse = work_dir / "wheelhouse"
+        wheelhouse.mkdir(parents=True, exist_ok=True)
 
-    venv_root = root / ".opaihub" / "smoke-install-venv"
-    if venv_root.exists():
-        shutil.rmtree(venv_root)
-    run([sys.executable, "-m", "venv", str(venv_root)], root)
+        run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "wheel",
+                ".",
+                "--no-deps",
+                "-w",
+                str(wheelhouse),
+            ],
+            root,
+        )
+        wheels = sorted(
+            wheelhouse.glob(f"opai-{version}-*.whl"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if not wheels:
+            raise SystemExit(f"No OPai {version} wheel was built.")
 
-    python = venv_root / (
-        "Scripts/python.exe" if sys.platform.startswith("win") else "bin/python"
-    )
-    run(
-        [
-            str(python),
-            "-m",
-            "pip",
-            "install",
-            "--no-index",
-            "--find-links",
-            str(wheelhouse),
-            "opai==0.1.1",
-        ],
-        root,
-    )
+        venv_root = work_dir / "smoke-install-venv"
+        if venv_root.exists():
+            shutil.rmtree(venv_root)
+        run([sys.executable, "-m", "venv", str(venv_root)], root)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        outside_repo = Path(tmp)
-        run([str(python), "-m", "opai", "version"], outside_repo)
-        run([str(python), "-m", "opaihub", "validate"], outside_repo)
-        run([str(python), "-m", "opai", "hub", "list-tools"], outside_repo)
+        python = venv_root / (
+            "Scripts/python.exe" if sys.platform.startswith("win") else "bin/python"
+        )
         run(
             [
                 str(python),
                 "-m",
-                "opai",
-                "welcome",
-                "--compact",
-                "--no-color",
-                "--image",
-                "ascii",
+                "pip",
+                "install",
+                "--no-index",
+                "--find-links",
+                str(wheelhouse),
+                f"opai=={version}",
             ],
-            outside_repo,
+            root,
         )
 
-    if not args.keep_venv:
-        shutil.rmtree(venv_root)
+        with tempfile.TemporaryDirectory() as tmp:
+            outside_repo = Path(tmp)
+            run([str(python), "-m", "opai", "version"], outside_repo)
+            run([str(python), "-m", "opaihub", "validate"], outside_repo)
+            run([str(python), "-m", "opai", "hub", "list-tools"], outside_repo)
+            run(
+                [
+                    str(python),
+                    "-m",
+                    "opai",
+                    "welcome",
+                    "--compact",
+                    "--no-color",
+                    "--image",
+                    "ascii",
+                ],
+                outside_repo,
+            )
+    finally:
+        if created_work_dir and not args.keep_venv:
+            shutil.rmtree(work_dir, ignore_errors=True)
     print("OPai isolated install smoke passed.")
     return 0
 
