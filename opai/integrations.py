@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from opai import __brand__, __release_stage__, __version__
+from opai.context_slim import AI_IGNORE_FILES, write_ai_ignore_files
 from opai.terminal_ui import render_badge
 from opaihub.loader import hub_root
 from opaihub.skills import skill_items
@@ -48,30 +49,9 @@ def _python_executable() -> str:
 
 
 def instruction_text(project_root: Path | None = None) -> str:
-    project_line = (
-        f"\nCurrent OPai activation root: `{project_root}`.\n"
-        if project_root
-        else "\nUse the current working directory as the active project root.\n"
-    )
+    project_line = f"Root: `{project_root}`.\n" if project_root else "Root: cwd.\n"
     return f"""# OPai Active
-
-Status text: `{STATUS_TEXT}`
-
-OPai {__version__} {__release_stage__} is active.
-{project_line}
-
-Use OPai as the local-first routing layer for coding and automation:
-
-1. Inspect local files, diffs, tests, logs, registries, and caches before asking a model to reason deeply.
-2. Prefer `opai doctor`, `opai scan`, `opai tools`, and `opai hub <command>` for local evidence.
-3. Do not use paid/cloud tools unless the user explicitly confirms.
-4. Do not run destructive shell, Git, deploy, publish, or cloud commands without explicit confirmation.
-5. Keep context small: diffs, summaries, and targeted files before broad file dumps.
-6. If Superpowers skills are available, use them as part of OPai: start with `superpowers:using-superpowers`, use `superpowers:systematic-debugging` for bugs, and use `superpowers:test-driven-development` for code changes.
-
-If the active project has `.opaihub/project-instructions.md` or an OPai managed block in `AGENTS.md`, `CLAUDE.md`, or `.github/copilot-instructions.md`, treat that project-local guidance as the session entrypoint.
-
-When the client supports a status line or session badge, show `{STATUS_TEXT}`.
+{STATUS_TEXT}. OPai {__version__} {__release_stage__}. {project_line}Local first: `opai route "<task>"`; use full evidence only when needed. No paid/cloud/destructive ops without confirmation. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
 """
 
 
@@ -149,20 +129,11 @@ def copilot_instruction_text(project_root: Path | None = None) -> str:
 
 def project_instruction_text(project_root: Path) -> str:
     return f"""{START_MARKER}
-# OPai Project Active
-
-OPai {__version__} {__release_stage__} is active for this project: `{project_root}`.
-
-Default workflow for AI coding in this project:
-
-1. Treat this OPai block as the first session checklist, even when other project instructions exist below it.
-2. Run or reason from `opai route "<task>"` before expensive model work.
-3. Use local evidence first: git status/diff, project profile, tests, logs, linters, registry metadata, and cached context.
-4. Use Superpowers as part of OPai when available: `superpowers:using-superpowers`, `superpowers:systematic-debugging`, `superpowers:test-driven-development`, and verification before completion.
-5. Prefer OPai tools and workflows before cloud calls: `opai doctor`, `opai scan`, `opai tools`, `opai hub list-tools`, `opai hub analytics status`.
-6. Do not push, merge, deploy, delete, run destructive commands, or use paid/cloud AI without explicit user confirmation.
-
-Session badge/status text: {STATUS_TEXT}
+# OPai Active
+{STATUS_TEXT}. Root: current repository.
+Local first: `opai route "<task>"`; `opai slim` if context grows.
+No paid/cloud/destructive ops without confirmation. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`.
+Use Superpowers when available.
 {END_MARKER}"""
 
 
@@ -254,6 +225,7 @@ def _planned_project_files(project_root: Path) -> list[str]:
         str(project_root / ".opaihub" / "project-instructions.md"),
         str(project_root / ".opaihub" / "project.json"),
         str(project_root / ".opaihub" / "activation.json"),
+        *[str(project_root / name) for name in AI_IGNORE_FILES],
     ]
 
 
@@ -363,6 +335,7 @@ def activate_project(
         }
     attached = attach_project(root)
     project_files = _write_project_instructions(root)
+    ai_ignore_files = write_ai_ignore_files(root)
     superpowers = ensure_superpowers_bridge(user_home, auto_install=install_superpowers)
     global_result = (
         install_global_integrations(
@@ -381,12 +354,14 @@ def activate_project(
         "project_root": str(root),
         "state_path": attached["state_path"],
         "project_files": project_files,
+        "ai_ignore_files": ai_ignore_files,
         "superpowers": superpowers,
         "global_integrations": global_result,
         "next_steps": [
             "Restart Codex/Claude/Copilot sessions after first activation so skills are rediscovered.",
             "Launch AI CLIs through OPai wrappers so this activation runs in every project.",
             'Run opai route "<task>" to collect local evidence before model use.',
+            "Run opai slim --clean to remove generated caches from this project.",
         ],
     }
     _write(
@@ -482,9 +457,10 @@ $env:OPAI_STATUS = "{STATUS_TEXT}"
 if ($LASTEXITCODE -ne 0) {{
     Write-Warning "OPai activation failed; launching {tool} in degraded mode."
 }}
-& $OpaiPython -m opai welcome --compact --animate --frames 7 --delay 0.045
-if ($LASTEXITCODE -ne 0) {{
-    Write-Warning "OPai welcome failed; continuing with {tool}."
+if ($env:OPAI_WELCOME -eq "1") {{
+    & $OpaiPython -m opai welcome --compact --frames 4 --delay 0.035 --animate
+}} else {{
+    & $OpaiPython -m opai statusline
 }}
 
 $Command = Get-Command {tool} -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -507,7 +483,11 @@ OPAI_PYTHON={python}
 export OPAI_ACTIVE=1
 export OPAI_STATUS="{STATUS_TEXT}"
 "$OPAI_PYTHON" -m opai activate --quiet --project . || printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
-"$OPAI_PYTHON" -m opai welcome --compact --animate --frames 7 --delay 0.045 || printf '%s\\n' "OPai welcome failed; continuing with {tool}." >&2
+if [ "$OPAI_WELCOME" = "1" ]; then
+  "$OPAI_PYTHON" -m opai welcome --compact --frames 4 --delay 0.035 --animate
+else
+  "$OPAI_PYTHON" -m opai statusline
+fi
 if command -v copilot >/dev/null 2>&1; then
   exec copilot "$@"
 fi
@@ -518,7 +498,11 @@ OPAI_PYTHON={python}
 export OPAI_ACTIVE=1
 export OPAI_STATUS="{STATUS_TEXT}"
 "$OPAI_PYTHON" -m opai activate --quiet --project . || printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
-"$OPAI_PYTHON" -m opai welcome --compact --animate --frames 7 --delay 0.045 || printf '%s\\n' "OPai welcome failed; continuing with {tool}." >&2
+if [ "$OPAI_WELCOME" = "1" ]; then
+  "$OPAI_PYTHON" -m opai welcome --compact --frames 4 --delay 0.035 --animate
+else
+  "$OPAI_PYTHON" -m opai statusline
+fi
 exec {tool} "$@"
 """
 

@@ -8,8 +8,10 @@ from opai.cli import discover_project_root
 from opai.integrations import (
     activate_project,
     ensure_superpowers_bridge,
+    instruction_text,
     install_global_integrations,
     load_global_status,
+    project_instruction_text,
     project_status,
     render_statusline,
 )
@@ -61,6 +63,15 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertEqual(text.count("OPai managed block"), 2)
             self.assertEqual(text.count("Using OPai"), 1)
 
+    def test_managed_instructions_are_token_tiny(self):
+        with tempfile.TemporaryDirectory() as project_tmp:
+            project = Path(project_tmp)
+
+            self.assertLess(len(project_instruction_text(project)), 520)
+            self.assertLess(len(instruction_text(project)), 620)
+            self.assertIn("No generated dirs", project_instruction_text(project))
+            self.assertNotIn(str(project), project_instruction_text(project))
+
     def test_statusline_is_right_aligned_when_width_allows(self):
         status = render_statusline(width=24, color=False)
         self.assertEqual(status, "              Using OPai")
@@ -109,6 +120,8 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertTrue((project / ".opaihub" / "activation.json").exists())
             self.assertTrue((project / "AGENTS.md").exists())
             self.assertTrue((project / "CLAUDE.md").exists())
+            self.assertTrue((project / ".claudeignore").exists())
+            self.assertTrue((project / ".opaiignore").exists())
             self.assertTrue((project / ".github" / "copilot-instructions.md").exists())
             self.assertTrue(
                 (home / ".agents" / "skills" / "opai" / "SKILL.md").exists()
@@ -116,6 +129,10 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertTrue(result["superpowers"]["enabled"])
             self.assertIn(
                 "Superpowers", (project / "AGENTS.md").read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                ".opcoding-tools/",
+                (project / ".claudeignore").read_text(encoding="utf-8"),
             )
 
     def test_project_activation_prepends_opai_block_to_existing_instructions(self):
@@ -136,7 +153,7 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertTrue(text.startswith("<!-- OPai managed block: start -->"))
             self.assertIn(existing, text)
             self.assertLess(
-                text.index("OPai Project Active"),
+                text.index("OPai Active"),
                 text.index("# Existing Project Instructions"),
             )
 
@@ -154,7 +171,7 @@ class OPaiIntegrationTests(unittest.TestCase):
                 encoding="utf-8"
             )
             self.assertNotIn(str(project), text)
-            self.assertIn("Use the current working directory", text)
+            self.assertIn("Root: cwd", text)
 
     def test_global_opai_integration_installs_opai_skill_library(self):
         with (
@@ -205,6 +222,9 @@ class OPaiIntegrationTests(unittest.TestCase):
             )
             self.assertIn("-m opai activate --quiet --project .", wrapper)
             self.assertIn("degraded mode", wrapper)
+            self.assertIn("-m opai statusline", wrapper)
+            self.assertIn("OPAI_WELCOME", wrapper)
+            self.assertNotIn("welcome --compact --animate", wrapper)
 
     def test_shell_aliases_include_op_brand_command(self):
         with (

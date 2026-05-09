@@ -1,23 +1,47 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from opcoding.free_tools import run_tool, tools_doctor
+from opcoding.free_tools import run_tool, tools_doctor, tools_root
 from opcoding.morph import build_morph_payload, morph_apply_snippet
 
 
 class ToolsAndMorphTests(unittest.TestCase):
     def test_tools_doctor_reports_install_root(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as cache,
+        ):
             root = Path(tmp)
-            doctor = tools_doctor(root)
-            self.assertIn(".opcoding-tools", doctor["root"])
+            with patch.dict("os.environ", {"LOCALAPPDATA": cache}):
+                doctor = tools_doctor(root)
+            self.assertIn("tool-cache", doctor["root"])
+            self.assertFalse(Path(doctor["root"]).is_relative_to(root.resolve()))
             self.assertIn("ruff", doctor["installed"])
+            self.assertFalse(doctor["legacy_project_root_exists"])
+
+    def test_tools_root_defaults_outside_project_context(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as cache,
+        ):
+            root = Path(tmp)
+            with patch.dict("os.environ", {"LOCALAPPDATA": cache}):
+                path = tools_root(root)
+
+            self.assertTrue(path.exists())
+            self.assertFalse(path.is_relative_to(root.resolve()))
+            self.assertTrue(path.is_relative_to(Path(cache).resolve()))
 
     def test_pip_audit_is_a_registered_runnable_tool(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as cache,
+        ):
             root = Path(tmp)
-            result = run_tool(root, "pip-audit", timeout=1)
+            with patch.dict("os.environ", {"LOCALAPPDATA": cache}):
+                result = run_tool(root, "pip-audit", timeout=1)
 
         self.assertEqual(result["tool"], "pip-audit")
         self.assertIn("command", result)
@@ -26,13 +50,17 @@ class ToolsAndMorphTests(unittest.TestCase):
         self.assertNotIn("unknown tool", result.get("error", ""))
 
     def test_actionlint_uses_concrete_workflow_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as cache,
+        ):
             root = Path(tmp)
             workflow = root / ".github" / "workflows" / "ci.yml"
             workflow.parent.mkdir(parents=True)
             workflow.write_text("name: ci\non: [push]\njobs: {}\n", encoding="utf-8")
 
-            result = run_tool(root, "actionlint", timeout=1)
+            with patch.dict("os.environ", {"LOCALAPPDATA": cache}):
+                result = run_tool(root, "actionlint", timeout=1)
 
         command = " ".join(result["command"])
         self.assertIn(".github", command)

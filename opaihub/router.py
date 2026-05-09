@@ -130,3 +130,23 @@ def route_task(
     if include_evidence:
         decision["evidence"] = evidence
     return decision
+
+
+def compact_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    evidence = decision.get("evidence") or decision.get("evidence_summary", {})
+    git = evidence.get("git", {})
+    changed = git.get("changed_files", {}).get("output_tail", "")
+    changed_count = len([line for line in changed.splitlines() if line.strip()])
+    return {
+        "output": "compact",
+        "workflow": decision.get("workflow"),
+        "tier": decision.get("model_tier"),
+        "confirm": bool(decision.get("requires_confirmation")),
+        "cache_key": decision.get("evidence_cache_key"),
+        "local": {
+            "markers": len(evidence.get("markers", [])),
+            "tests": len(evidence.get("test_commands", [])),
+            "changed": changed_count,
+        },
+        "hint": "full evidence: --full-evidence",
+    }

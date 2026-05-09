@@ -4,7 +4,7 @@ from pathlib import Path
 
 from opaihub.evidence import collect_evidence
 from opaihub.loader import registry_items
-from opaihub.router import route_task
+from opaihub.router import compact_decision, route_task
 
 
 class EvidenceRouterTests(unittest.TestCase):
@@ -70,6 +70,19 @@ class EvidenceRouterTests(unittest.TestCase):
         self.assertLessEqual(
             len(decision["evidence_summary"]["git"]["status"]["output_tail"]), 360
         )
+
+    def test_compact_decision_omits_verbose_evidence_for_ai_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pyproject.toml").write_text("[project]\nname='demo'\n")
+
+            compact = compact_decision(route_task(root, "fix failing tests"))
+
+        self.assertNotIn("evidence", compact)
+        self.assertIn("cache_key", compact)
+        self.assertLess(len(str(compact)), 700)
+        self.assertEqual(compact["output"], "compact")
+        self.assertIn("full evidence", compact["hint"])
 
     def test_route_compact_evidence_redacts_secret_like_output(self):
         with tempfile.TemporaryDirectory() as tmp:
