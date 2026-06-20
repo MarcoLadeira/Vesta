@@ -174,8 +174,12 @@ def build_evidence_packet(
     *,
     checks: list[dict[str, Any]] | None = None,
     write: bool = True,
+    sign: bool = False,
 ) -> dict[str, Any]:
-    """Produce a consistent, hashable evidence packet for a guarded run."""
+    """Produce a consistent, hashable evidence packet for a guarded run.
+
+    With ``sign=True`` the packet carries an HMAC signature (tamper-evidence).
+    """
     root = project_root.expanduser().resolve()
     template = get_template(root, workflow_id)
     validation = (
@@ -201,6 +205,11 @@ def build_evidence_packet(
     ).hexdigest()
     packet = {**body, "packet_sha256": packet_hash}
 
+    if sign:
+        from .signing import sign as sign_payload
+
+        packet = sign_payload(root, packet)
+
     if write:
         path = state_dir(root) / "evidence" / f"{workflow_id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,3 +218,36 @@ def build_evidence_packet(
         )
         packet["evidence_path"] = str(path)
     return packet
+
+
+def verify_evidence_packet(
+    project_root: Path, packet: dict[str, Any]
+) -> dict[str, Any]:
+    """Verify an evidence packet's content hash and signature (if present)."""
+    root = project_root.expanduser().resolve()
+    body = {
+        key: value
+        for key, value in packet.items()
+        if key not in {"packet_sha256", "signature", "evidence_path"}
+    }
+    recomputed = hashlib.sha256(
+        json.dumps(body, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    hash_ok = recomputed == packet.get("packet_sha256")
+
+    result: dict[str, Any] = {
+        "hash_ok": hash_ok,
+        "hash_reason": "content hash matches"
+        if hash_ok
+        else "content hash mismatch (tampered)",
+    }
+    if "signature" in packet:
+        from .signing import verify as verify_payload
+
+        signature_result = verify_payload(root, packet)
+        result["signature"] = signature_result
+        result["verified"] = hash_ok and signature_result.get("verified", False)
+    else:
+        result["signature"] = {"verified": False, "reason": "unsigned packet"}
+        result["verified"] = hash_ok
+    return result

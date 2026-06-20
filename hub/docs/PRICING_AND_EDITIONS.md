@@ -16,9 +16,15 @@ defines the Free / Pro / Team / Enterprise boundaries (issue #38).
 | Edition | Price | Who it's for |
 | --- | --- | --- |
 | **Free** | $0 forever | Individual developers who want a local-first AI coding cost firewall. |
-| **Pro** | ~$12 / month | Solo devs who want exportable savings proof and balanced/team policy. |
-| **Team** | ~$19 / user / month | Teams needing shared policy, governance defaults, and audit exports. |
-| **Enterprise** | Custom | Orgs needing strict governance, signed workflow packs, and security support. |
+| **Pro** | ~$12 / month ($99/yr) | Solo devs who want exportable savings proof and advanced policy. |
+| **Team** | ~$19 / user / month | Teams needing shared policy, pooled budgets, team reports, and private registries. |
+| **Team Governance** | ~$29 / user / month | Security-aware teams needing audit logs, approved MCP profiles, CI gates, and evidence exports. |
+| **Enterprise** | Custom (from ~$24k/yr) | Orgs needing SSO/RBAC, self-host, signed evidence/registries, and security review. |
+
+> The revenue ladder mirrors the [business strategy](../../docs/BUSINESS_STRATEGY.md):
+> Free/Pro earn distribution and proof; **Team Governance and Enterprise are the
+> real revenue pools** because uncontrolled AI coding creates audit, spend, and
+> compliance risk. See [GOVERNANCE.md](GOVERNANCE.md) for the working controls.
 
 ## What's included
 

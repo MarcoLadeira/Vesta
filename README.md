@@ -38,7 +38,20 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 opai context pack --changed   # tiny, redacted context (changed files + adjacent tests)
 opai test --changed           # run only the tests likely to cover your changes
 opai metrics                  # local product metrics: tokens/escalations avoided, cache rate
-opai edition show             # Free / Pro ($12·mo, $99·yr) / Team / Enterprise
+opai edition show             # Free / Pro / Team / Team-Governance / Enterprise
+```
+
+### Team & enterprise governance
+
+OPai is also the control plane for teams ([GOVERNANCE.md](hub/docs/GOVERNANCE.md)):
+
+```sh
+opai team init                # committable opai-team-policy.yaml (shared policy)
+opai team apply               # apply the team policy locally
+opai policy check             # fail-closed CI gate (exits non-zero on violation)
+opai guard evidence <wf> --sign   # signed, tamper-evident evidence packet
+opai audit log                # tamper-evident governance audit trail
+opai team report              # who routed what, did it follow policy, spend avoided
 ```
 
 Default posture:

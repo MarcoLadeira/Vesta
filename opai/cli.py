@@ -521,12 +521,42 @@ def cmd_guard(args: argparse.Namespace) -> int:
         print_json(result)
         return 0 if result["ok"] else 1
     if args.guard_command == "evidence":
-        print_json(build_evidence_packet(root, args.workflow, write=not args.no_write))
+        packet = build_evidence_packet(
+            root, args.workflow, write=not args.no_write, sign=args.sign
+        )
+        if not args.no_write:
+            from opaihub.audit import EVIDENCE_PACKET, record_audit_event
+
+            record_audit_event(
+                root,
+                EVIDENCE_PACKET,
+                workflow_id=args.workflow,
+                signed=args.sign,
+                packet_sha256=packet.get("packet_sha256"),
+            )
+        print_json(packet)
         return 0
+    if args.guard_command == "verify":
+        from opaihub.guarded import verify_evidence_packet
+
+        data = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        result = verify_evidence_packet(root, data)
+        print_json(result)
+        return 0 if result["verified"] else 1
     if args.guard_command == "action":
         result = guard_action(
             root, args.action, template_id=args.template, confirmed=args.confirm
         )
+        if getattr(args, "audit", False):
+            from opaihub.audit import GUARD_ALLOW, GUARD_DENY, record_audit_event
+
+            record_audit_event(
+                root,
+                GUARD_DENY if result["decision"] == "deny" else GUARD_ALLOW,
+                action=args.action,
+                decision=result["decision"],
+                confirmed=result["confirmed"],
+            )
         print_json(result)
         return 0 if result["decision"] != "deny" else 1
     return 0
@@ -541,8 +571,72 @@ def cmd_edition(args: argparse.Namespace) -> int:
         return 0
     if args.edition_command == "set":
         result = set_edition(root, args.edition_name)
+        if result.get("status") == "updated":
+            from opaihub.audit import EDITION_CHANGE, record_audit_event
+
+            record_audit_event(root, EDITION_CHANGE, edition=args.edition_name)
         print_json(result)
         return 0 if result.get("status") == "updated" else 2
+    return 0
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    from opaihub.audit import export_audit, read_audit, summarize_audit, verify_chain
+
+    root = _project(args.project)
+    if args.audit_command == "log":
+        print_json(read_audit(root, limit=args.limit))
+        return 0
+    if args.audit_command == "status":
+        print_json(summarize_audit(root))
+        return 0
+    if args.audit_command == "verify":
+        result = verify_chain(root)
+        print_json(result)
+        return 0 if result["ok"] else 1
+    if args.audit_command == "export":
+        bundle = export_audit(root, sign=not args.no_sign)
+        if args.out:
+            Path(args.out).write_text(
+                json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            print_json(
+                {
+                    "status": "exported",
+                    "path": args.out,
+                    "events": bundle["event_count"],
+                }
+            )
+        else:
+            print_json(bundle)
+        return 0
+    return 0
+
+
+def cmd_team(args: argparse.Namespace) -> int:
+    from opaihub.team import team_report
+    from opaihub.team_policy import apply_team_policy, init_team_policy
+
+    root = _project(args.project)
+    if args.team_command == "init":
+        print_json(init_team_policy(root, profile=args.profile, team=args.team))
+        return 0
+    if args.team_command == "apply":
+        result = apply_team_policy(root)
+        if result.get("status") == "updated":
+            from opaihub.audit import TEAM_POLICY_APPLIED, record_audit_event
+
+            record_audit_event(
+                root, TEAM_POLICY_APPLIED, profile=result.get("applied_profile")
+            )
+        print_json(result)
+        return 0 if result.get("status") == "updated" else 2
+    if args.team_command == "report":
+        report = team_report(root)
+        status = project_status(root)
+        report["client_readiness"] = status["client_integrations"]["summary"]
+        print_json(report)
+        return 0
     return 0
 
 
@@ -568,6 +662,16 @@ def cmd_policy(args: argparse.Namespace) -> int:
         result = set_profile(root, args.profile)
         print_json(result)
         return 0 if result.get("status") == "updated" else 2
+    if args.policy_command == "check":
+        from opaihub.ci_check import run_policy_check
+
+        result = run_policy_check(root)
+        if getattr(args, "audit", False):
+            from opaihub.audit import CI_CHECK, record_audit_event
+
+            record_audit_event(root, CI_CHECK, ok=result["ok"], failed=result["failed"])
+        print_json(result)
+        return 0 if result["ok"] else 1
     return 0
 
 
@@ -897,26 +1001,75 @@ def build_parser() -> argparse.ArgumentParser:
     ge.add_argument("workflow")
     ge.add_argument("--project", default=None, help="Project root")
     ge.add_argument("--no-write", action="store_true")
+    ge.add_argument("--sign", action="store_true", help="HMAC-sign the evidence packet")
     ge.set_defaults(func=cmd_guard)
+    gv = guard_sub.add_parser(
+        "verify", help="Verify an evidence packet hash + signature"
+    )
+    gv.add_argument("file")
+    gv.add_argument("--project", default=None, help="Project root")
+    gv.set_defaults(func=cmd_guard)
     ga = guard_sub.add_parser("action", help="Fail-closed gate for a risky action")
     ga.add_argument("action")
     ga.add_argument("--template", default=None)
     ga.add_argument("--confirm", action="store_true")
+    ga.add_argument(
+        "--audit", action="store_true", help="Record the decision to the audit trail"
+    )
     ga.add_argument("--project", default=None, help="Project root")
     ga.set_defaults(func=cmd_guard)
 
     p = sub.add_parser(
         "edition",
-        help="Show or set the OPai open-core edition (Free/Pro/Team/Enterprise)",
+        help="Show or set the OPai open-core edition (Free/Pro/Team/Team-Governance/Enterprise)",
     )
     edition_sub = p.add_subparsers(dest="edition_command", required=True)
     ed = edition_sub.add_parser("show")
     ed.add_argument("--project", default=None, help="Project root")
     ed.set_defaults(func=cmd_edition)
     ed = edition_sub.add_parser("set")
-    ed.add_argument("edition_name", choices=["free", "pro", "team", "enterprise"])
+    ed.add_argument(
+        "edition_name",
+        choices=["free", "pro", "team", "team-governance", "enterprise"],
+    )
     ed.add_argument("--project", default=None, help="Project root")
     ed.set_defaults(func=cmd_edition)
+
+    p = sub.add_parser(
+        "audit", help="Tamper-evident governance audit trail (log, verify, export)"
+    )
+    audit_sub = p.add_subparsers(dest="audit_command", required=True)
+    au = audit_sub.add_parser("log", help="Show recent audit events")
+    au.add_argument("--limit", type=int, default=20)
+    au.add_argument("--project", default=None, help="Project root")
+    au.set_defaults(func=cmd_audit)
+    au = audit_sub.add_parser("status", help="Audit summary and chain validity")
+    au.add_argument("--project", default=None, help="Project root")
+    au.set_defaults(func=cmd_audit)
+    au = audit_sub.add_parser("verify", help="Verify the audit hash chain")
+    au.add_argument("--project", default=None, help="Project root")
+    au.set_defaults(func=cmd_audit)
+    au = audit_sub.add_parser("export", help="Export a signed audit bundle")
+    au.add_argument("--out", metavar="PATH", help="Write the bundle to a file")
+    au.add_argument("--no-sign", action="store_true")
+    au.add_argument("--project", default=None, help="Project root")
+    au.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser(
+        "team", help="Team governance: committed policy, apply, and report"
+    )
+    team_sub = p.add_subparsers(dest="team_command", required=True)
+    ti = team_sub.add_parser("init", help="Create a committable opai-team-policy.yaml")
+    ti.add_argument("--profile", default="team-safe")
+    ti.add_argument("--team", default="my-team")
+    ti.add_argument("--project", default=None, help="Project root")
+    ti.set_defaults(func=cmd_team)
+    ta = team_sub.add_parser("apply", help="Apply the committed team policy locally")
+    ta.add_argument("--project", default=None, help="Project root")
+    ta.set_defaults(func=cmd_team)
+    tr = team_sub.add_parser("report", help="Team governance rollup")
+    tr.add_argument("--project", default=None, help="Project root")
+    tr.set_defaults(func=cmd_team)
 
     p = sub.add_parser("models", help="Model recommendation and routing helpers")
     models_sub = p.add_subparsers(dest="models_command", required=True)
@@ -944,6 +1097,14 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument(
         "profile",
         choices=["solo-cheap", "solo-balanced", "team-safe", "enterprise-strict"],
+    )
+    po.add_argument("--project", default=None, help="Project root")
+    po.set_defaults(func=cmd_policy)
+    po = policy_sub.add_parser(
+        "check", help="Fail-closed CI governance gate (exits non-zero on violation)"
+    )
+    po.add_argument(
+        "--audit", action="store_true", help="Record the result to the audit trail"
     )
     po.add_argument("--project", default=None, help="Project root")
     po.set_defaults(func=cmd_policy)

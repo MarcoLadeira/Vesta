@@ -36,7 +36,7 @@ class SiteFunnelTests(unittest.TestCase):
 
     def test_pricing_matches_editions(self):
         # $12/mo, $99/yr, $19/user — must match hub/editions.yaml.
-        for token in ["$12", "$99", "$19"]:
+        for token in ["$12", "$99", "$19", "$29"]:
             self.assertIn(token, self.html)
 
 
