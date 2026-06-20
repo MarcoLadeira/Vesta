@@ -45,6 +45,27 @@ class BenchmarkTests(unittest.TestCase):
         )
         self.assertEqual("promptfoo", suites["local"]["external_harnesses"][0]["id"])
 
+    def test_max_suite_maps_to_external_benchmark_signals(self) -> None:
+        suites = list_benchmark_suites()
+
+        self.assertIn("max", suites)
+        self.assertGreater(len(suites["max"]["tasks"]), len(suites["local"]["tasks"]))
+        alignments = {
+            alignment
+            for task in suites["max"]["tasks"]
+            for alignment in task["benchmark_alignment"]
+        }
+        self.assertEqual(
+            {
+                "swe-bench-pro",
+                "terminal-bench",
+                "aider-polyglot",
+                "promptfoo",
+                "opai-governance",
+            },
+            alignments,
+        )
+
     def test_local_run_writes_score_metadata_without_raw_prompts(self) -> None:
         secret_prompt = "Investigate API key sk-test-secret-do-not-store"
         tasks = [
@@ -108,12 +129,35 @@ class BenchmarkTests(unittest.TestCase):
             root = Path(tmp)
             report = run_benchmark(root, suite="local", mode="both")
 
-            passing = benchmark_gate(report, min_context_reduction=2.0)
+            passing = benchmark_gate(
+                report, min_context_reduction=2.0, min_effectiveness_index=50
+            )
             failing = benchmark_gate(report, min_context_reduction=999.0)
+            index_failing = benchmark_gate(report, min_effectiveness_index=101)
 
             self.assertTrue(passing["ok"], passing)
             self.assertFalse(failing["ok"], failing)
             self.assertIn("context_reduction_ratio", failing["failed"][0]["metric"])
+            self.assertFalse(index_failing["ok"], index_failing)
+            self.assertIn(
+                "opai_effectiveness_index", index_failing["failed"][0]["metric"]
+            )
+
+    def test_max_suite_reaches_top_local_control_plane_grade(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            report = run_benchmark(root, suite="max", mode="both")
+
+            self.assertEqual("max", report["suite"])
+            self.assertGreaterEqual(report["task_count"], 16)
+            self.assertEqual(
+                100.0, report["efficiency_score"]["opai_effectiveness_index"]
+            )
+            self.assertEqual("A+", report["efficiency_score"]["leaderboard_grade"])
+            self.assertEqual(
+                "top_local_control_plane", report["claim_readiness"]["status"]
+            )
+            self.assertEqual(5, len(report["benchmark_alignment"]))
 
     def test_compare_benchmark_reports_detects_regression(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -160,9 +204,11 @@ class BenchmarkTests(unittest.TestCase):
             root = Path(tmp)
             out = root / "promptfooconfig.yaml"
 
-            export = export_promptfoo_config(root, out=out)
+            export = export_promptfoo_config(root, out=out, suite="max")
 
             self.assertEqual("promptfoo", export["harness"])
+            self.assertEqual("max", export["suite"])
+            self.assertGreaterEqual(export["task_count"], 16)
             self.assertTrue(out.exists())
             content = out.read_text(encoding="utf-8")
             self.assertIn("OPai coding-agent benchmark handoff", content)
@@ -302,12 +348,32 @@ class BenchmarkTests(unittest.TestCase):
                         str(root),
                         "--harness",
                         "promptfoo",
+                        "--suite",
+                        "max",
                     ]
                 )
             self.assertEqual(0, code)
             export_payload = json.loads(out.getvalue())
             self.assertEqual("promptfoo", export_payload["harness"])
+            self.assertEqual("max", export_payload["suite"])
             self.assertTrue(Path(export_payload["path"]).exists())
+
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(
+                    [
+                        "benchmark",
+                        "run",
+                        "--project",
+                        str(root),
+                        "--suite",
+                        "max",
+                        "--mode",
+                        "both",
+                    ]
+                )
+            self.assertEqual(0, code)
+            self.assertEqual("max", json.loads(out.getvalue())["suite"])
 
 
 if __name__ == "__main__":

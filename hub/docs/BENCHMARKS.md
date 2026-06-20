@@ -13,6 +13,7 @@ prompts, and writes only hashes, counts, costs, and artifact hashes under
 ```sh
 opai benchmark list
 opai benchmark run --suite local --mode both
+opai benchmark run --suite max --mode both
 opai benchmark gate --min-context-reduction 10
 opai benchmark compare --format markdown
 opai benchmark export --harness promptfoo
@@ -44,6 +45,23 @@ The baseline assumes a task is sent directly to the configured frontier baseline
 tier from the local cost model. The OPai run uses the existing local-first router
 and measures the compact context payload OPai would give an agent.
 
+## Max suite
+
+`opai benchmark run --suite max --mode both` is OPai's highest local benchmark
+mode. It is still offline and privacy-safe, but it is shaped around the outside
+benchmarks that matter most for coding agents:
+
+- SWE-bench Pro style long-horizon bug fixes, regressions, and refactors.
+- Terminal-Bench style command-line build, CI, security, and release tasks.
+- Aider Polyglot style multi-language edit-and-repair tasks.
+- promptfoo style assertion, cost, latency, and red-team boundaries.
+- OPai governance tasks for policy, audit, release, dependency, and mobile gates.
+
+The max suite reports an `opai_effectiveness_index` from `0` to `100` and a
+`leaderboard_grade`. A local `A+` means OPai is maxing its control-plane metrics
+locally; it does **not** mean OPai has submitted to SWE-bench, Terminal-Bench, or
+Aider.
+
 ## OPai Efficiency Score
 
 Each run reports:
@@ -55,6 +73,8 @@ Each run reports:
 - `success_rate`
 - `risk_events_blocked`
 - `human_interventions`
+- `opai_effectiveness_index`
+- `leaderboard_grade`
 
 Ratios are capped at `50x` so zero-cloud-call fixture runs remain honest and do
 not produce infinite multipliers.
@@ -70,6 +90,7 @@ opai benchmark gate \
   --min-paid-call-avoidance 1 \
   --min-cost-reduction 1 \
   --min-success-rate 1.0 \
+  --min-effectiveness-index 95 \
   --require-risk-blocks
 ```
 

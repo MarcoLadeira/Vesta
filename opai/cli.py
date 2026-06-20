@@ -555,6 +555,7 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
             min_paid_call_avoidance=args.min_paid_call_avoidance,
             min_cost_reduction=args.min_cost_reduction,
             min_success_rate=args.min_success_rate,
+            min_effectiveness_index=args.min_effectiveness_index,
             max_human_interventions=args.max_human_interventions,
             require_risk_blocks=args.require_risk_blocks,
         )
@@ -581,7 +582,7 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
             print_json({"status": "unsupported", "harness": args.harness})
             return 2
         target = Path(args.out) if args.out else None
-        print_json(export_promptfoo_config(root, out=target))
+        print_json(export_promptfoo_config(root, out=target, suite=args.suite))
         return 0
     return 0
 
@@ -1030,7 +1031,7 @@ def build_parser() -> argparse.ArgumentParser:
         "run", help="Run a local benchmark suite with no cloud calls by default"
     )
     br.add_argument("--project", default=None, help="Project root")
-    br.add_argument("--suite", default="local", choices=["local"])
+    br.add_argument("--suite", default="local", choices=["local", "max"])
     br.add_argument("--mode", default="both", choices=["baseline", "opai", "both"])
     br.add_argument(
         "--audit", action="store_true", help="Record a redacted benchmark audit event"
@@ -1050,6 +1051,7 @@ def build_parser() -> argparse.ArgumentParser:
     br.add_argument("--min-paid-call-avoidance", type=float, default=1.0)
     br.add_argument("--min-cost-reduction", type=float, default=1.0)
     br.add_argument("--min-success-rate", type=float, default=1.0)
+    br.add_argument("--min-effectiveness-index", type=float, default=0.0)
     br.add_argument("--max-human-interventions", type=int)
     br.add_argument("--require-risk-blocks", action="store_true")
     br.set_defaults(func=cmd_benchmark)
@@ -1062,6 +1064,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     br.add_argument("--project", default=None, help="Project root")
     br.add_argument("--harness", default="promptfoo", choices=["promptfoo"])
+    br.add_argument("--suite", default="local", choices=["local", "max"])
     br.add_argument("--out", metavar="PATH")
     br.set_defaults(func=cmd_benchmark)
 

@@ -28,6 +28,7 @@ from .state import state_dir
 MAX_RATIO = 50.0
 LARGER_IS_BETTER_METRICS = {
     "context_reduction_ratio",
+    "opai_effectiveness_index",
     "paid_call_avoidance_ratio",
     "estimated_cost_reduction_ratio",
     "success_rate",
@@ -111,6 +112,159 @@ LOCAL_TASKS: list[dict[str, Any]] = [
     },
 ]
 
+MAX_TASKS: list[dict[str, Any]] = [
+    {
+        "id": "swe_bugfix",
+        "category": "test_failure",
+        "benchmark_alignment": ["swe-bench-pro"],
+        "prompt": "Resolve a realistic failing test in a multi-file Python project using evidence before edits.",
+        "baseline_context_bytes": 96_000,
+    },
+    {
+        "id": "swe_refactor",
+        "category": "planning",
+        "benchmark_alignment": ["swe-bench-pro"],
+        "prompt": "Plan a cross-file refactor with tests, rollback, and minimal context exposure.",
+        "baseline_context_bytes": 120_000,
+    },
+    {
+        "id": "swe_regression",
+        "category": "bug_triage",
+        "benchmark_alignment": ["swe-bench-pro"],
+        "prompt": "Triage a regression from issue text, changed files, and test evidence.",
+        "baseline_context_bytes": 88_000,
+    },
+    {
+        "id": "terminal_build_failure",
+        "category": "test_failure",
+        "benchmark_alignment": ["terminal-bench"],
+        "prompt": "Debug a terminal build failure by running local commands before model escalation.",
+        "baseline_context_bytes": 72_000,
+    },
+    {
+        "id": "terminal_ci_repair",
+        "category": "test_failure",
+        "benchmark_alignment": ["terminal-bench"],
+        "prompt": "Repair CI using shell evidence, logs, and targeted verification commands.",
+        "baseline_context_bytes": 78_000,
+    },
+    {
+        "id": "terminal_security_gate",
+        "category": "security_review",
+        "benchmark_alignment": ["terminal-bench", "opai-governance"],
+        "prompt": "Investigate a risky shell workflow and block unsafe commands unless approved.",
+        "baseline_context_bytes": 84_000,
+    },
+    {
+        "id": "aider_python_edit",
+        "category": "test_failure",
+        "benchmark_alignment": ["aider-polyglot"],
+        "prompt": "Fix a Python exercise by editing source files after reading failing tests.",
+        "baseline_context_bytes": 64_000,
+    },
+    {
+        "id": "aider_typescript_edit",
+        "category": "bug_triage",
+        "benchmark_alignment": ["aider-polyglot"],
+        "prompt": "Fix a TypeScript exercise using test feedback and smallest-file context.",
+        "baseline_context_bytes": 64_000,
+    },
+    {
+        "id": "aider_rust_edit",
+        "category": "bug_triage",
+        "benchmark_alignment": ["aider-polyglot"],
+        "prompt": "Fix a Rust exercise with compiler feedback and targeted local evidence.",
+        "baseline_context_bytes": 64_000,
+    },
+    {
+        "id": "promptfoo_cost_assertions",
+        "category": "planning",
+        "benchmark_alignment": ["promptfoo"],
+        "prompt": "Generate a provider-backed eval handoff with cost and latency assertions.",
+        "baseline_context_bytes": 56_000,
+    },
+    {
+        "id": "promptfoo_redteam_boundaries",
+        "category": "security_review",
+        "benchmark_alignment": ["promptfoo", "opai-governance"],
+        "prompt": "Evaluate whether a coding agent respects filesystem, terminal, and review boundaries.",
+        "baseline_context_bytes": 72_000,
+    },
+    {
+        "id": "governance_policy_ci",
+        "category": "security_review",
+        "benchmark_alignment": ["opai-governance"],
+        "prompt": "Run strict team policy checks and fail closed when required policy is missing.",
+        "baseline_context_bytes": 52_000,
+    },
+    {
+        "id": "governance_audit_chain",
+        "category": "security_review",
+        "benchmark_alignment": ["opai-governance"],
+        "prompt": "Verify benchmark audit events and detect log tail truncation.",
+        "baseline_context_bytes": 52_000,
+    },
+    {
+        "id": "release_preflight_max",
+        "category": "release_preflight",
+        "benchmark_alignment": ["terminal-bench", "opai-governance"],
+        "prompt": "Prepare a release preflight with evidence packets, tests, and approval gates.",
+        "baseline_context_bytes": 84_000,
+    },
+    {
+        "id": "dependency_risk_max",
+        "category": "dependency_update",
+        "benchmark_alignment": ["swe-bench-pro", "opai-governance"],
+        "prompt": "Assess a dependency update with local scanners, targeted tests, and policy gates.",
+        "baseline_context_bytes": 76_000,
+    },
+    {
+        "id": "mobile_readiness_max",
+        "category": "mobile_readiness",
+        "benchmark_alignment": ["terminal-bench", "opai-governance"],
+        "prompt": "Audit mobile release readiness with bounded evidence and no deploy without approval.",
+        "baseline_context_bytes": 82_000,
+    },
+]
+
+
+def _tasks_for_suite(suite: str) -> list[dict[str, Any]]:
+    if suite == "local":
+        return LOCAL_TASKS
+    if suite == "max":
+        return MAX_TASKS
+    msg = f"unknown benchmark suite: {suite}"
+    raise ValueError(msg)
+
+
+def _external_harnesses() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "promptfoo",
+            "status": "installed" if shutil.which("promptfoo") else "optional",
+            "purpose": "Provider-backed assertion, cost, red-team, and coding-agent comparisons.",
+            "default": "disabled",
+        },
+        {
+            "id": "swe-bench-pro",
+            "status": "external",
+            "purpose": "Long-horizon software-engineering correctness validation.",
+            "default": "disabled",
+        },
+        {
+            "id": "terminal-bench",
+            "status": "external",
+            "purpose": "Real terminal autonomy validation.",
+            "default": "disabled",
+        },
+        {
+            "id": "aider-polyglot",
+            "status": "external",
+            "purpose": "Cross-language edit correctness validation.",
+            "default": "disabled",
+        },
+    ]
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -135,6 +289,8 @@ def _artifact_hash(value: Any) -> str:
 
 def list_benchmark_suites() -> dict[str, Any]:
     """Return available local benchmark suites and optional external harnesses."""
+    local_tasks = _tasks_for_suite("local")
+    max_tasks = _tasks_for_suite("max")
     return {
         "local": {
             "id": "local",
@@ -144,20 +300,33 @@ def list_benchmark_suites() -> dict[str, Any]:
                 "OPai-routed local-first usage."
             ),
             "tasks": [
-                {"id": task["id"], "category": task["category"]} for task in LOCAL_TASKS
+                {"id": task["id"], "category": task["category"]} for task in local_tasks
             ],
             "default_mode": "both",
             "storage": ".opaihub/benchmarks/runs.jsonl",
             "privacy": "Raw prompts are not stored; benchmark history keeps hashes and counts.",
-            "external_harnesses": [
+            "external_harnesses": [_external_harnesses()[0]],
+        },
+        "max": {
+            "id": "max",
+            "name": "Max local control-plane benchmark",
+            "description": (
+                "Leaderboard-aligned local stress suite covering SWE-bench Pro, "
+                "Terminal-Bench, Aider Polyglot, promptfoo, and OPai governance signals."
+            ),
+            "tasks": [
                 {
-                    "id": "promptfoo",
-                    "status": "installed" if shutil.which("promptfoo") else "optional",
-                    "purpose": "Provider-backed assertion, cost, and coding-agent comparisons.",
-                    "default": "disabled",
+                    "id": task["id"],
+                    "category": task["category"],
+                    "benchmark_alignment": task["benchmark_alignment"],
                 }
+                for task in max_tasks
             ],
-        }
+            "default_mode": "both",
+            "storage": ".opaihub/benchmarks/runs.jsonl",
+            "privacy": "Raw prompts are not stored; benchmark history keeps hashes and counts.",
+            "external_harnesses": _external_harnesses(),
+        },
     }
 
 
@@ -295,6 +464,7 @@ def _task_result(
     return {
         "task_id": task_id,
         "category": str(task.get("category") or task_id),
+        "benchmark_alignment": list(task.get("benchmark_alignment", ["local"])),
         "task_hash": task_fingerprint(prompt),
         "modes": modes,
         "artifact_hashes": {"modes": _artifact_hash(modes)},
@@ -323,6 +493,14 @@ def _sum_mode(results: list[dict[str, Any]], mode: str, key: str) -> float:
     return round(total, 6)
 
 
+def _alignment_summary(results: list[dict[str, Any]]) -> dict[str, int]:
+    summary: dict[str, int] = {}
+    for result in results:
+        for alignment in result.get("benchmark_alignment", ["local"]):
+            summary[str(alignment)] = summary.get(str(alignment), 0) + 1
+    return dict(sorted(summary.items()))
+
+
 def _score(results: list[dict[str, Any]]) -> dict[str, Any]:
     baseline_context = _sum_mode(results, "baseline", "context_bytes")
     opai_context = _sum_mode(results, "opai", "context_bytes")
@@ -333,17 +511,39 @@ def _score(results: list[dict[str, Any]]) -> dict[str, Any]:
     time_to_evidence = _sum_mode(results, "opai", "time_to_evidence_seconds")
     risk_blocks = int(_sum_mode(results, "opai", "risk_events_blocked"))
     human_interventions = int(_sum_mode(results, "opai", "human_interventions"))
+    context_ratio = _ratio(baseline_context, opai_context)
+    paid_ratio = _ratio(baseline_paid, opai_paid)
+    cost_ratio = _ratio(baseline_cost, opai_cost)
+    success_rate = _assertion_rate(results)
+    time_to_evidence = round(time_to_evidence, 3)
+    risk_score = min(1.0, risk_blocks / 3.0) if risk_blocks else 0.0
+    speed_score = (
+        1.0 if time_to_evidence <= 30 else max(0.0, 1.0 - (time_to_evidence - 30) / 120)
+    )
+    index = round(
+        min(1.0, context_ratio / MAX_RATIO) * 25
+        + min(1.0, paid_ratio / MAX_RATIO) * 20
+        + min(1.0, cost_ratio / MAX_RATIO) * 20
+        + success_rate * 20
+        + risk_score * 10
+        + speed_score * 5,
+        3,
+    )
+    grade = "A+" if index >= 97 else "A" if index >= 90 else "B" if index >= 80 else "C"
     return {
         "context_reduction_ratio": _ratio(baseline_context, opai_context),
-        "paid_call_avoidance_ratio": _ratio(baseline_paid, opai_paid),
-        "estimated_cost_reduction_ratio": _ratio(baseline_cost, opai_cost),
-        "time_to_evidence_seconds": round(time_to_evidence, 3),
-        "success_rate": _assertion_rate(results),
+        "paid_call_avoidance_ratio": paid_ratio,
+        "estimated_cost_reduction_ratio": cost_ratio,
+        "time_to_evidence_seconds": time_to_evidence,
+        "success_rate": success_rate,
         "risk_events_blocked": risk_blocks,
         "human_interventions": human_interventions,
         "paid_calls_avoided": int(max(0, baseline_paid - opai_paid)),
         "context_bytes_saved": int(max(0, baseline_context - opai_context)),
         "estimated_cost_saved_usd": round(max(0.0, baseline_cost - opai_cost), 6),
+        "opai_effectiveness_index": index,
+        "leaderboard_grade": grade,
+        "task_count": len(results),
         "ratio_cap": MAX_RATIO,
     }
 
@@ -355,8 +555,12 @@ def claim_readiness(score: dict[str, Any]) -> dict[str, Any]:
     cost_ratio = float(score.get("estimated_cost_reduction_ratio", 0) or 0)
     success = float(score.get("success_rate", 0) or 0)
     paid_calls_avoided = int(score.get("paid_calls_avoided", 0) or 0)
+    task_count = int(score.get("task_count", 0) or 0)
+    effectiveness_index = float(score.get("opai_effectiveness_index", 0) or 0)
 
-    if success >= 0.99 and context_ratio >= 10 and paid_ratio >= 10:
+    if task_count >= 16 and effectiveness_index >= 95:
+        status = "top_local_control_plane"
+    elif success >= 0.99 and context_ratio >= 10 and paid_ratio >= 10:
         status = "shareable_local_claim"
     elif success >= 0.95 and context_ratio >= 2 and cost_ratio >= 2:
         status = "internal_evidence"
@@ -371,7 +575,7 @@ def claim_readiness(score: dict[str, Any]) -> dict[str, Any]:
         "status": status,
         "public_claim": (
             f"OPai reduced context by {context_ratio:g}x and avoided "
-            f"{paid_calls_avoided} paid calls on the local benchmark suite."
+            f"{paid_calls_avoided} paid calls on the {task_count}-task local benchmark suite."
         ),
         "caveats": caveats,
         "next_validation": ["promptfoo", "swe-bench-verified-mini", "terminal-bench"],
@@ -388,6 +592,7 @@ def _history_record(report: dict[str, Any]) -> dict[str, Any]:
         "mode": report["mode"],
         "task_count": report["task_count"],
         "efficiency_score": report["efficiency_score"],
+        "benchmark_alignment": report.get("benchmark_alignment", {}),
         "claim_readiness": report["claim_readiness"],
         "validation_ladder": report["validation_ladder"],
         "results": report["results"],
@@ -409,11 +614,10 @@ def run_benchmark(
 ) -> dict[str, Any]:
     """Run a local benchmark and optionally persist privacy-safe metadata."""
     if suite != "local":
-        msg = "only the local benchmark suite is available"
-        raise ValueError(msg)
+        _tasks_for_suite(suite)
     _selected_modes(mode)
     root = project_root.expanduser().resolve()
-    selected_tasks = list(tasks or LOCAL_TASKS)
+    selected_tasks = list(tasks or _tasks_for_suite(suite))
     cost_model = load_cost_model(root)
     results = [
         _task_result(root, task, mode=mode, cost_model=cost_model)
@@ -431,6 +635,7 @@ def run_benchmark(
         "results": results,
         "efficiency_score": _score(results),
         "external_harnesses": list_benchmark_suites()[suite]["external_harnesses"],
+        "benchmark_alignment": _alignment_summary(results),
         "validation_ladder": VALIDATION_LADDER,
         "storage": str(benchmark_history_path(root)),
         "privacy": "No raw prompts are stored; benchmark history keeps hashes, counts, and artifact hashes.",
@@ -490,6 +695,7 @@ def benchmark_gate(
     min_paid_call_avoidance: float = 1.0,
     min_cost_reduction: float = 1.0,
     min_success_rate: float = 1.0,
+    min_effectiveness_index: float = 0.0,
     max_human_interventions: int | None = None,
     require_risk_blocks: bool = False,
 ) -> dict[str, Any]:
@@ -519,6 +725,12 @@ def benchmark_gate(
             "actual": float(score.get("success_rate", 0) or 0),
             "operator": ">=",
             "threshold": float(min_success_rate),
+        },
+        {
+            "metric": "opai_effectiveness_index",
+            "actual": float(score.get("opai_effectiveness_index", 0) or 0),
+            "operator": ">=",
+            "threshold": float(min_effectiveness_index),
         },
     ]
     if max_human_interventions is not None:
@@ -629,9 +841,7 @@ def export_promptfoo_config(
     project_root: Path, *, out: Path | None = None, suite: str = "local"
 ) -> dict[str, Any]:
     """Write a privacy-safe promptfoo starter config for provider-backed evals."""
-    if suite != "local":
-        msg = "only the local benchmark suite can be exported"
-        raise ValueError(msg)
+    tasks = _tasks_for_suite(suite)
     root = project_root.expanduser().resolve()
     target = out or promptfoo_config_path(root)
     target = target.expanduser().resolve()
@@ -646,7 +856,7 @@ def export_promptfoo_config(
         "  - 'Run OPai benchmark task {{task_id}} with your coding-agent harness.'",
         "tests:",
     ]
-    for task in LOCAL_TASKS:
+    for task in tasks:
         task_hash = task_fingerprint(str(task.get("prompt") or task["id"]))
         lines.extend(
             [
@@ -655,6 +865,7 @@ def export_promptfoo_config(
                 f"      task_id: {task['id']}",
                 f"      category: {task['category']}",
                 f"      task_hash: {task_hash}",
+                f"      benchmark_alignment: {','.join(task.get('benchmark_alignment', ['local']))}",
                 "    assert:",
                 "      - type: contains",
                 f"        value: {task['id']}",
@@ -672,7 +883,7 @@ def export_promptfoo_config(
         "harness": "promptfoo",
         "suite": suite,
         "path": str(target),
-        "task_count": len(LOCAL_TASKS),
+        "task_count": len(tasks),
         "privacy": "Raw prompts are not exported; task hashes and ids are used.",
         "next_command": f"promptfoo eval -c {target}",
     }
