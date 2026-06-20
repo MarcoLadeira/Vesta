@@ -35,7 +35,31 @@ opai launch copilot
 - `~/.opai/integrations/copilot-instructions.md`: Copilot instruction seed.
 - `~/.opai/bin/opai-codex*`, `opai-claude*`, `opai-copilot*`: terminal launch wrappers.
 
-For each project, `opai activate` writes the OPai managed block at the top of `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md` so clients see OPai before older project notes.
+For each project, `opai activate` writes the OPai managed block at the top of `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`, plus dedicated rule files for Cursor (`.cursor/rules/opai.mdc`) and Cline (`.clinerules/opai.md`), so clients see OPai before older project notes. Folder-form rule files are used for Cursor and Cline so existing single-file user rules are never overwritten.
+
+## Supported Clients & Readiness
+
+OPai targets five clients and reports each one explicitly:
+
+| Client | Project file | Global discovery |
+| --- | --- | --- |
+| Claude Code | `CLAUDE.md` | `~/.claude/CLAUDE.md` |
+| Codex | `AGENTS.md` | `~/.agents/skills/opai/SKILL.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` | `~/.opai/integrations/copilot-instructions.md` |
+| Cursor | `.cursor/rules/opai.mdc` | — |
+| Cline | `.clinerules/opai.md` | — |
+
+`opai status` and `opai doctor` report each client as **active**, **broken**, or
+**missing**, and a failing client returns a concrete repair command
+(`opai activate --repair`). `opai doctor` also detects **stale paths** — a moved
+repository or missing global files — and is read-only by default.
+
+```sh
+opai status      # full activation + per-client integration state
+opai doctor      # branded readiness: active/broken/missing + stale-path detection
+opai update      # ff-only update of ~/.opai/source
+opai uninstall   # dry-run by default; --confirm removes managed blocks safely
+```
 
 ## Badge Behavior
 
