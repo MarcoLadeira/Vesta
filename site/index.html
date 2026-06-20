@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OPai - the AI coding cost firewall</title>
+<meta name="description" content="OPai is the AI coding cost firewall. Install once and make Claude, Codex, Copilot, Cursor, and Cline cheaper, safer, and project-aware - local-first and private." />
+<style>
+  :root{
+    --bg:#0b1220; --panel:#121b2e; --ink:#e7eefb; --muted:#9fb0cc;
+    --brand:#0a7cff; --good:#22c55e; --line:#22304d; --code:#0a1325;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--brand);text-decoration:none}
+  .wrap{max-width:980px;margin:0 auto;padding:0 20px}
+  header{padding:64px 0 24px;text-align:center}
+  .tag{display:inline-block;font-size:13px;color:var(--brand);
+    border:1px solid var(--line);border-radius:999px;padding:4px 12px;margin-bottom:18px}
+  h1{font-size:44px;line-height:1.1;margin:0 0 14px}
+  h1 span{color:var(--brand)}
+  .sub{font-size:19px;color:var(--muted);max-width:680px;margin:0 auto 28px}
+  .clients{color:var(--muted);font-size:14px;margin-top:8px}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:8px 0 4px}
+  .btn{background:var(--brand);color:#fff;padding:12px 20px;border-radius:10px;font-weight:600}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+  section{padding:40px 0;border-top:1px solid var(--line)}
+  h2{font-size:26px;margin:0 0 18px}
+  .grid{display:grid;gap:16px}
+  .cols-3{grid-template-columns:repeat(3,1fr)}
+  .cols-2{grid-template-columns:repeat(2,1fr)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .card h3{margin:0 0 8px;font-size:17px}
+  .card p{margin:0;color:var(--muted);font-size:14px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:12px;
+    padding:16px;overflow:auto;font-size:13.5px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .label{color:var(--muted);font-size:13px;margin:14px 0 6px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left}
+  .price{font-size:22px;font-weight:700}
+  .free{color:var(--good)}
+  .proof{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;text-align:center}
+  .proof .n{font-size:28px;font-weight:800;color:var(--brand)}
+  .proof .l{color:var(--muted);font-size:13px}
+  footer{padding:40px 0 64px;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--line)}
+  @media(max-width:760px){.cols-3,.cols-2,.proof{grid-template-columns:1fr}h1{font-size:34px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="tag">Local-first &middot; Private &middot; Cross-client</span>
+  <h1>OPai is the <span>AI coding cost firewall</span></h1>
+  <p class="sub">Install once. Make Claude, Codex, Copilot, Cursor, and Cline cheaper and safer.
+    OPai routes every task to the cheapest safe path, then proves the savings - locally and privately.</p>
+  <div class="cta">
+    <a class="btn" href="#install">Install OPai</a>
+    <a class="btn ghost" href="https://github.com/MarcoLadeira/OPai">View on GitHub</a>
+  </div>
+  <p class="clients">Works with Claude Code &middot; Codex &middot; GitHub Copilot &middot; Cursor &middot; Cline</p>
+</header>
+
+<section id="install">
+  <h2>Install in one command</h2>
+  <p class="label">Windows PowerShell</p>
+  <pre><code>irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex</code></pre>
+  <p class="label">macOS / Linux</p>
+  <pre><code>curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh</code></pre>
+  <p class="label">Then prove it in 60 seconds</p>
+  <pre><code>opai quickstart          # activate, route a task, show savings
+opai doctor              # which AI clients are active / broken / missing
+opai savings --markdown  # estimated AI spend saved on this project</code></pre>
+</section>
+
+<section>
+  <h2>Why developers install it</h2>
+  <div class="grid cols-3">
+    <div class="card"><h3>Stop the waste</h3><p>Trivial work like <code>git status</code> and commit messages routes to free local tools, not frontier-model prices.</p></div>
+    <div class="card"><h3>Cheapest safe route</h3><p>Deterministic tools &rarr; cached context &rarr; local model &rarr; confirmed cheap cloud &rarr; strong model only with evidence.</p></div>
+    <div class="card"><h3>Proven savings</h3><p>A local ledger shows estimated spend saved, cloud calls avoided, and context tokens saved.</p></div>
+    <div class="card"><h3>Private by default</h3><p>No prompt storage and no telemetry. The ledger keeps one-way hashes, never your code or prompts.</p></div>
+    <div class="card"><h3>Guarded autonomy</h3><p>Push, deploy, and submit fail closed. Risky actions need explicit human confirmation.</p></div>
+    <div class="card"><h3>Every client</h3><p>One install activates Claude, Codex, Copilot, Cursor, and Cline - no lock-in to a single editor.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Before OPai / After OPai</h2>
+  <p class="sub" style="margin-left:0">Five everyday tasks, routed through OPai. Reproducible with <code>opai route "..." --record</code> then <code>opai savings</code>.</p>
+  <div class="proof">
+    <div><div class="n">$0.00</div><div class="l">actual spend</div></div>
+    <div><div class="n">5</div><div class="l">cloud calls avoided</div></div>
+    <div><div class="n">100%</div><div class="l">vs un-routed baseline</div></div>
+    <div><div class="n">~2.5k</div><div class="l">context tokens saved</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Simple, honest pricing</h2>
+  <table>
+    <tr><th>Edition</th><th>Price</th><th>For</th></tr>
+    <tr><td><strong>Free</strong></td><td class="price free">$0</td><td>Local cost firewall for individuals - full routing, savings, 5-client activation.</td></tr>
+    <tr><td><strong>Pro</strong></td><td class="price">$12/mo<span style="font-size:13px;color:var(--muted)"> &middot; $99/yr</span></td><td>Savings exports, advanced policy profiles, local model setup, premium workflows.</td></tr>
+    <tr><td><strong>Team</strong></td><td class="price">$19<span style="font-size:13px;color:var(--muted)">/user/mo</span></td><td>Shared policy &amp; budgets, team usage reports, private registries, CI gates.</td></tr>
+    <tr><td><strong>Enterprise</strong></td><td class="price">Custom</td><td>Self-hosting, SSO/RBAC, signed registries, audit exports, support.</td></tr>
+  </table>
+  <p class="clients" style="margin-top:14px">Free stays genuinely useful. No paid feature requires telemetry.</p>
+</section>
+
+<section>
+  <h2>Use any agent. OPai makes it cheaper, safer, project-aware.</h2>
+  <div class="cta" style="justify-content:flex-start">
+    <a class="btn" href="https://github.com/MarcoLadeira/OPai">Get OPai on GitHub</a>
+    <a class="btn ghost" href="https://github.com/MarcoLadeira/OPai/blob/main/docs/BUSINESS_STRATEGY.md">Read the strategy</a>
+  </div>
+</section>
+
+<footer>
+  OPai - the local-first operating layer that makes every AI coding agent cheaper, safer, and easier to govern.
+  <br />Pre-alpha. Built in the open. No tracking on this page.
+</footer>
+
+</div>
+</body>
+</html>

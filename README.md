@@ -14,17 +14,32 @@ The goal is simple: make AI-assisted development feel close to "one prompt to bu
 ## Prove it in 60 seconds
 
 ```sh
-opai doctor                                   # which clients are active/broken/missing
-opai route "fix the failing test" --record    # cheapest safe route + ledger entry
+opai quickstart                                # guided first run: activate, route, savings
+opai doctor                                    # which clients are active/broken/missing
+opai route "fix the failing test" --record     # cheapest safe route + ledger entry
+opai why "fix the failing test"                # explain the route and its savings
 opai savings --markdown                        # estimated AI spend saved on this project
-opai policy show                               # the active cost/safety policy profile
+opai share --markdown                          # a shareable savings badge for your README
 ```
 
-See the [Quickstart](docs/QUICKSTART.md), the grounded
+**New to OPai?** The one-page install funnel lives in [`site/index.html`](site/index.html).
+Read the [Business Strategy](docs/BUSINESS_STRATEGY.md) for positioning and the
+open-core model.
+
+See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [before/after proof](docs/PROOF.md), the
 [install proof checklist](docs/INSTALL_PROOF.md), the
 [launch checklist](docs/LAUNCH_CHECKLIST.md), and
 [editions & pricing](hub/docs/PRICING_AND_EDITIONS.md).
+
+### More efficiency & adoption commands
+
+```sh
+opai context pack --changed   # tiny, redacted context (changed files + adjacent tests)
+opai test --changed           # run only the tests likely to cover your changes
+opai metrics                  # local product metrics: tokens/escalations avoided, cache rate
+opai edition show             # Free / Pro ($12·mo, $99·yr) / Team / Enterprise
+```
 
 Default posture:
 

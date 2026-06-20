@@ -419,7 +419,7 @@ def cmd_metrics(args: argparse.Namespace) -> int:
 
 def cmd_quickstart(args: argparse.Namespace) -> int:
     """Guided 60-second first run: activate, sample route, savings, share."""
-    from opaihub.router import compact_decision, route_task
+    from opaihub.router import route_task
     from opaihub.savings import build_savings_report
     from opaihub.share import build_savings_card
 
@@ -427,7 +427,6 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
     steps: list[dict[str, Any]] = []
 
     activation = activate_project(root, install_global=not args.project_only)
-    clients = activation.get("global_integrations") or {}
     steps.append({"step": "activate", "status": activation.get("status")})
 
     sample_task = args.task or "show git status and summarize the diff"
