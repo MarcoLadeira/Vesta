@@ -28,6 +28,57 @@ def init_team(project_root: Path, mode: str = "solo") -> dict[str, Any]:
     return data | {"path": str(path)}
 
 
+def team_report(project_root: Path) -> dict[str, Any]:
+    """Governance rollup for a team lead: savings, policy, audit, conformance.
+
+    Answers the strategy's key question: who routed what, did it follow policy,
+    what spend was avoided, and is the audit trail intact. Local and read-only.
+    """
+    from .audit import summarize_audit
+    from .ledger import summarize_ledger
+    from .policy import resolve_policy
+    from .runs import recent_runs
+    from .team_policy import load_team_policy, validate_against_team_policy
+
+    root = project_root.expanduser().resolve()
+    ledger = summarize_ledger(root)
+    audit = summarize_audit(root)
+    resolved = resolve_policy(root)
+    has_team_policy = load_team_policy(root) is not None
+    conformance = (
+        validate_against_team_policy(root)
+        if has_team_policy
+        else {"ok": None, "reason": "no team policy"}
+    )
+    runs = recent_runs(root, limit=10_000)
+
+    return {
+        "report": "opai-team-report",
+        "project": str(root),
+        "policy": {
+            "active_profile": resolved["profile"],
+            "has_team_policy": has_team_policy,
+            "conforms": conformance.get("ok"),
+            "violations": conformance.get("violations", []),
+        },
+        "savings": {
+            "estimated_savings_usd": ledger["estimated_savings_usd"],
+            "cloud_calls_avoided": ledger["cloud_calls_avoided"],
+            "routed_tasks": ledger["route_count"],
+            "route_runs_recorded": len(runs),
+        },
+        "governance": {
+            "audit_events": audit["event_count"],
+            "denied_actions": audit["denied_actions"],
+            "audit_chain_valid": audit["chain"]["ok"],
+        },
+        "notes": [
+            "All figures are local and private; nothing is transmitted.",
+            "Run 'opai policy check' in CI to enforce the team policy.",
+        ],
+    }
+
+
 def cloud_status(project_root: Path) -> dict[str, Any]:
     path = _team_path(project_root.expanduser().resolve())
     if not path.exists():

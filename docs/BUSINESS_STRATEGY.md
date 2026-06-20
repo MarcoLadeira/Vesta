@@ -1,170 +1,602 @@
 # OPai Business Strategy
 
-OPai should become the AI coding cost firewall: a local-first control plane that makes Claude, Codex, Copilot, Cursor, Cline, and future coding agents cheaper, safer, and more project-aware.
+Last updated: 2026-06-20
 
-The immediate job is not to replace every agent. The immediate job is to sit underneath them, reduce waste, make routing visible, enforce local-first policy, and give developers a clear install path that proves value quickly.
+OPai should become the AI coding cost firewall: the local-first control plane developers install before they use Claude, Codex, Copilot, Cursor, Cline, OpenHands, Kilo, or future coding agents.
 
-## Market Reality
+The business goal is not to win by being another agent. The business goal is to own the layer underneath agents: activation, policy, context slimming, routing, spend visibility, safety gates, evidence, and team governance.
 
-- The AI code tools market is large and still accelerating. Precedence Research estimates the market at USD 10.12B in 2026, growing to USD 91.09B by 2035 at a 27.65% CAGR. It also calls autonomous AI coding agents the fastest-growing tool type. Source: <https://www.precedenceresearch.com/ai-code-tools-market>
-- Pricing is moving toward usage. GitHub announced that Copilot moved to usage-based billing on June 1, 2026, while keeping base prices at Pro USD 10/month, Pro+ USD 39/month, Business USD 19/user/month, and Enterprise USD 39/user/month. Source: <https://github.blog/news-insights/company-news/github-copilot-is-moving-to-usage-based-billing/>
-- Cursor sells the agent/editor experience directly, with Individual at USD 20/month and Teams at USD 40/user/month. Its team value includes MCPs, skills, hooks, cloud agents, usage analytics, privacy mode, and SSO. Source: <https://cursor.com/pricing>
-- Cline is an open-source agent runtime across editor, terminal, and SDK surfaces, and claims trust from 8M+ developers. Source: <https://cline.bot/>
-- Kilo Code competes on free open-source agent use, BYOK/pay-as-you-go inference, and Teams at USD 15/user/month. Source: <https://kilo.ai/pricing>
-- OpenHands competes as an open-source, model-agnostic cloud coding agent platform with local/self-hosted control, enterprise integrations, and a large GitHub community. Source: <https://www.openhands.dev/>
-- LiteLLM and similar gateways prove that spend tracking, budget routing, and provider controls are valuable, but they are model infrastructure rather than a coding workflow control plane. Sources: <https://docs.litellm.ai/docs/proxy/cost_tracking> and <https://docs.litellm.ai/docs/proxy/provider_budget_routing>
-- Revenue in this category can scale quickly. Lovable publicly reported USD 100M ARR in 2025, and TechCrunch later reported it surpassed USD 500M annualized revenue run rate in June 2026. Cognition reported USD 492M run-rate revenue in May 2026. Sources: <https://lovable.dev/blog/agent>, <https://techcrunch.com/2026/06/09/lovable-says-it-has-hit-500m-in-annualized-revenue-with-1-million-new-projects-a-week/>, and <https://cognition.com/blog/series-d>
+## Executive Thesis
 
-## Strategic Diagnosis
+AI coding tools are moving from autocomplete to autonomous workflows. That creates three new buyer pains:
 
-Most competitors are selling one of four things:
+- Spend becomes variable because agentic sessions consume input, output, cached context, tool calls, and frontier-model credits.
+- Risk becomes harder to govern because every developer may use a different agent, MCP server, prompt, plugin, or cloud workspace.
+- Proof becomes scarce because teams need to know what the agent saw, what it changed, why it escalated, and whether it followed policy.
 
-- Agent/editor: Cursor, Cline, Kilo, OpenHands, Claude Code, Codex, Copilot.
-- App builder: Lovable, Replit, Bolt, v0-style tools.
-- Model gateway: LiteLLM, Portkey, OpenRouter-style routing.
-- Enterprise automation: Devin/Cognition and cloud engineering agents.
+OPai's wedge is to solve those pains without asking users to abandon the agents they already like.
 
-OPai's opening is different. OPai can become the layer developers install before they use any of those tools. The wedge is not "we generate better code." The wedge is "we stop your agents from wasting context, credits, and risky permissions."
+The category to own:
 
-That gives OPai a sharper position:
+```text
+AI coding control plane
+```
+
+The market-facing phrase:
+
+```text
+The AI coding cost firewall.
+```
+
+The product promise:
 
 ```text
 Use any AI coding agent. OPai makes it cheaper, safer, and project-aware by default.
 ```
 
-## Differentiation
+## What OPai Is Exactly
 
-- Cross-client control: OPai activates projects for multiple AI clients instead of locking users into one editor or runtime.
-- Local-first routing: deterministic tools, cached context, local models, and compact evidence happen before paid cloud models.
-- Cost visibility: OPai can expose what context was avoided, which route was chosen, and why cloud escalation was or was not needed.
-- Privacy posture: no prompt storage by default and no telemetry requirement for the free/core workflow.
-- Agent policy: OPai can enforce confirmation gates for destructive commands, paid tools, cloud calls, deploys, and oversized contexts.
-- Guarded workflows: mobile readiness proves a safer automation pattern with bounded queues, evidence packets, path controls, and human proof.
-- Registry foundation: OPai already has tools, agents, workflows, prompts, model routing, skills, and MCP metadata that can become a signed marketplace later.
+OPai is a local-first operating layer for AI-assisted software development.
 
-## Customer Strategy
+It is:
 
-Start with AI power users because they feel the pain first and can validate the product quickly.
+- A CLI and installer that activates projects and AI clients.
+- A cross-client policy layer for Claude, Codex, Copilot, and other agents.
+- A context firewall that keeps generated caches and irrelevant files out of model prompts.
+- A model-routing advisor that starts with deterministic evidence and escalates only when justified.
+- A safety layer for destructive commands, paid tools, cloud calls, deployments, and oversized context.
+- A registry layer for tools, agents, workflows, skills, MCP servers, budgets, and permissions.
+- An evidence layer for guarded workflows such as mobile release readiness.
 
-- Pain: Claude/Codex/Cursor/Copilot sessions burn credits, pull too much repo context, and repeat local work the machine could have done deterministically.
-- Offer: free local install, `opai doctor`, `opai route`, `opai slim`, and a savings report.
-- Conversion trigger: "OPai saved you X estimated tokens and avoided Y cloud escalations this week."
+It is not:
 
-Move into small teams once the savings story is visible.
+- Not a model.
+- Not an IDE.
+- Not a replacement for Claude Code, Codex, Cursor, Cline, or Copilot.
+- Not a cloud-first agent runtime.
+- Not an app-builder like Lovable or Replit.
+- Not a generic LLM gateway like LiteLLM.
 
-- Pain: each developer uses different agents, rules, prompts, MCP tools, and budgets.
-- Offer: shared policy profiles, team budgets, private registries, audit reports, and approved client setup.
-- Conversion trigger: team leads can see spend, risk, and workflow consistency across repos without banning AI tools.
+The simplest analogy:
 
-Enter enterprise after team controls mature.
+```text
+OPai is the local policy, routing, and evidence layer for agentic coding.
+```
 
-- Pain: AI coding adoption creates security, compliance, spend, and provenance risk.
-- Offer: self-hosted/private control plane, signed registries, SSO/RBAC, audit exports, evidence packets, and support.
-- Conversion trigger: OPai becomes the governance layer that lets enterprises allow more AI coding without losing control.
+## Market Reality
+
+The AI coding market is already large, fast-growing, and economically intense.
+
+- Precedence Research estimates the AI code tools market at USD 10.12B in 2026, growing to USD 91.09B by 2035 at a 27.65% CAGR. It identifies autonomous AI coding agents as the fastest-growing tool type. Source: <https://www.precedenceresearch.com/ai-code-tools-market>
+- GitHub moved Copilot to usage-based billing on June 1, 2026. GitHub AI Credits are based on tokens, including input, output, and cached tokens; 1 credit equals USD 0.01. Source: <https://docs.github.com/copilot/concepts/billing/usage-based-billing-for-organizations-and-enterprises>
+- OpenAI moved Codex teams toward pay-as-you-go usage, with Codex-only seats billed on token consumption, and reported more than 2M weekly Codex builders plus 6x growth in Business and Enterprise Codex users since January 2026. Source: <https://openai.com/index/codex-flexible-pricing-for-teams/>
+- Claude's individual plans range from Pro at USD 20/month to Max 20x at USD 200/month, which shows that serious AI power users will pay for more capacity. Source: <https://support.claude.com/en/articles/11049762-choose-a-claude-plan>
+- Cursor publicly said it crossed USD 1B in annualized revenue and serves millions of developers plus many major engineering organizations. Source: <https://cursor.com/blog/series-d>
+- Replit says users from 85% of the Fortune 500 are building with it and that it is on track to hit USD 1B run-rate revenue by the end of 2026. Source: <https://replit.com/blog/replit-raises-400-million-dollars>
+- Lovable reported USD 100M ARR in 2025, and TechCrunch reported it surpassed USD 500M annualized revenue run rate in June 2026. Sources: <https://lovable.dev/blog/agent> and <https://techcrunch.com/2026/06/09/lovable-says-it-has-hit-500m-in-annualized-revenue-with-1-million-new-projects-a-week/>
+- Cognition reported USD 492M run-rate revenue in May 2026, tied to enterprise usage of Devin. Source: <https://cognition.ai/blog/series-d>
+
+The macro conclusion: the agent layer is huge, but agent usage is becoming expensive enough that control, governance, and evidence become their own product category.
+
+## Competitor Map
+
+| Category | Examples | What They Sell | What OPai Should Avoid | OPai Opening |
+| --- | --- | --- | --- | --- |
+| Agent/editor | Cursor, Claude Code, Codex, Cline, Kilo, Copilot | The coding agent experience itself | Competing head-on as another editor | Make every agent cheaper and safer |
+| App builder | Lovable, Replit, Bolt | Prompt-to-app creation and hosting | Becoming a generic app-builder too early | Help app builders and devs avoid costly agent chaos |
+| Model gateway | LiteLLM, Portkey, OpenRouter | Provider routing, keys, budgets, spend tracking | Becoming only API infrastructure | Apply routing to real coding workflows and repo context |
+| Enterprise agent platform | Devin/Cognition, OpenHands Enterprise, Tabnine | Controlled autonomous engineering workflows | Starting cloud-first before trust is earned | Local-first install, then team governance |
+| Code review/security | CodeRabbit, Qodo, Secure Code Warrior, Snyk, Checkmarx | Review, code quality, security governance | Narrowing OPai to review only | Become the broader pre-agent control layer |
+
+The important insight is that OPai's best path is not "beat Cursor at Cursor." The best path is "make Cursor, Claude, Codex, Copilot, and Cline easier to govern."
+
+## Where The Money Is
+
+The market has five revenue pools. They are not equal.
+
+### 1. Enterprise Governance And Control
+
+This is the highest-quality revenue. Buyers pay because uncontrolled AI coding creates security, compliance, IP, cost, and audit risk.
+
+Evidence:
+
+- Secure Code Warrior positions Trust Agent: AI as the first control layer for AI-assisted software development, with governance at the point of code creation. Source: <https://www.securecodewarrior.com/product/trust-agent-ai>
+- Tabnine's Agentic Platform is USD 59/user/month annually and emphasizes architecture context, organizational standards, MCP tools, and safe production operation. Source: <https://www.tabnine.com/pricing/>
+- Qodo Enterprise adds SSO/SAML, audit logs, governance analytics, BYOK, single-tenant SaaS or on-prem, and dedicated support. Source: <https://www.qodo.ai/pricing/>
+
+OPai implication:
+
+Enterprise OPai should sell governance, audit, private registries, signed evidence, and self-hosted/team policy. This can become USD 24k-250k+ annual contract value if OPai proves value in teams first.
+
+### 2. Team-Level Seat Revenue
+
+This is the most reachable near-term revenue. Teams already understand per-seat developer tooling.
+
+Evidence:
+
+- Cursor Teams is USD 40/user/month and includes team billing, team marketplace, cloud agents, usage analytics, privacy mode, and SSO. Source: <https://cursor.com/pricing>
+- GitHub Copilot Business and Enterprise are usage-based around organization pools and budgets, with AI credits tied to token consumption. Source: <https://docs.github.com/copilot/concepts/billing/usage-based-billing-for-organizations-and-enterprises>
+- Gemini Code Assist charges USD 22.80/user/month for Standard monthly and USD 54/user/month for Enterprise monthly. Source: <https://codeassist.google/products/business>
+- Amazon Q Developer Pro is USD 19/user/month, with pooled transformation line allocations and overage pricing. Source: <https://aws.amazon.com/q/developer/pricing/>
+- CodeRabbit Pro is USD 24/user/month annually and Pro Plus is USD 48/user/month annually. Source: <https://www.coderabbit.ai/pricing>
+
+OPai implication:
+
+Team OPai should start around USD 19/user/month, then add a higher Governance tier around USD 29-39/user/month once audit, dashboards, shared policies, and private registries exist.
+
+### 3. Usage, Credits, And Spend Management
+
+This is huge but dangerous. Usage revenue can scale, but it also creates infrastructure exposure.
+
+Evidence:
+
+- OpenAI Codex-only seats have no rate limits and are billed on token consumption. Source: <https://openai.com/index/codex-flexible-pricing-for-teams/>
+- GitHub AI Credits meter token-heavy agent interactions, and long frontier-model sessions cost more because they do more work. Source: <https://docs.github.com/copilot/concepts/billing/usage-based-billing-for-organizations-and-enterprises>
+- LiteLLM tracks spend across 100+ LLMs and supports provider budget routing. Sources: <https://docs.litellm.ai/docs/proxy/cost_tracking> and <https://docs.litellm.ai/docs/proxy/provider_budget_routing>
+
+OPai implication:
+
+OPai should not start by reselling tokens. It should start by reducing token waste. Later, OPai can optionally integrate LiteLLM/OpenRouter/provider keys and take revenue from team/enterprise controls, not from encouraging more spend.
+
+### 4. App Builder And Hosting Revenue
+
+This is massive but less natural for OPai today.
+
+Evidence:
+
+- Lovable and Replit show that app-building platforms can scale to hundreds of millions in annualized revenue when they own the creation workflow, hosting, and user distribution.
+
+OPai implication:
+
+Do not chase this first. OPai can later support "one prompt to build, one prompt to ship" workflows, but the immediate wedge is control and cost around existing coding agents.
+
+### 5. Marketplace And Workflow Packs
+
+This can become meaningful after distribution exists.
+
+OPai implication:
+
+Signed registries, workflow packs, MCP profiles, mobile readiness packs, release preflight packs, and security packs should become the marketplace foundation. Do not launch a marketplace before OPai has active installs and a trust story.
+
+## How OPai Stands Out
+
+OPai should own a position no competitor can easily copy without changing its business model:
+
+```text
+Agent-neutral, local-first, cost-aware governance for AI coding.
+```
+
+The strongest differentiators:
+
+- OPai is cross-client. It does not require users to choose one AI vendor.
+- OPai starts local. That makes it safer for developers and more believable for security-conscious teams.
+- OPai reduces spend instead of monetizing spend first.
+- OPai has a real install surface: wrappers, status, project instructions, AI ignore files, skills, and `opai doctor`.
+- OPai has a registry architecture for tools, agents, workflows, MCP servers, model routing, permissions, and budgets.
+- OPai has a guarded workflow proof point in mobile readiness: two readiness scores, bounded remediation queues, path locks, signed evidence, CI lanes, and no auto-push/upload/submit.
+
+The most important product story:
+
+```text
+Before OPai, each agent sees too much and costs too much.
+After OPai, every agent starts from the same local evidence, budget, and safety policy.
+```
+
+## Buyer Segments
+
+### Segment 1: AI Power Users
+
+Profile:
+
+- Solo developers, founders, freelancers, indie hackers, senior engineers, and AI-heavy builders.
+
+Pain:
+
+- They use Claude/Codex/Cursor/Cline heavily and feel usage limits, context bloat, repeated local checks, and credit anxiety.
+
+Offer:
+
+- Free core plus OPai Pro.
+
+Message:
+
+```text
+Stop burning credits on context your machine can collect locally.
+```
+
+Target conversion:
+
+- Install page to `opai status`.
+- `opai slim` and `opai route` to first savings proof.
+- Savings report to Pro.
+
+### Segment 2: Small Engineering Teams
+
+Profile:
+
+- 5-50 developer teams already using multiple AI tools.
+
+Pain:
+
+- Shadow AI, inconsistent rules, unpredictable spend, and no shared policy.
+
+Offer:
+
+- OPai Team.
+
+Message:
+
+```text
+Let every developer use their favorite agent under one team policy.
+```
+
+Target conversion:
+
+- Pilot with 3-10 seats.
+- Shared policy and team savings report.
+- Convert to Team after 30 days.
+
+### Segment 3: Enterprise Engineering And Security
+
+Profile:
+
+- Regulated organizations, platform teams, security leaders, financial services, healthcare, government contractors, and large product orgs.
+
+Pain:
+
+- AI code provenance, model usage, MCP/tool permissions, audit readiness, spend controls, and policy enforcement.
+
+Offer:
+
+- OPai Enterprise.
+
+Message:
+
+```text
+Govern AI coding without banning the tools developers already use.
+```
+
+Target conversion:
+
+- Team proof first.
+- Enterprise discovery call.
+- Self-host/private registry/audit pilot.
+
+## Product Strategy
+
+OPai should evolve in five layers.
+
+### Layer 1: OPai Core
+
+Free and open core.
+
+- Installer.
+- Project activation.
+- AI-client instructions and ignore files.
+- `opai doctor`.
+- `opai status`.
+- `opai slim`.
+- `opai route`.
+- Basic model recommendation.
+- Local-first default policy.
+
+Success test:
+
+- A new user can install OPai, activate a project, and understand what OPai changed in under 10 minutes.
+
+### Layer 2: OPai Savings
+
+Power-user Pro tier.
+
+- Route history.
+- Usage ledger.
+- Savings report.
+- Before/after context report.
+- Local dashboard.
+- Advanced policy profiles.
+- Local model setup helpers.
+
+Success test:
+
+- A user can see estimated tokens avoided, cloud escalations avoided, and contexts slimmed.
+
+### Layer 3: OPai Team
+
+Paid team tier.
+
+- Shared policies.
+- Pooled budgets.
+- Team route analytics.
+- Private registries.
+- Approved MCP profiles.
+- CI policy checks.
+- Team install repair report.
+
+Success test:
+
+- A team lead can answer: who used what, which agents followed policy, what spend was avoided, and which repos are safe.
+
+### Layer 4: OPai Trust
+
+Enterprise tier.
+
+- SSO/RBAC.
+- Signed registries.
+- Audit exports.
+- Self-host/private deployment.
+- Signed evidence packets.
+- AI model and tool provenance.
+- SOC 2-ready controls and security docs.
+
+Success test:
+
+- A security or platform team can allow AI coding at scale with evidence and enforceable defaults.
+
+### Layer 5: OPai Marketplace
+
+Later-stage ecosystem.
+
+- Signed workflow packs.
+- MCP profiles.
+- Tool profiles.
+- Agent packs.
+- Vertical readiness packs.
+- Team-shared internal packs.
+
+Success test:
+
+- OPai becomes the place teams standardize AI coding workflows, not just the tool they install.
 
 ## Product Packaging
 
-Free core should stay useful and trustworthy:
+Pricing hypothesis:
 
-- One-command install.
-- Project activation and repair.
-- AI-client instruction and ignore generation.
-- Compact local-first routing.
-- Basic `opai doctor`, `opai status`, `opai slim`, and `opai route`.
-- No telemetry and no prompt storage by default.
+| Tier | Price | Buyer | Included |
+| --- | --- | --- | --- |
+| Free Core | USD 0 | Solo devs, OSS, early adopters | install, activate, status, doctor, slim, basic route, AI ignores |
+| Pro | USD 12/month or USD 99/year | AI power users | savings dashboard, route history, advanced local policy, workflow packs |
+| Team | USD 19/user/month | small teams | shared policies, pooled budgets, team reports, private registries |
+| Team Governance | USD 29-39/user/month | security-aware teams | audit logs, approved MCP profiles, CI gates, evidence exports |
+| Enterprise | custom, starting around USD 24k/year | platform/security orgs | SSO/RBAC, self-host/private, signed registries, support, compliance docs |
 
-OPai Pro should cost about USD 12/month or USD 99/year:
+Keep the free core strong. OPai needs trust and distribution before it can charge deeply.
 
-- Savings dashboard and longer local usage history.
-- Advanced policy profiles.
-- Local model setup helpers.
-- Premium workflow packs.
-- Better before/after reports for solo users.
+Do not put basic local safety behind a paywall. Charge for history, governance, dashboards, shared policy, audit, private registries, signed evidence, hosted sync, and support.
 
-OPai Team should cost about USD 19/user/month:
+## Go-To-Market Strategy
 
-- Shared policies and budgets.
-- Team usage reports.
-- Private tool/agent/workflow registries.
-- Approved MCP/client profiles.
-- CI budget and safety gates.
+### First Positioning
 
-Enterprise should be custom annual pricing:
+Lead with the painful thing users already feel:
 
-- Self-hosting or private deployment.
-- SSO/RBAC.
-- Signed registry enforcement.
-- Audit exports.
-- Compliance/security documentation.
-- Priority support and onboarding.
+```text
+AI coding is getting powerful, but the bill and risk are getting weird.
+```
 
-## Go-To-Market Plan
+Then offer the simple fix:
 
-The first public funnel should be a static install page at `site/index.html`. Its job is to turn interest into installation, not to explain every OPai subsystem.
+```text
+Install OPai once. Make every coding agent start local-first.
+```
 
-Primary message:
+### First Funnel
+
+The first funnel is already in the repo at `site/index.html`.
+
+It should drive this path:
+
+```text
+page visit -> install command -> opai status -> opai doctor -> opai route -> first savings proof
+```
+
+The page should not try to explain every feature. It should make one thing unforgettable:
 
 ```text
 OPai is the AI coding cost firewall.
-Install once. Make Claude, Codex, Copilot, Cursor, and Cline cheaper and safer.
 ```
 
-Launch channels:
+### Content Engine
 
-- GitHub README and release notes.
-- Hacker News launch post focused on usage-based AI coding costs.
-- Reddit posts in Claude Code, Cursor, Copilot, local LLM, and programming communities.
-- Short videos showing the same task with and without OPai.
-- Founder/dev logs showing OPai savings reports from real projects.
-- Direct outreach to teams already using multiple AI coding tools.
+Create proof-driven content, not vague AI hype:
 
-Proof assets to build next:
+- "Claude Code with OPai: same bug, less context."
+- "Cursor with OPai: stop sending generated caches to your model."
+- "Codex with OPai: local evidence before cloud escalation."
+- "Copilot usage-based billing means token discipline matters."
+- "What your coding agent saw before it changed your repo."
+- "How OPai blocks risky commands during agentic coding."
+- "Mobile release readiness: a guarded AI workflow that does not push, upload, or submit."
 
-- "Before OPai / After OPai" screenshots.
-- Savings report examples.
-- One-minute install video.
-- Five-minute "Claude Code with OPai" demo.
-- Team policy demo.
-- Mobile readiness guarded workflow demo.
+### Launch Channels
 
-## 90-Day Execution Plan
+- GitHub README and releases.
+- Hacker News: cost-control story.
+- Reddit: Claude Code, Cursor, GitHub Copilot, local LLM, programming, indie hacking.
+- YouTube/TikTok/Shorts: before/after sessions.
+- LinkedIn: team governance and platform engineering angle.
+- Direct outreach: small engineering teams already using multiple coding agents.
 
-Days 1-14:
+## Sales Strategy
 
-- Publish the static install page.
-- Add the strategy doc to the repo.
-- Tighten README links to the install page and business strategy.
-- Collect 5 real OPai usage examples from active projects.
-- Make `opai doctor` and `opai status` the first-run trust commands.
+### Land
 
-Days 15-45:
+Win solo developers with free install and visible savings.
 
-- Ship the first savings report.
-- Add route history and estimated token/context reduction.
-- Create install troubleshooting docs for Windows, macOS, Linux, Claude, Codex, Copilot, Cursor, and Cline.
-- Publish a launch checklist and demo script.
-- Recruit 10 early external users.
+Required proof:
 
-Days 46-90:
+- `opai status` works.
+- `opai doctor` is clear.
+- `opai slim` finds context bloat.
+- `opai route` explains local-first decisions.
 
-- Package OPai Pro boundaries honestly without blocking the free core.
-- Build a local dashboard for savings and policy.
-- Add team policy profiles.
-- Prepare 2-3 small-team pilots.
-- Turn mobile readiness into the first premium workflow case study.
+### Expand
+
+Turn power users into team champions.
+
+Required proof:
+
+- Savings report.
+- Team policy profile.
+- Shared install repair.
+- Before/after demo in a real repo.
+
+### Enterprise
+
+Sell governance after team traction.
+
+Required proof:
+
+- Private registry.
+- Audit logs.
+- Signed evidence.
+- SSO/RBAC plan.
+- Security architecture document.
+- Case study or pilot metrics.
+
+## Product Roadmap
+
+### 0-30 Days: Proof Of Install And Positioning
+
+- Make `site/index.html` the public install page.
+- Link the strategy and install page from README.
+- Make install/status/doctor reliable across moved paths.
+- Tighten the phrase "AI coding cost firewall" everywhere.
+- Create first before/after demo script.
+- Publish a public roadmap connected to issues #35-#40.
+
+### 30-60 Days: Savings Report MVP
+
+- Add route history.
+- Add usage ledger.
+- Add `opai savings`.
+- Show context bloat avoided.
+- Show estimated cloud escalations avoided.
+- Keep prompt storage off by default.
+- Produce five real savings screenshots from local projects.
+
+### 60-90 Days: Team Pilot
+
+- Add policy profiles: `solo-cheap`, `solo-balanced`, `team-safe`, `enterprise-strict`.
+- Add team policy file and validation.
+- Add local dashboard for savings and policy.
+- Add private registry concept.
+- Recruit 2-3 team pilots.
+
+### 90-180 Days: Governance
+
+- Add audit export.
+- Add signed registry verification.
+- Add approved MCP profiles.
+- Add CI policy check.
+- Add self-host/team docs.
+- Package mobile readiness as the first guarded workflow case study.
+
+### 180-365 Days: Enterprise And Marketplace
+
+- Add SSO/RBAC if hosted/team mode exists.
+- Add signed internal workflow packs.
+- Add marketplace metadata and trust scoring.
+- Add compliance/security packet.
+- Build partner integrations with LiteLLM, OpenRouter, local model runtimes, and CI providers.
+
+## What To Build First
+
+Priority order:
+
+1. Activation reliability.
+2. Savings report.
+3. Policy profiles.
+4. Team dashboard.
+5. Guarded workflow contract.
+6. Private registry and audit trail.
+7. Enterprise packaging.
+
+Do not build first:
+
+- A new coding agent.
+- A cloud IDE.
+- A generic app builder.
+- A token resale gateway.
+- A marketplace before distribution exists.
+
+## Strategic Moats
+
+OPai can build moats in places that agent vendors have weaker incentives to own:
+
+- Agent neutrality: every vendor wants lock-in; OPai should support many clients.
+- Spend reduction: model vendors benefit from usage; OPai benefits from trust and savings.
+- Local-first trust: users can verify OPai behavior on disk.
+- Policy artifacts: instructions, ignore files, route history, budgets, permissions, evidence.
+- Workflow evidence: signed packets and audit bundles for release readiness.
+- Registry graph: tools, agents, MCP servers, workflows, skills, models, permissions, and budgets in one system.
+
+## Key Risks
+
+- If OPai is hard to install, nothing else matters.
+- If OPai cannot show savings, the cost-firewall message becomes weak.
+- If OPai tries to become a full agent too early, it enters the most crowded part of the market.
+- If OPai stores sensitive prompts or telemetry by default, it loses its trust advantage.
+- If team features are only docs and not working controls, enterprise buyers will not believe the story.
+- If the product is too broad, users will not understand what to do first.
 
 ## Metrics
 
-- Install conversion from page visit to successful `opai status`.
-- Activation success rate by OS and AI client.
-- Weekly active repos.
+Product metrics:
+
+- Install success rate.
+- `opai status` success rate.
+- AI-client activation success rate.
+- `opai slim` context reduced.
+- `opai route` runs per active repo.
 - Estimated tokens avoided.
 - Cloud escalations avoided.
-- Savings reports generated.
-- AI-client repair success rate.
-- Free-to-Pro waitlist signups.
-- Team pilot requests.
+- Doctor repair success rate.
 
-## Strategic Rule
+Business metrics:
 
-OPai should not become just another AI coding agent. OPai should become the local-first operating layer that makes every AI coding agent cheaper, safer, and easier to govern.
+- Weekly active repos.
+- Install page conversion.
+- Free-to-Pro conversion.
+- Pro churn.
+- Team pilot count.
+- Team seats.
+- Enterprise discovery calls.
+- Annual recurring revenue.
+
+Trust metrics:
+
+- Number of projects with policy profiles.
+- Number of guarded workflow runs.
+- Number of signed evidence packets.
+- Number of denied risky commands.
+- Number of audit exports generated.
+
+## CEO Decision
+
+OPai should commit to this identity:
+
+```text
+OPai is the local-first control plane for AI coding.
+```
+
+It should lead publicly with this message:
+
+```text
+The AI coding cost firewall.
+```
+
+It should monetize in this order:
+
+1. Free core for distribution and trust.
+2. Pro savings for AI power users.
+3. Team governance for predictable recurring revenue.
+4. Enterprise trust for high-value contracts.
+5. Marketplace/workflow packs after distribution exists.
+
+The most important next product promise:
+
+```text
+Install OPai, run one command, and see what AI spend and risk it helped you avoid.
+```
+
+If OPai can prove that promise, it becomes more than a utility. It becomes the neutral control layer for a world where every software team uses multiple AI agents.

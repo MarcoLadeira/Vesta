@@ -16,7 +16,7 @@ from .loader import hub_root, load_registry
 from .state import load_state, save_state
 
 
-EDITION_ORDER = ["free", "pro", "team", "enterprise"]
+EDITION_ORDER = ["free", "pro", "team", "team-governance", "enterprise"]
 
 _FALLBACK: dict[str, Any] = {
     "default_edition": "free",
@@ -25,6 +25,11 @@ _FALLBACK: dict[str, Any] = {
         "free": {"label": "Free", "price": 0, "price_unit": "forever"},
         "pro": {"label": "Pro", "price": 12, "price_unit": "per month"},
         "team": {"label": "Team", "price": 19, "price_unit": "per user / month"},
+        "team-governance": {
+            "label": "Team Governance",
+            "price": 29,
+            "price_unit": "per user / month",
+        },
         "enterprise": {
             "label": "Enterprise",
             "price": "custom",

@@ -23,6 +23,26 @@ class EditionConfigTests(unittest.TestCase):
         self.assertEqual(editions["team"]["price"], 19)
         self.assertEqual(editions["enterprise"]["price"], "custom")
 
+    def test_team_governance_tier_exists_at_29(self):
+        catalog = load_editions(Path.cwd())
+        tg = catalog["editions"]["team-governance"]
+        self.assertEqual(tg["price"], 29)
+        self.assertEqual(tg["price_unit"], "per user / month")
+
+    def test_governance_features_gate_by_tier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # audit_logs / ci gates / approved MCP = team-governance, not team.
+            set_edition(root, "team")
+            self.assertFalse(feature_available(root, "audit_logs"))
+            self.assertFalse(feature_available(root, "ci_policy_gates"))
+            set_edition(root, "team-governance")
+            self.assertTrue(feature_available(root, "audit_logs"))
+            self.assertTrue(feature_available(root, "approved_mcp_profiles"))
+            # signed_evidence / self_host stay enterprise.
+            self.assertFalse(feature_available(root, "signed_evidence"))
+            self.assertFalse(feature_available(root, "self_host"))
+
     def test_default_edition_is_free(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(current_edition(Path(tmp)), "free")

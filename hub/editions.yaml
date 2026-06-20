@@ -23,12 +23,17 @@ editions:
     label: Team
     price: 19
     price_unit: per user / month
-    tagline: Shared policy, governance defaults, and audit exports for teams.
+    tagline: Shared policy, pooled budgets, team reports, and private registries.
+  team-governance:
+    label: Team Governance
+    price: 29
+    price_unit: per user / month
+    tagline: Audit logs, approved MCP profiles, CI policy gates, and evidence exports.
   enterprise:
     label: Enterprise
     price: custom
     price_unit: contact
-    tagline: Strict governance, signed workflow packs, and security review support.
+    tagline: SSO/RBAC, self-host, signed registries, signed evidence, and security review.
 # Each feature names the lowest edition that includes it.
 features:
   - id: local_first_routing
@@ -60,13 +65,37 @@ features:
     description: Retained model-eval scorecard history.
   - id: shared_policy
     min_edition: team
-    description: Shared/team policy distribution and seat management.
-  - id: audit_exports
+    description: Committed team policy distribution (opai team apply).
+  - id: team_report
     min_edition: team
-    description: Guarded-workflow audit and evidence exports.
+    description: Team governance rollup (opai team report).
+  - id: private_registry
+    min_edition: team
+    description: Private tool/agent/workflow/MCP registries.
+  - id: audit_logs
+    min_edition: team-governance
+    description: Tamper-evident audit trail and exports (opai audit).
+  - id: approved_mcp_profiles
+    min_edition: team-governance
+    description: Enforced allowlist of approved MCP servers.
+  - id: ci_policy_gates
+    min_edition: team-governance
+    description: Fail-closed CI policy check (opai policy check).
+  - id: evidence_exports
+    min_edition: team-governance
+    description: Signed guarded-workflow evidence exports.
   - id: policy_profile_enterprise_strict
     min_edition: enterprise
     description: enterprise-strict profile and fail-closed paid blocking.
+  - id: signed_evidence
+    min_edition: enterprise
+    description: Signed evidence packets and registry verification.
+  - id: sso_rbac
+    min_edition: enterprise
+    description: SSO/RBAC and role-based governance (planned hosted mode).
+  - id: self_host
+    min_edition: enterprise
+    description: Self-hosted/private deployment and support.
   - id: signed_workflow_packs
     min_edition: enterprise
-    description: Signed internal workflow packs and enterprise audit exports.
+    description: Signed internal workflow packs and marketplace trust.
