@@ -4,126 +4,577 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>OPai - the AI coding cost firewall</title>
-<meta name="description" content="OPai is the AI coding cost firewall. Install once and make Claude, Codex, Copilot, Cursor, and Cline cheaper, safer, and project-aware - local-first and private." />
+<meta name="description" content="OPai is the AI coding cost firewall. Install once and make Claude, Codex, Copilot, Cursor, and Cline cheaper, safer, and project-aware - local-first, private, and self-contained." />
+<meta name="color-scheme" content="dark" />
+<meta property="og:title" content="OPai - the AI coding cost firewall" />
+<meta property="og:description" content="Use any AI coding agent. OPai makes it cheaper, safer, and project-aware by default." />
 <style>
   :root{
-    --bg:#0b1220; --panel:#121b2e; --ink:#e7eefb; --muted:#9fb0cc;
-    --brand:#0a7cff; --good:#22c55e; --line:#22304d; --code:#0a1325;
+    --bg:#070b16; --bg2:#0a1020; --panel:rgba(20,28,48,.6); --panel-solid:#101a30;
+    --ink:#eaf1ff; --muted:#9fb2d4; --faint:#6b7ea3;
+    --brand:#2f8bff; --brand2:#22d3ee; --violet:#8b5cf6; --good:#34d399; --warn:#f59e0b; --bad:#fb7185;
+    --line:rgba(120,150,200,.16); --glow:rgba(47,139,255,.35);
+    --radius:16px; --maxw:1120px;
   }
   *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
   body{margin:0;background:var(--bg);color:var(--ink);
-    font:16px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-  a{color:var(--brand);text-decoration:none}
-  .wrap{max-width:980px;margin:0 auto;padding:0 20px}
-  header{padding:64px 0 24px;text-align:center}
-  .tag{display:inline-block;font-size:13px;color:var(--brand);
-    border:1px solid var(--line);border-radius:999px;padding:4px 12px;margin-bottom:18px}
-  h1{font-size:44px;line-height:1.1;margin:0 0 14px}
-  h1 span{color:var(--brand)}
-  .sub{font-size:19px;color:var(--muted);max-width:680px;margin:0 auto 28px}
-  .clients{color:var(--muted);font-size:14px;margin-top:8px}
-  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:8px 0 4px}
-  .btn{background:var(--brand);color:#fff;padding:12px 20px;border-radius:10px;font-weight:600}
-  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
-  section{padding:40px 0;border-top:1px solid var(--line)}
-  h2{font-size:26px;margin:0 0 18px}
-  .grid{display:grid;gap:16px}
-  .cols-3{grid-template-columns:repeat(3,1fr)}
-  .cols-2{grid-template-columns:repeat(2,1fr)}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
-  .card h3{margin:0 0 8px;font-size:17px}
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+  .mono{font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
+
+  /* Aurora background */
+  .aurora{position:fixed;inset:0;z-index:-2;overflow:hidden;background:
+    radial-gradient(1200px 700px at 75% -10%,rgba(47,139,255,.18),transparent 60%),
+    radial-gradient(900px 600px at 10% 10%,rgba(139,92,246,.14),transparent 55%),
+    radial-gradient(800px 700px at 50% 120%,rgba(34,211,238,.10),transparent 60%),
+    linear-gradient(180deg,var(--bg),var(--bg2))}
+  .aurora::before{content:"";position:absolute;inset:-30%;background:
+    conic-gradient(from 0deg,transparent,rgba(47,139,255,.10),transparent 30%,rgba(34,211,238,.08),transparent 60%,rgba(139,92,246,.10),transparent);
+    filter:blur(40px);animation:spin 36s linear infinite;opacity:.7}
+  .grid-overlay{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.35;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:46px 46px;mask:radial-gradient(circle at 50% 30%,#000,transparent 75%)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* Nav */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
+    background:linear-gradient(180deg,rgba(7,11,22,.85),rgba(7,11,22,.35));border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.2px}
+  .brand .logo{width:30px;height:30px;border-radius:9px;background:
+    conic-gradient(from 210deg,var(--brand),var(--brand2),var(--violet),var(--brand));
+    box-shadow:0 0 24px var(--glow);position:relative}
+  .brand .logo::after{content:"";position:absolute;inset:6px;border-radius:5px;background:var(--bg)}
+  .navlinks{display:flex;gap:22px;align-items:center;color:var(--muted);font-size:14px}
+  .navlinks a:hover{color:var(--ink)}
+  .btn{display:inline-flex;align-items:center;gap:8px;border-radius:11px;padding:11px 18px;font-weight:650;
+    font-size:14px;transition:transform .15s ease,box-shadow .2s ease,background .2s ease;white-space:nowrap}
+  .btn:hover{transform:translateY(-1px)}
+  .btn.primary{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#04121f;
+    box-shadow:0 8px 30px -8px var(--glow)}
+  .btn.primary:hover{box-shadow:0 12px 40px -8px var(--glow)}
+  .btn.ghost{border:1px solid var(--line);color:var(--ink);background:rgba(255,255,255,.02)}
+  .btn.ghost:hover{border-color:var(--brand);background:rgba(47,139,255,.08)}
+
+  /* Hero */
+  header{padding:74px 0 30px}
+  .hero{display:grid;grid-template-columns:1.05fr .95fr;gap:38px;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--brand2);
+    border:1px solid var(--line);border-radius:999px;padding:6px 13px;background:rgba(34,211,238,.06)}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 10px var(--good);animation:pulse 2.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  h1{font-size:clamp(38px,5.4vw,62px);line-height:1.04;margin:18px 0 16px;letter-spacing:-1.4px;font-weight:830}
+  .grad{background:linear-gradient(110deg,var(--brand) 10%,var(--brand2) 45%,var(--violet) 85%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;background-size:200% auto;animation:shimmer 7s linear infinite}
+  @keyframes shimmer{to{background-position:200% center}}
+  .lede{font-size:18.5px;color:var(--muted);max-width:560px}
+  .hero-cta{display:flex;gap:12px;flex-wrap:wrap;margin:26px 0 16px}
+  .trust{display:flex;gap:18px;flex-wrap:wrap;color:var(--faint);font-size:13px;margin-top:6px}
+  .trust b{color:var(--muted);font-weight:600}
+
+  /* Visualizer */
+  .viz{position:relative;border:1px solid var(--line);border-radius:20px;overflow:hidden;
+    background:linear-gradient(180deg,rgba(16,26,48,.7),rgba(10,16,32,.55));box-shadow:0 30px 80px -40px #000;min-height:340px}
+  .viz canvas{display:block;width:100%;height:340px}
+  .viz .legend{position:absolute;left:14px;bottom:12px;display:flex;gap:14px;font-size:11.5px;color:var(--muted)}
+  .viz .legend span{display:inline-flex;align-items:center;gap:6px}
+  .swatch{width:9px;height:9px;border-radius:50%}
+  .viz .hud{position:absolute;right:14px;top:12px;text-align:right;font-size:11px;color:var(--faint)}
+  .viz .hud b{display:block;font-size:18px;color:var(--good);font-weight:800}
+  .viz .hud .blocked b{color:var(--bad)}
+
+  /* Sections */
+  section{padding:64px 0;position:relative}
+  .eyebrow{color:var(--brand2);font-weight:700;font-size:13px;letter-spacing:1.4px;text-transform:uppercase}
+  h2{font-size:clamp(26px,3.4vw,38px);margin:10px 0 8px;letter-spacing:-.8px;font-weight:800}
+  .sub{color:var(--muted);max-width:640px;font-size:16.5px}
+  .reveal{opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .7s ease}
+  .reveal.in{opacity:1;transform:none}
+
+  /* Terminal */
+  .term{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#060a13;box-shadow:0 24px 60px -30px #000}
+  .term .bar{display:flex;align-items:center;gap:7px;padding:11px 14px;background:#0b1322;border-bottom:1px solid var(--line)}
+  .term .bar i{width:11px;height:11px;border-radius:50%;display:inline-block}
+  .term .bar .t{margin-left:10px;color:var(--faint);font-size:12px}
+  .term pre{margin:0;padding:18px;font-size:13.5px;line-height:1.6;min-height:280px;white-space:pre-wrap;word-break:break-word}
+  .term .cmd{color:#cfe3ff}.term .pl{color:var(--good)}.term .k{color:var(--brand2)}
+  .term .v{color:#fff}.term .mut{color:var(--faint)}.term .warnc{color:var(--warn)}
+  .cursor{display:inline-block;width:8px;height:16px;background:var(--brand2);vertical-align:-2px;animation:blink 1.05s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* Calculator */
+  .calc{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:center;
+    border:1px solid var(--line);border-radius:20px;padding:26px;background:var(--panel);backdrop-filter:blur(8px)}
+  .field{margin-bottom:16px}
+  .field label{display:flex;justify-content:space-between;font-size:13.5px;color:var(--muted);margin-bottom:7px}
+  .field label b{color:var(--ink)}
+  input[type=range]{-webkit-appearance:none;width:100%;height:6px;border-radius:6px;
+    background:linear-gradient(90deg,var(--brand),var(--brand2));outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+    background:#fff;cursor:pointer;box-shadow:0 0 0 4px rgba(47,139,255,.25)}
+  input[type=range]::-moz-range-thumb{width:20px;height:20px;border:none;border-radius:50%;background:#fff;cursor:pointer}
+  .readout{text-align:center;border-left:1px solid var(--line);padding-left:26px}
+  .readout .big{font-size:clamp(40px,7vw,64px);font-weight:850;letter-spacing:-2px;
+    background:linear-gradient(120deg,var(--good),var(--brand2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .readout .yr{color:var(--muted);font-size:15px;margin-top:2px}
+  .readout .row{display:flex;justify-content:space-between;font-size:13.5px;color:var(--muted);
+    border-top:1px solid var(--line);padding:9px 0}
+  .readout .row b{color:var(--ink)}
+  .note{color:var(--faint);font-size:12px;margin-top:14px}
+
+  /* Cards */
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:20px;background:var(--panel);
+    backdrop-filter:blur(8px);transition:transform .2s ease,border-color .2s ease,box-shadow .25s ease}
+  .card:hover{transform:translateY(-3px);border-color:rgba(47,139,255,.4);box-shadow:0 20px 50px -30px var(--glow)}
+  .card .ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;margin-bottom:13px;
+    background:linear-gradient(135deg,rgba(47,139,255,.18),rgba(34,211,238,.12));border:1px solid var(--line)}
+  .card h3{margin:0 0 7px;font-size:16.5px}
   .card p{margin:0;color:var(--muted);font-size:14px}
-  pre{background:var(--code);border:1px solid var(--line);border-radius:12px;
-    padding:16px;overflow:auto;font-size:13.5px}
-  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  .label{color:var(--muted);font-size:13px;margin:14px 0 6px}
-  table{width:100%;border-collapse:collapse;font-size:14px}
-  th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left}
-  .price{font-size:22px;font-weight:700}
-  .free{color:var(--good)}
-  .proof{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;text-align:center}
-  .proof .n{font-size:28px;font-weight:800;color:var(--brand)}
-  .proof .l{color:var(--muted);font-size:13px}
-  footer{padding:40px 0 64px;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--line)}
-  @media(max-width:760px){.cols-3,.cols-2,.proof{grid-template-columns:1fr}h1{font-size:34px}}
+
+  /* Tier ladder */
+  .ladder{display:grid;gap:10px}
+  .tier{display:grid;grid-template-columns:54px 1fr auto;gap:14px;align-items:center;
+    border:1px solid var(--line);border-radius:13px;padding:13px 16px;background:var(--panel);position:relative;overflow:hidden}
+  .tier .lvl{font-weight:800;font-size:15px;color:#04121f;width:42px;height:42px;border-radius:10px;display:grid;place-items:center}
+  .tier .meta b{display:block}.tier .meta span{color:var(--muted);font-size:13px}
+  .tier .cost{font-weight:700;font-size:14px}
+  .tier.free .lvl{background:linear-gradient(135deg,var(--good),#10b981)}.tier.free .cost{color:var(--good)}
+  .tier.cheap .lvl{background:linear-gradient(135deg,var(--brand2),var(--brand))}.tier.cheap .cost{color:var(--brand2)}
+  .tier.strong .lvl{background:linear-gradient(135deg,var(--warn),#fb923c);color:#1a1206}.tier.strong .cost{color:var(--warn)}
+  .tier.max .lvl{background:linear-gradient(135deg,var(--bad),#e11d48);color:#fff}.tier.max .cost{color:var(--bad)}
+
+  /* Stats */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;text-align:center}
+  .stat{border:1px solid var(--line);border-radius:14px;padding:22px 12px;background:var(--panel)}
+  .stat .n{font-size:clamp(26px,3.6vw,38px);font-weight:850;
+    background:linear-gradient(120deg,var(--brand2),var(--brand));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .stat .l{color:var(--muted);font-size:13px;margin-top:4px}
+
+  /* Governance band */
+  .band{border:1px solid var(--line);border-radius:20px;padding:30px;background:
+    linear-gradient(135deg,rgba(139,92,246,.10),rgba(47,139,255,.06));position:relative;overflow:hidden}
+  .gov{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px}
+  .gov .g{border:1px solid var(--line);border-radius:13px;padding:16px;background:rgba(7,11,22,.5)}
+  .gov .g b{display:block;margin-bottom:4px}.gov .g span{color:var(--muted);font-size:13px}
+
+  /* Pricing */
+  .price-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+  .plan{border:1px solid var(--line);border-radius:16px;padding:20px 16px;background:var(--panel);display:flex;flex-direction:column}
+  .plan.featured{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand),0 24px 60px -34px var(--glow);background:rgba(47,139,255,.06)}
+  .plan .tag{font-size:11px;color:var(--brand2);font-weight:700;letter-spacing:.6px;text-transform:uppercase}
+  .plan h3{margin:6px 0 2px;font-size:18px}
+  .plan .amt{font-size:26px;font-weight:850;margin:6px 0}
+  .plan .amt small{font-size:13px;color:var(--muted);font-weight:600}
+  .plan ul{list-style:none;padding:0;margin:12px 0 0;color:var(--muted);font-size:13px;display:grid;gap:7px}
+  .plan li{display:flex;gap:8px}.plan li::before{content:"";color:var(--good);font-weight:800}
+
+  /* CTA + footer */
+  .final{text-align:center;border:1px solid var(--line);border-radius:24px;padding:54px 24px;
+    background:radial-gradient(800px 300px at 50% 0%,rgba(47,139,255,.16),transparent 70%),var(--panel)}
+  footer{padding:42px 0 70px;color:var(--faint);font-size:13px;text-align:center;border-top:1px solid var(--line);margin-top:40px}
+  .copybtn{cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted);
+    border-radius:8px;padding:3px 9px;font-size:11.5px;transition:.15s}
+  .copybtn:hover{color:var(--ink);border-color:var(--brand)}
+  pre.code{background:#060a13;border:1px solid var(--line);border-radius:13px;padding:16px;overflow:auto;font-size:13.5px;position:relative}
+  .codehead{display:flex;justify-content:space-between;align-items:center;color:var(--faint);font-size:12px;margin:14px 0 7px}
+
+  @media(max-width:920px){
+    .hero,.calc{grid-template-columns:1fr}
+    .grid3,.gov{grid-template-columns:1fr 1fr}
+    .price-grid{grid-template-columns:1fr 1fr}
+    .stats{grid-template-columns:1fr 1fr}
+    .readout{border-left:none;border-top:1px solid var(--line);padding-left:0;padding-top:18px}
+    .navlinks{display:none}
+  }
+  @media(max-width:560px){.grid3,.gov,.price-grid,.stats{grid-template-columns:1fr}}
+  @media(prefers-reduced-motion:reduce){
+    .aurora::before{animation:none}.grad{animation:none}*{scroll-behavior:auto}
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="aurora"></div>
+<div class="grid-overlay"></div>
+
+<nav>
+  <div class="wrap">
+    <div class="brand"><span class="logo"></span> OPai</div>
+    <div class="navlinks">
+      <a href="#how">How it works</a>
+      <a href="#calc">Savings</a>
+      <a href="#governance">Governance</a>
+      <a href="#pricing">Pricing</a>
+      <a class="btn ghost" href="https://github.com/MarcoLadeira/OPai">GitHub</a>
+    </div>
+  </div>
+</nav>
 
 <header>
-  <span class="tag">Local-first &middot; Private &middot; Cross-client</span>
-  <h1>OPai is the <span>AI coding cost firewall</span></h1>
-  <p class="sub">Install once. Make Claude, Codex, Copilot, Cursor, and Cline cheaper and safer.
-    OPai routes every task to the cheapest safe path, then proves the savings - locally and privately.</p>
-  <div class="cta">
-    <a class="btn" href="#install">Install OPai</a>
-    <a class="btn ghost" href="https://github.com/MarcoLadeira/OPai">View on GitHub</a>
+  <div class="wrap hero">
+    <div>
+      <span class="chip"><span class="dot"></span> Local-first &middot; Private &middot; Cross-client</span>
+      <h1>The AI coding<br><span class="grad">cost firewall</span></h1>
+      <p class="lede">Install once and put OPai in front of Claude, Codex, Copilot, Cursor, and Cline.
+        Every task takes the cheapest safe route - and you see exactly what you saved.</p>
+      <div class="hero-cta">
+        <a class="btn primary" href="#install">Install OPai &rarr;</a>
+        <a class="btn ghost" href="#how">See how it routes</a>
+      </div>
+      <div class="trust">
+        <span><b>0</b> telemetry</span>
+        <span><b>5</b> AI clients</span>
+        <span><b>L0&rarr;L4</b> tiered routing</span>
+        <span><b>100%</b> local by default</span>
+      </div>
+    </div>
+    <div class="viz" id="viz">
+      <canvas id="fw"></canvas>
+      <div class="hud">
+        <div class="saved"><span>est. saved</span><b id="hudSaved">$0.00</b></div>
+        <div class="blocked"><span>cloud calls gated</span><b id="hudBlocked">0</b></div>
+      </div>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--good)"></span>local / free</span>
+        <span><span class="swatch" style="background:var(--brand2)"></span>cheap cloud</span>
+        <span><span class="swatch" style="background:var(--bad)"></span>gated frontier</span>
+      </div>
+    </div>
   </div>
-  <p class="clients">Works with Claude Code &middot; Codex &middot; GitHub Copilot &middot; Cursor &middot; Cline</p>
 </header>
 
+<section id="how">
+  <div class="wrap">
+    <div class="reveal">
+      <div class="eyebrow">How it works</div>
+      <h2>Deterministic first. Frontier last.</h2>
+      <p class="sub">OPai collects local evidence before any model thinks, then routes to the cheapest tier that can actually do the job. Paid and cloud calls are gated by policy.</p>
+    </div>
+    <div class="ladder reveal" style="margin-top:24px">
+      <div class="tier free"><span class="lvl">L0</span><span class="meta"><b>Deterministic tools + cached context</b><span>git, scans, tests, reused evidence</span></span><span class="cost">$0.00</span></div>
+      <div class="tier free"><span class="lvl">L1</span><span class="meta"><b>Local small model</b><span>summaries, classification, first-pass fixes</span></span><span class="cost">$0.00</span></div>
+      <div class="tier cheap"><span class="lvl">L2</span><span class="meta"><b>Cheap cloud model</b><span>confirmed before use</span></span><span class="cost">~$0.0015 / 1k</span></div>
+      <div class="tier strong"><span class="lvl">L3</span><span class="meta"><b>Strong frontier model</b><span>only with evidence + confirmation</span></span><span class="cost">~$0.012 / 1k</span></div>
+      <div class="tier max"><span class="lvl">L4</span><span class="meta"><b>Max frontier model</b><span>explicit escalation, gated</span></span><span class="cost">~$0.045 / 1k</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap reveal">
+    <div class="eyebrow">Live in your terminal</div>
+    <h2>One command. Real numbers.</h2>
+    <p class="sub" style="margin-bottom:22px">OPai is compact-by-default and read-only unless you opt in. Here it is running.</p>
+    <div class="term">
+      <div class="bar"><i style="background:#ff5f56"></i><i style="background:#ffbd2e"></i><i style="background:#27c93f"></i><span class="t mono">opai - zsh</span></div>
+      <pre class="mono" id="termOut"></pre>
+    </div>
+  </div>
+</section>
+
+<section id="calc">
+  <div class="wrap reveal">
+    <div class="eyebrow">Savings calculator</div>
+    <h2>What would OPai save your team?</h2>
+    <p class="sub" style="margin-bottom:22px">Drag the sliders. The math is the same transparent cost model OPai ships with.</p>
+    <div class="calc">
+      <div>
+        <div class="field"><label>Developers <b id="vDev">10</b></label><input id="dev" type="range" min="1" max="200" value="10"></div>
+        <div class="field"><label>AI tasks / dev / day <b id="vTask">20</b></label><input id="task" type="range" min="1" max="80" value="20"></div>
+        <div class="field"><label>Tasks OPai keeps local / free <b id="vRoute">70%</b></label><input id="route" type="range" min="10" max="95" value="70"></div>
+        <div class="field"><label>Baseline cost without OPai <b id="vBase">$0.012 / 1k</b></label><input id="base" type="range" min="3" max="45" value="12"></div>
+      </div>
+      <div class="readout">
+        <div class="big" id="saveMo">$0</div>
+        <div class="yr">saved / month &middot; <b id="saveYr">$0</b> / year</div>
+        <div class="row"><span>Without OPai</span><b id="without">$0</b></div>
+        <div class="row"><span>With OPai</span><b id="with">$0</b></div>
+        <div class="row"><span>Cloud calls avoided / mo</span><b id="avoided">0</b></div>
+      </div>
+    </div>
+    <p class="note">Estimate, not an invoice. Assumes ~6k tokens/task, your chosen baseline tier, and that OPai routes the local share to free tiers. Tune <span class="mono">hub/model-intelligence/cost_model.yaml</span> to match your providers. Nothing is collected.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="reveal"><div class="eyebrow">Why teams install it</div><h2>A firewall, not another agent.</h2></div>
+    <div class="grid3 reveal" style="margin-top:22px">
+      <div class="card"><div class="ic">🛡️</div><h3>Stop the waste</h3><p>Trivial work routes to free local tools instead of frontier-model prices.</p></div>
+      <div class="card"><div class="ic">🧭</div><h3>Cheapest safe route</h3><p>Local evidence first; cloud and paid calls always gated by policy.</p></div>
+      <div class="card"><div class="ic">📊</div><h3>Proven savings</h3><p>A private local ledger shows spend saved, cloud calls avoided, tokens slimmed.</p></div>
+      <div class="card"><div class="ic">🔒</div><h3>Private by default</h3><p>No prompt storage, no telemetry. The ledger keeps one-way hashes only.</p></div>
+      <div class="card"><div class="ic">⛔</div><h3>Guarded autonomy</h3><p>Push, deploy, and submit fail closed. Risky actions need human confirmation.</p></div>
+      <div class="card"><div class="ic">🧩</div><h3>Every client</h3><p>One install activates Claude, Codex, Copilot, Cursor, and Cline. No lock-in.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="stats reveal">
+      <div class="stat"><div class="n" data-count="5">0</div><div class="l">AI clients activated</div></div>
+      <div class="stat"><div class="n" data-count="100" data-suffix="%">0</div><div class="l">local by default</div></div>
+      <div class="stat"><div class="n" data-count="0" data-prefix="$">0</div><div class="l">telemetry sent</div></div>
+      <div class="stat"><div class="n" data-count="5">0</div><div class="l">routing tiers L0&ndash;L4</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="governance">
+  <div class="wrap reveal">
+    <div class="band">
+      <div class="eyebrow">Team &amp; Enterprise</div>
+      <h2 style="margin-top:8px">Govern AI coding without banning the tools devs love.</h2>
+      <p class="sub">Working controls, not slideware: a committed team policy, a tamper-evident audit trail, signed evidence, and a fail-closed CI gate.</p>
+      <div class="gov">
+        <div class="g"><b>opai team apply</b><span>One committed policy for the whole repo.</span></div>
+        <div class="g"><b>opai policy check</b><span>Fail-closed CI gate. Exits non-zero on drift.</span></div>
+        <div class="g"><b>opai audit verify</b><span>Hash-chained log; edits break the chain.</span></div>
+        <div class="g"><b>opai guard verify</b><span>Signed, tamper-evident evidence packets.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section id="install">
-  <h2>Install in one command</h2>
-  <p class="label">Windows PowerShell</p>
-  <pre><code>irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex</code></pre>
-  <p class="label">macOS / Linux</p>
-  <pre><code>curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh</code></pre>
-  <p class="label">Then prove it in 60 seconds</p>
-  <pre><code>opai quickstart          # activate, route a task, show savings
-opai doctor              # which AI clients are active / broken / missing
-opai savings --markdown  # estimated AI spend saved on this project</code></pre>
+  <div class="wrap reveal">
+    <div class="eyebrow">Install</div>
+    <h2>60 seconds to first proof.</h2>
+    <div class="codehead"><span>Windows PowerShell</span><button class="copybtn" data-copy='irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex'>copy</button></div>
+    <pre class="code mono">irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex</pre>
+    <div class="codehead"><span>macOS / Linux</span><button class="copybtn" data-copy='curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh'>copy</button></div>
+    <pre class="code mono">curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh</pre>
+    <div class="codehead"><span>Then prove it</span><button class="copybtn" data-copy='opai quickstart'>copy</button></div>
+    <pre class="code mono">opai quickstart          # activate, route a task, show savings
+opai savings --markdown  # estimated AI spend saved on this project
+opai share --markdown    # a savings badge for your README</pre>
+  </div>
 </section>
 
-<section>
-  <h2>Why developers install it</h2>
-  <div class="grid cols-3">
-    <div class="card"><h3>Stop the waste</h3><p>Trivial work like <code>git status</code> and commit messages routes to free local tools, not frontier-model prices.</p></div>
-    <div class="card"><h3>Cheapest safe route</h3><p>Deterministic tools &rarr; cached context &rarr; local model &rarr; confirmed cheap cloud &rarr; strong model only with evidence.</p></div>
-    <div class="card"><h3>Proven savings</h3><p>A local ledger shows estimated spend saved, cloud calls avoided, and context tokens saved.</p></div>
-    <div class="card"><h3>Private by default</h3><p>No prompt storage and no telemetry. The ledger keeps one-way hashes, never your code or prompts.</p></div>
-    <div class="card"><h3>Guarded autonomy</h3><p>Push, deploy, and submit fail closed. Risky actions need explicit human confirmation.</p></div>
-    <div class="card"><h3>Every client</h3><p>One install activates Claude, Codex, Copilot, Cursor, and Cline - no lock-in to a single editor.</p></div>
+<section id="pricing">
+  <div class="wrap reveal">
+    <div class="eyebrow">Pricing</div>
+    <h2>Free stays genuinely useful.</h2>
+    <p class="sub" style="margin-bottom:22px">Distribution and proof are free. Pay for history, governance, and trust - never for basic local safety.</p>
+    <div class="price-grid">
+      <div class="plan"><span class="tag">Free</span><h3>Core</h3><div class="amt">$0</div>
+        <ul><li>Routing + savings</li><li>5-client activation</li><li>Solo policies</li><li>Guarded core</li></ul></div>
+      <div class="plan"><span class="tag">Pro</span><h3>Savings</h3><div class="amt">$12<small>/mo &middot; $99/yr</small></div>
+        <ul><li>Savings exports</li><li>Advanced policy</li><li>Local model setup</li><li>Workflow packs</li></ul></div>
+      <div class="plan"><span class="tag">Team</span><h3>Team</h3><div class="amt">$19<small>/user/mo</small></div>
+        <ul><li>Shared team policy</li><li>Pooled budgets</li><li>Team report</li><li>Private registries</li></ul></div>
+      <div class="plan featured"><span class="tag">Most value</span><h3>Team Governance</h3><div class="amt">$29<small>/user/mo</small></div>
+        <ul><li>Audit logs</li><li>Approved MCP profiles</li><li>CI policy gates</li><li>Evidence exports</li></ul></div>
+      <div class="plan"><span class="tag">Enterprise</span><h3>Trust</h3><div class="amt">Custom</div>
+        <ul><li>SSO / RBAC</li><li>Self-host</li><li>Signed evidence</li><li>Security review</li></ul></div>
+    </div>
   </div>
 </section>
 
 <section>
-  <h2>Before OPai / After OPai</h2>
-  <p class="sub" style="margin-left:0">Five everyday tasks, routed through OPai. Reproducible with <code>opai route "..." --record</code> then <code>opai savings</code>.</p>
-  <div class="proof">
-    <div><div class="n">$0.00</div><div class="l">actual spend</div></div>
-    <div><div class="n">5</div><div class="l">cloud calls avoided</div></div>
-    <div><div class="n">100%</div><div class="l">vs un-routed baseline</div></div>
-    <div><div class="n">~2.5k</div><div class="l">context tokens saved</div></div>
-  </div>
-</section>
-
-<section>
-  <h2>Simple, honest pricing</h2>
-  <table>
-    <tr><th>Edition</th><th>Price</th><th>For</th></tr>
-    <tr><td><strong>Free</strong></td><td class="price free">$0</td><td>Local cost firewall for individuals - full routing, savings, 5-client activation.</td></tr>
-    <tr><td><strong>Pro</strong></td><td class="price">$12/mo<span style="font-size:13px;color:var(--muted)"> &middot; $99/yr</span></td><td>Savings exports, advanced policy profiles, local model setup, premium workflows.</td></tr>
-    <tr><td><strong>Team</strong></td><td class="price">$19<span style="font-size:13px;color:var(--muted)">/user/mo</span></td><td>Shared policy &amp; budgets, team reports, private registries.</td></tr>
-    <tr><td><strong>Team Governance</strong></td><td class="price">$29<span style="font-size:13px;color:var(--muted)">/user/mo</span></td><td>Audit logs, approved MCP profiles, CI policy gates, signed evidence exports.</td></tr>
-    <tr><td><strong>Enterprise</strong></td><td class="price">Custom</td><td>SSO/RBAC, self-host, signed registries &amp; evidence, security review.</td></tr>
-  </table>
-  <p class="clients" style="margin-top:14px">Free stays genuinely useful. No paid feature requires telemetry.</p>
-</section>
-
-<section>
-  <h2>Use any agent. OPai makes it cheaper, safer, project-aware.</h2>
-  <div class="cta" style="justify-content:flex-start">
-    <a class="btn" href="https://github.com/MarcoLadeira/OPai">Get OPai on GitHub</a>
-    <a class="btn ghost" href="https://github.com/MarcoLadeira/OPai/blob/main/docs/BUSINESS_STRATEGY.md">Read the strategy</a>
+  <div class="wrap reveal">
+    <div class="final">
+      <h2 style="margin:0 0 10px">Use any AI coding agent.<br><span class="grad">OPai makes it cheaper, safer, project-aware.</span></h2>
+      <div class="hero-cta" style="justify-content:center;margin-top:22px">
+        <a class="btn primary" href="https://github.com/MarcoLadeira/OPai">Get OPai &rarr;</a>
+        <a class="btn ghost" href="https://github.com/MarcoLadeira/OPai/blob/main/docs/BUSINESS_STRATEGY.md">Read the strategy</a>
+      </div>
+    </div>
   </div>
 </section>
 
 <footer>
-  OPai - the local-first operating layer that makes every AI coding agent cheaper, safer, and easier to govern.
-  <br />Pre-alpha. Built in the open. No tracking on this page.
+  <div class="wrap">
+    OPai - the local-first control plane for AI coding. The AI coding cost firewall.
+    <br/>Pre-alpha &middot; Built in the open &middot; This page is fully self-contained: no scripts loaded from anywhere, no tracking, no network calls.
+  </div>
 </footer>
 
-</div>
+<script>
+/* All inline, zero external requests. Respects reduced motion. */
+(function(){
+  "use strict";
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- Firewall visualizer ---------- */
+  (function(){
+    var canvas = document.getElementById("fw"); if(!canvas) return;
+    var ctx = canvas.getContext("2d"), DPR = Math.min(window.devicePixelRatio||1, 2);
+    var W=0, H=0;
+    function size(){ var r=canvas.getBoundingClientRect(); W=r.width; H=r.height;
+      canvas.width=W*DPR; canvas.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0); }
+    size(); window.addEventListener("resize", size);
+    var tiers=[
+      {y:.18,c:"#34d399",label:"L0 local",free:true},
+      {y:.36,c:"#34d399",label:"L1 local",free:true},
+      {y:.55,c:"#22d3ee",label:"L2 cloud",free:false},
+      {y:.74,c:"#f59e0b",label:"L3 frontier",free:false},
+      {y:.9 ,c:"#fb7185",label:"L4 max",free:false}
+    ];
+    var weights=[0.42,0.30,0.14,0.10,0.04], parts=[], saved=0, blocked=0;
+    var hudS=document.getElementById("hudSaved"), hudB=document.getElementById("hudBlocked");
+    function pickTier(){var r=Math.random(),a=0;for(var i=0;i<weights.length;i++){a+=weights[i];if(r<=a)return i;}return 0;}
+    function spawn(){
+      var t=pickTier();
+      parts.push({x:0.06, y:0.5+(Math.random()-.5)*.18, t:t, phase:0, gated:!tiers[t].free, held:false, hue:tiers[t].c, life:0});
+    }
+    function loop(){
+      ctx.clearRect(0,0,W,H);
+      var fwX=W*0.42;
+      /* firewall bar */
+      var g=ctx.createLinearGradient(fwX-10,0,fwX+10,0);
+      g.addColorStop(0,"rgba(47,139,255,0)");g.addColorStop(.5,"rgba(47,139,255,.9)");g.addColorStop(1,"rgba(34,211,238,0)");
+      ctx.fillStyle=g; ctx.fillRect(fwX-3,H*0.08,6,H*0.84);
+      ctx.fillStyle="rgba(160,185,220,.5)"; ctx.font="600 10px ui-monospace,monospace";
+      ctx.fillText("OPai", fwX-14, H*0.06);
+      /* tier targets */
+      for(var i=0;i<tiers.length;i++){
+        var ty=H*tiers[i].y;
+        ctx.fillStyle=tiers[i].c; ctx.globalAlpha=.85;
+        ctx.beginPath(); ctx.arc(W*0.93, ty, 4, 0, 7); ctx.fill(); ctx.globalAlpha=1;
+        ctx.fillStyle="rgba(159,178,212,.55)"; ctx.font="9px ui-monospace,monospace";
+        ctx.fillText(tiers[i].label, W*0.93-58, ty-8);
+      }
+      ctx.fillStyle="rgba(159,178,212,.5)";ctx.font="9px ui-monospace,monospace";
+      ctx.fillText("tasks", 2, H*0.5);
+      for(var p=parts.length-1;p>=0;p--){
+        var o=parts[p]; o.life++;
+        var tx=W*0.93, ty=H*tiers[o.t].y;
+        if(o.phase===0){ /* travel to firewall */
+          o.x += (0.0075);
+          if(o.x*W>=fwX){
+            o.phase=1;
+            if(o.gated && !o.held){ o.held=true; o.holdT=0; }
+          }
+        } else { /* past firewall */
+          if(o.gated && o.held && o.holdT<26){ o.holdT++; /* pause: gated */ }
+          else {
+            if(o.gated && o.held){ o.held=false; blocked++; if(hudB)hudB.textContent=blocked; }
+            o.x += 0.011;
+            o.y += (ty/H - o.y)*0.08;
+            if(o.x>=0.93){
+              if(tiers[o.t].free){ saved+=0.072; if(hudS)hudS.textContent="$"+saved.toFixed(2); }
+              parts.splice(p,1); continue;
+            }
+          }
+        }
+        var px=o.x*W, py=o.y*H;
+        /* trail */
+        ctx.strokeStyle=o.hue; ctx.globalAlpha=.18; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.moveTo(px-12,py); ctx.lineTo(px,py); ctx.stroke(); ctx.globalAlpha=1;
+        /* dot */
+        ctx.beginPath(); ctx.fillStyle=o.hue;
+        ctx.shadowColor=o.hue; ctx.shadowBlur=(o.held?14:8);
+        ctx.arc(px,py,(o.held?4.6:3.4),0,7); ctx.fill(); ctx.shadowBlur=0;
+        if(o.held){ ctx.strokeStyle="rgba(251,113,133,.8)"; ctx.lineWidth=1.2;
+          ctx.beginPath(); ctx.arc(px,py,8+(o.holdT%6),0,7); ctx.stroke(); }
+        if(o.life>900) parts.splice(p,1);
+      }
+      if(!reduce) raf=requestAnimationFrame(loop);
+    }
+    var raf, spawnTimer=setInterval(function(){ if(parts.length<46) spawn(); }, reduce?100000:240);
+    if(reduce){ for(var i=0;i<14;i++) spawn(); loop(); }
+    else loop();
+    /* seed a few immediately */
+    for(var i=0;i<8;i++) spawn();
+  })();
+
+  /* ---------- Typewriter terminal ---------- */
+  (function(){
+    var el=document.getElementById("termOut"); if(!el) return;
+    var lines=[
+      {t:'<span class="pl">~/acme-api</span> <span class="cmd">$ opai route "fix the failing auth test" --record</span>',d:30},
+      {t:'  <span class="k">workflow</span>: <span class="v">test_failure_debug</span>   <span class="k">tier</span>: <span class="v">L0</span>  <span class="mut">(local, free)</span>',d:8},
+      {t:'  <span class="k">policy</span>: solo-balanced &rarr; <span class="v">allow</span>   <span class="k">cache</span>: <span class="v">hit</span>',d:8},
+      {t:'  <span class="k">recorded</span>: saved <span class="pl">$0.072</span>, 1 cloud call avoided',d:8},
+      {t:'',d:10},
+      {t:'<span class="pl">~/acme-api</span> <span class="cmd">$ opai savings</span>',d:30},
+      {t:'  <span class="pl">OPai saved an estimated $4.61</span> across 64 routed tasks (100% local)',d:8},
+      {t:'  cloud calls avoided: <span class="v">64</span>   context tokens saved: <span class="v">31,240</span>',d:8},
+      {t:'',d:10},
+      {t:'<span class="pl">~/acme-api</span> <span class="cmd">$ opai policy check</span>',d:30},
+      {t:'  team_policy <span class="pl">ok</span>  &middot;  cloud_models_gated <span class="pl">ok</span>  &middot;  guarded_contract <span class="pl">ok</span>',d:8},
+      {t:'  <span class="pl">All governance checks passed.</span>',d:8}
+    ];
+    var li=0, out="";
+    function typeLine(){
+      if(li>=lines.length){ setTimeout(function(){ out=""; li=0; el.innerHTML='<span class="cursor"></span>'; setTimeout(typeLine,500); }, 4200); return; }
+      var line=lines[li];
+      if(reduce){ out+=line.t+"\n"; el.innerHTML=out; li++; typeLine(); return; }
+      var i=0, plain=line.t;
+      /* type by revealing characters of the raw (HTML-tagged) string is unsafe; reveal whole line with slight delay */
+      el.innerHTML = out + plain + '<span class="cursor"></span>';
+      out += line.t + "\n"; li++;
+      setTimeout(typeLine, 360 + (line.d*4));
+    }
+    el.innerHTML='<span class="cursor"></span>'; setTimeout(typeLine, 500);
+  })();
+
+  /* ---------- Savings calculator ---------- */
+  (function(){
+    var dev=document.getElementById("dev"),task=document.getElementById("task"),
+        route=document.getElementById("route"),base=document.getElementById("base");
+    if(!dev) return;
+    var els={dev:document.getElementById("vDev"),task:document.getElementById("vTask"),
+      route:document.getElementById("vRoute"),base:document.getElementById("vBase"),
+      mo:document.getElementById("saveMo"),yr:document.getElementById("saveYr"),
+      without:document.getElementById("without"),wth:document.getElementById("with"),avoided:document.getElementById("avoided")};
+    function money(n){ return "$"+Math.round(n).toLocaleString(); }
+    var cur=0;
+    function calc(){
+      var D=+dev.value,T=+task.value,R=+route.value/100,B=(+base.value)/1000;
+      var K=6000, days=21, tasks=D*T*days;
+      var without=tasks*(K/1000)*B;
+      var wth=tasks*(1-R)*(K/1000)*B;
+      var saved=without-wth, avoided=Math.round(tasks*R);
+      els.dev.textContent=D; els.task.textContent=T; els.route.textContent=R*100+"%";
+      els.base.textContent="$"+(+base.value/1000).toFixed(3)+" / 1k";
+      els.without.textContent=money(without); els.wth.textContent=money(wth);
+      els.yr.textContent=money(saved*12); els.avoided.textContent=avoided.toLocaleString();
+      /* animate the big number */
+      var target=saved, start=cur, t0=performance.now();
+      function step(now){ var k=Math.min(1,(now-t0)/450); cur=start+(target-start)*(1-Math.pow(1-k,3));
+        els.mo.textContent=money(cur); if(k<1 && !reduce) requestAnimationFrame(step); else {cur=target; els.mo.textContent=money(cur);} }
+      if(reduce){ cur=target; els.mo.textContent=money(cur); } else requestAnimationFrame(step);
+    }
+    [dev,task,route,base].forEach(function(s){ s.addEventListener("input",calc); });
+    calc();
+  })();
+
+  /* ---------- Reveal + counters ---------- */
+  (function(){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if(!e.isIntersecting) return;
+        e.target.classList.add("in");
+        var nums=e.target.querySelectorAll?e.target.querySelectorAll("[data-count]"):[];
+        nums.forEach(function(n){
+          var to=+n.getAttribute("data-count"),pre=n.getAttribute("data-prefix")||"",suf=n.getAttribute("data-suffix")||"";
+          if(reduce){ n.textContent=pre+to+suf; return; }
+          var t0=performance.now();
+          (function go(now){ var k=Math.min(1,(now-t0)/1100); var v=Math.round(to*(1-Math.pow(1-k,3)));
+            n.textContent=pre+v+suf; if(k<1) requestAnimationFrame(go); })(t0);
+        });
+        io.unobserve(e.target);
+      });
+    },{threshold:.18});
+    document.querySelectorAll(".reveal").forEach(function(el){ io.observe(el); });
+  })();
+
+  /* ---------- Copy buttons ---------- */
+  document.querySelectorAll(".copybtn").forEach(function(b){
+    b.addEventListener("click",function(){
+      var txt=b.getAttribute("data-copy");
+      if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(function(){
+        var o=b.textContent; b.textContent="copied"; setTimeout(function(){b.textContent=o;},1300);
+      }); }
+    });
+  });
+})();
+</script>
 </body>
 </html>

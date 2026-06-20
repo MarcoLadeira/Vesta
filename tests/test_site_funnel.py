@@ -22,17 +22,33 @@ class SiteFunnelTests(unittest.TestCase):
         self.assertIn("install.sh", self.html)
         self.assertIn("opai quickstart", self.html)
 
-    def test_page_is_telemetry_free(self):
+    def test_page_is_self_contained_and_telemetry_free(self):
         lowered = self.html.lower()
-        self.assertNotIn("<script", lowered)
+        # Inline interactivity is allowed; loading anything external is not.
         for tracker in [
             "google-analytics",
             "googletagmanager",
             "gtag(",
             "plausible",
             "mixpanel",
+            "segment.com",
+            "hotjar",
+            "fbq(",
         ]:
             self.assertNotIn(tracker, lowered)
+        # No external resource loads (scripts, styles, fonts, images, imports).
+        self.assertNotIn('src="http', lowered)
+        self.assertNotIn("src='http", lowered)
+        self.assertNotIn('rel="stylesheet"', lowered)  # all CSS stays inline
+        for host in [
+            "googleapis",
+            "gstatic",
+            "unpkg",
+            "jsdelivr",
+            "cdnjs",
+            "@import url(http",
+        ]:
+            self.assertNotIn(host, lowered)
 
     def test_pricing_matches_editions(self):
         # $12/mo, $99/yr, $19/user — must match hub/editions.yaml.
