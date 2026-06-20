@@ -2,7 +2,7 @@
 
 Codifies Free / Pro / Team / Enterprise boundaries as honest, local config -
 not billing or SaaS. The active edition is self-declared (OPAI_EDITION env var
-or per-project state); there is no license server in pre-alpha. Free always
+or per-project state); there is no license server in alpha. Free always
 keeps meaningful local value and no paid feature requires telemetry.
 """
 
@@ -102,7 +102,7 @@ def feature_available(project_root: Path, feature_id: str) -> bool:
 def require_feature(project_root: Path, feature_id: str) -> dict[str, Any]:
     """Honest, self-attested gate. Returns availability plus an upsell note.
 
-    There is no DRM in pre-alpha; this surfaces the boundary so callers can
+    There is no DRM in alpha; this surfaces the boundary so callers can
     decide whether to proceed or show an upgrade hint.
     """
     catalog = load_editions(project_root)
@@ -177,7 +177,7 @@ def edition_summary(project_root: Path) -> dict[str, Any]:
         "locked_features": locked,
         "catalog": catalog_view,
         "notes": [
-            "Editions are self-declared in pre-alpha; there is no license server.",
+            "Editions are self-declared in alpha; there is no license server.",
             "Free retains full local-first value; no paid feature requires telemetry.",
         ],
     }

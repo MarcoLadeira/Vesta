@@ -1,8 +1,8 @@
 {
   "brand": "OPai",
-  "version": "0.1.1",
-  "release_stage": "pre-alpha",
-  "tagline": "Local-first AI tools hub for low-cost coding and automation.",
+  "version": "0.2.0a1",
+  "release_stage": "alpha.1",
+  "tagline": "The local-first AI coding cost firewall.",
   "default_install_mode": "local-only",
   "cloud_defaults": "disabled",
   "cost_posture": "local tools, cache, and deterministic checks before any model call"

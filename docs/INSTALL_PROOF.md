@@ -10,7 +10,7 @@ Every step is a real command with an observable result.
 
 ## Checklist
 
-- [ ] **CLI resolves.** `opai version` prints `OPai 0.1.1 pre-alpha`.
+- [ ] **CLI resolves.** `opai version` prints `OPai 0.2.0a1 alpha.1`.
       (Fallback before PATH reloads: `python -m opai version`.)
 - [ ] **Project activates.** `opai activate` writes project instructions and
       returns `"status": "active"`.

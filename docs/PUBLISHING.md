@@ -1,4 +1,4 @@
-# Publishing OPai 0.1.1 Pre-Alpha
+# Publishing OPai 0.2.0 Alpha.1
 
 OPai should be published from the `codingOP` directory as its own git repository.
 Do not publish it from the parent website repository.
@@ -18,6 +18,8 @@ python -m opcoding tools . run detect-secrets
 python -m opcoding tools . run markdownlint
 python scripts\smoke-install.py
 python -m opai publish status
+python -m opai benchmark run --suite max --mode both
+python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
 ```
 
 ## First Git Repo
@@ -28,14 +30,14 @@ From `codingOP`:
 git init -b main
 git status --short
 git add .
-git commit -m "Initial OPai 0.1.1 pre-alpha"
+git commit -m "Release OPai 0.2.0 alpha.1"
 git remote add origin <your-git-url>
 git push -u origin main
 ```
 
 ## User Install Story
 
-Pre-alpha GitHub install:
+Alpha GitHub install:
 
 ```powershell
 pipx install git+https://github.com/<owner>/<repo>.git
