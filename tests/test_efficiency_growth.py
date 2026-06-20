@@ -78,6 +78,23 @@ class ContextPackTests(unittest.TestCase):
         blob = str(pack["files"])
         self.assertNotIn("sk-deadbeefdeadbeef1234567890", blob)
 
+    def test_pack_excludes_opai_managed_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            # Untracked OPai-managed files must not waste the pack budget.
+            (root / "AGENTS.md").write_text("managed\n", encoding="utf-8")
+            (root / ".cursor" / "rules").mkdir(parents=True)
+            (root / ".cursor" / "rules" / "opai.mdc").write_text(
+                "x\n", encoding="utf-8"
+            )
+            (root / "real_change.py").write_text("y = 2\n", encoding="utf-8")
+            pack = build_context_pack(root)
+        paths = [f["path"] for f in pack["files"]]
+        self.assertIn("real_change.py", paths)
+        self.assertNotIn("AGENTS.md", paths)
+        self.assertFalse(any(".cursor" in p for p in paths))
+
     def test_budget_truncates_large_packs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

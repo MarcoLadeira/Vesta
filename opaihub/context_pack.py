@@ -23,6 +23,36 @@ DEFAULT_CHAR_BUDGET = 6000
 DEFAULT_MAX_FILES = 20
 DEFAULT_HEAD_LINES = 20
 
+# OPai-managed instruction/ignore files are not useful code context and would
+# only waste the pack's token budget, so they are excluded.
+_MANAGED_FILES = {
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    ".opaiignore",
+    ".claudeignore",
+    ".aiexclude",
+    ".aiignore",
+    ".codeiumignore",
+}
+_MANAGED_PREFIXES = (
+    ".cursor/",
+    ".clinerules",
+    ".github/copilot-instructions",
+    ".opaihub/",
+    ".opcoding",
+)
+
+
+def _is_managed(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    name = normalized.rsplit("/", 1)[-1]
+    if name in _MANAGED_FILES or normalized.startswith(_MANAGED_PREFIXES):
+        return True
+    # AI-client ignore files (.cursorignore, .geminiignore, .aiderignore, ...)
+    # are tool config, not code context.
+    return name.startswith(".") and name.endswith("ignore")
+
 
 def _file_snippet(path: Path, head_lines: int) -> dict[str, Any]:
     try:
@@ -55,7 +85,11 @@ def build_context_pack(
     root = project_root.expanduser().resolve()
     cost_model = load_cost_model(root)
 
-    changed = _git_changed_files(root) if changed_only else []
+    changed = [
+        path
+        for path in (_git_changed_files(root) if changed_only else [])
+        if not _is_managed(path)
+    ]
     markers = [marker for marker in MARKERS if (root / marker).exists()]
 
     files: list[dict[str, Any]] = []
