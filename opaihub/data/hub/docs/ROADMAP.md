@@ -18,6 +18,8 @@ Foundations delivered toward "OPai is the AI coding cost firewall":
   locks, evidence packets, and reusable templates (`opai guard`).
 - **#40 Market proof** — cost-firewall positioning, grounded before/after proof,
   quickstart, and launch checklist.
+- **Benchmarking layer** — `opai benchmark` compares normal AI use with
+  OPai-routed local-first use and produces an OPai Efficiency Score.
 
 ## Near Term
 

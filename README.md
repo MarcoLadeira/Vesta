@@ -19,6 +19,8 @@ opai doctor                                    # which clients are active/broken
 opai route "fix the failing test" --record     # cheapest safe route + ledger entry
 opai why "fix the failing test"                # explain the route and its savings
 opai savings --markdown                        # estimated AI spend saved on this project
+opai benchmark run --suite local --mode both   # compare normal AI vs OPai-routed use
+opai benchmark gate --min-context-reduction 10 # CI gate for benchmark proof
 opai share --markdown                          # a shareable savings badge for your README
 ```
 
@@ -29,6 +31,7 @@ open-core model.
 See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [before/after proof](docs/PROOF.md), the
 [install proof checklist](docs/INSTALL_PROOF.md), the
+[effectiveness benchmark guide](hub/docs/BENCHMARKS.md), the
 [launch checklist](docs/LAUNCH_CHECKLIST.md), and
 [editions & pricing](hub/docs/PRICING_AND_EDITIONS.md).
 
@@ -38,6 +41,7 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 opai context pack --changed   # tiny, redacted context (changed files + adjacent tests)
 opai test --changed           # run only the tests likely to cover your changes
 opai metrics                  # local product metrics: tokens/escalations avoided, cache rate
+opai benchmark report         # latest local OPai Efficiency Score
 opai edition show             # Free / Pro / Team / Team-Governance / Enterprise
 ```
 
@@ -49,6 +53,7 @@ OPai is also the control plane for teams ([GOVERNANCE.md](hub/docs/GOVERNANCE.md
 opai team init                # committable opai-team-policy.yaml (shared policy)
 opai team apply               # apply the team policy locally
 opai policy check             # fail-closed CI gate (exits non-zero on violation)
+opai policy check --require-team-policy  # strict team CI: policy file required
 opai guard evidence <wf> --sign   # signed, tamper-evident evidence packet
 opai audit log                # tamper-evident governance audit trail
 opai team report              # who routed what, did it follow policy, spend avoided
@@ -206,6 +211,12 @@ opai integrate install install global AI-client discovery files
 opai launch codex     print one OPai badge line, then run codex
 opai route "<task>"   print compact local-first routing decision
 opai route --full-evidence "<task>" print full evidence only when needed
+opai benchmark list    list local benchmark suites and optional harnesses
+opai benchmark run     compare normal AI use with OPai-routed use
+opai benchmark gate    fail CI if proof metrics regress below thresholds
+opai benchmark compare compare latest two benchmark runs
+opai benchmark export  write optional promptfoo handoff config
+opai benchmark report  render the latest OPai Efficiency Score
 opai models recommend "<task>" choose the cheapest capable model tier
 opai skills list      list OPai-managed skills exposed to Codex discovery
 opai skills doctor    verify OPai skill files and registry paths
