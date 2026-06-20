@@ -150,6 +150,8 @@ def edition_summary(project_root: Path) -> dict[str, Any]:
                 "label": meta.get("label", name.title()),
                 "price": meta.get("price"),
                 "price_unit": meta.get("price_unit"),
+                "price_annual": meta.get("price_annual"),
+                "price_annual_unit": meta.get("price_annual_unit"),
                 "tagline": meta.get("tagline", ""),
                 "active": name == active,
                 "features": [

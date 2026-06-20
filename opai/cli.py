@@ -290,9 +290,11 @@ def cmd_route(args: argparse.Namespace) -> int:
         activate_project(root, install_global=False)
     include_evidence = args.full_evidence or args.verbose
     record = getattr(args, "record", False)
-    # Routing stays read-only by default (issue #12). Recording is opt-in and
-    # is the only path that writes a ledger event.
-    full_decision = route_task(root, args.task, include_evidence=True)
+    # Routing stays read-only by default (issue #12). Recording is opt-in and is
+    # the only path that writes a ledger event or persists an evidence cache.
+    full_decision = route_task(
+        root, args.task, include_evidence=True, persist_cache=record
+    )
     output = full_decision if include_evidence else compact_decision(full_decision)
     if record:
         from opaihub.ledger import record_route_decision
@@ -306,18 +308,163 @@ def cmd_route(args: argparse.Namespace) -> int:
             workflow=full_decision["workflow"],
             full_context_chars=sizes["full_chars"],
             compact_context_chars=sizes["compact_chars"],
+            cache_hit=full_decision.get("evidence_cache_hit", False),
             store_summary=getattr(args, "store_summary", False),
         )
+        from opaihub.runs import record_run
+
+        record_run(root, full_decision)
         recorded = {
             "tier": event["model_tier"],
             "estimated_savings_usd": event["estimated_savings_usd"],
             "cloud_call_avoided": event["cloud_call_avoided"],
             "context_chars_saved": event["context_chars_saved"],
+            "cache_hit": event["cache_hit"],
             "ledger": ".opaihub/ledger/usage.jsonl",
         }
         if isinstance(output, dict):
             output = {**output, "recorded": recorded}
     print_json(output)
+    return 0
+
+
+def cmd_why(args: argparse.Namespace) -> int:
+    from opaihub.runs import explain_route, render_why_markdown
+
+    root = _project(args.project)
+    explanation = explain_route(root, args.task)
+    if getattr(args, "markdown", False):
+        print(render_why_markdown(explanation))
+    else:
+        print_json(explanation)
+    return 0
+
+
+def cmd_context(args: argparse.Namespace) -> int:
+    from opaihub.context_pack import build_context_pack
+
+    root = _project(args.project)
+    if args.context_command == "pack":
+        pack = build_context_pack(root, changed_only=not args.all, write=args.write)
+        print_json(pack)
+        return 0
+    return 0
+
+
+def cmd_test(args: argparse.Namespace) -> int:
+    from opaihub.test_select import select_tests
+
+    root = _project(args.project)
+    selection = select_tests(root)
+    if getattr(args, "run", False):
+        if not selection["targeted_command"]:
+            print_json({"status": "no_targeted_tests", **selection})
+            return 0
+        from opaihub.command_runner import run_policy_command
+
+        result = run_policy_command(
+            selection["targeted_command"], root, timeout=args.timeout
+        )
+        print_json(
+            {
+                "status": "ran" if result.executed else "blocked",
+                "command": selection["targeted_command"],
+                "returncode": result.returncode,
+                "policy": result.policy["decision"],
+                "output_tail": result.combined_output[-1200:],
+            }
+        )
+        return 0 if result.returncode == 0 else 1
+    print_json(selection)
+    return 0
+
+
+def cmd_share(args: argparse.Namespace) -> int:
+    from opaihub.share import build_savings_card, render_share_markdown
+
+    root = _project(args.project)
+    card = build_savings_card(root)
+    if getattr(args, "write_badge", None):
+        target = Path(args.write_badge)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(card["badge"]["svg"], encoding="utf-8")
+        print_json(
+            {"status": "wrote_badge", "path": str(target), "headline": card["headline"]}
+        )
+        return 0
+    if getattr(args, "markdown", False):
+        print(render_share_markdown(card))
+    else:
+        print_json(card)
+    return 0
+
+
+def cmd_metrics(args: argparse.Namespace) -> int:
+    from opaihub.metrics import build_local_metrics
+
+    root = _project(args.project)
+    metrics = build_local_metrics(root)
+    # Merge in client readiness (kept in the opai package to avoid a cycle).
+    status = project_status(root)
+    clients = status["client_integrations"]["summary"]
+    metrics["ai_client_readiness"] = {
+        "active": len(clients["active"]),
+        "broken": len(clients["broken"]),
+        "missing": len(clients["missing"]),
+    }
+    metrics["activated"] = status["project"]["activated"]
+    print_json(metrics)
+    return 0
+
+
+def cmd_quickstart(args: argparse.Namespace) -> int:
+    """Guided 60-second first run: activate, sample route, savings, share."""
+    from opaihub.router import route_task
+    from opaihub.savings import build_savings_report
+    from opaihub.share import build_savings_card
+
+    root = _project(args.project)
+    steps: list[dict[str, Any]] = []
+
+    activation = activate_project(root, install_global=not args.project_only)
+    steps.append({"step": "activate", "status": activation.get("status")})
+
+    sample_task = args.task or "show git status and summarize the diff"
+    decision = route_task(root, sample_task, persist_cache=True)
+    from opaihub.ledger import record_route_decision
+    from opaihub.router import route_context_sizes
+
+    sizes = route_context_sizes(route_task(root, sample_task, include_evidence=True))
+    record_route_decision(
+        root,
+        sample_task,
+        model_tier=decision["model_tier"],
+        workflow=decision["workflow"],
+        full_context_chars=sizes["full_chars"],
+        compact_context_chars=sizes["compact_chars"],
+        cache_hit=decision.get("evidence_cache_hit", False),
+    )
+    steps.append({"step": "route", "task": sample_task, "tier": decision["model_tier"]})
+
+    report = build_savings_report(root)
+    card = build_savings_card(root)
+    steps.append({"step": "savings", "headline": report["headline"]})
+
+    print_json(
+        {
+            "report": "opai-quickstart",
+            "project_root": str(root),
+            "steps": steps,
+            "savings_headline": report["headline"],
+            "share_badge_markdown": card["badge"]["markdown"],
+            "next_steps": [
+                'Run more tasks with: opai route "<task>" --record',
+                "See the full report: opai savings --markdown",
+                "Share your savings: opai share --markdown",
+                "Check readiness anytime: opai doctor",
+            ],
+        }
+    )
     return 0
 
 
@@ -673,6 +820,67 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write a shareable savings report (Pro edition feature)",
     )
     p.set_defaults(func=cmd_savings)
+
+    p = sub.add_parser(
+        "why", help="Explain why OPai chose its route for a task (read-only)"
+    )
+    p.add_argument("task")
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("--markdown", action="store_true")
+    p.set_defaults(func=cmd_why)
+
+    p = sub.add_parser(
+        "context", help="Build a tiny, targeted context pack instead of whole files"
+    )
+    context_sub = p.add_subparsers(dest="context_command", required=True)
+    cp = context_sub.add_parser("pack", help="Changed files + adjacent tests + markers")
+    cp.add_argument("--project", default=None, help="Project root")
+    cp.add_argument(
+        "--all", action="store_true", help="Project scope instead of changed-only"
+    )
+    cp.add_argument(
+        "--write", action="store_true", help="Persist .opaihub/context/pack.json"
+    )
+    cp.set_defaults(func=cmd_context)
+
+    p = sub.add_parser(
+        "test", help="Select the tests most likely to cover changed files"
+    )
+    p.add_argument(
+        "--changed", action="store_true", help="Select from changed files (default)"
+    )
+    p.add_argument(
+        "--run", action="store_true", help="Run the targeted tests via policy"
+    )
+    p.add_argument("--timeout", type=int, default=300)
+    p.add_argument("--project", default=None, help="Project root")
+    p.set_defaults(func=cmd_test)
+
+    p = sub.add_parser(
+        "share",
+        help="Generate a shareable savings card and badge from the local ledger",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("--markdown", action="store_true")
+    p.add_argument("--write-badge", metavar="PATH", help="Write an SVG savings badge")
+    p.set_defaults(func=cmd_share)
+
+    p = sub.add_parser(
+        "metrics",
+        help="Local product metrics (savings, escalations avoided, cache rate)",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.set_defaults(func=cmd_metrics)
+
+    p = sub.add_parser(
+        "quickstart", help="Guided 60-second first run: activate, route, savings, share"
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--project-only", action="store_true", help="Skip global integrations"
+    )
+    p.add_argument("--task", help="Sample task to route (defaults to a git summary)")
+    p.set_defaults(func=cmd_quickstart)
 
     p = sub.add_parser(
         "guard",
