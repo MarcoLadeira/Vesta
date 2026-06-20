@@ -51,9 +51,23 @@ def _compact_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
 
 
 def route_task(
-    project_root: Path, task: str, include_evidence: bool = False
+    project_root: Path,
+    task: str,
+    include_evidence: bool = False,
+    use_cache: bool = True,
+    persist_cache: bool = False,
 ) -> dict[str, Any]:
-    evidence = collect_evidence(project_root, task)
+    # Reuse a cached evidence pack when the repo is unchanged. Reads are
+    # side-effect free; only persist_cache writes (keeps route read-only, #12).
+    if use_cache:
+        from .evidence_cache import collect_evidence_cached
+
+        evidence, cache_meta = collect_evidence_cached(
+            project_root, task, write=persist_cache
+        )
+    else:
+        evidence = collect_evidence(project_root, task)
+        cache_meta = {"cache_hit": False, "cache_key": evidence.get("cache_key")}
     lowered = task.lower()
 
     workflow = "feature_plan"
@@ -145,6 +159,7 @@ def route_task(
         "next_actions": next_actions,
         "safety_gates": safety_gates,
         "evidence_cache_key": evidence["cache_key"],
+        "evidence_cache_hit": cache_meta.get("cache_hit", False),
         "evidence_summary": _compact_evidence(evidence),
         "policy_profile": gate["profile"],
         "policy_decision": gate["decision"],

@@ -290,9 +290,11 @@ def cmd_route(args: argparse.Namespace) -> int:
         activate_project(root, install_global=False)
     include_evidence = args.full_evidence or args.verbose
     record = getattr(args, "record", False)
-    # Routing stays read-only by default (issue #12). Recording is opt-in and
-    # is the only path that writes a ledger event.
-    full_decision = route_task(root, args.task, include_evidence=True)
+    # Routing stays read-only by default (issue #12). Recording is opt-in and is
+    # the only path that writes a ledger event or persists an evidence cache.
+    full_decision = route_task(
+        root, args.task, include_evidence=True, persist_cache=record
+    )
     output = full_decision if include_evidence else compact_decision(full_decision)
     if record:
         from opaihub.ledger import record_route_decision
@@ -306,6 +308,7 @@ def cmd_route(args: argparse.Namespace) -> int:
             workflow=full_decision["workflow"],
             full_context_chars=sizes["full_chars"],
             compact_context_chars=sizes["compact_chars"],
+            cache_hit=full_decision.get("evidence_cache_hit", False),
             store_summary=getattr(args, "store_summary", False),
         )
         recorded = {
@@ -313,6 +316,7 @@ def cmd_route(args: argparse.Namespace) -> int:
             "estimated_savings_usd": event["estimated_savings_usd"],
             "cloud_call_avoided": event["cloud_call_avoided"],
             "context_chars_saved": event["context_chars_saved"],
+            "cache_hit": event["cache_hit"],
             "ledger": ".opaihub/ledger/usage.jsonl",
         }
         if isinstance(output, dict):
