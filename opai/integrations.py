@@ -137,6 +137,24 @@ Use Superpowers when available.
 {END_MARKER}"""
 
 
+def cursor_rule_text(project_root: Path) -> str:
+    """Cursor reads `.cursor/rules/*.mdc`. Folder form avoids clobbering user rules."""
+    return f"""---
+description: OPai local-first, cost-aware routing and safety policy
+alwaysApply: true
+---
+{project_instruction_text(project_root)}
+"""
+
+
+def cline_rule_text(project_root: Path) -> str:
+    """Cline reads `.clinerules` file or `.clinerules/` folder. Use the folder form."""
+    return f"""{project_instruction_text(project_root)}
+
+For Cline: prefer OPai local-first routing before model escalation.
+"""
+
+
 def _write(path: Path, text: str, executable: bool = False) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -211,6 +229,24 @@ def _write_project_instructions(project_root: Path) -> list[str]:
         written.append(
             str(_write(path, _replace_managed_block_at_top(existing, block)))
         )
+    # Cursor and Cline read their own rule locations. Folder forms are used so
+    # OPai never overwrites a user's existing single-file rules (issue #35).
+    written.append(
+        str(
+            _write(
+                project_root / ".cursor" / "rules" / "opai.mdc",
+                cursor_rule_text(project_root),
+            )
+        )
+    )
+    written.append(
+        str(
+            _write(
+                project_root / ".clinerules" / "opai.md",
+                cline_rule_text(project_root),
+            )
+        )
+    )
     written.append(
         str(_write(project_root / ".opaihub" / "project-instructions.md", block))
     )
@@ -222,6 +258,8 @@ def _planned_project_files(project_root: Path) -> list[str]:
         str(project_root / "AGENTS.md"),
         str(project_root / "CLAUDE.md"),
         str(project_root / ".github" / "copilot-instructions.md"),
+        str(project_root / ".cursor" / "rules" / "opai.mdc"),
+        str(project_root / ".clinerules" / "opai.md"),
         str(project_root / ".opaihub" / "project-instructions.md"),
         str(project_root / ".opaihub" / "project.json"),
         str(project_root / ".opaihub" / "activation.json"),
@@ -398,6 +436,11 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
             "opai_block_at_top": text.lstrip().startswith(START_MARKER),
             "superpowers_reference": "Superpowers" in text,
         }
+    # Deferred import avoids an import cycle (clients imports from this module).
+    from opai.clients import client_integrations_status, detect_stale_paths
+
+    client_status = client_integrations_status(root, user_home)
+    stale = detect_stale_paths(root, user_home)
     return {
         "brand": __brand__,
         "version": __version__,
@@ -424,6 +467,8 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
             "source": str(superpowers_source),
             "target": str(superpowers_target),
         },
+        "client_integrations": client_status,
+        "stale_paths": stale,
         "next_steps": [
             "Run opai activate --repair if any activation field is false.",
             "Restart AI clients after global skill changes.",
@@ -669,3 +714,168 @@ def load_global_status(home: Path | None = None) -> dict[str, Any]:
 
 def shell_environment() -> dict[str, str]:
     return {"OPAI_ACTIVE": "1", "OPAI_STATUS": STATUS_TEXT, **os.environ}
+
+
+def _strip_block(text: str, start_marker: str, end_marker: str) -> str:
+    start = text.find(start_marker)
+    end = text.find(end_marker)
+    if start != -1 and end != -1 and end > start:
+        end += len(end_marker)
+        return (text[:start].rstrip() + "\n" + text[end:].lstrip()).strip() + "\n"
+    return text
+
+
+def update_opai_source(home: Path | None = None, timeout: int = 120) -> dict[str, Any]:
+    """Update the installed OPai checkout under ~/.opai/source (issue #28)."""
+    user_home = (home or Path.home()).expanduser().resolve()
+    source = opai_home(user_home) / "source"
+    git = shutil.which("git")
+    if not source.exists():
+        return {
+            "status": "missing_source",
+            "source": str(source),
+            "reason": "No OPai source checkout found. Re-run the installer to set one up.",
+        }
+    if not (source / ".git").exists():
+        return {
+            "status": "not_a_git_checkout",
+            "source": str(source),
+            "reason": "OPai source exists but is not a Git checkout; update manually.",
+        }
+    if not git:
+        return {"status": "missing_git", "reason": "Git is required to update OPai."}
+    command = [git, "-C", str(source), "pull", "--ff-only"]
+    try:
+        completed = subprocess.run(  # nosec
+            command, check=False, capture_output=True, text=True, timeout=timeout
+        )
+    except OSError as exc:
+        return {"status": "failed", "reason": str(exc)}
+    except subprocess.TimeoutExpired:
+        return {"status": "timeout", "reason": "OPai update timed out."}
+    return {
+        "status": "ok" if completed.returncode == 0 else "failed",
+        "source": str(source),
+        "returncode": completed.returncode,
+        "output_tail": (completed.stdout + completed.stderr)[-1200:],
+    }
+
+
+def uninstall_opai(
+    project_root: Path,
+    home: Path | None = None,
+    dry_run: bool = True,
+    remove_project_files: bool = True,
+) -> dict[str, Any]:
+    """Remove OPai-managed blocks, wrappers, and discovery files (issue #28).
+
+    Defaults to a dry run. User content outside OPai-managed blocks is never
+    touched, and the operation is idempotent.
+    """
+    root = project_root.expanduser().resolve()
+    user_home = (home or Path.home()).expanduser().resolve()
+    base = opai_home(user_home)
+
+    # Whole files/dirs OPai fully owns and can remove.
+    owned_paths = [
+        base / "bin",
+        base / "integrations",
+        base / "instructions",
+        base / "status.txt",
+        base / "global.json",
+        user_home / ".agents" / "skills" / "opai",
+    ]
+    if remove_project_files:
+        owned_paths.extend(
+            [
+                root / ".cursor" / "rules" / "opai.mdc",
+                root / ".clinerules" / "opai.md",
+                root / ".opaihub" / "project-instructions.md",
+                root / ".opaihub" / "activation.json",
+            ]
+        )
+
+    # Files where OPai owns only a managed block and must preserve user content.
+    block_files = [
+        (user_home / ".claude" / "CLAUDE.md", START_MARKER, END_MARKER),
+        (
+            user_home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1",
+            PS_START_MARKER,
+            PS_END_MARKER,
+        ),
+        (
+            user_home
+            / "Documents"
+            / "WindowsPowerShell"
+            / "Microsoft.PowerShell_profile.ps1",
+            PS_START_MARKER,
+            PS_END_MARKER,
+        ),
+        (user_home / ".profile", PS_START_MARKER, PS_END_MARKER),
+        (user_home / ".bashrc", PS_START_MARKER, PS_END_MARKER),
+        (user_home / ".zshrc", PS_START_MARKER, PS_END_MARKER),
+    ]
+    if remove_project_files:
+        block_files.extend(
+            [
+                (root / "AGENTS.md", START_MARKER, END_MARKER),
+                (root / "CLAUDE.md", START_MARKER, END_MARKER),
+                (
+                    root / ".github" / "copilot-instructions.md",
+                    START_MARKER,
+                    END_MARKER,
+                ),
+            ]
+        )
+
+    planned_path_removals = [str(path) for path in owned_paths if path.exists()]
+    planned_block_strips = [
+        str(path)
+        for path, start, end in block_files
+        if path.exists() and start in path.read_text(encoding="utf-8", errors="replace")
+    ]
+
+    removed: list[str] = []
+    stripped: list[str] = []
+    if not dry_run:
+        for path in owned_paths:
+            if not path.exists():
+                continue
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+                removed.append(str(path))
+            except OSError:
+                pass
+        for path, start, end in block_files:
+            if not path.exists():
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if start not in text:
+                continue
+            cleaned = _strip_block(text, start, end)
+            if cleaned.strip():
+                path.write_text(cleaned, encoding="utf-8")
+            else:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            stripped.append(str(path))
+
+    return {
+        "status": "planned" if dry_run else "removed",
+        "dry_run": dry_run,
+        "project_root": str(root),
+        "home": str(user_home),
+        "planned_path_removals": planned_path_removals,
+        "planned_block_strips": planned_block_strips,
+        "removed_paths": removed,
+        "stripped_blocks": stripped,
+        "notes": [
+            "User content outside OPai-managed blocks is preserved.",
+            "Re-run with --confirm to apply. Safe to run repeatedly (idempotent).",
+        ],
+    }

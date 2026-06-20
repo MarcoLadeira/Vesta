@@ -1,5 +1,24 @@
 # OPai Roadmap
 
+## Milestone: Cost-Control Control Plane (in progress)
+
+Foundations delivered toward "OPai is the AI coding cost firewall":
+
+- **#35 Activation reliability** — five-client detection (Claude, Codex,
+  Copilot, Cursor, Cline) with active/broken/missing readiness, stale-path
+  detection, `opai doctor`/`status`, and `opai update`/`uninstall`.
+- **#36 Cost firewall & savings** — local usage ledger, cost model, and
+  `opai savings` (privacy-safe: hashes, not prompts).
+- **#37 Routing & policy** — `solo-cheap`/`solo-balanced`/`team-safe`/
+  `enterprise-strict` profiles, cloud/paid gating, loopback validation, and an
+  offline model-eval harness (`opai models eval`).
+- **#38 Open-core editions** — Free/Pro/Team/Enterprise boundaries, feature
+  flags, and pricing docs (`opai edition`).
+- **#39 Guarded workflows** — shared contract, fail-closed action gates, path
+  locks, evidence packets, and reusable templates (`opai guard`).
+- **#40 Market proof** — cost-firewall positioning, grounded before/after proof,
+  quickstart, and launch checklist.
+
 ## Near Term
 
 - Publish OPai as an installable Python package.

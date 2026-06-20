@@ -1,10 +1,30 @@
-# OPai
+# OPai — the AI coding cost firewall
 
 ![OPai mascot](opai/assets/opai-mascot.png)
 
-OPai 0.1.1 pre-alpha is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, and cost controls.
+**OPai is the AI coding cost firewall.** It sits in front of Claude, Codex,
+Copilot, Cursor, and Cline and routes every task to the cheapest safe path —
+deterministic tools and local models first, paid cloud models only with your
+confirmation — then proves the savings in numbers, locally and privately.
+
+OPai 0.1.1 pre-alpha is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, and a real cost ledger.
 
 The goal is simple: make AI-assisted development feel close to "one prompt to build, one prompt to ship" without blindly burning expensive model credits.
+
+## Prove it in 60 seconds
+
+```sh
+opai doctor                                   # which clients are active/broken/missing
+opai route "fix the failing test" --record    # cheapest safe route + ledger entry
+opai savings --markdown                        # estimated AI spend saved on this project
+opai policy show                               # the active cost/safety policy profile
+```
+
+See the [Quickstart](docs/QUICKSTART.md), the grounded
+[before/after proof](docs/PROOF.md), the
+[install proof checklist](docs/INSTALL_PROOF.md), the
+[launch checklist](docs/LAUNCH_CHECKLIST.md), and
+[editions & pricing](hub/docs/PRICING_AND_EDITIONS.md).
 
 Default posture:
 

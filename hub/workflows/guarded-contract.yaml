@@ -1,0 +1,35 @@
+# OPai guarded-workflow contract (issue #39).
+# Every guarded workflow must declare these fields so autonomy stays bounded,
+# auditable, and human-controlled. Risky actions fail closed by default.
+schema_version: 1
+required_fields:
+  - id
+  - permission_boundaries
+  - path_locks
+  - evidence_artifacts
+  - stop_conditions
+  - fail_closed
+# Actions that must never run without explicit human approval.
+fail_closed_actions:
+  - git push
+  - git push --force
+  - deploy
+  - release publish
+  - app store submit
+  - npm publish
+  - terraform apply
+default_path_locks:
+  forbidden_paths:
+    - .git
+    - .env
+    - .env.*
+    - "**/secrets/**"
+    - id_rsa
+    - "*.pem"
+  write_requires_lock: true
+contract_notes:
+  - "Path locks: declare which paths a workflow may read and write; secrets and VCS internals are forbidden by default."
+  - "Evidence artifacts: every guarded run emits a consistent, hashable evidence packet."
+  - "Stop conditions: explicit conditions that halt the workflow instead of escalating."
+  - "Permission boundaries: read/write scope; no push/deploy/submit without approval."
+  - "Fail closed: risky actions are denied unless a human explicitly confirms."

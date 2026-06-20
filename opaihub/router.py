@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -116,6 +117,26 @@ def route_task(
             ["build minimal context pack", "prefer cheap/local model for first pass"]
         )
 
+    # Gate the chosen tier against the effective policy profile (issues #37/#16).
+    from .cost_model import load_cost_model, tier_cost
+    from .policy import evaluate_action
+
+    cost_model = load_cost_model(project_root)
+    task_tokens = int(cost_model.get("default_task_tokens", 6000))
+    provider_type = "local" if model_tier in ("L0", "L1") else "cloud"
+    estimated_cost = tier_cost(model_tier, task_tokens, cost_model)
+    gate = evaluate_action(
+        project_root,
+        tier=model_tier,
+        provider_type=provider_type,
+        cost_usd=estimated_cost,
+        estimated_tokens=task_tokens,
+        paid=provider_type == "cloud",
+    )
+    requires_confirmation = (
+        requires_confirmation or gate["requires_confirmation"] or gate["denied"]
+    )
+
     decision = {
         "task": task,
         "workflow": workflow,
@@ -125,11 +146,28 @@ def route_task(
         "safety_gates": safety_gates,
         "evidence_cache_key": evidence["cache_key"],
         "evidence_summary": _compact_evidence(evidence),
+        "policy_profile": gate["profile"],
+        "policy_decision": gate["decision"],
+        "policy_reasons": gate["reasons"],
+        "estimated_cost_usd": estimated_cost,
         "policy": "local evidence first; no cloud or expensive model without escalation gate",
     }
     if include_evidence:
         decision["evidence"] = evidence
     return decision
+
+
+def route_context_sizes(decision_full: dict[str, Any]) -> dict[str, int]:
+    """Measure full vs compact route payload size in characters.
+
+    This is the real, observable compaction OPai applies to AI-facing output:
+    full evidence versus the compact summary an agent actually consumes.
+    """
+    full_chars = len(json.dumps(decision_full, sort_keys=True, default=str))
+    compact_chars = len(
+        json.dumps(compact_decision(decision_full), sort_keys=True, default=str)
+    )
+    return {"full_chars": full_chars, "compact_chars": compact_chars}
 
 
 def compact_decision(decision: dict[str, Any]) -> dict[str, Any]:

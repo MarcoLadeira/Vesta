@@ -244,6 +244,24 @@ def cmd_models(args: argparse.Namespace) -> int:
         print_json(discover_local_models(root))
     elif args.models_command == "recommend":
         print_json(recommend_model(root, args.task))
+    elif args.models_command == "eval":
+        from .eval_harness import run_eval
+
+        print_json(run_eval(root, write=not args.no_write))
+    return 0
+
+
+def cmd_policy(args: argparse.Namespace) -> int:
+    from .policy import resolve_policy, set_profile
+
+    root = _project(args.project)
+    if args.policy_command == "show":
+        print_json(resolve_policy(root))
+        return 0
+    if args.policy_command == "set":
+        result = set_profile(root, args.profile)
+        print_json(result)
+        return 0 if result.get("status") == "updated" else 2
     return 0
 
 
@@ -289,6 +307,18 @@ def cmd_analytics(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.analytics_command == "status":
         print_json(build_analytics_summary(root))
+    return 0
+
+
+def cmd_savings(args: argparse.Namespace) -> int:
+    from .savings import build_savings_report, render_savings_markdown
+
+    root = _project(args.project)
+    report = build_savings_report(root)
+    if getattr(args, "markdown", False):
+        print(render_savings_markdown(report))
+    else:
+        print_json(report)
     return 0
 
 
@@ -455,6 +485,20 @@ def build_parser() -> argparse.ArgumentParser:
     mo = models_sub.add_parser("recommend")
     mo.add_argument("task")
     mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser("eval")
+    mo.add_argument("--no-write", action="store_true")
+    mo.set_defaults(func=cmd_models)
+
+    p = sub.add_parser("policy")
+    policy_sub = p.add_subparsers(dest="policy_command", required=True)
+    po = policy_sub.add_parser("show")
+    po.set_defaults(func=cmd_policy)
+    po = policy_sub.add_parser("set")
+    po.add_argument(
+        "profile",
+        choices=["solo-cheap", "solo-balanced", "team-safe", "enterprise-strict"],
+    )
+    po.set_defaults(func=cmd_policy)
 
     p = sub.add_parser("skills")
     skills_sub = p.add_subparsers(dest="skills_command", required=True)
@@ -490,6 +534,10 @@ def build_parser() -> argparse.ArgumentParser:
     analytics_sub = p.add_subparsers(dest="analytics_command", required=True)
     an = analytics_sub.add_parser("status")
     an.set_defaults(func=cmd_analytics)
+
+    p = sub.add_parser("savings", help="Estimated AI spend saved (cost firewall)")
+    p.add_argument("--markdown", action="store_true")
+    p.set_defaults(func=cmd_savings)
 
     p = sub.add_parser("sandbox")
     sandbox_sub = p.add_subparsers(dest="sandbox_command", required=True)

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "default_profile": "solo-balanced",
+  "tier_order": ["L0", "L1", "L2", "L3", "L4"],
+  "profiles": {
+    "solo-cheap": {
+      "description": "Cheapest viable routing for a solo developer. Stops before frontier models and confirms every cloud call.",
+      "max_tier": "L2",
+      "confirmation_required_at_or_above": "L2",
+      "require_confirmation_for_cloud": true,
+      "allow_paid": true,
+      "block_destructive": false,
+      "require_evidence": false,
+      "oversized_context_tokens": 8000,
+      "budgets": {
+        "monthly_usd_limit": 5.0,
+        "daily_usd_limit": 0.5,
+        "per_task_soft_limit_usd": 0.1,
+        "per_task_hard_limit_usd": 0.5
+      }
+    },
+    "solo-balanced": {
+      "description": "Balanced routing: local first, cheap cloud freely confirmable, frontier only with confirmation.",
+      "max_tier": "L3",
+      "confirmation_required_at_or_above": "L2",
+      "require_confirmation_for_cloud": true,
+      "allow_paid": true,
+      "block_destructive": false,
+      "require_evidence": false,
+      "oversized_context_tokens": 18000,
+      "budgets": {
+        "monthly_usd_limit": 20.0,
+        "daily_usd_limit": 2.0,
+        "per_task_soft_limit_usd": 0.5,
+        "per_task_hard_limit_usd": 2.0
+      }
+    },
+    "team-safe": {
+      "description": "Team default: every cloud/paid call confirmed, destructive actions confirmed, evidence artifacts required.",
+      "max_tier": "L3",
+      "confirmation_required_at_or_above": "L2",
+      "require_confirmation_for_cloud": true,
+      "allow_paid": true,
+      "block_destructive": false,
+      "require_evidence": true,
+      "oversized_context_tokens": 50000,
+      "budgets": {
+        "monthly_usd_limit": 50.0,
+        "daily_usd_limit": 5.0,
+        "per_task_soft_limit_usd": 0.75,
+        "per_task_hard_limit_usd": 3.0
+      }
+    },
+    "enterprise-strict": {
+      "description": "Strictest governance: frontier blocked without override, destructive actions fail closed, paid disabled by default, evidence + audit required.",
+      "max_tier": "L2",
+      "confirmation_required_at_or_above": "L1",
+      "require_confirmation_for_cloud": true,
+      "allow_paid": false,
+      "block_destructive": true,
+      "require_evidence": true,
+      "oversized_context_tokens": 32000,
+      "budgets": {
+        "monthly_usd_limit": 25.0,
+        "daily_usd_limit": 2.5,
+        "per_task_soft_limit_usd": 0.25,
+        "per_task_hard_limit_usd": 1.0
+      }
+    }
+  }
+}

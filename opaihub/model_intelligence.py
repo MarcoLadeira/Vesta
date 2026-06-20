@@ -152,6 +152,26 @@ def recommend_model(project_root: Path, task: str) -> dict[str, Any]:
         or _tier_value(recommended.get("tier", "L1"))
         >= _tier_value(policy.get("confirmation_required_at_or_above", "L3"))
     )
+
+    # Gate the recommendation against the active policy profile (#37/#16).
+    from .cost_model import load_cost_model, tier_cost
+    from .policy import evaluate_action
+
+    cost_model = load_cost_model(root)
+    rec_tier = recommended.get("tier", required_tier)
+    task_tokens = int(cost_model.get("default_task_tokens", 6000))
+    gate = evaluate_action(
+        root,
+        tier=rec_tier,
+        provider_type=recommended.get("provider_type", "local"),
+        cost_usd=tier_cost(rec_tier, task_tokens, cost_model),
+        estimated_tokens=task_tokens,
+        paid=bool(recommended.get("requires_api_key")),
+    )
+    confirmation_required = (
+        confirmation_required or gate["requires_confirmation"] or gate["denied"]
+    )
+
     return {
         "task": task,
         "project": str(root),
@@ -162,6 +182,9 @@ def recommend_model(project_root: Path, task: str) -> dict[str, Any]:
         "recommended_model_tier": recommended.get("tier", required_tier),
         "recommended_model": recommended,
         "requires_confirmation": confirmation_required,
+        "policy_profile": gate["profile"],
+        "policy_decision": gate["decision"],
+        "policy_reasons": gate["reasons"],
         "escalation_conditions": classification["escalation_conditions"],
         "escalation_path": policy.get("escalation_path", []),
         "policy": "local evidence first; cheapest capable model",

@@ -100,7 +100,8 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 def cmd_delegate(args: argparse.Namespace) -> int:
     root = _project(args.project)
-    activate_project(root, install_global=False)
+    # Read-only by default (issue #12): delegating to the hub must not activate
+    # or write project files. Use `opai activate` for write side effects.
     project_args = ["--project", str(root)]
     return hub_main(project_args + list(args.hub_args))
 
@@ -154,6 +155,66 @@ def cmd_integrate(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     print_json(project_status(_project(args.project)))
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    from opaihub.local_models import discover_local_models
+    from opaihub.loader import registry_items
+    from opaihub.validator import validate_all
+
+    root = _project(args.project)
+    status = project_status(root)
+    clients = status["client_integrations"]
+    summary = clients["summary"]
+    stale = status["stale_paths"]
+    validation = validate_all(root)
+    readiness = (
+        "ready"
+        if not summary["broken"] and not summary["missing"] and stale["ok"]
+        else "attention"
+    )
+    payload = {
+        "brand": __brand__,
+        "version": __version__,
+        "release_stage": __release_stage__,
+        "project_root": str(root),
+        "readiness": readiness,
+        "client_integrations": clients,
+        "stale_paths": stale,
+        "superpowers": status["superpowers"],
+        "registries": {
+            name: len(registry_items(name, root))
+            for name in ["tools", "agents", "workflows", "mcp_servers", "models"]
+        },
+        "validation": {"ok": validation.get("ok")},
+        "local_models": discover_local_models(root),
+        "next_steps": [
+            "Run opai activate --repair to fix broken or missing client integrations.",
+            "Restart AI clients after global skill changes.",
+            'Run opai route "<task>" --record to populate the savings ledger.',
+        ],
+    }
+    print_json(payload)
+    return 0
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    from opai.integrations import update_opai_source
+
+    print_json(update_opai_source())
+    return 0
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    from opai.integrations import uninstall_opai
+
+    result = uninstall_opai(
+        _project(args.project),
+        dry_run=not args.confirm,
+        remove_project_files=not args.keep_project_files,
+    )
+    print_json(result)
     return 0
 
 
@@ -228,8 +289,113 @@ def cmd_route(args: argparse.Namespace) -> int:
     if args.activate:
         activate_project(root, install_global=False)
     include_evidence = args.full_evidence or args.verbose
-    decision = route_task(root, args.task, include_evidence=include_evidence)
-    print_json(decision if include_evidence else compact_decision(decision))
+    record = getattr(args, "record", False)
+    # Routing stays read-only by default (issue #12). Recording is opt-in and
+    # is the only path that writes a ledger event.
+    full_decision = route_task(root, args.task, include_evidence=True)
+    output = full_decision if include_evidence else compact_decision(full_decision)
+    if record:
+        from opaihub.ledger import record_route_decision
+        from opaihub.router import route_context_sizes
+
+        sizes = route_context_sizes(full_decision)
+        event = record_route_decision(
+            root,
+            args.task,
+            model_tier=full_decision["model_tier"],
+            workflow=full_decision["workflow"],
+            full_context_chars=sizes["full_chars"],
+            compact_context_chars=sizes["compact_chars"],
+            store_summary=getattr(args, "store_summary", False),
+        )
+        recorded = {
+            "tier": event["model_tier"],
+            "estimated_savings_usd": event["estimated_savings_usd"],
+            "cloud_call_avoided": event["cloud_call_avoided"],
+            "context_chars_saved": event["context_chars_saved"],
+            "ledger": ".opaihub/ledger/usage.jsonl",
+        }
+        if isinstance(output, dict):
+            output = {**output, "recorded": recorded}
+    print_json(output)
+    return 0
+
+
+def cmd_savings(args: argparse.Namespace) -> int:
+    from opaihub.savings import build_savings_report, render_savings_markdown
+
+    root = _project(args.project)
+    report = build_savings_report(root)
+    export_path = getattr(args, "export", None)
+    if export_path:
+        from opaihub.editions import require_feature
+
+        gate = require_feature(root, "savings_export")
+        if not gate["available"]:
+            print_json({"status": "upgrade_required", **gate})
+            return 3
+        target = Path(export_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(render_savings_markdown(report), encoding="utf-8")
+        print_json(
+            {"status": "exported", "path": str(target), "edition": gate["edition"]}
+        )
+        return 0
+    if getattr(args, "markdown", False):
+        print(render_savings_markdown(report))
+    else:
+        print_json(report)
+    return 0
+
+
+def cmd_guard(args: argparse.Namespace) -> int:
+    from opaihub.guarded import (
+        build_evidence_packet,
+        guard_action,
+        load_templates,
+        validate_all_templates,
+    )
+
+    root = _project(args.project)
+    if args.guard_command == "list":
+        data = load_templates(root)
+        print_json(
+            {
+                "reference_implementation": data.get("reference_implementation"),
+                "templates": [
+                    {"id": t["id"], "title": t.get("title")}
+                    for t in data.get("templates", [])
+                ],
+            }
+        )
+        return 0
+    if args.guard_command == "check":
+        result = validate_all_templates(root)
+        print_json(result)
+        return 0 if result["ok"] else 1
+    if args.guard_command == "evidence":
+        print_json(build_evidence_packet(root, args.workflow, write=not args.no_write))
+        return 0
+    if args.guard_command == "action":
+        result = guard_action(
+            root, args.action, template_id=args.template, confirmed=args.confirm
+        )
+        print_json(result)
+        return 0 if result["decision"] != "deny" else 1
+    return 0
+
+
+def cmd_edition(args: argparse.Namespace) -> int:
+    from opaihub.editions import edition_summary, set_edition
+
+    root = _project(args.project)
+    if args.edition_command == "show":
+        print_json(edition_summary(root))
+        return 0
+    if args.edition_command == "set":
+        result = set_edition(root, args.edition_name)
+        print_json(result)
+        return 0 if result.get("status") == "updated" else 2
     return 0
 
 
@@ -237,6 +403,24 @@ def cmd_models(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.models_command == "recommend":
         print_json(recommend_model(root, args.task))
+    elif args.models_command == "eval":
+        from opaihub.eval_harness import run_eval
+
+        print_json(run_eval(root, write=not args.no_write))
+    return 0
+
+
+def cmd_policy(args: argparse.Namespace) -> int:
+    from opaihub.policy import resolve_policy, set_profile
+
+    root = _project(args.project)
+    if args.policy_command == "show":
+        print_json(resolve_policy(root))
+        return 0
+    if args.policy_command == "set":
+        result = set_profile(root, args.profile)
+        print_json(result)
+        return 0 if result.get("status") == "updated" else 2
     return 0
 
 
@@ -463,13 +647,98 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Alias for --full-evidence",
     )
+    p.add_argument(
+        "--record",
+        action="store_true",
+        help="Record this routing decision to the local usage ledger (opt-in write)",
+    )
+    p.add_argument(
+        "--store-summary",
+        action="store_true",
+        help="Store a redacted task summary in the ledger (off by default for privacy)",
+    )
     p.set_defaults(func=cmd_route)
+
+    p = sub.add_parser(
+        "savings",
+        help="Show the estimated AI spend OPai saved on this project (cost firewall)",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--markdown", action="store_true", help="Render the report as markdown"
+    )
+    p.add_argument(
+        "--export",
+        metavar="PATH",
+        help="Write a shareable savings report (Pro edition feature)",
+    )
+    p.set_defaults(func=cmd_savings)
+
+    p = sub.add_parser(
+        "guard",
+        help="Guarded-workflow contract: templates, validation, evidence, gates",
+    )
+    guard_sub = p.add_subparsers(dest="guard_command", required=True)
+    gl = guard_sub.add_parser("list", help="List guarded-workflow templates")
+    gl.add_argument("--project", default=None, help="Project root")
+    gl.set_defaults(func=cmd_guard)
+    gc = guard_sub.add_parser("check", help="Validate templates against the contract")
+    gc.add_argument("--project", default=None, help="Project root")
+    gc.set_defaults(func=cmd_guard)
+    ge = guard_sub.add_parser("evidence", help="Generate a guarded evidence packet")
+    ge.add_argument("workflow")
+    ge.add_argument("--project", default=None, help="Project root")
+    ge.add_argument("--no-write", action="store_true")
+    ge.set_defaults(func=cmd_guard)
+    ga = guard_sub.add_parser("action", help="Fail-closed gate for a risky action")
+    ga.add_argument("action")
+    ga.add_argument("--template", default=None)
+    ga.add_argument("--confirm", action="store_true")
+    ga.add_argument("--project", default=None, help="Project root")
+    ga.set_defaults(func=cmd_guard)
+
+    p = sub.add_parser(
+        "edition",
+        help="Show or set the OPai open-core edition (Free/Pro/Team/Enterprise)",
+    )
+    edition_sub = p.add_subparsers(dest="edition_command", required=True)
+    ed = edition_sub.add_parser("show")
+    ed.add_argument("--project", default=None, help="Project root")
+    ed.set_defaults(func=cmd_edition)
+    ed = edition_sub.add_parser("set")
+    ed.add_argument("edition_name", choices=["free", "pro", "team", "enterprise"])
+    ed.add_argument("--project", default=None, help="Project root")
+    ed.set_defaults(func=cmd_edition)
 
     p = sub.add_parser("models", help="Model recommendation and routing helpers")
     models_sub = p.add_subparsers(dest="models_command", required=True)
     mo = models_sub.add_parser("recommend")
     mo.add_argument("task")
     mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser(
+        "eval", help="Score routing on offline fixtures (local redacted scorecard)"
+    )
+    mo.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Print the scorecard without writing .opaihub/eval/scorecard.json",
+    )
+    mo.set_defaults(func=cmd_models)
+
+    p = sub.add_parser(
+        "policy", help="Show or set the cost/safety policy profile for this project"
+    )
+    policy_sub = p.add_subparsers(dest="policy_command", required=True)
+    po = policy_sub.add_parser("show")
+    po.add_argument("--project", default=None, help="Project root")
+    po.set_defaults(func=cmd_policy)
+    po = policy_sub.add_parser("set")
+    po.add_argument(
+        "profile",
+        choices=["solo-cheap", "solo-balanced", "team-safe", "enterprise-strict"],
+    )
+    po.add_argument("--project", default=None, help="Project root")
+    po.set_defaults(func=cmd_policy)
 
     p = sub.add_parser("skills", help="OPai skill registry helpers")
     skills_sub = p.add_subparsers(dest="skills_command", required=True)
@@ -479,9 +748,34 @@ def build_parser() -> argparse.ArgumentParser:
     sk = skills_sub.add_parser("doctor")
     sk.set_defaults(func=cmd_skills)
 
+    p = sub.add_parser(
+        "doctor",
+        help="Branded readiness check: client integrations, stale paths, registries",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser(
+        "update", help="Update the installed OPai source (~/.opai/source)"
+    )
+    p.set_defaults(func=cmd_update)
+
+    p = sub.add_parser(
+        "uninstall", help="Remove OPai-managed blocks and wrappers (dry-run by default)"
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--confirm", action="store_true", help="Apply the removal (default is dry-run)"
+    )
+    p.add_argument(
+        "--keep-project-files",
+        action="store_true",
+        help="Do not strip OPai blocks from this project's instruction files",
+    )
+    p.set_defaults(func=cmd_uninstall)
+
     for name, hub_args in {
         "scan": ["scan"],
-        "doctor": ["doctor"],
         "tools": ["list-tools"],
         "agents": ["list-agents"],
         "workflows": ["list-workflows"],
