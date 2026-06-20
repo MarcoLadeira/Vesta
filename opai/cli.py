@@ -346,6 +346,43 @@ def cmd_savings(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_guard(args: argparse.Namespace) -> int:
+    from opaihub.guarded import (
+        build_evidence_packet,
+        guard_action,
+        load_templates,
+        validate_all_templates,
+    )
+
+    root = _project(args.project)
+    if args.guard_command == "list":
+        data = load_templates(root)
+        print_json(
+            {
+                "reference_implementation": data.get("reference_implementation"),
+                "templates": [
+                    {"id": t["id"], "title": t.get("title")}
+                    for t in data.get("templates", [])
+                ],
+            }
+        )
+        return 0
+    if args.guard_command == "check":
+        result = validate_all_templates(root)
+        print_json(result)
+        return 0 if result["ok"] else 1
+    if args.guard_command == "evidence":
+        print_json(build_evidence_packet(root, args.workflow, write=not args.no_write))
+        return 0
+    if args.guard_command == "action":
+        result = guard_action(
+            root, args.action, template_id=args.template, confirmed=args.confirm
+        )
+        print_json(result)
+        return 0 if result["decision"] != "deny" else 1
+    return 0
+
+
 def cmd_edition(args: argparse.Namespace) -> int:
     from opaihub.editions import edition_summary, set_edition
 
@@ -634,6 +671,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write a shareable savings report (Pro edition feature)",
     )
     p.set_defaults(func=cmd_savings)
+
+    p = sub.add_parser(
+        "guard", help="Guarded-workflow contract: templates, validation, evidence, gates"
+    )
+    guard_sub = p.add_subparsers(dest="guard_command", required=True)
+    gl = guard_sub.add_parser("list", help="List guarded-workflow templates")
+    gl.add_argument("--project", default=None, help="Project root")
+    gl.set_defaults(func=cmd_guard)
+    gc = guard_sub.add_parser("check", help="Validate templates against the contract")
+    gc.add_argument("--project", default=None, help="Project root")
+    gc.set_defaults(func=cmd_guard)
+    ge = guard_sub.add_parser("evidence", help="Generate a guarded evidence packet")
+    ge.add_argument("workflow")
+    ge.add_argument("--project", default=None, help="Project root")
+    ge.add_argument("--no-write", action="store_true")
+    ge.set_defaults(func=cmd_guard)
+    ga = guard_sub.add_parser("action", help="Fail-closed gate for a risky action")
+    ga.add_argument("action")
+    ga.add_argument("--template", default=None)
+    ga.add_argument("--confirm", action="store_true")
+    ga.add_argument("--project", default=None, help="Project root")
+    ga.set_defaults(func=cmd_guard)
 
     p = sub.add_parser(
         "edition", help="Show or set the OPai open-core edition (Free/Pro/Team/Enterprise)"
