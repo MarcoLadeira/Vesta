@@ -8,7 +8,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 
-LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+# Host classification constants only - not a socket bind address.
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}  # nosec B104
 
 
 def classify_endpoint(url: str) -> dict[str, Any]:

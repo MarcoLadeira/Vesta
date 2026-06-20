@@ -725,9 +725,7 @@ def _strip_block(text: str, start_marker: str, end_marker: str) -> str:
     return text
 
 
-def update_opai_source(
-    home: Path | None = None, timeout: int = 120
-) -> dict[str, Any]:
+def update_opai_source(home: Path | None = None, timeout: int = 120) -> dict[str, Any]:
     """Update the installed OPai checkout under ~/.opai/source (issue #28)."""
     user_home = (home or Path.home()).expanduser().resolve()
     source = opai_home(user_home) / "source"
@@ -834,8 +832,7 @@ def uninstall_opai(
     planned_block_strips = [
         str(path)
         for path, start, end in block_files
-        if path.exists()
-        and start in path.read_text(encoding="utf-8", errors="replace")
+        if path.exists() and start in path.read_text(encoding="utf-8", errors="replace")
     ]
 
     removed: list[str] = []

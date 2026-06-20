@@ -136,14 +136,21 @@ class LoopbackValidationTests(unittest.TestCase):
         import os
         from unittest import mock
 
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {"LOCAL_MODEL_URL": "https://remote.example.com/v1"}, clear=False
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(
+                os.environ,
+                {"LOCAL_MODEL_URL": "https://remote.example.com/v1"},
+                clear=False,
+            ),
         ):
             # Ensure no local commands are picked up for this assertion.
             with mock.patch("opaihub.local_models.shutil.which", return_value=None):
                 result = discover_local_models(Path(tmp))
         self.assertFalse(result["available"])
-        self.assertIn("LOCAL_MODEL_URL", result["remote_endpoints_require_confirmation"])
+        self.assertIn(
+            "LOCAL_MODEL_URL", result["remote_endpoints_require_confirmation"]
+        )
 
 
 class EvalHarnessTests(unittest.TestCase):

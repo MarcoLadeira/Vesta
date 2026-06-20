@@ -100,7 +100,9 @@ def record_route_decision(
     """Record a routing decision plus its estimated savings and compaction."""
     root = project_root.expanduser().resolve()
     cost_model = load_cost_model(root)
-    savings = estimate_route_savings(model_tier, task_tokens=task_tokens, model=cost_model)
+    savings = estimate_route_savings(
+        model_tier, task_tokens=task_tokens, model=cost_model
+    )
     context_tokens_saved = 0
     if full_context_chars and compact_context_chars:
         delta = max(0, full_context_chars - compact_context_chars)
@@ -116,7 +118,9 @@ def record_route_decision(
         cache_hit=bool(cache_hit),
         full_context_chars=int(full_context_chars),
         compact_context_chars=int(compact_context_chars),
-        context_chars_saved=max(0, int(full_context_chars) - int(compact_context_chars)),
+        context_chars_saved=max(
+            0, int(full_context_chars) - int(compact_context_chars)
+        ),
         context_tokens_saved=context_tokens_saved,
         **savings,
     )
@@ -191,9 +195,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         tier = str(route.get("model_tier", "L0")).upper()
         by_tier[tier] = by_tier.get(tier, 0) + 1
 
-    cloud_calls_avoided = sum(
-        1 for route in routes if route.get("cloud_call_avoided")
-    )
+    cloud_calls_avoided = sum(1 for route in routes if route.get("cloud_call_avoided"))
     local_routes = sum(1 for route in routes if route.get("is_local_route"))
 
     return {

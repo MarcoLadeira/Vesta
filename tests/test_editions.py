@@ -57,8 +57,9 @@ class FeatureGateTests(unittest.TestCase):
             self.assertTrue(feature_available(root, "savings_export"))
 
     def test_env_var_overrides_edition(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {"OPAI_EDITION": "enterprise"}, clear=False
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(os.environ, {"OPAI_EDITION": "enterprise"}, clear=False),
         ):
             root = Path(tmp)
             self.assertEqual(current_edition(root), "enterprise")

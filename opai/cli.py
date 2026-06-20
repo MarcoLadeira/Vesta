@@ -337,7 +337,9 @@ def cmd_savings(args: argparse.Namespace) -> int:
         target = Path(export_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_savings_markdown(report), encoding="utf-8")
-        print_json({"status": "exported", "path": str(target), "edition": gate["edition"]})
+        print_json(
+            {"status": "exported", "path": str(target), "edition": gate["edition"]}
+        )
         return 0
     if getattr(args, "markdown", False):
         print(render_savings_markdown(report))
@@ -673,7 +675,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_savings)
 
     p = sub.add_parser(
-        "guard", help="Guarded-workflow contract: templates, validation, evidence, gates"
+        "guard",
+        help="Guarded-workflow contract: templates, validation, evidence, gates",
     )
     guard_sub = p.add_subparsers(dest="guard_command", required=True)
     gl = guard_sub.add_parser("list", help="List guarded-workflow templates")
@@ -695,16 +698,15 @@ def build_parser() -> argparse.ArgumentParser:
     ga.set_defaults(func=cmd_guard)
 
     p = sub.add_parser(
-        "edition", help="Show or set the OPai open-core edition (Free/Pro/Team/Enterprise)"
+        "edition",
+        help="Show or set the OPai open-core edition (Free/Pro/Team/Enterprise)",
     )
     edition_sub = p.add_subparsers(dest="edition_command", required=True)
     ed = edition_sub.add_parser("show")
     ed.add_argument("--project", default=None, help="Project root")
     ed.set_defaults(func=cmd_edition)
     ed = edition_sub.add_parser("set")
-    ed.add_argument(
-        "edition_name", choices=["free", "pro", "team", "enterprise"]
-    )
+    ed.add_argument("edition_name", choices=["free", "pro", "team", "enterprise"])
     ed.add_argument("--project", default=None, help="Project root")
     ed.set_defaults(func=cmd_edition)
 
@@ -753,7 +755,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", default=None, help="Project root")
     p.set_defaults(func=cmd_doctor)
 
-    p = sub.add_parser("update", help="Update the installed OPai source (~/.opai/source)")
+    p = sub.add_parser(
+        "update", help="Update the installed OPai source (~/.opai/source)"
+    )
     p.set_defaults(func=cmd_update)
 
     p = sub.add_parser(

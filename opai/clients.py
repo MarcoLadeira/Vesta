@@ -94,7 +94,9 @@ def _client_status(spec: dict[str, Any]) -> dict[str, Any]:
         result["global_ready"] = bool(global_present)
         if not global_present and status == "active":
             result["status"] = "broken"
-            result["reason"] = "Project file is managed but global discovery file is missing."
+            result["reason"] = (
+                "Project file is managed but global discovery file is missing."
+            )
     if result["status"] != "active":
         result["repair"] = REPAIR_COMMAND
     return result
@@ -120,9 +122,7 @@ def client_integrations_status(
     }
 
 
-def detect_stale_paths(
-    project_root: Path, home: Path | None = None
-) -> dict[str, Any]:
+def detect_stale_paths(project_root: Path, home: Path | None = None) -> dict[str, Any]:
     """Detect moved repos or moved OPai installs and surface a repair path."""
     import json
 

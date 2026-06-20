@@ -25,7 +25,11 @@ _FALLBACK: dict[str, Any] = {
         "free": {"label": "Free", "price": 0, "price_unit": "forever"},
         "pro": {"label": "Pro", "price": 12, "price_unit": "per month"},
         "team": {"label": "Team", "price": 19, "price_unit": "per user / month"},
-        "enterprise": {"label": "Enterprise", "price": "custom", "price_unit": "contact"},
+        "enterprise": {
+            "label": "Enterprise",
+            "price": "custom",
+            "price_unit": "contact",
+        },
     },
     "features": [],
 }
@@ -66,7 +70,11 @@ def current_edition(project_root: Path) -> str:
 def set_edition(project_root: Path, name: str) -> dict[str, Any]:
     name = str(name).lower()
     if name not in EDITION_ORDER:
-        return {"status": "error", "reason": f"unknown edition '{name}'", "editions": EDITION_ORDER}
+        return {
+            "status": "error",
+            "reason": f"unknown edition '{name}'",
+            "editions": EDITION_ORDER,
+        }
     root = project_root.expanduser().resolve()
     state = load_state(root)
     state["edition"] = name
@@ -79,7 +87,9 @@ def feature_available(project_root: Path, feature_id: str) -> bool:
     active = current_edition(project_root)
     for feature in catalog.get("features", []):
         if feature.get("id") == feature_id:
-            return edition_rank(active) >= edition_rank(feature.get("min_edition", "free"))
+            return edition_rank(active) >= edition_rank(
+                feature.get("min_edition", "free")
+            )
     # Unknown features default to available (do not block on missing metadata).
     return True
 
@@ -122,7 +132,11 @@ def edition_summary(project_root: Path) -> dict[str, Any]:
 
     included = [f["id"] for f in features if feature_available(project_root, f["id"])]
     locked = [
-        {"id": f["id"], "min_edition": f.get("min_edition"), "description": f.get("description")}
+        {
+            "id": f["id"],
+            "min_edition": f.get("min_edition"),
+            "description": f.get("description"),
+        }
         for f in features
         if not feature_available(project_root, f["id"])
     ]

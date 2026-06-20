@@ -87,9 +87,7 @@ def validate_all_templates(project_root: Path) -> dict[str, Any]:
 
 def _forbidden_globs(project_root: Path, template: dict[str, Any] | None) -> list[str]:
     contract = load_contract(project_root)
-    globs = list(
-        contract.get("default_path_locks", {}).get("forbidden_paths", [])
-    )
+    globs = list(contract.get("default_path_locks", {}).get("forbidden_paths", []))
     if template:
         globs.extend(template.get("path_locks", {}).get("forbidden", []))
     return globs

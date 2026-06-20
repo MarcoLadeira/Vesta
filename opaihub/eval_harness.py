@@ -20,9 +20,18 @@ DEFAULT_FIXTURES: list[dict[str, Any]] = [
     {"task": "fix the failing unit test in the auth module", "expected_max_tier": "L2"},
     {"task": "debug this traceback from the test run", "expected_max_tier": "L2"},
     {"task": "add a small helper function and a docstring", "expected_max_tier": "L2"},
-    {"task": "refactor this module without changing behavior", "expected_max_tier": "L3"},
-    {"task": "design the architecture for a new billing service", "expected_max_tier": "L3"},
-    {"task": "run a security audit for secrets and vulnerabilities", "expected_max_tier": "L3"},
+    {
+        "task": "refactor this module without changing behavior",
+        "expected_max_tier": "L3",
+    },
+    {
+        "task": "design the architecture for a new billing service",
+        "expected_max_tier": "L3",
+    },
+    {
+        "task": "run a security audit for secrets and vulnerabilities",
+        "expected_max_tier": "L3",
+    },
 ]
 
 

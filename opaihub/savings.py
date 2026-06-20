@@ -45,7 +45,7 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
         f"{summary['route_count']} routed task(s) "
         f"({pct:.1f}% vs un-routed {summary.get('estimated_baseline_usd') and cost_model.get('baseline_tier', 'L3')} baseline)."
         if has_data
-        else "No routed tasks recorded yet. Run: opai route \"<task>\" --record"
+        else 'No routed tasks recorded yet. Run: opai route "<task>" --record'
     )
 
     return {

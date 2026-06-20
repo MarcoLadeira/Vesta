@@ -186,9 +186,14 @@ def evaluate_action(
     hard = budgets.get("per_task_hard_limit_usd")
     soft = budgets.get("per_task_soft_limit_usd")
     if hard is not None and cost_usd > float(hard):
-        escalate("deny", f"Estimated ${cost_usd:.4f} exceeds hard per-task budget ${hard}.")
+        escalate(
+            "deny", f"Estimated ${cost_usd:.4f} exceeds hard per-task budget ${hard}."
+        )
     elif soft is not None and cost_usd > float(soft):
-        escalate("confirm", f"Estimated ${cost_usd:.4f} exceeds soft per-task budget ${soft}.")
+        escalate(
+            "confirm",
+            f"Estimated ${cost_usd:.4f} exceeds soft per-task budget ${soft}.",
+        )
 
     # Oversized context.
     oversized = settings.get("oversized_context_tokens")

@@ -16,7 +16,12 @@ from opaihub.guarded import (
 class ContractTests(unittest.TestCase):
     def test_contract_declares_required_fields(self):
         contract = load_contract(Path.cwd())
-        for field in ["path_locks", "evidence_artifacts", "stop_conditions", "fail_closed"]:
+        for field in [
+            "path_locks",
+            "evidence_artifacts",
+            "stop_conditions",
+            "fail_closed",
+        ]:
             self.assertIn(field, contract["required_fields"])
 
     def test_all_templates_satisfy_contract(self):

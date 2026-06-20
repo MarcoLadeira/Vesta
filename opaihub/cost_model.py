@@ -99,8 +99,10 @@ def estimate_route_savings(
     to the un-routed frontier tier, ``actual`` is the chosen route's cost.
     """
     model = model or DEFAULT_COST_MODEL
-    tokens = task_tokens if task_tokens is not None else int(
-        model.get("default_task_tokens", 6000)
+    tokens = (
+        task_tokens
+        if task_tokens is not None
+        else int(model.get("default_task_tokens", 6000))
     )
     baseline_tier = str(model.get("baseline_tier", "L3"))
     baseline = tier_cost(baseline_tier, tokens, model)

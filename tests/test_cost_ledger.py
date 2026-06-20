@@ -27,7 +27,9 @@ class CostModelTests(unittest.TestCase):
 
     def test_baseline_tier_saves_nothing_against_itself(self):
         model = load_cost_model(Path.cwd())
-        savings = estimate_route_savings(model["baseline_tier"], task_tokens=5000, model=model)
+        savings = estimate_route_savings(
+            model["baseline_tier"], task_tokens=5000, model=model
+        )
         self.assertEqual(savings["estimated_savings_usd"], 0.0)
         self.assertFalse(savings["cloud_call_avoided"])
 
@@ -55,9 +57,10 @@ class LedgerTests(unittest.TestCase):
         self.assertNotIn("sk-abcdef1234567890abcdef", raw)
         event = json.loads(raw.strip())
         self.assertEqual(event["model_tier"], "L0")
-        self.assertEqual(event["task_hash"], task_fingerprint(
-            "deploy production with token=sk-abcdef1234567890abcdef"
-        ))
+        self.assertEqual(
+            event["task_hash"],
+            task_fingerprint("deploy production with token=sk-abcdef1234567890abcdef"),
+        )
         self.assertEqual(event["context_chars_saved"], 3100)
         self.assertGreater(event["estimated_savings_usd"], 0.0)
 
@@ -114,8 +117,11 @@ class SavingsReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             record_route_decision(
-                root, "fix bug", model_tier="L0",
-                full_context_chars=5000, compact_context_chars=500,
+                root,
+                "fix bug",
+                model_tier="L0",
+                full_context_chars=5000,
+                compact_context_chars=500,
             )
             report = build_savings_report(root)
             markdown = render_savings_markdown(report)
@@ -130,8 +136,12 @@ class SavingsReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             record_model_call(
-                root, "cloud", model_tier="L3", provider_type="cloud",
-                tokens=1000, confirmed=True,
+                root,
+                "cloud",
+                model_tier="L3",
+                provider_type="cloud",
+                tokens=1000,
+                confirmed=True,
             )
             summary = build_analytics_summary(root)
         # Was hard-coded 0.0 before issue #17; now reflects ledger events.
