@@ -20,6 +20,7 @@ opai route "fix the failing test" --record     # cheapest safe route + ledger en
 opai why "fix the failing test"                # explain the route and its savings
 opai savings --markdown                        # estimated AI spend saved on this project
 opai benchmark run --suite local --mode both   # compare normal AI vs OPai-routed use
+opai benchmark run --suite max --mode both     # leaderboard-aligned local max suite
 opai benchmark gate --min-context-reduction 10 # CI gate for benchmark proof
 opai share --markdown                          # a shareable savings badge for your README
 ```
@@ -213,6 +214,7 @@ opai route "<task>"   print compact local-first routing decision
 opai route --full-evidence "<task>" print full evidence only when needed
 opai benchmark list    list local benchmark suites and optional harnesses
 opai benchmark run     compare normal AI use with OPai-routed use
+opai benchmark run --suite max run the leaderboard-aligned local max suite
 opai benchmark gate    fail CI if proof metrics regress below thresholds
 opai benchmark compare compare latest two benchmark runs
 opai benchmark export  write optional promptfoo handoff config

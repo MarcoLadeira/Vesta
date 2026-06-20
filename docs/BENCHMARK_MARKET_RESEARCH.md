@@ -24,6 +24,8 @@ The credible proof stack is now layered:
   assertions, traces, and cost checks.
 - SWE-bench Verified is the public correctness scoreboard for GitHub issue
   resolution.
+- SWE-bench Pro is the harder long-horizon target because it emphasizes
+  realistic, cross-file software engineering tasks.
 - Terminal-Bench measures long-horizon terminal autonomy with realistic tasks.
 - Aider Polyglot measures cross-language file editing and test repair.
 
@@ -42,6 +44,7 @@ The strongest next product move is a benchmark proof loop:
 
 ```sh
 opai benchmark run --suite local --mode both
+opai benchmark run --suite max --mode both
 opai benchmark gate --min-context-reduction 10 --require-risk-blocks
 opai benchmark compare --format markdown
 opai benchmark export --harness promptfoo
@@ -51,6 +54,15 @@ This makes OPai defensible even when underlying coding agents improve, because
 the product promise is not "we are the smartest agent"; it is "we make every
 agent cheaper, smaller, safer, and measurable."
 
+## Max-suite stance
+
+The `max` suite is a local readiness suite, not a public leaderboard submission.
+It deliberately maps tasks to SWE-bench Pro, Terminal-Bench, Aider Polyglot,
+promptfoo, and OPai governance signals so OPai can measure the control-plane
+behaviors that top coding-agent benchmarks increasingly care about: smaller
+context, fewer paid calls, deterministic evidence first, bounded autonomy, and
+auditable risk gates.
+
 ## Sources
 
 - Cursor pricing: https://cursor.com/pricing
@@ -58,5 +70,6 @@ agent cheaper, smaller, safer, and measurable."
 - Devin pricing: https://devin.ai/pricing/
 - promptfoo coding-agent eval guide: https://www.promptfoo.dev/docs/guides/evaluate-coding-agents/
 - SWE-bench: https://www.swebench.com/
+- SWE-Bench Pro: https://labs.scale.com/leaderboard/swe_bench_pro_public
 - Terminal-Bench: https://www.tbench.ai/
 - Aider leaderboards: https://aider.chat/docs/leaderboards/
