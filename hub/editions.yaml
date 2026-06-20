@@ -16,6 +16,8 @@ editions:
     label: Pro
     price: 12
     price_unit: per month
+    price_annual: 99
+    price_annual_unit: per year
     tagline: Deeper savings proof, exports, and balanced/team policy profiles.
   team:
     label: Team
