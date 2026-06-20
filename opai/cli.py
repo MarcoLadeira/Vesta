@@ -326,10 +326,37 @@ def cmd_savings(args: argparse.Namespace) -> int:
 
     root = _project(args.project)
     report = build_savings_report(root)
+    export_path = getattr(args, "export", None)
+    if export_path:
+        from opaihub.editions import require_feature
+
+        gate = require_feature(root, "savings_export")
+        if not gate["available"]:
+            print_json({"status": "upgrade_required", **gate})
+            return 3
+        target = Path(export_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(render_savings_markdown(report), encoding="utf-8")
+        print_json({"status": "exported", "path": str(target), "edition": gate["edition"]})
+        return 0
     if getattr(args, "markdown", False):
         print(render_savings_markdown(report))
     else:
         print_json(report)
+    return 0
+
+
+def cmd_edition(args: argparse.Namespace) -> int:
+    from opaihub.editions import edition_summary, set_edition
+
+    root = _project(args.project)
+    if args.edition_command == "show":
+        print_json(edition_summary(root))
+        return 0
+    if args.edition_command == "set":
+        result = set_edition(root, args.edition_name)
+        print_json(result)
+        return 0 if result.get("status") == "updated" else 2
     return 0
 
 
@@ -601,7 +628,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--markdown", action="store_true", help="Render the report as markdown"
     )
+    p.add_argument(
+        "--export",
+        metavar="PATH",
+        help="Write a shareable savings report (Pro edition feature)",
+    )
     p.set_defaults(func=cmd_savings)
+
+    p = sub.add_parser(
+        "edition", help="Show or set the OPai open-core edition (Free/Pro/Team/Enterprise)"
+    )
+    edition_sub = p.add_subparsers(dest="edition_command", required=True)
+    ed = edition_sub.add_parser("show")
+    ed.add_argument("--project", default=None, help="Project root")
+    ed.set_defaults(func=cmd_edition)
+    ed = edition_sub.add_parser("set")
+    ed.add_argument(
+        "edition_name", choices=["free", "pro", "team", "enterprise"]
+    )
+    ed.add_argument("--project", default=None, help="Project root")
+    ed.set_defaults(func=cmd_edition)
 
     p = sub.add_parser("models", help="Model recommendation and routing helpers")
     models_sub = p.add_subparsers(dest="models_command", required=True)
