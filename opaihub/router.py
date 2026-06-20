@@ -117,6 +117,26 @@ def route_task(
             ["build minimal context pack", "prefer cheap/local model for first pass"]
         )
 
+    # Gate the chosen tier against the effective policy profile (issues #37/#16).
+    from .cost_model import load_cost_model, tier_cost
+    from .policy import evaluate_action
+
+    cost_model = load_cost_model(project_root)
+    task_tokens = int(cost_model.get("default_task_tokens", 6000))
+    provider_type = "local" if model_tier in ("L0", "L1") else "cloud"
+    estimated_cost = tier_cost(model_tier, task_tokens, cost_model)
+    gate = evaluate_action(
+        project_root,
+        tier=model_tier,
+        provider_type=provider_type,
+        cost_usd=estimated_cost,
+        estimated_tokens=task_tokens,
+        paid=provider_type == "cloud",
+    )
+    requires_confirmation = (
+        requires_confirmation or gate["requires_confirmation"] or gate["denied"]
+    )
+
     decision = {
         "task": task,
         "workflow": workflow,
@@ -126,6 +146,10 @@ def route_task(
         "safety_gates": safety_gates,
         "evidence_cache_key": evidence["cache_key"],
         "evidence_summary": _compact_evidence(evidence),
+        "policy_profile": gate["profile"],
+        "policy_decision": gate["decision"],
+        "policy_reasons": gate["reasons"],
+        "estimated_cost_usd": estimated_cost,
         "policy": "local evidence first; no cloud or expensive model without escalation gate",
     }
     if include_evidence:

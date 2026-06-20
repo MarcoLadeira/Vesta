@@ -276,6 +276,24 @@ def cmd_models(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.models_command == "recommend":
         print_json(recommend_model(root, args.task))
+    elif args.models_command == "eval":
+        from opaihub.eval_harness import run_eval
+
+        print_json(run_eval(root, write=not args.no_write))
+    return 0
+
+
+def cmd_policy(args: argparse.Namespace) -> int:
+    from opaihub.policy import resolve_policy, set_profile
+
+    root = _project(args.project)
+    if args.policy_command == "show":
+        print_json(resolve_policy(root))
+        return 0
+    if args.policy_command == "set":
+        result = set_profile(root, args.profile)
+        print_json(result)
+        return 0 if result.get("status") == "updated" else 2
     return 0
 
 
@@ -529,6 +547,30 @@ def build_parser() -> argparse.ArgumentParser:
     mo = models_sub.add_parser("recommend")
     mo.add_argument("task")
     mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser(
+        "eval", help="Score routing on offline fixtures (local redacted scorecard)"
+    )
+    mo.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Print the scorecard without writing .opaihub/eval/scorecard.json",
+    )
+    mo.set_defaults(func=cmd_models)
+
+    p = sub.add_parser(
+        "policy", help="Show or set the cost/safety policy profile for this project"
+    )
+    policy_sub = p.add_subparsers(dest="policy_command", required=True)
+    po = policy_sub.add_parser("show")
+    po.add_argument("--project", default=None, help="Project root")
+    po.set_defaults(func=cmd_policy)
+    po = policy_sub.add_parser("set")
+    po.add_argument(
+        "profile",
+        choices=["solo-cheap", "solo-balanced", "team-safe", "enterprise-strict"],
+    )
+    po.add_argument("--project", default=None, help="Project root")
+    po.set_defaults(func=cmd_policy)
 
     p = sub.add_parser("skills", help="OPai skill registry helpers")
     skills_sub = p.add_subparsers(dest="skills_command", required=True)
