@@ -228,8 +228,47 @@ def cmd_route(args: argparse.Namespace) -> int:
     if args.activate:
         activate_project(root, install_global=False)
     include_evidence = args.full_evidence or args.verbose
-    decision = route_task(root, args.task, include_evidence=include_evidence)
-    print_json(decision if include_evidence else compact_decision(decision))
+    record = getattr(args, "record", False)
+    # Routing stays read-only by default (issue #12). Recording is opt-in and
+    # is the only path that writes a ledger event.
+    full_decision = route_task(root, args.task, include_evidence=True)
+    output = full_decision if include_evidence else compact_decision(full_decision)
+    if record:
+        from opaihub.ledger import record_route_decision
+        from opaihub.router import route_context_sizes
+
+        sizes = route_context_sizes(full_decision)
+        event = record_route_decision(
+            root,
+            args.task,
+            model_tier=full_decision["model_tier"],
+            workflow=full_decision["workflow"],
+            full_context_chars=sizes["full_chars"],
+            compact_context_chars=sizes["compact_chars"],
+            store_summary=getattr(args, "store_summary", False),
+        )
+        recorded = {
+            "tier": event["model_tier"],
+            "estimated_savings_usd": event["estimated_savings_usd"],
+            "cloud_call_avoided": event["cloud_call_avoided"],
+            "context_chars_saved": event["context_chars_saved"],
+            "ledger": ".opaihub/ledger/usage.jsonl",
+        }
+        if isinstance(output, dict):
+            output = {**output, "recorded": recorded}
+    print_json(output)
+    return 0
+
+
+def cmd_savings(args: argparse.Namespace) -> int:
+    from opaihub.savings import build_savings_report, render_savings_markdown
+
+    root = _project(args.project)
+    report = build_savings_report(root)
+    if getattr(args, "markdown", False):
+        print(render_savings_markdown(report))
+    else:
+        print_json(report)
     return 0
 
 
@@ -463,7 +502,27 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Alias for --full-evidence",
     )
+    p.add_argument(
+        "--record",
+        action="store_true",
+        help="Record this routing decision to the local usage ledger (opt-in write)",
+    )
+    p.add_argument(
+        "--store-summary",
+        action="store_true",
+        help="Store a redacted task summary in the ledger (off by default for privacy)",
+    )
     p.set_defaults(func=cmd_route)
+
+    p = sub.add_parser(
+        "savings",
+        help="Show the estimated AI spend OPai saved on this project (cost firewall)",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--markdown", action="store_true", help="Render the report as markdown"
+    )
+    p.set_defaults(func=cmd_savings)
 
     p = sub.add_parser("models", help="Model recommendation and routing helpers")
     models_sub = p.add_subparsers(dest="models_command", required=True)

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "currency": "USD",
+  "chars_per_token": 4,
+  "tier_usd_per_1k_tokens": {
+    "L0": 0.0,
+    "L1": 0.0,
+    "L2": 0.0015,
+    "L3": 0.012,
+    "L4": 0.045
+  },
+  "baseline_tier": "L3",
+  "default_task_tokens": 6000,
+  "local_tiers": ["L0", "L1"],
+  "notes": "Estimates only. Tier costs are conservative public blended rates and the baseline assumes un-routed frontier usage. Tune to match your providers; nothing here is collected or transmitted."
+}

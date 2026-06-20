@@ -1,0 +1,144 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from opaihub.analytics import build_analytics_summary
+from opaihub.cost_model import estimate_route_savings, estimate_tokens, load_cost_model
+from opaihub.ledger import (
+    ledger_path,
+    read_events,
+    record_model_call,
+    record_route_decision,
+    summarize_ledger,
+    task_fingerprint,
+)
+from opaihub.savings import build_savings_report, render_savings_markdown
+
+
+class CostModelTests(unittest.TestCase):
+    def test_local_tiers_have_zero_cost_and_save_versus_baseline(self):
+        model = load_cost_model(Path.cwd())
+        savings = estimate_route_savings("L0", task_tokens=10000, model=model)
+        self.assertEqual(savings["estimated_actual_usd"], 0.0)
+        self.assertGreater(savings["estimated_baseline_usd"], 0.0)
+        self.assertGreater(savings["estimated_savings_usd"], 0.0)
+        self.assertTrue(savings["cloud_call_avoided"])
+
+    def test_baseline_tier_saves_nothing_against_itself(self):
+        model = load_cost_model(Path.cwd())
+        savings = estimate_route_savings(model["baseline_tier"], task_tokens=5000, model=model)
+        self.assertEqual(savings["estimated_savings_usd"], 0.0)
+        self.assertFalse(savings["cloud_call_avoided"])
+
+    def test_token_estimate_uses_chars_per_token(self):
+        self.assertEqual(estimate_tokens("x" * 400), 100)
+        self.assertEqual(estimate_tokens(""), 0)
+
+
+class LedgerTests(unittest.TestCase):
+    def test_route_event_records_savings_without_storing_raw_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_route_decision(
+                root,
+                "deploy production with token=sk-abcdef1234567890abcdef",
+                model_tier="L0",
+                workflow="release_prepare",
+                full_context_chars=4000,
+                compact_context_chars=900,
+            )
+            raw = ledger_path(root).read_text(encoding="utf-8")
+
+        self.assertNotIn("deploy", raw)
+        self.assertNotIn("production", raw)
+        self.assertNotIn("sk-abcdef1234567890abcdef", raw)
+        event = json.loads(raw.strip())
+        self.assertEqual(event["model_tier"], "L0")
+        self.assertEqual(event["task_hash"], task_fingerprint(
+            "deploy production with token=sk-abcdef1234567890abcdef"
+        ))
+        self.assertEqual(event["context_chars_saved"], 3100)
+        self.assertGreater(event["estimated_savings_usd"], 0.0)
+
+    def test_store_summary_is_redacted_when_explicitly_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_route_decision(
+                root,
+                "fix bug api_key=sk-deadbeefdeadbeef1234",
+                model_tier="L1",
+                store_summary=True,
+            )
+            event = read_events(root)[0]
+        self.assertIn("task_summary_redacted", event)
+        self.assertNotIn("sk-deadbeefdeadbeef1234", event["task_summary_redacted"])
+
+    def test_summarize_aggregates_tiers_and_cloud_avoidance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_route_decision(root, "show git status", model_tier="L0")
+            record_route_decision(root, "fix failing tests", model_tier="L1")
+            record_model_call(
+                root,
+                "confirmed cloud call",
+                model_tier="L2",
+                provider_type="cloud",
+                tokens=2000,
+                confirmed=True,
+            )
+            summary = summarize_ledger(root)
+
+        self.assertEqual(summary["route_count"], 2)
+        self.assertEqual(summary["model_call_count"], 1)
+        self.assertEqual(summary["cloud_calls_avoided"], 2)
+        self.assertEqual(summary["routes_by_tier"], {"L0": 1, "L1": 1})
+        self.assertGreater(summary["estimated_savings_usd"], 0.0)
+        self.assertGreater(summary["estimated_actual_spend_usd"], 0.0)
+
+    def test_empty_ledger_is_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = summarize_ledger(Path(tmp))
+        self.assertEqual(summary["event_count"], 0)
+        self.assertEqual(summary["estimated_savings_usd"], 0.0)
+
+
+class SavingsReportTests(unittest.TestCase):
+    def test_report_headline_prompts_recording_when_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = build_savings_report(Path(tmp))
+        self.assertFalse(report["has_data"])
+        self.assertIn("--record", report["headline"])
+
+    def test_report_and_markdown_render_after_recording(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_route_decision(
+                root, "fix bug", model_tier="L0",
+                full_context_chars=5000, compact_context_chars=500,
+            )
+            report = build_savings_report(root)
+            markdown = render_savings_markdown(report)
+
+        self.assertTrue(report["has_data"])
+        self.assertEqual(report["totals"]["routed_tasks"], 1)
+        self.assertGreater(report["totals"]["estimated_savings_usd"], 0.0)
+        self.assertIn("OPai Savings Report", markdown)
+        self.assertIn("Cloud calls avoided", markdown)
+
+    def test_analytics_summary_reads_real_ledger_not_placeholder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_model_call(
+                root, "cloud", model_tier="L3", provider_type="cloud",
+                tokens=1000, confirmed=True,
+            )
+            summary = build_analytics_summary(root)
+        # Was hard-coded 0.0 before issue #17; now reflects ledger events.
+        self.assertGreater(summary["estimated_spend_usd"], 0.0)
+        self.assertIn("estimated_savings_usd", summary)
+        self.assertEqual(summary["ledger_event_count"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

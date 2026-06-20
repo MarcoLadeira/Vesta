@@ -292,6 +292,18 @@ def cmd_analytics(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_savings(args: argparse.Namespace) -> int:
+    from .savings import build_savings_report, render_savings_markdown
+
+    root = _project(args.project)
+    report = build_savings_report(root)
+    if getattr(args, "markdown", False):
+        print(render_savings_markdown(report))
+    else:
+        print_json(report)
+    return 0
+
+
 def cmd_sandbox(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.sandbox_command == "check":
@@ -490,6 +502,10 @@ def build_parser() -> argparse.ArgumentParser:
     analytics_sub = p.add_subparsers(dest="analytics_command", required=True)
     an = analytics_sub.add_parser("status")
     an.set_defaults(func=cmd_analytics)
+
+    p = sub.add_parser("savings", help="Estimated AI spend saved (cost firewall)")
+    p.add_argument("--markdown", action="store_true")
+    p.set_defaults(func=cmd_savings)
 
     p = sub.add_parser("sandbox")
     sandbox_sub = p.add_subparsers(dest="sandbox_command", required=True)

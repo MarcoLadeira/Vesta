@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -130,6 +131,19 @@ def route_task(
     if include_evidence:
         decision["evidence"] = evidence
     return decision
+
+
+def route_context_sizes(decision_full: dict[str, Any]) -> dict[str, int]:
+    """Measure full vs compact route payload size in characters.
+
+    This is the real, observable compaction OPai applies to AI-facing output:
+    full evidence versus the compact summary an agent actually consumes.
+    """
+    full_chars = len(json.dumps(decision_full, sort_keys=True, default=str))
+    compact_chars = len(
+        json.dumps(compact_decision(decision_full), sort_keys=True, default=str)
+    )
+    return {"full_chars": full_chars, "compact_chars": compact_chars}
 
 
 def compact_decision(decision: dict[str, Any]) -> dict[str, Any]:
