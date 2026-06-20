@@ -30,6 +30,7 @@ EVIDENCE_PACKET = "evidence_packet"
 TEAM_POLICY_APPLIED = "team_policy_applied"
 CI_CHECK = "ci_check"
 EDITION_CHANGE = "edition_change"
+BENCHMARK_RUN = "benchmark_run"
 
 
 def _now_iso() -> str:
@@ -38,6 +39,10 @@ def _now_iso() -> str:
 
 def audit_path(project_root: Path) -> Path:
     return state_dir(project_root) / "audit" / "audit.jsonl"
+
+
+def checkpoint_path(project_root: Path) -> Path:
+    return state_dir(project_root) / "audit" / "head.json"
 
 
 def _canonical(entry: dict[str, Any]) -> str:
@@ -62,6 +67,32 @@ def _last_entry(project_root: Path) -> dict[str, Any] | None:
             except json.JSONDecodeError:
                 continue
     return last
+
+
+def _write_checkpoint(project_root: Path, entry: dict[str, Any]) -> Path:
+    path = checkpoint_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint = {
+        "schema_version": 1,
+        "updated_at": _now_iso(),
+        "length": int(entry.get("seq", 0)),
+        "head_hash": entry.get("entry_hash", GENESIS),
+    }
+    path.write_text(
+        json.dumps(checkpoint, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+def _read_checkpoint(project_root: Path) -> dict[str, Any] | None:
+    path = checkpoint_path(project_root)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"invalid": True}
+    return data if isinstance(data, dict) else {"invalid": True}
 
 
 def record_audit_event(
@@ -92,6 +123,7 @@ def record_audit_event(
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    _write_checkpoint(root, entry)
     return entry
 
 
@@ -115,7 +147,31 @@ def read_audit(project_root: Path, limit: int | None = None) -> list[dict[str, A
 
 def verify_chain(project_root: Path) -> dict[str, Any]:
     """Verify the audit hash chain is intact (tamper-evidence)."""
-    events = read_audit(project_root)
+    root = project_root.expanduser().resolve()
+    path = audit_path(root)
+    events: list[dict[str, Any]] = []
+    if path.exists():
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for line_no, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                return {
+                    "ok": False,
+                    "length": len(events),
+                    "broken_at": line_no - 1,
+                    "reason": "malformed audit entry",
+                }
+            if not isinstance(entry, dict):
+                return {
+                    "ok": False,
+                    "length": len(events),
+                    "broken_at": line_no - 1,
+                    "reason": "malformed audit entry",
+                }
+            events.append(entry)
     prev_hash = GENESIS
     for index, entry in enumerate(events):
         if entry.get("prev_hash") != prev_hash:
@@ -134,6 +190,26 @@ def verify_chain(project_root: Path) -> dict[str, Any]:
                 "reason": "entry_hash mismatch",
             }
         prev_hash = entry["entry_hash"]
+    checkpoint = _read_checkpoint(root)
+    if checkpoint is not None:
+        if checkpoint.get("invalid"):
+            return {
+                "ok": False,
+                "length": len(events),
+                "head_hash": prev_hash,
+                "reason": "checkpoint invalid",
+            }
+        expected_length = checkpoint.get("length")
+        expected_hash = checkpoint.get("head_hash")
+        if expected_length != len(events) or expected_hash != prev_hash:
+            return {
+                "ok": False,
+                "length": len(events),
+                "head_hash": prev_hash,
+                "checkpoint_length": expected_length,
+                "checkpoint_head_hash": expected_hash,
+                "reason": "checkpoint mismatch",
+            }
     return {"ok": True, "length": len(events), "head_hash": prev_hash}
 
 

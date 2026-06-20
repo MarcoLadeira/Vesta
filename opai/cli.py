@@ -495,6 +495,97 @@ def cmd_savings(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_benchmark(args: argparse.Namespace) -> int:
+    from opaihub.benchmark import (
+        benchmark_gate,
+        compare_benchmark_reports,
+        export_promptfoo_config,
+        latest_benchmark_report,
+        list_benchmark_suites,
+        read_benchmark_history,
+        render_benchmark_comparison_markdown,
+        render_benchmark_html,
+        render_benchmark_markdown,
+        run_benchmark,
+    )
+
+    root = _project(args.project)
+    if args.benchmark_command == "list":
+        print_json(list_benchmark_suites())
+        return 0
+    if args.benchmark_command == "run":
+        report = run_benchmark(
+            root,
+            suite=args.suite,
+            mode=args.mode,
+            audit=args.audit,
+        )
+        print_json(report)
+        return 0
+    if args.benchmark_command == "report":
+        report = latest_benchmark_report(root)
+        if report is None:
+            print_json(
+                {
+                    "status": "missing",
+                    "message": "No benchmark history yet. Run 'opai benchmark run --suite local --mode both'.",
+                }
+            )
+            return 1
+        if args.format == "json":
+            print_json(report)
+        elif args.format == "html":
+            print(render_benchmark_html(report), end="")
+        else:
+            print(render_benchmark_markdown(report), end="")
+        return 0
+    if args.benchmark_command == "gate":
+        report = latest_benchmark_report(root)
+        if report is None:
+            print_json(
+                {
+                    "status": "missing",
+                    "message": "No benchmark history yet. Run 'opai benchmark run --suite local --mode both'.",
+                }
+            )
+            return 1
+        result = benchmark_gate(
+            report,
+            min_context_reduction=args.min_context_reduction,
+            min_paid_call_avoidance=args.min_paid_call_avoidance,
+            min_cost_reduction=args.min_cost_reduction,
+            min_success_rate=args.min_success_rate,
+            max_human_interventions=args.max_human_interventions,
+            require_risk_blocks=args.require_risk_blocks,
+        )
+        print_json(result)
+        return 0 if result["ok"] else 1
+    if args.benchmark_command == "compare":
+        history = read_benchmark_history(root, limit=2)
+        if len(history) < 2:
+            print_json(
+                {
+                    "status": "missing",
+                    "message": "Need at least two benchmark runs to compare.",
+                }
+            )
+            return 1
+        comparison = compare_benchmark_reports(history[0], history[1])
+        if args.format == "markdown":
+            print(render_benchmark_comparison_markdown(comparison), end="")
+        else:
+            print_json(comparison)
+        return 0 if comparison["ok"] else 1
+    if args.benchmark_command == "export":
+        if args.harness != "promptfoo":
+            print_json({"status": "unsupported", "harness": args.harness})
+            return 2
+        target = Path(args.out) if args.out else None
+        print_json(export_promptfoo_config(root, out=target))
+        return 0
+    return 0
+
+
 def cmd_guard(args: argparse.Namespace) -> int:
     from opaihub.guarded import (
         build_evidence_packet,
@@ -665,7 +756,9 @@ def cmd_policy(args: argparse.Namespace) -> int:
     if args.policy_command == "check":
         from opaihub.ci_check import run_policy_check
 
-        result = run_policy_check(root)
+        result = run_policy_check(
+            root, require_team_policy=getattr(args, "require_team_policy", False)
+        )
         if getattr(args, "audit", False):
             from opaihub.audit import CI_CHECK, record_audit_event
 
@@ -926,6 +1019,53 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_savings)
 
     p = sub.add_parser(
+        "benchmark",
+        help="Run local effectiveness benchmarks against normal AI usage",
+    )
+    benchmark_sub = p.add_subparsers(dest="benchmark_command", required=True)
+    br = benchmark_sub.add_parser("list", help="List benchmark suites")
+    br.add_argument("--project", default=None, help="Project root")
+    br.set_defaults(func=cmd_benchmark)
+    br = benchmark_sub.add_parser(
+        "run", help="Run a local benchmark suite with no cloud calls by default"
+    )
+    br.add_argument("--project", default=None, help="Project root")
+    br.add_argument("--suite", default="local", choices=["local"])
+    br.add_argument("--mode", default="both", choices=["baseline", "opai", "both"])
+    br.add_argument(
+        "--audit", action="store_true", help="Record a redacted benchmark audit event"
+    )
+    br.set_defaults(func=cmd_benchmark)
+    br = benchmark_sub.add_parser("report", help="Render the latest benchmark report")
+    br.add_argument("--project", default=None, help="Project root")
+    br.add_argument(
+        "--format", default="markdown", choices=["markdown", "json", "html"]
+    )
+    br.set_defaults(func=cmd_benchmark)
+    br = benchmark_sub.add_parser(
+        "gate", help="Fail CI if the latest benchmark misses proof thresholds"
+    )
+    br.add_argument("--project", default=None, help="Project root")
+    br.add_argument("--min-context-reduction", type=float, default=10.0)
+    br.add_argument("--min-paid-call-avoidance", type=float, default=1.0)
+    br.add_argument("--min-cost-reduction", type=float, default=1.0)
+    br.add_argument("--min-success-rate", type=float, default=1.0)
+    br.add_argument("--max-human-interventions", type=int)
+    br.add_argument("--require-risk-blocks", action="store_true")
+    br.set_defaults(func=cmd_benchmark)
+    br = benchmark_sub.add_parser("compare", help="Compare the latest two runs")
+    br.add_argument("--project", default=None, help="Project root")
+    br.add_argument("--format", default="json", choices=["json", "markdown"])
+    br.set_defaults(func=cmd_benchmark)
+    br = benchmark_sub.add_parser(
+        "export", help="Export an optional external benchmark harness config"
+    )
+    br.add_argument("--project", default=None, help="Project root")
+    br.add_argument("--harness", default="promptfoo", choices=["promptfoo"])
+    br.add_argument("--out", metavar="PATH")
+    br.set_defaults(func=cmd_benchmark)
+
+    p = sub.add_parser(
         "why", help="Explain why OPai chose its route for a task (read-only)"
     )
     p.add_argument("task")
@@ -1105,6 +1245,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     po.add_argument(
         "--audit", action="store_true", help="Record the result to the audit trail"
+    )
+    po.add_argument(
+        "--require-team-policy",
+        action="store_true",
+        help="Fail if opai-team-policy.yaml is missing (strict team CI mode)",
     )
     po.add_argument("--project", default=None, help="Project root")
     po.set_defaults(func=cmd_policy)

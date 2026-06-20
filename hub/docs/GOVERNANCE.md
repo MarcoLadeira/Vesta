@@ -41,6 +41,7 @@ model, or a broken guarded-workflow contract:
 ```sh
 opai policy check          # exits 1 on violation
 opai policy check --audit  # also record the result to the audit trail
+opai policy check --require-team-policy  # strict CI: missing team policy fails
 ```
 
 Example GitHub Actions step:
@@ -54,7 +55,9 @@ Example GitHub Actions step:
 
 Every governance action (denied risky command, applied policy, evidence packet,
 edition change, CI check) appends to a **hash-chained** log under
-`.opaihub/audit/`. Editing or deleting any entry breaks the chain.
+`.opaihub/audit/`. Editing or deleting a middle entry breaks the hash chain.
+Tail truncation is detected by the local checkpoint head file written beside the
+log.
 
 ```sh
 opai audit log              # recent events

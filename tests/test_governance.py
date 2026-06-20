@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from opaihub.audit import (
+    audit_path,
     GUARD_DENY,
     export_audit,
     read_audit,
@@ -75,6 +76,20 @@ class AuditTrailTests(unittest.TestCase):
             lines[0] = json.dumps(entry, sort_keys=True)
             audit_path(root).write_text("\n".join(lines) + "\n", encoding="utf-8")
             self.assertFalse(verify_chain(root)["ok"])
+
+    def test_chain_detects_tail_truncation_with_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_audit_event(root, "policy_deny", action="deploy prod")
+            record_audit_event(root, GUARD_DENY, action="git push")
+            self.assertTrue(verify_chain(root)["ok"])
+
+            lines = audit_path(root).read_text(encoding="utf-8").splitlines()
+            audit_path(root).write_text(lines[0] + "\n", encoding="utf-8")
+
+            result = verify_chain(root)
+            self.assertFalse(result["ok"])
+            self.assertIn("checkpoint", result["reason"].lower())
 
     def test_audit_does_not_store_raw_secret(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -165,6 +180,15 @@ class CiCheckTests(unittest.TestCase):
         self.assertTrue(names["team_policy"].get("skipped"))
         self.assertTrue(names["cloud_models_gated"]["ok"])
         self.assertTrue(names["guarded_contract"]["ok"])
+
+    def test_missing_team_policy_can_fail_closed_for_ci(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_policy_check(Path(tmp), require_team_policy=True)
+
+        names = {c["name"]: c for c in result["checks"]}
+        self.assertFalse(result["ok"])
+        self.assertEqual("missing", names["team_policy"]["status"])
+        self.assertIn("required", names["team_policy"]["message"])
 
 
 class SignedEvidenceTests(unittest.TestCase):

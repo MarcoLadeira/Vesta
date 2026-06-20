@@ -16,11 +16,24 @@ from .loader import registry_items
 from .team_policy import load_team_policy, validate_against_team_policy
 
 
-def _check_team_policy(root: Path) -> dict[str, Any]:
+def _check_team_policy(
+    root: Path, *, require_team_policy: bool = False
+) -> dict[str, Any]:
     if load_team_policy(root) is None:
+        if require_team_policy:
+            return {
+                "name": "team_policy",
+                "ok": False,
+                "status": "missing",
+                "message": (
+                    "opai-team-policy.yaml is required in strict CI mode; run "
+                    "'opai team init' and commit the policy."
+                ),
+            }
         return {
             "name": "team_policy",
             "ok": True,
+            "status": "skipped",
             "skipped": True,
             "detail": "No opai-team-policy.yaml; run 'opai team init' to enforce one.",
         }
@@ -82,10 +95,12 @@ def _check_guarded_contract(root: Path) -> dict[str, Any]:
     }
 
 
-def run_policy_check(project_root: Path) -> dict[str, Any]:
+def run_policy_check(
+    project_root: Path, *, require_team_policy: bool = False
+) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     checks = [
-        _check_team_policy(root),
+        _check_team_policy(root, require_team_policy=require_team_policy),
         _check_cloud_gated(root),
         _check_guarded_contract(root),
     ]
@@ -94,6 +109,7 @@ def run_policy_check(project_root: Path) -> dict[str, Any]:
         "report": "opai-policy-check",
         "project": str(root),
         "ok": not failed,
+        "require_team_policy": require_team_policy,
         "passed": len(checks) - len(failed),
         "failed": len(failed),
         "checks": checks,
