@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 Alpha.1
+
+- Added the public static launch funnel under `site/`, ready for Cloudflare
+  Pages deployment.
+- Added launch CTAs for Free Alpha, Founding Pro, Team Pilot, and opt-in
+  benchmark proof reports.
+- Added GitHub intake issue forms for Founding Pro, Team Pilot, and benchmark
+  proof reports.
+- Promoted OPai to public alpha metadata (`0.2.0a1` package version,
+  `v0.2.0-alpha.1` release tag).
+- Documented the 30-day go-to-market plan, no-code payment loop, public usage
+  signals, and release checklist.
+- Kept CLI telemetry off by default; site analytics are limited to Cloudflare
+  Web Analytics.
+
 ## 0.1.1 Pre-Alpha
 
 - Severely reduced default token and credit usage:

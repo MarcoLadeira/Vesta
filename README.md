@@ -7,7 +7,7 @@ Copilot, Cursor, and Cline and routes every task to the cheapest safe path —
 deterministic tools and local models first, paid cloud models only with your
 confirmation — then proves the savings in numbers, locally and privately.
 
-OPai 0.1.1 pre-alpha is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, and a real cost ledger.
+OPai 0.2.0 alpha.1 is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, governance controls, benchmark proof, and a real cost ledger.
 
 The goal is simple: make AI-assisted development feel close to "one prompt to build, one prompt to ship" without blindly burning expensive model credits.
 
@@ -33,7 +33,10 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [before/after proof](docs/PROOF.md), the
 [install proof checklist](docs/INSTALL_PROOF.md), the
 [effectiveness benchmark guide](hub/docs/BENCHMARKS.md), the
-[launch checklist](docs/LAUNCH_CHECKLIST.md), and
+[launch checklist](docs/LAUNCH_CHECKLIST.md), the
+[30-day go-to-market plan](docs/GO_TO_MARKET_30_DAY_PLAN.md), the
+[launch revenue runbook](docs/LAUNCH_REVENUE_RUNBOOK.md), the
+[alpha release notes](docs/RELEASE_0_2_0_ALPHA_1.md), and
 [editions & pricing](hub/docs/PRICING_AND_EDITIONS.md).
 
 ### More efficiency & adoption commands
@@ -149,7 +152,7 @@ After the first install, restart terminal sessions and AI coding clients so nati
 
 ## Ultra-Low Credit Mode
 
-OPai 0.1.1 is tuned to spend less than normal AI coding by default:
+OPai 0.2.0 alpha.1 is tuned to spend less than normal AI coding by default:
 
 - `opai route` returns compact local evidence instead of large logs and full diffs.
 - `opai slim` writes AI-client ignore files and reports generated context bloat.
@@ -197,7 +200,7 @@ OPai writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAUD
 ## OPai Commands
 
 ```text
-opai version          show OPai 0.1.1 pre-alpha
+opai version          show OPai 0.2.0a1 alpha.1
 op version            same as opai version
 op activate           attach current project and ensure Superpowers/AI instructions
 op status             show activation, Superpowers, wrappers, and project state

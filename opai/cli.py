@@ -811,7 +811,7 @@ def cmd_publish(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="opai",
-        description="OPai 0.1.1 pre-alpha: local-first AI tools hub.",
+        description="OPai 0.2.0 alpha.1: local-first AI coding cost firewall.",
     )
     parser.add_argument("--project", default=".", help="Project root")
     sub = parser.add_subparsers(dest="command", required=True)

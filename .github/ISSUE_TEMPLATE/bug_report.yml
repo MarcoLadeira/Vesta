@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for testing OPai pre-alpha. Please avoid posting secrets, tokens, or private logs.
+        Thanks for testing OPai alpha. Please avoid posting secrets, tokens, or private logs.
   - type: input
     id: version
     attributes:

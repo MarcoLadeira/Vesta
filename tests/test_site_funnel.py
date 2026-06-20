@@ -21,10 +21,17 @@ class SiteFunnelTests(unittest.TestCase):
         self.assertIn("install.ps1", self.html)
         self.assertIn("install.sh", self.html)
         self.assertIn("opai quickstart", self.html)
+        self.assertIn("opai benchmark run --suite max --mode both", self.html)
+        self.assertIn(
+            "opai benchmark gate --min-effectiveness-index 95",
+            self.html,
+        )
+        self.assertIn("opai savings --markdown", self.html)
 
-    def test_page_is_telemetry_free(self):
+    def test_page_uses_only_privacy_safe_cloudflare_analytics(self):
         lowered = self.html.lower()
-        self.assertNotIn("<script", lowered)
+        self.assertIn("static.cloudflareinsights.com/beacon.min.js", lowered)
+        self.assertIn("replace_with_cloudflare_web_analytics_token", lowered)
         for tracker in [
             "google-analytics",
             "googletagmanager",
@@ -38,6 +45,13 @@ class SiteFunnelTests(unittest.TestCase):
         # $12/mo, $99/yr, $19/user — must match hub/editions.yaml.
         for token in ["$12", "$99", "$19", "$29"]:
             self.assertIn(token, self.html)
+
+    def test_launch_ctas_match_go_to_market_plan(self):
+        for token in ["Install OPai", "Buy Founding Pro", "Apply for Team Pilot"]:
+            self.assertIn(token, self.html)
+        self.assertIn("Free Alpha", self.html)
+        self.assertIn("Founding Pro", self.html)
+        self.assertIn("Team Pilot", self.html)
 
 
 class StrategyAndCommandsTests(unittest.TestCase):

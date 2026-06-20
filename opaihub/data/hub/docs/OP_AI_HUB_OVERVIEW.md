@@ -1,6 +1,6 @@
 # OPai / OP AI Hub Overview
 
-OPai 0.1.1 pre-alpha is the branded CLI and install layer for OP AI Hub. OP AI Hub is a modular, local-first AI tools platform. It is not a single giant agent. It is a registry and routing layer that helps decide which tool, agent, workflow, MCP server, or model tier should handle a task.
+OPai 0.2.0 alpha.1 is the branded CLI and install layer for OP AI Hub. OP AI Hub is a modular, local-first AI tools platform. It is not a single giant agent. It is a registry and routing layer that helps decide which tool, agent, workflow, MCP server, or model tier should handle a task.
 
 The hub builds on the existing OPcoding system:
 

@@ -1,6 +1,6 @@
 # OPai open-core edition boundaries (issue #38).
 # These are honest config-level boundaries, not billing. There is no license
-# server in pre-alpha; the active edition is self-declared (OPAI_EDITION env or
+# server in alpha; the active edition is self-declared (OPAI_EDITION env or
 # project state). Free always retains meaningful local value, and no paid
 # feature depends on telemetry leaving the machine.
 schema_version: 1

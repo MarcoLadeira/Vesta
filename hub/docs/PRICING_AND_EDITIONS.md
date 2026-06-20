@@ -4,7 +4,7 @@ OPai is **open-core**: the local-first trust layer is free forever, and paid
 editions add deeper savings proof, governance, and team controls. This document
 defines the Free / Pro / Team / Enterprise boundaries (issue #38).
 
-> **Honesty note (pre-alpha).** There is no license server or billing in OPai
+> **Honesty note (alpha).** There is no license server or billing in OPai
 > today. The active edition is *self-declared* via `OPAI_EDITION` or
 > `opai edition set <name>`. These boundaries are codified in
 > [`hub/editions.yaml`](../editions.yaml) so the product surface is real and

@@ -1,7 +1,7 @@
 {
   "brand": "OPai",
-  "version": "0.1.1",
-  "release_stage": "pre-alpha",
+  "version": "0.2.0a1",
+  "release_stage": "alpha.1",
   "entrypoints": {
     "primary": "opai",
     "legacy_coding": "op",

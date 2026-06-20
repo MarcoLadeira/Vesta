@@ -1,6 +1,6 @@
 # OPai Skills And Model Routing
 
-OPai 0.1.1 pre-alpha now has a small model-intelligence layer and an OPai skill library. The goal is to make every coding session start with local evidence, choose the cheapest capable route, and expose repeatable workflows through native skill discovery.
+OPai 0.2.0 alpha.1 has a small model-intelligence layer and an OPai skill library. The goal is to make every coding session start with local evidence, choose the cheapest capable route, and expose repeatable workflows through native skill discovery.
 
 ## Commands
 

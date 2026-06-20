@@ -53,5 +53,5 @@ def build_analytics_summary(project_root: Path) -> dict[str, Any]:
         "context_tokens_saved": ledger["context_tokens_saved"],
         "ledger_event_count": ledger["event_count"],
         "enabled_cloud_models": enabled_cloud_models,
-        "notes": "Analytics are local and file-based in 0.1.1 pre-alpha; spend and savings come from the local usage ledger. No telemetry leaves the machine.",
+        "notes": "Analytics are local and file-based in 0.2.0 alpha.1; spend and savings come from the local usage ledger. No telemetry leaves the machine.",
     }

@@ -1,31 +1,52 @@
-# OPai install page (`site/`)
+# OPai Launch Site
 
-`site/index.html` is the first public funnel described in
-[`docs/BUSINESS_STRATEGY.md`](../docs/BUSINESS_STRATEGY.md): a single,
-self-contained, dependency-free, **telemetry-free** page whose only job is to
-turn interest into a successful install.
+This folder is the static public install funnel for OPai.
 
-## What it contains
+## Primary Funnel
 
-- Primary message: *OPai is the AI coding cost firewall.*
-- One-command install for Windows and macOS/Linux.
-- The 60-second proof commands (`opai quickstart`, `opai doctor`, `opai savings`).
-- Before/after savings proof (matches [`docs/PROOF.md`](../docs/PROOF.md)).
-- Honest pricing (matches [`hub/editions.yaml`](../hub/editions.yaml)).
+```text
+page visit -> install OPai -> opai doctor -> opai benchmark max -> opai savings -> issue/payment/pilot signal
+```
 
-## Deploy (GitHub Pages)
+The page has one primary CTA:
 
-It is plain static HTML with inline CSS - host it anywhere. For GitHub Pages:
+- Install OPai.
 
-1. Settings -> Pages -> Source: deploy from a branch.
-2. Choose the branch and the `/site` folder (or copy `index.html` to `/docs`).
+It has two revenue CTAs:
 
-No build step, no external scripts, no analytics. Keep it that way - the privacy
-stance is part of the pitch.
+- Buy Founding Pro.
+- Apply for Team Pilot.
 
-## Keep claims grounded
+The revenue buttons currently fall back to GitHub intake issue forms until the
+real Lemon Squeezy or Gumroad checkout URLs exist. Replace both
+`FOUNDING_PRO_CHECKOUT_URL` hooks in `index.html` after checkout creation.
 
-Every number and price on the page must match shipped behavior:
-install commands = `README.md`, savings = `docs/PROOF.md`, pricing =
-`hub/editions.yaml`. A CI test (`tests/test_site_funnel.py`) checks the
-positioning and that the page stays script-free.
+## Cloudflare Pages
+
+Current Cloudflare Pages direct-upload commands, from the official Wrangler
+Pages docs:
+
+```sh
+npx wrangler pages project create opai --production-branch main
+npx wrangler pages deploy site --project-name opai --branch main
+```
+
+If the project is connected to Git instead, set:
+
+```text
+Build command: none
+Build output directory: site
+```
+
+## Analytics
+
+The site includes Cloudflare Web Analytics only:
+
+```html
+const token = "REPLACE_WITH_CLOUDFLARE_WEB_ANALYTICS_TOKEN";
+// When the placeholder is replaced, index.html injects:
+// https://static.cloudflareinsights.com/beacon.min.js
+```
+
+Replace the placeholder token in Cloudflare before public launch. Do not add
+Google Analytics, Mixpanel, or silent CLI telemetry.
