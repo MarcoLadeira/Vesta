@@ -100,7 +100,8 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 def cmd_delegate(args: argparse.Namespace) -> int:
     root = _project(args.project)
-    activate_project(root, install_global=False)
+    # Read-only by default (issue #12): delegating to the hub must not activate
+    # or write project files. Use `opai activate` for write side effects.
     project_args = ["--project", str(root)]
     return hub_main(project_args + list(args.hub_args))
 
@@ -154,6 +155,66 @@ def cmd_integrate(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     print_json(project_status(_project(args.project)))
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    from opaihub.local_models import discover_local_models
+    from opaihub.loader import registry_items
+    from opaihub.validator import validate_all
+
+    root = _project(args.project)
+    status = project_status(root)
+    clients = status["client_integrations"]
+    summary = clients["summary"]
+    stale = status["stale_paths"]
+    validation = validate_all(root)
+    readiness = (
+        "ready"
+        if not summary["broken"] and not summary["missing"] and stale["ok"]
+        else "attention"
+    )
+    payload = {
+        "brand": __brand__,
+        "version": __version__,
+        "release_stage": __release_stage__,
+        "project_root": str(root),
+        "readiness": readiness,
+        "client_integrations": clients,
+        "stale_paths": stale,
+        "superpowers": status["superpowers"],
+        "registries": {
+            name: len(registry_items(name, root))
+            for name in ["tools", "agents", "workflows", "mcp_servers", "models"]
+        },
+        "validation": {"ok": validation.get("ok")},
+        "local_models": discover_local_models(root),
+        "next_steps": [
+            "Run opai activate --repair to fix broken or missing client integrations.",
+            "Restart AI clients after global skill changes.",
+            'Run opai route "<task>" --record to populate the savings ledger.',
+        ],
+    }
+    print_json(payload)
+    return 0
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    from opai.integrations import update_opai_source
+
+    print_json(update_opai_source())
+    return 0
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    from opai.integrations import uninstall_opai
+
+    result = uninstall_opai(
+        _project(args.project),
+        dry_run=not args.confirm,
+        remove_project_files=not args.keep_project_files,
+    )
+    print_json(result)
     return 0
 
 
@@ -580,9 +641,32 @@ def build_parser() -> argparse.ArgumentParser:
     sk = skills_sub.add_parser("doctor")
     sk.set_defaults(func=cmd_skills)
 
+    p = sub.add_parser(
+        "doctor",
+        help="Branded readiness check: client integrations, stale paths, registries",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("update", help="Update the installed OPai source (~/.opai/source)")
+    p.set_defaults(func=cmd_update)
+
+    p = sub.add_parser(
+        "uninstall", help="Remove OPai-managed blocks and wrappers (dry-run by default)"
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--confirm", action="store_true", help="Apply the removal (default is dry-run)"
+    )
+    p.add_argument(
+        "--keep-project-files",
+        action="store_true",
+        help="Do not strip OPai blocks from this project's instruction files",
+    )
+    p.set_defaults(func=cmd_uninstall)
+
     for name, hub_args in {
         "scan": ["scan"],
-        "doctor": ["doctor"],
         "tools": ["list-tools"],
         "agents": ["list-agents"],
         "workflows": ["list-workflows"],
