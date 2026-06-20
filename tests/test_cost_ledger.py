@@ -1,8 +1,11 @@
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
+from opai.cli import main as opai_main
 from opaihub.analytics import build_analytics_summary
 from opaihub.cost_model import estimate_route_savings, estimate_tokens, load_cost_model
 from opaihub.ledger import (
@@ -104,6 +107,37 @@ class LedgerTests(unittest.TestCase):
             summary = summarize_ledger(Path(tmp))
         self.assertEqual(summary["event_count"], 0)
         self.assertEqual(summary["estimated_savings_usd"], 0.0)
+
+
+class RouteReadOnlyTests(unittest.TestCase):
+    """Issue #12: route is read-only unless --record is passed."""
+
+    def _snapshot(self, root: Path) -> set:
+        return {p for p in root.rglob("*")}
+
+    def test_route_without_record_writes_no_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Marker makes this dir an unambiguous project root for discovery.
+            (root / "pyproject.toml").write_text("[project]\nname='x'\n")
+            before = self._snapshot(root)
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = opai_main(["route", "show git status", "--project", str(root)])
+            after = self._snapshot(root)
+        self.assertEqual(code, 0)
+        self.assertFalse(ledger_path(root).exists())
+        self.assertEqual(before, after)
+
+    def test_route_with_record_writes_exactly_one_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pyproject.toml").write_text("[project]\nname='x'\n")
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                opai_main(["route", "fix a bug", "--record", "--project", str(root)])
+            self.assertTrue(ledger_path(root).exists())
+            self.assertEqual(len(read_events(root)), 1)
 
 
 class SavingsReportTests(unittest.TestCase):
