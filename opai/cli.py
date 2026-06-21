@@ -348,6 +348,25 @@ def cmd_context(args: argparse.Namespace) -> int:
         pack = build_context_pack(root, changed_only=not args.all, write=args.write)
         print_json(pack)
         return 0
+    if args.context_command == "profile":
+        from opaihub.context_engine import profile_context, render_profile_markdown
+
+        profile = profile_context(root)
+        if getattr(args, "markdown", False):
+            print(render_profile_markdown(profile))
+        else:
+            print_json(profile)
+        return 0
+    if args.context_command == "ignores":
+        from opaihub.context_engine import generate_client_ignores
+
+        clients = (
+            [c.strip() for c in args.clients.split(",") if c.strip()]
+            if getattr(args, "clients", None)
+            else None
+        )
+        print_json(generate_client_ignores(root, clients))
+        return 0
     return 0
 
 
@@ -1241,6 +1260,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--write", action="store_true", help="Persist .opaihub/context/pack.json"
     )
     cp.set_defaults(func=cmd_context)
+    cpr = context_sub.add_parser(
+        "profile", help="Rank context-waste sources with before/after token/cost"
+    )
+    cpr.add_argument("--project", default=None, help="Project root")
+    cpr.add_argument("--markdown", action="store_true")
+    cpr.set_defaults(func=cmd_context)
+    cig = context_sub.add_parser(
+        "ignores", help="Generate per-client ignore files (cursor/claude/copilot/cline)"
+    )
+    cig.add_argument(
+        "--clients", default=None, help="Comma list, e.g. cursor,claude,copilot,cline"
+    )
+    cig.add_argument("--project", default=None, help="Project root")
+    cig.set_defaults(func=cmd_context)
 
     p = sub.add_parser(
         "test", help="Select the tests most likely to cover changed files"
