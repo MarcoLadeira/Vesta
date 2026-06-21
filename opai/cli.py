@@ -563,6 +563,35 @@ def cmd_budget(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_proof(args: argparse.Namespace) -> int:
+    from opaihub.proof import (
+        build_proof_bundle,
+        render_proof_markdown,
+        verify_proof_bundle,
+    )
+
+    root = _project(args.project)
+    if args.proof_command == "bundle":
+        bundle = build_proof_bundle(root, sign=not args.no_sign)
+        if getattr(args, "markdown", False):
+            print(render_proof_markdown(bundle))
+            return 0
+        if getattr(args, "out", None):
+            Path(args.out).write_text(
+                json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            print_json({"status": "written", "path": args.out})
+            return 0
+        print_json(bundle)
+        return 0
+    if args.proof_command == "verify":
+        bundle = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        result = verify_proof_bundle(root, bundle)
+        print_json(result)
+        return 0 if result["verified"] else 1
+    return 0
+
+
 def cmd_benchmark(args: argparse.Namespace) -> int:
     from opaihub.benchmark import (
         benchmark_gate,
@@ -1121,6 +1150,26 @@ def build_parser() -> argparse.ArgumentParser:
     bp.add_argument("--off", action="store_true", help="Disable panic mode")
     bp.add_argument("--project", default=None, help="Project root")
     bp.set_defaults(func=cmd_budget)
+
+    p = sub.add_parser(
+        "proof",
+        help="Private, signed proof bundles for customers and team pilots",
+    )
+    proof_sub = p.add_subparsers(dest="proof_command", required=True)
+    pb = proof_sub.add_parser(
+        "bundle", help="Assemble a signed proof bundle (benchmark+savings+policy+audit)"
+    )
+    pb.add_argument("--out", metavar="PATH", help="Write the bundle to a file")
+    pb.add_argument("--markdown", action="store_true")
+    pb.add_argument("--no-sign", action="store_true")
+    pb.add_argument("--project", default=None, help="Project root")
+    pb.set_defaults(func=cmd_proof)
+    pv = proof_sub.add_parser(
+        "verify", help="Verify a proof bundle's signature + artifacts"
+    )
+    pv.add_argument("file")
+    pv.add_argument("--project", default=None, help="Project root")
+    pv.set_defaults(func=cmd_proof)
 
     p = sub.add_parser(
         "benchmark",
