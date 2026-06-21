@@ -15,10 +15,15 @@ Reddit, and short-form video.
 - [ ] README leads with the cost-firewall positioning.
 - [ ] `site/index.html` is deployed or ready to deploy from Cloudflare Pages.
 - [ ] Cloudflare Web Analytics token replaces the site placeholder.
-- [ ] Founding Pro checkout link replaces the temporary GitHub intake fallback.
-- [ ] Team Pilot intake form is live and linked from the site.
+- [ ] Founding Pro checkout link replaces `PRIVATE_FOUNDING_PRO_CHECKOUT_URL`.
+- [ ] Team Pilot private form replaces `PRIVATE_TEAM_PILOT_APPLY_URL`.
+- [ ] Private benchmark proof form replaces `PRIVATE_BENCHMARK_PROOF_URL`.
+- [ ] Public site does not link paid users to GitHub issue forms.
+- [ ] Source distribution decision is made: private repo/package or intentional open source.
 - [ ] [Quickstart](QUICKSTART.md) reproduces in under 60 seconds.
 - [ ] [Before/after proof](PROOF.md) numbers reproduce from the listed commands.
+- [ ] [Effectiveness/security audit](EFFECTIVENESS_AND_SECURITY_AUDIT_2026_06_21.md)
+      is reviewed and any launch blockers are accepted or fixed.
 - [ ] [Install proof checklist](INSTALL_PROOF.md) passes on a clean machine.
 - [ ] `python -m unittest discover -s tests` is green.
 - [ ] `opai benchmark run --suite max --mode both` is green.
@@ -64,7 +69,7 @@ Reddit, and short-form video.
 ## Post-launch
 
 - [ ] Collect first-user savings tables (with permission) as case studies.
-- [ ] Collect opt-in benchmark proof reports through the GitHub issue form.
+- [ ] Collect opt-in benchmark proof reports through the private proof form.
 - [ ] Review Founding Pro checkout conversions weekly.
 - [ ] Review Team Pilot applications weekly.
 - [ ] Track which clients users activate most (locally reported, opt-in only).

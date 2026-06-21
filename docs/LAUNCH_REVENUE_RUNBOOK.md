@@ -17,10 +17,15 @@ Create:
 
 After creating checkout links:
 
-1. Replace both `FOUNDING_PRO_CHECKOUT_URL` hooks in `site/index.html`.
-2. Add the Team Pilot payment link to the Team Pilot follow-up message after
+1. Replace `PRIVATE_FOUNDING_PRO_CHECKOUT_URL` in `site/index.html`.
+2. Replace `PRIVATE_TEAM_PILOT_APPLY_URL` with a private Tally/Typeform/HubSpot
+   form or direct booking link.
+3. Replace `PRIVATE_BENCHMARK_PROOF_URL` with a private proof-submission form.
+4. Add the Team Pilot payment link to the Team Pilot follow-up message after
    qualifying the team.
-3. Keep the GitHub intake forms live for support, onboarding, and proof reports.
+
+Do not use public GitHub issues for paid access, pilot applications, customer
+proof, or private benchmark output.
 
 ## Founding Pro Fulfillment
 
@@ -29,7 +34,7 @@ Deliver manually at first:
 - Priority install help.
 - One savings report review.
 - One benchmark proof review.
-- Private roadmap access through a GitHub Discussion or private channel.
+- Private roadmap access through a private channel.
 - Early Pro export/template feedback.
 
 ## Team Pilot Fulfillment
@@ -60,3 +65,4 @@ under one local policy, benchmark, savings, and audit layer.
 - Token resale.
 - Silent telemetry.
 - Enterprise claims that the shipped alpha cannot enforce.
+- Public source distribution unless OPai is intentionally open source.

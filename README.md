@@ -36,6 +36,8 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [launch checklist](docs/LAUNCH_CHECKLIST.md), the
 [30-day go-to-market plan](docs/GO_TO_MARKET_30_DAY_PLAN.md), the
 [launch revenue runbook](docs/LAUNCH_REVENUE_RUNBOOK.md), the
+[commercial access/IP protection plan](docs/COMMERCIAL_ACCESS_AND_IP_PROTECTION.md), the
+[effectiveness/security audit](docs/EFFECTIVENESS_AND_SECURITY_AUDIT_2026_06_21.md), the
 [alpha release notes](docs/RELEASE_0_2_0_ALPHA_1.md), and
 [editions & pricing](hub/docs/PRICING_AND_EDITIONS.md).
 
@@ -82,29 +84,21 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 - Safe command policies for destructive shell commands, Git operations, cloud calls, and secret-bearing logs.
 - A packaged OP AI Hub foundation with tools, agents, workflows, prompts, model routing, MCP config examples, and docs.
 
-## Install OPai Permanently
+## Controlled Alpha Access
 
-One command installs OPai, activates the current project, links OPai + Superpowers skills, and adds persistent AI-client wrappers for future repos.
+OPai alpha access is controlled while the product and pricing are being tested.
+Paid users and Team Pilot customers receive a private install command or release
+package after checkout or onboarding.
 
-Windows PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
-```
-
-macOS/Linux:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
-```
-
-Then restart your terminal and AI clients once, and check:
+After install, restart your terminal and AI clients once, then check:
 
 ```sh
 op status
 ```
 
-The installer clones or updates OPai under `~/.opai/source`, installs the `op`/`opai` CLI, activates the project you ran it from, writes OPai discovery files, installs and enables Superpowers discovery, and installs persistent AI-client shell wrappers by default.
+The installer installs the `op`/`opai` CLI, activates the project you ran it
+from, writes OPai discovery files, installs and enables Superpowers discovery,
+and installs persistent AI-client shell wrappers by default.
 
 From this folder during development:
 
@@ -115,19 +109,8 @@ op doctor
 
 If Windows says `op` is not on `PATH` before your shell profile reloads, use `python -m opai doctor`.
 
-To opt into heavier free local tool downloads during install:
-
-```powershell
-$env:OPAI_WITH_TOOLS = "1"
-irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
-```
-
-To skip the Superpowers network clone in locked-down environments:
-
-```powershell
-$env:OPAI_NO_SUPERPOWERS = "1"
-irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
-```
+Controlled alpha install links may include options for heavier local tools or
+skipping the Superpowers network clone in locked-down environments.
 
 The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project, print a blue one-line `Using OPai` badge, then launch the real CLI command. Set `OPAI_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
 

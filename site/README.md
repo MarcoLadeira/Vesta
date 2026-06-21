@@ -5,21 +5,31 @@ This folder is the static public install funnel for OPai.
 ## Primary Funnel
 
 ```text
-page visit -> install OPai -> opai doctor -> opai benchmark max -> opai savings -> issue/payment/pilot signal
+page visit -> paid/private access -> install OPai -> opai doctor -> opai benchmark max -> opai savings -> private proof/payment/pilot signal
 ```
 
 The page has one primary CTA:
 
-- Install OPai.
+- Get OPai Access.
 
 It has two revenue CTAs:
 
 - Buy Founding Pro.
 - Apply for Team Pilot.
 
-The revenue buttons currently fall back to GitHub intake issue forms until the
-real Lemon Squeezy or Gumroad checkout URLs exist. Replace both
-`FOUNDING_PRO_CHECKOUT_URL` hooks in `index.html` after checkout creation.
+The public offer language is **Controlled Alpha**, not free public source
+distribution. Do not publish raw GitHub install URLs on this page unless OPai is
+intentionally open source.
+
+The revenue buttons must not fall back to GitHub issue forms. Replace these
+private-link placeholders in `index.html` before public hosting:
+
+- `PRIVATE_FOUNDING_PRO_CHECKOUT_URL`
+- `PRIVATE_TEAM_PILOT_APPLY_URL`
+- `PRIVATE_BENCHMARK_PROOF_URL`
+
+Use Lemon Squeezy or Gumroad for checkout, and a private form or private support
+channel for Team Pilot and benchmark proof submissions.
 
 ## Cloudflare Pages
 

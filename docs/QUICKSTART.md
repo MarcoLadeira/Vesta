@@ -1,21 +1,13 @@
 # OPai Quickstart
 
-OPai is the AI coding cost firewall. This is the shortest path from install to
-proof.
+OPai is the AI coding cost firewall. This is the shortest path from controlled
+alpha access to proof.
 
-## 1. Install
+## 1. Install from your private access link
 
-Windows PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
-```
-
-macOS / Linux:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
-```
+Founding Pro buyers and Team Pilot customers receive a private install command
+or release package after checkout or onboarding. Do not publish raw source
+install URLs on the public launch page while OPai is in controlled alpha.
 
 Then restart your terminal once. If `op` is not yet on `PATH`, use
 `python -m opai ...` for any command below.

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
-      content="Install OPai, the local-first AI coding cost firewall for Claude, Codex, Copilot, Cursor, Cline, and other coding agents."
+      content="Get controlled OPai access, the local-first AI coding cost firewall for Claude, Codex, Copilot, Cursor, Cline, and other coding agents."
     >
     <title>OPai - AI Coding Cost Firewall</title>
     <link rel="icon" href="assets/opai-mascot.png">
@@ -449,10 +449,10 @@
           <span>OPai</span>
         </a>
         <div class="nav-links">
-          <a href="#install">Install</a>
+          <a href="#access">Access</a>
           <a href="#proof">Proof</a>
           <a href="#pricing">Pricing</a>
-          <a href="https://github.com/MarcoLadeira/OPai">GitHub</a>
+          <a href="#hosting">Hosting</a>
         </div>
       </nav>
     </header>
@@ -467,16 +467,17 @@
             Cline, and every agent you already use.
           </p>
           <div class="hero-actions">
-            <a class="button" href="#install">Install OPai</a>
+            <a class="button" href="#access">Get OPai Access</a>
             <a
               class="button secondary"
-              href="https://github.com/MarcoLadeira/OPai/issues/new?template=founding-pro-interest.yml&amp;title=Founding%20Pro%20interest"
+              href="#paid-access"
               data-checkout-provider="lemon-squeezy-or-gumroad"
-              data-checkout-replace-with="FOUNDING_PRO_CHECKOUT_URL"
+              data-private-link="PRIVATE_FOUNDING_PRO_CHECKOUT_URL"
             >Buy Founding Pro</a>
             <a
               class="button secondary"
-              href="https://github.com/MarcoLadeira/OPai/issues/new?template=team-pilot.yml&amp;title=Team%20Pilot%20application"
+              href="#team-pilot"
+              data-private-link="PRIVATE_TEAM_PILOT_APPLY_URL"
             >Apply for Team Pilot</a>
           </div>
           <div class="proof-row" aria-label="OPai proof points">
@@ -488,24 +489,25 @@
         </div>
       </section>
 
-      <section id="install" class="band">
+      <section id="access" class="band">
         <div class="shell">
           <div class="section-head">
-            <h2>Install first. Prove it locally.</h2>
+            <h2>Access first. Prove it locally.</h2>
             <p>
-              OPai's first promise is not a leaderboard claim. It is a command
-              sequence a new user can run in their own repo to see readiness,
-              benchmark proof, and estimated savings.
+              OPai's public site is the storefront, not the source distribution
+              channel. Founding Pro buyers and Team Pilots receive private
+              install access after checkout or onboarding.
             </p>
           </div>
 
           <div class="terminal-grid">
             <article class="terminal" aria-label="Windows install command">
               <div class="terminal-title">
-                <span>Windows PowerShell</span>
-                <span>recommended</span>
+                <span>Private alpha install</span>
+                <span>after access</span>
               </div>
-              <pre><code>irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
+              <pre><code># Private install command appears after paid access.
+# Do not publish raw source URLs on the public page.
 
 opai quickstart
 opai doctor</code></pre>
@@ -513,10 +515,11 @@ opai doctor</code></pre>
 
             <article class="terminal" aria-label="macOS and Linux install command">
               <div class="terminal-title">
-                <span>macOS / Linux</span>
-                <span>shell</span>
+                <span>Controlled distribution</span>
+                <span>paid/private</span>
               </div>
-              <pre><code>curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
+              <pre><code># Ship via private release, private package,
+# or licensed installer link.
 
 opai quickstart
 opai doctor</code></pre>
@@ -604,28 +607,28 @@ opai savings --markdown</code></pre>
       <section id="pricing">
         <div class="shell">
           <div class="section-head">
-            <h2>Free alpha, paid proof, team pilots.</h2>
+            <h2>Controlled alpha, paid proof, team pilots.</h2>
             <p>
-              The launch offer is intentionally simple: keep the local trust
-              layer free, sell founder-level support, and recruit teams that
-              need governance validation now.
+              The launch offer is intentionally simple: protect the source,
+              sell founder-level access, and recruit teams that need governance
+              validation now.
             </p>
           </div>
 
           <div class="offer-grid">
             <article class="card">
-              <span class="pill">Free Alpha</span>
-              <h3>Install and test</h3>
-              <p class="price">$0 <span>forever for core local use</span></p>
+              <span class="pill">Controlled Alpha</span>
+              <h3>Private access</h3>
+              <p class="price">Invite <span>or paid access only</span></p>
               <ul class="list">
-                <li>Install, doctor, status, routing, benchmarks, and savings.</li>
-                <li>Open issues with install failures and benchmark skepticism.</li>
-                <li>No silent telemetry and no required cloud dependency.</li>
+                <li>Install details are sent after approval or checkout.</li>
+                <li>Benchmark proof is submitted privately, not through public issues.</li>
+                <li>No silent telemetry and no public source URL on the launch page.</li>
               </ul>
-              <a class="button" href="#install">Install OPai</a>
+              <a class="button" href="#access">Get OPai Access</a>
             </article>
 
-            <article class="card">
+            <article class="card" id="paid-access">
               <span class="pill">Founding Pro</span>
               <h3>Early-access support</h3>
               <p class="price">$12 <span>/ month or $99 / year</span></p>
@@ -636,13 +639,13 @@ opai savings --markdown</code></pre>
               </ul>
               <a
                 class="button"
-                href="https://github.com/MarcoLadeira/OPai/issues/new?template=founding-pro-interest.yml&amp;title=Founding%20Pro%20interest"
+                href="#hosting"
                 data-checkout-provider="lemon-squeezy-or-gumroad"
-                data-checkout-replace-with="FOUNDING_PRO_CHECKOUT_URL"
+                data-private-link="PRIVATE_FOUNDING_PRO_CHECKOUT_URL"
               >Buy Founding Pro</a>
             </article>
 
-            <article class="card">
+            <article class="card" id="team-pilot">
               <span class="pill">Team Pilot</span>
               <h3>Governance validation</h3>
               <p class="price">$199 <span>/ team / month for 3 months</span></p>
@@ -653,27 +656,29 @@ opai savings --markdown</code></pre>
               </ul>
               <a
                 class="button"
-                href="https://github.com/MarcoLadeira/OPai/issues/new?template=team-pilot.yml&amp;title=Team%20Pilot%20application"
+                href="#hosting"
+                data-private-link="PRIVATE_TEAM_PILOT_APPLY_URL"
               >Apply for Team Pilot</a>
             </article>
           </div>
         </div>
       </section>
 
-      <section class="band">
+      <section id="hosting" class="band">
         <div class="shell">
           <div class="banner">
-            <h2>Launch with honest signals.</h2>
+            <h2>Launch with controlled access.</h2>
             <p>
-              OPai usage is unknown until public analytics and opt-in proof
-              reports exist. This page tracks visits with Cloudflare Web
-              Analytics only. CLI telemetry stays off; users choose whether to
-              submit benchmark reports, issues, payment interest, or pilot forms.
+              OPai usage is unknown until public analytics, payments, and
+              private proof reports exist. This page tracks visits with
+              Cloudflare Web Analytics only. CLI telemetry stays off, and paid
+              users should submit benchmark proof through a private form or
+              support channel, not a public repo issue.
             </p>
             <div class="inline-actions">
-              <a class="button ghost" href="https://github.com/MarcoLadeira/OPai/issues/new?template=benchmark-proof.yml&amp;title=Benchmark%20proof%20report">Submit benchmark proof</a>
-              <a class="button ghost" href="https://github.com/MarcoLadeira/OPai/blob/main/docs/LAUNCH_CHECKLIST.md">Launch checklist</a>
-              <a class="button ghost" href="https://github.com/MarcoLadeira/OPai/blob/main/docs/BUSINESS_STRATEGY.md">Business strategy</a>
+              <a class="button ghost" href="#hosting" data-private-link="PRIVATE_BENCHMARK_PROOF_URL">Submit private proof</a>
+              <a class="button ghost" href="#access">Access model</a>
+              <a class="button ghost" href="#proof">Benchmark proof</a>
             </div>
           </div>
         </div>

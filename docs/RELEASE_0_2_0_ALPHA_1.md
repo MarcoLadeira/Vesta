@@ -7,7 +7,8 @@ firewall.
 
 - Public launch site under `site/`.
 - Cloudflare Pages deployment instructions.
-- Founding Pro, Team Pilot, and benchmark proof GitHub intake forms.
+- Private-link placeholders for Founding Pro, Team Pilot, and benchmark proof
+  submissions.
 - Local max benchmark proof loop:
 
 ```sh
@@ -21,17 +22,9 @@ opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
 
 ## Install
 
-Windows PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
-```
-
-macOS/Linux:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
-```
+OPai v0.2.0-alpha.1 is a controlled alpha. Paid users and Team Pilot customers
+receive a private install command or release package after checkout or
+onboarding.
 
 Then run:
 
@@ -47,6 +40,8 @@ opai savings --markdown
 
 - OPai is alpha software.
 - Checkout links are external no-code links, not an in-repo license system.
+- If OPai must not be copied, source/package distribution must be private before
+  public launch.
 - Cloud/provider-backed benchmarks are opt-in only.
 - CLI telemetry is off by default.
 - Do not claim official external benchmark leaderboard placement from local
@@ -62,6 +57,8 @@ opai savings --markdown
 - [ ] `python -m opai benchmark run --suite max --mode both`
 - [ ] `python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks`
 - [ ] Replace Cloudflare Web Analytics token.
-- [ ] Replace Founding Pro checkout URL.
+- [ ] Replace private Founding Pro checkout URL.
+- [ ] Replace private Team Pilot application URL.
+- [ ] Replace private benchmark proof URL.
 - [ ] Deploy `site/` to Cloudflare Pages.
 - [ ] Publish GitHub Release `v0.2.0-alpha.1`.
