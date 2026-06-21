@@ -9,9 +9,9 @@ whether the cost-firewall positioning converts.
 
 | Offer | Price | Conversion path |
 | --- | --- | --- |
-| Free Alpha | $0 | Install OPai, run proof commands, open issues. |
-| Founding Pro | $12/month or $99/year | GitHub intake now, Lemon Squeezy or Gumroad checkout before public push. |
-| Team Pilot | $199/month/team for 3 months | GitHub intake now, direct invoice/payment link after qualification. |
+| Controlled Alpha | Invite or paid access | Private install access only; no public source URL on the site. |
+| Founding Pro | $12/month or $99/year | Lemon Squeezy or Gumroad checkout before public push. |
+| Team Pilot | $199/month/team for 3 months | Private application form, direct invoice, or payment link after qualification. |
 
 Future Team pricing target: $19/user/month. Future Team Governance target:
 $29-39/user/month.
@@ -40,9 +40,13 @@ until OPai has actually submitted there.
 ## Days 1-3: Launch Readiness
 
 - Verify `site/` locally and replace the Cloudflare Web Analytics placeholder.
+- Decide whether OPai source remains public. If IP protection matters, make the
+  product repo/private package distribution private before public launch.
 - Create Lemon Squeezy checkout links for Founding Pro and Team Pilot, or use
   Gumroad if account setup is faster.
-- Replace both `FOUNDING_PRO_CHECKOUT_URL` hooks in `site/index.html`.
+- Replace `PRIVATE_FOUNDING_PRO_CHECKOUT_URL`,
+  `PRIVATE_TEAM_PILOT_APPLY_URL`, and `PRIVATE_BENCHMARK_PROOF_URL` hooks in
+  `site/index.html`.
 - Run release checks:
 
 ```sh
@@ -61,7 +65,8 @@ python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
 
 - Deploy `site/` to Cloudflare Pages.
 - Publish GitHub Release `v0.2.0-alpha.1`.
-- Pin the benchmark proof issue template and launch checklist.
+- Use a private form/support channel for benchmark proof reports. Do not collect
+  paid customer proof through public GitHub issues.
 - Update repo description:
 
 ```text
@@ -122,10 +127,11 @@ Failure thresholds:
 Allowed:
 
 - Cloudflare Web Analytics for the site.
-- GitHub traffic, stars, issues, discussions, and releases.
+- GitHub traffic, stars, issues, discussions, and releases only if the repo is
+  intentionally public.
 - Payment-link conversions.
 - Email or issue-form signups.
-- Opt-in user-submitted benchmark reports.
+- Opt-in user-submitted benchmark reports through private forms or support.
 
 Not allowed:
 

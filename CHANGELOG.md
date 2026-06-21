@@ -4,10 +4,11 @@
 
 - Added the public static launch funnel under `site/`, ready for Cloudflare
   Pages deployment.
-- Added launch CTAs for Free Alpha, Founding Pro, Team Pilot, and opt-in
+- Added launch CTAs for Controlled Alpha, Founding Pro, Team Pilot, and opt-in
   benchmark proof reports.
-- Added GitHub intake issue forms for Founding Pro, Team Pilot, and benchmark
-  proof reports.
+- Switched the launch funnel to controlled alpha access: no public GitHub issue
+  intake for paid users, team pilots, or benchmark proof reports.
+- Added commercial access and IP protection guidance for private distribution.
 - Promoted OPai to public alpha metadata (`0.2.0a1` package version,
   `v0.2.0-alpha.1` release tag).
 - Documented the 30-day go-to-market plan, no-code payment loop, public usage
