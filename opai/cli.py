@@ -340,6 +340,24 @@ def cmd_why(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ask(args: argparse.Namespace) -> int:
+    from opaihub.ask import render_ask, run_ask
+
+    root = _project(args.project)
+    result = run_ask(
+        root,
+        args.task,
+        allow_cloud=getattr(args, "allow_cloud", False),
+        record=not getattr(args, "no_record", False),
+    )
+    if getattr(args, "json", False):
+        print_json(result)
+    else:
+        print(render_ask(result))
+    # Exit non-zero when nothing was answered, so scripts can branch on it.
+    return 0 if result["status"] in {"answered_locally", "cache_hit"} else 2
+
+
 def cmd_context(args: argparse.Namespace) -> int:
     from opaihub.context_pack import build_context_pack
 
@@ -1246,6 +1264,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--markdown", action="store_true")
     p.set_defaults(func=cmd_why)
+
+    p = sub.add_parser(
+        "ask",
+        help="Answer a cheap task locally (local model + result cache, $0, no cloud)",
+    )
+    p.add_argument("task")
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("--json", action="store_true")
+    p.add_argument(
+        "--allow-cloud",
+        action="store_true",
+        help="Permit a cloud-tier recommendation to be surfaced (still never auto-calls cloud)",
+    )
+    p.add_argument(
+        "--no-record", action="store_true", help="Do not record a ledger savings event"
+    )
+    p.set_defaults(func=cmd_ask)
 
     p = sub.add_parser(
         "context", help="Build a tiny, targeted context pack instead of whole files"
