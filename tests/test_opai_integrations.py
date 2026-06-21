@@ -249,6 +249,29 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertIn("-m opai @args", text)
             self.assertIn("function opai { & ", text)
 
+    def test_repair_preserves_shell_alias_manifest_state(self):
+        with (
+            tempfile.TemporaryDirectory() as project_tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
+            project = Path(project_tmp)
+            home = Path(home_tmp)
+
+            install_global_integrations(
+                project,
+                home=home,
+                targets=["shell"],
+                install_shell_aliases=True,
+            )
+            install_global_integrations(
+                project,
+                home=home,
+                targets=["shell"],
+                install_shell_aliases=False,
+            )
+
+            self.assertTrue(load_global_status(home)["shell_aliases_installed"])
+
     def test_shell_aliases_include_posix_ai_client_wrappers(self):
         with (
             tempfile.TemporaryDirectory() as project_tmp,

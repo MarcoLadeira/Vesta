@@ -34,10 +34,20 @@ def opai_home(home: Path | None = None) -> Path:
     return (home or Path.home()).expanduser().resolve() / ".opai"
 
 
-def render_statusline(width: int | None = None, color: bool = True) -> str:
-    return render_badge(
-        width or shutil.get_terminal_size((80, 20)).columns, color=color
-    )
+def render_statusline(
+    width: int | None = None, color: bool = True, project_root: Path | None = None
+) -> str:
+    if project_root is None:
+        return render_badge(
+            width or shutil.get_terminal_size((80, 20)).columns, color=color
+        )
+    from opai.cockpit import build_cockpit, compact_statusline
+    from opai.terminal_ui import colorize
+
+    text = compact_statusline(build_cockpit(project_root))
+    columns = width or shutil.get_terminal_size((80, 20)).columns
+    padding = max(0, columns - len(text))
+    return " " * padding + colorize(text, enabled=color)
 
 
 def _ps_quote(value: str) -> str:
@@ -131,6 +141,7 @@ def project_instruction_text(project_root: Path) -> str:
     return f"""{START_MARKER}
 # OPai Active
 {STATUS_TEXT}. Root: current repository.
+OPai is active; run `opai cockpit` if unsure.
 Local first: `opai route "<task>"`; `opai slim` if context grows.
 No paid/cloud/destructive ops without confirmation. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`.
 Use Superpowers when available.
@@ -456,6 +467,9 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
             "installed": bool(global_status.get("installed")),
             "status_text": global_status.get("status_text", STATUS_TEXT),
             "manifest": str(opai_home(user_home) / "global.json"),
+            "shell_aliases_installed": bool(
+                global_status.get("shell_aliases_installed")
+            ),
             "wrappers": {
                 name: {"path": str(path), "exists": path.exists()}
                 for name, path in wrappers.items()
@@ -627,6 +641,7 @@ def install_global_integrations(
         selected = {"codex", "claude", "copilot", "shell"}
 
     base = opai_home(user_home)
+    previous_global = load_global_status(user_home)
     written: list[str] = []
     written.append(str(_write(base / "status.txt", STATUS_TEXT + "\n")))
     written.append(str(_write(base / "instructions" / "OPAI.md", instruction_text())))
@@ -675,7 +690,9 @@ def install_global_integrations(
         "status_text": STATUS_TEXT,
         "project_root": str(root),
         "targets": sorted(selected),
-        "shell_aliases_installed": install_shell_aliases,
+        "shell_aliases_installed": bool(
+            install_shell_aliases or previous_global.get("shell_aliases_installed")
+        ),
         "installed_at": now_iso(),
         "written": written,
         "opai_skills": opai_skills,

@@ -1,3 +1,7 @@
+---
+description: OPai local-first, cost-aware routing and safety policy
+alwaysApply: true
+---
 <!-- OPai managed block: start -->
 # OPai Active
 Using OPai. Root: current repository.
