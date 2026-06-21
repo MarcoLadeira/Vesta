@@ -488,10 +488,78 @@ def cmd_savings(args: argparse.Namespace) -> int:
             {"status": "exported", "path": str(target), "edition": gate["edition"]}
         )
         return 0
+    if getattr(args, "rollups", False):
+        from opaihub.ledger import rollup_ledger
+
+        rollups = rollup_ledger(root)
+        report["rollups"] = {
+            "by_day": rollups["by_day"],
+            "by_week": rollups["by_week"],
+            "by_month": rollups["by_month"],
+            "by_agent": rollups["by_agent"],
+            "by_repo": rollups["by_repo"],
+        }
     if getattr(args, "markdown", False):
         print(render_savings_markdown(report))
     else:
         print_json(report)
+    return 0
+
+
+def cmd_budget(args: argparse.Namespace) -> int:
+    from opaihub.budget import budget_gate, budget_status, set_budget
+
+    root = _project(args.project)
+    if args.budget_command == "set":
+        print_json(
+            set_budget(
+                root,
+                daily_usd=args.daily,
+                monthly_usd=args.monthly,
+                per_task_usd=args.per_task,
+            )
+        )
+        return 0
+    if args.budget_command == "status":
+        print_json(budget_status(root))
+        return 0
+    if args.budget_command == "panic":
+        on = not args.off
+        result = set_budget(root, panic=on)
+        from opaihub.audit import POLICY_DENY, record_audit_event
+
+        record_audit_event(root, POLICY_DENY if on else "panic_off", panic=on)
+        print_json({"panic": on, **result})
+        return 0
+    if args.budget_command == "gate":
+        from opaihub.cost_model import load_cost_model, tier_cost
+        from opaihub.model_intelligence import recommend_model
+
+        # Gate the escalation target (the model that *would* run this task if
+        # escalated), since OPai's local router itself never picks a paid tier.
+        recommendation = recommend_model(root, args.task)
+        tier = str(recommendation.get("recommended_model_tier") or "L1").upper()
+        provider = str(
+            (recommendation.get("recommended_model") or {}).get("provider_type")
+            or "local"
+        )
+        cost_model = load_cost_model(root)
+        tokens = int(cost_model.get("default_task_tokens", 6000))
+        cost = tier_cost(tier, tokens, cost_model)
+        gate = budget_gate(
+            root,
+            next_cost_usd=cost,
+            tier=tier,
+            provider_type=provider,
+            estimated_tokens=tokens,
+        )
+        gate["escalation_target"] = {
+            "tier": tier,
+            "provider_type": provider,
+            "model_id": recommendation.get("recommended_model_id"),
+        }
+        print_json(gate)
+        return gate["exit_code"]
     return 0
 
 
@@ -1017,7 +1085,42 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Write a shareable savings report (Pro edition feature)",
     )
+    p.add_argument(
+        "--rollups",
+        action="store_true",
+        help="Include day/week/month/agent/repo savings rollups",
+    )
     p.set_defaults(func=cmd_savings)
+
+    p = sub.add_parser(
+        "budget",
+        help="Hard cost firewall: set/status/gate budgets and panic mode",
+    )
+    budget_sub = p.add_subparsers(dest="budget_command", required=True)
+    bs = budget_sub.add_parser("status", help="Budget ceilings, spend, and remaining")
+    bs.add_argument("--project", default=None, help="Project root")
+    bs.set_defaults(func=cmd_budget)
+    bset = budget_sub.add_parser("set", help="Set per-project budget ceilings")
+    bset.add_argument("--daily", type=float, default=None, help="Daily USD limit")
+    bset.add_argument("--monthly", type=float, default=None, help="Monthly USD limit")
+    bset.add_argument(
+        "--per-task", type=float, default=None, help="Hard per-task USD limit"
+    )
+    bset.add_argument("--project", default=None, help="Project root")
+    bset.set_defaults(func=cmd_budget)
+    bg = budget_sub.add_parser(
+        "gate",
+        help="Fail-closed gate: exits non-zero if the next route exceeds policy/budget",
+    )
+    bg.add_argument("task")
+    bg.add_argument("--project", default=None, help="Project root")
+    bg.set_defaults(func=cmd_budget)
+    bp = budget_sub.add_parser(
+        "panic", help="Force deterministic/local-only routing until disabled"
+    )
+    bp.add_argument("--off", action="store_true", help="Disable panic mode")
+    bp.add_argument("--project", default=None, help="Project root")
+    bp.set_defaults(func=cmd_budget)
 
     p = sub.add_parser(
         "benchmark",
