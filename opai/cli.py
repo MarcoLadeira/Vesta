@@ -348,6 +348,25 @@ def cmd_context(args: argparse.Namespace) -> int:
         pack = build_context_pack(root, changed_only=not args.all, write=args.write)
         print_json(pack)
         return 0
+    if args.context_command == "profile":
+        from opaihub.context_engine import profile_context, render_profile_markdown
+
+        profile = profile_context(root)
+        if getattr(args, "markdown", False):
+            print(render_profile_markdown(profile))
+        else:
+            print_json(profile)
+        return 0
+    if args.context_command == "ignores":
+        from opaihub.context_engine import generate_client_ignores
+
+        clients = (
+            [c.strip() for c in args.clients.split(",") if c.strip()]
+            if getattr(args, "clients", None)
+            else None
+        )
+        print_json(generate_client_ignores(root, clients))
+        return 0
     return 0
 
 
@@ -488,10 +507,107 @@ def cmd_savings(args: argparse.Namespace) -> int:
             {"status": "exported", "path": str(target), "edition": gate["edition"]}
         )
         return 0
+    if getattr(args, "rollups", False):
+        from opaihub.ledger import rollup_ledger
+
+        rollups = rollup_ledger(root)
+        report["rollups"] = {
+            "by_day": rollups["by_day"],
+            "by_week": rollups["by_week"],
+            "by_month": rollups["by_month"],
+            "by_agent": rollups["by_agent"],
+            "by_repo": rollups["by_repo"],
+        }
     if getattr(args, "markdown", False):
         print(render_savings_markdown(report))
     else:
         print_json(report)
+    return 0
+
+
+def cmd_budget(args: argparse.Namespace) -> int:
+    from opaihub.budget import budget_gate, budget_status, set_budget
+
+    root = _project(args.project)
+    if args.budget_command == "set":
+        print_json(
+            set_budget(
+                root,
+                daily_usd=args.daily,
+                monthly_usd=args.monthly,
+                per_task_usd=args.per_task,
+            )
+        )
+        return 0
+    if args.budget_command == "status":
+        print_json(budget_status(root))
+        return 0
+    if args.budget_command == "panic":
+        on = not args.off
+        result = set_budget(root, panic=on)
+        from opaihub.audit import POLICY_DENY, record_audit_event
+
+        record_audit_event(root, POLICY_DENY if on else "panic_off", panic=on)
+        print_json({"panic": on, **result})
+        return 0
+    if args.budget_command == "gate":
+        from opaihub.cost_model import load_cost_model, tier_cost
+        from opaihub.model_intelligence import recommend_model
+
+        # Gate the escalation target (the model that *would* run this task if
+        # escalated), since OPai's local router itself never picks a paid tier.
+        recommendation = recommend_model(root, args.task)
+        tier = str(recommendation.get("recommended_model_tier") or "L1").upper()
+        provider = str(
+            (recommendation.get("recommended_model") or {}).get("provider_type")
+            or "local"
+        )
+        cost_model = load_cost_model(root)
+        tokens = int(cost_model.get("default_task_tokens", 6000))
+        cost = tier_cost(tier, tokens, cost_model)
+        gate = budget_gate(
+            root,
+            next_cost_usd=cost,
+            tier=tier,
+            provider_type=provider,
+            estimated_tokens=tokens,
+        )
+        gate["escalation_target"] = {
+            "tier": tier,
+            "provider_type": provider,
+            "model_id": recommendation.get("recommended_model_id"),
+        }
+        print_json(gate)
+        return gate["exit_code"]
+    return 0
+
+
+def cmd_proof(args: argparse.Namespace) -> int:
+    from opaihub.proof import (
+        build_proof_bundle,
+        render_proof_markdown,
+        verify_proof_bundle,
+    )
+
+    root = _project(args.project)
+    if args.proof_command == "bundle":
+        bundle = build_proof_bundle(root, sign=not args.no_sign)
+        if getattr(args, "markdown", False):
+            print(render_proof_markdown(bundle))
+            return 0
+        if getattr(args, "out", None):
+            Path(args.out).write_text(
+                json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            print_json({"status": "written", "path": args.out})
+            return 0
+        print_json(bundle)
+        return 0
+    if args.proof_command == "verify":
+        bundle = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        result = verify_proof_bundle(root, bundle)
+        print_json(result)
+        return 0 if result["verified"] else 1
     return 0
 
 
@@ -1017,7 +1133,62 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Write a shareable savings report (Pro edition feature)",
     )
+    p.add_argument(
+        "--rollups",
+        action="store_true",
+        help="Include day/week/month/agent/repo savings rollups",
+    )
     p.set_defaults(func=cmd_savings)
+
+    p = sub.add_parser(
+        "budget",
+        help="Hard cost firewall: set/status/gate budgets and panic mode",
+    )
+    budget_sub = p.add_subparsers(dest="budget_command", required=True)
+    bs = budget_sub.add_parser("status", help="Budget ceilings, spend, and remaining")
+    bs.add_argument("--project", default=None, help="Project root")
+    bs.set_defaults(func=cmd_budget)
+    bset = budget_sub.add_parser("set", help="Set per-project budget ceilings")
+    bset.add_argument("--daily", type=float, default=None, help="Daily USD limit")
+    bset.add_argument("--monthly", type=float, default=None, help="Monthly USD limit")
+    bset.add_argument(
+        "--per-task", type=float, default=None, help="Hard per-task USD limit"
+    )
+    bset.add_argument("--project", default=None, help="Project root")
+    bset.set_defaults(func=cmd_budget)
+    bg = budget_sub.add_parser(
+        "gate",
+        help="Fail-closed gate: exits non-zero if the next route exceeds policy/budget",
+    )
+    bg.add_argument("task")
+    bg.add_argument("--project", default=None, help="Project root")
+    bg.set_defaults(func=cmd_budget)
+    bp = budget_sub.add_parser(
+        "panic", help="Force deterministic/local-only routing until disabled"
+    )
+    bp.add_argument("--off", action="store_true", help="Disable panic mode")
+    bp.add_argument("--project", default=None, help="Project root")
+    bp.set_defaults(func=cmd_budget)
+
+    p = sub.add_parser(
+        "proof",
+        help="Private, signed proof bundles for customers and team pilots",
+    )
+    proof_sub = p.add_subparsers(dest="proof_command", required=True)
+    pb = proof_sub.add_parser(
+        "bundle", help="Assemble a signed proof bundle (benchmark+savings+policy+audit)"
+    )
+    pb.add_argument("--out", metavar="PATH", help="Write the bundle to a file")
+    pb.add_argument("--markdown", action="store_true")
+    pb.add_argument("--no-sign", action="store_true")
+    pb.add_argument("--project", default=None, help="Project root")
+    pb.set_defaults(func=cmd_proof)
+    pv = proof_sub.add_parser(
+        "verify", help="Verify a proof bundle's signature + artifacts"
+    )
+    pv.add_argument("file")
+    pv.add_argument("--project", default=None, help="Project root")
+    pv.set_defaults(func=cmd_proof)
 
     p = sub.add_parser(
         "benchmark",
@@ -1089,6 +1260,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--write", action="store_true", help="Persist .opaihub/context/pack.json"
     )
     cp.set_defaults(func=cmd_context)
+    cpr = context_sub.add_parser(
+        "profile", help="Rank context-waste sources with before/after token/cost"
+    )
+    cpr.add_argument("--project", default=None, help="Project root")
+    cpr.add_argument("--markdown", action="store_true")
+    cpr.set_defaults(func=cmd_context)
+    cig = context_sub.add_parser(
+        "ignores", help="Generate per-client ignore files (cursor/claude/copilot/cline)"
+    )
+    cig.add_argument(
+        "--clients", default=None, help="Comma list, e.g. cursor,claude,copilot,cline"
+    )
+    cig.add_argument("--project", default=None, help="Project root")
+    cig.set_defaults(func=cmd_context)
 
     p = sub.add_parser(
         "test", help="Select the tests most likely to cover changed files"

@@ -96,8 +96,16 @@ def record_route_decision(
     task_tokens: int | None = None,
     cache_hit: bool = False,
     store_summary: bool = False,
+    agent: str | None = None,
+    repo: str | None = None,
+    source: str = "route",
 ) -> dict[str, Any]:
-    """Record a routing decision plus its estimated savings and compaction."""
+    """Record a routing decision plus its estimated savings and compaction.
+
+    ``agent`` (claude/codex/cursor/cline/copilot), ``repo``, and ``source``
+    (route/benchmark) let the ledger roll up by client, repo, and origin so a
+    benchmark event and a normal routed action share one schema (#49).
+    """
     root = project_root.expanduser().resolve()
     cost_model = load_cost_model(root)
     savings = estimate_route_savings(
@@ -107,6 +115,11 @@ def record_route_decision(
     if full_context_chars and compact_context_chars:
         delta = max(0, full_context_chars - compact_context_chars)
         context_tokens_saved = estimate_tokens("x" * delta, cost_model)
+    extra: dict[str, Any] = {"source": source}
+    if agent:
+        extra["agent"] = agent
+    if repo:
+        extra["repo"] = repo
     return record_event(
         root,
         EVENT_ROUTE,
@@ -122,6 +135,7 @@ def record_route_decision(
             0, int(full_context_chars) - int(compact_context_chars)
         ),
         context_tokens_saved=context_tokens_saved,
+        **extra,
         **savings,
     )
 
@@ -217,4 +231,52 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         "context_chars_saved": int(_sum(routes, "context_chars_saved")),
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),
         "privacy": "Raw prompts are never stored; only one-way task hashes and counts.",
+    }
+
+
+def _iso_week(created_at: str) -> str:
+    try:
+        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return "unknown"
+    iso = dt.isocalendar()
+    return f"{iso[0]}-W{iso[1]:02d}"
+
+
+def _bucket(
+    routes: list[dict[str, Any]], key_fn, *, default: str = "unknown"
+) -> dict[str, dict[str, Any]]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for route in routes:
+        key = key_fn(route) or default
+        slot = buckets.setdefault(
+            key,
+            {"routes": 0, "estimated_savings_usd": 0.0, "cloud_calls_avoided": 0},
+        )
+        slot["routes"] += 1
+        value = route.get("estimated_savings_usd")
+        if isinstance(value, (int, float)):
+            slot["estimated_savings_usd"] = round(
+                slot["estimated_savings_usd"] + value, 6
+            )
+        if route.get("cloud_call_avoided"):
+            slot["cloud_calls_avoided"] += 1
+    return dict(sorted(buckets.items()))
+
+
+def rollup_ledger(project_root: Path) -> dict[str, Any]:
+    """Roll up savings by day, week, month, agent, and repo (#49). Read-only."""
+    root = project_root.expanduser().resolve()
+    routes = [
+        event for event in read_events(root) if event.get("event_type") == EVENT_ROUTE
+    ]
+    return {
+        "project": str(root),
+        "totals": summarize_ledger(root),
+        "by_day": _bucket(routes, lambda r: str(r.get("created_at", ""))[:10]),
+        "by_week": _bucket(routes, lambda r: _iso_week(str(r.get("created_at", "")))),
+        "by_month": _bucket(routes, lambda r: str(r.get("created_at", ""))[:7]),
+        "by_agent": _bucket(routes, lambda r: r.get("agent")),
+        "by_repo": _bucket(routes, lambda r: r.get("repo")),
+        "by_source": _bucket(routes, lambda r: r.get("source")),
     }
