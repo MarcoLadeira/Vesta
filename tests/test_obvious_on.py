@@ -88,6 +88,26 @@ class CockpitTests(unittest.TestCase):
         self.assertIn("$0.00 saved", line)
         self.assertIn("budget ok", line)
 
+    def test_cockpit_uses_activation_home_after_process_home_changes(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as active_home_tmp,
+            tempfile.TemporaryDirectory() as other_home_tmp,
+        ):
+            root = Path(tmp)
+            active_home = Path(active_home_tmp)
+            other_home = Path(other_home_tmp)
+            activate_project(root, home=active_home, install_global=True)
+
+            with mock.patch("pathlib.Path.home", return_value=other_home):
+                payload = build_cockpit(root)
+
+        self.assertEqual(payload["status"], "on")
+        self.assertEqual(
+            set(payload["clients"]["summary"]["active"]),
+            {"claude", "codex", "copilot", "cursor", "cline"},
+        )
+
 
 class VisibilityTests(unittest.TestCase):
     def test_visibility_install_writes_safe_status_files(self):
