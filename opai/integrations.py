@@ -34,10 +34,20 @@ def opai_home(home: Path | None = None) -> Path:
     return (home or Path.home()).expanduser().resolve() / ".opai"
 
 
-def render_statusline(width: int | None = None, color: bool = True) -> str:
-    return render_badge(
-        width or shutil.get_terminal_size((80, 20)).columns, color=color
-    )
+def render_statusline(
+    width: int | None = None, color: bool = True, project_root: Path | None = None
+) -> str:
+    if project_root is None:
+        return render_badge(
+            width or shutil.get_terminal_size((80, 20)).columns, color=color
+        )
+    from opai.cockpit import build_cockpit, compact_statusline
+    from opai.terminal_ui import colorize
+
+    text = compact_statusline(build_cockpit(project_root))
+    columns = width or shutil.get_terminal_size((80, 20)).columns
+    padding = max(0, columns - len(text))
+    return " " * padding + colorize(text, enabled=color)
 
 
 def _ps_quote(value: str) -> str:
@@ -131,6 +141,7 @@ def project_instruction_text(project_root: Path) -> str:
     return f"""{START_MARKER}
 # OPai Active
 {STATUS_TEXT}. Root: current repository.
+OPai is active; run `opai cockpit` if unsure.
 Local first: `opai route "<task>"`; `opai slim` if context grows.
 No paid/cloud/destructive ops without confirmation. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`.
 Use Superpowers when available.
@@ -359,6 +370,7 @@ def activate_project(
         return {
             "status": "planned",
             "project_root": str(root),
+            "home": str(user_home),
             "project_files": _planned_project_files(root),
             "global_integrations": install_global,
             "shell_aliases": install_shell_aliases,
@@ -390,6 +402,7 @@ def activate_project(
     activation = {
         "status": "active",
         "project_root": str(root),
+        "home": str(user_home),
         "state_path": attached["state_path"],
         "project_files": project_files,
         "ai_ignore_files": ai_ignore_files,
@@ -409,9 +422,39 @@ def activate_project(
     return activation
 
 
+def _activation_home(root: Path, fallback: Path) -> Path:
+    activation = root / ".opaihub" / "activation.json"
+    if not activation.exists():
+        return fallback
+    try:
+        data = json.loads(activation.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
+
+    home = data.get("home")
+    if isinstance(home, str) and home.strip():
+        return Path(home).expanduser().resolve()
+
+    global_integrations = data.get("global_integrations")
+    if isinstance(global_integrations, dict):
+        manifest = global_integrations.get("manifest")
+        if isinstance(manifest, str) and manifest.strip():
+            manifest_path = Path(manifest).expanduser()
+            if (
+                manifest_path.name == "global.json"
+                and manifest_path.parent.name == ".opai"
+            ):
+                return manifest_path.parent.parent.resolve()
+
+    return fallback
+
+
 def project_status(project_root: Path, home: Path | None = None) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
-    user_home = (home or Path.home()).expanduser().resolve()
+    fallback_home = (home or Path.home()).expanduser().resolve()
+    user_home = (
+        fallback_home if home is not None else _activation_home(root, fallback_home)
+    )
     state = root / ".opaihub" / "project.json"
     activation = root / ".opaihub" / "activation.json"
     instruction_files = {
@@ -456,6 +499,9 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
             "installed": bool(global_status.get("installed")),
             "status_text": global_status.get("status_text", STATUS_TEXT),
             "manifest": str(opai_home(user_home) / "global.json"),
+            "shell_aliases_installed": bool(
+                global_status.get("shell_aliases_installed")
+            ),
             "wrappers": {
                 name: {"path": str(path), "exists": path.exists()}
                 for name, path in wrappers.items()
@@ -627,6 +673,7 @@ def install_global_integrations(
         selected = {"codex", "claude", "copilot", "shell"}
 
     base = opai_home(user_home)
+    previous_global = load_global_status(user_home)
     written: list[str] = []
     written.append(str(_write(base / "status.txt", STATUS_TEXT + "\n")))
     written.append(str(_write(base / "instructions" / "OPAI.md", instruction_text())))
@@ -675,7 +722,9 @@ def install_global_integrations(
         "status_text": STATUS_TEXT,
         "project_root": str(root),
         "targets": sorted(selected),
-        "shell_aliases_installed": install_shell_aliases,
+        "shell_aliases_installed": bool(
+            install_shell_aliases or previous_global.get("shell_aliases_installed")
+        ),
         "installed_at": now_iso(),
         "written": written,
         "opai_skills": opai_skills,

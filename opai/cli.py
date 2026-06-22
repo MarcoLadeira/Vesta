@@ -66,7 +66,9 @@ def discover_project_root(start: Path) -> Path:
 
 
 def _project(value: str | None) -> Path:
-    return discover_project_root(Path(value or "."))
+    if value:
+        return Path(value).expanduser().resolve()
+    return discover_project_root(Path("."))
 
 
 def cmd_version(args: argparse.Namespace) -> int:
@@ -107,7 +109,13 @@ def cmd_delegate(args: argparse.Namespace) -> int:
 
 
 def cmd_statusline(args: argparse.Namespace) -> int:
-    print(render_statusline(width=args.width, color=not args.no_color))
+    print(
+        render_statusline(
+            width=args.width,
+            color=not args.no_color,
+            project_root=_project(args.project),
+        )
+    )
     return 0
 
 
@@ -154,8 +162,58 @@ def cmd_integrate(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
+    if getattr(args, "human", False):
+        from opai.cockpit import build_cockpit, render_cockpit
+
+        print(render_cockpit(build_cockpit(_project(args.project))), end="")
+        return 0
     print_json(project_status(_project(args.project)))
     return 0
+
+
+def cmd_cockpit(args: argparse.Namespace) -> int:
+    from opai.cockpit import build_cockpit, render_cockpit
+
+    payload = build_cockpit(_project(args.project))
+    if args.json:
+        print_json(payload)
+    else:
+        print(render_cockpit(payload), end="")
+    return 0
+
+
+def cmd_gui(args: argparse.Namespace) -> int:
+    from opai.gui_desktop import INSTALL_HINT, launch, render_screenshot, run_once
+
+    root = _project(args.project)
+    if args.once:
+        summary = run_once(root)
+        print_json(summary)
+        return 0 if summary.get("ok") else 1
+    if args.screenshot:
+        try:
+            print_json(render_screenshot(root, Path(args.screenshot)))
+            return 0
+        except Exception as exc:  # noqa: BLE001 - dependency/display failures degrade
+            print_json(
+                {
+                    "status": "gui_unavailable",
+                    "error": str(exc),
+                    "hint": INSTALL_HINT,
+                }
+            )
+            return 1
+    try:
+        return int(launch(root))
+    except Exception as exc:  # noqa: BLE001 - dependency/display failures degrade
+        print_json(
+            {
+                "status": "gui_unavailable",
+                "error": str(exc),
+                "hint": INSTALL_HINT,
+            }
+        )
+        return 1
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -337,18 +395,6 @@ def cmd_why(args: argparse.Namespace) -> int:
         print(render_why_markdown(explanation))
     else:
         print_json(explanation)
-    return 0
-
-
-def cmd_gui(args: argparse.Namespace) -> int:
-    from opai.gui import start_gui_server
-
-    start_gui_server(
-        _project(args.project),
-        host=args.host,
-        port=args.port,
-        open_browser=not args.no_open,
-    )
     return 0
 
 
@@ -938,8 +984,64 @@ def cmd_activate(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         repair=args.repair,
     )
+    if args.repair and not args.dry_run:
+        from opai.visibility import write_visibility_status
+
+        result["visibility"] = write_visibility_status(_project(args.project))
     if not args.quiet:
         print_json(result)
+    return 0
+
+
+def cmd_visibility(args: argparse.Namespace) -> int:
+    from opai.visibility import write_visibility_status
+
+    if args.visibility_command == "install":
+        print_json(write_visibility_status(_project(args.project)))
+    return 0
+
+
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    from opaihub.dashboard import build_dashboard
+    from opaihub.dashboard_html import build_dashboard_html
+
+    root = _project(args.project)
+    path = (
+        build_dashboard_html(root) if args.html or args.serve else build_dashboard(root)
+    )
+    if args.serve:
+        import http.server
+        import socketserver
+        import urllib.parse
+        import webbrowser
+
+        port = int(args.port)
+        directory = str(path.parent)
+
+        class DashboardRequestHandler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *handler_args: Any, **handler_kwargs: Any) -> None:
+                super().__init__(*handler_args, directory=directory, **handler_kwargs)
+
+            def send_head(self) -> Any:
+                parsed = urllib.parse.urlsplit(self.path)
+                if parsed.path in {"", "/"}:
+                    self.path = "/" + path.name
+                    if parsed.query:
+                        self.path += "?" + parsed.query
+                return super().send_head()
+
+        class DashboardServer(socketserver.TCPServer):
+            allow_reuse_address = True
+
+        with DashboardServer(("127.0.0.1", port), DashboardRequestHandler) as httpd:
+            actual_port = httpd.server_address[1]
+            url = f"http://127.0.0.1:{actual_port}/"
+            print_json({"status": "serving", "url": url, "path": str(path)})
+            if args.open:
+                webbrowser.open(url)
+            httpd.serve_forever()
+        return 0
+    print_json({"status": "written", "path": str(path)})
     return 0
 
 
@@ -1007,6 +1109,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_install, install_tools=False)
 
     p = sub.add_parser("statusline")
+    p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--width", type=int)
     p.add_argument("--no-color", action="store_true")
     p.set_defaults(func=cmd_statusline)
@@ -1016,7 +1119,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show OPai activation, Superpowers, wrappers, and project state",
     )
     p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("--human", action="store_true", help="Show the OPai cockpit view")
     p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("cockpit", help="Obvious ON/OFF control panel for OPai")
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_cockpit)
+
+    p = sub.add_parser(
+        "gui",
+        help="Launch the OPai desktop control center (native window, local-only)",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--once",
+        action="store_true",
+        help="Headless smoke: print the control-center state as JSON and exit",
+    )
+    p.add_argument(
+        "--screenshot",
+        metavar="PATH",
+        help="Render a desktop GUI screenshot for visual QA and exit",
+    )
+    p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser(
         "slim",
@@ -1090,6 +1216,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--quiet", action="store_true")
     p.set_defaults(func=cmd_activate)
+
+    p = sub.add_parser("visibility", help="Write GUI-visible OPai status files")
+    visibility_sub = p.add_subparsers(dest="visibility_command", required=True)
+    vi = visibility_sub.add_parser(
+        "install", help="Write OPAI_STATUS.md and .opaihub/opai-status.json"
+    )
+    vi.add_argument("--project", default=None, help="Project root")
+    vi.set_defaults(func=cmd_visibility)
 
     p = sub.add_parser("publish", help="Publish-readiness helpers")
     publish_sub = p.add_subparsers(dest="publish_command", required=True)
@@ -1276,16 +1410,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--markdown", action="store_true")
     p.set_defaults(func=cmd_why)
-
-    p = sub.add_parser(
-        "gui",
-        help="Launch the local, code-only OPai coding cockpit (localhost web GUI)",
-    )
-    p.add_argument("--project", default=None, help="Project root")
-    p.add_argument("--host", default="127.0.0.1", help="Bind host (localhost only)")
-    p.add_argument("--port", type=int, default=0, help="Port (0 = auto)")
-    p.add_argument("--no-open", action="store_true", help="Do not open the browser")
-    p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser(
         "ask",
@@ -1538,14 +1662,19 @@ def build_parser() -> argparse.ArgumentParser:
         "tools": ["list-tools"],
         "agents": ["list-agents"],
         "workflows": ["list-workflows"],
-        "dashboard": ["dashboard"],
         "cost": ["cost", "status"],
     }.items():
         p = sub.add_parser(name)
         p.add_argument("--project", default=None, help="Project root")
-        if name == "dashboard":
-            p.add_argument("--html", action="store_true")
         p.set_defaults(func=cmd_delegate, hub_args=hub_args)
+
+    p = sub.add_parser("dashboard", help="Write or serve the local OPai dashboard")
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("--html", action="store_true")
+    p.add_argument("--serve", action="store_true", help="Serve dashboard on localhost")
+    p.add_argument("--port", type=int, default=0, help="Localhost port; 0 chooses one")
+    p.add_argument("--open", action="store_true", help="Open the served dashboard")
+    p.set_defaults(func=cmd_dashboard)
 
     p = sub.add_parser("hub", help="Pass through to op-hub")
     p.add_argument("hub_args", nargs=argparse.REMAINDER)
@@ -1556,6 +1685,4 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command == "dashboard" and getattr(args, "html", False):
-        args.hub_args = ["dashboard", "--html"]
     return int(args.func(args))

@@ -14,7 +14,7 @@ The goal is simple: make AI-assisted development feel close to "one prompt to bu
 ## Prove it in 60 seconds
 
 ```sh
-opai gui                                        # local, code-only coding cockpit (web GUI)
+opai gui                                        # simple desktop chat app: type a task, pick your model, run it local-first
 opai ask "summarize my changes"                # answer a cheap task locally for $0 (no cloud)
 opai quickstart                                # guided first run: activate, route, savings
 opai doctor                                    # which clients are active/broken/missing
