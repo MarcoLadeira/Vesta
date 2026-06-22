@@ -161,3 +161,68 @@ def detect_local_runner(
         if runner.available():
             return runner
     return None
+
+
+def list_local_models(
+    project_root: Path | None = None, *, allow_public: bool = False
+) -> list[dict[str, Any]]:
+    """List the models available on reachable loopback/private endpoints.
+
+    Returns entries like ``{"id": "ollama:llama3.2", "provider": "ollama",
+    "model": "llama3.2", "endpoint": "..."}``. Used to populate the GUI model
+    picker. Network failures are swallowed - an empty list just means "no local
+    model connected", and OPai's Auto route still works.
+    """
+    models: list[dict[str, Any]] = []
+    for url, runner in _candidate_runners():
+        if not classify_endpoint(url)["is_local"] and not allow_public:
+            continue
+        try:
+            if isinstance(runner, OllamaRunner):
+                tags = _http_json(f"{runner.base_url}/api/tags", timeout=2.0)
+                for entry in tags.get("models") or []:
+                    name = entry.get("name") or entry.get("model")
+                    if name:
+                        models.append(
+                            {
+                                "id": f"ollama:{name}",
+                                "provider": "ollama",
+                                "model": name,
+                                "endpoint": runner.base_url,
+                            }
+                        )
+            elif isinstance(runner, OpenAICompatibleRunner):
+                data = _http_json(f"{runner.base_url}/models", timeout=2.0)
+                for entry in data.get("data") or []:
+                    mid = entry.get("id")
+                    if mid:
+                        models.append(
+                            {
+                                "id": f"openai:{mid}",
+                                "provider": "openai-compatible",
+                                "model": mid,
+                                "endpoint": runner.base_url,
+                            }
+                        )
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+    return models
+
+
+def runner_for_model(
+    model_id: str, project_root: Path | None = None
+) -> LocalRunner | None:
+    """Build a runner bound to a specific ``provider:model`` id from the picker."""
+    if not model_id or ":" not in model_id:
+        return None
+    provider, name = model_id.split(":", 1)
+    for _url, runner in _candidate_runners():
+        if provider == "ollama" and isinstance(runner, OllamaRunner):
+            return OllamaRunner(runner.base_url, name)
+        if provider in {"openai", "openai-compatible"} and isinstance(
+            runner, OpenAICompatibleRunner
+        ):
+            return OpenAICompatibleRunner(runner.base_url, name)
+    if provider == "ollama":
+        return OllamaRunner(DEFAULT_OLLAMA_URL, name)
+    return None

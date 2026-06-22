@@ -182,6 +182,40 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gui(args: argparse.Namespace) -> int:
+    from opai.gui_desktop import INSTALL_HINT, launch, render_screenshot, run_once
+
+    root = _project(args.project)
+    if args.once:
+        summary = run_once(root)
+        print_json(summary)
+        return 0 if summary.get("ok") else 1
+    if args.screenshot:
+        try:
+            print_json(render_screenshot(root, Path(args.screenshot)))
+            return 0
+        except Exception as exc:  # noqa: BLE001 - dependency/display failures degrade
+            print_json(
+                {
+                    "status": "gui_unavailable",
+                    "error": str(exc),
+                    "hint": INSTALL_HINT,
+                }
+            )
+            return 1
+    try:
+        return int(launch(root))
+    except Exception as exc:  # noqa: BLE001 - dependency/display failures degrade
+        print_json(
+            {
+                "status": "gui_unavailable",
+                "error": str(exc),
+                "hint": INSTALL_HINT,
+            }
+        )
+        return 1
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     from opaihub.local_models import discover_local_models
     from opaihub.loader import registry_items
@@ -1092,6 +1126,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_cockpit)
+
+    p = sub.add_parser(
+        "gui",
+        help="Launch the OPai desktop control center (native window, local-only)",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--once",
+        action="store_true",
+        help="Headless smoke: print the control-center state as JSON and exit",
+    )
+    p.add_argument(
+        "--screenshot",
+        metavar="PATH",
+        help="Render a desktop GUI screenshot for visual QA and exit",
+    )
+    p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser(
         "slim",
