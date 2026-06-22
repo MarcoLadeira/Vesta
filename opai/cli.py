@@ -398,6 +398,18 @@ def cmd_why(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gui(args: argparse.Namespace) -> int:
+    from opai.gui import start_gui_server
+
+    start_gui_server(
+        _project(args.project),
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_open,
+    )
+    return 0
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     from opaihub.ask import render_ask, run_ask
 
@@ -1410,6 +1422,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--markdown", action="store_true")
     p.set_defaults(func=cmd_why)
+
+    p = sub.add_parser(
+        "gui",
+        help="Launch the local, code-only OPai coding cockpit (localhost web GUI)",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("--host", default="127.0.0.1", help="Bind host (localhost only)")
+    p.add_argument("--port", type=int, default=0, help="Port (0 = auto)")
+    p.add_argument("--no-open", action="store_true", help="Do not open the browser")
+    p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser(
         "ask",
