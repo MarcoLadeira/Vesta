@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -9,6 +10,7 @@ import time
 import unittest
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 from opai.cli import main
 from opai.cockpit import build_cockpit, render_cockpit
@@ -18,10 +20,25 @@ from opaihub.dashboard_html import build_dashboard_html
 
 
 class CockpitTests(unittest.TestCase):
+    def setUp(self):
+        # Hermetic home: a client's global-discovery files must not depend on
+        # (or pollute) the developer's real ~/. Without this, claude/codex/
+        # copilot read as "broken" on a clean machine (CI) but "active" locally,
+        # making the cockpit's ON state non-deterministic across environments.
+        self._home = tempfile.TemporaryDirectory()
+        self._env = mock.patch.dict(
+            os.environ, {"HOME": self._home.name, "USERPROFILE": self._home.name}
+        )
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+        self._home.cleanup()
+
     def test_cockpit_renders_obvious_on_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=False)
+            activate_project(root, install_global=True)
 
             payload = build_cockpit(root)
             text = render_cockpit(payload)
@@ -36,7 +53,7 @@ class CockpitTests(unittest.TestCase):
     def test_status_human_aliases_cockpit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=False)
+            activate_project(root, install_global=True)
 
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
@@ -48,7 +65,7 @@ class CockpitTests(unittest.TestCase):
     def test_cockpit_command_supports_json(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=False)
+            activate_project(root, install_global=True)
 
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
@@ -62,7 +79,7 @@ class CockpitTests(unittest.TestCase):
     def test_project_statusline_is_compact_and_human(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=False)
+            activate_project(root, install_global=True)
 
             line = render_statusline(project_root=root, width=120, color=False)
 
