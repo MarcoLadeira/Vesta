@@ -211,6 +211,7 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             super().__init__()
             self.root = root
             self._workers: list[Any] = []
+            self._pending = None
             self._edits_warned = False
             self.setWindowTitle("OPai")
             self.setMinimumSize(760, 580)
@@ -505,7 +506,7 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             holder.setContentsMargins(0, 0, 0, 0)
             self.thread.addWidget(container)
             QtCore.QTimer.singleShot(30, self._to_bottom)
-            return frame
+            return container
 
         def _to_bottom(self) -> None:
             bar = self.scroll.verticalScrollBar()
@@ -536,6 +537,17 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self._busy(True)
             opt = self._selected()
             model_id = opt.get("id", "auto")
+            # A live "working" bubble so the chat feels responsive while the
+            # model runs (account calls can take a while), replaced on result.
+            if opt.get("kind") == "account":
+                role = opt.get("label", "Account").split(" · ")[0]
+                color = PROVIDER_COLOR.get(opt.get("provider"), ACCENT)
+                meta = "running on your account…"
+            else:
+                role, color, meta = "OPai", GREEN, "routing the cheapest safe path…"
+            self._pending = self._bubble(
+                "BotBubble", role, "Working…", role_color=color, meta=meta
+            )
             allow_edits = self.edits.isChecked()
             worker = Worker(
                 lambda: A.ask(self.root, text, model_id, allow_edits=allow_edits)
@@ -546,6 +558,9 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
 
         def _on_ask(self, result) -> None:
             self._busy(False)
+            if self._pending is not None:
+                self._pending.setParent(None)
+                self._pending = None
             status = result.get("status")
             tier = result.get("tier", "")
             if status == "answered_by_account":

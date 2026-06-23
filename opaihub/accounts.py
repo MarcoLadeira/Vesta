@@ -16,9 +16,33 @@ from __future__ import annotations
 
 import shutil
 import subprocess  # nosec B404 - we invoke the user's own logged-in AI CLIs
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+
+
+def _hidden_run(cmd: list[str], *, cwd: str | None, timeout: float):
+    """Run a CLI fully in the background - no console window, no stdin prompt.
+
+    On Windows a GUI app (PySide6) that shells out to a console program pops a
+    visible terminal; CREATE_NO_WINDOW suppresses it so the chat stays inline.
+    stdin is closed so a CLI never blocks waiting for input, and output is
+    decoded as UTF-8 with replacement so odd bytes can't crash the GUI.
+    """
+    kwargs: dict[str, Any] = {
+        "cwd": cwd,
+        "capture_output": True,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "timeout": timeout,
+        "stdin": subprocess.DEVNULL,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    return subprocess.run(cmd, **kwargs)  # nosec B603 - argv list, no shell, user's own CLI
+
 
 # How to detect a logged-in account and how to drive its CLI non-interactively.
 ACCOUNT_SPECS: list[dict[str, Any]] = [
@@ -150,9 +174,7 @@ class AccountRunner:
             ) as handle:
                 out_path = handle.name
             cmd = self.build_command(prompt, allow_edits=allow_edits, out_file=out_path)
-            proc = subprocess.run(  # nosec B603 - argv is a list, no shell, user's own CLI
-                cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout
-            )
+            proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
             try:
                 answer = Path(out_path).read_text(encoding="utf-8").strip()
             except OSError:
@@ -161,9 +183,7 @@ class AccountRunner:
                 Path(out_path).unlink(missing_ok=True)
             return answer or (proc.stdout or proc.stderr or "").strip()
         cmd = self.build_command(prompt, allow_edits=allow_edits)
-        proc = subprocess.run(  # nosec B603 - argv is a list, no shell, user's own CLI
-            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout
-        )
+        proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
         return (proc.stdout or proc.stderr or "").strip()
 
 

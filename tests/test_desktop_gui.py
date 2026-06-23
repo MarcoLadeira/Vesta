@@ -406,6 +406,27 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertIn("--output-last-message", read_only)
         self.assertIn("workspace-write", codex.build_command("hi", allow_edits=True))
 
+    def test_account_complete_runs_hidden_without_console_window(self):
+        import sys
+
+        from opaihub import accounts
+
+        runner = accounts.AccountRunner("claude", "/bin/claude")
+        fake = mock.MagicMock(stdout="hi there", stderr="")
+        with mock.patch.object(
+            accounts.subprocess, "run", return_value=fake
+        ) as run_mock:
+            out = runner.complete("hello", project_root=None)
+        self.assertEqual(out, "hi there")
+        kwargs = run_mock.call_args.kwargs
+        # stdin is closed so the CLI never blocks the GUI waiting for input.
+        self.assertEqual(kwargs.get("stdin"), accounts.subprocess.DEVNULL)
+        # On Windows, no console window is spawned when the GUI shells out.
+        if sys.platform == "win32":
+            self.assertEqual(
+                kwargs.get("creationflags"), accounts.subprocess.CREATE_NO_WINDOW
+            )
+
     def test_ask_routes_account_and_records_real_spend(self):
         class FakeRunner:
             model = "sonnet"
