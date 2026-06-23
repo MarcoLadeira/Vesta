@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
+import os
 from pathlib import Path
 from typing import Any
 
@@ -44,10 +45,16 @@ def dependency_status() -> dict[str, Any]:
 def run_once(project_root: Path) -> dict[str, Any]:
     """Headless smoke: build state + model list and return a summary. No Qt."""
     root = project_root.expanduser().resolve()
+    from opaihub.gui_pipeline import last_savings_receipt
+    from opaihub.gui_preferences import DEFAULT_MODE, load_gui_preferences
+
     state = A.full_state(root)
     o = state["overview"]
     models = A.available_models(root)
+    prefs = load_gui_preferences(root)
     setup = models["setup"]
+    default_model = str(prefs.get("default_model") or "auto")
+    default_mode = str(prefs.get("default_mode") or DEFAULT_MODE)
     return {
         "ok": True,
         "on": o["on"],
@@ -60,10 +67,17 @@ def run_once(project_root: Path) -> dict[str, Any]:
         "paid_calls_avoided": o["savings"]["cloud_calls_avoided"],
         "panic": o["budget"]["panic"],
         "models": [m["id"] for m in models["models"]],
+        "available_models": models["models"],
+        "default_model": default_model,
+        "selected_model": default_model,
+        "mode": default_mode,
+        "auto_policy": prefs.get("safe_auto", {}),
+        "last_savings_receipt": last_savings_receipt(root),
         "accounts": [
             {"id": a["id"], "connected": a["connected"]} for a in models["accounts"]
         ],
         "account_count": models["account_count"],
+        "account_model_count": models["account_model_count"],
         "model_status": {
             "available": [m["id"] for m in models["models"]],
             "local_count": models["local_count"],
@@ -88,98 +102,141 @@ def _qt():
     return QtCore, QtGui, QtWidgets
 
 
-# Modern dark palette (one system used everywhere).
-BG = "#0d0e13"
-BG2 = "#14161d"
-PANEL = "#181b22"
-PANEL_HI = "#20242e"
-USERBG = "#212536"
-BORDER = "#262a35"
-BORDER_HI = "#39414f"
-INK = "#e9ebf2"
-MUTED = "#9aa2b3"
-FAINT = "#646d80"
-ACCENT = "#6d6cf6"
-ACCENT_HI = "#8a89f8"
-GREEN = "#3ecf8e"
-AMBER = "#e0a458"
-RED = "#f2667d"
-CLAUDE = "#d77757"
-CODEX = "#19c37d"
+# Professional light palette (one system used everywhere).
+BG = "#f4f6f9"  # app background - ultra-light grey
+BG2 = "#ffffff"  # rail / topbar / inspector surfaces
+PANEL = "#ffffff"  # cards + assistant bubble
+PANEL_HI = "#eef1f6"  # hover / secondary fill
+USERBG = "#e7efff"  # user bubble - soft blue tint
+BORDER = "#e5e8ee"  # hairline border
+BORDER_HI = "#d2d9e3"  # stronger border / focus
+INK = "#1f2a37"  # primary text - dark slate (never pure black)
+MUTED = "#586273"  # secondary text - slate grey
+FAINT = "#94a0b2"  # tertiary text
+ACCENT = "#3a66f0"  # primary action - professional royal blue
+ACCENT_HI = "#2f57da"  # accent hover (slightly deeper)
+GREEN = "#1f9d6b"  # success / savings
+AMBER = "#b3791f"  # attention
+RED = "#d6455d"  # error / blocked
+CLAUDE = "#c2603f"  # Anthropic terracotta, darkened for a light bg
+CODEX = "#0f9d75"  # OpenAI green, darkened for a light bg
 
 PROVIDER_COLOR = {"claude": CLAUDE, "codex": CODEX, "auto": ACCENT}
+
+MODE_LABELS = {
+    "ask": "Ask",
+    "plan": "Plan",
+    "safe-auto": "Safe Auto",
+    "approve-edits": "Approve Edits",
+    "full-auto": "Full Auto",
+}
+
+
+# One typeface only. Weight + size create hierarchy, never a second font.
+FONT = '"Segoe UI Variable","Segoe UI",system-ui,sans-serif'
 
 
 def _stylesheet() -> str:
     return f"""
-    QWidget {{ background:{BG}; color:{INK};
-        font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif; font-size:14px; }}
+    QWidget {{ background:{BG}; color:{INK}; font-family:{FONT}; font-size:14px; }}
     QLabel {{ background:transparent; }}
-    QToolTip {{ background:{PANEL_HI}; color:{INK}; border:1px solid {BORDER_HI}; padding:4px 7px; }}
+    QToolTip {{ background:#1f2a37; color:#ffffff; border:0; padding:6px 9px; border-radius:6px; }}
 
     #TopBar {{ background:{BG2}; border-bottom:1px solid {BORDER}; }}
-    #Brand {{ font-size:16px; font-weight:800; letter-spacing:0.3px; }}
+    #Brand {{ font-size:17px; font-weight:700; letter-spacing:0.2px; color:{INK}; }}
     #Meta {{ color:{FAINT}; font-size:12px; }}
-    #Saved {{ color:{GREEN}; font-weight:700; font-size:12px; }}
-    QPushButton#Chip {{ background:{PANEL}; color:{MUTED}; border:1px solid {BORDER};
-        border-radius:14px; padding:5px 11px; font-size:12px; font-weight:600; }}
+    #Saved {{ color:{GREEN}; font-weight:600; font-size:12px; }}
+    #Rail {{ background:{BG2}; border-right:1px solid {BORDER}; }}
+    #RailTitle {{ color:{FAINT}; font-size:11px; font-weight:700; letter-spacing:0.7px; }}
+    QPushButton#RailItem {{ background:transparent; color:{MUTED}; border:0;
+        border-radius:10px; padding:12px 14px; text-align:left; font-weight:600; }}
+    QPushButton#RailItem:hover {{ background:{PANEL_HI}; color:{INK}; }}
+    QPushButton#RailItem:checked {{ background:#e9eefc; color:{ACCENT}; }}
+    #Inspector {{ background:{BG2}; border-left:1px solid {BORDER}; }}
+    #InspectorTitle {{ font-size:13px; font-weight:700; color:{INK}; }}
+    #InspectorKey {{ color:{FAINT}; font-size:11px; font-weight:700; letter-spacing:0.5px; }}
+    #InspectorValue {{ color:{INK}; font-size:13px; font-weight:600; }}
+    QPushButton#Chip {{ background:{BG}; color:{MUTED}; border:1px solid {BORDER};
+        border-radius:16px; padding:6px 13px; font-size:12px; font-weight:600; }}
     QPushButton#Chip:hover {{ background:{PANEL_HI}; color:{INK}; border-color:{BORDER_HI}; }}
 
     QScrollArea {{ border:0; background:{BG}; }}
-    QScrollBar:vertical {{ background:{BG}; width:10px; margin:2px; }}
-    QScrollBar::handle:vertical {{ background:#2c3340; border-radius:5px; min-height:44px; }}
-    QScrollBar::handle:vertical:hover {{ background:#39414f; }}
+    QScrollBar:vertical {{ background:transparent; width:12px; margin:4px 2px; }}
+    QScrollBar::handle:vertical {{ background:#cdd4df; border-radius:5px; min-height:46px; }}
+    QScrollBar::handle:vertical:hover {{ background:#b7c0ce; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
 
-    #Hero {{ font-size:25px; font-weight:800; letter-spacing:0.2px; }}
-    #HeroSub {{ color:{MUTED}; font-size:14px; }}
-    #SuggestChip {{ background:{PANEL}; color:{INK}; border:1px solid {BORDER};
-        border-radius:18px; padding:9px 16px; font-size:13px; }}
-    #SuggestChip:hover {{ background:{PANEL_HI}; border-color:{ACCENT}; }}
+    #Hero {{ font-size:28px; font-weight:700; letter-spacing:-0.2px; color:{INK}; }}
+    #HeroSub {{ color:{MUTED}; font-size:15px; font-weight:400; }}
+    #SuggestChip {{ background:{BG2}; color:{INK}; border:1px solid {BORDER};
+        border-radius:20px; padding:11px 18px; font-size:13px; font-weight:500; }}
+    #SuggestChip:hover {{ background:{PANEL_HI}; border-color:{BORDER_HI}; }}
 
-    #UserBubble {{ background:{USERBG}; border:1px solid #2c3146; border-radius:14px; }}
-    #BotBubble {{ background:{PANEL}; border:1px solid {BORDER}; border-radius:14px; }}
-    #ToolBubble {{ background:{BG2}; border:1px solid {BORDER}; border-radius:14px; }}
-    #Role {{ font-weight:800; font-size:12.5px; }}
-    #BubbleMeta {{ color:{FAINT}; font-size:11px; }}
-    #Mono {{ font-family:"Cascadia Code","JetBrains Mono",Consolas,monospace;
-        color:{INK}; font-size:12.5px; }}
+    #UserBubble {{ background:{USERBG}; border:1px solid #d4e1ff; border-radius:16px; }}
+    #BotBubble {{ background:{PANEL}; border:1px solid {BORDER}; border-radius:16px; }}
+    #ToolBubble {{ background:#fafbfd; border:1px solid {BORDER}; border-radius:16px; }}
+    #Role {{ font-weight:700; font-size:13px; }}
+    #BubbleMeta {{ color:{FAINT}; font-size:11.5px; font-weight:500; }}
+    #Mono {{ color:{MUTED}; font-size:13px; font-weight:400; }}
 
-    #Composer {{ background:{PANEL}; border:1px solid {BORDER}; border-radius:18px; }}
-    #Composer:focus-within {{ border:1px solid {BORDER_HI}; }}
+    #Composer {{ background:{BG2}; border:1px solid {BORDER}; border-radius:20px; }}
+    #Composer:focus-within {{ border:1px solid {ACCENT}; }}
     QPlainTextEdit#Input {{ background:transparent; border:0; color:{INK};
-        font-size:15px; padding:4px 4px; }}
+        font-size:15px; padding:6px 6px; }}
 
-    QComboBox#Model {{ background:{PANEL_HI}; border:1px solid {BORDER}; border-radius:10px;
-        padding:6px 12px; color:{INK}; font-weight:600; font-size:13px; }}
-    QComboBox#Model:hover {{ border-color:{BORDER_HI}; }}
-    QComboBox#Model::drop-down {{ border:0; width:18px; }}
-    QComboBox#Model QAbstractItemView {{ background:{PANEL_HI}; color:{INK};
-        border:1px solid {BORDER_HI}; border-radius:8px; padding:4px;
-        selection-background-color:{ACCENT}; outline:0; }}
+    QComboBox#Model {{ background:{BG}; border:1px solid {BORDER}; border-radius:12px;
+        padding:8px 14px; color:{INK}; font-weight:600; font-size:13px; }}
+    QComboBox#Model:hover {{ border-color:{BORDER_HI}; background:{PANEL_HI}; }}
+    QComboBox#Model::drop-down {{ border:0; width:20px; }}
+    QComboBox#Model QAbstractItemView {{ background:{BG2}; color:{INK};
+        border:1px solid {BORDER_HI}; border-radius:10px; padding:6px;
+        selection-background-color:#e9eefc; selection-color:{ACCENT}; outline:0; }}
 
     QPushButton#Ghost {{ background:transparent; color:{MUTED}; border:1px solid {BORDER};
-        border-radius:10px; padding:6px 12px; font-weight:600; font-size:13px; }}
+        border-radius:12px; padding:8px 14px; font-weight:600; font-size:13px; }}
     QPushButton#Ghost:hover {{ color:{INK}; border-color:{BORDER_HI}; background:{PANEL_HI}; }}
     QPushButton#Toggle {{ background:transparent; color:{MUTED}; border:1px solid {BORDER};
-        border-radius:10px; padding:6px 12px; font-weight:600; font-size:13px; }}
-    QPushButton#Toggle:checked {{ color:{AMBER}; border-color:{AMBER}; background:rgba(224,164,88,0.10); }}
-    QPushButton#Send {{ background:{ACCENT}; color:#ffffff; border:0; border-radius:11px;
-        padding:8px 20px; font-weight:800; font-size:14px; }}
+        border-radius:12px; padding:8px 14px; font-weight:600; font-size:13px; }}
+    QPushButton#Toggle:checked {{ color:{ACCENT}; border-color:{ACCENT}; background:#e9eefc; }}
+    QPushButton#Send {{ background:{ACCENT}; color:#ffffff; border:0; border-radius:12px;
+        padding:10px 22px; font-weight:700; font-size:14px; }}
     QPushButton#Send:hover {{ background:{ACCENT_HI}; }}
     QPushButton#Send:disabled {{ background:{PANEL_HI}; color:{FAINT}; }}
 
-    QMenu {{ background:{PANEL_HI}; color:{INK}; border:1px solid {BORDER_HI}; padding:5px; }}
-    QMenu::item {{ padding:7px 16px; border-radius:6px; }}
-    QMenu::item:selected {{ background:{ACCENT}; color:#ffffff; }}
-    QMessageBox {{ background:{PANEL}; }}
+    QMenu {{ background:{BG2}; color:{INK}; border:1px solid {BORDER_HI}; border-radius:10px; padding:6px; }}
+    QMenu::item {{ padding:8px 18px; border-radius:7px; }}
+    QMenu::item:selected {{ background:#e9eefc; color:{ACCENT}; }}
+    QMessageBox {{ background:{BG2}; }}
     """
 
 
 def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
     """Build the chat window; either run it (default) or render it to a PNG."""
     QtCore, QtGui, QtWidgets = _qt()
+    # Keep Qt's internal style/layout warnings out of the launching terminal, so
+    # nothing ever appears to "print to the console" - it all renders in the UI.
+    QtCore.qInstallMessageHandler(lambda *_a: None)
     root = project_root.expanduser().resolve()
+    from opaihub.gui_pipeline import handle_gui_message
+    from opaihub.gui_preferences import (
+        DEFAULT_MODE,
+        MODES,
+        load_gui_preferences,
+        save_gui_preferences,
+    )
+
+    def _load_app_fonts() -> None:
+        fonts_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+        for name in [
+            "segoeui.ttf",
+            "segoeuib.ttf",
+            "segoeuil.ttf",
+            "CascadiaCode.ttf",
+            "CascadiaMono.ttf",
+        ]:
+            path = fonts_dir / name
+            if path.exists():
+                QtGui.QFontDatabase.addApplicationFont(str(path))
 
     class Worker(QtCore.QThread):
         done = QtCore.Signal(object)
@@ -212,10 +269,12 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self.root = root
             self._workers: list[Any] = []
             self._pending = None
-            self._edits_warned = False
+            self._loading_models = False
+            self._loading_mode = False
+            self._preferences = load_gui_preferences(self.root)
             self.setWindowTitle("OPai")
-            self.setMinimumSize(760, 580)
-            self.resize(960, 760)
+            self.setMinimumSize(1040, 700)
+            self.resize(1280, 820)
             self.setStyleSheet(_stylesheet())
 
             central = QtWidgets.QWidget()
@@ -224,6 +283,12 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             outer.setSpacing(0)
             outer.addWidget(self._build_topbar())
 
+            body = QtWidgets.QWidget()
+            body_l = QtWidgets.QHBoxLayout(body)
+            body_l.setContentsMargins(0, 0, 0, 0)
+            body_l.setSpacing(0)
+            body_l.addWidget(self._build_left_rail())
+
             self.scroll = QtWidgets.QScrollArea()
             self.scroll.setWidgetResizable(True)
             self.scroll.setHorizontalScrollBarPolicy(
@@ -231,10 +296,12 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             )
             self.thread_host = QtWidgets.QWidget()
             self.thread = QtWidgets.QVBoxLayout(self.thread_host)
-            self.thread.setContentsMargins(28, 22, 28, 22)
-            self.thread.setSpacing(14)
+            self.thread.setContentsMargins(40, 32, 40, 32)
+            self.thread.setSpacing(18)
             self.scroll.setWidget(self.thread_host)
-            outer.addWidget(self.scroll, 1)
+            body_l.addWidget(self.scroll, 1)
+            body_l.addWidget(self._build_inspector())
+            outer.addWidget(body, 1)
 
             outer.addWidget(self._build_composer())
             self.setCentralWidget(central)
@@ -245,6 +312,62 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self._show_empty()
 
         # -- chrome ---------------------------------------------------------- #
+        def _build_left_rail(self):
+            rail = QtWidgets.QFrame()
+            rail.setObjectName("Rail")
+            rail.setFixedWidth(168)
+            col = QtWidgets.QVBoxLayout(rail)
+            col.setContentsMargins(14, 18, 14, 14)
+            col.setSpacing(8)
+            col.addWidget(self._lbl("CONTROL", name="RailTitle"))
+            items = [
+                ("Chats", None),
+                ("Savings", "savings"),
+                ("Models", "connect"),
+                ("Tools", None),
+                ("Settings", "budget"),
+            ]
+            for index, (label, tool) in enumerate(items):
+                button = QtWidgets.QPushButton(label)
+                button.setObjectName("RailItem")
+                button.setCheckable(True)
+                button.setChecked(index == 0)
+                button.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+                if tool:
+                    button.clicked.connect(lambda _c=False, t=tool: self._run_tool(t))
+                col.addWidget(button)
+            col.addStretch(1)
+            privacy = self._lbl("Local only\nNo silent telemetry", name="Meta")
+            col.addWidget(privacy)
+            return rail
+
+        def _build_inspector(self):
+            panel = QtWidgets.QFrame()
+            panel.setObjectName("Inspector")
+            panel.setFixedWidth(270)
+            col = QtWidgets.QVBoxLayout(panel)
+            col.setContentsMargins(18, 18, 18, 18)
+            col.setSpacing(12)
+            col.addWidget(self._lbl("Inspector", name="InspectorTitle"))
+            self.inspector_model = self._inspector_pair(col, "MODEL", "Auto")
+            self.inspector_mode = self._inspector_pair(col, "MODE", "Safe Auto")
+            self.inspector_budget = self._inspector_pair(col, "BUDGET", "checking")
+            self.inspector_context = self._inspector_pair(
+                col, "CONTEXT", "not profiled"
+            )
+            self.inspector_receipt = self._inspector_pair(
+                col, "LAST RECEIPT", "none yet"
+            )
+            self.inspector_next = self._inspector_pair(col, "NEXT", "send a message")
+            col.addStretch(1)
+            return panel
+
+        def _inspector_pair(self, layout, key: str, value: str):
+            layout.addWidget(self._lbl(key, name="InspectorKey"))
+            label = self._lbl(value, name="InspectorValue")
+            layout.addWidget(label)
+            return label
+
         def _build_topbar(self):
             bar = QtWidgets.QFrame()
             bar.setObjectName("TopBar")
@@ -271,12 +394,13 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
         def _build_composer(self):
             wrap = QtWidgets.QWidget()
             wl = QtWidgets.QVBoxLayout(wrap)
-            wl.setContentsMargins(28, 4, 28, 18)
+            wl.setContentsMargins(32, 8, 32, 24)
             box = QtWidgets.QFrame()
             box.setObjectName("Composer")
+            self._shadow(box, blur=38, dy=10, alpha=26)
             bl = QtWidgets.QVBoxLayout(box)
-            bl.setContentsMargins(14, 12, 12, 10)
-            bl.setSpacing(8)
+            bl.setContentsMargins(18, 16, 16, 14)
+            bl.setSpacing(10)
 
             self.input = Composer()
             self.input.setObjectName("Input")
@@ -297,13 +421,13 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self.model.setMinimumWidth(230)
             self.model.currentIndexChanged.connect(self._on_model_changed)
             ctl.addWidget(self.model)
-            self.edits = QtWidgets.QPushButton("Read-only")
-            self.edits.setObjectName("Toggle")
-            self.edits.setCheckable(True)
-            self.edits.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-            self.edits.setToolTip("Read-only: the model answers but won't change files")
-            self.edits.toggled.connect(self._on_edits_toggled)
-            ctl.addWidget(self.edits)
+            self.mode = QtWidgets.QComboBox()
+            self.mode.setObjectName("Model")
+            self.mode.setMinimumWidth(150)
+            for mode_id in MODES:
+                self.mode.addItem(MODE_LABELS.get(mode_id, mode_id), mode_id)
+            self.mode.currentIndexChanged.connect(self._on_mode_changed)
+            ctl.addWidget(self.mode)
             self.tools_btn = QtWidgets.QPushButton("Tools")
             self.tools_btn.setObjectName("Ghost")
             self.tools_btn.setMenu(self._tools_menu())
@@ -328,6 +452,15 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             label.setWordWrap(True)
             return label
 
+        def _shadow(self, widget, *, blur=28, dy=6, alpha=28):
+            # Soft "light from above" depth on white cards - Qt QSS has no box-shadow.
+            effect = QtWidgets.QGraphicsDropShadowEffect(widget)
+            effect.setBlurRadius(blur)
+            effect.setXOffset(0)
+            effect.setYOffset(dy)
+            effect.setColor(QtGui.QColor(31, 42, 64, alpha))
+            widget.setGraphicsEffect(effect)
+
         def _tools_menu(self):
             menu = QtWidgets.QMenu(self)
             for tool in A.TOOLS:
@@ -337,20 +470,38 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
 
         def _load_models(self) -> None:
             data = A.available_models(self.root)
+            default_model = str(self._preferences.get("default_model") or "auto")
+            default_mode = str(self._preferences.get("default_mode") or DEFAULT_MODE)
             self.model.blockSignals(True)
+            self._loading_models = True
             self.model.clear()
+            selected_index = 0
             for option in data["models"]:
                 self.model.addItem(option["label"], option)
+                if option["id"] == default_model:
+                    selected_index = self.model.count() - 1
             self.model.blockSignals(False)
+            self._loading_models = False
             self._model_hint = data.get("hint")
             self._accounts = data.get("accounts", [])
             if self.model.count():
-                self.model.setCurrentIndex(0)
-                self._on_model_changed(0)
+                self.model.setCurrentIndex(selected_index)
+                self._on_model_changed(selected_index)
+            mode_index = max(
+                0, MODES.index(default_mode) if default_mode in MODES else 0
+            )
+            self._loading_mode = True
+            self.mode.setCurrentIndex(mode_index)
+            self._loading_mode = False
+            self._on_mode_changed(mode_index)
 
         def _selected(self) -> dict[str, Any]:
             data = self.model.currentData()
             return data if isinstance(data, dict) else {"id": "auto", "kind": "auto"}
+
+        def _selected_mode(self) -> str:
+            data = self.mode.currentData()
+            return str(data or DEFAULT_MODE)
 
         def _on_model_changed(self, _index) -> None:
             opt = self._selected()
@@ -358,6 +509,8 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self.provider_dot.setStyleSheet(
                 f"color:{PROVIDER_COLOR.get(provider, ACCENT)}; font-size:13px;"
             )
+            if hasattr(self, "inspector_model"):
+                self.inspector_model.setText(opt.get("label", "Auto").split(" · ")[0])
             if opt.get("kind") == "account":
                 who = opt["label"].split(" · ")[0]
                 self.input.setPlaceholderText(f"Message {who} · runs on your account…")
@@ -367,29 +520,24 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
                 self.input.setPlaceholderText(
                     "Ask anything — OPai routes the cheapest safe model…"
                 )
-
-        def _on_edits_toggled(self, on) -> None:
-            if on and not self._edits_warned:
-                self._edits_warned = True
-                ok = QtWidgets.QMessageBox.warning(
-                    self,
-                    "Allow edits",
-                    "Edit mode runs the AI with full autonomy — it can create and "
-                    "edit files and run commands in this project without asking "
-                    "first. Use it only for tasks you want it to carry out.\n\n"
-                    "Enable edit mode?",
-                    QtWidgets.QMessageBox.StandardButton.Yes
-                    | QtWidgets.QMessageBox.StandardButton.No,
+            if not self._loading_models:
+                self._preferences = save_gui_preferences(
+                    self.root, {"default_model": opt.get("id", "auto")}
                 )
-                if ok != QtWidgets.QMessageBox.StandardButton.Yes:
-                    self.edits.setChecked(False)
-                    return
-            self.edits.setText("Allow edits" if on else "Read-only")
-            self.edits.setToolTip(
-                "Edit mode: the model may change files and run commands"
-                if on
-                else "Read-only: the model answers but won't change files"
-            )
+
+        def _on_mode_changed(self, _index) -> None:
+            mode = self._selected_mode()
+            label = MODE_LABELS.get(mode, "Safe Auto")
+            if hasattr(self, "inspector_mode"):
+                self.inspector_mode.setText(label)
+                if mode == "full-auto":
+                    self.inspector_next.setText("high-risk mode")
+                elif mode == "safe-auto":
+                    self.inspector_next.setText("auto tools on")
+            if not self._loading_mode:
+                self._preferences = save_gui_preferences(
+                    self.root, {"default_mode": mode}
+                )
 
         def _refresh_header(self) -> None:
             try:
@@ -404,6 +552,18 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
                 f"${sav['estimated_savings_usd']:.2f} saved · "
                 f"{sav['cloud_calls_avoided']} paid calls avoided"
             )
+            if hasattr(self, "inspector_budget"):
+                budget = o.get("budget", {})
+                self.inspector_budget.setText(
+                    "panic on" if budget.get("panic") else "ok"
+                )
+            if hasattr(self, "inspector_receipt"):
+                if sav.get("routed_tasks"):
+                    self.inspector_receipt.setText(
+                        f"${sav['estimated_savings_usd']:.2f} saved"
+                    )
+                else:
+                    self.inspector_receipt.setText("none yet")
             connected = [
                 a["label"] for a in getattr(self, "_accounts", []) if a["connected"]
             ]
@@ -476,9 +636,10 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self._clear_empty()
             frame = QtWidgets.QFrame()
             frame.setObjectName(object_name)
+            self._shadow(frame, blur=22, dy=5, alpha=16)
             fl = QtWidgets.QVBoxLayout(frame)
-            fl.setContentsMargins(15, 11, 15, 12)
-            fl.setSpacing(6)
+            fl.setContentsMargins(18, 15, 18, 16)
+            fl.setSpacing(7)
             if role:
                 r = self._lbl(role)
                 r.setObjectName("Role")
@@ -538,30 +699,133 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self._busy(True)
             opt = self._selected()
             model_id = opt.get("id", "auto")
+            mode = self._selected_mode()
             # A live "working" bubble so the chat feels responsive while the
             # model runs (account calls can take a while), replaced on result.
             if opt.get("kind") == "account":
                 role = opt.get("label", "Account").split(" · ")[0]
                 color = PROVIDER_COLOR.get(opt.get("provider"), ACCENT)
-                meta = "running on your account…"
+                meta = f"{MODE_LABELS.get(mode, mode)} · checking budget first…"
             else:
-                role, color, meta = "OPai", GREEN, "routing the cheapest safe path…"
+                role, color, meta = (
+                    "OPai",
+                    GREEN,
+                    f"{MODE_LABELS.get(mode, mode)} · auto tools running…",
+                )
             self._pending = self._bubble(
                 "BotBubble", role, "Working…", role_color=color, meta=meta
             )
-            allow_edits = self.edits.isChecked()
             worker = Worker(
-                lambda: A.ask(self.root, text, model_id, allow_edits=allow_edits)
+                lambda: handle_gui_message(
+                    self.root, text, model_id=model_id, mode=mode
+                )
             )
             worker.done.connect(self._on_ask)
             self._workers.append(worker)
             worker.start()
+
+        def _trace_text(self, trace) -> str:
+            if not trace:
+                return "No automatic tools ran."
+            lines = []
+            for item in trace[:8]:
+                label = item.get("label") or item.get("id") or "tool"
+                result = item.get("result") or {}
+                detail = ""
+                if "decision" in result:
+                    detail = f" · {result.get('decision')}"
+                elif "tier" in result:
+                    detail = f" · {result.get('tier')}"
+                lines.append(f"- {label}{detail}")
+            return "\n".join(lines)
+
+        def _receipt_text(self, receipt) -> str:
+            if not isinstance(receipt, dict):
+                return "No savings receipt was recorded."
+            saved = float(receipt.get("estimated_savings_usd") or 0.0)
+            baseline = float(receipt.get("estimated_baseline_usd") or 0.0)
+            actual = float(receipt.get("estimated_actual_usd") or 0.0)
+            paid_avoided = "yes" if receipt.get("paid_call_avoided") else "no"
+            context_saved = int(receipt.get("context_tokens_saved") or 0)
+            confidence = receipt.get("confidence", "estimated")
+            return (
+                f"Saved: ${saved:.4f}\n"
+                f"Baseline: ${baseline:.4f}\n"
+                f"Actual route: ${actual:.4f}\n"
+                f"Paid call avoided: {paid_avoided}\n"
+                f"Context tokens saved: {context_saved}\n"
+                f"Confidence: {confidence}"
+            )
+
+        def _on_gui_result(self, result) -> None:
+            status = result.get("status", "error")
+            trace = result.get("tool_trace") or []
+            receipt = result.get("receipt") or {}
+            warnings = result.get("warnings") or []
+            if trace:
+                self._bubble(
+                    "ToolBubble",
+                    "OPai auto tools",
+                    self._trace_text(trace),
+                    role_color=ACCENT,
+                    mono=True,
+                )
+            if warnings:
+                self._bubble(
+                    "ToolBubble",
+                    "Blocked",
+                    "\n".join(w.get("reason", str(w)) for w in warnings),
+                    role_color=RED,
+                    meta="Safe Auto policy",
+                )
+            answer = result.get("answer") or ""
+            changed = result.get("changed_files") or []
+            if changed:
+                answer = f"{answer}\n\nChanged files:\n" + "\n".join(changed)
+            role = "OPai"
+            color = GREEN
+            if status == "blocked":
+                role, color = "Safe Auto", AMBER
+            elif status in {"needs_model", "needs_confirmation"}:
+                role, color = "Action needed", AMBER
+            elif status not in {"answered", "cache_hit"}:
+                role, color = "OPai", RED
+            self._bubble(
+                "BotBubble",
+                role,
+                answer or "OPai didn't return a response for that one.",
+                role_color=color,
+                meta=status.replace("_", " "),
+                mono=False,
+            )
+            self._bubble(
+                "ToolBubble",
+                "Savings receipt",
+                self._receipt_text(receipt),
+                role_color=GREEN if status != "blocked" else AMBER,
+                mono=True,
+            )
+            if hasattr(self, "inspector_receipt") and isinstance(receipt, dict):
+                self.inspector_receipt.setText(
+                    f"${float(receipt.get('estimated_savings_usd') or 0):.4f}"
+                )
+                self.inspector_context.setText(
+                    f"{int(receipt.get('context_tokens_saved') or 0)} tokens saved"
+                )
+                next_actions = result.get("next_actions") or []
+                self.inspector_next.setText(
+                    str(next_actions[0]) if next_actions else status
+                )
 
         def _on_ask(self, result) -> None:
             self._busy(False)
             if self._pending is not None:
                 self._pending.setParent(None)
                 self._pending = None
+            if "tool_trace" in result or "receipt" in result:
+                self._on_gui_result(result)
+                self._refresh_header()
+                return
             status = result.get("status")
             tier = result.get("tier", "")
             if status == "answered_by_account":
@@ -690,6 +954,8 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self._refresh_header()
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    _load_app_fonts()
+    app.setFont(QtGui.QFont("Segoe UI", 10))
     window = ChatWindow()
     if screenshot_path is not None:
         window.resize(screenshot_path[1], screenshot_path[2])
