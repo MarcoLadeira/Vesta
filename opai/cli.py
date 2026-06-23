@@ -193,7 +193,14 @@ def cmd_gui(args: argparse.Namespace) -> int:
         return 0 if summary.get("ok") else 1
     if args.screenshot:
         try:
-            print_json(render_screenshot(root, Path(args.screenshot)))
+            print_json(
+                render_screenshot(
+                    root,
+                    Path(args.screenshot),
+                    width=int(args.width),
+                    height=int(args.height),
+                )
+            )
             return 0
         except Exception as exc:  # noqa: BLE001 - dependency/display failures degrade
             print_json(
@@ -927,7 +934,83 @@ def cmd_team(args: argparse.Namespace) -> int:
 
 def cmd_models(args: argparse.Namespace) -> int:
     root = _project(args.project)
-    if args.models_command == "discover-local":
+    if args.models_command == "list":
+        from opai import app_state as A
+        from opaihub.accounts import account_models
+        from opaihub.gui_preferences import load_gui_preferences
+
+        data = A.available_models(root)
+        account_options = account_models(include_unavailable=True)
+        groups = [
+            {
+                "id": "auto",
+                "label": "Auto",
+                "models": [
+                    {
+                        "id": "auto",
+                        "label": "Auto · OPai routes the cheapest safe model",
+                        "provider": "opai",
+                        "paid": False,
+                        "available": True,
+                    }
+                ],
+            },
+            {
+                "id": "codex",
+                "label": "Codex",
+                "models": [
+                    option
+                    for option in account_options
+                    if option.get("provider") == "codex"
+                ],
+            },
+            {
+                "id": "claude",
+                "label": "Claude",
+                "models": [
+                    option
+                    for option in account_options
+                    if option.get("provider") == "claude"
+                ],
+            },
+            {
+                "id": "local",
+                "label": "Local",
+                "models": [
+                    option for option in data["models"] if option.get("kind") == "local"
+                ],
+            },
+        ]
+        print_json(
+            {
+                "groups": groups,
+                "default_model": load_gui_preferences(root).get("default_model"),
+                "connected_accounts": data["accounts"],
+                "hint": data.get("hint"),
+            }
+        )
+    elif args.models_command == "set-default":
+        from opai import app_state as A
+        from opaihub.accounts import account_models
+        from opaihub.gui_preferences import save_gui_preferences
+
+        known = {"auto"}
+        known.update(
+            option["id"] for option in account_models(include_unavailable=True)
+        )
+        known.update(option["id"] for option in A.available_models(root)["models"])
+        if args.model_id not in known:
+            print_json(
+                {
+                    "status": "unknown_model",
+                    "model_id": args.model_id,
+                    "hint": "Run `opai models list` to see selectable model IDs.",
+                }
+            )
+            return 2
+        prefs = save_gui_preferences(root, {"default_model": args.model_id})
+        print_json({"status": "updated", "preferences": prefs})
+    elif args.models_command == "discover-local":
         from opaihub.local_models import discover_local_models
 
         print_json(discover_local_models(root))
@@ -1147,6 +1230,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Render a desktop GUI screenshot for visual QA and exit",
     )
+    p.add_argument("--width", type=int, default=1040, help=argparse.SUPPRESS)
+    p.add_argument("--height", type=int, default=720, help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser(
@@ -1587,6 +1672,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("models", help="Model recommendation and routing helpers")
     models_sub = p.add_subparsers(dest="models_command", required=True)
+    mo = models_sub.add_parser(
+        "list", help="List Auto, Codex, Claude, and local model choices"
+    )
+    mo.add_argument("--project", default=None, help="Project root")
+    mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser(
+        "set-default", help="Set the default model for OPai GUI/account routing"
+    )
+    mo.add_argument("model_id")
+    mo.add_argument("--project", default=None, help="Project root")
+    mo.set_defaults(func=cmd_models)
     mo = models_sub.add_parser(
         "discover-local", help="Detect Ollama, LM Studio, or local model endpoints"
     )

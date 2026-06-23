@@ -104,42 +104,81 @@ CLAUDE_MODELS: list[tuple[str, str]] = [
     ("haiku", "Haiku 4.5"),
 ]
 
+CODEX_MODELS: list[tuple[str, str, str]] = [
+    ("gpt-5.5", "GPT-5.5", "best"),
+    ("gpt-5.4", "GPT-5.4", "balanced"),
+    ("gpt-5.4-mini", "GPT-5.4 Mini", "fast"),
+    ("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", "preview"),
+]
 
-def account_models(home: Path | None = None) -> list[dict[str, Any]]:
+
+def _account_options(
+    account: dict[str, Any], *, connected: bool
+) -> list[dict[str, Any]]:
+    disabled_reason = None if connected else f"{account['label']} is not connected"
+    if account["id"] == "claude":
+        return [
+            {
+                "id": f"account:claude:{alias}",
+                "label": f"Claude {label} · your account",
+                "provider": "claude",
+                "model": alias,
+                "kind": "account",
+                "paid": True,
+                "vendor": account["vendor"],
+                "connected": connected,
+                "available": connected,
+                "disabled_reason": disabled_reason,
+            }
+            for alias, label in CLAUDE_MODELS
+        ]
+    if account["id"] == "codex":
+        return [
+            {
+                "id": f"account:codex:{model_id}",
+                "label": f"Codex {label} · your account",
+                "provider": "codex",
+                "model": model_id,
+                "kind": "account",
+                "paid": True,
+                "vendor": account["vendor"],
+                "speed": speed,
+                "connected": connected,
+                "available": connected,
+                "disabled_reason": disabled_reason,
+            }
+            for model_id, label, speed in CODEX_MODELS
+        ]
+    return [
+        {
+            "id": f"account:{account['id']}",
+            "label": f"{account['label']} · your account",
+            "provider": account["id"],
+            "model": "",
+            "kind": "account",
+            "paid": True,
+            "vendor": account["vendor"],
+            "connected": connected,
+            "available": connected,
+            "disabled_reason": disabled_reason,
+        }
+    ]
+
+
+def account_models(
+    home: Path | None = None, *, include_unavailable: bool = False
+) -> list[dict[str, Any]]:
     """Picker options for connected accounts (paid, run via the user's CLI).
 
-    Claude expands into its selectable models so the picker isn't locked to one;
-    Codex uses its own default model.
+    Claude and Codex expand into selectable models so the GUI is not locked to
+    one opaque account option. Unavailable models can be included for settings.
     """
     options: list[dict[str, Any]] = []
     for account in list_connected_accounts(home):
-        if not account["connected"]:
+        connected = bool(account["connected"])
+        if not connected and not include_unavailable:
             continue
-        if account["id"] == "claude":
-            for alias, label in CLAUDE_MODELS:
-                options.append(
-                    {
-                        "id": f"account:claude:{alias}",
-                        "label": f"Claude {label} · your account",
-                        "provider": "claude",
-                        "model": alias,
-                        "kind": "account",
-                        "paid": True,
-                        "vendor": account["vendor"],
-                    }
-                )
-        else:
-            options.append(
-                {
-                    "id": f"account:{account['id']}",
-                    "label": f"{account['label']} · your account",
-                    "provider": account["id"],
-                    "model": "",
-                    "kind": "account",
-                    "paid": True,
-                    "vendor": account["vendor"],
-                }
-            )
+        options.extend(_account_options(account, connected=connected))
     return options
 
 
@@ -158,27 +197,42 @@ class AccountRunner:
         return bool(self.cli_path) and Path(self.cli_path).exists()
 
     def build_command(
-        self, prompt: str, *, allow_edits: bool, out_file: str | None = None
+        self,
+        prompt: str,
+        *,
+        allow_edits: bool = False,
+        out_file: str | None = None,
+        mode: str | None = None,
     ) -> list[str]:
         """Construct the CLI argv. Pure + side-effect free so tests can assert it."""
+        selected_mode = mode or ("safe-auto" if allow_edits else "ask")
         if self.account_id == "claude":
             # JSON output gives us the final text *and* the real $ cost in one go.
             cmd = [self.cli_path, "-p", "--output-format", "json"]
             if self.model:
                 cmd += ["--model", self.model]
-            if allow_edits:
-                # Full autonomy: edit files and run commands without a hidden
-                # approval prompt that the GUI can't answer. Gated behind the
-                # Allow-edits toggle + warning in the UI.
+            if selected_mode == "full-auto":
                 cmd += ["--dangerously-skip-permissions"]
+            if selected_mode in {"ask", "plan", "approve-edits"}:
+                prompt = (
+                    "Do not modify files or run mutating commands. "
+                    "Return an answer or patch plan only.\n\n" + prompt
+                )
             cmd.append(prompt)
             return cmd
         if self.account_id == "codex":
+            if selected_mode in {"safe-auto", "full-auto"}:
+                sandbox = "workspace-write"
+            else:
+                sandbox = "read-only"
+            approval = "never" if selected_mode == "full-auto" else "on-request"
             cmd = [
                 self.cli_path,
                 "exec",
                 "--sandbox",
-                "workspace-write" if allow_edits else "read-only",
+                sandbox,
+                "--ask-for-approval",
+                approval,
                 "--color",
                 "never",
                 "--skip-git-repo-check",
@@ -197,6 +251,7 @@ class AccountRunner:
         *,
         project_root: Path | None = None,
         allow_edits: bool = False,
+        mode: str | None = None,
         timeout: float = 240.0,
     ) -> dict[str, Any]:
         """Run the task and return ``{"text": ..., "cost": float | None}``."""
@@ -206,7 +261,9 @@ class AccountRunner:
                 "r", suffix=".txt", delete=False, encoding="utf-8"
             ) as handle:
                 out_path = handle.name
-            cmd = self.build_command(prompt, allow_edits=allow_edits, out_file=out_path)
+            cmd = self.build_command(
+                prompt, allow_edits=allow_edits, out_file=out_path, mode=mode
+            )
             proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
             try:
                 answer = Path(out_path).read_text(encoding="utf-8").strip()
@@ -218,7 +275,7 @@ class AccountRunner:
                 "text": answer or (proc.stdout or proc.stderr or "").strip(),
                 "cost": None,
             }
-        cmd = self.build_command(prompt, allow_edits=allow_edits)
+        cmd = self.build_command(prompt, allow_edits=allow_edits, mode=mode)
         proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
         raw = (proc.stdout or "").strip()
         # claude --output-format json -> {"result": "...", "total_cost_usd": ...}.

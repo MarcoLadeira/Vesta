@@ -446,6 +446,7 @@ def available_models(project_root: Path) -> dict[str, Any]:
     from opaihub.local_runner import list_local_models
 
     accounts = account_models()
+    account_catalog = account_models(include_unavailable=True)
     local = list_local_models(project_root)
     options: list[dict[str, Any]] = []
     for account in accounts:
@@ -456,6 +457,9 @@ def available_models(project_root: Path) -> dict[str, Any]:
                 "kind": "account",
                 "paid": True,
                 "provider": account["provider"],
+                "model": account.get("model", ""),
+                "available": account.get("available", True),
+                "disabled_reason": account.get("disabled_reason"),
             }
         )
     options.append(
@@ -483,8 +487,11 @@ def available_models(project_root: Path) -> dict[str, Any]:
         )
     return {
         "models": options,
+        "available_models": options,
+        "account_models": account_catalog,
         "accounts": list_connected_accounts(),
         "account_count": len(accounts),
+        "account_model_count": len(accounts),
         "local_count": len(local),
         "setup": model_setup(project_root),
         "hint": hint,
@@ -499,6 +506,7 @@ def ask(
     allow_cloud: bool = False,
     allow_edits: bool = False,
     account_runner: Any = None,
+    mode: str | None = None,
 ) -> dict[str, Any]:
     """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', or 'provider:model'.
 
@@ -520,6 +528,7 @@ def ask(
             model=model or None,
             allow_edits=allow_edits,
             runner=account_runner,
+            mode=mode,
         )
 
     from opaihub.ask import run_ask
@@ -549,6 +558,7 @@ def _ask_account(
     model: str | None = None,
     allow_edits: bool = False,
     runner: Any = None,
+    mode: str | None = None,
 ) -> dict[str, Any]:
     """Run a task through a connected paid-account CLI, with firewall gating."""
     root = project_root.expanduser().resolve()
@@ -571,7 +581,14 @@ def _ask_account(
         }
     before = set(_changed_files(root)) if allow_edits else set()
     try:
-        result = run.complete(task, project_root=root, allow_edits=allow_edits)
+        try:
+            result = run.complete(
+                task, project_root=root, allow_edits=allow_edits, mode=mode
+            )
+        except TypeError as exc:
+            if "mode" not in str(exc):
+                raise
+            result = run.complete(task, project_root=root, allow_edits=allow_edits)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         return {"status": "account_error", "provider": account_id, "error": str(exc)}
 

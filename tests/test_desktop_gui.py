@@ -400,18 +400,28 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertIn("sonnet", read_only)  # selected model is passed through
         # Read-only stays safe: no autonomous skip-permissions.
         self.assertNotIn("--dangerously-skip-permissions", read_only)
-        # Allow-edits opts into full autonomy so it never blocks on approval.
-        self.assertIn(
+        # Safe Auto may allow edits, but it does not skip permissions.
+        self.assertNotIn(
             "--dangerously-skip-permissions",
             claude.build_command("hi", allow_edits=True),
         )
+        # Full Auto is the explicit high-risk path.
+        self.assertIn(
+            "--dangerously-skip-permissions",
+            claude.build_command("hi", mode="full-auto"),
+        )
 
-        codex = AccountRunner("codex", "/bin/codex")
+        codex = AccountRunner("codex", "/bin/codex", model="gpt-5.4-mini")
         ro = codex.build_command("hi", allow_edits=False, out_file="/t/o.txt")
         self.assertEqual(ro[:2], ["/bin/codex", "exec"])
         self.assertIn("read-only", ro)  # no writes unless asked
         self.assertIn("--output-last-message", ro)
-        self.assertIn("workspace-write", codex.build_command("hi", allow_edits=True))
+        safe_auto = codex.build_command("hi", allow_edits=True)
+        self.assertIn("workspace-write", safe_auto)
+        self.assertIn("--ask-for-approval", safe_auto)
+        self.assertIn("on-request", safe_auto)
+        self.assertIn("--model", safe_auto)
+        self.assertIn("gpt-5.4-mini", safe_auto)
 
     def test_account_complete_runs_hidden_without_console_window(self):
         import sys
