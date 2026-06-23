@@ -13,9 +13,10 @@ only after explicit user confirmation in the GUI.
 
 from __future__ import annotations
 
+import contextlib
+import os
 from pathlib import Path
 from typing import Any
-import os
 
 # 50x is the approved, capped public reduction figure for the local suite.
 CONTEXT_REDUCTION_CLAIM = "50x"
@@ -558,8 +559,9 @@ def _ask_account(
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         return {"status": "account_error", "provider": account_id, "error": str(exc)}
 
-    # Honest firewall accounting: a paid account call is a real spend, not a saving.
-    try:
+    # Honest firewall accounting: a paid account call is a real spend, not a
+    # saving. Best-effort - accounting must never break the answer.
+    with contextlib.suppress(Exception):
         from opaihub.cost_model import estimate_tokens
         from opaihub.ledger import record_model_call
 
@@ -571,8 +573,6 @@ def _ask_account(
             tokens=estimate_tokens(task + "\n" + (answer or "")),
             confirmed=True,
         )
-    except Exception:  # noqa: BLE001 - accounting must never break the answer
-        pass
 
     return {
         "status": "answered_by_account",
