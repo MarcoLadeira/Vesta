@@ -374,8 +374,9 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
                 ok = QtWidgets.QMessageBox.warning(
                     self,
                     "Allow edits",
-                    "The selected model may edit files and run commands in this "
-                    "project. Only enable this for tasks you want it to act on.\n\n"
+                    "Edit mode runs the AI with full autonomy — it can create and "
+                    "edit files and run commands in this project without asking "
+                    "first. Use it only for tasks you want it to carry out.\n\n"
                     "Enable edit mode?",
                     QtWidgets.QMessageBox.StandardButton.Yes
                     | QtWidgets.QMessageBox.StandardButton.No,
@@ -566,13 +567,26 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             if status == "answered_by_account":
                 provider = result.get("provider", "")
                 role = provider.capitalize() or "Account"
-                edits = " · edits on" if result.get("allow_edits") else ""
+                model = result.get("model", "")
+                cost = result.get("cost_usd")
+                meta_bits = []
+                if model and model != provider:
+                    meta_bits.append(model)
+                meta_bits += ["your account", "paid"]
+                if isinstance(cost, (int, float)) and cost > 0:
+                    meta_bits.append(f"${cost:.4f}")
+                if result.get("allow_edits"):
+                    meta_bits.append("edits on")
+                answer = result.get("answer", "")
+                changed = result.get("changed_files") or []
+                if changed:
+                    answer = f"{answer}\n\nChanged files:\n" + "\n".join(changed)
                 self._bubble(
                     "BotBubble",
                     role,
-                    result.get("answer", ""),
+                    answer,
                     role_color=PROVIDER_COLOR.get(provider, ACCENT),
-                    meta=f"your account · paid{edits}",
+                    meta=" · ".join(meta_bits),
                 )
             elif status in ("answered_locally", "cache_hit"):
                 src = (
