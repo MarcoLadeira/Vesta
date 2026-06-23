@@ -393,17 +393,24 @@ class AccountConnectionTests(unittest.TestCase):
     def test_account_runner_build_command_is_safe_by_default(self):
         from opaihub.accounts import AccountRunner
 
-        claude = AccountRunner("claude", "/bin/claude")
-        self.assertEqual(
-            claude.build_command("hi", allow_edits=False), ["/bin/claude", "-p", "hi"]
+        claude = AccountRunner("claude", "/bin/claude", model="sonnet")
+        read_only = claude.build_command("hi", allow_edits=False)
+        self.assertEqual(read_only[:2], ["/bin/claude", "-p"])
+        self.assertIn("--output-format", read_only)  # structured output -> real cost
+        self.assertIn("sonnet", read_only)  # selected model is passed through
+        # Read-only stays safe: no autonomous skip-permissions.
+        self.assertNotIn("--dangerously-skip-permissions", read_only)
+        # Allow-edits opts into full autonomy so it never blocks on approval.
+        self.assertIn(
+            "--dangerously-skip-permissions",
+            claude.build_command("hi", allow_edits=True),
         )
-        self.assertIn("acceptEdits", claude.build_command("hi", allow_edits=True))
 
         codex = AccountRunner("codex", "/bin/codex")
-        read_only = codex.build_command("hi", allow_edits=False, out_file="/t/o.txt")
-        self.assertEqual(read_only[:2], ["/bin/codex", "exec"])
-        self.assertIn("read-only", read_only)  # no writes unless asked
-        self.assertIn("--output-last-message", read_only)
+        ro = codex.build_command("hi", allow_edits=False, out_file="/t/o.txt")
+        self.assertEqual(ro[:2], ["/bin/codex", "exec"])
+        self.assertIn("read-only", ro)  # no writes unless asked
+        self.assertIn("--output-last-message", ro)
         self.assertIn("workspace-write", codex.build_command("hi", allow_edits=True))
 
     def test_account_complete_runs_hidden_without_console_window(self):
@@ -417,7 +424,8 @@ class AccountConnectionTests(unittest.TestCase):
             accounts.subprocess, "run", return_value=fake
         ) as run_mock:
             out = runner.complete("hello", project_root=None)
-        self.assertEqual(out, "hi there")
+        # complete() returns {"text", "cost"}; non-JSON output degrades to text.
+        self.assertEqual(out["text"], "hi there")
         kwargs = run_mock.call_args.kwargs
         # stdin is closed so the CLI never blocks the GUI waiting for input.
         self.assertEqual(kwargs.get("stdin"), accounts.subprocess.DEVNULL)
@@ -491,6 +499,60 @@ class AccountConnectionTests(unittest.TestCase):
             if model.get("kind") == "account":
                 self.assertTrue(model["id"].startswith("account:"))
                 self.assertTrue(model.get("paid"))
+
+    def test_claude_expands_into_selectable_models(self):
+        from opaihub import accounts
+
+        fake_account = {
+            "id": "claude",
+            "label": "Claude",
+            "vendor": "Anthropic Claude Code",
+            "cli": "claude",
+            "cli_path": "/bin/claude",
+            "cli_present": True,
+            "authenticated": True,
+            "connected": True,
+            "login_hint": "",
+        }
+        with mock.patch.object(
+            accounts, "list_connected_accounts", return_value=[fake_account]
+        ):
+            ids = [opt["id"] for opt in accounts.account_models()]
+        self.assertIn("account:claude:sonnet", ids)
+        self.assertIn("account:claude:opus", ids)
+        self.assertIn("account:claude:haiku", ids)
+
+    def test_ask_passes_selected_model_and_surfaces_cost(self):
+        captured = {}
+
+        class FakeRunner:
+            def __init__(self, model):
+                captured["model"] = model
+                self.model = model
+
+            def available(self):
+                return True
+
+            def complete(
+                self, prompt, *, project_root=None, allow_edits=False, timeout=240
+            ):
+                return {"text": "done", "cost": 0.0123}
+
+        def fake_runner_for_account(account_id, *, model=None, home=None):
+            return FakeRunner(model)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            with mock.patch(
+                "opaihub.accounts.runner_for_account",
+                side_effect=fake_runner_for_account,
+            ):
+                result = A.ask(root, "do x", "account:claude:opus")
+        # The selected alias reaches the runner instead of being stuck on a default.
+        self.assertEqual(captured["model"], "opus")
+        self.assertEqual(result["status"], "answered_by_account")
+        self.assertEqual(result["cost_usd"], 0.0123)
 
 
 if __name__ == "__main__":

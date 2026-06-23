@@ -14,6 +14,7 @@ account model and sends.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess  # nosec B404 - we invoke the user's own logged-in AI CLIs
 import sys
@@ -96,22 +97,49 @@ def list_connected_accounts(home: Path | None = None) -> list[dict[str, Any]]:
     return accounts
 
 
+# Claude model aliases the `claude` CLI understands, cheapest-capable first.
+CLAUDE_MODELS: list[tuple[str, str]] = [
+    ("sonnet", "Sonnet 4.6"),
+    ("opus", "Opus 4.8"),
+    ("haiku", "Haiku 4.5"),
+]
+
+
 def account_models(home: Path | None = None) -> list[dict[str, Any]]:
-    """Picker options for connected accounts (paid, run via the user's CLI)."""
+    """Picker options for connected accounts (paid, run via the user's CLI).
+
+    Claude expands into its selectable models so the picker isn't locked to one;
+    Codex uses its own default model.
+    """
     options: list[dict[str, Any]] = []
     for account in list_connected_accounts(home):
         if not account["connected"]:
             continue
-        options.append(
-            {
-                "id": f"account:{account['id']}",
-                "label": f"{account['label']} · your account",
-                "provider": account["id"],
-                "kind": "account",
-                "paid": True,
-                "vendor": account["vendor"],
-            }
-        )
+        if account["id"] == "claude":
+            for alias, label in CLAUDE_MODELS:
+                options.append(
+                    {
+                        "id": f"account:claude:{alias}",
+                        "label": f"Claude {label} · your account",
+                        "provider": "claude",
+                        "model": alias,
+                        "kind": "account",
+                        "paid": True,
+                        "vendor": account["vendor"],
+                    }
+                )
+        else:
+            options.append(
+                {
+                    "id": f"account:{account['id']}",
+                    "label": f"{account['label']} · your account",
+                    "provider": account["id"],
+                    "model": "",
+                    "kind": "account",
+                    "paid": True,
+                    "vendor": account["vendor"],
+                }
+            )
     return options
 
 
@@ -134,11 +162,15 @@ class AccountRunner:
     ) -> list[str]:
         """Construct the CLI argv. Pure + side-effect free so tests can assert it."""
         if self.account_id == "claude":
-            cmd = [self.cli_path, "-p"]
+            # JSON output gives us the final text *and* the real $ cost in one go.
+            cmd = [self.cli_path, "-p", "--output-format", "json"]
             if self.model:
                 cmd += ["--model", self.model]
             if allow_edits:
-                cmd += ["--permission-mode", "acceptEdits"]
+                # Full autonomy: edit files and run commands without a hidden
+                # approval prompt that the GUI can't answer. Gated behind the
+                # Allow-edits toggle + warning in the UI.
+                cmd += ["--dangerously-skip-permissions"]
             cmd.append(prompt)
             return cmd
         if self.account_id == "codex":
@@ -166,7 +198,8 @@ class AccountRunner:
         project_root: Path | None = None,
         allow_edits: bool = False,
         timeout: float = 240.0,
-    ) -> str:
+    ) -> dict[str, Any]:
+        """Run the task and return ``{"text": ..., "cost": float | None}``."""
         cwd = str(project_root) if project_root else None
         if self.account_id == "codex":
             with tempfile.NamedTemporaryFile(
@@ -181,10 +214,22 @@ class AccountRunner:
                 answer = ""
             finally:
                 Path(out_path).unlink(missing_ok=True)
-            return answer or (proc.stdout or proc.stderr or "").strip()
+            return {
+                "text": answer or (proc.stdout or proc.stderr or "").strip(),
+                "cost": None,
+            }
         cmd = self.build_command(prompt, allow_edits=allow_edits)
         proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
-        return (proc.stdout or proc.stderr or "").strip()
+        raw = (proc.stdout or "").strip()
+        # claude --output-format json -> {"result": "...", "total_cost_usd": ...}.
+        # Degrade gracefully to raw text if it isn't JSON.
+        try:
+            data = json.loads(raw)
+            text = str(data.get("result") or "").strip()
+            cost = data.get("total_cost_usd")
+            return {"text": text or raw, "cost": cost}
+        except (json.JSONDecodeError, TypeError):
+            return {"text": raw or (proc.stderr or "").strip(), "cost": None}
 
 
 def runner_for_account(

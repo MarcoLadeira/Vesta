@@ -510,10 +510,14 @@ def ask(
     """
     root = project_root.expanduser().resolve()
     if model_choice and model_choice.startswith("account:"):
+        # "account:claude:opus" -> account_id "claude", model "opus"; "account:codex" -> "codex", "".
+        spec = model_choice.split(":", 1)[1]
+        account_id, _, model = spec.partition(":")
         return _ask_account(
             root,
             task,
-            model_choice.split(":", 1)[1],
+            account_id,
+            model=model or None,
             allow_edits=allow_edits,
             runner=account_runner,
         )
@@ -527,11 +531,22 @@ def ask(
     return run_ask(root, task, runner=runner, record=True, allow_cloud=allow_cloud)
 
 
+def _changed_files(root: Path) -> list[str]:
+    """`git status --short` after an edit run, so the user sees what changed."""
+    with contextlib.suppress(Exception):
+        from opaihub.accounts import _hidden_run
+
+        proc = _hidden_run(["git", "status", "--short"], cwd=str(root), timeout=10.0)
+        return [line for line in (proc.stdout or "").splitlines() if line.strip()]
+    return []
+
+
 def _ask_account(
     project_root: Path,
     task: str,
     account_id: str,
     *,
+    model: str | None = None,
     allow_edits: bool = False,
     runner: Any = None,
 ) -> dict[str, Any]:
@@ -547,17 +562,28 @@ def _ask_account(
 
     from opaihub.accounts import runner_for_account
 
-    run = runner if runner is not None else runner_for_account(account_id)
+    run = runner if runner is not None else runner_for_account(account_id, model=model)
     if run is None or not run.available():
         return {
             "status": "account_not_connected",
             "provider": account_id,
             "hint": f"Connect your {account_id} account: run `{account_id}` once and sign in.",
         }
+    before = set(_changed_files(root)) if allow_edits else set()
     try:
-        answer = run.complete(task, project_root=root, allow_edits=allow_edits)
+        result = run.complete(task, project_root=root, allow_edits=allow_edits)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         return {"status": "account_error", "provider": account_id, "error": str(exc)}
+
+    # complete() returns {"text", "cost"}; tolerate a plain string too.
+    if isinstance(result, dict):
+        answer = result.get("text") or ""
+        cost = result.get("cost")
+    else:
+        answer, cost = str(result), None
+
+    # Surface what the agent actually changed, like Claude Code / Cursor do.
+    changed = sorted(set(_changed_files(root)) - before) if allow_edits else []
 
     # Honest firewall accounting: a paid account call is a real spend, not a
     # saving. Best-effort - accounting must never break the answer.
@@ -580,6 +606,8 @@ def _ask_account(
         "paid": True,
         "model": getattr(run, "model", "") or account_id,
         "allow_edits": allow_edits,
+        "cost_usd": cost,
+        "changed_files": changed,
         "answer": answer or "(no output)",
     }
 
