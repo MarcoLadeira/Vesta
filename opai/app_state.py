@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import os
 
 # 50x is the approved, capped public reduction figure for the local suite.
 CONTEXT_REDUCTION_CLAIM = "50x"
@@ -30,6 +31,69 @@ ZERO_STATE = (
     'No real routed tasks recorded yet. Run `opai route "<task>" --record` '
     "or `opai quickstart`."
 )
+
+
+def model_setup(project_root: Path) -> dict[str, Any]:
+    """Free local model setup guidance. Read-only; never installs or downloads."""
+    root = project_root.expanduser().resolve()
+    is_windows = os.name == "nt"
+    return {
+        "project": str(root),
+        "status": "free_first",
+        "summary": (
+            "Connect a free local model so OPai can answer cheap tasks without "
+            "spending cloud credits."
+        ),
+        "install": {
+            "provider": "ollama",
+            "label": "Install Ollama",
+            "command": "irm https://ollama.com/install.ps1 | iex"
+            if is_windows
+            else "curl -fsSL https://ollama.com/install.sh | sh",
+            "notes": "Run only if you want to install Ollama. OPai never downloads models automatically.",
+        },
+        "recommended": [
+            {
+                "id": "ollama-qwen2.5-coder",
+                "label": "Best default coding model",
+                "provider": "ollama",
+                "model": "qwen2.5-coder:7b",
+                "command": "ollama pull qwen2.5-coder:7b",
+                "why": "Strong free coding model for normal laptops with enough RAM.",
+            },
+            {
+                "id": "ollama-qwen2.5-coder-small",
+                "label": "Small-machine fallback",
+                "provider": "ollama",
+                "model": "qwen2.5-coder:1.5b",
+                "command": "ollama pull qwen2.5-coder:1.5b",
+                "why": "Fast, tiny local model for first-run smoke tests and older machines.",
+            },
+            {
+                "id": "ollama-deepseek-coder",
+                "label": "Alternative coding model",
+                "provider": "ollama",
+                "model": "deepseek-coder:6.7b",
+                "command": "ollama pull deepseek-coder:6.7b",
+                "why": "Another free coding-focused option if Qwen is not a good fit.",
+            },
+            {
+                "id": "lm-studio-local-server",
+                "label": "GUI model manager option",
+                "provider": "lm-studio",
+                "model": "OpenAI-compatible local server",
+                "command": "setx LOCAL_MODEL_URL http://127.0.0.1:1234/v1",
+                "why": "Use LM Studio if you prefer a desktop model browser and local server.",
+            },
+        ],
+        "start_commands": [
+            "ollama serve",
+            "ollama run qwen2.5-coder:7b",
+        ],
+        "verify_command": "opai models discover-local",
+        "ask_command": 'opai ask "summarize my changes"',
+        "privacy": "Loopback/private endpoints only count as local. Public endpoints require cloud confirmation.",
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -371,33 +435,58 @@ def run_benchmark_gate(
 # Chat surface: model picker, ask, and the tool dispatcher (powers the GUI)
 # --------------------------------------------------------------------------- #
 def available_models(project_root: Path) -> dict[str, Any]:
-    """Models the user can pick: Auto + any connected local models. Read-only."""
+    """Pickable models: connected accounts first, then Auto, then local (advanced).
+
+    Accounts (Claude/Codex via your logged-in CLI) are the headline path. Auto
+    routes the cheapest safe option. Local models are the free, advanced
+    fallback. Read-only - never installs, downloads, or signs in.
+    """
+    from opaihub.accounts import account_models, list_connected_accounts
     from opaihub.local_runner import list_local_models
 
+    accounts = account_models()
     local = list_local_models(project_root)
-    options: list[dict[str, Any]] = [
+    options: list[dict[str, Any]] = []
+    for account in accounts:
+        options.append(
+            {
+                "id": account["id"],
+                "label": account["label"],
+                "kind": "account",
+                "paid": True,
+                "provider": account["provider"],
+            }
+        )
+    options.append(
         {
             "id": "auto",
-            "label": "Auto - OPai routes the cheapest safe model",
+            "label": "Auto · OPai routes the cheapest safe model",
             "kind": "auto",
         }
-    ]
+    )
     for model in local:
         options.append(
             {
                 "id": model["id"],
-                "label": f"{model['model']}  ·  {model['provider']} (local)",
+                "label": f"{model['model']} · {model['provider']} (local)",
                 "kind": "local",
                 "endpoint": model["endpoint"],
             }
         )
+    if accounts or local:
+        hint = None
+    else:
+        hint = (
+            "No AI account connected. Sign in to Claude or Codex (run `claude` or "
+            "`codex` once), or add a local model under Advanced."
+        )
     return {
         "models": options,
+        "accounts": list_connected_accounts(),
+        "account_count": len(accounts),
         "local_count": len(local),
-        "hint": None
-        if local
-        else "No local model connected. `ollama serve` (then pull a model) or set "
-        "LOCAL_MODEL_URL to pick a specific model. Auto still routes locally.",
+        "setup": model_setup(project_root),
+        "hint": hint,
     }
 
 
@@ -407,26 +496,102 @@ def ask(
     model_choice: str = "auto",
     *,
     allow_cloud: bool = False,
+    allow_edits: bool = False,
+    account_runner: Any = None,
 ) -> dict[str, Any]:
-    """Run a coding task. ``model_choice`` is 'auto' or a 'provider:model' id.
+    """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', or 'provider:model'.
 
-    Auto lets OPai route the cheapest safe path (local execution + cache). A
-    specific model runs on that connected local model. Cloud is never
-    auto-called - it returns ``confirmation_required``.
+    - ``account:<id>`` runs through your connected Claude/Codex CLI: paid, blocked
+      under panic mode, and recorded as a real spend (not a saving).
+    - ``auto`` lets OPai route the cheapest safe path (local execution + cache).
+    - a local ``provider:model`` id runs that connected local model.
+    Cloud auto-routing is never auto-called - it returns ``confirmation_required``.
     """
+    root = project_root.expanduser().resolve()
+    if model_choice and model_choice.startswith("account:"):
+        return _ask_account(
+            root,
+            task,
+            model_choice.split(":", 1)[1],
+            allow_edits=allow_edits,
+            runner=account_runner,
+        )
+
     from opaihub.ask import run_ask
     from opaihub.local_runner import runner_for_model
 
     runner = None
     if model_choice and model_choice != "auto":
         runner = runner_for_model(model_choice, project_root)
-    return run_ask(
-        project_root, task, runner=runner, record=True, allow_cloud=allow_cloud
-    )
+    return run_ask(root, task, runner=runner, record=True, allow_cloud=allow_cloud)
+
+
+def _ask_account(
+    project_root: Path,
+    task: str,
+    account_id: str,
+    *,
+    allow_edits: bool = False,
+    runner: Any = None,
+) -> dict[str, Any]:
+    """Run a task through a connected paid-account CLI, with firewall gating."""
+    root = project_root.expanduser().resolve()
+    # Cost firewall: panic mode means local-only, so block paid account calls.
+    if cost_firewall(root).get("panic"):
+        return {
+            "status": "blocked_panic",
+            "provider": account_id,
+            "reason": "Panic mode is on (local-only). Turn panic off to use a paid account.",
+        }
+
+    from opaihub.accounts import runner_for_account
+
+    run = runner if runner is not None else runner_for_account(account_id)
+    if run is None or not run.available():
+        return {
+            "status": "account_not_connected",
+            "provider": account_id,
+            "hint": f"Connect your {account_id} account: run `{account_id}` once and sign in.",
+        }
+    try:
+        answer = run.complete(task, project_root=root, allow_edits=allow_edits)
+    except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
+        return {"status": "account_error", "provider": account_id, "error": str(exc)}
+
+    # Honest firewall accounting: a paid account call is a real spend, not a saving.
+    try:
+        from opaihub.cost_model import estimate_tokens
+        from opaihub.ledger import record_model_call
+
+        record_model_call(
+            root,
+            task,
+            model_tier="CLOUD",
+            provider_type="cloud",
+            tokens=estimate_tokens(task + "\n" + (answer or "")),
+            confirmed=True,
+        )
+    except Exception:  # noqa: BLE001 - accounting must never break the answer
+        pass
+
+    return {
+        "status": "answered_by_account",
+        "provider": account_id,
+        "paid": True,
+        "model": getattr(run, "model", "") or account_id,
+        "allow_edits": allow_edits,
+        "answer": answer or "(no output)",
+    }
 
 
 # Tools surfaced in the chat (slash commands + the Tools menu).
 TOOLS: list[dict[str, Any]] = [
+    {
+        "id": "connect",
+        "label": "Connect",
+        "desc": "Connect Claude / Codex accounts",
+        "mutates": False,
+    },
     {
         "id": "savings",
         "label": "Savings",
@@ -482,6 +647,37 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
     """Dispatch a chat tool command to the real OPai function. GUI confirms mutations."""
     root = project_root.expanduser().resolve()
     tool = command.strip().lstrip("/").lower()
+
+    if tool in {"connect", "accounts", "account", "login", "models", "model"}:
+        data = available_models(root)
+        lines = [
+            "Connect your AI accounts — OPai routes through the CLIs you are "
+            "already signed into. No API keys, no credentials stored.",
+            "",
+        ]
+        for account in data["accounts"]:
+            if account["connected"]:
+                state = "connected ✓"
+            elif account["cli_present"]:
+                state = "CLI found, not signed in"
+            else:
+                state = "CLI not installed"
+            lines.append(f"- {account['label']} ({account['vendor']}): {state}")
+            if not account["connected"]:
+                lines.append(f"    {account['login_hint']}")
+        lines.append("")
+        if data["local_count"]:
+            lines.append(
+                f"Advanced · {data['local_count']} free local model(s) detected ($0)."
+            )
+        else:
+            setup = data["setup"]
+            lines.append("Advanced · optional free local model:")
+            lines.append(f"    {setup['install']['command']}")
+            lines.append(f"    {setup['recommended'][0]['command']}")
+        lines.append("")
+        lines.append("Local only. OPai never stores your credentials or prompts.")
+        return {"ok": True, "title": "Connect accounts", "text": "\n".join(lines)}
 
     if tool in {"savings", "money"}:
         o = overview(root)["savings"]

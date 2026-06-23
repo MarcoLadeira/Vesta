@@ -119,7 +119,7 @@ def build_cockpit(project_root: Path) -> dict[str, Any]:
         "local_models": {
             "available": local_models["available"],
             "commands": sorted(local_models.get("commands", {}).keys()),
-            "next_command": "opai hub models discover-local",
+            "next_command": "opai models discover-local",
         },
         "next_actions": _next_actions(status, savings, budget),
         "privacy": "Local only. No telemetry, raw prompts, or secrets are transmitted.",
