@@ -128,7 +128,7 @@ def run_ask(
         **base,
         "status": "no_local_model",
         "hint": "Start Ollama (`ollama serve`) or set LOCAL_MODEL_URL to a loopback endpoint, then retry.",
-        "next_command": "opai hub models discover-local",
+        "next_command": "opai models discover-local",
     }
 
 

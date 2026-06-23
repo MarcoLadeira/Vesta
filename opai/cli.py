@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess  # nosec B404
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -926,7 +927,11 @@ def cmd_team(args: argparse.Namespace) -> int:
 
 def cmd_models(args: argparse.Namespace) -> int:
     root = _project(args.project)
-    if args.models_command == "recommend":
+    if args.models_command == "discover-local":
+        from opaihub.local_models import discover_local_models
+
+        print_json(discover_local_models(root))
+    elif args.models_command == "recommend":
         print_json(recommend_model(root, args.task))
     elif args.models_command == "eval":
         from opaihub.eval_harness import run_eval
@@ -1582,8 +1587,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("models", help="Model recommendation and routing helpers")
     models_sub = p.add_subparsers(dest="models_command", required=True)
+    mo = models_sub.add_parser(
+        "discover-local", help="Detect Ollama, LM Studio, or local model endpoints"
+    )
+    mo.add_argument("--project", default=None, help="Project root")
+    mo.set_defaults(func=cmd_models)
     mo = models_sub.add_parser("recommend")
     mo.add_argument("task")
+    mo.add_argument("--project", default=None, help="Project root")
     mo.set_defaults(func=cmd_models)
     mo = models_sub.add_parser(
         "eval", help="Score routing on offline fixtures (local redacted scorecard)"
@@ -1593,6 +1604,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the scorecard without writing .opaihub/eval/scorecard.json",
     )
+    mo.add_argument("--project", default=None, help="Project root")
     mo.set_defaults(func=cmd_models)
 
     p = sub.add_parser(
@@ -1682,7 +1694,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _force_utf8_stdout() -> None:
+    """Avoid UnicodeEncodeError when printing rich text on a cp1252 console (Windows).
+
+    OPai's output uses characters like ``·`` and ``✓``; on a legacy Windows
+    console these crash plain ``print``. Reconfigure to UTF-8 with a safe
+    fallback so output degrades to ``?`` instead of raising.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_stdout()
     parser = build_parser()
     args = parser.parse_args(argv)
     return int(args.func(args))

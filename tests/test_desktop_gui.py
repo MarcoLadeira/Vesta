@@ -2,6 +2,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr
 from io import StringIO
 from pathlib import Path
@@ -93,6 +94,20 @@ class AppStateReadTests(unittest.TestCase):
             "launch_readiness",
         ]:
             self.assertIn(key, state)
+
+    def test_available_models_includes_free_local_setup_guidance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            models = A.available_models(root)
+
+        # Auto is always offered (accounts, when connected, precede it).
+        self.assertIn("auto", [m["id"] for m in models["models"]])
+        self.assertIn("setup", models)
+        setup_ids = [item["id"] for item in models["setup"]["recommended"]]
+        self.assertIn("ollama-qwen2.5-coder", setup_ids)
+        self.assertIn("lm-studio-local-server", setup_ids)
+        self.assertIn("opai models discover-local", models["setup"]["verify_command"])
 
 
 class LaunchReadinessTests(unittest.TestCase):
@@ -189,6 +204,8 @@ class RunOnceTests(unittest.TestCase):
         self.assertIn(summary["status_label"], {"ON", "ATTENTION"})
         self.assertEqual(len(summary["sections"]), 8)
         self.assertIsNotNone(summary["zero_state"])
+        self.assertIn("model_setup", summary)
+        self.assertEqual("free_first", summary["model_setup"]["status"])
 
     def test_cli_gui_once_returns_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -205,6 +222,50 @@ class RunOnceTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(data["ok"])
         self.assertEqual([k for k, _ in SECTIONS], data["sections"])
+
+    def test_models_discover_local_is_available_on_primary_cli(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            from opai.cli import main
+            import io
+            from contextlib import redirect_stdout
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(["models", "discover-local", "--project", str(root)])
+            data = json.loads(buf.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertIn("available", data)
+        self.assertIn("commands", data)
+
+    def test_connect_tool_leads_with_accounts_and_demotes_local(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            result = A.run_tool(root, "connect")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["title"], "Connect accounts")
+        # Accounts (Claude/Codex) lead; local models are kept but demoted.
+        self.assertIn("Claude", result["text"])
+        self.assertIn("Codex", result["text"])
+        self.assertIn("Advanced", result["text"])
+        # The legacy "models" alias still resolves to the same connect surface.
+        self.assertEqual(A.run_tool(root, "models")["title"], "Connect accounts")
+
+    def test_ask_without_local_model_points_to_primary_models_command(self):
+        from opaihub.ask import run_ask
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            with mock.patch("opaihub.ask.detect_local_runner", return_value=None):
+                result = run_ask(root, "summarize this project", record=False)
+
+        self.assertEqual(result["status"], "no_local_model")
+        self.assertEqual(result["next_command"], "opai models discover-local")
 
 
 class PremiumGuiContractTests(unittest.TestCase):
@@ -294,6 +355,121 @@ class PremiumGuiContractTests(unittest.TestCase):
             result = render_screenshot(root, out, width=1040, height=700)
         self.assertEqual(result["status"], "written")
         self.assertGreater(result["bytes"], 1000)
+
+
+class AccountConnectionTests(unittest.TestCase):
+    """Connect Claude/Codex via their CLIs. No test ever invokes a real CLI:
+    execution paths inject a fake runner or force detection to None."""
+
+    def test_detects_connected_account_when_cli_and_auth_present(self):
+        from opaihub import accounts
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            cred = home / ".claude" / ".credentials.json"
+            cred.parent.mkdir(parents=True)
+            cred.write_text("{}", encoding="utf-8")
+            with mock.patch.object(
+                accounts, "_which", lambda n: f"/bin/{n}" if n == "claude" else None
+            ):
+                got = {a["id"]: a for a in accounts.list_connected_accounts(home=home)}
+        self.assertTrue(got["claude"]["connected"])
+        self.assertTrue(got["claude"]["cli_present"])
+        self.assertTrue(got["claude"]["authenticated"])
+        self.assertFalse(got["codex"]["connected"])  # no auth, no cli
+
+    def test_cli_present_but_not_signed_in_is_not_connected(self):
+        from opaihub import accounts
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)  # no auth files anywhere
+            with mock.patch.object(accounts, "_which", lambda n: f"/bin/{n}"):
+                accts = {
+                    a["id"]: a for a in accounts.list_connected_accounts(home=home)
+                }
+        self.assertFalse(accts["claude"]["connected"])
+        self.assertTrue(accts["claude"]["cli_present"])
+
+    def test_account_runner_build_command_is_safe_by_default(self):
+        from opaihub.accounts import AccountRunner
+
+        claude = AccountRunner("claude", "/bin/claude")
+        self.assertEqual(
+            claude.build_command("hi", allow_edits=False), ["/bin/claude", "-p", "hi"]
+        )
+        self.assertIn("acceptEdits", claude.build_command("hi", allow_edits=True))
+
+        codex = AccountRunner("codex", "/bin/codex")
+        read_only = codex.build_command("hi", allow_edits=False, out_file="/t/o.txt")
+        self.assertEqual(read_only[:2], ["/bin/codex", "exec"])
+        self.assertIn("read-only", read_only)  # no writes unless asked
+        self.assertIn("--output-last-message", read_only)
+        self.assertIn("workspace-write", codex.build_command("hi", allow_edits=True))
+
+    def test_ask_routes_account_and_records_real_spend(self):
+        class FakeRunner:
+            model = "sonnet"
+
+            def available(self):
+                return True
+
+            def complete(
+                self, prompt, *, project_root=None, allow_edits=False, timeout=240
+            ):
+                return "ACCOUNT ANSWER"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            result = A.ask(root, "do x", "account:claude", account_runner=FakeRunner())
+            from opaihub.ledger import read_events
+
+            tiers = [e.get("model_tier") for e in read_events(root)]
+        self.assertEqual(result["status"], "answered_by_account")
+        self.assertTrue(result["paid"])
+        self.assertEqual(result["answer"], "ACCOUNT ANSWER")
+        self.assertIn("CLOUD", tiers)  # a real paid call, recorded as spend
+
+    def test_panic_blocks_paid_account_calls(self):
+        class FakeRunner:
+            model = ""
+
+            def available(self):
+                return True
+
+            def complete(self, *a, **k):  # must never be reached under panic
+                raise AssertionError("panic must block before execution")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            A.set_panic(root, True)
+            result = A.ask(root, "do x", "account:claude", account_runner=FakeRunner())
+        self.assertEqual(result["status"], "blocked_panic")
+
+    def test_unconnected_account_returns_sign_in_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            # Force "not connected" so no real CLI is ever launched.
+            with mock.patch("opaihub.accounts.runner_for_account", return_value=None):
+                result = A.ask(root, "do x", "account:codex")
+        self.assertEqual(result["status"], "account_not_connected")
+        self.assertIn("codex", result["hint"])
+
+    def test_available_models_lists_accounts_then_auto(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            data = A.available_models(root)
+        self.assertIn("accounts", data)
+        self.assertIn("account_count", data)
+        ids = [m["id"] for m in data["models"]]
+        self.assertIn("auto", ids)
+        for model in data["models"]:
+            if model.get("kind") == "account":
+                self.assertTrue(model["id"].startswith("account:"))
+                self.assertTrue(model.get("paid"))
 
 
 if __name__ == "__main__":
