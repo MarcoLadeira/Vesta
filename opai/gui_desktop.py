@@ -156,6 +156,14 @@ def _stylesheet() -> str:
     #InspectorTitle {{ font-size:13px; font-weight:700; color:{INK}; }}
     #InspectorKey {{ color:{FAINT}; font-size:11px; font-weight:700; letter-spacing:0.5px; }}
     #InspectorValue {{ color:{INK}; font-size:13px; font-weight:600; }}
+    #Workspace {{ color:{MUTED}; font-size:12.5px; font-weight:600; }}
+    QTreeView#Tree {{ background:transparent; border:0; color:{MUTED}; font-size:13px; outline:0; }}
+    QTreeView#Tree::item {{ padding:3px 2px; border-radius:6px; }}
+    QTreeView#Tree::item:hover {{ background:{PANEL_HI}; color:{INK}; }}
+    QTreeView#Tree::item:selected {{ background:#e9eefc; color:{ACCENT}; }}
+    QTreeView#Tree::branch {{ background:transparent; }}
+    QProgressBar#BudgetBar {{ background:{PANEL_HI}; border:0; border-radius:3px; }}
+    QProgressBar#BudgetBar::chunk {{ background:{ACCENT}; border-radius:3px; }}
     QPushButton#Chip {{ background:{BG}; color:{MUTED}; border:1px solid {BORDER};
         border-radius:16px; padding:6px 13px; font-size:12px; font-weight:600; }}
     QPushButton#Chip:hover {{ background:{PANEL_HI}; color:{INK}; border-color:{BORDER_HI}; }}
@@ -210,7 +218,12 @@ def _stylesheet() -> str:
     """
 
 
-def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
+def _run_gui(
+    project_root: Path,
+    *,
+    screenshot_path: Path | None = None,
+    initial_task: str | None = None,
+):
     """Build the chat window; either run it (default) or render it to a PNG."""
     QtCore, QtGui, QtWidgets = _qt()
     # Keep Qt's internal style/layout warnings out of the launching terminal, so
@@ -315,14 +328,13 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
         def _build_left_rail(self):
             rail = QtWidgets.QFrame()
             rail.setObjectName("Rail")
-            rail.setFixedWidth(168)
+            rail.setFixedWidth(236)
             col = QtWidgets.QVBoxLayout(rail)
-            col.setContentsMargins(14, 18, 14, 14)
-            col.setSpacing(8)
+            col.setContentsMargins(14, 18, 12, 14)
+            col.setSpacing(6)
             col.addWidget(self._lbl("CONTROL", name="RailTitle"))
             items = [
                 ("Chats", None),
-                ("Savings", "savings"),
                 ("Models", "connect"),
                 ("Tools", None),
                 ("Settings", "budget"),
@@ -336,29 +348,69 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
                 if tool:
                     button.clicked.connect(lambda _c=False, t=tool: self._run_tool(t))
                 col.addWidget(button)
-            col.addStretch(1)
-            privacy = self._lbl("Local only\nNo silent telemetry", name="Meta")
-            col.addWidget(privacy)
+            col.addSpacing(10)
+            col.addWidget(self._lbl("WORKSPACE", name="RailTitle"))
+            self.tree = QtWidgets.QTreeView()
+            self.tree.setObjectName("Tree")
+            fs_model_cls = getattr(QtGui, "QFileSystemModel", None) or (
+                QtWidgets.QFileSystemModel
+            )
+            fs = fs_model_cls(self.tree)
+            fs.setRootPath(str(self.root))
+            self.tree.setModel(fs)
+            self.tree.setRootIndex(fs.index(str(self.root)))
+            self.tree.setHeaderHidden(True)
+            for column in range(1, fs.columnCount()):
+                self.tree.hideColumn(column)
+            self.tree.setAnimated(True)
+            self.tree.setIndentation(14)
+            self.tree.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+            self.tree.clicked.connect(self._on_file_clicked)
+            col.addWidget(self.tree, 1)
+            col.addWidget(self._lbl("Local only · no telemetry", name="Meta"))
             return rail
+
+        def _on_file_clicked(self, index) -> None:
+            # Click a file to drop an @reference into the prompt - no copy-paste.
+            path = Path(self.tree.model().filePath(index))
+            if not path.is_file():
+                return
+            try:
+                rel = path.relative_to(self.root).as_posix()
+            except ValueError:
+                rel = path.name
+            current = self.input.toPlainText()
+            sep = " " if current and not current.endswith(" ") else ""
+            self.input.setPlainText(f"{current}{sep}@{rel} ")
+            self.input.setFocus()
+            cursor = self.input.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            self.input.setTextCursor(cursor)
 
         def _build_inspector(self):
             panel = QtWidgets.QFrame()
             panel.setObjectName("Inspector")
-            panel.setFixedWidth(270)
+            panel.setFixedWidth(296)
             col = QtWidgets.QVBoxLayout(panel)
-            col.setContentsMargins(18, 18, 18, 18)
-            col.setSpacing(12)
+            col.setContentsMargins(20, 20, 20, 20)
+            col.setSpacing(13)
             col.addWidget(self._lbl("Inspector", name="InspectorTitle"))
             self.inspector_model = self._inspector_pair(col, "MODEL", "Auto")
             self.inspector_mode = self._inspector_pair(col, "MODE", "Safe Auto")
-            self.inspector_budget = self._inspector_pair(col, "BUDGET", "checking")
-            self.inspector_context = self._inspector_pair(
-                col, "CONTEXT", "not profiled"
-            )
-            self.inspector_receipt = self._inspector_pair(
-                col, "LAST RECEIPT", "none yet"
-            )
-            self.inspector_next = self._inspector_pair(col, "NEXT", "send a message")
+            self.inspector_mode_cap = self._lbl("", name="Meta")
+            col.addWidget(self.inspector_mode_cap)
+            col.addWidget(self._lbl("BUDGET TODAY", name="InspectorKey"))
+            self.inspector_budget = self._lbl("—", name="InspectorValue")
+            col.addWidget(self.inspector_budget)
+            self.budget_bar = QtWidgets.QProgressBar()
+            self.budget_bar.setObjectName("BudgetBar")
+            self.budget_bar.setTextVisible(False)
+            self.budget_bar.setFixedHeight(6)
+            self.budget_bar.setRange(0, 100)
+            col.addWidget(self.budget_bar)
+            self.inspector_context = self._inspector_pair(col, "WORKSPACE", "—")
+            self.inspector_receipt = self._inspector_pair(col, "LAST RUN COST", "—")
+            self.inspector_saved = self._inspector_pair(col, "SAVED VIA AUTO", "$0.00")
             col.addStretch(1)
             return panel
 
@@ -367,6 +419,28 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             label = self._lbl(value, name="InspectorValue")
             layout.addWidget(label)
             return label
+
+        def _refresh_inspector(self) -> None:
+            opt = self._selected()
+            mode = self._selected_mode()
+            self.inspector_model.setText(opt.get("label", "Auto").split(" · ")[0])
+            self.inspector_mode.setText(MODE_LABELS.get(mode, mode))
+            try:
+                ins = A.inspector_state(self.root, mode=mode)
+                sav = A.overview(self.root)["savings"]
+            except Exception:  # noqa: BLE001 - telemetry must never crash the UI
+                return
+            self.inspector_mode_cap.setText(ins["mode"]["capability"])
+            budget = ins["budget"]
+            self.inspector_budget.setText(
+                "panic on · local only" if budget["panic"] else budget["text"]
+            )
+            self.budget_bar.setValue(int(budget["pct"]))
+            self.inspector_context.setText(ins["workspace"]["text"])
+            self.inspector_saved.setText(
+                f"${sav['estimated_savings_usd']:.2f} · "
+                f"{sav['cloud_calls_avoided']} calls avoided"
+            )
 
         def _build_topbar(self):
             bar = QtWidgets.QFrame()
@@ -385,10 +459,11 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self.conn_chip.clicked.connect(lambda: self._run_tool("connect"))
             row.addWidget(self.conn_chip)
             row.addStretch(1)
-            self.saved = self._lbl("", name="Saved")
-            row.addWidget(self.saved)
-            row.addSpacing(8)
-            row.addWidget(self._lbl(root.name, name="Meta"))
+            folder = QtWidgets.QLabel("\U0001f4c1")  # workspace glyph
+            folder.setStyleSheet(f"color:{FAINT}; font-size:13px;")
+            row.addWidget(folder)
+            self.workspace_lbl = self._lbl(root.name, name="Workspace")
+            row.addWidget(self.workspace_lbl)
             return bar
 
         def _build_composer(self):
@@ -509,8 +584,6 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             self.provider_dot.setStyleSheet(
                 f"color:{PROVIDER_COLOR.get(provider, ACCENT)}; font-size:13px;"
             )
-            if hasattr(self, "inspector_model"):
-                self.inspector_model.setText(opt.get("label", "Auto").split(" · ")[0])
             if opt.get("kind") == "account":
                 who = opt["label"].split(" · ")[0]
                 self.input.setPlaceholderText(f"Message {who} · runs on your account…")
@@ -524,20 +597,17 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
                 self._preferences = save_gui_preferences(
                     self.root, {"default_model": opt.get("id", "auto")}
                 )
+            if hasattr(self, "inspector_model"):
+                self._refresh_inspector()
 
         def _on_mode_changed(self, _index) -> None:
             mode = self._selected_mode()
-            label = MODE_LABELS.get(mode, "Safe Auto")
-            if hasattr(self, "inspector_mode"):
-                self.inspector_mode.setText(label)
-                if mode == "full-auto":
-                    self.inspector_next.setText("high-risk mode")
-                elif mode == "safe-auto":
-                    self.inspector_next.setText("auto tools on")
             if not self._loading_mode:
                 self._preferences = save_gui_preferences(
                     self.root, {"default_mode": mode}
                 )
+            if hasattr(self, "inspector_mode"):
+                self._refresh_inspector()
 
         def _refresh_header(self) -> None:
             try:
@@ -547,23 +617,17 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
             on = bool(o.get("on"))
             self.dot.setStyleSheet(f"color:{GREEN if on else AMBER}; font-size:14px;")
             self.dot.setToolTip("OPai ON" if on else "OPai needs attention")
-            sav = o["savings"]
-            self.saved.setText(
-                f"${sav['estimated_savings_usd']:.2f} saved · "
-                f"{sav['cloud_calls_avoided']} paid calls avoided"
-            )
-            if hasattr(self, "inspector_budget"):
-                budget = o.get("budget", {})
-                self.inspector_budget.setText(
-                    "panic on" if budget.get("panic") else "ok"
+            # Lead the top bar with the dev workspace, not the savings number.
+            try:
+                ws = A.workspace_summary(self.root)
+                branch = f"  ·  {ws['branch']}" if ws["branch"] else ""
+                self.workspace_lbl.setText(
+                    f"{ws['name']}{branch}  ·  {ws['file_count']} files"
                 )
-            if hasattr(self, "inspector_receipt"):
-                if sav.get("routed_tasks"):
-                    self.inspector_receipt.setText(
-                        f"${sav['estimated_savings_usd']:.2f} saved"
-                    )
-                else:
-                    self.inspector_receipt.setText("none yet")
+            except Exception:  # noqa: BLE001
+                self.workspace_lbl.setText(self.root.name)
+            if hasattr(self, "inspector_model"):
+                self._refresh_inspector()
             connected = [
                 a["label"] for a in getattr(self, "_accounts", []) if a["connected"]
             ]
@@ -780,8 +844,6 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
                 )
             answer = result.get("answer") or ""
             changed = result.get("changed_files") or []
-            if changed:
-                answer = f"{answer}\n\nChanged files:\n" + "\n".join(changed)
             role = "OPai"
             color = GREEN
             if status == "blocked":
@@ -798,6 +860,19 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
                 meta=status.replace("_", " "),
                 mono=False,
             )
+            # Show the actual diff of what changed on disk - not just a wall of text.
+            if changed:
+                try:
+                    diff = A.workspace_diff(self.root)
+                except Exception:  # noqa: BLE001
+                    diff = ""
+                self._bubble(
+                    "ToolBubble",
+                    f"Diff · {len(changed)} file(s) changed",
+                    diff or "\n".join(changed),
+                    role_color=ACCENT,
+                    mono=True,
+                )
             self._bubble(
                 "ToolBubble",
                 "Savings receipt",
@@ -806,16 +881,10 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
                 mono=True,
             )
             if hasattr(self, "inspector_receipt") and isinstance(receipt, dict):
-                self.inspector_receipt.setText(
-                    f"${float(receipt.get('estimated_savings_usd') or 0):.4f}"
-                )
-                self.inspector_context.setText(
-                    f"{int(receipt.get('context_tokens_saved') or 0)} tokens saved"
-                )
-                next_actions = result.get("next_actions") or []
-                self.inspector_next.setText(
-                    str(next_actions[0]) if next_actions else status
-                )
+                actual = float(receipt.get("estimated_actual_usd") or 0)
+                self.inspector_receipt.setText(f"${actual:.4f}" if actual else "free")
+            if hasattr(self, "inspector_model"):
+                self._refresh_inspector()
 
         def _on_ask(self, result) -> None:
             self._busy(False)
@@ -957,6 +1026,13 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
     _load_app_fonts()
     app.setFont(QtGui.QFont("Segoe UI", 10))
     window = ChatWindow()
+    if initial_task:
+        # CLI companion: `opai gui "fix the login bug"` opens pre-loaded.
+        window.input.setPlainText(initial_task)
+        window.input.setFocus()
+        cursor = window.input.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        window.input.setTextCursor(cursor)
     if screenshot_path is not None:
         window.resize(screenshot_path[1], screenshot_path[2])
         window.show()
@@ -980,9 +1056,9 @@ def _run_gui(project_root: Path, *, screenshot_path: Path | None = None):
     return 0
 
 
-def launch(project_root: Path) -> int:
+def launch(project_root: Path, task: str | None = None) -> int:
     """Open the native desktop chat window (blocks until closed)."""
-    return int(_run_gui(project_root) or 0)
+    return int(_run_gui(project_root, initial_task=task) or 0)
 
 
 def render_screenshot(

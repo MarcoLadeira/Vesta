@@ -565,5 +565,54 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertEqual(result["cost_usd"], 0.0123)
 
 
+class DevToolInspectorTests(unittest.TestCase):
+    """The Inspector/workspace must show concrete dev telemetry, not labels."""
+
+    def _repo_with_commit(self, root: Path) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "a@b.c"], cwd=root, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "x"], cwd=root, capture_output=True
+        )
+        (root / "app.py").write_text("print(1)\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "init"], cwd=root, capture_output=True)
+
+    def test_inspector_state_is_concrete_not_cryptic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo_with_commit(root)
+            ins = A.inspector_state(root, mode="full-auto")
+        self.assertIn("$", ins["budget"]["text"])  # real money, not "ok"
+        self.assertIsInstance(ins["budget"]["pct"], int)
+        self.assertIn("files indexed", ins["workspace"]["text"])  # indexing status
+        self.assertIn("without asking", ins["mode"]["capability"])  # plain-English
+
+    def test_workspace_summary_counts_tracked_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo_with_commit(root)
+            ws = A.workspace_summary(root)
+        self.assertGreaterEqual(ws["file_count"], 1)
+        self.assertTrue(ws["name"])
+
+    def test_workspace_diff_shows_actual_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._repo_with_commit(root)
+            (root / "app.py").write_text("print(2)\n", encoding="utf-8")
+            diff = A.workspace_diff(root)
+        self.assertIn("app.py", diff)
+        self.assertIn("+print(2)", diff)
+
+    def test_gui_accepts_initial_task_for_cli_companion(self):
+        args = build_parser().parse_args(["gui", "fix the login bug"])
+        self.assertEqual(args.task, "fix the login bug")
+        # The bare form still works (no task).
+        self.assertIsNone(build_parser().parse_args(["gui"]).task)
+
+
 if __name__ == "__main__":
     unittest.main()

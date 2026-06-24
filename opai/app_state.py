@@ -97,6 +97,80 @@ def model_setup(project_root: Path) -> dict[str, Any]:
     }
 
 
+# Plain-English of what each run mode is actually allowed to do (no sci-fi labels).
+MODE_CAPABILITY = {
+    "ask": "Answers only. No files changed, no commands run.",
+    "plan": "Lays out the steps. Nothing is changed yet.",
+    "safe-auto": "Edits files after safe checks; asks before risky commands.",
+    "approve-edits": "Proposes edits for your approval before writing to disk.",
+    "full-auto": "Edits files and runs commands without asking. Review the diff.",
+}
+
+
+def _git_text(root: Path, args: list[str], *, timeout: float = 12.0) -> str:
+    """Run a read-only git command hidden, returning stdout (or '' on failure)."""
+    with contextlib.suppress(Exception):
+        from opaihub.accounts import _hidden_run
+
+        proc = _hidden_run(["git", *args], cwd=str(root), timeout=timeout)
+        return (proc.stdout or "").strip()
+    return ""
+
+
+def workspace_summary(project_root: Path) -> dict[str, Any]:
+    """Tracked-file count + branch - the 'indexed workspace' the agent can see."""
+    root = project_root.expanduser().resolve()
+    files = [ln for ln in _git_text(root, ["ls-files"]).splitlines() if ln.strip()]
+    branch = _git_text(root, ["rev-parse", "--abbrev-ref", "HEAD"]) or ""
+    return {
+        "root": str(root),
+        "name": root.name,
+        "file_count": len(files),
+        "branch": branch if branch and branch != "HEAD" else "",
+    }
+
+
+def workspace_diff(project_root: Path, *, max_chars: int = 6000) -> str:
+    """Working-tree diff vs HEAD so the GUI can show exactly what changed."""
+    root = project_root.expanduser().resolve()
+    stat = _git_text(root, ["diff", "--stat", "HEAD"])
+    body = _git_text(root, ["diff", "HEAD"])
+    diff = (f"{stat}\n\n{body}".strip()) if stat else body
+    if len(diff) > max_chars:
+        diff = diff[:max_chars] + "\n… (diff truncated — run `git diff` for the rest)"
+    return diff
+
+
+def inspector_state(project_root: Path, *, mode: str = "safe-auto") -> dict[str, Any]:
+    """Concrete, non-cryptic telemetry for the Inspector (real numbers, not labels)."""
+    root = project_root.expanduser().resolve()
+    from opaihub.budget import budget_status
+
+    budget = budget_status(root)
+    daily = budget["caps"].get("daily_usd_limit")
+    spent = float(budget["spent"].get("today_usd") or 0.0)
+    if isinstance(daily, (int, float)) and daily > 0:
+        pct = max(0, min(100, int(round(100 * spent / daily))))
+        budget_text = f"${spent:.2f} / ${daily:.2f} today"
+    else:
+        pct, budget_text = 0, f"${spent:.2f} today · no cap set"
+    ws = workspace_summary(root)
+    ws_text = f"{ws['file_count']} files indexed" + (
+        f" · {ws['branch']}" if ws["branch"] else ""
+    )
+    return {
+        "budget": {
+            "spent_today": spent,
+            "daily_limit": daily,
+            "pct": pct,
+            "text": budget_text,
+            "panic": bool(budget.get("panic")),
+        },
+        "workspace": {**ws, "text": ws_text},
+        "mode": {"id": mode, "capability": MODE_CAPABILITY.get(mode, "")},
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Read surfaces (never mutate)
 # --------------------------------------------------------------------------- #
