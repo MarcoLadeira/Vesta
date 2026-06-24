@@ -212,7 +212,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
             )
             return 1
     try:
-        return int(launch(root))
+        return int(launch(root, task=getattr(args, "task", None)))
     except Exception as exc:  # noqa: BLE001 - dependency/display failures degrade
         print_json(
             {
@@ -1218,6 +1218,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "gui",
         help="Launch the OPai desktop control center (native window, local-only)",
+    )
+    p.add_argument(
+        "task",
+        nargs="?",
+        default=None,
+        help='Optional task to pre-load the prompt with, e.g. opai gui "fix the login bug"',
     )
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument(
