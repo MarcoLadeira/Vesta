@@ -664,7 +664,15 @@ def _ask_account(
                 raise
             result = run.complete(task, project_root=root, allow_edits=allow_edits)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
-        return {"status": "account_error", "provider": account_id, "error": str(exc)}
+        return {
+            "status": "account_error",
+            "provider": account_id,
+            "answer": (
+                f"{account_id.capitalize()} hit an error and couldn't finish that. "
+                "Try again, or pick a different model."
+            ),
+            "error": str(exc),  # kept for debugging, not shown raw to the user
+        }
 
     # A long agentic run that hit the time limit: stop cleanly, guide the user.
     if isinstance(result, dict) and result.get("timed_out"):

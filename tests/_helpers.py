@@ -1,0 +1,131 @@
+"""Shared test fakes + fixtures.
+
+These let hundreds of tests exercise OPai's account / local / routing paths
+without ever launching a real (paid) CLI, starting a model, or hitting the
+network. Discovered via ``python -m unittest discover -s tests`` (the tests dir
+is on sys.path, so ``from _helpers import ...`` resolves).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import os
+import subprocess  # noqa: S404 - test-only git setup, fixed argv, no shell
+import tempfile
+from pathlib import Path
+from typing import Any
+from unittest import mock
+
+
+def make_repo(
+    root: Path, *, files: dict[str, str] | None = None, commit: bool = False
+) -> Path:
+    """Initialise a throwaway git repo at ``root``.
+
+    Optionally writes (and commits) ``files`` so ``git ls-files`` / ``git diff``
+    have real content to report.
+    """
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t.t"], cwd=root, capture_output=True
+    )
+    subprocess.run(["git", "config", "user.name", "t"], cwd=root, capture_output=True)
+    (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    for rel, content in (files or {}).items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    if commit:
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "init"], cwd=root, capture_output=True)
+    return root
+
+
+@contextlib.contextmanager
+def isolated_home():
+    """Patch HOME/USERPROFILE to a throwaway dir.
+
+    Makes account/global-discovery detection hermetic so the developer's real
+    home can't leak into a result (the cause of an earlier CI-only failure).
+    """
+    with tempfile.TemporaryDirectory() as home:
+        with mock.patch.dict(os.environ, {"HOME": home, "USERPROFILE": home}):
+            yield Path(home)
+
+
+class FakeAccountRunner:
+    """Drop-in for ``opaihub.accounts.AccountRunner`` - never launches a CLI.
+
+    Records every ``complete()`` call (so tests can assert read-only vs edit),
+    and can simulate a clean answer, a timeout, or a raised error.
+    """
+
+    paid = True
+
+    def __init__(
+        self,
+        *,
+        account_id: str = "claude",
+        model: str = "sonnet",
+        text: str = "ok answer",
+        cost: float | None = 0.0,
+        timed_out: bool = False,
+        raises: Exception | None = None,
+    ) -> None:
+        self.account_id = account_id
+        self.name = account_id
+        self.model = model
+        self._text = text
+        self._cost = cost
+        self._timed_out = timed_out
+        self._raises = raises
+        self.calls: list[dict[str, Any]] = []
+
+    def available(self) -> bool:
+        return True
+
+    def complete(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append({"prompt": prompt, **kwargs})
+        if self._raises is not None:
+            raise self._raises
+        if self._timed_out:
+            return {"text": "", "cost": None, "timed_out": True}
+        return {"text": self._text, "cost": self._cost}
+
+
+class FakeLocalRunner:
+    """Drop-in for ``opaihub.local_runner.LocalRunner`` - no network, no model."""
+
+    def __init__(
+        self,
+        *,
+        name: str = "ollama",
+        model: str = "llama3.2",
+        answer: str = "local answer",
+        available: bool = True,
+        raises: Exception | None = None,
+    ) -> None:
+        self.name = name
+        self.model = model
+        self._answer = answer
+        self._available = available
+        self._raises = raises
+
+    def available(self) -> bool:
+        return self._available
+
+    def complete(
+        self, prompt: str, *, system: str | None = None, timeout: float = 60.0
+    ) -> str:
+        if self._raises is not None:
+            raise self._raises
+        return self._answer
+
+
+class FakeCompleted:
+    """Minimal stand-in for ``subprocess.CompletedProcess`` for patching runs."""
+
+    def __init__(self, stdout: str = "", stderr: str = "", returncode: int = 0) -> None:
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode

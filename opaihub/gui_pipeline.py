@@ -201,8 +201,8 @@ def handle_gui_message(
             "status": status,
             "answer": result.get("answer")
             or result.get("hint")
-            or result.get("error")
-            or "",
+            or result.get("reason")
+            or "The model didn't return anything. Try again or pick another model.",
             "tool_trace": tool_trace,
             "receipt": receipt,
             "changed_files": result.get("changed_files", []),
@@ -247,6 +247,11 @@ def handle_gui_message(
         answer = (
             "This needs a paid model. Pick your Claude or Codex account in the model "
             "menu to run it — OPai won't spend on a paid call automatically."
+        )
+    elif result.get("status") == "runner_error" or not answer:
+        answer = (
+            "The local model couldn't answer that. Pick your Claude or Codex account "
+            "in the model menu, or check that your local model is running."
         )
     return {
         "status": status_map.get(result.get("status"), result.get("status", "error")),
