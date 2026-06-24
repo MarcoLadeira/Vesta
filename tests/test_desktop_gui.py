@@ -445,6 +445,44 @@ class AccountConnectionTests(unittest.TestCase):
                 kwargs.get("creationflags"), accounts.subprocess.CREATE_NO_WINDOW
             )
 
+    def test_account_timeout_is_reported_cleanly_not_as_raw_command(self):
+        class SlowRunner:
+            model = "opus"
+
+            def available(self):
+                return True
+
+            def complete(self, *a, **k):
+                return {"text": "", "cost": None, "timed_out": True}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            res = A.ask(
+                root,
+                "rebuild the whole UI",
+                "account:claude:opus",
+                account_runner=SlowRunner(),
+            )
+        self.assertEqual(res["status"], "account_timeout")
+        self.assertNotIn("timed out after", res["answer"])  # no raw command dump
+        self.assertNotIn("--dangerously-skip-permissions", res["answer"])
+        self.assertIn("smaller", res["answer"].lower())  # actionable guidance
+
+    def test_runner_returns_timed_out_instead_of_raising(self):
+        import subprocess as sp
+
+        from opaihub import accounts
+
+        runner = accounts.AccountRunner("claude", "/bin/claude", model="opus")
+        with mock.patch.object(
+            accounts,
+            "_hidden_run",
+            side_effect=sp.TimeoutExpired(cmd="claude", timeout=1),
+        ):
+            out = runner.complete("x", project_root=None)
+        self.assertTrue(out["timed_out"])
+
     def test_ask_routes_account_and_records_real_spend(self):
         class FakeRunner:
             model = "sonnet"

@@ -97,25 +97,26 @@ def _qt():
     return QtCore, QtGui, QtWidgets
 
 
-# Warm dark palette, in the spirit of the Claude desktop app. One typeface only.
-BG = "#262624"  # main conversation surface
-SIDEBAR = "#1c1b1a"  # left sidebar (a touch darker)
-COMPOSER = "#30302e"  # composer + cards
-PANEL = "#2d2c2a"  # message blocks
-PANEL_HI = "#3a3835"  # hover
-USERBG = "#37352f"  # your messages
-BORDER = "#3a3835"
-BORDER_HI = "#4a4642"
-INK = "#ededeb"  # warm off-white
-MUTED = "#a8a39a"
-FAINT = "#74706a"
-ACCENT = "#d97757"  # Claude coral - primary actions
-ACCENT_HI = "#c8674a"
-GREEN = "#84b87b"
-AMBER = "#d6a44a"
-RED = "#e0707f"
-CLAUDE = "#d97757"
-CODEX = "#5fb89a"
+# OPai's own dark identity: a cool charcoal with an emerald accent (the savings /
+# cost-firewall signal) - deliberately not Claude's warm coral. One typeface only.
+BG = "#1b1d21"  # main conversation surface (cool charcoal)
+SIDEBAR = "#16181b"  # left sidebar (a touch darker)
+COMPOSER = "#23262b"  # composer + cards
+PANEL = "#212429"  # message cards
+PANEL_HI = "#2c3036"  # hover
+USERBG = "#262b33"  # your messages (cool slate)
+BORDER = "#2c3036"
+BORDER_HI = "#3a414b"
+INK = "#e8eaee"  # cool off-white
+MUTED = "#9aa2af"
+FAINT = "#69707d"
+ACCENT = "#34d399"  # emerald - OPai primary action / brand
+ACCENT_HI = "#28bd86"
+GREEN = "#34d399"
+AMBER = "#e0a458"
+RED = "#ef6b7d"
+CLAUDE = "#d6896a"  # provider dot - terracotta (recognisable, not the accent)
+CODEX = "#58b0d6"  # provider dot - cool blue
 
 PROVIDER_COLOR = {"claude": CLAUDE, "codex": CODEX, "auto": MUTED}
 FONT = '"Segoe UI Variable","Segoe UI",system-ui,sans-serif'
@@ -189,7 +190,7 @@ def _stylesheet() -> str:
     QPushButton#Ghost {{ background:transparent; color:{MUTED}; border:1px solid {BORDER};
         border-radius:9px; padding:6px 12px; font-weight:600; font-size:13px; }}
     QPushButton#Ghost:hover {{ color:{INK}; border-color:{BORDER_HI}; }}
-    QPushButton#Send {{ background:{ACCENT}; color:#2a1206; border:0; border-radius:10px;
+    QPushButton#Send {{ background:{ACCENT}; color:#06281d; border:0; border-radius:10px;
         padding:9px 18px; font-weight:700; font-size:14px; }}
     QPushButton#Send:hover {{ background:{ACCENT_HI}; }}
     QPushButton#Send:disabled {{ background:{PANEL_HI}; color:{FAINT}; }}
@@ -762,6 +763,8 @@ def _run_gui(
             role, color = "OPai", INK
             if status == "blocked":
                 role, color = "Safe Auto", AMBER
+            elif status == "account_timeout":
+                role, color = "Timed out", AMBER
             elif status in {"needs_model", "needs_confirmation"}:
                 role, color = "Action needed", AMBER
             elif status not in {"answered", "cache_hit"}:
