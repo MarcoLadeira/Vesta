@@ -666,6 +666,19 @@ def _ask_account(
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         return {"status": "account_error", "provider": account_id, "error": str(exc)}
 
+    # A long agentic run that hit the time limit: stop cleanly, guide the user.
+    if isinstance(result, dict) and result.get("timed_out"):
+        return {
+            "status": "account_timeout",
+            "provider": account_id,
+            "answer": (
+                f"{account_id.capitalize()} ran past the time limit and was stopped. "
+                "Big jobs (build a feature and open a PR in one go) often need more "
+                "than one step. Try a smaller request, switch to a faster model "
+                "(Sonnet or Haiku), or run the long task in your terminal."
+            ),
+        }
+
     # complete() returns {"text", "cost"}; tolerate a plain string too.
     if isinstance(result, dict):
         answer = result.get("text") or ""

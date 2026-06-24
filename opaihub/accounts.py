@@ -252,9 +252,15 @@ class AccountRunner:
         project_root: Path | None = None,
         allow_edits: bool = False,
         mode: str | None = None,
-        timeout: float = 240.0,
+        timeout: float = 1200.0,
     ) -> dict[str, Any]:
-        """Run the task and return ``{"text": ..., "cost": float | None}``."""
+        """Run the task; return ``{"text", "cost", "timed_out"?}``.
+
+        Agentic runs (especially Full Auto building a feature) can take many
+        minutes, so the timeout is generous. If it is still exceeded the CLI is
+        stopped and a clean ``timed_out`` flag is returned rather than raising a
+        ``TimeoutExpired`` that would dump the raw command into the chat.
+        """
         cwd = str(project_root) if project_root else None
         if self.account_id == "codex":
             with tempfile.NamedTemporaryFile(
@@ -264,7 +270,11 @@ class AccountRunner:
             cmd = self.build_command(
                 prompt, allow_edits=allow_edits, out_file=out_path, mode=mode
             )
-            proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
+            try:
+                proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                Path(out_path).unlink(missing_ok=True)
+                return {"text": "", "cost": None, "timed_out": True}
             try:
                 answer = Path(out_path).read_text(encoding="utf-8").strip()
             except OSError:
@@ -276,7 +286,10 @@ class AccountRunner:
                 "cost": None,
             }
         cmd = self.build_command(prompt, allow_edits=allow_edits, mode=mode)
-        proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
+        try:
+            proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return {"text": "", "cost": None, "timed_out": True}
         raw = (proc.stdout or "").strip()
         # claude --output-format json -> {"result": "...", "total_cost_usd": ...}.
         # Degrade gracefully to raw text if it isn't JSON.
