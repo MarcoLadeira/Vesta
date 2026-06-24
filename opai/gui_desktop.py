@@ -172,6 +172,7 @@ def _stylesheet() -> str:
     #ToolBubble {{ background:{PANEL}; border:1px solid {BORDER}; border-radius:12px; }}
     #Role {{ font-weight:700; font-size:13px; }}
     #BubbleMeta {{ color:{FAINT}; font-size:11.5px; }}
+    #Footer {{ color:{FAINT}; font-size:11px; }}
     #Mono {{ color:{MUTED}; font-size:12.5px;
         font-family:"Cascadia Code",Consolas,monospace; }}
 
@@ -646,6 +647,15 @@ def _run_gui(
         def _say(self, object_name, role, body, **kw) -> None:
             self._row(self._bubble(object_name, role, body, **kw))
 
+        def _footer(self, text) -> None:
+            holder = QtWidgets.QWidget()
+            hl = QtWidgets.QHBoxLayout(holder)
+            hl.setContentsMargins(42, 0, 40, 0)
+            hl.addWidget(self._lbl(text, name="Footer"))
+            hl.addStretch(1)
+            self.thread.addWidget(holder)
+            QtCore.QTimer.singleShot(30, self._to_bottom)
+
         def _to_bottom(self) -> None:
             bar = self.scroll.verticalScrollBar()
             bar.setValue(bar.maximum())
@@ -695,32 +705,6 @@ def _run_gui(
             self._workers.append(worker)
             worker.start()
 
-        def _trace_text(self, trace) -> str:
-            if not trace:
-                return "No automatic tools ran."
-            lines = []
-            for item in trace[:8]:
-                label = item.get("label") or item.get("id") or "tool"
-                result = item.get("result") or {}
-                detail = ""
-                if "decision" in result:
-                    detail = f" · {result.get('decision')}"
-                elif "tier" in result:
-                    detail = f" · {result.get('tier')}"
-                lines.append(f"- {label}{detail}")
-            return "\n".join(lines)
-
-        def _receipt_text(self, receipt) -> str:
-            if not isinstance(receipt, dict):
-                return "No savings receipt recorded."
-            saved = float(receipt.get("estimated_savings_usd") or 0.0)
-            actual = float(receipt.get("estimated_actual_usd") or 0.0)
-            avoided = "yes" if receipt.get("paid_call_avoided") else "no"
-            return (
-                f"Saved: ${saved:.4f}   ·   This run: ${actual:.4f}   ·   "
-                f"Paid call avoided: {avoided}"
-            )
-
         def _on_ask(self, result) -> None:
             self._busy(False)
             if self._pending is not None:
@@ -740,25 +724,8 @@ def _run_gui(
 
         def _on_gui_result(self, result) -> None:
             status = result.get("status", "error")
-            trace = result.get("tool_trace") or []
             receipt = result.get("receipt") or {}
             warnings = result.get("warnings") or []
-            if trace:
-                self._say(
-                    "ToolBubble",
-                    "Auto tools",
-                    self._trace_text(trace),
-                    role_color=MUTED,
-                    mono=True,
-                )
-            if warnings:
-                self._say(
-                    "ToolBubble",
-                    "Blocked",
-                    "\n".join(w.get("reason", str(w)) for w in warnings),
-                    role_color=RED,
-                    meta="Safe Auto policy",
-                )
             answer = result.get("answer") or ""
             role, color = "OPai", INK
             if status == "blocked":
@@ -769,12 +736,21 @@ def _run_gui(
                 role, color = "Action needed", AMBER
             elif status not in {"answered", "cache_hit"}:
                 role, color = "OPai", RED
+            if warnings:
+                self._say(
+                    "ToolBubble",
+                    "Blocked",
+                    "\n".join(w.get("reason", str(w)) for w in warnings),
+                    role_color=RED,
+                )
+            # The answer is the main thing - shown clearly, on its own.
             self._say(
                 "BotBubble",
                 role,
                 answer or "OPai didn't return a response for that one.",
                 role_color=color,
             )
+            # Show the real diff when files actually changed (important).
             changed = result.get("changed_files") or []
             if changed:
                 try:
@@ -788,13 +764,20 @@ def _run_gui(
                     role_color=ACCENT,
                     mono=True,
                 )
-            self._say(
-                "ToolBubble",
-                "Savings receipt",
-                self._receipt_text(receipt),
-                role_color=GREEN if status != "blocked" else AMBER,
-                mono=True,
-            )
+            # One quiet footer instead of two repetitive cards every message.
+            bits = []
+            if receipt.get("mode_label"):
+                bits.append(str(receipt["mode_label"]))
+            actual = float(receipt.get("estimated_actual_usd") or 0)
+            saved = float(receipt.get("estimated_savings_usd") or 0)
+            if actual:
+                bits.append(f"${actual:.4f} this run")
+            if saved:
+                bits.append(f"${saved:.4f} saved")
+            if receipt.get("paid_call_avoided"):
+                bits.append("paid call avoided")
+            if bits:
+                self._footer("   ·   ".join(bits))
 
         def _run_tool(self, name, arg="") -> None:
             self._busy(True)

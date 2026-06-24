@@ -109,20 +109,6 @@ def _record_gui_route(
     )
 
 
-def _plan_answer(tool_trace: list[dict[str, Any]]) -> str:
-    steps = [
-        "1. Review the selected local evidence.",
-        "2. Make the smallest safe change.",
-        "3. Run the targeted verification.",
-        "4. Record the savings receipt.",
-    ]
-    useful = [item["label"] for item in tool_trace[:4]]
-    if useful:
-        steps.append("")
-        steps.append("OPai already checked: " + ", ".join(useful) + ".")
-    return "\n".join(steps)
-
-
 def handle_gui_message(
     project_root: Path,
     message: str,
@@ -157,9 +143,14 @@ def handle_gui_message(
             selected_model=selected_model,
             selected_mode=selected_mode,
         )
+        reason = warnings[0].get("reason", "") if warnings else ""
         return {
             "status": "blocked",
-            "answer": "Safe Auto blocked this request before any model call.",
+            "answer": (
+                "Safe Auto stopped this before running it because it looks risky"
+                + (f": {reason}" if reason else ".")
+                + "\nSwitch the mode to Full Auto only if you intend that."
+            ),
             "tool_trace": tool_trace,
             "receipt": receipt,
             "changed_files": [],
@@ -167,33 +158,9 @@ def handle_gui_message(
             "next_actions": ["Switch to Full Auto only if this is intentional."],
         }
 
-    if selected_mode == "plan":
-        receipt = build_savings_receipt(
-            root,
-            task=message,
-            selected_model=selected_model,
-            selected_mode=selected_mode,
-            chosen_tier="L0",
-            confidence="estimated",
-        )
-        _record_gui_route(
-            root,
-            message,
-            tier="L0",
-            receipt=receipt,
-            tool_trace=tool_trace,
-            model_id=selected_model,
-            mode=selected_mode,
-        )
-        return {
-            "status": "answered",
-            "answer": _plan_answer(tool_trace),
-            "tool_trace": tool_trace,
-            "receipt": receipt,
-            "changed_files": [],
-            "warnings": [],
-            "next_actions": ["Switch to Safe Auto to implement this plan."],
-        }
+    # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
+    # The selected model always actually answers - no canned template.
+    allow_edits = selected_mode in {"safe-auto", "full-auto"}
 
     if selected_model.startswith("account:"):
         from opai import app_state as A
@@ -202,7 +169,7 @@ def handle_gui_message(
             root,
             message,
             selected_model,
-            allow_edits=selected_mode in {"safe-auto", "full-auto"},
+            allow_edits=allow_edits,
             account_runner=account_runner,
             mode=selected_mode,
         )
@@ -270,12 +237,20 @@ def handle_gui_message(
         "no_local_model": "needs_model",
         "confirmation_required": "needs_confirmation",
     }
+    answer = result.get("answer") or result.get("hint") or result.get("reason") or ""
+    if result.get("status") == "no_local_model":
+        answer = (
+            "Auto has no free model to run this. Pick your Claude or Codex account "
+            "in the model menu to answer it, or connect a local model under Advanced."
+        )
+    elif result.get("status") == "confirmation_required":
+        answer = (
+            "This needs a paid model. Pick your Claude or Codex account in the model "
+            "menu to run it — OPai won't spend on a paid call automatically."
+        )
     return {
         "status": status_map.get(result.get("status"), result.get("status", "error")),
-        "answer": result.get("answer")
-        or result.get("hint")
-        or result.get("reason")
-        or "",
+        "answer": answer,
         "tool_trace": tool_trace,
         "receipt": receipt,
         "changed_files": [],

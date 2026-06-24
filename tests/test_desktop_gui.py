@@ -483,6 +483,40 @@ class AccountConnectionTests(unittest.TestCase):
             out = runner.complete("x", project_root=None)
         self.assertTrue(out["timed_out"])
 
+    def test_plan_mode_runs_the_model_not_a_canned_plan(self):
+        from opaihub.gui_pipeline import handle_gui_message
+
+        seen = {}
+
+        class FakeRunner:
+            model = "haiku"
+
+            def available(self):
+                return True
+
+            def complete(self, prompt, **kwargs):
+                seen.update(kwargs)
+                return {
+                    "text": "1. Add a dark-mode toggle\n2. Bigger fonts",
+                    "cost": 0.0,
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            res = handle_gui_message(
+                root,
+                "make a list of ui upgrades",
+                model_id="account:claude:haiku",
+                mode="plan",
+                account_runner=FakeRunner(),
+            )
+        # The selected model actually answered - not the old 4-step template.
+        self.assertNotIn("Review the selected local evidence", res["answer"])
+        self.assertIn("dark-mode toggle", res["answer"])
+        # Plan stays read-only: the runner was asked not to edit.
+        self.assertFalse(seen.get("allow_edits"))
+
     def test_ask_routes_account_and_records_real_spend(self):
         class FakeRunner:
             model = "sonnet"
