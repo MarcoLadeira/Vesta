@@ -29,7 +29,8 @@ SECTIONS: list[tuple[str, str]] = [(key, label) for key, label, _icon in SECTION
 THEME: dict[str, Any] = {
     "name": "opai-premium-dark",
     "font": {
-        "body": '"Aptos", "Segoe UI Variable", "Segoe UI", sans-serif',
+        # One soft typeface across every OPai surface (see opai/assets/fonts).
+        "body": '"Nunito", "Segoe UI Variable", "Segoe UI", sans-serif',
         "mono": '"Cascadia Code", "JetBrains Mono", Consolas, monospace',
     },
     "colors": {

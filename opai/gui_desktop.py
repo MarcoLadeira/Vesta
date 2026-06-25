@@ -20,6 +20,7 @@ from typing import Any
 
 from opai import app_state as A
 from opai.gui_view_model import SECTIONS
+from opai.message_render import render_message_html
 
 INSTALL_HINT = (
     'Install desktop GUI support with: python -m pip install -e ".[desktop-gui]"'
@@ -119,7 +120,23 @@ CLAUDE = "#d6896a"  # provider dot - terracotta (recognisable, not the accent)
 CODEX = "#58b0d6"  # provider dot - cool blue
 
 PROVIDER_COLOR = {"claude": CLAUDE, "codex": CODEX, "auto": MUTED}
-FONT = '"Segoe UI Variable","Segoe UI",system-ui,sans-serif'
+# One soft, friendly typeface everywhere. Nunito (rounded humanist sans, SIL
+# OFL) ships in opai/assets/fonts and is loaded at startup, so the app looks the
+# same on every machine; the system fonts are only a fallback if loading fails.
+FONT = '"Nunito","Segoe UI Variable","Segoe UI",system-ui,sans-serif'
+# Code and diffs still need a monospace face for alignment.
+MONO_FONT = '"Cascadia Code","JetBrains Mono",Consolas,monospace'
+
+# Palette handed to the Markdown renderer so answers match the dark theme.
+MSG_COLORS = {
+    "ink": INK,
+    "muted": MUTED,
+    "accent": ACCENT,
+    "link": "#7cc0ff",
+    "code_bg": "#15171b",
+    "code_ink": INK,
+    "border": BORDER,
+}
 
 MODE_LABELS = {
     "ask": "Ask",
@@ -173,8 +190,7 @@ def _stylesheet() -> str:
     #Role {{ font-weight:700; font-size:13px; }}
     #BubbleMeta {{ color:{FAINT}; font-size:11.5px; }}
     #Footer {{ color:{FAINT}; font-size:11px; }}
-    #Mono {{ color:{MUTED}; font-size:12.5px;
-        font-family:"Cascadia Code",Consolas,monospace; }}
+    #Mono {{ color:{MUTED}; font-size:12.5px; font-family:{MONO_FONT}; }}
 
     #Composer {{ background:{COMPOSER}; border:1px solid {BORDER}; border-radius:18px; }}
     #Composer:focus-within {{ border:1px solid {BORDER_HI}; }}
@@ -225,8 +241,13 @@ def _run_gui(
     )
 
     def _load_app_fonts() -> None:
-        fonts_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
-        for name in ["segoeui.ttf", "segoeuib.ttf", "segoeuisl.ttf"]:
+        # Load the soft typeface that ships with OPai so every machine renders
+        # the same calm UI, regardless of what system fonts are installed.
+        fonts_dir = Path(__file__).resolve().parent / "assets" / "fonts"
+        for name in [
+            "Nunito-Variable.ttf",
+            "Nunito-Italic-Variable.ttf",
+        ]:
             path = fonts_dir / name
             if path.exists():
                 QtGui.QFontDatabase.addApplicationFont(str(path))
@@ -615,10 +636,23 @@ def _run_gui(
                     f"color:{role_color or MUTED}; font-weight:700; font-size:13px;"
                 )
                 fl.addWidget(r)
-            body_lbl = self._lbl(body, name="Mono" if mono else None)
-            body_lbl.setTextInteractionFlags(
-                QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
-            )
+            if mono:
+                # Diffs and raw tool output stay verbatim monospace.
+                body_lbl = self._lbl(body, name="Mono")
+                body_lbl.setTextInteractionFlags(
+                    QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+                )
+            else:
+                # Answers are Markdown - render them as calm, themed rich text
+                # (bold, headings, lists, links and code) instead of raw symbols.
+                body_lbl = self._lbl("")
+                body_lbl.setTextFormat(QtCore.Qt.TextFormat.RichText)
+                body_lbl.setText(render_message_html(body, MSG_COLORS))
+                body_lbl.setOpenExternalLinks(True)
+                body_lbl.setTextInteractionFlags(
+                    QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+                    | QtCore.Qt.TextInteractionFlag.LinksAccessibleByMouse
+                )
             fl.addWidget(body_lbl)
             if meta:
                 fl.addWidget(self._lbl(meta, name="BubbleMeta"))
@@ -819,7 +853,7 @@ def _run_gui(
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _load_app_fonts()
-    app.setFont(QtGui.QFont("Segoe UI", 10))
+    app.setFont(QtGui.QFont("Nunito", 10))
     window = ChatWindow()
     if initial_task:
         # CLI companion: `opai gui "fix the login bug"` opens pre-loaded.

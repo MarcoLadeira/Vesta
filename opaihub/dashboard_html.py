@@ -60,7 +60,7 @@ def build_dashboard_html(project_root: Path) -> Path:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OPai Dashboard</title>
   <style>
-    body {{ font-family: Arial, sans-serif; margin: 0; color: #1b2430; background: #f7f8f5; }}
+    body {{ font-family: "Nunito", "Segoe UI", system-ui, sans-serif; margin: 0; color: #1b2430; background: #f7f8f5; }}
     header {{ background: #173b35; color: white; padding: 28px 32px; }}
     main {{ max-width: 1120px; margin: 0 auto; padding: 28px; }}
     h1, h2 {{ margin: 0 0 12px; letter-spacing: 0; }}

@@ -31,7 +31,7 @@ include = ["opai", "opai.*", "opaihub", "opaihub.*", "opcoding", "opcoding.*"]
 exclude = ["tests", "tests.*"]
 
 [tool.setuptools.package-data]
-opai = ["assets/*", "assets/gui-icons/*"]
+opai = ["assets/*", "assets/gui-icons/*", "assets/fonts/*"]
 opaihub = ["data/hub/**/*"]
 
 [tool.opai]
