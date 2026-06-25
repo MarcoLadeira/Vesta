@@ -539,7 +539,9 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertEqual(result["status"], "answered_by_account")
         self.assertTrue(result["paid"])
         self.assertEqual(result["answer"], "ACCOUNT ANSWER")
-        self.assertIn("CLOUD", tiers)  # a real paid call, recorded as spend
+        self.assertIn(
+            "L3", tiers
+        )  # a real paid call, recorded as spend at frontier tier
 
     def test_panic_blocks_paid_account_calls(self):
         class FakeRunner:
