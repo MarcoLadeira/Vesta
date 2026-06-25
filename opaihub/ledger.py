@@ -148,12 +148,22 @@ def record_model_call(
     provider_type: str,
     tokens: int,
     confirmed: bool,
+    real_cost_usd: float | None = None,
     store_summary: bool = False,
 ) -> dict[str, Any]:
-    """Record an actual model call (cloud or local) and its estimated cost."""
+    """Record an actual model call (cloud or local) and its estimated cost.
+
+    When ``real_cost_usd`` is provided (e.g. claude's ``total_cost_usd``),
+    it is used as-is so the ledger reflects the true spend rather than an
+    estimate. When None, the tier rate is used as a fallback.
+    """
     root = project_root.expanduser().resolve()
     cost_model = load_cost_model(root)
-    cost = tier_cost(model_tier, tokens, cost_model)
+    cost = (
+        float(real_cost_usd)
+        if real_cost_usd is not None
+        else tier_cost(model_tier, tokens, cost_model)
+    )
     return record_event(
         root,
         EVENT_MODEL_CALL,

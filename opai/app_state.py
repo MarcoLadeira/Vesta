@@ -698,7 +698,10 @@ def _ask_account(
     changed = sorted(set(_changed_files(root)) - before) if allow_edits else []
 
     # Honest firewall accounting: a paid account call is a real spend, not a
-    # saving. Best-effort - accounting must never break the answer.
+    # saving. Use the runner's real cost when available (claude returns
+    # total_cost_usd); fall back to the L3 tier estimate for Codex which
+    # doesn't report cost. "CLOUD" was never a key in the L0-L4 cost model,
+    # so using it always wrote estimated_actual_usd=0 (the "$0.00 bug").
     with contextlib.suppress(Exception):
         from opaihub.cost_model import estimate_tokens
         from opaihub.ledger import record_model_call
@@ -706,10 +709,11 @@ def _ask_account(
         record_model_call(
             root,
             task,
-            model_tier="CLOUD",
+            model_tier="L3",
             provider_type="cloud",
             tokens=estimate_tokens(task + "\n" + (answer or "")),
             confirmed=True,
+            real_cost_usd=cost if isinstance(cost, (int, float)) else None,
         )
 
     return {
