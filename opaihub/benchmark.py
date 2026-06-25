@@ -940,7 +940,7 @@ def render_benchmark_html(report: dict[str, Any]) -> str:
     return (
         "<!doctype html>\n"
         '<html><head><meta charset="utf-8"><title>OPai Benchmark Report</title>'
-        "<style>body{font-family:system-ui,sans-serif;max-width:900px;margin:40px auto;"
+        "<style>body{font-family:\"Nunito\",\"Segoe UI\",system-ui,sans-serif;max-width:900px;margin:40px auto;"
         "line-height:1.5}pre{white-space:pre-wrap;background:#f6f8fa;padding:16px;"
         "border-radius:8px}</style></head><body><pre>"
         f"{markdown}</pre></body></html>\n"
