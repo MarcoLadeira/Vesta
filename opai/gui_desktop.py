@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -258,12 +259,18 @@ def _run_gui(
         def __init__(self, fn) -> None:
             super().__init__()
             self._fn = fn
+            self._cancelled = False
+
+        def cancel(self) -> None:
+            self._cancelled = True
 
         def run(self) -> None:  # noqa: D401 - QThread entry point
             try:
-                self.done.emit(self._fn())
+                result = self._fn()
             except Exception as exc:  # noqa: BLE001
-                self.done.emit({"status": "error", "answer": str(exc)})
+                result = {"status": "error", "answer": str(exc)}
+            if not self._cancelled:
+                self.done.emit(result)
 
     class Composer(QtWidgets.QPlainTextEdit):
         submit = QtCore.Signal()
@@ -284,6 +291,8 @@ def _run_gui(
             self._workers: list[Any] = []
             self._pending = None
             self._recents: list[str] = []
+            self._current_worker: Any | None = None
+            self._is_busy = False
             self._loading_models = False
             self._loading_mode = False
             self._preferences = load_gui_preferences(self.root)
@@ -323,6 +332,7 @@ def _run_gui(
             self._load_models()
             self._refresh_status()
             self._show_empty()
+            self._load_recents()
 
         # -- sidebar --------------------------------------------------------- #
         def _build_sidebar(self):
@@ -547,10 +557,49 @@ def _run_gui(
                 btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
                 btn.clicked.connect(lambda _c=False, t=entry: self._fill(t))
                 self.recents_box.addWidget(btn)
+            self._save_recents()
 
         def _fill(self, text: str) -> None:
             self.input.setPlainText(text)
             self.input.setFocus()
+
+        def _recents_path(self) -> Path:
+            return Path.home() / ".opai" / "gui_recents.json"
+
+        def _save_recents(self) -> None:
+            try:
+                p = self._recents_path()
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(
+                    json.dumps(self._recents, ensure_ascii=False), encoding="utf-8"
+                )
+            except OSError:
+                pass
+
+        def _load_recents(self) -> None:
+            try:
+                data = json.loads(
+                    self._recents_path().read_text(encoding="utf-8")
+                )
+                if isinstance(data, list):
+                    self._recents = [str(x) for x in data if x][:8]
+            except (OSError, ValueError):
+                return
+            if not self._recents:
+                return
+            self.recents_hint.hide()
+            while self.recents_box.count() > 1:
+                item = self.recents_box.takeAt(1)
+                if item.widget():
+                    item.widget().setParent(None)
+            for entry in self._recents:
+                label = entry if len(entry) <= 30 else entry[:29] + "…"
+                btn = QtWidgets.QPushButton(label)
+                btn.setObjectName("Recent")
+                btn.setToolTip(entry)
+                btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda _c=False, t=entry: self._fill(t))
+                self.recents_box.addWidget(btn)
 
         def _new_chat(self) -> None:
             while self.thread.count():
@@ -703,10 +752,32 @@ def _run_gui(
                 self._send()
 
         def _busy(self, on) -> None:
-            self.send_btn.setEnabled(not on)
-            self.send_btn.setText("Working…" if on else "Send")
+            self._is_busy = on
+            if on:
+                self.send_btn.setText("■ Stop")
+                self.send_btn.setStyleSheet(
+                    f"background:{RED}; color:#fff; border:0; border-radius:10px;"
+                    " padding:9px 18px; font-weight:700; font-size:14px;"
+                )
+            else:
+                self.send_btn.setText("Send")
+                self.send_btn.setStyleSheet("")
+
+        def _stop(self) -> None:
+            if self._current_worker is not None:
+                self._current_worker.cancel()
+                self._current_worker = None
+            self._busy(False)
+            if self._pending is not None:
+                parent = self._pending.parentWidget()
+                (parent or self._pending).setParent(None)
+                self._pending = None
+            self._say("BotBubble", "OPai", "Stopped.", role_color=MUTED)
 
         def _send(self) -> None:
+            if self._is_busy:
+                self._stop()
+                return
             text = self.input.toPlainText().strip()
             if not text:
                 return
@@ -737,23 +808,28 @@ def _run_gui(
             )
             worker.done.connect(self._on_ask)
             self._workers.append(worker)
+            self._current_worker = worker
             worker.start()
 
         def _on_ask(self, result) -> None:
+            self._current_worker = None
             self._busy(False)
             if self._pending is not None:
                 parent = self._pending.parentWidget()
                 (parent or self._pending).setParent(None)
                 self._pending = None
-            if "tool_trace" in result or "receipt" in result:
-                self._on_gui_result(result)
-            else:
-                self._say(
-                    "BotBubble",
-                    "OPai",
-                    str(result.get("answer") or result.get("error") or result),
-                    role_color=MUTED,
-                )
+            try:
+                if "tool_trace" in result or "receipt" in result:
+                    self._on_gui_result(result)
+                else:
+                    self._say(
+                        "BotBubble",
+                        "OPai",
+                        str(result.get("answer") or result.get("error") or result),
+                        role_color=MUTED,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                self._say("BotBubble", "OPai", f"Render error: {exc}", role_color=RED)
             self._refresh_status()
 
         def _on_gui_result(self, result) -> None:
