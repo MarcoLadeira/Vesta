@@ -22,6 +22,12 @@ from .signing import verify as verify_payload
 from .team import team_report
 
 
+LOCAL_BENCHMARK_CAVEAT = (
+    "Local OPai benchmark suite result, not an official SWE-bench, "
+    "Terminal-Bench, Aider, or third-party leaderboard result."
+)
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -39,6 +45,7 @@ def _benchmark_section(project_root: Path, *, allow_run: bool) -> dict[str, Any]
         "suite": report.get("suite"),
         "efficiency_score": report.get("efficiency_score"),
         "claim_readiness": report.get("claim_readiness"),
+        "caveat": LOCAL_BENCHMARK_CAVEAT,
         "gate_ok": gate["ok"],
         "report_sha256": report.get("artifact_hashes", {}).get("report"),
     }
@@ -139,6 +146,7 @@ def render_proof_markdown(bundle: dict[str, Any]) -> str:
         "",
         "## Savings",
         f"- Estimated savings: ${savings.get('estimated_savings_usd', 0):.4f}",
+        f"- Estimated actual spend: ${savings.get('estimated_actual_spend_usd', 0):.4f}",
         f"- Cloud calls avoided: {savings.get('cloud_calls_avoided', 0)}",
         f"- Context tokens saved: {savings.get('context_tokens_saved', 0)}",
         f"- Routed tasks: {savings.get('routed_tasks', 0)}",
@@ -147,6 +155,7 @@ def render_proof_markdown(bundle: dict[str, Any]) -> str:
         f"- Present: {bench.get('present', False)}",
         f"- Context reduction: {score.get('context_reduction_ratio', 'n/a')}x",
         f"- Effectiveness index: {score.get('opai_effectiveness_index', 'n/a')}",
+        f"- Caveat: {bench.get('caveat') or LOCAL_BENCHMARK_CAVEAT}",
         "",
         "## Governance",
         f"- Policy check ok: {bundle.get('policy_check', {}).get('ok')}",

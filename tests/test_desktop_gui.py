@@ -535,11 +535,14 @@ class AccountConnectionTests(unittest.TestCase):
             result = A.ask(root, "do x", "account:claude", account_runner=FakeRunner())
             from opaihub.ledger import read_events
 
-            tiers = [e.get("model_tier") for e in read_events(root)]
+            events = read_events(root)
+            tiers = [e.get("model_tier") for e in events]
         self.assertEqual(result["status"], "answered_by_account")
         self.assertTrue(result["paid"])
         self.assertEqual(result["answer"], "ACCOUNT ANSWER")
-        self.assertIn("CLOUD", tiers)  # a real paid call, recorded as spend
+        self.assertIn("L3", tiers)  # a real paid call, recorded as frontier spend
+        self.assertGreater(events[-1]["estimated_actual_usd"], 0.0)
+        self.assertFalse(events[-1]["is_local_route"])
 
     def test_panic_blocks_paid_account_calls(self):
         class FakeRunner:

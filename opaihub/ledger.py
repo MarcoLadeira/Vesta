@@ -148,12 +148,23 @@ def record_model_call(
     provider_type: str,
     tokens: int,
     confirmed: bool,
+    real_cost_usd: float | None = None,
     store_summary: bool = False,
 ) -> dict[str, Any]:
-    """Record an actual model call (cloud or local) and its estimated cost."""
+    """Record an actual model call and its spend.
+
+    ``real_cost_usd`` is used when a provider returns a concrete cost. When it is
+    absent, OPai falls back to the configured tier estimate so paid account calls
+    never disappear as "$0.00" just because provider billing data was missing.
+    """
     root = project_root.expanduser().resolve()
     cost_model = load_cost_model(root)
-    cost = tier_cost(model_tier, tokens, cost_model)
+    if real_cost_usd is None:
+        cost = tier_cost(model_tier, tokens, cost_model)
+        confidence = "estimated"
+    else:
+        cost = max(0.0, float(real_cost_usd))
+        confidence = "actual"
     return record_event(
         root,
         EVENT_MODEL_CALL,
@@ -164,7 +175,8 @@ def record_model_call(
         tokens=int(tokens),
         confirmed=bool(confirmed),
         is_local_route=is_local_tier(model_tier, cost_model),
-        estimated_actual_usd=cost,
+        estimated_actual_usd=round(cost, 6),
+        cost_confidence=confidence,
     )
 
 

@@ -252,7 +252,11 @@ def _run_gui(
     root = project_root.expanduser().resolve()
     import threading
 
-    from opaihub.gui_pipeline import handle_gui_message
+    from opaihub.gui_pipeline import (
+        format_savings_receipt,
+        handle_gui_message,
+        last_savings_receipt,
+    )
     from opaihub.gui_preferences import (
         DEFAULT_MODE,
         MODES,
@@ -692,6 +696,31 @@ def _run_gui(
                 chip.clicked.connect(lambda _c=False, p=payload: self._chip(p))
                 chips.addWidget(chip)
             el.addLayout(chips)
+            latest = last_savings_receipt(self.root)
+            if latest:
+                el.addSpacing(16)
+                receipt = QtWidgets.QFrame()
+                receipt.setObjectName("ToolBubble")
+                receipt.setMaximumWidth(620)
+                rl = QtWidgets.QVBoxLayout(receipt)
+                rl.setContentsMargins(16, 13, 16, 14)
+                rl.setSpacing(7)
+                title_receipt = self._lbl("Latest savings receipt")
+                title_receipt.setObjectName("Role")
+                title_receipt.setStyleSheet(
+                    f"color:{ACCENT}; font-weight:700; font-size:13px;"
+                )
+                rl.addWidget(title_receipt)
+                body = self._lbl("")
+                body.setTextFormat(QtCore.Qt.TextFormat.RichText)
+                body.setText(
+                    render_message_html(format_savings_receipt(latest), MSG_COLORS)
+                )
+                body.setTextInteractionFlags(
+                    QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+                )
+                rl.addWidget(body)
+                el.addWidget(receipt, alignment=QtCore.Qt.AlignmentFlag.AlignHCenter)
             el.addStretch(1)
             self.thread.addWidget(self._empty, 1)
 
@@ -911,6 +940,13 @@ def _run_gui(
                 answer or "OPai didn't return a response for that one.",
                 role_color=color,
             )
+            if receipt:
+                self._say(
+                    "ToolBubble",
+                    "Savings receipt",
+                    format_savings_receipt(receipt),
+                    role_color=ACCENT,
+                )
             # Show the real diff when files actually changed (important).
             changed = result.get("changed_files") or []
             if changed:

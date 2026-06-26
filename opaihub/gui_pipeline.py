@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,7 @@ from .autonomy import evaluate_action, resolve_mode
 from .checkpoints import create_checkpoint
 from .gui_preferences import DEFAULT_MODE, load_gui_preferences
 from .intent_router import route_intents, safety_warnings
-from .ledger import record_event, record_route_decision, read_events
+from .ledger import record_event, record_route_decision, read_events, task_fingerprint
 from .model_intelligence import recommend_model
 from .run_state import finish_run, start_run
 
@@ -24,6 +25,25 @@ def _mode_label(mode: str) -> str:
     }.get(mode, "Safe Auto")
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _provider_from_model(model_id: str) -> str:
+    if model_id.startswith("account:"):
+        parts = model_id.split(":")
+        return parts[1] if len(parts) > 1 and parts[1] else "account"
+    if model_id == "auto":
+        return "opai"
+    if model_id.startswith("local:"):
+        return "local"
+    return (model_id.split(":", 1)[0] or "opai").lower()
+
+
+def _is_paid_account_model(model_id: str) -> bool:
+    return model_id.startswith("account:")
+
+
 def build_savings_receipt(
     project_root: Path,
     *,
@@ -34,21 +54,82 @@ def build_savings_receipt(
     actual_cost_usd: float | None = None,
     context_tokens_saved: int = 0,
     confidence: str = "estimated",
+    route_kind: str | None = None,
+    reason: str | None = None,
 ) -> dict[str, Any]:
     cost_model = load_cost_model(project_root)
     tokens = estimate_tokens(task, cost_model) or int(
         cost_model.get("default_task_tokens", 6000)
     )
     route = estimate_route_savings(chosen_tier, task_tokens=tokens, model=cost_model)
-    actual = (
-        route["estimated_actual_usd"]
-        if actual_cost_usd is None
-        else float(actual_cost_usd)
+    blocked = confidence == "blocked"
+    paid = _is_paid_account_model(selected_model) and not blocked
+    provider = _provider_from_model(selected_model)
+    route_label = route_kind or (
+        "blocked"
+        if blocked
+        else (
+            "paid_account"
+            if paid
+            else (
+                "local_or_deterministic"
+                if route["cloud_call_avoided"]
+                else "cloud_or_baseline"
+            )
+        )
     )
-    savings = max(0.0, round(route["estimated_baseline_usd"] - actual, 6))
+
+    if blocked:
+        actual = 0.0
+        savings = 0.0
+        spend_confidence = "blocked"
+        savings_confidence = "not_applicable"
+        paid_call_avoided = False
+        receipt_reason = reason or "blocked before any paid or local run"
+    elif paid:
+        actual = (
+            route["estimated_actual_usd"]
+            if actual_cost_usd is None
+            else max(0.0, float(actual_cost_usd))
+        )
+        savings = 0.0
+        spend_confidence = "actual" if actual_cost_usd is not None else "estimated"
+        savings_confidence = "not_applicable"
+        paid_call_avoided = False
+        receipt_reason = reason or "selected paid account model"
+    else:
+        actual = (
+            route["estimated_actual_usd"]
+            if actual_cost_usd is None
+            else max(0.0, float(actual_cost_usd))
+        )
+        savings = max(0.0, round(route["estimated_baseline_usd"] - actual, 6))
+        spend_confidence = "actual" if actual_cost_usd is not None else "estimated"
+        savings_confidence = confidence if savings else "not_applicable"
+        paid_call_avoided = bool(route["cloud_call_avoided"] and savings > 0)
+        receipt_reason = reason or (
+            "local or deterministic route avoided a paid baseline call"
+            if paid_call_avoided
+            else "chosen route did not create a money-saving claim"
+        )
+
+    actual = round(actual, 6)
+    savings = round(savings, 6)
+    receipt_id = uuid.uuid4().hex[:12]
     return {
+        "receipt_id": receipt_id,
+        "created_at": _now_iso(),
+        "task_hash": task_fingerprint(task),
+        "provider": provider,
+        "route_kind": route_label,
+        "paid": paid,
+        "spend_usd": actual,
+        "spend_confidence": spend_confidence,
+        "savings_usd": savings,
+        "savings_confidence": savings_confidence,
+        "reason": receipt_reason,
         "session_id": uuid.uuid4().hex[:12],
-        "message_id": uuid.uuid4().hex[:12],
+        "message_id": receipt_id,
         "selected_model": selected_model,
         "selected_mode": selected_mode,
         "mode_label": _mode_label(selected_mode),
@@ -56,15 +137,42 @@ def build_savings_receipt(
         "chosen_tier": str(chosen_tier).upper(),
         "estimated_tokens": tokens,
         "estimated_baseline_usd": route["estimated_baseline_usd"],
-        "estimated_actual_usd": round(actual, 6),
+        "estimated_actual_usd": actual,
         "estimated_savings_usd": savings,
-        "paid_call_avoided": bool(
-            route["cloud_call_avoided"] and actual <= route["estimated_actual_usd"]
-        ),
+        "paid_call_avoided": paid_call_avoided,
         "context_tokens_saved": int(context_tokens_saved),
         "confidence": confidence,
-        "privacy": "Raw prompts are not stored; receipts use task hashes and estimates.",
+        "privacy": (
+            "Raw prompts are not stored; receipts use one-way task hashes, "
+            "spend/savings numbers, and local metadata only."
+        ),
     }
+
+
+def format_savings_receipt(receipt: dict[str, Any]) -> str:
+    """Human receipt text for GUI/dashboard proof surfaces."""
+    if not receipt:
+        return "Savings receipt\nNo receipt recorded yet."
+    spend = float(receipt.get("spend_usd") or receipt.get("estimated_actual_usd") or 0)
+    savings = float(
+        receipt.get("savings_usd") or receipt.get("estimated_savings_usd") or 0
+    )
+    spend_confidence = receipt.get("spend_confidence") or receipt.get("confidence")
+    savings_confidence = receipt.get("savings_confidence") or receipt.get("confidence")
+    lines = [
+        "Savings receipt",
+        f"Spent: ${spend:.4f} ({spend_confidence})",
+        f"Saved: ${savings:.4f} ({savings_confidence})",
+        f"Route: {receipt.get('route_kind', 'unknown')}",
+        f"Reason: {receipt.get('reason', 'no money-saving claim recorded')}",
+    ]
+    if receipt.get("paid_call_avoided"):
+        lines.append("Paid call avoided: yes")
+    else:
+        lines.append("Paid call avoided: no")
+    if receipt.get("receipt_id"):
+        lines.append(f"Receipt: {receipt['receipt_id']}")
+    return "\n".join(lines)
 
 
 def last_savings_receipt(project_root: Path) -> dict[str, Any] | None:
