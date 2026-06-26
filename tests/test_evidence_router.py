@@ -1,10 +1,20 @@
+import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from opaihub.evidence import collect_evidence
 from opaihub.loader import registry_items
-from opaihub.router import compact_decision, route_task
+from opaihub.router import (
+    MAX_CHANGED_FILES,
+    MAX_COMPACT_ROUTE_CHARS,
+    MAX_DIFF_STAT_LINES,
+    _cap_lines,
+    _compact_command,
+    compact_decision,
+    route_task,
+)
 
 
 class EvidenceRouterTests(unittest.TestCase):
@@ -115,6 +125,324 @@ class EvidenceRouterTests(unittest.TestCase):
             with self.subTest(task=task):
                 decision = route_task(Path.cwd(), task)
                 self.assertIn(decision["workflow"], workflow_ids)
+
+
+class RouteRedactionHardeningTests(unittest.TestCase):
+    """Issue #30: redaction and compacting hardening for route output."""
+
+    # --- _cap_lines helper ---
+
+    def test_cap_lines_keeps_first_n_lines(self):
+        text = "\n".join(f"line{i}" for i in range(10))
+        result = _cap_lines(text, 5)
+        actual = [ln for ln in result.splitlines() if not ln.startswith("[+")]
+        self.assertEqual(actual, [f"line{i}" for i in range(5)])
+        self.assertIn("[+5 more lines omitted]", result)
+
+    def test_cap_lines_no_notice_when_below_max(self):
+        text = "a\nb\nc"
+        result = _cap_lines(text, 10)
+        self.assertNotIn("omitted", result)
+        self.assertEqual(len([ln for ln in result.splitlines() if ln.strip()]), 3)
+
+    def test_cap_lines_skips_blank_lines(self):
+        text = "a\n\nb\n\nc"
+        result = _cap_lines(text, 10)
+        self.assertEqual(len([ln for ln in result.splitlines() if ln.strip()]), 3)
+
+    def test_cap_lines_exact_max_no_notice(self):
+        text = "\n".join(f"f{i}" for i in range(5))
+        result = _cap_lines(text, 5)
+        self.assertNotIn("omitted", result)
+
+    # --- _compact_command redaction (defense-in-depth) ---
+
+    def test_compact_command_redacts_sk_secret_in_tail(self):
+        """_compact_command redacts secrets even when upstream redaction was bypassed."""
+        raw = "output includes sk-verylongsecretkey123456789 here"
+        result = {
+            "output_tail": raw,
+            "returncode": 0,
+            "executed": True,
+            "policy": "allow",
+        }
+        compact = _compact_command(result)
+        self.assertNotIn("sk-verylongsecretkey123456789", compact["output_tail"])
+        self.assertIn("[REDACTED", compact["output_tail"])
+
+    def test_compact_command_redacts_api_key_in_tail(self):
+        raw = "api_key: 'abcdefghijklmnopqrstuvwxyz1234' extra"
+        result = {
+            "output_tail": raw,
+            "returncode": 0,
+            "executed": True,
+            "policy": "allow",
+        }
+        compact = _compact_command(result)
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz1234", compact["output_tail"])
+
+    def test_compact_command_redacts_bearer_token(self):
+        raw = "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9abcdefgh"
+        result = {
+            "output_tail": raw,
+            "returncode": 0,
+            "executed": True,
+            "policy": "allow",
+        }
+        compact = _compact_command(result)
+        self.assertNotIn(
+            "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9abcdefgh", compact["output_tail"]
+        )
+        self.assertIn("[REDACTED]", compact["output_tail"])
+
+    def test_compact_command_safe_output_unchanged(self):
+        raw = "git status: clean working tree"
+        result = {
+            "output_tail": raw,
+            "returncode": 0,
+            "executed": True,
+            "policy": "allow",
+        }
+        compact = _compact_command(result)
+        self.assertIn("clean working tree", compact["output_tail"])
+
+    # --- line count caps ---
+
+    def test_compact_changed_files_capped_at_max(self):
+        many_files = "\n".join(
+            f"src/module_{i:04d}.py" for i in range(MAX_CHANGED_FILES + 30)
+        )
+        result = {
+            "output_tail": many_files,
+            "returncode": 0,
+            "executed": True,
+            "policy": "allow",
+        }
+        compact = _compact_command(result, max_lines=MAX_CHANGED_FILES)
+        file_lines = [
+            ln
+            for ln in compact["output_tail"].splitlines()
+            if ln.strip() and not ln.startswith("[+")
+        ]
+        self.assertLessEqual(len(file_lines), MAX_CHANGED_FILES)
+        self.assertIn("more lines omitted", compact["output_tail"])
+
+    def test_compact_diff_stat_capped_at_max(self):
+        stat_lines = "\n".join(
+            f" file_{i:04d}.py | {i + 1} {'+' * (i % 5 + 1)}"
+            for i in range(MAX_DIFF_STAT_LINES + 10)
+        )
+        result = {
+            "output_tail": stat_lines,
+            "returncode": 0,
+            "executed": True,
+            "policy": "allow",
+        }
+        compact = _compact_command(result, max_lines=MAX_DIFF_STAT_LINES)
+        stat_entries = [
+            ln
+            for ln in compact["output_tail"].splitlines()
+            if ln.strip() and not ln.startswith("[+")
+        ]
+        self.assertLessEqual(len(stat_entries), MAX_DIFF_STAT_LINES)
+        self.assertIn("more lines omitted", compact["output_tail"])
+
+    def test_compact_file_list_not_truncated_when_short(self):
+        few_files = "\n".join(f"file_{i}.py" for i in range(5))
+        result = {
+            "output_tail": few_files,
+            "returncode": 0,
+            "executed": True,
+            "policy": "allow",
+        }
+        compact = _compact_command(result, max_lines=MAX_CHANGED_FILES)
+        self.assertNotIn("omitted", compact["output_tail"])
+        lines = [ln for ln in compact["output_tail"].splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 5)
+
+    def test_changed_files_cap_applied_in_compact_evidence(self):
+        """_compact_evidence passes max_lines=MAX_CHANGED_FILES for changed_files."""
+        from opaihub.router import _compact_evidence
+
+        many = "\n".join(f"file_{i}.py" for i in range(MAX_CHANGED_FILES + 50))
+        evidence = {
+            "cache_key": "abc",
+            "ai_used": False,
+            "markers": [],
+            "languages": [],
+            "test_commands": [],
+            "registry_counts": {},
+            "git": {
+                "is_repo": True,
+                "status": {
+                    "output_tail": "## main",
+                    "returncode": 0,
+                    "executed": True,
+                    "policy": "allow",
+                },
+                "changed_files": {
+                    "output_tail": many,
+                    "returncode": 0,
+                    "executed": True,
+                    "policy": "allow",
+                },
+                "diff_stat": {
+                    "output_tail": "",
+                    "returncode": 0,
+                    "executed": True,
+                    "policy": "allow",
+                },
+            },
+        }
+        compact = _compact_evidence(evidence)
+        tail = compact["git"]["changed_files"]["output_tail"]
+        file_lines = [
+            ln for ln in tail.splitlines() if ln.strip() and not ln.startswith("[+")
+        ]
+        self.assertLessEqual(len(file_lines), MAX_CHANGED_FILES)
+
+    def test_diff_stat_cap_applied_in_compact_evidence(self):
+        """_compact_evidence passes max_lines=MAX_DIFF_STAT_LINES for diff_stat."""
+        from opaihub.router import _compact_evidence
+
+        many_stat = "\n".join(
+            f" f_{i}.py | {i} +" for i in range(MAX_DIFF_STAT_LINES + 20)
+        )
+        evidence = {
+            "cache_key": "abc",
+            "ai_used": False,
+            "markers": [],
+            "languages": [],
+            "test_commands": [],
+            "registry_counts": {},
+            "git": {
+                "is_repo": True,
+                "status": {
+                    "output_tail": "",
+                    "returncode": 0,
+                    "executed": True,
+                    "policy": "allow",
+                },
+                "changed_files": {
+                    "output_tail": "",
+                    "returncode": 0,
+                    "executed": True,
+                    "policy": "allow",
+                },
+                "diff_stat": {
+                    "output_tail": many_stat,
+                    "returncode": 0,
+                    "executed": True,
+                    "policy": "allow",
+                },
+            },
+        }
+        compact = _compact_evidence(evidence)
+        tail = compact["git"]["diff_stat"]["output_tail"]
+        stat_entries = [
+            ln for ln in tail.splitlines() if ln.strip() and not ln.startswith("[+")
+        ]
+        self.assertLessEqual(len(stat_entries), MAX_DIFF_STAT_LINES)
+
+    # --- route-size regression tests ---
+
+    def _make_git_repo(self, root: Path, n_extra_files: int = 0) -> None:
+        subprocess.run(["git", "init"], cwd=root, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "t@test.com"], cwd=root, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"], cwd=root, capture_output=True
+        )
+        (root / "pyproject.toml").write_text(
+            "[project]\nname='demo'\n", encoding="utf-8"
+        )
+        subprocess.run(["git", "add", "."], cwd=root, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=root, capture_output=True)
+        for i in range(n_extra_files):
+            (root / f"mod_{i:04d}.py").write_text(f"# {i}\n" * 3, encoding="utf-8")
+
+    def test_default_route_below_char_budget_on_noisy_repo(self):
+        """route_task() output stays below MAX_COMPACT_ROUTE_CHARS on a 200-file fixture."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._make_git_repo(root, n_extra_files=200)
+            decision = route_task(root, "show git status", use_cache=False)
+
+        chars = len(json.dumps(decision, default=str))
+        self.assertLess(
+            chars,
+            MAX_COMPACT_ROUTE_CHARS,
+            f"Route output exceeded budget: {chars} chars (limit: {MAX_COMPACT_ROUTE_CHARS})",
+        )
+
+    def test_default_route_below_budget_on_clean_repo(self):
+        """route_task() stays well below budget even on an empty repo."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._make_git_repo(root)
+            decision = route_task(root, "fix failing tests", use_cache=False)
+
+        chars = len(json.dumps(decision, default=str))
+        self.assertLess(chars, MAX_COMPACT_ROUTE_CHARS)
+
+    def test_compact_decision_always_tiny(self):
+        """compact_decision() output is always far below 2000 chars."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._make_git_repo(root, n_extra_files=200)
+            full = route_task(
+                root, "show git status", include_evidence=True, use_cache=False
+            )
+            compact = compact_decision(full)
+
+        chars = len(json.dumps(compact, default=str))
+        self.assertLess(chars, 2_000)
+
+    # --- full-evidence redaction tests ---
+
+    def test_full_evidence_redacts_sk_secret_in_filename(self):
+        """include_evidence=True never leaks sk-… patterns from filenames in git output."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init"], cwd=root, capture_output=True)
+            secret_name = "sk-secretkey123456789abcdef.py"
+            (root / secret_name).write_text("pass\n", encoding="utf-8")
+
+            decision = route_task(
+                root, "show git status", include_evidence=True, use_cache=False
+            )
+
+        serialized = json.dumps(decision, default=str)
+        self.assertNotIn("sk-secretkey123456789abcdef", serialized)
+
+    def test_full_evidence_redacts_token_in_status_output(self):
+        """Full evidence redacts token=… patterns appearing in git output."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init"], cwd=root, capture_output=True)
+            # Use a filename that triggers the token pattern
+            fname = "token=abcdefghij1234567890xyz.env"
+            (root / fname).write_text("secret\n", encoding="utf-8")
+
+            decision = route_task(
+                root, "show git status", include_evidence=True, use_cache=False
+            )
+
+        serialized = json.dumps(decision, default=str)
+        self.assertNotIn("abcdefghij1234567890xyz", serialized)
+
+    def test_full_evidence_size_with_many_files_is_bounded(self):
+        """include_evidence=True still applies compact evidence caps in the summary."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._make_git_repo(root, n_extra_files=200)
+            decision = route_task(
+                root, "show git status", include_evidence=True, use_cache=False
+            )
+
+        summary_chars = len(json.dumps(decision["evidence_summary"], default=str))
+        self.assertLess(summary_chars, MAX_COMPACT_ROUTE_CHARS)
 
 
 if __name__ == "__main__":
