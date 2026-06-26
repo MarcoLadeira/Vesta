@@ -6,6 +6,8 @@ from pathlib import Path
 from .analytics import build_analytics_summary
 from .benchmark import latest_benchmark_report
 from .context_engine import profile_context
+from .gui_pipeline import format_savings_receipt, last_savings_receipt
+from .proof import LOCAL_BENCHMARK_CAVEAT
 from .state import state_dir
 
 
@@ -20,6 +22,18 @@ def _money(value: object) -> str:
         return f"${float(value):.2f}"
     except (TypeError, ValueError):
         return "$0.00"
+
+
+def _money4(value: object) -> str:
+    try:
+        return f"${float(value):.4f}"
+    except (TypeError, ValueError):
+        return "$0.0000"
+
+
+def _receipt_html(receipt: dict | None) -> str:
+    text = format_savings_receipt(receipt or {})
+    return "<br>".join(escape(line) for line in text.splitlines())
 
 
 def build_dashboard_html(project_root: Path) -> Path:
@@ -37,6 +51,7 @@ def build_dashboard_html(project_root: Path) -> Path:
     budget = cockpit["budget"]
     local = cockpit["local_models"]
     bench_claim = cockpit["benchmark"]["claim"]
+    latest_receipt = last_savings_receipt(root)
     count_cards = "\n".join(
         f"<li><strong>{escape(name)}</strong><span>{value}</span></li>"
         for name, value in counts.items()
@@ -71,6 +86,9 @@ def build_dashboard_html(project_root: Path) -> Path:
     ul.cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; padding: 0; }}
     .cards li {{ list-style: none; background: #fbfcfa; border: 1px solid #d8ded6; border-radius: 8px; padding: 12px; }}
     .cards span {{ display: block; font-size: 26px; margin-top: 8px; }}
+    .savings-cards {{ margin: 0 0 10px; }}
+    .receipt {{ background: #fbfcfa; border: 1px solid #d8ded6; border-radius: 8px; padding: 12px; margin-top: 10px; }}
+    .receipt h3 {{ margin: 0 0 8px; font-size: 15px; }}
     code {{ background: #eef2eb; padding: 2px 6px; border-radius: 5px; }}
     .ok {{ color: #0f6b45; font-weight: 700; }}
     .warn {{ color: #8a4d00; font-weight: 700; }}
@@ -99,8 +117,17 @@ def build_dashboard_html(project_root: Path) -> Path:
       </div>
       <div class="panel">
         <h2>Savings Ledger</h2>
-        <p><strong>{_money(savings["estimated_savings_usd"])}</strong> estimated saved</p>
-        <p>{savings["routed_tasks"]} routed tasks, {savings["cloud_calls_avoided"]} cloud calls avoided</p>
+        <ul class="cards savings-cards">
+          <li><strong>Saved total</strong><span>{_money4(savings["estimated_savings_usd"])}</span></li>
+          <li><strong>Spent today</strong><span>{_money4(budget["spent"]["today_usd"])}</span></li>
+          <li><strong>Paid calls avoided</strong><span>{savings["cloud_calls_avoided"]}</span></li>
+          <li><strong>Context reduced</strong><span>{savings["context_tokens_saved"]}</span></li>
+        </ul>
+        <p>{savings["routed_tasks"]} routed tasks recorded. Spend and savings are separate.</p>
+        <div class="receipt">
+          <h3>Latest receipt</h3>
+          <p>{_receipt_html(latest_receipt)}</p>
+        </div>
         {savings_empty}
       </div>
       <div class="panel">
@@ -118,6 +145,7 @@ def build_dashboard_html(project_root: Path) -> Path:
       <div class="panel">
         <h2>Benchmark Proof</h2>
         <p>{bench_claim}</p>
+        <p class="muted">{LOCAL_BENCHMARK_CAVEAT}</p>
         <p>{benchmark_status}</p>
       </div>
       <div class="panel">

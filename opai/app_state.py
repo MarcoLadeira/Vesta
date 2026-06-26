@@ -729,10 +729,11 @@ def _ask_account(
         record_model_call(
             root,
             task,
-            model_tier="CLOUD",
+            model_tier="L3",
             provider_type="cloud",
             tokens=estimate_tokens(task + "\n" + (answer or "")),
             confirmed=True,
+            real_cost_usd=cost if isinstance(cost, (int, float)) else None,
         )
 
     return {

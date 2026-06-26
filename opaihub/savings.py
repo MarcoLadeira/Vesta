@@ -68,6 +68,7 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
         "routes_by_tier": summary["routes_by_tier"],
         "tier_cost_model": _per_tier_explainer(cost_model),
         "assumptions": [
+            "Spend and savings are separate: paid account calls are spend; local/cache/deterministic routes can create savings.",
             "Savings are estimates, not invoices.",
             f"Baseline assumes un-routed {cost_model.get('baseline_tier', 'L3')} usage for every task.",
             f"~{cost_model.get('chars_per_token', 4)} characters per token.",
