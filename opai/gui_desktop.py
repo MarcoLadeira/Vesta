@@ -48,13 +48,19 @@ def run_once(project_root: Path) -> dict[str, Any]:
     """Headless smoke: build state + model list and return a summary. No Qt."""
     from opaihub.gui_pipeline import last_savings_receipt
     from opaihub.gui_preferences import DEFAULT_MODE, MODES, load_gui_preferences
+    from opaihub.autonomy import resolve_mode
+    from opaihub.checkpoints import latest_checkpoint
+    from opaihub.run_state import latest_run
+    from opaihub.worktree_lanes import lane_status
 
     root = project_root.expanduser().resolve()
     state = A.full_state(root)
     o = state["overview"]
     models = A.available_models(root)
     setup = models["setup"]
-    mode = load_gui_preferences(root).get("default_mode") or DEFAULT_MODE
+    prefs = load_gui_preferences(root)
+    mode_info = resolve_mode(root)
+    mode = mode_info.get("effective_mode") or DEFAULT_MODE
     return {
         "ok": True,
         "on": o["on"],
@@ -85,9 +91,20 @@ def run_once(project_root: Path) -> dict[str, Any]:
         "zero_state": o["savings"]["zero_state"],
         "sections": [key for key, _ in SECTIONS],
         "mode": mode,
+        "requested_mode": mode_info["requested_mode"],
+        "effective_mode": mode,
+        "full_auto_pinned": mode_info["full_auto_pinned"],
+        "mode_warning": mode_info["warning"],
         "available_models": [m["id"] for m in models["models"]],
-        "auto_policy": {"default_mode": mode, "modes": list(MODES)},
+        "auto_policy": {
+            "default_mode": prefs.get("default_mode"),
+            "modes": list(MODES),
+        },
+        "autonomy_policy": mode_info,
         "last_savings_receipt": last_savings_receipt(root),
+        "latest_run": latest_run(root),
+        "latest_checkpoint": latest_checkpoint(root),
+        "lane_status": lane_status(root),
     }
 
 
@@ -233,13 +250,17 @@ def _run_gui(
     # appears to "print to the console" - it all renders in the UI.
     QtCore.qInstallMessageHandler(lambda *_a: None)
     root = project_root.expanduser().resolve()
+    import threading
+
     from opaihub.gui_pipeline import handle_gui_message
     from opaihub.gui_preferences import (
         DEFAULT_MODE,
         MODES,
         load_gui_preferences,
         save_gui_preferences,
+        save_mode_preference,
     )
+    from opaihub.autonomy import resolve_mode
 
     def _load_app_fonts() -> None:
         # Load the soft typeface that ships with OPai so every machine renders
@@ -256,13 +277,15 @@ def _run_gui(
     class Worker(QtCore.QThread):
         done = QtCore.Signal(object)
 
-        def __init__(self, fn) -> None:
+        def __init__(self, fn, *, cancel_event=None) -> None:
             super().__init__()
             self._fn = fn
             self._cancelled = False
+            self.cancel_event = cancel_event or threading.Event()
 
         def cancel(self) -> None:
             self._cancelled = True
+            self.cancel_event.set()
 
         def run(self) -> None:  # noqa: D401 - QThread entry point
             try:
@@ -462,7 +485,8 @@ def _run_gui(
         def _load_models(self) -> None:
             data = A.available_models(self.root)
             default_model = str(self._preferences.get("default_model") or "auto")
-            default_mode = str(self._preferences.get("default_mode") or DEFAULT_MODE)
+            mode_info = resolve_mode(self.root)
+            default_mode = str(mode_info.get("effective_mode") or DEFAULT_MODE)
             self.model.blockSignals(True)
             self._loading_models = True
             self.model.clear()
@@ -503,9 +527,29 @@ def _run_gui(
         def _on_mode_changed(self, _index) -> None:
             mode = self._selected_mode()
             if not self._loading_mode:
-                self._preferences = save_gui_preferences(
-                    self.root, {"default_mode": mode}
+                confirm_full_auto = False
+                if mode == "full-auto":
+                    ok = QtWidgets.QMessageBox.warning(
+                        self,
+                        "Full Auto",
+                        (
+                            "Full Auto can edit files and run commands without "
+                            "normal Safe Auto gates. Use it only when you are ready "
+                            "to review the diff immediately after the run."
+                        ),
+                        QtWidgets.QMessageBox.StandardButton.Yes
+                        | QtWidgets.QMessageBox.StandardButton.No,
+                        QtWidgets.QMessageBox.StandardButton.No,
+                    )
+                    confirm_full_auto = ok == QtWidgets.QMessageBox.StandardButton.Yes
+                self._preferences = save_mode_preference(
+                    self.root, mode, confirm_full_auto=confirm_full_auto
                 )
+                effective = self._preferences.get("default_mode") or DEFAULT_MODE
+                if effective != mode:
+                    self._loading_mode = True
+                    self.mode.setCurrentIndex(MODES.index(effective))
+                    self._loading_mode = False
 
         def _refresh_status(self) -> None:
             try:
@@ -578,9 +622,7 @@ def _run_gui(
 
         def _load_recents(self) -> None:
             try:
-                data = json.loads(
-                    self._recents_path().read_text(encoding="utf-8")
-                )
+                data = json.loads(self._recents_path().read_text(encoding="utf-8"))
                 if isinstance(data, list):
                     self._recents = [str(x) for x in data if x][:8]
             except (OSError, ValueError):
@@ -801,10 +843,16 @@ def _run_gui(
                 "BotBubble", role, "Working…", role_color=color, meta="thinking…"
             )
             self._row(self._pending)
+            cancel_event = threading.Event()
             worker = Worker(
                 lambda: handle_gui_message(
-                    self.root, text, model_id=model_id, mode=mode
-                )
+                    self.root,
+                    text,
+                    model_id=model_id,
+                    mode=mode,
+                    cancel_event=cancel_event,
+                ),
+                cancel_event=cancel_event,
             )
             worker.done.connect(self._on_ask)
             self._workers.append(worker)
@@ -847,11 +895,14 @@ def _run_gui(
             elif status not in {"answered", "cache_hit"}:
                 role, color = "OPai", RED
             if warnings:
+                blocking = [w for w in warnings if w.get("severity") != "warning"]
+                warning_role = "Blocked" if blocking else "Notice"
+                warning_color = RED if blocking else AMBER
                 self._say(
                     "ToolBubble",
-                    "Blocked",
+                    warning_role,
                     "\n".join(w.get("reason", str(w)) for w in warnings),
-                    role_color=RED,
+                    role_color=warning_color,
                 )
             # The answer is the main thing - shown clearly, on its own.
             self._say(
@@ -887,6 +938,15 @@ def _run_gui(
             if receipt.get("paid_call_avoided"):
                 bits.append("paid call avoided")
             if bits:
+                decision = result.get("autonomy_decision") or {}
+                if decision.get("decision"):
+                    bits.append(
+                        f"{decision['decision']} · {decision.get('risk', 'risk')}"
+                    )
+                if result.get("checkpoint_id"):
+                    bits.append(f"checkpoint {result['checkpoint_id']}")
+                if result.get("run_id"):
+                    bits.append(f"run {result['run_id']}")
                 self._footer("   ·   ".join(bits))
 
         def _run_tool(self, name, arg="") -> None:

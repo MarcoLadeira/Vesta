@@ -932,6 +932,50 @@ def cmd_team(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_autonomy(args: argparse.Namespace) -> int:
+    from opaihub.autonomy import resolve_mode
+
+    root = _project(args.project)
+    if args.autonomy_command == "inspect":
+        print_json(resolve_mode(root))
+        return 0
+    return 0
+
+
+def cmd_checkpoint(args: argparse.Namespace) -> int:
+    from opaihub.checkpoints import list_checkpoints, show_checkpoint
+
+    root = _project(args.project)
+    if args.checkpoint_command == "list":
+        print_json({"checkpoints": list_checkpoints(root, limit=args.limit)})
+        return 0
+    if args.checkpoint_command == "show":
+        data = show_checkpoint(root, args.checkpoint_id)
+        print_json(data or {"status": "missing", "id": args.checkpoint_id})
+        return 0 if data else 2
+    return 0
+
+
+def cmd_runs(args: argparse.Namespace) -> int:
+    from opaihub.run_state import list_runs
+
+    root = _project(args.project)
+    if args.runs_command == "list":
+        print_json({"runs": list_runs(root, limit=args.limit)})
+        return 0
+    return 0
+
+
+def cmd_lanes(args: argparse.Namespace) -> int:
+    from opaihub.worktree_lanes import lane_status
+
+    root = _project(args.project)
+    if args.lanes_command == "status":
+        print_json(lane_status(root))
+        return 0
+    return 0
+
+
 def cmd_models(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.models_command == "list":
@@ -1675,6 +1719,36 @@ def build_parser() -> argparse.ArgumentParser:
     tr = team_sub.add_parser("report", help="Team governance rollup")
     tr.add_argument("--project", default=None, help="Project root")
     tr.set_defaults(func=cmd_team)
+
+    p = sub.add_parser("autonomy", help="Inspect OPai Safe Auto runtime policy")
+    autonomy_sub = p.add_subparsers(dest="autonomy_command", required=True)
+    au = autonomy_sub.add_parser("inspect", help="Show effective mode and risk policy")
+    au.add_argument("--project", default=None, help="Project root")
+    au.set_defaults(func=cmd_autonomy)
+
+    p = sub.add_parser("checkpoint", help="Local Safe Auto checkpoint evidence")
+    checkpoint_sub = p.add_subparsers(dest="checkpoint_command", required=True)
+    ch = checkpoint_sub.add_parser("list", help="List recent checkpoints")
+    ch.add_argument("--limit", type=int, default=20)
+    ch.add_argument("--project", default=None, help="Project root")
+    ch.set_defaults(func=cmd_checkpoint)
+    ch = checkpoint_sub.add_parser("show", help="Show checkpoint metadata")
+    ch.add_argument("checkpoint_id")
+    ch.add_argument("--project", default=None, help="Project root")
+    ch.set_defaults(func=cmd_checkpoint)
+
+    p = sub.add_parser("runs", help="Local GUI/agent run state")
+    runs_sub = p.add_subparsers(dest="runs_command", required=True)
+    rn = runs_sub.add_parser("list", help="List recent GUI/agent runs")
+    rn.add_argument("--limit", type=int, default=20)
+    rn.add_argument("--project", default=None, help="Project root")
+    rn.set_defaults(func=cmd_runs)
+
+    p = sub.add_parser("lanes", help="Safe Auto worktree lane status")
+    lanes_sub = p.add_subparsers(dest="lanes_command", required=True)
+    la = lanes_sub.add_parser("status", help="Show local/worktree/review lanes")
+    la.add_argument("--project", default=None, help="Project root")
+    la.set_defaults(func=cmd_lanes)
 
     p = sub.add_parser("models", help="Model recommendation and routing helpers")
     models_sub = p.add_subparsers(dest="models_command", required=True)

@@ -19,11 +19,18 @@ import shutil
 import subprocess  # nosec B404 - we invoke the user's own logged-in AI CLIs
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 
-def _hidden_run(cmd: list[str], *, cwd: str | None, timeout: float):
+def _hidden_run(
+    cmd: list[str],
+    *,
+    cwd: str | None,
+    timeout: float,
+    cancel_event: Any = None,
+):
     """Run a CLI fully in the background - no console window, no stdin prompt.
 
     On Windows a GUI app (PySide6) that shells out to a console program pops a
@@ -42,7 +49,47 @@ def _hidden_run(cmd: list[str], *, cwd: str | None, timeout: float):
     }
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    return subprocess.run(cmd, **kwargs)  # nosec B603 - argv list, no shell, user's own CLI
+    if cancel_event is None:
+        return subprocess.run(cmd, **kwargs)  # nosec B603 - argv list, no shell, user's own CLI
+
+    popen_kwargs = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in {"capture_output", "timeout"}
+    }
+    popen_kwargs["stdout"] = subprocess.PIPE
+    popen_kwargs["stderr"] = subprocess.PIPE
+    proc = subprocess.Popen(cmd, **popen_kwargs)  # nosec B603 - argv list, user's CLI
+    deadline = time.monotonic() + timeout
+    while True:
+        if cancel_event.is_set():
+            proc.terminate()
+            try:
+                stdout, stderr = proc.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate(timeout=1)
+            result = subprocess.CompletedProcess(
+                cmd,
+                proc.returncode if proc.returncode is not None else -15,
+                stdout,
+                stderr,
+            )
+            result.stopped = True  # type: ignore[attr-defined]
+            return result
+        remaining = max(0.05, min(0.1, deadline - time.monotonic()))
+        try:
+            stdout, stderr = proc.communicate(timeout=remaining)
+            result = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+            result.stopped = False  # type: ignore[attr-defined]
+            return result
+        except subprocess.TimeoutExpired:
+            if time.monotonic() >= deadline:
+                proc.kill()
+                stdout, stderr = proc.communicate(timeout=1)
+                raise subprocess.TimeoutExpired(
+                    cmd, timeout, output=stdout, stderr=stderr
+                )
 
 
 # How to detect a logged-in account and how to drive its CLI non-interactively.
@@ -253,6 +300,8 @@ class AccountRunner:
         allow_edits: bool = False,
         mode: str | None = None,
         timeout: float = 1200.0,
+        cancel_event: Any = None,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         """Run the task; return ``{"text", "cost", "timed_out"?}``.
 
@@ -271,10 +320,15 @@ class AccountRunner:
                 prompt, allow_edits=allow_edits, out_file=out_path, mode=mode
             )
             try:
-                proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
+                proc = _hidden_run(
+                    cmd, cwd=cwd, timeout=timeout, cancel_event=cancel_event
+                )
             except subprocess.TimeoutExpired:
                 Path(out_path).unlink(missing_ok=True)
                 return {"text": "", "cost": None, "timed_out": True}
+            if getattr(proc, "stopped", False) is True:
+                Path(out_path).unlink(missing_ok=True)
+                return {"text": "", "cost": None, "stopped": True}
             try:
                 answer = Path(out_path).read_text(encoding="utf-8").strip()
             except OSError:
@@ -287,9 +341,11 @@ class AccountRunner:
             }
         cmd = self.build_command(prompt, allow_edits=allow_edits, mode=mode)
         try:
-            proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
+            proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, cancel_event=cancel_event)
         except subprocess.TimeoutExpired:
             return {"text": "", "cost": None, "timed_out": True}
+        if getattr(proc, "stopped", False) is True:
+            return {"text": "", "cost": None, "stopped": True}
         raw = (proc.stdout or "").strip()
         # claude --output-format json -> {"result": "...", "total_cost_usd": ...}.
         # Degrade gracefully to raw text if it isn't JSON.

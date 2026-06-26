@@ -581,6 +581,8 @@ def ask(
     allow_edits: bool = False,
     account_runner: Any = None,
     mode: str | None = None,
+    cancel_event: Any = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', or 'provider:model'.
 
@@ -603,6 +605,8 @@ def ask(
             allow_edits=allow_edits,
             runner=account_runner,
             mode=mode,
+            cancel_event=cancel_event,
+            run_id=run_id,
         )
 
     from opaihub.ask import run_ask
@@ -633,6 +637,8 @@ def _ask_account(
     allow_edits: bool = False,
     runner: Any = None,
     mode: str | None = None,
+    cancel_event: Any = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Run a task through a connected paid-account CLI, with firewall gating."""
     root = project_root.expanduser().resolve()
@@ -657,10 +663,15 @@ def _ask_account(
     try:
         try:
             result = run.complete(
-                task, project_root=root, allow_edits=allow_edits, mode=mode
+                task,
+                project_root=root,
+                allow_edits=allow_edits,
+                mode=mode,
+                cancel_event=cancel_event,
+                run_id=run_id,
             )
         except TypeError as exc:
-            if "mode" not in str(exc):
+            if not any(name in str(exc) for name in ["mode", "cancel_event", "run_id"]):
                 raise
             result = run.complete(task, project_root=root, allow_edits=allow_edits)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
@@ -685,6 +696,18 @@ def _ask_account(
                 "than one step. Try a smaller request, switch to a faster model "
                 "(Sonnet or Haiku), or run the long task in your terminal."
             ),
+        }
+    if isinstance(result, dict) and result.get("stopped"):
+        return {
+            "status": "account_stopped",
+            "provider": account_id,
+            "answer": (
+                f"{account_id.capitalize()} was stopped. Review changed files, "
+                "then rerun from the checkpoint context if needed."
+            ),
+            "changed_files": sorted(set(_changed_files(root)) - before)
+            if allow_edits
+            else [],
         }
 
     # complete() returns {"text", "cost"}; tolerate a plain string too.

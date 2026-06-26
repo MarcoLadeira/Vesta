@@ -5,10 +5,13 @@ from pathlib import Path
 from typing import Any
 
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
+from .autonomy import evaluate_action, resolve_mode
+from .checkpoints import create_checkpoint
 from .gui_preferences import DEFAULT_MODE, load_gui_preferences
 from .intent_router import route_intents, safety_warnings
 from .ledger import record_event, record_route_decision, read_events
 from .model_intelligence import recommend_model
+from .run_state import finish_run, start_run
 
 
 def _mode_label(mode: str) -> str:
@@ -116,17 +119,45 @@ def handle_gui_message(
     model_id: str | None = None,
     mode: str | None = None,
     account_runner: Any = None,
+    cancel_event: Any = None,
 ) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     prefs = load_gui_preferences(root)
     selected_model = model_id or prefs.get("default_model") or "auto"
-    selected_mode = mode or prefs.get("default_mode") or DEFAULT_MODE
+    mode_info = resolve_mode(root, requested_mode=mode)
+    if mode is None and not mode_info["requested_mode"]:
+        mode_info = resolve_mode(
+            root, requested_mode=prefs.get("default_mode") or DEFAULT_MODE
+        )
+    requested_mode = mode_info["requested_mode"]
+    selected_mode = mode_info["effective_mode"]
     tool_trace = route_intents(root, message, mode=selected_mode)
     warnings = safety_warnings(root, message, mode=selected_mode)
+    if mode_info.get("warning"):
+        warnings.append({"reason": mode_info["warning"], "severity": "warning"})
+    blocking_warnings = [w for w in warnings if w.get("severity") != "warning"]
     rec = recommend_model(root, message)
     tier = str(rec.get("recommended_model_tier") or "L1").upper()
+    allow_edits = selected_mode in {"safe-auto", "full-auto"}
+    autonomy_decision = evaluate_action(
+        root,
+        selected_mode,
+        message=message,
+        model_id=selected_model,
+        mutates=allow_edits,
+    )
+    run = start_run(
+        root,
+        message,
+        mode=selected_mode,
+        model_id=selected_model,
+        decision=autonomy_decision,
+    )
+    run_id = run["id"]
 
-    if warnings and selected_mode != "full-auto":
+    if autonomy_decision["blocked"] or (
+        blocking_warnings and selected_mode != "full-auto"
+    ):
         receipt = build_savings_receipt(
             root,
             task=message,
@@ -143,9 +174,27 @@ def handle_gui_message(
             selected_model=selected_model,
             selected_mode=selected_mode,
         )
-        reason = warnings[0].get("reason", "") if warnings else ""
+        finish_run(
+            root,
+            run_id,
+            status="blocked",
+            receipt_id=receipt["message_id"],
+            next_action="Switch modes only if this is intentional.",
+        )
+        reason = autonomy_decision.get("reason") or (
+            blocking_warnings[0].get("reason", "") if blocking_warnings else ""
+        )
+        trigger = autonomy_decision.get("trigger")
+        if trigger and trigger not in reason:
+            reason = f"{reason} ({trigger})"
+        blocked_status = (
+            "blocked_panic"
+            if autonomy_decision.get("risk") == "paid"
+            and "panic" in str(autonomy_decision.get("reason", "")).lower()
+            else "blocked"
+        )
         return {
-            "status": "blocked",
+            "status": blocked_status,
             "answer": (
                 "Safe Auto stopped this before running it because it looks risky"
                 + (f": {reason}" if reason else ".")
@@ -156,15 +205,34 @@ def handle_gui_message(
             "changed_files": [],
             "warnings": warnings,
             "next_actions": ["Switch to Full Auto only if this is intentional."],
+            "run_id": run_id,
+            "checkpoint_id": None,
+            "autonomy_decision": autonomy_decision,
+            "effective_mode": selected_mode,
+            "requested_mode": requested_mode,
+            "stopped": False,
+            "resume_actions": [],
+            "diff_review": None,
         }
-
-    # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
-    # The selected model always actually answers - no canned template.
-    allow_edits = selected_mode in {"safe-auto", "full-auto"}
 
     if selected_model.startswith("account:"):
         from opai import app_state as A
 
+        checkpoint = (
+            create_checkpoint(
+                root,
+                message,
+                mode=selected_mode,
+                model_id=selected_model,
+                decision=autonomy_decision,
+            )
+            if allow_edits
+            else None
+        )
+        if checkpoint:
+            from .run_state import update_run
+
+            update_run(root, run_id, checkpoint_id=checkpoint["id"])
         result = A.ask(
             root,
             message,
@@ -172,6 +240,8 @@ def handle_gui_message(
             allow_edits=allow_edits,
             account_runner=account_runner,
             mode=selected_mode,
+            cancel_event=cancel_event,
+            run_id=run_id,
         )
         actual = result.get("cost_usd")
         receipt = build_savings_receipt(
@@ -197,6 +267,18 @@ def handle_gui_message(
             if result.get("status") == "answered_by_account"
             else result.get("status", "error")
         )
+        stopped = status == "account_stopped" or bool(result.get("stopped"))
+        finish_run(
+            root,
+            run_id,
+            status="stopped"
+            if stopped
+            else ("completed" if status == "answered" else "failed"),
+            changed_files=result.get("changed_files", []),
+            receipt_id=receipt["message_id"],
+            next_action="Review changed files before committing.",
+        )
+        changed = result.get("changed_files", [])
         return {
             "status": status,
             "answer": result.get("answer")
@@ -205,10 +287,27 @@ def handle_gui_message(
             or "The model didn't return anything. Try again or pick another model.",
             "tool_trace": tool_trace,
             "receipt": receipt,
-            "changed_files": result.get("changed_files", []),
-            "warnings": [],
+            "changed_files": changed,
+            "warnings": warnings,
             "next_actions": ["Review changed files before committing."],
             "raw_result": result,
+            "run_id": run_id,
+            "checkpoint_id": checkpoint["id"] if checkpoint else None,
+            "autonomy_decision": autonomy_decision,
+            "effective_mode": selected_mode,
+            "requested_mode": requested_mode,
+            "stopped": stopped,
+            "resume_actions": [
+                "Review the diff from the checkpoint.",
+                "Rerun from checkpoint context if needed.",
+            ]
+            if stopped
+            else [],
+            "diff_review": {
+                "checkpoint_id": checkpoint["id"] if checkpoint else None,
+                "changed_files": changed,
+                "requires_review": bool(changed),
+            },
         }
 
     from .ask import run_ask
@@ -253,13 +352,30 @@ def handle_gui_message(
             "The local model couldn't answer that. Pick your Claude or Codex account "
             "in the model menu, or check that your local model is running."
         )
+    finish_run(
+        root,
+        run_id,
+        status="completed"
+        if status_map.get(result.get("status")) == "answered"
+        else "failed",
+        receipt_id=receipt["message_id"],
+        next_action=result.get("next_command") or "Review the savings receipt.",
+    )
     return {
         "status": status_map.get(result.get("status"), result.get("status", "error")),
         "answer": answer,
         "tool_trace": tool_trace,
         "receipt": receipt,
         "changed_files": [],
-        "warnings": [],
+        "warnings": warnings,
         "next_actions": [result.get("next_command") or "Review the savings receipt."],
         "raw_result": result,
+        "run_id": run_id,
+        "checkpoint_id": None,
+        "autonomy_decision": autonomy_decision,
+        "effective_mode": selected_mode,
+        "requested_mode": requested_mode,
+        "stopped": False,
+        "resume_actions": [],
+        "diff_review": None,
     }
