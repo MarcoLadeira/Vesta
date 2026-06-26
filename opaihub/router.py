@@ -5,10 +5,14 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .command_runner import redact
 from .evidence import collect_evidence
 
 
 MAX_ROUTE_TAIL_CHARS = 360
+MAX_CHANGED_FILES = 50
+MAX_DIFF_STAT_LINES = 20
+MAX_COMPACT_ROUTE_CHARS = 8_000
 
 
 def _has_any(text: str, terms: list[str]) -> bool:
@@ -23,12 +27,28 @@ def _has_any(text: str, terms: list[str]) -> bool:
     return False
 
 
-def _compact_command(result: dict[str, Any]) -> dict[str, Any]:
+def _cap_lines(text: str, max_lines: int) -> str:
+    """Keep the first max_lines non-empty lines; append omission notice if trimmed."""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if len(lines) <= max_lines:
+        return "\n".join(lines)
+    omitted = len(lines) - max_lines
+    return "\n".join(lines[:max_lines]) + f"\n[+{omitted} more lines omitted]"
+
+
+def _compact_command(
+    result: dict[str, Any], max_lines: int | None = None
+) -> dict[str, Any]:
+    raw = str(result.get("output_tail", ""))
+    if max_lines is not None:
+        tail = redact(_cap_lines(raw, max_lines))
+    else:
+        tail = redact(raw[-MAX_ROUTE_TAIL_CHARS:])
     return {
         "returncode": result.get("returncode"),
         "executed": result.get("executed", False),
         "policy": result.get("policy"),
-        "output_tail": str(result.get("output_tail", ""))[-MAX_ROUTE_TAIL_CHARS:],
+        "output_tail": tail,
     }
 
 
@@ -44,8 +64,12 @@ def _compact_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
         "git": {
             "is_repo": git.get("is_repo", False),
             "status": _compact_command(git.get("status", {})),
-            "changed_files": _compact_command(git.get("changed_files", {})),
-            "diff_stat": _compact_command(git.get("diff_stat", {})),
+            "changed_files": _compact_command(
+                git.get("changed_files", {}), max_lines=MAX_CHANGED_FILES
+            ),
+            "diff_stat": _compact_command(
+                git.get("diff_stat", {}), max_lines=MAX_DIFF_STAT_LINES
+            ),
         },
     }
 
