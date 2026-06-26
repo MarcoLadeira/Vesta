@@ -1,18 +1,39 @@
 schema_version: 1
 deny:
+  # download + execute — original and pipe-spacing bypass forms
   - "curl * | sh"
-  - "Invoke-WebRequest * | iex"
+  - "curl * | bash"
+  - "curl * | zsh"
+  - "curl * | fish"
+  - "wget * | sh"
+  - "wget * | bash"
+  # PowerShell download + execute
+  - "invoke-webrequest * | iex"
   - "iwr * | iex"
-  - "chmod -R 777"
+  - "iex *"
+  - "invoke-expression *"
+  # chmod world-writable
+  - "chmod -r 777"
+  - "chmod 777 -r"
+  - "chmod -r 0777"
+  # cmd.exe wrappers for destructive ops
+  - "cmd /c rmdir*"
+  - "cmd /c del *"
+  - "cmd.exe /c rmdir*"
+  - "cmd.exe /c del *"
 confirm:
   - "git push"
   - "git merge"
   - "git rebase"
   - "git reset --hard"
-  - "git clean -fd"
+  - "git clean -f*"
+  - "git branch -d *"
   - "git branch -D"
   - "Remove-Item -Recurse"
   - "rm -rf"
+  - "rm -fr"
+  - "rm -r"
+  - "rm --recursive*"
   - "docker system prune"
   - "docker compose down -v"
   - "npm publish"
