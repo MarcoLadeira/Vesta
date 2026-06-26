@@ -7,7 +7,7 @@ from typing import Any
 
 def _git(root: Path, args: list[str]) -> str:
     try:
-        proc = subprocess.run(  # nosec B603 - argv list, no shell
+        proc = subprocess.run(  # nosec
             ["git", *args],
             cwd=str(root),
             capture_output=True,
