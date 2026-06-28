@@ -431,5 +431,129 @@ class EndToEndHonestyTests(unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------
+# 6. Invariants (#90): property-style grids that lock the trust contract
+# ---------------------------------------------------------------------------
+class LedgerReconciliationInvariantTests(unittest.TestCase):
+    """Parametrized invariants so 'spend counted as savings' can never regress.
+
+    No hypothesis dependency: we sweep representative grids with subTest, which
+    gives property-style coverage of the money-handling paths.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _last_call(self) -> dict:
+        return next(
+            e
+            for e in reversed(read_events(self.root))
+            if e.get("event_type") == EVENT_MODEL_CALL
+        )
+
+    def test_receipt_savings_is_baseline_minus_actual_over_grid(self):
+        tiers = ["L0", "L1", "L2", "L3"]
+        costs = [None, 0.0, 0.001, 0.042, 0.5, 5.0]
+        for tier in tiers:
+            for cost in costs:
+                with self.subTest(tier=tier, actual=cost):
+                    receipt = build_savings_receipt(
+                        self.root,
+                        task="a representative task",
+                        selected_model="auto"
+                        if cost is None
+                        else "account:claude:opus",
+                        selected_mode="ask",
+                        chosen_tier=tier,
+                        actual_cost_usd=cost,
+                    )
+                    expected = max(
+                        0.0,
+                        round(
+                            receipt["estimated_baseline_usd"]
+                            - receipt["estimated_actual_usd"],
+                            6,
+                        ),
+                    )
+                    self.assertAlmostEqual(
+                        receipt["estimated_savings_usd"], expected, places=5
+                    )
+                    self.assertGreaterEqual(receipt["estimated_savings_usd"], 0.0)
+
+    def test_real_cost_recorded_verbatim_over_grid(self):
+        for cost in [0.0, 0.001, 0.042, 0.5, 12.34]:
+            with self.subTest(real_cost=cost):
+                record_model_call(
+                    self.root,
+                    "task",
+                    model_tier="L3",
+                    provider_type="cloud",
+                    tokens=6000,
+                    confirmed=True,
+                    real_cost_usd=cost,
+                )
+                self.assertAlmostEqual(
+                    self._last_call()["estimated_actual_usd"], cost, places=6
+                )
+
+    def test_paid_call_never_counts_as_cloud_avoided_over_modes_and_models(self):
+        combos = [
+            ("account:claude:sonnet", "ask"),
+            ("account:claude:opus", "safe-auto"),
+            ("account:claude:haiku", "full-auto"),
+            ("account:codex", "ask"),
+        ]
+        for model_id, mode in combos:
+            with self.subTest(model=model_id, mode=mode):
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                root = make_repo(Path(tmp.name))
+                account_id = "codex" if "codex" in model_id else "claude"
+                fake = FakeAccountRunner(account_id=account_id, text="done", cost=0.05)
+                handle_gui_message(
+                    root, "task", model_id=model_id, mode=mode, account_runner=fake
+                )
+                summary = summarize_ledger(root)
+                self.assertEqual(
+                    summary["cloud_calls_avoided"],
+                    0,
+                    f"paid {model_id} in {mode} must never count as a cloud call avoided",
+                )
+
+    def test_local_routes_always_count_as_avoided_over_grid(self):
+        for tier in ["L0", "L1"]:
+            with self.subTest(tier=tier):
+                result = estimate_route_savings(tier, task_tokens=6000)
+                self.assertTrue(result["cloud_call_avoided"])
+                self.assertEqual(result["estimated_actual_usd"], 0)
+
+    def test_paid_tiers_never_count_as_avoided_over_grid(self):
+        for tier in ["L2", "L3", "L4"]:
+            with self.subTest(tier=tier):
+                result = estimate_route_savings(tier, task_tokens=6000)
+                self.assertFalse(result["cloud_call_avoided"])
+
+    def test_raw_prompt_never_persisted_in_ledger_or_receipt(self):
+        secret_prompt = "deploy with api_key=sk-supersecret9876543210abcdef please"
+        fake = FakeAccountRunner(text="done", cost=0.02)
+        res = handle_gui_message(
+            self.root,
+            secret_prompt,
+            model_id="account:claude:sonnet",
+            mode="ask",
+            account_runner=fake,
+        )
+        # The secret must not appear in any persisted ledger event...
+        blob = "".join(str(e) for e in read_events(self.root))
+        self.assertNotIn("sk-supersecret9876543210abcdef", blob)
+        self.assertNotIn(secret_prompt, blob)
+        # ...nor in the receipt returned to the GUI.
+        self.assertNotIn("sk-supersecret9876543210abcdef", str(res.get("receipt", {})))
+
+
 if __name__ == "__main__":
     unittest.main()
