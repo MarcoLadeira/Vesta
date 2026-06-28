@@ -316,7 +316,9 @@ class StripShellWrapperTests(unittest.TestCase):
         self.assertEqual(_strip_shell_wrapper("bash -c 'rm -rf /'"), "rm -rf /")
 
     def test_sh_c(self):
-        self.assertEqual(_strip_shell_wrapper("sh -c 'git reset --hard'"), "git reset --hard")
+        self.assertEqual(
+            _strip_shell_wrapper("sh -c 'git reset --hard'"), "git reset --hard"
+        )
 
     def test_zsh_c(self):
         self.assertEqual(_strip_shell_wrapper("zsh -c 'echo hi'"), "echo hi")
