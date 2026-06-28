@@ -578,9 +578,7 @@ def _run_gui(
 
         def _load_recents(self) -> None:
             try:
-                data = json.loads(
-                    self._recents_path().read_text(encoding="utf-8")
-                )
+                data = json.loads(self._recents_path().read_text(encoding="utf-8"))
                 if isinstance(data, list):
                     self._recents = [str(x) for x in data if x][:8]
             except (OSError, ValueError):

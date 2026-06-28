@@ -72,7 +72,7 @@ def _code_block(lines: list[str], colors: dict[str, str]) -> str:
     return (
         f'<pre style="background:{colors["code_bg"]};color:{colors["code_ink"]};'
         f"font-family:{_MONO};font-size:12.5px;padding:11px 13px;"
-        f'border:1px solid {colors["border"]};border-radius:10px;'
+        f"border:1px solid {colors['border']};border-radius:10px;"
         f'white-space:pre-wrap;margin:8px 0;">{body}</pre>'
     )
 
@@ -163,7 +163,9 @@ def render_message_html(text: Any, colors: dict[str, str] | None = None) -> str:
                     f'color:{palette["ink"]};">'
                 )
                 list_stack.append("ol")
-            out.append(f"<li style='margin:3px 0;'>{_inline(html.escape(ordered.group(2)), palette)}</li>")
+            out.append(
+                f"<li style='margin:3px 0;'>{_inline(html.escape(ordered.group(2)), palette)}</li>"
+            )
             i += 1
             continue
 
@@ -177,7 +179,9 @@ def render_message_html(text: Any, colors: dict[str, str] | None = None) -> str:
                     f'color:{palette["ink"]};">'
                 )
                 list_stack.append("ul")
-            out.append(f"<li style='margin:3px 0;'>{_inline(html.escape(bullet.group(1)), palette)}</li>")
+            out.append(
+                f"<li style='margin:3px 0;'>{_inline(html.escape(bullet.group(1)), palette)}</li>"
+            )
             i += 1
             continue
 

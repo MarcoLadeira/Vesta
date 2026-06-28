@@ -39,7 +39,7 @@ def _strip_shell_wrapper(command: str) -> str | None:
     m = _SHELL_WRAPPER_RE.match(command.strip())
     if not m:
         return None
-    inner = command[m.end():].rstrip("'\"").strip()
+    inner = command[m.end() :].rstrip("'\"").strip()
     return inner if inner else None
 
 
