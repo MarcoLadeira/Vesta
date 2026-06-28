@@ -666,6 +666,47 @@ def cmd_budget(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_receipt(args: argparse.Namespace) -> int:
+    from opaihub.receipt import build_receipt, render_receipt_svg, verify_receipt
+
+    root = _project(args.project)
+    if getattr(args, "receipt_command", None) == "verify":
+        try:
+            receipt = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print_json({"verified": False, "problems": [f"unreadable receipt: {exc}"]})
+            return 1
+        result = verify_receipt(root, receipt)
+        print_json(result)
+        return 0 if result["verified"] else 1
+
+    receipt = build_receipt(root, sign=not getattr(args, "no_sign", False))
+    wrote_any = False
+    if getattr(args, "svg", None):
+        Path(args.svg).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.svg).write_text(render_receipt_svg(receipt), encoding="utf-8")
+        wrote_any = True
+    if getattr(args, "out", None):
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        wrote_any = True
+    if wrote_any:
+        print_json(
+            {
+                "status": "written",
+                "svg": getattr(args, "svg", None),
+                "json": getattr(args, "out", None),
+                "signed": isinstance(receipt.get("signature"), dict),
+                "has_data": receipt.get("has_data"),
+            }
+        )
+        return 0
+    print_json(receipt)
+    return 0
+
+
 def cmd_proof(args: argparse.Namespace) -> int:
     from opaihub.proof import (
         build_proof_bundle,
@@ -1429,6 +1470,27 @@ def build_parser() -> argparse.ArgumentParser:
     bp.add_argument("--off", action="store_true", help="Disable panic mode")
     bp.add_argument("--project", default=None, help="Project root")
     bp.set_defaults(func=cmd_budget)
+
+    p = sub.add_parser(
+        "receipt",
+        help="Signed, screenshot-able savings receipt you can share and verify",
+    )
+    receipt_sub = p.add_subparsers(dest="receipt_command", required=False)
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("--svg", metavar="PATH", help="Write a shareable SVG card")
+    p.add_argument("--out", metavar="PATH", help="Write the signed receipt JSON")
+    p.add_argument(
+        "--no-sign",
+        action="store_true",
+        help="Skip signing (card is watermarked UNVERIFIED)",
+    )
+    p.set_defaults(func=cmd_receipt)
+    rv = receipt_sub.add_parser(
+        "verify", help="Verify a receipt's content hash + signature"
+    )
+    rv.add_argument("file")
+    rv.add_argument("--project", default=None, help="Project root")
+    rv.set_defaults(func=cmd_receipt)
 
     p = sub.add_parser(
         "proof",
