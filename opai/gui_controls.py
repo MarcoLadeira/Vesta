@@ -45,6 +45,24 @@ COMMANDS: list[dict[str, str]] = [
         "keywords": "provider claude codex local auto",
     },
     {
+        "id": "prompts",
+        "label": "Open prompt library",
+        "hint": "Ctrl+P",
+        "keywords": "templates saved prompts snippets examples",
+    },
+    {
+        "id": "inspector",
+        "label": "Toggle control panel",
+        "hint": "Ctrl+I",
+        "keywords": "inspector session right panel controls permissions",
+    },
+    {
+        "id": "workspace",
+        "label": "Open project folder",
+        "hint": "Ctrl+O",
+        "keywords": "workspace project directory switch open folder",
+    },
+    {
         "id": "change_mode",
         "label": "Change mode",
         "hint": "",
@@ -114,6 +132,10 @@ SHORTCUTS: list[tuple[str, str]] = [
     ("Esc", "Stop generation"),
     ("Ctrl+L", "Focus prompt input"),
     ("Ctrl+M", "Change model"),
+    ("Ctrl+P", "Open prompt library"),
+    ("Ctrl+I", "Toggle control panel"),
+    ("Ctrl+O", "Open project folder"),
+    ("Ctrl+B", "Toggle sidebar"),
     ("?", "Show keyboard shortcuts"),
 ]
 
@@ -246,3 +268,84 @@ def friendly_error(status: str, model_label: str = "the model") -> str:
     if not template:
         return "Something didn't go through. Try again, or pick a different model."
     return template.format(model=short)
+
+
+# --------------------------------------------------------------------------- #
+# Privacy badges + session inspector (right control panel)
+# --------------------------------------------------------------------------- #
+def privacy_badges(*, model_kind: str | None, connected: bool) -> list[dict[str, str]]:
+    """What the AI can and can't reach right now — never vague.
+
+    ``tone`` is one of safe/info/warn so the panel can colour each badge.
+    """
+    badges: list[dict[str, str]] = [
+        {"label": "No telemetry", "tone": "safe"},
+        {"label": "No secrets stored", "tone": "safe"},
+    ]
+    if model_kind == "local":
+        badges.insert(0, {"label": "Local only · private", "tone": "safe"})
+    elif model_kind == "auto":
+        badges.insert(0, {"label": "Local-first · cloud on confirm", "tone": "info"})
+    else:
+        badges.insert(0, {"label": "Cloud model · paid", "tone": "warn"})
+    badges.append(
+        {
+            "label": "Account connected" if connected else "No account connected",
+            "tone": "info" if connected else "warn",
+        }
+    )
+    return badges
+
+
+def _f2(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def session_inspector(
+    *,
+    model_label: str,
+    model_kind: str | None,
+    run_mode_label: str,
+    task_summary: dict[str, Any] | None,
+    inspector: dict[str, Any] | None,
+    permission_summary: str,
+    connected: bool,
+) -> dict[str, Any]:
+    """Compose the right-panel inspector payload from already-computed pieces.
+
+    Pure: it just arranges display rows + a budget meter + privacy badges. The
+    window renders this; the numbers come from ``app_state.inspector_state`` so
+    they are real, not decorative.
+    """
+    ins = inspector or {}
+    budget = ins.get("budget") or {}
+    workspace = ins.get("workspace") or {}
+    task = task_summary or {}
+    spent = _f2(budget.get("spent_today"))
+    limit = budget.get("daily_limit")
+    pct = int(budget.get("pct") or 0)
+    if isinstance(limit, (int, float)) and limit > 0:
+        budget_text = f"${spent:.2f} / ${float(limit):.2f} today"
+    else:
+        budget_text = f"${spent:.2f} today · no cap"
+    rows = [
+        {"label": "Model", "value": str(model_label or "Auto").split(" · ")[0]},
+        {"label": "Run mode", "value": str(run_mode_label or "Ask")},
+        {"label": "Task focus", "value": str(task.get("focus") or "Build")},
+        {"label": "Output", "value": str(task.get("format") or "Normal")},
+        {"label": "Workspace", "value": str(workspace.get("text") or "—")},
+        {"label": "Permissions", "value": permission_summary},
+    ]
+    return {
+        "rows": rows,
+        "budget": {
+            "text": budget_text,
+            "pct": max(0, min(100, pct)),
+            "panic": bool(budget.get("panic")),
+        },
+        "privacy": privacy_badges(model_kind=model_kind, connected=connected),
+        "read_only": bool(task.get("read_only")),
+    }

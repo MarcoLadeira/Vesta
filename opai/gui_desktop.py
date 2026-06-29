@@ -1,13 +1,19 @@
-"""OPai desktop app - a calm, Claude-style coding chat.
+"""OPai desktop app — a premium, user-controlled AI workspace.
 
-`opai gui` opens one clean window: a left sidebar (new chat + recents +
-connected accounts), an uncluttered conversation, and a simple composer where
-you pick a model and a run mode and type. OPai's control plane (modes, intent
-router, savings receipts, account routing) runs underneath; the surface stays
-simple on purpose.
+`opai gui` opens one window with four zones: a grouped left sidebar (new chat,
+workspace views, dashboards, prompt library, settings), a header with a real
+workspace switcher and live status, a stacked main area (chat + data-backed
+dashboard pages + prompt library + settings), and a toggleable right control
+panel (session inspector: model, run mode, task focus, output format, budget
+meter, tool permissions, privacy). The chat stays the default surface; the
+power lives in the palette, shortcuts, and the inspector — not in clutter.
 
-PySide6 is imported lazily only when the window opens, so `run_once` and
-`dependency_status` stay dependency-free for tests and the install smoke.
+All display/formatting logic lives in Qt-free helpers (``gui_controls``,
+``gui_nav``, ``gui_modes``, ``gui_permissions``, ``gui_prompts``,
+``gui_workspace``, ``gui_view_model``) so it is unit-tested without a display;
+the widgets here just render those payloads. PySide6 is imported lazily so
+``run_once`` and ``dependency_status`` stay dependency-free for tests and the
+install smoke.
 """
 
 from __future__ import annotations
@@ -26,9 +32,27 @@ from opai.gui_controls import (
     filter_commands,
     header_status,
     model_badge,
+    session_inspector,
     thinking_text,
 )
-from opai.gui_view_model import SECTIONS
+from opai.gui_modes import (
+    DEFAULT_OUTPUT_FORMAT,
+    DEFAULT_TASK_MODE,
+    compose_prompt,
+    output_formats,
+    task_modes,
+    task_summary,
+)
+from opai.gui_nav import DEFAULT_VIEW, find_nav, nav_groups
+from opai.gui_permissions import permission_summary, permissions_for
+from opai.gui_prompts import categories_present, filter_prompts, find_prompt
+from opai.gui_view_model import SECTIONS, build_view_model
+from opai.gui_workspace import (
+    add_recent_workspace,
+    is_valid_workspace,
+    load_recent_workspaces,
+    workspace_label,
+)
 from opai.message_render import render_message_html
 
 INSTALL_HINT = (
@@ -110,7 +134,7 @@ def _qt():
 # OPai's own dark identity: a cool charcoal with an emerald accent (the savings /
 # cost-firewall signal) - deliberately not Claude's warm coral. One typeface only.
 BG = "#1b1d21"  # main conversation surface (cool charcoal)
-SIDEBAR = "#16181b"  # left sidebar (a touch darker)
+SIDEBAR = "#16181b"  # left sidebar + right control panel (a touch darker)
 COMPOSER = "#23262b"  # composer + cards
 PANEL = "#212429"  # message cards
 PANEL_HI = "#2c3036"  # hover
@@ -129,10 +153,26 @@ CLAUDE = "#d6896a"  # provider dot - terracotta (recognisable, not the accent)
 CODEX = "#58b0d6"  # provider dot - cool blue
 
 PROVIDER_COLOR = {"claude": CLAUDE, "codex": CODEX, "auto": MUTED}
-# One soft, friendly typeface everywhere. Nunito (rounded humanist sans, SIL
-# OFL) ships in opai/assets/fonts and is loaded at startup, so the app looks the
-# same on every machine; the system fonts are only a fallback if loading fails.
-FONT = '"Nunito","Segoe UI Variable","Segoe UI",system-ui,sans-serif'
+# Severity → colour for dashboard cards, KPI chips, badges, permission states.
+SEVERITY_COLOR = {
+    "success": GREEN,
+    "warning": AMBER,
+    "danger": RED,
+    "accent": ACCENT,
+    "info": "#7ab7ff",
+    "neutral": MUTED,
+    "safe": GREEN,
+    "warn": AMBER,
+    "allow": GREEN,
+    "ask": AMBER,
+    "block": RED,
+}
+# One crisp, premium typeface everywhere. Inter (the SaaS-standard neutral UI
+# sans, SIL OFL) ships in opai/assets/fonts and is loaded at startup, so the app
+# looks the same on every machine; the system fonts are only a fallback if
+# loading fails. Inter is deliberately not a rounded face — it reads as a
+# developer-grade workspace, not a toy.
+FONT = '"Inter","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif'
 # Code and diffs still need a monospace face for alignment.
 MONO_FONT = '"Cascadia Code","JetBrains Mono",Consolas,monospace'
 
@@ -164,22 +204,27 @@ def _stylesheet() -> str:
         padding:6px 9px; border-radius:6px; }}
 
     #Sidebar {{ background:{SIDEBAR}; border-right:1px solid {BORDER}; }}
-    #Brand {{ font-size:16px; font-weight:700; letter-spacing:0.2px; color:{INK}; }}
-    #SectionLabel {{ color:{FAINT}; font-size:11px; font-weight:700; letter-spacing:0.7px; }}
-    QPushButton#NewChat {{ background:{PANEL}; color:{INK}; border:1px solid {BORDER};
-        border-radius:11px; padding:10px 12px; text-align:left; font-weight:600; }}
-    QPushButton#NewChat:hover {{ background:{PANEL_HI}; border-color:{BORDER_HI}; }}
+    #Brand {{ font-size:16px; font-weight:800; letter-spacing:0.2px; color:{INK}; }}
+    #SectionLabel {{ color:{FAINT}; font-size:10.5px; font-weight:800; letter-spacing:0.9px; }}
+    QPushButton#NewChat {{ background:{ACCENT}; color:#06281d; border:0;
+        border-radius:11px; padding:11px 12px; text-align:left; font-weight:800; }}
+    QPushButton#NewChat:hover {{ background:{ACCENT_HI}; }}
     QPushButton#NavItem {{ background:transparent; color:{MUTED}; border:0;
         border-radius:9px; padding:9px 12px; text-align:left; font-weight:600; }}
     QPushButton#NavItem:hover {{ background:{PANEL}; color:{INK}; }}
+    QPushButton#NavItem[active="true"] {{ background:{PANEL_HI}; color:{INK};
+        border-left:2px solid {ACCENT}; padding-left:10px; }}
     QPushButton#Recent {{ background:transparent; color:{MUTED}; border:0;
         border-radius:8px; padding:7px 12px; text-align:left; font-size:13px; }}
     QPushButton#Recent:hover {{ background:{PANEL}; color:{INK}; }}
     #Account {{ color:{MUTED}; font-size:12px; font-weight:600; }}
 
     #HeaderBar {{ background:{BG}; border-bottom:1px solid {BORDER}; }}
-    #HeaderWS {{ color:{MUTED}; font-size:12.5px; font-weight:600; }}
     #HeaderStat {{ color:{FAINT}; font-size:12px; }}
+    QPushButton#WsSwitch {{ background:{PANEL}; color:{INK}; border:1px solid {BORDER};
+        border-radius:9px; padding:6px 12px; font-weight:700; font-size:13px; text-align:left; }}
+    QPushButton#WsSwitch:hover {{ background:{PANEL_HI}; border-color:{BORDER_HI}; }}
+    QPushButton#WsSwitch::menu-indicator {{ image:none; width:0; }}
 
     QScrollArea {{ border:0; background:{BG}; }}
     QScrollBar:vertical {{ background:transparent; width:11px; margin:4px 2px; }}
@@ -205,6 +250,9 @@ def _stylesheet() -> str:
     #Composer:focus-within {{ border:1px solid {BORDER_HI}; }}
     QPlainTextEdit#Input {{ background:transparent; border:0; color:{INK};
         font-size:15px; padding:6px 4px; }}
+    QLineEdit#Input {{ background:{COMPOSER}; border:1px solid {BORDER}; border-radius:10px;
+        color:{INK}; font-size:14px; padding:9px 12px; }}
+    QLineEdit#Input:focus {{ border-color:{BORDER_HI}; }}
 
     QComboBox#Pick {{ background:transparent; border:1px solid {BORDER}; border-radius:9px;
         padding:6px 12px; color:{MUTED}; font-weight:600; font-size:13px; }}
@@ -221,11 +269,32 @@ def _stylesheet() -> str:
     QPushButton#Send:hover {{ background:{ACCENT_HI}; }}
     QPushButton#Send:disabled {{ background:{PANEL_HI}; color:{FAINT}; }}
 
+    #ControlPanel {{ background:{SIDEBAR}; border-left:1px solid {BORDER}; }}
+    #PanelTitle {{ font-size:13px; font-weight:800; letter-spacing:0.5px; color:{INK}; }}
+    #PanelLabel {{ color:{FAINT}; font-size:10.5px; font-weight:800; letter-spacing:0.8px; }}
+    #RowKey {{ color:{MUTED}; font-size:12px; }}
+    #RowVal {{ color:{INK}; font-size:12px; font-weight:700; }}
+    QProgressBar#Meter {{ background:{PANEL}; border:0; border-radius:5px; height:8px; text-align:center; }}
+    QProgressBar#Meter::chunk {{ background:{ACCENT}; border-radius:5px; }}
+
+    #PageTitle {{ font-size:23px; font-weight:700; letter-spacing:-0.2px; color:{INK}; }}
+    #PageSub {{ color:{MUTED}; font-size:13.5px; }}
+    #SettingHead {{ font-size:14px; font-weight:800; color:{INK}; }}
+    #Card {{ background:{PANEL}; border:1px solid {BORDER}; border-radius:14px; }}
+    #CardTitle {{ font-size:13px; font-weight:700; color:{INK}; }}
+    #CardBody {{ color:{MUTED}; font-size:12.5px; }}
+    #CardFoot {{ color:{FAINT}; font-size:11px; }}
+    #Kpi {{ background:{PANEL}; border:1px solid {BORDER}; border-radius:12px; }}
+    #KpiLabel {{ color:{FAINT}; font-size:10.5px; font-weight:700; letter-spacing:0.6px; }}
+    #KpiValue {{ font-size:18px; font-weight:800; }}
+    #HeroNum {{ font-size:34px; font-weight:800; letter-spacing:-0.5px; }}
+
     QMenu {{ background:{COMPOSER}; color:{INK}; border:1px solid {BORDER_HI};
         border-radius:10px; padding:6px; }}
     QMenu::item {{ padding:8px 18px; border-radius:7px; }}
     QMenu::item:selected {{ background:{PANEL_HI}; }}
     QMessageBox {{ background:{COMPOSER}; }}
+    QFileDialog {{ background:{COMPOSER}; }}
     """
 
 
@@ -235,7 +304,7 @@ def _run_gui(
     screenshot_path: Path | None = None,
     initial_task: str | None = None,
 ):
-    """Build the chat window; either run it (default) or render it to a PNG."""
+    """Build the workspace window; either run it (default) or render it to a PNG."""
     QtCore, QtGui, QtWidgets = _qt()
     # Keep Qt's internal warnings out of the launching terminal so nothing ever
     # appears to "print to the console" - it all renders in the UI.
@@ -250,12 +319,12 @@ def _run_gui(
     )
 
     def _load_app_fonts() -> None:
-        # Load the soft typeface that ships with OPai so every machine renders
-        # the same calm UI, regardless of what system fonts are installed.
+        # Load the crisp typeface that ships with OPai so every machine renders
+        # the same premium UI, regardless of what system fonts are installed.
         fonts_dir = Path(__file__).resolve().parent / "assets" / "fonts"
         for name in [
-            "Nunito-Variable.ttf",
-            "Nunito-Italic-Variable.ttf",
+            "Inter-Variable.ttf",
+            "Inter-Italic-Variable.ttf",
         ]:
             path = fonts_dir / name
             if path.exists():
@@ -303,37 +372,51 @@ def _run_gui(
             self._is_busy = False
             self._loading_models = False
             self._loading_mode = False
+            self._accounts: list[dict[str, Any]] = []
             self._preferences = load_gui_preferences(self.root)
-            self.setWindowTitle("OPai")
-            self.setMinimumSize(900, 640)
-            self.resize(1160, 780)
+            self._task_mode_id = str(
+                self._preferences.get("default_task_mode") or DEFAULT_TASK_MODE
+            )
+            self._format_id = str(
+                self._preferences.get("default_output_format") or DEFAULT_OUTPUT_FORMAT
+            )
+            self._current_view = DEFAULT_VIEW
+            self._nav_buttons: dict[str, Any] = {}
+            self.setWindowTitle(f"OPai · {self.root.name}")
+            self.setMinimumSize(1000, 680)
+            self.resize(1320, 860)
             self.setStyleSheet(_stylesheet())
 
             central = QtWidgets.QWidget()
             row = QtWidgets.QHBoxLayout(central)
             row.setContentsMargins(0, 0, 0, 0)
             row.setSpacing(0)
-            row.addWidget(self._build_sidebar())
+            self.sidebar = self._build_sidebar()
+            row.addWidget(self.sidebar)
 
-            main = QtWidgets.QWidget()
-            main_l = QtWidgets.QVBoxLayout(main)
-            main_l.setContentsMargins(0, 0, 0, 0)
-            main_l.setSpacing(0)
-            main_l.addWidget(self._build_header())
+            center = QtWidgets.QWidget()
+            center_l = QtWidgets.QVBoxLayout(center)
+            center_l.setContentsMargins(0, 0, 0, 0)
+            center_l.setSpacing(0)
+            center_l.addWidget(self._build_header())
 
-            self.scroll = QtWidgets.QScrollArea()
-            self.scroll.setWidgetResizable(True)
-            self.scroll.setHorizontalScrollBarPolicy(
-                QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-            )
-            self.thread_host = QtWidgets.QWidget()
-            self.thread = QtWidgets.QVBoxLayout(self.thread_host)
-            self.thread.setContentsMargins(0, 26, 0, 26)
-            self.thread.setSpacing(20)
-            self.scroll.setWidget(self.thread_host)
-            main_l.addWidget(self.scroll, 1)
-            main_l.addWidget(self._build_composer())
-            row.addWidget(main, 1)
+            self.stack = QtWidgets.QStackedWidget()
+            self.chat_page = self._build_chat_page()
+            self.prompts_page = self._build_prompts_page()
+            self.dashboard_page = self._build_dashboard_page()
+            self.settings_page = self._build_settings_page()
+            for page in (
+                self.chat_page,
+                self.prompts_page,
+                self.dashboard_page,
+                self.settings_page,
+            ):
+                self.stack.addWidget(page)
+            center_l.addWidget(self.stack, 1)
+            row.addWidget(center, 1)
+
+            self.control_panel = self._build_control_panel()
+            row.addWidget(self.control_panel)
             self.setCentralWidget(central)
 
             self._empty = None
@@ -342,15 +425,19 @@ def _run_gui(
             self._show_empty()
             self._load_recents()
             self._install_shortcuts()
+            self._refresh_inspector()
+            self._highlight_nav(self._current_view)
+            if not self._preferences.get("show_control_panel", True):
+                self.control_panel.hide()
 
         # -- sidebar --------------------------------------------------------- #
         def _build_sidebar(self):
             bar = QtWidgets.QFrame()
             bar.setObjectName("Sidebar")
-            bar.setFixedWidth(252)
+            bar.setFixedWidth(240)
             col = QtWidgets.QVBoxLayout(bar)
-            col.setContentsMargins(16, 18, 16, 16)
-            col.setSpacing(10)
+            col.setContentsMargins(14, 16, 14, 14)
+            col.setSpacing(7)
 
             brand = QtWidgets.QHBoxLayout()
             self.dot = QtWidgets.QLabel("●")
@@ -359,24 +446,28 @@ def _run_gui(
             brand.addWidget(self._lbl("OPai", name="Brand"))
             brand.addStretch(1)
             col.addLayout(brand)
+            col.addSpacing(6)
 
             new_chat = QtWidgets.QPushButton("  +   New chat")
             new_chat.setObjectName("NewChat")
             new_chat.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-            new_chat.clicked.connect(self._new_chat)
+            new_chat.clicked.connect(self._start_new_chat)
             col.addWidget(new_chat)
+            col.addSpacing(6)
 
-            for label, tool in (
-                ("Connect accounts", "connect"),
-                ("Settings", "budget"),
-            ):
-                btn = QtWidgets.QPushButton(label)
-                btn.setObjectName("NavItem")
-                btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-                btn.clicked.connect(lambda _c=False, t=tool: self._run_tool(t))
-                col.addWidget(btn)
+            for group, items in nav_groups():
+                col.addWidget(self._lbl(group.upper(), name="SectionLabel"))
+                for item in items:
+                    btn = QtWidgets.QPushButton(f"   {item['label']}")
+                    btn.setObjectName("NavItem")
+                    btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+                    btn.clicked.connect(
+                        lambda _c=False, i=item["id"]: self._switch_view(i)
+                    )
+                    self._nav_buttons[item["id"]] = btn
+                    col.addWidget(btn)
+                col.addSpacing(6)
 
-            col.addSpacing(8)
             col.addWidget(self._lbl("RECENTS", name="SectionLabel"))
             self.recents_box = QtWidgets.QVBoxLayout()
             self.recents_box.setSpacing(2)
@@ -394,16 +485,81 @@ def _run_gui(
             bar = QtWidgets.QFrame()
             bar.setObjectName("HeaderBar")
             row = QtWidgets.QHBoxLayout(bar)
-            row.setContentsMargins(28, 12, 24, 12)
-            folder = QtWidgets.QLabel("\U0001f4c1")
-            folder.setStyleSheet(f"color:{FAINT}; font-size:13px;")
-            row.addWidget(folder)
-            self.workspace_lbl = self._lbl(root.name, name="HeaderWS")
-            row.addWidget(self.workspace_lbl)
+            row.setContentsMargins(20, 10, 16, 10)
+            row.setSpacing(10)
+            self.ws_btn = QtWidgets.QPushButton(workspace_label(self.root))
+            self.ws_btn.setObjectName("WsSwitch")
+            self.ws_btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+            self.ws_btn.setToolTip("Switch project folder")
+            self.ws_btn.setMenu(self._workspace_menu())
+            row.addWidget(self.ws_btn)
             row.addStretch(1)
             self.header_stat = self._lbl("", name="HeaderStat")
             row.addWidget(self.header_stat)
+            self.panel_btn = QtWidgets.QPushButton("Inspector")
+            self.panel_btn.setObjectName("Ghost")
+            self.panel_btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+            self.panel_btn.clicked.connect(self._toggle_control_panel)
+            row.addWidget(self.panel_btn)
             return bar
+
+        def _workspace_menu(self):
+            menu = QtWidgets.QMenu(self)
+            act = menu.addAction("Open folder…")
+            act.triggered.connect(self._open_workspace)
+            recents = [p for p in load_recent_workspaces() if p != str(self.root)]
+            if recents:
+                menu.addSeparator()
+                for path in recents:
+                    entry = menu.addAction(workspace_label(path))
+                    entry.setToolTip(path)
+                    entry.triggered.connect(
+                        lambda _c=False, p=path: self._switch_workspace(p)
+                    )
+            return menu
+
+        def _open_workspace(self) -> None:
+            chosen = QtWidgets.QFileDialog.getExistingDirectory(
+                self, "Open project folder", str(self.root)
+            )
+            if chosen:
+                self._switch_workspace(chosen)
+
+        def _switch_workspace(self, path: str) -> None:
+            if not is_valid_workspace(path):
+                self._toast("That folder is no longer available.")
+                return
+            self.root = Path(path).expanduser().resolve()
+            add_recent_workspace(self.root)
+            self._preferences = load_gui_preferences(self.root)
+            self.setWindowTitle(f"OPai · {self.root.name}")
+            self.ws_btn.setText(workspace_label(self.root))
+            self.ws_btn.setMenu(self._workspace_menu())
+            self._load_models()
+            self._refresh_status()
+            self._refresh_inspector()
+            self._start_new_chat()
+            self._toast(f"Switched to {self.root.name}")
+
+        # -- chat page (default view) ---------------------------------------- #
+        def _build_chat_page(self):
+            page = QtWidgets.QWidget()
+            pl = QtWidgets.QVBoxLayout(page)
+            pl.setContentsMargins(0, 0, 0, 0)
+            pl.setSpacing(0)
+            self.scroll = QtWidgets.QScrollArea()
+            self.scroll.setWidgetResizable(True)
+            self.scroll.setHorizontalScrollBarPolicy(
+                QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            self.thread_host = QtWidgets.QWidget()
+            self.thread = QtWidgets.QVBoxLayout(self.thread_host)
+            self.thread.setContentsMargins(0, 24, 0, 24)
+            self.thread.setSpacing(18)
+            self.scroll.setWidget(self.thread_host)
+            pl.addWidget(self.scroll, 1)
+            pl.addWidget(self._build_composer())
+            return page
 
         def _build_composer(self):
             wrap = QtWidgets.QWidget()
@@ -450,6 +606,554 @@ def _run_gui(
             bl.addLayout(ctl)
             wl.addWidget(box)
             return wrap
+
+        # -- right control panel / session inspector ------------------------- #
+        def _build_control_panel(self):
+            panel = QtWidgets.QFrame()
+            panel.setObjectName("ControlPanel")
+            panel.setFixedWidth(286)
+            outer = QtWidgets.QVBoxLayout(panel)
+            outer.setContentsMargins(16, 16, 16, 16)
+            outer.setSpacing(9)
+            outer.addWidget(self._lbl("SESSION", name="PanelTitle"))
+
+            outer.addWidget(self._lbl("TASK FOCUS", name="PanelLabel"))
+            self.focus_pick = QtWidgets.QComboBox()
+            self.focus_pick.setObjectName("Pick")
+            for mode in task_modes():
+                self.focus_pick.addItem(mode["label"], mode["id"])
+                self.focus_pick.setItemData(
+                    self.focus_pick.count() - 1,
+                    mode["desc"],
+                    QtCore.Qt.ItemDataRole.ToolTipRole,
+                )
+            self._select_combo(self.focus_pick, self._task_mode_id)
+            self.focus_pick.currentIndexChanged.connect(self._on_focus_changed)
+            outer.addWidget(self.focus_pick)
+
+            outer.addWidget(self._lbl("OUTPUT FORMAT", name="PanelLabel"))
+            self.format_pick = QtWidgets.QComboBox()
+            self.format_pick.setObjectName("Pick")
+            for fmt in output_formats():
+                self.format_pick.addItem(fmt["label"], fmt["id"])
+            self._select_combo(self.format_pick, self._format_id)
+            self.format_pick.currentIndexChanged.connect(self._on_format_changed)
+            outer.addWidget(self.format_pick)
+
+            self.inspector_host = QtWidgets.QWidget()
+            self.inspector_box = QtWidgets.QVBoxLayout(self.inspector_host)
+            self.inspector_box.setContentsMargins(0, 6, 0, 0)
+            self.inspector_box.setSpacing(7)
+            outer.addWidget(self.inspector_host)
+            outer.addStretch(1)
+            return panel
+
+        def _refresh_inspector(self) -> None:
+            if not hasattr(self, "inspector_box"):
+                return
+            self._clear_layout(self.inspector_box)
+            opt = self._selected()
+            run_mode = self._selected_mode()
+            try:
+                ins = A.inspector_state(self.root, mode=run_mode)
+            except Exception:  # noqa: BLE001
+                ins = {}
+            connected = any(a.get("connected") for a in self._accounts)
+            data = session_inspector(
+                model_label=self.model.currentText(),
+                model_kind=opt.get("kind"),
+                run_mode_label=self.mode.currentText(),
+                task_summary=task_summary(self._task_mode_id, self._format_id),
+                inspector=ins,
+                permission_summary=permission_summary(run_mode),
+                connected=connected,
+            )
+            for r in data["rows"]:
+                self.inspector_box.addLayout(self._kv_row(r["label"], r["value"]))
+
+            self.inspector_box.addWidget(self._lbl("BUDGET", name="PanelLabel"))
+            meter = QtWidgets.QProgressBar()
+            meter.setObjectName("Meter")
+            meter.setTextVisible(False)
+            meter.setRange(0, 100)
+            meter.setValue(int(data["budget"]["pct"]))
+            meter.setFixedHeight(8)
+            self.inspector_box.addWidget(meter)
+            self.inspector_box.addWidget(
+                self._lbl(data["budget"]["text"], name="RowKey")
+            )
+
+            self.inspector_box.addWidget(self._lbl("PERMISSIONS", name="PanelLabel"))
+            for row in permissions_for(
+                run_mode, safe_auto=self._preferences.get("safe_auto")
+            ):
+                self.inspector_box.addLayout(self._perm_row(row))
+
+            self.inspector_box.addWidget(self._lbl("PRIVACY", name="PanelLabel"))
+            for badge in data["privacy"]:
+                self.inspector_box.addWidget(self._badge(badge["label"], badge["tone"]))
+
+        # -- dashboard pages (surfaced from gui_view_model) ------------------ #
+        def _build_dashboard_page(self):
+            page = QtWidgets.QScrollArea()
+            page.setWidgetResizable(True)
+            page.setHorizontalScrollBarPolicy(
+                QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            self.dashboard_host = QtWidgets.QWidget()
+            self.dashboard_box = QtWidgets.QVBoxLayout(self.dashboard_host)
+            self.dashboard_box.setContentsMargins(36, 28, 36, 28)
+            self.dashboard_box.setSpacing(14)
+            page.setWidget(self.dashboard_host)
+            return page
+
+        def _render_dashboard(self, section_id: str) -> None:
+            self._clear_layout(self.dashboard_box)
+            try:
+                vm = build_view_model(self.root)
+            except Exception as exc:  # noqa: BLE001
+                self.dashboard_box.addWidget(
+                    self._lbl(f"Couldn't load this view: {exc}", name="PageSub")
+                )
+                self.dashboard_box.addStretch(1)
+                return
+            section = next(
+                (s for s in vm["sections"] if s.get("id") == section_id), None
+            )
+            if section is None:
+                self.dashboard_box.addWidget(
+                    self._lbl("View not found.", name="PageSub")
+                )
+                self.dashboard_box.addStretch(1)
+                return
+            self.dashboard_box.addWidget(
+                self._lbl(section.get("title", section_id), name="PageTitle")
+            )
+            if section.get("subtitle"):
+                self.dashboard_box.addWidget(
+                    self._lbl(section["subtitle"], name="PageSub")
+                )
+            if section.get("hero"):
+                self.dashboard_box.addWidget(self._hero_card(section["hero"]))
+            if section.get("kpis"):
+                self.dashboard_box.addLayout(self._kpi_grid(section["kpis"]))
+            for card in section.get("cards", []):
+                self.dashboard_box.addWidget(self._dash_card(card))
+            if section.get("actions"):
+                self.dashboard_box.addLayout(self._action_row(section["actions"]))
+            self.dashboard_box.addStretch(1)
+
+        def _hero_card(self, hero):
+            frame = QtWidgets.QFrame()
+            frame.setObjectName("Card")
+            fl = QtWidgets.QVBoxLayout(frame)
+            fl.setContentsMargins(20, 18, 20, 18)
+            fl.setSpacing(4)
+            num = self._lbl(str(hero.get("headline", "")))
+            num.setObjectName("HeroNum")
+            num.setStyleSheet(
+                f"color:{SEVERITY_COLOR.get(hero.get('severity'), ACCENT)};"
+            )
+            fl.addWidget(num)
+            if hero.get("caption"):
+                fl.addWidget(self._lbl(hero["caption"], name="CardBody"))
+            return frame
+
+        def _kpi_grid(self, kpis):
+            grid = QtWidgets.QGridLayout()
+            grid.setSpacing(10)
+            for i, k in enumerate(kpis):
+                chip = QtWidgets.QFrame()
+                chip.setObjectName("Kpi")
+                cl = QtWidgets.QVBoxLayout(chip)
+                cl.setContentsMargins(14, 12, 14, 12)
+                cl.setSpacing(3)
+                cl.addWidget(
+                    self._lbl(str(k.get("label", "")).upper(), name="KpiLabel")
+                )
+                val = self._lbl(str(k.get("value", "")), name="KpiValue")
+                val.setStyleSheet(
+                    f"color:{SEVERITY_COLOR.get(k.get('severity'), INK)};"
+                )
+                cl.addWidget(val)
+                grid.addWidget(chip, i // 3, i % 3)
+            return grid
+
+        def _dash_card(self, card):
+            frame = QtWidgets.QFrame()
+            frame.setObjectName("Card")
+            fl = QtWidgets.QVBoxLayout(frame)
+            fl.setContentsMargins(18, 14, 18, 14)
+            fl.setSpacing(6)
+            head = QtWidgets.QHBoxLayout()
+            head.addWidget(self._lbl(str(card.get("title", "")), name="CardTitle"))
+            head.addStretch(1)
+            if card.get("status"):
+                head.addWidget(
+                    self._badge(str(card["status"]), card.get("severity", "neutral"))
+                )
+            fl.addLayout(head)
+            if card.get("body"):
+                fl.addWidget(self._lbl(str(card["body"]), name="CardBody"))
+            for item in card.get("items", []):
+                fl.addWidget(self._lbl("• " + str(item), name="CardBody"))
+            if card.get("command"):
+                cmd = self._lbl(str(card["command"]), name="Mono")
+                cmd.setTextInteractionFlags(
+                    QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+                )
+                fl.addWidget(cmd)
+            if card.get("footnote"):
+                fl.addWidget(self._lbl(str(card["footnote"]), name="CardFoot"))
+            return frame
+
+        def _action_row(self, actions):
+            row = QtWidgets.QHBoxLayout()
+            row.setSpacing(8)
+            for act in actions:
+                btn = QtWidgets.QPushButton(act.get("label", "Action"))
+                btn.setObjectName("Ghost")
+                btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda _c=False, a=act: self._run_action(a))
+                row.addWidget(btn)
+            row.addStretch(1)
+            return row
+
+        def _run_action(self, act) -> None:
+            aid = act.get("id", "")
+            if aid == "panic_toggle":
+                self._switch_view("chat")
+                self._run_tool("panic")
+                return
+            if aid == "safe_repair":
+                self._switch_view("chat")
+                self._run_tool("repair")
+                return
+            cmd = act.get("command")
+            if cmd:
+                QtWidgets.QApplication.clipboard().setText(str(cmd))
+                self._toast(f"Copied: {cmd}")
+            else:
+                self._toast(
+                    f"{act.get('label', 'Action')} — run it from your terminal."
+                )
+
+        # -- prompt library page --------------------------------------------- #
+        def _build_prompts_page(self):
+            page = QtWidgets.QWidget()
+            pl = QtWidgets.QVBoxLayout(page)
+            pl.setContentsMargins(36, 28, 36, 18)
+            pl.setSpacing(12)
+            pl.addWidget(self._lbl("Prompt Library", name="PageTitle"))
+            pl.addWidget(
+                self._lbl(
+                    "Curated starting points. Pick one to load it into the composer.",
+                    name="PageSub",
+                )
+            )
+            controls = QtWidgets.QHBoxLayout()
+            controls.setSpacing(8)
+            self.prompt_search = QtWidgets.QLineEdit()
+            self.prompt_search.setObjectName("Input")
+            self.prompt_search.setPlaceholderText("Search prompts…")
+            self.prompt_search.textChanged.connect(lambda _t: self._render_prompts())
+            controls.addWidget(self.prompt_search, 1)
+            self.prompt_cat = QtWidgets.QComboBox()
+            self.prompt_cat.setObjectName("Pick")
+            self.prompt_cat.addItem("All categories", None)
+            for cat in categories_present():
+                self.prompt_cat.addItem(cat, cat)
+            self.prompt_cat.currentIndexChanged.connect(
+                lambda _i: self._render_prompts()
+            )
+            controls.addWidget(self.prompt_cat)
+            pl.addLayout(controls)
+
+            scroll = QtWidgets.QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(
+                QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            self.prompts_host = QtWidgets.QWidget()
+            self.prompts_box = QtWidgets.QVBoxLayout(self.prompts_host)
+            self.prompts_box.setContentsMargins(0, 4, 0, 4)
+            self.prompts_box.setSpacing(10)
+            scroll.setWidget(self.prompts_host)
+            pl.addWidget(scroll, 1)
+            self._render_prompts()
+            return page
+
+        def _render_prompts(self) -> None:
+            if not hasattr(self, "prompts_box"):
+                return
+            self._clear_layout(self.prompts_box)
+            query = self.prompt_search.text() if hasattr(self, "prompt_search") else ""
+            cat = self.prompt_cat.currentData() if hasattr(self, "prompt_cat") else None
+            results = filter_prompts(query, cat)
+            if not results:
+                self.prompts_box.addWidget(
+                    self._lbl("No prompts match.", name="PageSub")
+                )
+                self.prompts_box.addStretch(1)
+                return
+            for prompt in results:
+                self.prompts_box.addWidget(self._prompt_card(prompt))
+            self.prompts_box.addStretch(1)
+
+        def _prompt_card(self, prompt):
+            frame = QtWidgets.QFrame()
+            frame.setObjectName("Card")
+            fl = QtWidgets.QVBoxLayout(frame)
+            fl.setContentsMargins(18, 14, 18, 14)
+            fl.setSpacing(6)
+            head = QtWidgets.QHBoxLayout()
+            head.addWidget(self._lbl(prompt["title"], name="CardTitle"))
+            head.addStretch(1)
+            head.addWidget(self._badge(prompt["category"], "info"))
+            fl.addLayout(head)
+            fl.addWidget(self._lbl(prompt["desc"], name="CardBody"))
+            btnrow = QtWidgets.QHBoxLayout()
+            btnrow.addStretch(1)
+            use = QtWidgets.QPushButton("Use prompt")
+            use.setObjectName("Ghost")
+            use.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+            use.clicked.connect(
+                lambda _c=False, pid=prompt["id"]: self._use_prompt(pid)
+            )
+            btnrow.addWidget(use)
+            fl.addLayout(btnrow)
+            return frame
+
+        def _use_prompt(self, prompt_id: str) -> None:
+            prompt = find_prompt(prompt_id)
+            if not prompt:
+                return
+            self._select_combo(self.focus_pick, prompt.get("mode", "general"))
+            self._switch_view("chat")
+            self.input.setPlainText(prompt["template"])
+            self.input.setFocus()
+
+        # -- settings page --------------------------------------------------- #
+        def _build_settings_page(self):
+            page = QtWidgets.QScrollArea()
+            page.setWidgetResizable(True)
+            page.setHorizontalScrollBarPolicy(
+                QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            self.settings_host = QtWidgets.QWidget()
+            self.settings_box = QtWidgets.QVBoxLayout(self.settings_host)
+            self.settings_box.setContentsMargins(36, 28, 36, 28)
+            self.settings_box.setSpacing(10)
+            page.setWidget(self.settings_host)
+            return page
+
+        def _render_settings(self) -> None:
+            box = self.settings_box
+            self._clear_layout(box)
+            box.addWidget(self._lbl("Settings", name="PageTitle"))
+            box.addWidget(self._lbl(f"Project: {self.root}", name="PageSub"))
+
+            box.addWidget(self._settings_head("Defaults"))
+            summary = task_summary(self._task_mode_id, self._format_id)
+            box.addLayout(
+                self._kv_row(
+                    "Default model", str(self._preferences.get("default_model", "auto"))
+                )
+            )
+            box.addLayout(
+                self._kv_row(
+                    "Default run mode",
+                    MODE_LABELS.get(
+                        self._preferences.get("default_mode"),
+                        str(self._preferences.get("default_mode")),
+                    ),
+                )
+            )
+            box.addLayout(self._kv_row("Task focus", summary["focus"]))
+            box.addLayout(self._kv_row("Output format", summary["format"]))
+            box.addWidget(
+                self._lbl(
+                    "Change model and run mode from the composer; they persist "
+                    "automatically. Task focus and output format live in the Inspector.",
+                    name="CardFoot",
+                )
+            )
+
+            box.addWidget(self._settings_head("Cost firewall"))
+            try:
+                cf = A.cost_firewall(self.root)
+            except Exception:  # noqa: BLE001
+                cf = {}
+            box.addLayout(self._kv_row("Profile", str(cf.get("profile", "—"))))
+            box.addLayout(
+                self._kv_row(
+                    "Panic mode", "ON (local-only)" if cf.get("panic") else "off"
+                )
+            )
+            box.addLayout(
+                self._kv_row(
+                    "Spent today",
+                    f"${float((cf.get('spent') or {}).get('today_usd') or 0):.2f}",
+                )
+            )
+            box.addLayout(
+                self._kv_row(
+                    "Cloud gate",
+                    "confirm" if cf.get("require_confirmation_for_cloud") else "open",
+                )
+            )
+            panic_row = QtWidgets.QHBoxLayout()
+            panic_btn = QtWidgets.QPushButton(
+                "Disable panic" if cf.get("panic") else "Enable panic"
+            )
+            panic_btn.setObjectName("Ghost")
+            panic_btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+            panic_btn.clicked.connect(self._settings_panic)
+            panic_row.addWidget(panic_btn)
+            panic_row.addStretch(1)
+            box.addLayout(panic_row)
+
+            box.addWidget(
+                self._settings_head(f"Tool permissions · {self.mode.currentText()}")
+            )
+            for row in permissions_for(
+                self._selected_mode(), safe_auto=self._preferences.get("safe_auto")
+            ):
+                box.addLayout(self._perm_row(row))
+
+            box.addWidget(self._settings_head("Accounts"))
+            for account in self._accounts:
+                box.addLayout(
+                    self._kv_row(
+                        account.get("label", account.get("id", "?")),
+                        "connected" if account.get("connected") else "not connected",
+                    )
+                )
+            connect_btn = QtWidgets.QPushButton("Connect accounts")
+            connect_btn.setObjectName("Ghost")
+            connect_btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+            connect_btn.clicked.connect(self._settings_connect)
+            box.addWidget(connect_btn)
+
+            box.addWidget(self._settings_head("Privacy"))
+            for text in (
+                "No telemetry — nothing leaves your machine.",
+                "No secrets or raw prompts are stored.",
+                "Local-first routing; cloud only on confirmation.",
+            ):
+                box.addWidget(self._lbl("• " + text, name="CardBody"))
+
+            try:
+                o = A.overview(self.root)
+                box.addWidget(self._settings_head("About"))
+                box.addLayout(self._kv_row("Version", str(o.get("version", "—"))))
+                box.addLayout(
+                    self._kv_row("Release stage", str(o.get("release_stage", "—")))
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            box.addStretch(1)
+
+        def _settings_panic(self) -> None:
+            self._switch_view("chat")
+            self._run_tool("panic")
+
+        def _settings_connect(self) -> None:
+            self._switch_view("chat")
+            self._run_tool("connect")
+
+        def _settings_head(self, text):
+            lbl = self._lbl(text, name="SettingHead")
+            return lbl
+
+        # -- shared small builders ------------------------------------------- #
+        def _kv_row(self, key, value):
+            row = QtWidgets.QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(self._lbl(str(key), name="RowKey"))
+            row.addStretch(1)
+            val = self._lbl(str(value), name="RowVal")
+            val.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+            row.addWidget(val)
+            return row
+
+        def _perm_row(self, row):
+            h = QtWidgets.QHBoxLayout()
+            h.setContentsMargins(0, 0, 0, 0)
+            color = SEVERITY_COLOR.get(row["state"], MUTED)
+            h.addWidget(self._lbl(row["label"], name="RowKey"))
+            h.addStretch(1)
+            state = self._lbl(row["state"])
+            state.setStyleSheet(f"color:{color}; font-size:11px; font-weight:700;")
+            state.setToolTip(row.get("note", ""))
+            h.addWidget(state)
+            return h
+
+        def _badge(self, text, tone):
+            color = SEVERITY_COLOR.get(tone, MUTED)
+            lbl = QtWidgets.QLabel(str(text))
+            lbl.setStyleSheet(
+                f"background:{PANEL}; color:{color}; border:1px solid {BORDER};"
+                " border-radius:9px; padding:4px 9px; font-size:11px; font-weight:700;"
+            )
+            return lbl
+
+        def _select_combo(self, combo, data_id) -> None:
+            for i in range(combo.count()):
+                if combo.itemData(i) == data_id:
+                    combo.setCurrentIndex(i)
+                    return
+
+        def _clear_layout(self, layout) -> None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                else:
+                    child = item.layout()
+                    if child is not None:
+                        self._clear_layout(child)
+
+        def _toast(self, text: str) -> None:
+            self.statusBar().showMessage(str(text), 4000)
+
+        # -- navigation ------------------------------------------------------ #
+        def _switch_view(self, nav_id: str) -> None:
+            item = find_nav(nav_id)
+            if item is None:
+                nav_id, item = "chat", find_nav("chat")
+            self._current_view = nav_id
+            self._highlight_nav(nav_id)
+            if item and item.get("kind") == "dashboard":
+                self._render_dashboard(item["section"])
+                self.stack.setCurrentWidget(self.dashboard_page)
+            elif nav_id == "prompts":
+                self.stack.setCurrentWidget(self.prompts_page)
+            elif nav_id == "settings":
+                self._render_settings()
+                self.stack.setCurrentWidget(self.settings_page)
+            else:
+                self.stack.setCurrentWidget(self.chat_page)
+
+        def _highlight_nav(self, nav_id: str) -> None:
+            for nid, btn in self._nav_buttons.items():
+                btn.setProperty("active", "true" if nid == nav_id else "false")
+                btn.style().unpolish(btn)
+                btn.style().polish(btn)
+
+        def _toggle_control_panel(self) -> None:
+            visible = not self.control_panel.isVisible()
+            self.control_panel.setVisible(visible)
+            self._preferences = save_gui_preferences(
+                self.root, {"show_control_panel": visible}
+            )
+
+        def _start_new_chat(self) -> None:
+            self._switch_view("chat")
+            self._new_chat()
+            self.input.setFocus()
 
         # -- helpers --------------------------------------------------------- #
         def _lbl(self, text, *, name=None, color=None):
@@ -515,6 +1219,10 @@ def _run_gui(
                 self._preferences = save_gui_preferences(
                     self.root, {"default_model": opt.get("id", "auto")}
                 )
+            if hasattr(self, "inspector_box"):
+                self._refresh_inspector()
+            if hasattr(self, "header_stat"):
+                self._refresh_status()
 
         def _on_mode_changed(self, _index) -> None:
             mode = self._selected_mode()
@@ -522,6 +1230,26 @@ def _run_gui(
                 self._preferences = save_gui_preferences(
                     self.root, {"default_mode": mode}
                 )
+            if hasattr(self, "inspector_box"):
+                self._refresh_inspector()
+            if hasattr(self, "header_stat"):
+                self._refresh_status()
+
+        def _on_focus_changed(self, _index) -> None:
+            self._task_mode_id = str(self.focus_pick.currentData() or DEFAULT_TASK_MODE)
+            self._preferences = save_gui_preferences(
+                self.root, {"default_task_mode": self._task_mode_id}
+            )
+            self._refresh_inspector()
+
+        def _on_format_changed(self, _index) -> None:
+            self._format_id = str(
+                self.format_pick.currentData() or DEFAULT_OUTPUT_FORMAT
+            )
+            self._preferences = save_gui_preferences(
+                self.root, {"default_output_format": self._format_id}
+            )
+            self._refresh_inspector()
 
         def _refresh_status(self) -> None:
             try:
@@ -532,10 +1260,11 @@ def _run_gui(
                 return
             on = bool(o.get("on"))
             self.dot.setStyleSheet(f"color:{GREEN if on else AMBER}; font-size:13px;")
-            branch = f"  ·  {ws['branch']}" if ws["branch"] else ""
-            self.workspace_lbl.setText(
-                f"{ws['name']}{branch}  ·  {ws['file_count']} files"
-            )
+            branch = f" · {ws['branch']}" if ws["branch"] else ""
+            if hasattr(self, "ws_btn"):
+                self.ws_btn.setToolTip(
+                    f"{ws['name']}{branch} · {ws['file_count']} files indexed"
+                )
             sav = o["savings"]
             # One calm status strip: model · mode · spent today · saved. Gives
             # constant visibility of the AI's state without a control pane.
@@ -547,9 +1276,7 @@ def _run_gui(
                     saved=sav["estimated_savings_usd"],
                 )
             )
-            connected = [
-                a["label"] for a in getattr(self, "_accounts", []) if a["connected"]
-            ]
+            connected = [a["label"] for a in self._accounts if a["connected"]]
             self.account_lbl.setText(
                 "  ".join(f"● {n}" for n in connected) + "  connected"
                 if connected
@@ -572,7 +1299,7 @@ def _run_gui(
                 if item.widget():
                     item.widget().setParent(None)
             for entry in self._recents:
-                label = entry if len(entry) <= 30 else entry[:29] + "…"
+                label = entry if len(entry) <= 28 else entry[:27] + "…"
                 btn = QtWidgets.QPushButton(label)
                 btn.setObjectName("Recent")
                 btn.setToolTip(entry)
@@ -582,6 +1309,7 @@ def _run_gui(
             self._save_recents()
 
         def _fill(self, text: str) -> None:
+            self._switch_view("chat")
             self.input.setPlainText(text)
             self.input.setFocus()
 
@@ -613,7 +1341,7 @@ def _run_gui(
                 if item.widget():
                     item.widget().setParent(None)
             for entry in self._recents:
-                label = entry if len(entry) <= 30 else entry[:29] + "…"
+                label = entry if len(entry) <= 28 else entry[:27] + "…"
                 btn = QtWidgets.QPushButton(label)
                 btn.setObjectName("Recent")
                 btn.setToolTip(entry)
@@ -644,9 +1372,7 @@ def _run_gui(
             title.setObjectName("Hero")
             title.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
             el.addWidget(title)
-            connected = [
-                a["label"] for a in getattr(self, "_accounts", []) if a["connected"]
-            ]
+            connected = [a["label"] for a in self._accounts if a["connected"]]
             sub = self._lbl(
                 f"{' and '.join(connected)} connected · OPai picks the cheapest safe path."
                 if connected
@@ -783,9 +1509,13 @@ def _run_gui(
                 return shortcut
 
             sc("Ctrl+K", self._open_palette)
-            sc("Ctrl+N", self._new_chat)
-            sc("Ctrl+L", lambda: self.input.setFocus())
+            sc("Ctrl+N", self._start_new_chat)
+            sc("Ctrl+L", lambda: (self._switch_view("chat"), self.input.setFocus()))
             sc("Ctrl+M", lambda: self.model.showPopup())
+            sc("Ctrl+P", lambda: self._switch_view("prompts"))
+            sc("Ctrl+I", self._toggle_control_panel)
+            sc("Ctrl+O", self._open_workspace)
+            sc("Ctrl+B", lambda: self.sidebar.setVisible(not self.sidebar.isVisible()))
             sc("Ctrl+/", self._show_shortcuts)
             sc("Esc", lambda: self._stop() if self._is_busy else None)
 
@@ -830,8 +1560,9 @@ def _run_gui(
 
         def _run_command(self, command_id: str) -> None:
             if command_id == "new_chat":
-                self._new_chat()
+                self._start_new_chat()
             elif command_id == "focus_input":
+                self._switch_view("chat")
                 self.input.setFocus()
             elif command_id == "stop":
                 if self._is_busy:
@@ -840,10 +1571,23 @@ def _run_gui(
                 self.model.showPopup()
             elif command_id == "change_mode":
                 self.mode.showPopup()
+            elif command_id == "prompts":
+                self._switch_view("prompts")
+            elif command_id == "inspector":
+                self._toggle_control_panel()
+            elif command_id == "workspace":
+                self._open_workspace()
+            elif command_id == "settings":
+                self._switch_view("settings")
+            elif command_id == "savings":
+                self._switch_view("home")
+            elif command_id == "doctor":
+                self._switch_view("agents")
             elif command_id == "shortcuts":
                 self._show_shortcuts()
-            elif command_id in {"connect", "settings", "savings", "doctor"}:
-                self._run_tool("budget" if command_id == "settings" else command_id)
+            elif command_id == "connect":
+                self._switch_view("chat")
+                self._run_tool("connect")
 
         def _show_shortcuts(self) -> None:
             rows = "".join(
@@ -899,6 +1643,13 @@ def _run_gui(
             opt = self._selected()
             model_id = opt.get("id", "auto")
             mode = self._selected_mode()
+            # Frame the user's text with the chosen task focus + output format.
+            # Defaults (General + Normal) leave the prompt untouched.
+            composed = compose_prompt(
+                text,
+                task_mode_id=self._task_mode_id,
+                output_format_id=self._format_id,
+            )
             if opt.get("kind") == "account":
                 role = opt.get("label", "Account").split(" · ")[0]
                 color = PROVIDER_COLOR.get(opt.get("provider"), ACCENT)
@@ -914,7 +1665,7 @@ def _run_gui(
             self._row(self._pending)
             worker = Worker(
                 lambda: handle_gui_message(
-                    self.root, text, model_id=model_id, mode=mode
+                    self.root, composed, model_id=model_id, mode=mode
                 )
             )
             worker.done.connect(self._on_ask)
@@ -942,6 +1693,7 @@ def _run_gui(
             except Exception as exc:  # noqa: BLE001
                 self._say("BotBubble", "OPai", f"Render error: {exc}", role_color=RED)
             self._refresh_status()
+            self._refresh_inspector()
 
         def _on_gui_result(self, result) -> None:
             status = result.get("status", "error")
@@ -1037,10 +1789,21 @@ def _run_gui(
                     mono=True,
                 )
             self._refresh_status()
+            self._refresh_inspector()
 
+    # Crisp on high-DPI displays: pass the real scale factor through (no blurry
+    # integer rounding) so text renders sharp instead of upscaled. Must be set
+    # before the QApplication exists.
+    if QtWidgets.QApplication.instance() is None:
+        QtGui.QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+            QtCore.Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     _load_app_fonts()
-    app.setFont(QtGui.QFont("Nunito", 10))
+    # Inter at a true antialiased weight — not the hinting-mangled default.
+    base_font = QtGui.QFont("Inter", 10)
+    base_font.setStyleStrategy(QtGui.QFont.StyleStrategy.PreferAntialias)
+    app.setFont(base_font)
     window = ChatWindow()
     if initial_task:
         # CLI companion: `opai gui "fix the login bug"` opens pre-loaded.
@@ -1049,6 +1812,10 @@ def _run_gui(
     if screenshot_path is not None:
         window.resize(screenshot_path[1], screenshot_path[2])
         window.show()
+        # Optional 4th element: a nav view id to display before grabbing, so the
+        # headless smoke can render any page (chat/dashboards/prompts/settings).
+        if len(screenshot_path) > 3 and screenshot_path[3]:
+            window._switch_view(str(screenshot_path[3]))
         app.processEvents()
         app.processEvents()
         pixmap = window.grab()
@@ -1075,10 +1842,21 @@ def launch(project_root: Path, task: str | None = None) -> int:
 
 
 def render_screenshot(
-    project_root: Path, out_path: Path, *, width: int = 1040, height: int = 720
+    project_root: Path,
+    out_path: Path,
+    *,
+    width: int = 1040,
+    height: int = 720,
+    view: str | None = None,
 ) -> dict[str, Any]:
-    """Render the chat window to a PNG offscreen - headless GUI smoke test."""
+    """Render a window view to a PNG offscreen - headless GUI smoke test.
+
+    ``view`` is an optional nav id (e.g. ``home``, ``settings``, ``prompts``);
+    when given, that page is shown before the grab. ``None`` renders the default
+    chat view.
+    """
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     return _run_gui(
-        project_root, screenshot_path=(str(out_path), int(width), int(height))
+        project_root,
+        screenshot_path=(str(out_path), int(width), int(height), view),
     )
