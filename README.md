@@ -40,7 +40,8 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [launch revenue runbook](docs/LAUNCH_REVENUE_RUNBOOK.md), the
 [commercial access/IP protection plan](docs/COMMERCIAL_ACCESS_AND_IP_PROTECTION.md), the
 [effectiveness/security audit](docs/EFFECTIVENESS_AND_SECURITY_AUDIT_2026_06_21.md), the
-[alpha release notes](docs/RELEASE_0_2_0_ALPHA_1.md), and
+[alpha release notes](docs/RELEASE_0_2_0_ALPHA_1.md), the
+[testing guide](docs/TESTING.md), the [QA report](docs/QA_REPORT.md), and
 [editions & pricing](hub/docs/PRICING_AND_EDITIONS.md).
 
 ### More efficiency & adoption commands
