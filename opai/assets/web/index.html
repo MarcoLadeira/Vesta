@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OPai</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">O</div>
+        <div class="name">OPai</div>
+        <div class="dot" id="brandDot"></div>
+      </div>
+      <button class="new-chat" id="newChat"><span>+</span> New chat</button>
+      <nav class="nav" id="nav"></nav>
+      <div class="side-foot">
+        <div class="acct" id="acct"></div>
+        <div class="priv-foot">Local only · no telemetry</div>
+      </div>
+    </aside>
+
+    <!-- main -->
+    <main class="main">
+      <header class="header">
+        <button class="ws-switch" id="wsSwitch"><span id="wsLabel">…</span><span class="chev">▾</span></button>
+        <div class="ws-menu" id="wsMenu"></div>
+        <div class="spacer"></div>
+        <div class="status-line" id="statusLine"></div>
+        <button class="icon-btn on" id="panelToggle">Inspector</button>
+      </header>
+
+      <div class="view-wrap" id="viewWrap">
+        <!-- chat -->
+        <section class="view active" id="view-chat">
+          <div class="scroll" id="chatScroll">
+            <div class="thread" id="thread">
+              <div class="empty" id="empty">
+                <h1>What do you want to build?</h1>
+                <p id="emptySub">Pick a model and mode, then describe a task. OPai runs it local-first and shows what it costs.</p>
+                <div class="chips" id="chips"></div>
+                <div class="hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> for commands</div>
+              </div>
+            </div>
+          </div>
+          <div class="composer-wrap">
+            <div class="composer">
+              <textarea id="input" rows="1" placeholder="Reply to OPai…"></textarea>
+              <div class="composer-row">
+                <select class="select" id="modeSel"></select>
+                <div class="spacer"></div>
+                <span class="pdot" id="providerDot"></span>
+                <select class="select" id="modelSel" style="max-width:230px"></select>
+                <button class="send" id="send">Send</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- dashboard -->
+        <section class="view" id="view-dashboard">
+          <div class="scroll"><div class="page" id="dashPage"></div></div>
+        </section>
+
+        <!-- prompts -->
+        <section class="view" id="view-prompts">
+          <div class="scroll"><div class="page">
+            <div class="page-title">Prompt Library</div>
+            <div class="page-sub">Curated starting points. Pick one to load it into the composer.</div>
+            <div class="lib-controls">
+              <input class="search" id="promptSearch" placeholder="Search prompts…" />
+              <select class="select" id="promptCat"></select>
+            </div>
+            <div id="promptList"></div>
+          </div></div>
+        </section>
+
+        <!-- settings -->
+        <section class="view" id="view-settings">
+          <div class="scroll"><div class="page" id="settingsPage"></div></div>
+        </section>
+      </div>
+    </main>
+
+    <!-- inspector -->
+    <aside class="inspector" id="inspector"></aside>
+  </div>
+
+  <!-- command palette -->
+  <div class="overlay" id="palette">
+    <div class="palette">
+      <input id="paletteInput" placeholder="Type a command…" />
+      <div class="list" id="paletteList"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
