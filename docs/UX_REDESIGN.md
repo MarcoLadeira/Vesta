@@ -1,5 +1,11 @@
 # OPai Desktop UX — Control Layer
 
+> **Extended by the full workspace redesign.** This doc covers the original
+> Ctrl+K control layer. For the premium workspace overhaul (workspace switcher,
+> grouped nav, dashboard pages, session inspector, task focus + output format,
+> settings page, Inter font), see **`UX_UI_REDESIGN_REPORT.md`**,
+> **`DESIGN_SYSTEM.md`**, **`PRODUCT_VISION.md`**, and **`FEATURE_ROADMAP.md`**.
+
 _Stack: PySide6 desktop GUI (`opai/gui_desktop.py`). Not a web app — there is no
 React/Tailwind/Playwright layer._
 

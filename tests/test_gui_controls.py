@@ -19,6 +19,8 @@ from opai.gui_controls import (
     friendly_error,
     header_status,
     model_badge,
+    privacy_badges,
+    session_inspector,
     thinking_text,
 )
 
@@ -156,16 +158,94 @@ class StateMessageTests(unittest.TestCase):
                 self.assertNotIn("{model}", friendly_error(status, "Sonnet"))
 
 
+class PrivacyBadgeTests(unittest.TestCase):
+    def test_local_model_is_marked_private(self):
+        badges = privacy_badges(model_kind="local", connected=True)
+        labels = " ".join(b["label"] for b in badges).lower()
+        self.assertIn("local only", labels)
+        self.assertIn("no telemetry", labels)
+
+    def test_cloud_account_is_marked_paid_with_warn_tone(self):
+        badges = privacy_badges(model_kind="account", connected=True)
+        first = badges[0]
+        self.assertIn("paid", first["label"].lower())
+        self.assertEqual(first["tone"], "warn")
+
+    def test_disconnected_state_is_surfaced(self):
+        badges = privacy_badges(model_kind="auto", connected=False)
+        self.assertTrue(any("no account" in b["label"].lower() for b in badges))
+
+    def test_every_badge_has_label_and_tone(self):
+        for kind in ("auto", "local", "account", None):
+            for badge in privacy_badges(model_kind=kind, connected=True):
+                self.assertTrue(badge["label"])
+                self.assertIn(badge["tone"], {"safe", "info", "warn"})
+
+
+class SessionInspectorTests(unittest.TestCase):
+    def _inspector(self, **over):
+        base = dict(
+            model_label="Claude · Sonnet",
+            model_kind="account",
+            run_mode_label="Safe Auto",
+            task_summary={
+                "focus": "Build",
+                "format": "Normal",
+                "read_only": False,
+            },
+            inspector={
+                "budget": {"spent_today": 0.25, "daily_limit": 2.0, "pct": 12},
+                "workspace": {"text": "8 files indexed · main"},
+            },
+            permission_summary="3 allowed · 2 ask · 3 blocked",
+            connected=True,
+        )
+        base.update(over)
+        return session_inspector(**base)
+
+    def test_rows_cover_model_mode_focus_workspace_permissions(self):
+        data = self._inspector()
+        keys = {row["label"] for row in data["rows"]}
+        for needed in ("Model", "Run mode", "Task focus", "Workspace", "Permissions"):
+            self.assertIn(needed, keys)
+
+    def test_budget_meter_text_and_pct(self):
+        data = self._inspector()
+        self.assertIn("$0.25", data["budget"]["text"])
+        self.assertEqual(data["budget"]["pct"], 12)
+
+    def test_no_cap_is_handled(self):
+        data = self._inspector(
+            inspector={"budget": {"spent_today": 0.4, "daily_limit": None, "pct": 0}}
+        )
+        self.assertIn("no cap", data["budget"]["text"])
+
+    def test_bad_inputs_do_not_crash(self):
+        data = session_inspector(
+            model_label="",
+            model_kind=None,
+            run_mode_label="",
+            task_summary=None,
+            inspector=None,
+            permission_summary="",
+            connected=False,
+        )
+        self.assertIn("rows", data)
+        self.assertIn("privacy", data)
+        self.assertEqual(data["budget"]["pct"], 0)
+
+
 @unittest.skipUnless(
     importlib.util.find_spec("PySide6") is not None,
     "PySide6 not installed (desktop GUI extra); skipping headless window smoke",
 )
 class HeadlessWindowSmokeTests(unittest.TestCase):
-    """Construct the real window offscreen so the control wiring (header strip,
-    model badges, empty-state hint, command palette + shortcut install) can't
-    crash the renderer. Skipped where the desktop extra isn't installed (CI)."""
+    """Construct the real window offscreen so the control wiring (sidebar nav,
+    header workspace switcher, control panel, command palette + shortcuts) can't
+    crash the renderer — for the chat view AND each surfaced page. Skipped where
+    the desktop extra isn't installed (CI)."""
 
-    def test_window_renders_with_controls_wired(self):
+    def test_every_view_renders_without_crashing(self):
         from opai.gui_desktop import render_screenshot
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -174,11 +254,14 @@ class HeadlessWindowSmokeTests(unittest.TestCase):
                 "[project]\nname='demo'\n", encoding="utf-8"
             )
             subprocess.run(["git", "init", "-q"], cwd=root, capture_output=True)
-            out = root / "shot.png"
-            result = render_screenshot(root, out, width=1040, height=720)
-
-        self.assertEqual(result["status"], "written")
-        self.assertGreater(result["bytes"], 0)
+            for view in ("chat", "home", "firewall", "prompts", "settings"):
+                with self.subTest(view=view):
+                    out = root / f"shot_{view}.png"
+                    result = render_screenshot(
+                        root, out, width=1200, height=780, view=view
+                    )
+                    self.assertEqual(result["status"], "written")
+                    self.assertGreater(result["bytes"], 0)
 
 
 if __name__ == "__main__":

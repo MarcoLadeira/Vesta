@@ -14,6 +14,9 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "schema_version": 1,
     "default_model": "auto",
     "default_mode": DEFAULT_MODE,
+    "default_task_mode": "general",
+    "default_output_format": "normal",
+    "show_control_panel": True,
     "auto_tools": True,
     "safe_auto": {
         "allow_commands": [
@@ -42,6 +45,9 @@ _ALLOWED_KEYS = {
     "schema_version",
     "default_model",
     "default_mode",
+    "default_task_mode",
+    "default_output_format",
+    "show_control_panel",
     "auto_tools",
     "safe_auto",
 }
