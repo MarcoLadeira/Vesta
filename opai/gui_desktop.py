@@ -20,6 +20,14 @@ from pathlib import Path
 from typing import Any
 
 from opai import app_state as A
+from opai.gui_controls import (
+    SHORTCUTS,
+    empty_state,
+    filter_commands,
+    header_status,
+    model_badge,
+    thinking_text,
+)
 from opai.gui_view_model import SECTIONS
 from opai.message_render import render_message_html
 
@@ -333,6 +341,7 @@ def _run_gui(
             self._refresh_status()
             self._show_empty()
             self._load_recents()
+            self._install_shortcuts()
 
         # -- sidebar --------------------------------------------------------- #
         def _build_sidebar(self):
@@ -469,6 +478,13 @@ def _run_gui(
             selected = 0
             for option in data["models"]:
                 self.model.addItem(option["label"], option)
+                # Capability badge as a tooltip: speed/quality/cost clarity
+                # without crowding the picker label.
+                self.model.setItemData(
+                    self.model.count() - 1,
+                    model_badge(option),
+                    QtCore.Qt.ItemDataRole.ToolTipRole,
+                )
                 if option["id"] == default_model:
                     selected = self.model.count() - 1
             self.model.blockSignals(False)
@@ -521,9 +537,15 @@ def _run_gui(
                 f"{ws['name']}{branch}  ·  {ws['file_count']} files"
             )
             sav = o["savings"]
+            # One calm status strip: model · mode · spent today · saved. Gives
+            # constant visibility of the AI's state without a control pane.
             self.header_stat.setText(
-                f"${sav['estimated_savings_usd']:.2f} saved via Auto  ·  "
-                f"${ins['budget']['spent_today']:.2f} spent today"
+                header_status(
+                    self.model.currentText(),
+                    self.mode.currentText(),
+                    ins["budget"]["spent_today"],
+                    saved=sav["estimated_savings_usd"],
+                )
             )
             connected = [
                 a["label"] for a in getattr(self, "_accounts", []) if a["connected"]
@@ -648,6 +670,10 @@ def _run_gui(
                 chip.clicked.connect(lambda _c=False, p=payload: self._chip(p))
                 chips.addWidget(chip)
             el.addLayout(chips)
+            el.addSpacing(14)
+            hint = self._lbl(empty_state()["hint"], name="HeroSub")
+            hint.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
+            el.addWidget(hint)
             el.addStretch(1)
             self.thread.addWidget(self._empty, 1)
 
@@ -749,6 +775,89 @@ def _run_gui(
                 self.input.setPlainText(text)
                 self._send()
 
+        # -- command palette + keyboard shortcuts ---------------------------- #
+        def _install_shortcuts(self) -> None:
+            def sc(seq, fn):
+                shortcut = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
+                shortcut.activated.connect(fn)
+                return shortcut
+
+            sc("Ctrl+K", self._open_palette)
+            sc("Ctrl+N", self._new_chat)
+            sc("Ctrl+L", lambda: self.input.setFocus())
+            sc("Ctrl+M", lambda: self.model.showPopup())
+            sc("Ctrl+/", self._show_shortcuts)
+            sc("Esc", lambda: self._stop() if self._is_busy else None)
+
+        def _open_palette(self) -> None:
+            dlg = QtWidgets.QDialog(self)
+            dlg.setWindowTitle("Commands")
+            dlg.setModal(True)
+            dlg.resize(440, 380)
+            lay = QtWidgets.QVBoxLayout(dlg)
+            lay.setContentsMargins(14, 14, 14, 14)
+            lay.setSpacing(8)
+            search = QtWidgets.QLineEdit()
+            search.setObjectName("Input")
+            search.setPlaceholderText("Type a command…")
+            lay.addWidget(search)
+            lst = QtWidgets.QListWidget()
+            lay.addWidget(lst, 1)
+
+            def populate(query: str = "") -> None:
+                lst.clear()
+                for cmd in filter_commands(query):
+                    text = cmd["label"] + (f"    {cmd['hint']}" if cmd["hint"] else "")
+                    item = QtWidgets.QListWidgetItem(text)
+                    item.setData(QtCore.Qt.ItemDataRole.UserRole, cmd["id"])
+                    lst.addItem(item)
+                if lst.count():
+                    lst.setCurrentRow(0)
+
+            def run_current() -> None:
+                item = lst.currentItem()
+                if item is None:
+                    return
+                dlg.accept()
+                self._run_command(item.data(QtCore.Qt.ItemDataRole.UserRole))
+
+            search.textChanged.connect(populate)
+            search.returnPressed.connect(run_current)
+            lst.itemActivated.connect(lambda _it: run_current())
+            populate("")
+            search.setFocus()
+            dlg.exec()
+
+        def _run_command(self, command_id: str) -> None:
+            if command_id == "new_chat":
+                self._new_chat()
+            elif command_id == "focus_input":
+                self.input.setFocus()
+            elif command_id == "stop":
+                if self._is_busy:
+                    self._stop()
+            elif command_id == "change_model":
+                self.model.showPopup()
+            elif command_id == "change_mode":
+                self.mode.showPopup()
+            elif command_id == "shortcuts":
+                self._show_shortcuts()
+            elif command_id in {"connect", "settings", "savings", "doctor"}:
+                self._run_tool("budget" if command_id == "settings" else command_id)
+
+        def _show_shortcuts(self) -> None:
+            rows = "".join(
+                f"<tr><td style='padding:3px 18px 3px 0;color:{ACCENT};"
+                f"font-family:monospace'>{key}</td>"
+                f"<td style='color:{INK}'>{desc}</td></tr>"
+                for key, desc in SHORTCUTS
+            )
+            box = QtWidgets.QMessageBox(self)
+            box.setWindowTitle("Keyboard shortcuts")
+            box.setTextFormat(QtCore.Qt.TextFormat.RichText)
+            box.setText(f"<table cellspacing='0'>{rows}</table>")
+            box.exec()
+
         def _busy(self, on) -> None:
             self._is_busy = on
             if on:
@@ -796,7 +905,11 @@ def _run_gui(
             else:
                 role, color = "OPai", MUTED
             self._pending = self._bubble(
-                "BotBubble", role, "Working…", role_color=color, meta="thinking…"
+                "BotBubble",
+                role,
+                thinking_text(opt.get("label")),
+                role_color=color,
+                meta="thinking…",
             )
             self._row(self._pending)
             worker = Worker(
