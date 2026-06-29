@@ -1045,13 +1045,14 @@ def _run_gui(
 
             try:
                 o = A.overview(self.root)
+            except Exception:  # noqa: BLE001
+                o = None
+            if o is not None:
                 box.addWidget(self._settings_head("About"))
                 box.addLayout(self._kv_row("Version", str(o.get("version", "—"))))
                 box.addLayout(
                     self._kv_row("Release stage", str(o.get("release_stage", "—")))
                 )
-            except Exception:  # noqa: BLE001
-                pass
             box.addStretch(1)
 
         def _settings_panic(self) -> None:
