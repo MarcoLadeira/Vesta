@@ -666,6 +666,29 @@ def cmd_budget(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_proxy(args: argparse.Namespace) -> int:
+    from opaihub.proxy import proxy_run
+
+    root = _project(args.project)
+    result = proxy_run(
+        root,
+        args.task,
+        agent=args.agent,
+        model=getattr(args, "model", None),
+        mode=getattr(args, "mode", None),
+    )
+    if getattr(args, "json", False):
+        print_json(result)
+    else:
+        print(result.get("answer", "") or result.get("reason", ""))
+    status = result.get("status", "")
+    if status in {"answered_by_account", "fail_open"}:
+        return 0
+    if status == "blocked":
+        return 2
+    return 1
+
+
 def cmd_receipt(args: argparse.Namespace) -> int:
     from opaihub.receipt import build_receipt, render_receipt_svg, verify_receipt
 
@@ -1470,6 +1493,22 @@ def build_parser() -> argparse.ArgumentParser:
     bp.add_argument("--off", action="store_true", help="Disable panic mode")
     bp.add_argument("--project", default=None, help="Project root")
     bp.set_defaults(func=cmd_budget)
+
+    p = sub.add_parser(
+        "proxy",
+        help="Route one agent call through OPai (the inline-capture shim entrypoint)",
+    )
+    p.add_argument("agent", help="Agent to route through (claude or codex)")
+    p.add_argument("task", help="The task/prompt to run")
+    p.add_argument(
+        "--mode",
+        default="ask",
+        help="ask | plan | safe-auto | approve-edits | full-auto",
+    )
+    p.add_argument("--model", default=None, help="Model for the account (claude)")
+    p.add_argument("--json", action="store_true", help="Print the full result as JSON")
+    p.add_argument("--project", default=None, help="Project root")
+    p.set_defaults(func=cmd_proxy)
 
     p = sub.add_parser(
         "receipt",
