@@ -211,8 +211,21 @@ def cmd_gui(args: argparse.Namespace) -> int:
                 }
             )
             return 1
+    task = getattr(args, "task", None)
+    # Default to the web-rendered UI (Chromium via QtWebEngine) for a modern,
+    # crisp surface; fall back to the classic Qt window if it's unavailable or
+    # the user asked for --classic.
+    if not getattr(args, "classic", False):
+        try:
+            from opai.gui_web import launch as launch_web
+            from opai.gui_web import web_available
+
+            if web_available():
+                return int(launch_web(root, task=task))
+        except Exception as exc:  # noqa: BLE001 - fall back to the Qt window
+            print_json({"status": "web_gui_fallback", "error": str(exc)})
     try:
-        return int(launch(root, task=getattr(args, "task", None)))
+        return int(launch(root, task=task))
     except Exception as exc:  # noqa: BLE001 - dependency/display failures degrade
         print_json(
             {
@@ -1302,6 +1315,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--width", type=int, default=1040, help=argparse.SUPPRESS)
     p.add_argument("--height", type=int, default=720, help=argparse.SUPPRESS)
+    p.add_argument(
+        "--classic",
+        action="store_true",
+        help="Use the classic Qt window instead of the web-rendered UI",
+    )
     p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser(
