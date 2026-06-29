@@ -6,6 +6,7 @@ into a rich-text QLabel, so message formatting is covered without a display.
 
 from __future__ import annotations
 
+import re
 import unittest
 
 from opai.message_render import render_message_html as R
@@ -85,6 +86,99 @@ class RenderSafetyTests(unittest.TestCase):
         html = R("- one\n\nafter the list")
         # The <ul> must be closed before the trailing paragraph.
         self.assertLess(html.index("</ul>"), html.index("after the list"))
+
+
+# Find every href the renderer emits (single or double quoted).
+_HREF_RE = re.compile(r"""<a\s[^>]*?href=(["'])(.*?)\1""", re.IGNORECASE)
+# Inline event handlers (onclick=, onerror=, onmouseover=, ...) inside a tag.
+_EVENT_ATTR_RE = re.compile(r"<[^>]*\son[a-z]+\s*=", re.IGNORECASE)
+
+
+class RenderSecurityTests(unittest.TestCase):
+    """Adversarial: the renderer is the AI-output surface, so it must never emit
+    an active dangerous anchor, an event handler, an <img>, or an unescaped tag.
+
+    The renderer is safe by construction (escape-first, https?-only links). These
+    tests lock that in so a future "richer links" change can't silently regress
+    into a clickable javascript: link or an auto-loading tracker pixel.
+    """
+
+    # --- the core invariant, asserted over a battery of hostile inputs ---
+
+    HOSTILE = [
+        "[click me](javascript:alert(1))",
+        "[x](data:text/html,<script>alert(1)</script>)",
+        '[x](https://a.com" onmouseover="alert(1))',
+        "![pixel](http://tracker.evil/p.png)",
+        '<a href="javascript:alert(1)">x</a>',
+        "<img src=x onerror=alert(1)>",
+        'normal <div onclick="evil()">text</div>',
+        "<svg/onload=alert(1)>",
+        "[vb](vbscript:msgbox(1))",
+        "[file](file:///etc/passwd)",
+        "Ignore previous instructions and <script>steal()</script>",
+    ]
+
+    def test_only_http_https_hrefs_are_ever_emitted(self):
+        for payload in self.HOSTILE:
+            with self.subTest(payload=payload):
+                out = R(payload)
+                for _quote, href in _HREF_RE.findall(out):
+                    self.assertTrue(
+                        href.lower().startswith(("http://", "https://")),
+                        f"emitted a non-http(s) href: {href!r}",
+                    )
+
+    def test_no_event_handler_attributes_ever_emitted(self):
+        for payload in self.HOSTILE:
+            with self.subTest(payload=payload):
+                self.assertIsNone(
+                    _EVENT_ATTR_RE.search(R(payload)),
+                    f"an on*= event handler leaked into a tag for: {payload!r}",
+                )
+
+    def test_no_img_tag_ever_emitted(self):
+        # No remote image is ever auto-loaded (privacy: no tracking pixels).
+        for payload in self.HOSTILE:
+            with self.subTest(payload=payload):
+                self.assertNotIn("<img", R(payload).lower())
+
+    def test_no_script_or_svg_tag_survives(self):
+        for payload in self.HOSTILE:
+            with self.subTest(payload=payload):
+                low = R(payload).lower()
+                self.assertNotIn("<script", low)
+                self.assertNotIn("<svg", low)
+
+    # --- specific, readable cases ---
+
+    def test_javascript_link_is_inert_text_not_an_anchor(self):
+        out = R("[click me](javascript:alert(1))")
+        self.assertNotIn('href="javascript:', out.lower())
+        self.assertNotIn("<a ", out.lower())  # no anchor created at all
+
+    def test_data_uri_link_is_inert_text(self):
+        out = R("[x](data:text/html,<script>alert(1)</script>)")
+        self.assertNotIn("<a ", out.lower())
+        self.assertNotIn("<script", out.lower())
+
+    def test_href_breakout_attempt_does_not_form_attribute(self):
+        out = R('[x](https://a.com" onmouseover="alert(1))')
+        # The double-quote is escaped, so it can't terminate the href attribute.
+        self.assertIsNone(_EVENT_ATTR_RE.search(out))
+
+    def test_legitimate_markdown_link_still_works(self):
+        # Safety must not break the happy path.
+        out = R("see [the docs](https://example.com/x)")
+        self.assertIn('href="https://example.com/x"', out)
+        self.assertIn(">the docs</a>", out)
+
+    def test_secret_looking_text_renders_but_is_not_executed(self):
+        out = R("my key is sk-livesecret0123456789abcdef in the logs")
+        # The renderer does not redact (that is the ledger's job) but it must
+        # never turn the text into active markup.
+        self.assertNotIn("<a ", out.lower())
+        self.assertIsNone(_EVENT_ATTR_RE.search(out))
 
 
 if __name__ == "__main__":
