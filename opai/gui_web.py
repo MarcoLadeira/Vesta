@@ -49,11 +49,19 @@ WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
 
 
 def web_available() -> bool:
-    """True when QtWebEngine is importable (it ships with PySide6 here)."""
-    return (
-        importlib.util.find_spec("PySide6.QtWebEngineWidgets") is not None
-        and importlib.util.find_spec("PySide6.QtWebChannel") is not None
-    )
+    """True when QtWebEngine is importable (it ships with PySide6 here).
+
+    ``find_spec`` raises ``ModuleNotFoundError`` for a submodule when the parent
+    package (PySide6) is absent — e.g. on CI without the desktop extra — so we
+    treat any import failure as "not available".
+    """
+    try:
+        return (
+            importlib.util.find_spec("PySide6.QtWebEngineWidgets") is not None
+            and importlib.util.find_spec("PySide6.QtWebChannel") is not None
+        )
+    except (ModuleNotFoundError, ValueError):
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -146,6 +154,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         load_gui_preferences,
     )
 
+    root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
     mode = str(prefs.get("default_mode") or DEFAULT_MODE)
     focus = str(prefs.get("default_task_mode") or DEFAULT_TASK_MODE)
