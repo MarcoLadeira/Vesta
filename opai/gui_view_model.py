@@ -156,6 +156,16 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
     protected_clients = (
         f"{clients_summary.get('active', 0)}/{clients_summary.get('total', 5)}"
     )
+    capture = overview.get("capture") or {}
+    capture_rate = capture.get("rate_percent")
+    capture_value = "—" if capture_rate is None else f"{capture_rate:g}%"
+    capture_severity = (
+        "neutral"
+        if capture_rate is None
+        else "success"
+        if capture_rate == 100
+        else "warning"
+    )
 
     topbar = {
         "brand": "OPai",
@@ -225,6 +235,11 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
                 "value": "50x / 16 calls",
                 "severity": "success",
             },
+            {
+                "label": "Capture health",
+                "value": capture_value,
+                "severity": capture_severity,
+            },
         ],
         "cards": [
             {
@@ -246,6 +261,12 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
                 "body": _redact(overview.get("benchmark_claim", "")),
                 "footnote": _redact(overview.get("benchmark_caveat", "")),
                 "severity": "neutral",
+            },
+            {
+                "title": "Capture integrity",
+                "body": _redact(capture.get("label", "No proxy sessions observed")),
+                "footnote": _redact(capture.get("caveat", "")),
+                "severity": capture_severity,
             },
         ],
         "actions": home_actions,
