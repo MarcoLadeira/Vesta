@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 import { openApp } from "./helpers/app.js";
-import { runCli } from "./helpers/cli.js";
+import { pythonCanImport, runCli } from "./helpers/cli.js";
 
 
 test("opai help exposes the primary product surfaces", () => {
@@ -22,6 +22,10 @@ test("ask help supports the model, mode, and JSON parity flags", () => {
 });
 
 test("headless GUI state is machine-readable and Safe Auto by default", () => {
+  test.fail(
+    !pythonCanImport("yaml"),
+    "BUG-QA-011: clean Python without PyYAML parses YAML registries as JSON and crashes",
+  );
   const result = runCli(["gui", "--once", "--project", "<project>"]);
   expect(
     result.status,

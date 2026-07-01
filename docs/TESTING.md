@@ -67,11 +67,11 @@ npx playwright show-report
 ```
 
 The current suite has **148 Playwright tests**: 25 pre-existing tests and 123
-added by the comprehensive QA pass. Eleven cases are marked with Playwright's
-`test.fail()` because they reproduce ten verified application defects. These
-are not hidden or skipped: Playwright executes each assertion and will fail the
-suite if a defect unexpectedly changes behavior. See `QA_TEST_REPORT.md` for
-the bug IDs, reproductions, severity, and coverage map.
+added by the comprehensive QA pass. Expected-failure contracts reproduce ten
+cross-platform defects plus one clean-Linux dependency defect. These are not
+hidden or skipped: Playwright executes each assertion, and unrelated failures
+remain fatal. See `QA_TEST_REPORT.md` for the bug IDs, reproductions, severity,
+and coverage map.
 
 When fixing a documented defect:
 

@@ -4,6 +4,16 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 
+export function pythonCanImport(moduleName, options = {}) {
+  const result = spawnSync(
+    options.python || "python",
+    ["-c", `import ${moduleName}`],
+    { encoding: "utf8", timeout: 10000 },
+  );
+  return result.status === 0;
+}
+
+
 export function runCli(args, options = {}) {
   const home = mkdtempSync(join(tmpdir(), "opai-e2e-home-"));
   const project = mkdtempSync(join(tmpdir(), "opai-e2e-project-"));

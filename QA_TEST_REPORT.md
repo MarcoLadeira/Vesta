@@ -7,8 +7,9 @@ It exercises the real desktop web assets in Chromium through a deterministic
 mock QWebChannel bridge. No test contacts Claude, Codex, Copilot, Ollama, or any
 paid/network provider.
 
-- Playwright: 148 passed, including 11 expected failures that preserve 10
-  verified product bugs.
+- Playwright: 148 passed locally, including 11 expected failures. Clean-Linux
+  CI adds one environment-conditional expected failure. Together they preserve
+  11 verified product bugs.
 - Vitest: 10 passed.
 - Python: 784 passed, 1 skipped.
 - Quality gates: Ruff, formatting, Bandit, registry validation, npm audit, and
@@ -80,6 +81,7 @@ converted to ordinary passing assertions when the product bug is fixed.
 | Medium | BUG-QA-005: command palette has no dialog semantics | Open the command palette with keyboard. | Named `dialog` available to assistive tech. | Generic overlay only. | `accessibility.spec.js` |
 | Medium | BUG-QA-006: model/mode selectors have no accessible names | Inspect composer controls by role. | Both selects have stable accessible names. | Unnamed comboboxes. | `accessibility.spec.js` |
 | Medium | BUG-QA-008: unavailable models remain selectable | Supply an unavailable model with a disabled reason. | Disabled option explains why. | Option is enabled; reason ignored. | `model-mode.spec.js` |
+| Medium | BUG-QA-011: clean Python crashes while loading GUI workflow data | Run `opai gui --once` without PyYAML installed. | Dependency-free headless state or an actionable dependency error. | YAML registry text is passed to `json.loads` and raises `JSONDecodeError`. | `cli-parity.spec.js` |
 | Low | BUG-QA-007: workspace tooltip loses brand tagline | Load app and inspect workspace tooltip. | OPai tagline remains. | Workspace render overwrites it. | `opai-branding.spec.js` |
 | Low | BUG-QA-010: form controls use an inconsistent fallback font | Compare composer/select/button computed fonts. | Bundled soft UI font is shared. | Controls fall back to Arial. | `opai-branding.spec.js` |
 
