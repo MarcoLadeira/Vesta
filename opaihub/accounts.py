@@ -302,12 +302,17 @@ COPILOT_MODELS: list[tuple[str, str, str]] = [
 def _account_options(
     account: dict[str, Any], *, connected: bool
 ) -> list[dict[str, Any]]:
+    from opai.provider_contract import provider_display_name
+
     disabled_reason = None if connected else f"{account['label']} is not connected"
     if account["id"] == "claude":
         return [
             {
                 "id": f"account:claude:{alias}",
-                "label": f"Claude {label} · your account",
+                "label": provider_display_name("claude", alias),
+                "advanced_label": provider_display_name(
+                    "claude", alias, advanced=True
+                ),
                 "provider": "claude",
                 "model": alias,
                 "kind": "account",
@@ -323,7 +328,10 @@ def _account_options(
         return [
             {
                 "id": f"account:codex:{model_id}",
-                "label": f"Codex {label} · your account",
+                "label": provider_display_name("codex", model_id),
+                "advanced_label": provider_display_name(
+                    "codex", label, advanced=True
+                ),
                 "provider": "codex",
                 "model": model_id,
                 "kind": "account",
@@ -340,7 +348,10 @@ def _account_options(
         return [
             {
                 "id": f"account:copilot:{model_id}",
-                "label": f"Copilot {label} · your account",
+                "label": provider_display_name("copilot", model_id),
+                "advanced_label": provider_display_name(
+                    "copilot", label, advanced=True
+                ),
                 "provider": "copilot",
                 "model": model_id,
                 "kind": "account",
@@ -356,7 +367,10 @@ def _account_options(
     return [
         {
             "id": f"account:{account['id']}",
-            "label": f"{account['label']} · your account",
+            "label": provider_display_name(account["id"]),
+            "advanced_label": provider_display_name(
+                account["id"], advanced=True
+            ),
             "provider": account["id"],
             "model": "",
             "kind": "account",

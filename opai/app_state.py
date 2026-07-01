@@ -532,6 +532,7 @@ def available_models(project_root: Path) -> dict[str, Any]:
             {
                 "id": account["id"],
                 "label": account["label"],
+                "advanced_label": account.get("advanced_label", account["label"]),
                 "kind": "account",
                 "paid": True,
                 "provider": account["provider"],
@@ -543,7 +544,8 @@ def available_models(project_root: Path) -> dict[str, Any]:
     options.append(
         {
             "id": "auto",
-            "label": "Auto · OPai routes the cheapest safe model",
+            "label": "OPai · Auto mode",
+            "advanced_label": "Automatic local-first routing",
             "kind": "auto",
         }
     )
@@ -551,7 +553,8 @@ def available_models(project_root: Path) -> dict[str, Any]:
         options.append(
             {
                 "id": model["id"],
-                "label": f"{model['model']} · {model['provider']} (local)",
+                "label": "OPai · Local mode",
+                "advanced_label": f"{model['model']} via {model['provider']} on this device",
                 "kind": "local",
                 "endpoint": model["endpoint"],
             }

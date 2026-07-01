@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest import mock
 
 from opai.app_state import available_models
-from opaihub.accounts import connection_for_account, test_account_connection
+from opaihub.accounts import account_models, connection_for_account, test_account_connection
 
 
 class _Completed:
@@ -124,6 +124,27 @@ class ProviderConnectionTests(unittest.TestCase):
 
         self.assertEqual(payload["connections"][0]["providerId"], "claude")
         self.assertEqual(payload["connections"][0]["authStatus"], "unknown")
+
+    def test_account_picker_is_opai_first_with_advanced_provider_detail(self):
+        account = {
+            "id": "claude",
+            "label": "Claude",
+            "vendor": "Anthropic Claude Code",
+            "cli": "claude",
+            "cli_path": "/bin/claude",
+            "cli_present": True,
+            "authenticated": True,
+            "connected": True,
+            "login_hint": "Sign in",
+        }
+        with mock.patch(
+            "opaihub.accounts.list_connected_accounts", return_value=[account]
+        ):
+            options = account_models()
+
+        self.assertTrue(all(option["label"].startswith("OPai ·") for option in options))
+        self.assertIn("Claude", options[0]["advanced_label"])
+        self.assertNotIn("Claude", options[0]["label"])
 
 
 if __name__ == "__main__":

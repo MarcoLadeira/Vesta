@@ -74,7 +74,11 @@ def _models(root: Path) -> dict[str, Any]:
     models = []
     for opt in data["models"]:
         models.append({**opt, "badge": model_badge(opt)})
-    return {"models": models, "accounts": data.get("accounts", [])}
+    return {
+        "models": models,
+        "accounts": data.get("accounts", []),
+        "connections": data.get("connections", []),
+    }
 
 
 def _status(root: Path, model_label: str, mode_label: str) -> dict[str, Any]:
@@ -114,7 +118,9 @@ def _workspace(root: Path) -> dict[str, Any]:
 
 
 def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
-    model_label = sel.get("model_label") or "Auto"
+    model_label = (
+        sel.get("model_advanced_label") or sel.get("model_label") or "Automatic routing"
+    )
     model_kind = sel.get("model_kind") or "auto"
     run_mode = sel.get("mode") or "safe-auto"
     run_mode_label = sel.get("mode_label") or "Safe Auto"
@@ -177,12 +183,16 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     )
     sel = {
         "model_label": sel_model.get("label", "Auto"),
+        "model_advanced_label": sel_model.get(
+            "advanced_label", sel_model.get("label", "Auto")
+        ),
         "model_kind": sel_model.get("kind", "auto"),
         "mode": mode,
         "mode_label": mode_labels.get(mode, mode),
         "focus": focus,
         "format": fmt,
         "accounts": models["accounts"],
+        "connections": models["connections"],
     }
     return {
         "workspace": _workspace(root),
@@ -200,6 +210,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             "showPanel": bool(prefs.get("show_control_panel", True)),
         },
         "accounts": models["accounts"],
+        "connections": models["connections"],
         "status": _status(root, sel["model_label"], sel["mode_label"]),
         "inspector": _inspector(root, sel),
         "defaultView": DEFAULT_VIEW,
