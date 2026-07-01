@@ -420,9 +420,22 @@ def cmd_why(args: argparse.Namespace) -> int:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
+    root = _project(args.project)
+    # --model routes through the same pipeline as the GUI (accounts/auto/local)
+    # with live activity, streaming, Ctrl+C cancel, and a cost/savings footer.
+    # Without it, the classic free local-only path is unchanged.
+    if getattr(args, "model", None):
+        from opai.cli_stream import stream_ask
+
+        return stream_ask(
+            root,
+            args.task,
+            model=args.model,
+            mode=getattr(args, "mode", None) or "ask",
+            json_out=getattr(args, "json", False),
+        )
     from opaihub.ask import render_ask, run_ask
 
-    root = _project(args.project)
     result = run_ask(
         root,
         args.task,
@@ -1675,11 +1688,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "ask",
-        help="Answer a cheap task locally (local model + result cache, $0, no cloud)",
+        help=(
+            "Ask a task: free local-first by default; --model streams your "
+            "Claude/Codex/Copilot account with live activity (same core as the GUI)"
+        ),
     )
     p.add_argument("task")
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--json", action="store_true")
+    p.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Model to run: auto, claude[:sonnet|opus|haiku], codex[:model], "
+            "copilot[:model], or a full/local model id. Streams live activity."
+        ),
+    )
+    p.add_argument(
+        "--mode",
+        default=None,
+        help="Run mode with --model: ask | plan | safe-auto | approve-edits | full-auto",
+    )
     p.add_argument(
         "--allow-cloud",
         action="store_true",

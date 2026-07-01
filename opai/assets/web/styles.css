@@ -259,6 +259,11 @@ kbd { font-family: inherit; background: var(--panel-2); border: 1px solid var(--
 }
 .app.panel-hidden .inspector { opacity: 0; pointer-events: none; }
 .insp-title { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); }
+/* Live generation block (issue #110): current step + elapsed while working. */
+.insp-live { background: rgba(52, 211, 153, 0.07); border: 1px solid rgba(52, 211, 153, 0.25); border-radius: var(--r-md); padding: 10px 12px; margin-top: 10px; }
+.insp-live .il-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.insp-live .il-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.3s ease-in-out infinite; flex-shrink: 0; }
+.insp-live .il-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; margin-top: 5px; font-variant-numeric: tabular-nums; }
 .insp-label { font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--faint); margin: 16px 0 7px; }
 .insp-rows { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .insp-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 12.5px; }
