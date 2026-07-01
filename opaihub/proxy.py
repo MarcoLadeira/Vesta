@@ -1,7 +1,8 @@
 """Inline capture: route an agent's call through OPai automatically.
 
 This is the engine behind the agent shim (#91, Epic A #85). Instead of running
-``claude`` / ``codex`` directly, the installed wrapper calls this proxy, which:
+``claude`` / ``codex`` / ``copilot`` directly, the installed wrapper calls this
+proxy, which:
 
   1. **gates** destructive requests *before* any paid call (every mode except
      Full Auto), so OPai blocks risk before spending money;
@@ -18,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-SUPPORTED_AGENTS = ("claude", "codex")
+SUPPORTED_AGENTS = ("claude", "codex", "copilot")
 _EDIT_MODES = {"safe-auto", "full-auto"}
 
 

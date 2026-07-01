@@ -93,6 +93,71 @@ class FakeAccountRunner:
         return {"text": self._text, "cost": self._cost}
 
 
+class FakeStreamingRunner:
+    """Drop-in for ``AccountRunner`` exercising the ``stream()`` path.
+
+    Emits scripted activity events + text chunks; can block until cancelled, and
+    can simulate a raised error or an empty response. Never launches a CLI.
+    Records every ``stream()`` call in ``.calls``.
+    """
+
+    paid = True
+
+    def __init__(
+        self,
+        *,
+        account_id: str = "claude",
+        model: str = "opus",
+        chunks: list[str] | None = None,
+        cost: float | None = 0.01,
+        block: bool = False,
+        raises: Exception | None = None,
+        events: list[tuple[str, str]] | None = None,
+    ) -> None:
+        self.account_id = account_id
+        self.name = account_id
+        self.model = model
+        self._chunks = chunks if chunks is not None else ["Hello ", "world."]
+        self._cost = cost
+        self._block = block
+        self._raises = raises
+        self._events = events or [
+            ("provider_request", "Connected"),
+            ("file_read", "Read file: app.py"),
+        ]
+        self.calls: list[dict[str, Any]] = []
+
+    def available(self) -> bool:
+        return True
+
+    def stream(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
+        import time
+
+        from opai.activity import make_event
+
+        self.calls.append({"prompt": prompt, **kwargs})
+        if self._raises is not None:
+            raise self._raises
+        on_event = kwargs.get("on_event")
+        on_text = kwargs.get("on_text")
+        cancel = kwargs.get("cancel")
+        for etype, title in self._events:
+            if on_event:
+                on_event(make_event(etype, "success", title))
+        out: list[str] = []
+        for chunk in self._chunks:
+            if cancel is not None and cancel.is_set():
+                return {"text": "".join(out), "cost": None, "cancelled": True}
+            out.append(chunk)
+            if on_text:
+                on_text(chunk)
+        while self._block:
+            if cancel is not None and cancel.is_set():
+                return {"text": "".join(out), "cost": None, "cancelled": True}
+            time.sleep(0.02)
+        return {"text": "".join(out), "cost": self._cost}
+
+
 class FakeLocalRunner:
     """Drop-in for ``opaihub.local_runner.LocalRunner`` - no network, no model."""
 

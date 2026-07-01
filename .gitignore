@@ -6,6 +6,13 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# JS front-end test tooling (Vitest + Playwright). package.json + lock are
+# committed for reproducible installs; artifacts/browsers are not.
+node_modules/
+test-results/
+playwright-report/
+.playwright/
 .opcoding-tools/
 .opcoding-tool-cache/
 .opaihub/

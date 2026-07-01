@@ -180,8 +180,10 @@ class AgentSupportTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_supported_agents_are_claude_and_codex(self):
-        self.assertEqual(set(SUPPORTED_AGENTS), {"claude", "codex"})
+    def test_supported_agents_are_claude_codex_copilot(self):
+        # Copilot is now a first-class connector (accounts + proxy shim), so the
+        # inline-capture proxy routes it alongside Claude and Codex.
+        self.assertEqual(set(SUPPORTED_AGENTS), {"claude", "codex", "copilot"})
 
     def test_unsupported_agent_is_clean_and_never_calls_runner(self):
         fake = FakeAccountRunner(text="x", cost=0.01)

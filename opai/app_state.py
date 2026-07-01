@@ -556,8 +556,8 @@ def available_models(project_root: Path) -> dict[str, Any]:
         hint = None
     else:
         hint = (
-            "No AI account connected. Sign in to Claude or Codex (run `claude` or "
-            "`codex` once), or add a local model under Advanced."
+            "No AI account connected. Sign in to Claude, Codex, or Copilot (run "
+            "`claude`, `codex`, or `copilot` once), or add a local model under Advanced."
         )
     return {
         "models": options,
@@ -581,6 +581,9 @@ def ask(
     allow_edits: bool = False,
     account_runner: Any = None,
     mode: str | None = None,
+    on_event: Any = None,
+    on_text: Any = None,
+    cancel: Any = None,
 ) -> dict[str, Any]:
     """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', or 'provider:model'.
 
@@ -603,6 +606,9 @@ def ask(
             allow_edits=allow_edits,
             runner=account_runner,
             mode=mode,
+            on_event=on_event,
+            on_text=on_text,
+            cancel=cancel,
         )
 
     from opaihub.ask import run_ask
@@ -633,8 +639,16 @@ def _ask_account(
     allow_edits: bool = False,
     runner: Any = None,
     mode: str | None = None,
+    on_event: Any = None,
+    on_text: Any = None,
+    cancel: Any = None,
 ) -> dict[str, Any]:
-    """Run a task through a connected paid-account CLI, with firewall gating."""
+    """Run a task through a connected paid-account CLI, with firewall gating.
+
+    When ``on_event``/``on_text``/``cancel`` are supplied and the runner exposes
+    ``stream()``, the call streams live activity and is cancellable; otherwise it
+    uses the blocking ``complete()`` path (unchanged).
+    """
     root = project_root.expanduser().resolve()
     # Cost firewall: panic mode means local-only, so block paid account calls.
     if cost_firewall(root).get("panic"):
@@ -653,16 +667,30 @@ def _ask_account(
             "provider": account_id,
             "hint": f"Connect your {account_id} account: run `{account_id}` once and sign in.",
         }
+    want_stream = (
+        on_event is not None or on_text is not None or cancel is not None
+    ) and hasattr(run, "stream")
     before = set(_changed_files(root)) if allow_edits else set()
     try:
-        try:
-            result = run.complete(
-                task, project_root=root, allow_edits=allow_edits, mode=mode
+        if want_stream:
+            result = run.stream(
+                task,
+                project_root=root,
+                allow_edits=allow_edits,
+                mode=mode,
+                on_event=on_event,
+                on_text=on_text,
+                cancel=cancel,
             )
-        except TypeError as exc:
-            if "mode" not in str(exc):
-                raise
-            result = run.complete(task, project_root=root, allow_edits=allow_edits)
+        else:
+            try:
+                result = run.complete(
+                    task, project_root=root, allow_edits=allow_edits, mode=mode
+                )
+            except TypeError as exc:
+                if "mode" not in str(exc):
+                    raise
+                result = run.complete(task, project_root=root, allow_edits=allow_edits)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         return {
             "status": "account_error",
@@ -672,6 +700,26 @@ def _ask_account(
                 "Try again, or pick a different model."
             ),
             "error": str(exc),  # kept for debugging, not shown raw to the user
+        }
+
+    # User stopped it mid-flight: return the partial cleanly (not an error).
+    if isinstance(result, dict) and result.get("cancelled"):
+        return {
+            "status": "cancelled",
+            "provider": account_id,
+            "model": getattr(run, "model", "") or account_id,
+            "answer": (result.get("text") or "").strip(),
+            "cost_usd": result.get("cost"),
+        }
+    if isinstance(result, dict) and result.get("error") and not result.get("text"):
+        return {
+            "status": "account_error",
+            "provider": account_id,
+            "answer": (
+                f"{account_id.capitalize()} hit an error and couldn't finish that. "
+                "Try again, or pick a different model."
+            ),
+            "error": str(result.get("error")),
         }
 
     # A long agentic run that hit the time limit: stop cleanly, guide the user.
@@ -733,7 +781,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "id": "connect",
         "label": "Connect",
-        "desc": "Connect Claude / Codex accounts",
+        "desc": "Connect Claude / Codex / Copilot accounts",
         "mutates": False,
     },
     {

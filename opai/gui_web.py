@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import threading
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -241,6 +243,8 @@ def _run_gui(
 
     class Bridge(QtCore.QObject):
         replyReady = QtCore.Signal(str)
+        activity = QtCore.Signal(str)
+        token = QtCore.Signal(str)
         toolReady = QtCore.Signal(str)
         workspaceChanged = QtCore.Signal(str)
 
@@ -249,6 +253,7 @@ def _run_gui(
             self.window = window
             self.root = root
             self._workers: list[Any] = []
+            self._cancels: dict[str, threading.Event] = {}
 
         # ---- synchronous data slots ---------------------------------- #
         @QtCore.Slot(result=str)
@@ -361,6 +366,7 @@ def _run_gui(
             text = str(payload.get("text", "")).strip()
             if not text:
                 return
+            request_id = str(payload.get("requestId") or uuid.uuid4().hex[:12])
             model_id = payload.get("model", "auto")
             mode = payload.get("mode", "safe-auto")
             composed = compose_prompt(
@@ -368,17 +374,58 @@ def _run_gui(
                 task_mode_id=payload.get("focus"),
                 output_format_id=payload.get("format"),
             )
-            worker = Worker(
-                lambda: handle_gui_message(
-                    self.root, composed, model_id=model_id, mode=mode
+            cancel = threading.Event()
+            self._cancels[request_id] = cancel
+
+            # Callbacks run on the worker thread; emitting a Bridge signal is a
+            # safe cross-thread queued call. Every payload carries the request_id
+            # so the front-end can drop anything from a stale/cancelled request.
+            def emit_event(event: dict[str, Any]) -> None:
+                self.activity.emit(
+                    json.dumps({"requestId": request_id, "event": event})
                 )
-            )
-            worker.done.connect(self.replyReady.emit)
+
+            def emit_text(chunk: str) -> None:
+                self.token.emit(json.dumps({"requestId": request_id, "text": chunk}))
+
+            def job() -> dict[str, Any]:
+                return handle_gui_message(
+                    self.root,
+                    composed,
+                    model_id=model_id,
+                    mode=mode,
+                    on_event=emit_event,
+                    on_text=emit_text,
+                    cancel=cancel,
+                )
+
+            worker = Worker(job)
+
+            def _done(result_json: str) -> None:
+                self._cancels.pop(request_id, None)
+                self.replyReady.emit(
+                    json.dumps(
+                        {"requestId": request_id, "result": json.loads(result_json)}
+                    )
+                )
+
+            worker.done.connect(_done)
             worker.finished.connect(
                 lambda w=worker: self._workers.remove(w) if w in self._workers else None
             )
             self._workers.append(worker)
             worker.start()
+
+        @QtCore.Slot(str)
+        def cancel(self, request_id: str) -> None:
+            """Stop the request: set its cancel flag so the runner kills the CLI.
+
+            The front-end also drops the request_id immediately, so even if a
+            late partial arrives it is ignored — no stale overwrite.
+            """
+            event = self._cancels.get(str(request_id))
+            if event is not None:
+                event.set()
 
         @QtCore.Slot(str)
         def runTool(self, name: str) -> None:

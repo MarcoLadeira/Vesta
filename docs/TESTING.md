@@ -1,8 +1,36 @@
 # Testing OPai
 
-OPai is a **Python CLI + PySide6 desktop GUI** (not a web app), so the test
-strategy is unit + integration + headless-GUI + CLI end-to-end — all hermetic.
-**No test ever launches a real paid CLI, makes a network call, or spends money.**
+OPai is a **Python CLI + PySide6/QWebEngine desktop GUI**. The test strategy is
+unit + integration + headless-GUI + CLI end-to-end in Python, plus a JS layer
+(Vitest + Playwright) for the web-rendered front-end. **No test ever launches a
+real paid CLI, makes a network call, or spends money** — the model runtime is
+mocked (`FakeAccountRunner`, `FakeStreamingRunner`, mocked `subprocess.Popen`,
+and a mock QWebChannel bridge for the browser).
+
+## AI activity / cancellation / streaming (three layers)
+
+The Stop-button + live-activity + streaming work is tested at every layer:
+
+| Layer | Files | Covers |
+| --- | --- | --- |
+| Python unit/integration | `tests/test_activity.py`, `tests/test_streaming.py`, `tests/test_cancellation.py`, `tests/test_copilot.py` | claude stream parser, stale-guard, slow-model thresholds, error mapper; pipeline events + streamed text (account + local); `Popen` kill on stop/timeout; Copilot connector |
+| JS unit (Vitest, Node 22) | `opai/assets/web/__tests__/activity.test.js` | `shouldApply` stale-guard, thresholds, elapsed formatting, activity store |
+| E2E (Playwright, Chromium) | `opai/assets/web/__tests__/e2e/activity.spec.js` (+ `mock-bridge.js`) | generation visibility, slow-model, stop-before-token (no stale overwrite), stop-during-stream, double-stop, duplicate-submit, retry-after-stop, error recovery, a11y |
+
+Run the JS layers (local only — not in the Python CI):
+
+```sh
+npm install                    # once; installs vitest + @playwright/test
+npm run test:unit              # Vitest
+npx playwright install chromium  # once
+npm run test:e2e               # Playwright (serves the repo, injects a mock bridge)
+```
+
+The Playwright harness (`mock-bridge.js`) stubs `QWebChannel`/`qt` and a
+scriptable bridge so the **real** `activity.js` + `app.js` run in Chromium with
+no Qt; the spec drives streaming/cancellation via `window.__mock.*`.
+
+## Python suite
 
 ## Run the tests
 
