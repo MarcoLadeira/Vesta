@@ -1051,6 +1051,15 @@ def cmd_models(args: argparse.Namespace) -> int:
                 ],
             },
             {
+                "id": "copilot",
+                "label": "Copilot",
+                "models": [
+                    option
+                    for option in account_options
+                    if option.get("provider") == "copilot"
+                ],
+            },
+            {
                 "id": "local",
                 "label": "Local",
                 "models": [
@@ -1516,14 +1525,16 @@ def build_parser() -> argparse.ArgumentParser:
         "proxy",
         help="Route one agent call through OPai (the inline-capture shim entrypoint)",
     )
-    p.add_argument("agent", help="Agent to route through (claude or codex)")
+    p.add_argument("agent", help="Agent to route through (claude, codex, or copilot)")
     p.add_argument("task", help="The task/prompt to run")
     p.add_argument(
         "--mode",
         default="ask",
         help="ask | plan | safe-auto | approve-edits | full-auto",
     )
-    p.add_argument("--model", default=None, help="Model for the account (claude)")
+    p.add_argument(
+        "--model", default=None, help="Model for the account (claude/codex/copilot)"
+    )
     p.add_argument("--json", action="store_true", help="Print the full result as JSON")
     p.add_argument("--project", default=None, help="Project root")
     p.set_defaults(func=cmd_proxy)
@@ -1798,7 +1809,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("models", help="Model recommendation and routing helpers")
     models_sub = p.add_subparsers(dest="models_command", required=True)
     mo = models_sub.add_parser(
-        "list", help="List Auto, Codex, Claude, and local model choices"
+        "list", help="List Auto, Codex, Claude, Copilot, and local model choices"
     )
     mo.add_argument("--project", default=None, help="Project root")
     mo.set_defaults(func=cmd_models)

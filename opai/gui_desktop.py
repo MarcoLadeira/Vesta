@@ -151,8 +151,14 @@ AMBER = "#e0a458"
 RED = "#ef6b7d"
 CLAUDE = "#d6896a"  # provider dot - terracotta (recognisable, not the accent)
 CODEX = "#58b0d6"  # provider dot - cool blue
+COPILOT = "#a371f7"  # provider dot - GitHub Copilot violet
 
-PROVIDER_COLOR = {"claude": CLAUDE, "codex": CODEX, "auto": MUTED}
+PROVIDER_COLOR = {
+    "claude": CLAUDE,
+    "codex": CODEX,
+    "copilot": COPILOT,
+    "auto": MUTED,
+}
 # Severity → colour for dashboard cards, KPI chips, badges, permission states.
 SEVERITY_COLOR = {
     "success": GREEN,

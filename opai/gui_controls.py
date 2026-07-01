@@ -151,6 +151,7 @@ _MODEL_TIERS: dict[str, dict[str, str]] = {
     "sonnet": {"speed": "fast", "quality": "high", "cost": "$$"},
     "haiku": {"speed": "fastest", "quality": "good", "cost": "$"},
     "codex": {"speed": "fast", "quality": "high", "cost": "$$"},
+    "gpt": {"speed": "fast", "quality": "high", "cost": "$$"},
 }
 
 

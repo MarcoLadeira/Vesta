@@ -21,6 +21,30 @@ def _mode_label(mode: str) -> str:
     }.get(mode, "Safe Auto")
 
 
+def _cancelled_result(
+    message: str,
+    tool_trace: list[dict[str, Any]],
+    model_id: str,
+    mode: str,
+    *,
+    answer: str = "",
+) -> dict[str, Any]:
+    """A calm 'stopped by user' result — partial text kept, not an error."""
+    body = "Generation stopped by you."
+    if answer.strip():
+        body = answer.strip() + "\n\n_(stopped by you)_"
+    return {
+        "status": "cancelled",
+        "answer": body,
+        "tool_trace": tool_trace,
+        "receipt": {},
+        "changed_files": [],
+        "warnings": [],
+        "next_actions": ["Edit the prompt, retry, or switch model."],
+        "partial": bool(answer.strip()),
+    }
+
+
 def build_savings_receipt(
     project_root: Path,
     *,
@@ -116,17 +140,42 @@ def handle_gui_message(
     model_id: str | None = None,
     mode: str | None = None,
     account_runner: Any = None,
+    on_event: Any = None,
+    on_text: Any = None,
+    cancel: Any = None,
 ) -> dict[str, Any]:
+    """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
+    emits live activity and streams account output; without them it behaves
+    exactly as before (one blocking call)."""
+
+    def _emit(etype: str, status: str, title: str, **kw: Any) -> None:
+        if on_event:
+            from opai.activity import make_event
+
+            on_event(make_event(etype, status, title, **kw))
+
+    def _cancelled() -> bool:
+        return cancel is not None and cancel.is_set()
+
     root = project_root.expanduser().resolve()
+    _emit("request_prepare", "success", "Preparing request")
     prefs = load_gui_preferences(root)
     selected_model = model_id or prefs.get("default_model") or "auto"
     selected_mode = mode or prefs.get("default_mode") or DEFAULT_MODE
     tool_trace = route_intents(root, message, mode=selected_mode)
+    _emit(
+        "context_read",
+        "success",
+        "Read project context",
+        detail=f"{len(tool_trace)} routing step(s)",
+    )
     warnings = safety_warnings(root, message, mode=selected_mode)
     rec = recommend_model(root, message)
     tier = str(rec.get("recommended_model_tier") or "L1").upper()
+    _emit("model_selected", "success", f"Selected model: {selected_model}")
 
     if warnings and selected_mode != "full-auto":
+        _emit("error", "warning", "Blocked before running (looked risky)")
         receipt = build_savings_receipt(
             root,
             task=message,
@@ -165,6 +214,10 @@ def handle_gui_message(
     if selected_model.startswith("account:"):
         from opai import app_state as A
 
+        if _cancelled():
+            return _cancelled_result(message, tool_trace, selected_model, selected_mode)
+        provider = selected_model.split(":")[1] if ":" in selected_model else "account"
+        _emit("provider_request", "running", f"Sending to {provider.capitalize()}")
         result = A.ask(
             root,
             message,
@@ -172,7 +225,19 @@ def handle_gui_message(
             allow_edits=allow_edits,
             account_runner=account_runner,
             mode=selected_mode,
+            on_event=on_event,
+            on_text=on_text,
+            cancel=cancel,
         )
+        if result.get("status") == "cancelled":
+            _emit("cancelled", "cancelled", "Stopped by you")
+            return _cancelled_result(
+                message,
+                tool_trace,
+                selected_model,
+                selected_mode,
+                answer=result.get("answer") or "",
+            )
         actual = result.get("cost_usd")
         receipt = build_savings_receipt(
             root,
@@ -197,6 +262,10 @@ def handle_gui_message(
             if result.get("status") == "answered_by_account"
             else result.get("status", "error")
         )
+        if status == "answered":
+            _emit("completion", "success", "Completed")
+        else:
+            _emit("error", "warning", "Model returned an error")
         return {
             "status": status,
             "answer": result.get("answer")
@@ -230,6 +299,10 @@ def handle_gui_message(
         model_id=selected_model,
         mode=selected_mode,
     )
+    if _cancelled():
+        _emit("cancelled", "cancelled", "Stopped by you")
+        return _cancelled_result(message, tool_trace, selected_model, selected_mode)
+    _emit("provider_request", "running", "Running locally")
     result = run_ask(root, message, record=False)
     status_map = {
         "answered_locally": "answered",
@@ -253,8 +326,15 @@ def handle_gui_message(
             "The local model couldn't answer that. Pick your Claude or Codex account "
             "in the model menu, or check that your local model is running."
         )
+    final_status = status_map.get(result.get("status"), result.get("status", "error"))
+    if final_status == "answered":
+        _emit("completion", "success", "Completed")
+        if on_text and answer:
+            on_text(answer)
+    else:
+        _emit("error", "warning", "Couldn't complete locally")
     return {
-        "status": status_map.get(result.get("status"), result.get("status", "error")),
+        "status": final_status,
         "answer": answer,
         "tool_trace": tool_trace,
         "receipt": receipt,

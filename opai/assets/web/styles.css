@@ -343,3 +343,53 @@ kbd { font-family: inherit; background: var(--panel-2); border: 1px solid var(--
 .ws-menu .item:hover { background: rgba(255,255,255,0.06); }
 .ws-menu .sep { height: 1px; background: var(--border); margin: 5px 4px; }
 .ws-menu .item .sub { color: var(--faint); font-size: 11px; }
+
+/* ---------- AI activity / generation status ---------- */
+.gen { display: flex; flex-direction: column; gap: 8px; }
+.gen-head { display: flex; align-items: center; gap: 10px; }
+.gen-stage { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.gen-time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; margin-left: auto; }
+.gen-stop {
+  background: rgba(242, 118, 138, 0.12); color: var(--red); border: 1px solid rgba(242, 118, 138, 0.3);
+  font-family: inherit; font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: var(--r-sm); cursor: pointer;
+  transition: background 0.15s var(--ease);
+}
+.gen-stop:hover { background: rgba(242, 118, 138, 0.2); }
+.gen-reassure { font-size: 12.5px; color: var(--muted); min-height: 0; }
+.gen-reassure.warn { color: var(--amber); }
+.gen-switch, .gen-reassure a { color: var(--blue); cursor: pointer; text-decoration: underline; }
+.gen-toggle {
+  align-self: flex-start; background: transparent; border: 0; color: var(--faint); font-family: inherit;
+  font-size: 11.5px; cursor: pointer; padding: 2px 0; transition: color 0.15s var(--ease);
+}
+.gen-toggle:hover { color: var(--muted); }
+.timeline { display: flex; flex-direction: column; gap: 2px; border-left: 2px solid var(--border); padding: 4px 0 4px 12px; margin: 2px 0; }
+.tl-row { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--muted); animation: msgIn 0.2s var(--ease); }
+.tl-ic { width: 14px; text-align: center; font-size: 11px; flex-shrink: 0; }
+.tl-row.success .tl-ic { color: var(--green); }
+.tl-row.running .tl-ic { color: var(--blue); animation: spin 1.4s linear infinite; display: inline-block; }
+.tl-row.warning .tl-ic { color: var(--amber); }
+.tl-row.error .tl-ic { color: var(--red); }
+.tl-row.cancelled .tl-ic { color: var(--faint); }
+.tl-row.cancelled .tl-t { color: var(--faint); }
+.tl-t { color: var(--ink); }
+.tl-d { color: var(--faint); font-family: "Cascadia Code", monospace; font-size: 11.5px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.body.stream { white-space: pre-wrap; word-break: break-word; }
+
+.stopped-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px 16px; }
+.stopped-card .sc-t { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.stopped-card .sc-sub { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+.stopped-card .sc-actions, .error-card .ec-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+.error-card { background: rgba(242, 118, 138, 0.06); border: 1px solid rgba(242, 118, 138, 0.25); border-radius: var(--r-md); padding: 14px 16px; }
+.error-card .ec-t { font-size: 13.5px; font-weight: 700; color: var(--red); }
+.error-card .ec-w { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.error-card .btn.ghost { background: transparent; }
+.ec-details { margin-top: 10px; }
+.ec-details summary { color: var(--faint); font-size: 12px; cursor: pointer; }
+.ec-details pre { margin-top: 8px; background: #0b0d11; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px; font-family: "Cascadia Code", monospace; font-size: 11.5px; color: var(--muted); overflow-x: auto; user-select: text; white-space: pre-wrap; }
+
+/* global "AI working" pulse on the brand dot */
+body.ai-working .brand .dot { animation: pulse 1.3s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--green); } 50% { opacity: 0.4; box-shadow: 0 0 2px var(--green); } }
