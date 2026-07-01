@@ -23,7 +23,10 @@ test("ask help supports the model, mode, and JSON parity flags", () => {
 
 test("headless GUI state is machine-readable and Safe Auto by default", () => {
   const result = runCli(["gui", "--once", "--project", "<project>"]);
-  expect(result.status).toBe(0);
+  expect(
+    result.status,
+    `headless GUI command failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+  ).toBe(0);
   const payload = JSON.parse(result.stdout);
   expect(payload.effective_mode || payload.mode).toBe("safe-auto");
   expect(payload).toHaveProperty("available_models");
