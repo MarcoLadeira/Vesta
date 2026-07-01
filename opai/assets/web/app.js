@@ -250,6 +250,10 @@ function renderInspector(data) {
   const bud = data.budget || { pct: 0, text: "" };
   ins.innerHTML = `
     <div class="insp-title">Session</div>
+    <div class="insp-live" id="inspLive" aria-live="polite" hidden>
+      <div class="il-status"><span class="il-dot"></span><span id="inspLiveStep">Working…</span></div>
+      <div class="il-meta"><span id="inspLiveElapsed">00:00</span><span id="inspLiveEvents"></span></div>
+    </div>
     <div class="insp-label">Task focus</div>
     <select class="select" id="focusSel" style="width:100%">${focusOpts}</select>
     <div class="insp-label">Output format</div>
@@ -264,6 +268,20 @@ function renderInspector(data) {
     <div class="badges">${badges}</div>`;
   $("#focusSel").onchange = (e) => { state.focus = e.target.value; bridge.savePref("default_task_mode", state.focus); refreshInspector(); };
   $("#fmtSel").onchange = (e) => { state.format = e.target.value; bridge.savePref("default_output_format", state.format); refreshInspector(); };
+  updateInspectorLive();
+}
+
+// Live generation block in the inspector (issue #110): current step, elapsed,
+// event count — shown only while a request is active.
+function updateInspectorLive(stepText) {
+  const live = $("#inspLive");
+  if (!live) return;
+  if (!state.busy) { live.setAttribute("hidden", ""); return; }
+  live.removeAttribute("hidden");
+  if (stepText) $("#inspLiveStep").textContent = stepText;
+  $("#inspLiveElapsed").textContent = OPaiActivity.formatElapsed(Date.now() - state.startTime);
+  const n = state.store ? state.store.events.length : 0;
+  $("#inspLiveEvents").textContent = n ? n + " step" + (n === 1 ? "" : "s") : "";
 }
 
 function renderStatus(st) {
@@ -400,6 +418,7 @@ function onActivity(json) {
   if (!OPaiActivity.shouldApply(state.currentRequest, d.requestId)) return; // stale guard
   state.store.upsert(d.event);
   renderTimeline();
+  updateInspectorLive(d.event && d.event.title);
 }
 function onToken(json) {
   const d = JSON.parse(json);
@@ -432,6 +451,7 @@ function updateGenStage(sel) {
     const sw = rEl.querySelector(".gen-switch");
     if (sw) sw.onclick = () => { $("#modelSel").focus(); };
   }
+  updateInspectorLive(sm.stage);
 }
 
 function stop() {
@@ -549,6 +569,7 @@ function setBusy(on) {
   s.textContent = on ? "Stop" : "Send";
   s.classList.toggle("stop", on);
   s.setAttribute("aria-label", on ? "Stop generation" : "Send prompt");
+  updateInspectorLive(on ? "Preparing request…" : null);
 }
 
 /* ---------- dashboards ---------- */
