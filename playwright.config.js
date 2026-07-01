@@ -7,8 +7,15 @@ export default defineConfig({
   timeout: 15000,
   expect: { timeout: 5000 },
   fullyParallel: true,
-  reporter: [["list"]],
-  use: { baseURL: "http://localhost:8099", actionTimeout: 5000 },
+  reporter: process.env.CI
+    ? [["line"], ["html", { open: "never" }]]
+    : [["list"]],
+  use: {
+    baseURL: "http://localhost:8099",
+    actionTimeout: 5000,
+    screenshot: "only-on-failure",
+    trace: "retain-on-failure",
+  },
   webServer: {
     command: "python -m http.server 8099",
     port: 8099,
