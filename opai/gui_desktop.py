@@ -120,6 +120,8 @@ def run_once(project_root: Path) -> dict[str, Any]:
         "available_models": [m["id"] for m in models["models"]],
         "auto_policy": {"default_mode": mode, "modes": list(MODES)},
         "last_savings_receipt": last_savings_receipt(root),
+        "capture": o["capture"],
+        "capture_rate_percent": o["capture"]["rate_percent"],
     }
 
 
