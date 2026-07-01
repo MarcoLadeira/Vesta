@@ -103,6 +103,8 @@ def record_capture_session(
     paid: bool,
     spend_accounted: bool,
     model: str | None = None,
+    reason_code: str | None = None,
+    source: str = "proxy",
 ) -> dict[str, Any]:
     """Record one privacy-safe terminal event for a proxied agent session.
 
@@ -121,19 +123,24 @@ def record_capture_session(
                 and event.get("capture_id") == stable_id
             ):
                 return event
+        fields: dict[str, Any] = {
+            "capture_id": stable_id,
+            "agent": str(agent).strip().lower(),
+            "mode": str(mode).strip().lower(),
+            "model": str(model or ""),
+            "outcome": str(outcome).strip().lower(),
+            "captured": bool(captured),
+            "paid": bool(paid),
+            "spend_accounted": bool(spend_accounted),
+            "source": str(source or "proxy").strip().lower(),
+        }
+        if reason_code:
+            fields["reason_code"] = str(reason_code).strip().lower()
         return record_event(
             root,
             EVENT_CAPTURE_SESSION,
             task=task,
-            capture_id=stable_id,
-            agent=str(agent).strip().lower(),
-            mode=str(mode).strip().lower(),
-            model=str(model or ""),
-            outcome=str(outcome).strip().lower(),
-            captured=bool(captured),
-            paid=bool(paid),
-            spend_accounted=bool(spend_accounted),
-            source="proxy",
+            **fields,
         )
 
 

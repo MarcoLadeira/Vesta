@@ -484,6 +484,26 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
 
     client_status = client_integrations_status(root, user_home)
     stale = detect_stale_paths(root, user_home)
+
+    def wrapper_info(path: Path) -> dict[str, Any]:
+        capture_mode = "missing"
+        if path.exists():
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+                capture_mode = (
+                    "selective_proxy"
+                    if "agent-launch --project" in content
+                    and "PassthroughExit = 125" in content
+                    else "legacy_passthrough"
+                )
+            except OSError:
+                capture_mode = "unreadable"
+        return {
+            "path": str(path),
+            "exists": path.exists(),
+            "capture_mode": capture_mode,
+        }
+
     return {
         "brand": __brand__,
         "version": __version__,
@@ -502,10 +522,7 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
             "shell_aliases_installed": bool(
                 global_status.get("shell_aliases_installed")
             ),
-            "wrappers": {
-                name: {"path": str(path), "exists": path.exists()}
-                for name, path in wrappers.items()
-            },
+            "wrappers": {name: wrapper_info(path) for name, path in wrappers.items()},
         },
         "superpowers": {
             "available": superpowers_source.exists(),
@@ -525,33 +542,37 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
 
 def _powershell_wrapper(tool: str) -> str:
     python = _ps_quote(_python_executable())
-    fallback = ""
+    fallback = "$RawPrefix = @()"
     if tool == "copilot":
-        fallback = """
+        fallback = """$RawPrefix = @()
 if (-not $Command) {
     $Gh = Get-Command gh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($Gh) {
-        & $Gh.Source copilot @Args
-        exit $LASTEXITCODE
+        $Command = $Gh
+        $RawPrefix = @("copilot")
     }
 }
 """
     return f"""param(
     [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]] $Args
+    [string[]] $AgentArgs
 )
 
 $OpaiPython = {python}
+$PassthroughExit = 125
 $env:OPAI_ACTIVE = "1"
 $env:OPAI_STATUS = "{STATUS_TEXT}"
 & $OpaiPython -m opai activate --quiet --project .
-if ($LASTEXITCODE -ne 0) {{
+$ActivationOk = $LASTEXITCODE -eq 0
+if (-not $ActivationOk) {{
     Write-Warning "OPai activation failed; launching {tool} in degraded mode."
 }}
 if ($env:OPAI_WELCOME -eq "1") {{
-    & $OpaiPython -m opai welcome --compact --frames 4 --delay 0.035 --animate
+    & $OpaiPython -m opai welcome --compact --frames 4 --delay 0.035 --animate |
+        ForEach-Object {{ [Console]::Error.WriteLine([string]$_) }}
 }} else {{
-    & $OpaiPython -m opai statusline
+    & $OpaiPython -m opai statusline |
+        ForEach-Object {{ [Console]::Error.WriteLine([string]$_) }}
 }}
 
 $Command = Get-Command {tool} -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -561,7 +582,16 @@ if (-not $Command) {{
     exit 127
 }}
 
-& $Command.Source @Args
+$RawArgs = @($RawPrefix) + @($AgentArgs)
+if ($ActivationOk) {{
+    & $OpaiPython -m opai agent-launch --project . {tool} -- @AgentArgs
+    $OpaiExit = $LASTEXITCODE
+    if ($OpaiExit -ne $PassthroughExit) {{
+        exit $OpaiExit
+    }}
+}}
+
+& $Command.Source @RawArgs
 exit $LASTEXITCODE
 """
 
@@ -571,30 +601,69 @@ def _posix_wrapper(tool: str) -> str:
     if tool == "copilot":
         return f"""#!/usr/bin/env sh
 OPAI_PYTHON={python}
+PASSTHROUGH_EXIT=125
 export OPAI_ACTIVE=1
 export OPAI_STATUS="{STATUS_TEXT}"
-"$OPAI_PYTHON" -m opai activate --quiet --project . || printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
+ACTIVATION_OK=1
+"$OPAI_PYTHON" -m opai activate --quiet --project . || ACTIVATION_OK=0
+if [ "$ACTIVATION_OK" -eq 0 ]; then
+  printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
+fi
 if [ "$OPAI_WELCOME" = "1" ]; then
-  "$OPAI_PYTHON" -m opai welcome --compact --frames 4 --delay 0.035 --animate
+  "$OPAI_PYTHON" -m opai welcome --compact --frames 4 --delay 0.035 --animate >&2
 else
-  "$OPAI_PYTHON" -m opai statusline
+  "$OPAI_PYTHON" -m opai statusline >&2
 fi
 if command -v copilot >/dev/null 2>&1; then
-  exec copilot "$@"
+  COMMAND=$(command -v copilot)
+  RAW_PREFIX=
+elif command -v gh >/dev/null 2>&1; then
+  COMMAND=$(command -v gh)
+  RAW_PREFIX=copilot
+else
+  printf '%s\\n' "copilot command not found on PATH." >&2
+  exit 127
 fi
-exec gh copilot "$@"
+if [ "$ACTIVATION_OK" -eq 1 ]; then
+  "$OPAI_PYTHON" -m opai agent-launch --project . copilot -- "$@"
+  OPAI_EXIT=$?
+  if [ "$OPAI_EXIT" -ne "$PASSTHROUGH_EXIT" ]; then
+    exit "$OPAI_EXIT"
+  fi
+fi
+if [ -n "$RAW_PREFIX" ]; then
+  exec "$COMMAND" "$RAW_PREFIX" "$@"
+fi
+exec "$COMMAND" "$@"
 """
     return f"""#!/usr/bin/env sh
 OPAI_PYTHON={python}
+PASSTHROUGH_EXIT=125
 export OPAI_ACTIVE=1
 export OPAI_STATUS="{STATUS_TEXT}"
-"$OPAI_PYTHON" -m opai activate --quiet --project . || printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
-if [ "$OPAI_WELCOME" = "1" ]; then
-  "$OPAI_PYTHON" -m opai welcome --compact --frames 4 --delay 0.035 --animate
-else
-  "$OPAI_PYTHON" -m opai statusline
+ACTIVATION_OK=1
+"$OPAI_PYTHON" -m opai activate --quiet --project . || ACTIVATION_OK=0
+if [ "$ACTIVATION_OK" -eq 0 ]; then
+  printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
 fi
-exec {tool} "$@"
+if [ "$OPAI_WELCOME" = "1" ]; then
+  "$OPAI_PYTHON" -m opai welcome --compact --frames 4 --delay 0.035 --animate >&2
+else
+  "$OPAI_PYTHON" -m opai statusline >&2
+fi
+COMMAND=$(command -v {tool})
+if [ -z "$COMMAND" ]; then
+  printf '%s\\n' "{tool} command not found on PATH." >&2
+  exit 127
+fi
+if [ "$ACTIVATION_OK" -eq 1 ]; then
+  "$OPAI_PYTHON" -m opai agent-launch --project . {tool} -- "$@"
+  OPAI_EXIT=$?
+  if [ "$OPAI_EXIT" -ne "$PASSTHROUGH_EXIT" ]; then
+    exit "$OPAI_EXIT"
+  fi
+fi
+exec "$COMMAND" "$@"
 """
 
 

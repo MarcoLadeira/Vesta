@@ -19,7 +19,7 @@
     ],
     selectedModel: "account:claude:opus",
     modes: [{ id: "ask", label: "Ask" }, { id: "safe-auto", label: "Safe Auto" }],
-    navGroups: [{ group: "Control", items: [{ id: "home", label: "Home" }] }], taskModes: [{ id: "general", label: "General" }], outputFormats: [{ id: "normal", label: "Normal" }],
+    navGroups: [{ group: "Control", items: [{ id: "home", label: "Home" }, { id: "agents", label: "Agents" }] }], taskModes: [{ id: "general", label: "General" }], outputFormats: [{ id: "normal", label: "Normal" }],
     prefs: { model: "account:claude:opus", mode: "ask", focus: "general", format: "normal", showPanel: true },
     accounts: [{ id: "claude", label: "Claude", connected: true }],
     status: { on: true, line: "Claude · Ask · $0.00 today · $0.00 saved" },
@@ -39,6 +39,16 @@
         { label: "Observed sessions", value: "3", severity: "neutral" },
       ],
       cards: [{ title: "Capture gap", body: "1 fail-open session was not accounted.", severity: "warning" }],
+    } : id === "agents" ? {
+      title: "Agent Readiness",
+      subtitle: "Know which launches OPai can capture.",
+      cards: [{
+        title: "Codex", status: "ACTIVE", severity: "success",
+        metrics: [
+          { label: "Wrapper", value: "installed", severity: "success" },
+          { label: "Capture", value: "selective proxy", severity: "success" },
+        ],
+      }],
     } : {})); },
     prompts: function (q, c, cb) { cb(JSON.stringify({ categories: [], prompts: [] })); },
     usePrompt: function (id, cb) { cb(JSON.stringify({})); },

@@ -236,6 +236,7 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
                 "status": client.get("status", "unknown"),
                 "reason": client.get("reason", ""),
                 "wrapper_installed": bool(wrapper.get("exists")),
+                "wrapper_capture_mode": wrapper.get("capture_mode", "missing"),
                 "config_rules": bool(client.get("project_managed")),
                 "global_ready": client.get("global_ready"),
                 "repair": client.get("repair", "opai activate --repair"),

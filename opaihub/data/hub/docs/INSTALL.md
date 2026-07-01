@@ -86,6 +86,11 @@ opai launch copilot
 
 The one-command installer writes managed shell aliases that shadow `op`, `opai`, `codex`, `claude`, and `copilot` with OPai wrappers by default. PowerShell profiles are supported on Windows; `.profile`, `.bashrc`, and `.zshrc` are written for POSIX shells. To opt out from a local checkout:
 
+Managed wrappers proxy conservative one-shot forms and fail open to the real
+CLI for interactive or advanced invocations. Passthrough preserves the original
+argument vector and exit code; wrapper status is sent to stderr so pipes and
+JSON output remain machine-readable.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoShellAliases
 ```

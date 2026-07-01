@@ -175,6 +175,24 @@ SEVERITY_COLOR = {
     "ask": AMBER,
     "block": RED,
 }
+
+
+def card_metric_rows(card: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Normalize dashboard metrics for both Qt and Chromium renderers."""
+    rows: list[tuple[str, str, str]] = []
+    for metric in card.get("metrics") or []:
+        if not isinstance(metric, dict):
+            continue
+        rows.append(
+            (
+                str(metric.get("label") or ""),
+                str(metric.get("value") or ""),
+                str(metric.get("severity") or "neutral"),
+            )
+        )
+    return rows
+
+
 # One crisp, premium typeface everywhere. Inter (the SaaS-standard neutral UI
 # sans, SIL OFL) ships in opai/assets/fonts and is loaded at startup, so the app
 # looks the same on every machine; the system fonts are only a fallback if
@@ -803,6 +821,23 @@ def _run_gui(
             fl.addLayout(head)
             if card.get("body"):
                 fl.addWidget(self._lbl(str(card["body"]), name="CardBody"))
+            metrics = card_metric_rows(card)
+            if metrics:
+                metric_row = QtWidgets.QHBoxLayout()
+                metric_row.setSpacing(12)
+                for label, value, severity in metrics:
+                    metric_box = QtWidgets.QWidget()
+                    metric_layout = QtWidgets.QVBoxLayout(metric_box)
+                    metric_layout.setContentsMargins(0, 4, 0, 2)
+                    metric_layout.setSpacing(2)
+                    metric_layout.addWidget(self._lbl(label.upper(), name="KpiLabel"))
+                    metric_value = self._lbl(value, name="CardBody")
+                    metric_value.setStyleSheet(
+                        f"color:{SEVERITY_COLOR.get(severity, MUTED)}; font-weight:700;"
+                    )
+                    metric_layout.addWidget(metric_value)
+                    metric_row.addWidget(metric_box, 1)
+                fl.addLayout(metric_row)
             for item in card.get("items", []):
                 fl.addWidget(self._lbl("• " + str(item), name="CardBody"))
             if card.get("command"):

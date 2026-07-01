@@ -223,6 +223,9 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertIn("-m opai activate --quiet --project .", wrapper)
             self.assertIn("degraded mode", wrapper)
             self.assertIn("-m opai statusline", wrapper)
+            self.assertIn("-m opai agent-launch --project . codex", wrapper)
+            self.assertIn("$PassthroughExit = 125", wrapper)
+            self.assertIn("[Console]::Error.WriteLine", wrapper)
             self.assertIn("OPAI_WELCOME", wrapper)
             self.assertNotIn("welcome --compact --animate", wrapper)
 
@@ -293,6 +296,47 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertIn('-m opai "$@"; }', text)
             self.assertIn("opai() { ", text)
             self.assertIn("opai-codex", text)
+
+    def test_posix_wrappers_delegate_to_capture_adapter_then_exec_raw(self):
+        with (
+            tempfile.TemporaryDirectory() as project_tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
+            project = Path(project_tmp)
+            home = Path(home_tmp)
+            install_global_integrations(project, home=home, targets=["shell"])
+
+            for agent in ("claude", "codex", "copilot"):
+                wrapper = (home / ".opai" / "bin" / f"opai-{agent}").read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn(f"-m opai agent-launch --project . {agent}", wrapper)
+                self.assertIn("PASSTHROUGH_EXIT=125", wrapper)
+                self.assertIn('exec "$COMMAND" "$@"', wrapper)
+                self.assertIn("-m opai statusline >&2", wrapper)
+
+    def test_wrapper_status_distinguishes_selective_capture_from_legacy(self):
+        with (
+            tempfile.TemporaryDirectory() as project_tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
+            project = Path(project_tmp)
+            home = Path(home_tmp)
+            install_global_integrations(project, home=home, targets=["shell"])
+
+            status = project_status(project, home=home)
+            self.assertEqual(
+                status["global"]["wrappers"]["codex"]["capture_mode"],
+                "selective_proxy",
+            )
+
+            wrapper = home / ".opai" / "bin" / "opai-codex.ps1"
+            wrapper.write_text("& codex @Args\n", encoding="utf-8")
+            legacy = project_status(project, home=home)
+            self.assertEqual(
+                legacy["global"]["wrappers"]["codex"]["capture_mode"],
+                "legacy_passthrough",
+            )
 
     def test_project_root_detection_walks_up_from_nested_directory(self):
         with tempfile.TemporaryDirectory() as project_tmp:
