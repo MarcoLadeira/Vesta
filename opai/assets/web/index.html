@@ -27,8 +27,12 @@
     <!-- main -->
     <main class="main">
       <header class="header">
-        <button class="ws-switch" id="wsSwitch"><span id="wsLabel">…</span><span class="chev">▾</span></button>
-        <div class="ws-menu" id="wsMenu"></div>
+        <div class="ws-switch-wrap">
+          <button class="ws-switch" id="wsSwitch" aria-haspopup="true" aria-expanded="false" title="Switch project folder">
+            <span class="ws-ico">📁</span><span id="wsLabel">…</span><span class="chev">▾</span>
+          </button>
+          <div class="ws-menu" id="wsMenu" role="menu"></div>
+        </div>
         <div class="spacer"></div>
         <div class="status-line" id="statusLine"></div>
         <button class="icon-btn on" id="panelToggle">Inspector</button>

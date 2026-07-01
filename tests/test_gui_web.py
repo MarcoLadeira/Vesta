@@ -15,12 +15,40 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opai.gui_web import WEB_DIR, boot_payload, web_available
+from opai.gui_web import WEB_DIR, boot_payload, resolve_openable, web_available
 
 
 class WebAvailableTests(unittest.TestCase):
     def test_returns_bool(self):
         self.assertIsInstance(web_available(), bool)
+
+
+class ResolveOpenableTests(unittest.TestCase):
+    """The bridge may only open the project root or paths under it — never an
+    arbitrary path handed in by the front-end."""
+
+    def test_root_itself_is_openable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self.assertEqual(resolve_openable(root, ""), root.resolve())
+
+    def test_relative_file_under_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            (root / "app.py").write_text("x", encoding="utf-8")
+            got = resolve_openable(root, "app.py")
+            self.assertEqual(got, (root / "app.py").resolve())
+
+    def test_missing_path_is_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self.assertIsNone(resolve_openable(root, "nope.py"))
+
+    def test_escape_outside_root_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self.assertIsNone(resolve_openable(root, "../../etc/passwd"))
+            self.assertIsNone(resolve_openable(root, str(Path(tmp).parent)))
 
 
 class BootPayloadTests(unittest.TestCase):
@@ -43,6 +71,7 @@ class BootPayloadTests(unittest.TestCase):
             "status",
             "inspector",
             "tools",
+            "recents",
         ):
             self.assertIn(key, payload)
         self.assertEqual(payload["initialTask"], "fix login")

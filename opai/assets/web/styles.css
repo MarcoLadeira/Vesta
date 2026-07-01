@@ -142,6 +142,9 @@ body {
   display: flex; align-items: center; gap: 12px; padding: 12px 20px;
   border-bottom: 1px solid var(--border);
   background: rgba(15, 17, 22, 0.6); backdrop-filter: blur(10px);
+  /* Stack above the chat/view area so the dropdown popover is on top and its
+     items are clickable (the view-wrap is a later sibling stacking context). */
+  position: relative; z-index: 40;
 }
 .ws-switch {
   display: flex; align-items: center; gap: 8px;
@@ -337,12 +340,48 @@ kbd { font-family: inherit; background: var(--panel-2); border: 1px solid var(--
 .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--elevated); border: 1px solid var(--border-strong); color: var(--ink); font-size: 13px; padding: 10px 16px; border-radius: var(--r-md); box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none; transition: all 0.25s var(--ease); z-index: 60; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-.ws-menu { position: absolute; top: 52px; left: 20px; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 6px; min-width: 240px; display: none; z-index: 40; }
+/* Workspace switcher popover — anchored to the button via a relative wrapper,
+   so it can never detach and float over the whole app. */
+.ws-switch-wrap { position: relative; }
+.ws-switch .ws-ico { opacity: 0.8; }
+.ws-switch .chev { transition: transform 0.18s var(--ease); }
+.ws-switch-wrap.open .chev { transform: rotate(180deg); }
+.ws-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 1000;
+  background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 6px;
+  min-width: 280px; max-width: 380px; max-height: 60vh; overflow-y: auto;
+  display: none;
+}
 .ws-menu.open { display: block; animation: pop 0.14s var(--ease); }
-.ws-menu .item { padding: 9px 12px; border-radius: var(--r-sm); cursor: pointer; font-size: 13px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-menu .item:hover { background: rgba(255,255,255,0.06); }
-.ws-menu .sep { height: 1px; background: var(--border); margin: 5px 4px; }
-.ws-menu .item .sub { color: var(--faint); font-size: 11px; }
+.ws-menu .mlabel { color: var(--faint); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 10px 4px; }
+.ws-menu .item {
+  display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+  border-radius: var(--r-sm); cursor: pointer; font-size: 13px; color: var(--ink);
+}
+.ws-menu .item:hover { background: rgba(255, 255, 255, 0.06); }
+.ws-menu .item.current { color: var(--accent); }
+.ws-menu .item .m-ico { width: 15px; text-align: center; opacity: 0.75; flex-shrink: 0; }
+.ws-menu .item .m-body { min-width: 0; flex: 1; }
+.ws-menu .item .m-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-menu .item .sub { color: var(--faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.ws-menu .item .m-check { color: var(--accent); font-size: 12px; }
+.ws-menu .sep { height: 1px; background: var(--border); margin: 6px 4px; }
+
+/* Changed-file chips in an AI response — click to open in the OS file manager. */
+.files-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; margin: 12px 0; }
+.files-card .fc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.files-card .fc-t { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.file-chip {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: transparent; border: 0; border-radius: var(--r-sm); cursor: pointer;
+  color: var(--muted); font-family: "Cascadia Code", monospace; font-size: 12px;
+  padding: 5px 8px; transition: background 0.14s var(--ease), color 0.14s var(--ease);
+}
+.file-chip:hover { background: rgba(255, 255, 255, 0.05); color: var(--ink); }
+.file-chip .fc-ico { opacity: 0.6; }
+.file-chip .fc-open { margin-left: auto; color: var(--blue); font-size: 11px; opacity: 0; }
+.file-chip:hover .fc-open { opacity: 1; }
 
 /* ---------- AI activity / generation status ---------- */
 .gen { display: flex; flex-direction: column; gap: 8px; }
