@@ -132,6 +132,15 @@ def _client_card(client: dict[str, Any]) -> dict[str, Any]:
                 "severity": "success" if client.get("config_rules") else "neutral",
             },
             {
+                "label": "Capture",
+                "value": str(client.get("wrapper_capture_mode", "missing")).replace(
+                    "_", " "
+                ),
+                "severity": "success"
+                if client.get("wrapper_capture_mode") == "selective_proxy"
+                else "warning",
+            },
+            {
                 "label": "Global",
                 "value": "ready" if client.get("global_ready") else "check",
                 "severity": "success" if client.get("global_ready") else "neutral",
