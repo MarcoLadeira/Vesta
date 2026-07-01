@@ -702,6 +702,33 @@ def cmd_proxy(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_agent_launch(args: argparse.Namespace) -> int:
+    """Wrapper entrypoint: proxy canonical one-shot calls, otherwise stay silent."""
+    from opaihub.agent_launch import PASSTHROUGH_EXIT, launch_agent
+
+    raw_args = list(getattr(args, "agent_args", []) or [])
+    if raw_args[:1] == ["--"]:
+        raw_args = raw_args[1:]
+    try:
+        result = launch_agent(
+            _project(args.project),
+            args.agent,
+            raw_args,
+        )
+    except Exception:  # noqa: BLE001 - shell wrapper must always fail open
+        return PASSTHROUGH_EXIT
+    if result.get("status") == "passthrough":
+        return PASSTHROUGH_EXIT
+    answer = result.get("answer") or result.get("reason") or ""
+    if answer:
+        print(answer)
+    if result.get("status") in {"answered_by_account", "fail_open"}:
+        return 0
+    if result.get("status") == "blocked":
+        return 2
+    return 1
+
+
 def cmd_receipt(args: argparse.Namespace) -> int:
     from opaihub.receipt import build_receipt, render_receipt_svg, verify_receipt
 
@@ -1538,6 +1565,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="Print the full result as JSON")
     p.add_argument("--project", default=None, help="Project root")
     p.set_defaults(func=cmd_proxy)
+
+    p = sub.add_parser(
+        "agent-launch",
+        help="Internal shell-wrapper entrypoint for capture-aware agent launches",
+    )
+    p.add_argument("agent", help="claude | codex | copilot")
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("agent_args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_agent_launch)
 
     p = sub.add_parser(
         "receipt",

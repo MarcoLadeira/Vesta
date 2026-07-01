@@ -178,10 +178,12 @@ def overview(project_root: Path) -> dict[str, Any]:
     """Home / Money Saved: the big ON/OFF + savings + next action surface."""
     from opai.cockpit import build_cockpit
     from opaihub.audit import summarize_audit
+    from opaihub.ledger import summarize_ledger
 
     root = project_root.expanduser().resolve()
     cockpit = build_cockpit(root)
     audit = summarize_audit(root)
+    ledger = summarize_ledger(root)
     savings = cockpit["savings"]
     return {
         "on": cockpit["status"] == "on",
@@ -199,6 +201,7 @@ def overview(project_root: Path) -> dict[str, Any]:
             "context_tokens_saved": savings["context_tokens_saved"],
             "zero_state": None if savings["has_data"] else ZERO_STATE,
         },
+        "capture": ledger["capture"],
         "budget": cockpit["budget"],
         "benchmark_claim": BENCHMARK_CLAIM,
         "benchmark_caveat": BENCHMARK_CAVEAT,
@@ -233,6 +236,7 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
                 "status": client.get("status", "unknown"),
                 "reason": client.get("reason", ""),
                 "wrapper_installed": bool(wrapper.get("exists")),
+                "wrapper_capture_mode": wrapper.get("capture_mode", "missing"),
                 "config_rules": bool(client.get("project_managed")),
                 "global_ready": client.get("global_ready"),
                 "repair": client.get("repair", "opai activate --repair"),
@@ -750,6 +754,7 @@ def _ask_account(
     # total_cost_usd); fall back to the L3 tier estimate for Codex which
     # doesn't report cost. "CLOUD" was never a key in the L0-L4 cost model,
     # so using it always wrote estimated_actual_usd=0 (the "$0.00 bug").
+    ledger_recorded = False
     with contextlib.suppress(Exception):
         from opaihub.cost_model import estimate_tokens
         from opaihub.ledger import record_model_call
@@ -763,6 +768,7 @@ def _ask_account(
             confirmed=True,
             real_cost_usd=cost if isinstance(cost, (int, float)) else None,
         )
+        ledger_recorded = True
 
     return {
         "status": "answered_by_account",
@@ -772,6 +778,7 @@ def _ask_account(
         "allow_edits": allow_edits,
         "cost_usd": cost,
         "changed_files": changed,
+        "ledger_recorded": ledger_recorded,
         "answer": answer or "(no output)",
     }
 

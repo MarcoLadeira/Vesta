@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 SUPPORTED_AGENTS = ("claude", "codex", "copilot")
 _EDIT_MODES = {"safe-auto", "full-auto"}
@@ -116,16 +117,53 @@ def proxy_run(
     root = project_root.expanduser().resolve()
     agent = (agent or "").strip().lower()
     mode = mode or "ask"
+    capture_id = uuid4().hex
+
+    def finish(result: dict[str, Any]) -> dict[str, Any]:
+        """Attach and persist one terminal capture event without blocking work."""
+        result["capture_id"] = capture_id
+        status = str(result.get("status") or "unknown")
+        outcome = {
+            "answered_by_account": "completed",
+            "account_error": "failed",
+            "account_timeout": "timeout",
+            "fail_open_unavailable": "fail_open_unavailable",
+            "fail_open_error": "fail_open_error",
+            "unsupported_agent": "unsupported",
+        }.get(status, status)
+        try:
+            from .ledger import record_capture_session
+
+            record_capture_session(
+                root,
+                task,
+                capture_id=capture_id,
+                agent=agent,
+                mode=mode,
+                model=str(result.get("model") or model or ""),
+                outcome=outcome,
+                captured=bool(result.get("captured")),
+                paid=bool(result.get("paid")),
+                spend_accounted=bool(result.get("ledger_recorded")),
+            )
+        except Exception as exc:  # noqa: BLE001 - capture must fail open too
+            result["capture_warning"] = (
+                f"capture ledger unavailable: {type(exc).__name__}"
+            )
+        return result
+
     if agent not in SUPPORTED_AGENTS:
-        return {
-            "status": "unsupported_agent",
-            "agent": agent,
-            "captured": False,
-            "paid": False,
-            "answer": (
-                f"OPai can route {', '.join(SUPPORTED_AGENTS)} today, not '{agent}'."
-            ),
-        }
+        return finish(
+            {
+                "status": "unsupported_agent",
+                "agent": agent,
+                "captured": False,
+                "paid": False,
+                "answer": (
+                    f"OPai can route {', '.join(SUPPORTED_AGENTS)} today, not '{agent}'."
+                ),
+            }
+        )
 
     # 1) Safety gate BEFORE any paid call. safety_warnings only fires in non
     #    Full-Auto modes, so Full Auto is the single opt-in to skip the gate.
@@ -136,7 +174,7 @@ def proxy_run(
     except Exception:
         warnings = []
     if warnings and mode != "full-auto":
-        return _blocked(agent, str(warnings[0].get("reason", "")))
+        return finish(_blocked(agent, str(warnings[0].get("reason", ""))))
 
     # 2) Route through OPai's account path: classify, run, and record real spend.
     #    _ask_account already does honest cost accounting (#90) and never raises
@@ -157,6 +195,6 @@ def proxy_run(
             raise TypeError("account path returned a non-dict result")
         result.setdefault("agent", agent)
         result["captured"] = True
-        return result
+        return finish(result)
     except Exception as exc:  # noqa: BLE001 - degrade to fail-open, never crash
-        return _fail_open(root, task, agent, model, mode, runner, exc)
+        return finish(_fail_open(root, task, agent, model, mode, runner, exc))

@@ -35,6 +35,13 @@ opai launch copilot
 - `~/.opai/integrations/copilot-instructions.md`: Copilot instruction seed.
 - `~/.opai/bin/opai-codex*`, `opai-claude*`, `opai-copilot*`: terminal launch wrappers.
 
+The terminal wrappers selectively proxy canonical one-shot calls that OPai can
+reproduce without changing provider behavior. Interactive, stdin, structured
+output, and unknown option sets execute through the real CLI unchanged. Agent
+Readiness labels each managed wrapper `selective proxy`; older status-only
+wrappers are reported as `legacy passthrough` and can be repaired with
+`opai activate --repair --shell-aliases`.
+
 For each project, `opai activate` writes the OPai managed block at the top of `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`, plus dedicated rule files for Cursor (`.cursor/rules/opai.mdc`) and Cline (`.clinerules/opai.md`), so clients see OPai before older project notes. Folder-form rule files are used for Cursor and Cline so existing single-file user rules are never overwritten.
 
 ## Supported Clients & Readiness
