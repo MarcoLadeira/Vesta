@@ -516,7 +516,11 @@ def available_models(project_root: Path) -> dict[str, Any]:
     routes the cheapest safe option. Local models are the free, advanced
     fallback. Read-only - never installs, downloads, or signs in.
     """
-    from opaihub.accounts import account_models, list_connected_accounts
+    from opaihub.accounts import (
+        account_connections,
+        account_models,
+        list_connected_accounts,
+    )
     from opaihub.local_runner import list_local_models
 
     accounts = account_models()
@@ -564,6 +568,7 @@ def available_models(project_root: Path) -> dict[str, Any]:
         "available_models": options,
         "account_models": account_catalog,
         "accounts": list_connected_accounts(),
+        "connections": account_connections(),
         "account_count": len(accounts),
         "account_model_count": len(accounts),
         "local_count": len(local),

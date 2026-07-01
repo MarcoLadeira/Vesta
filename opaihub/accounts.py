@@ -148,6 +148,134 @@ def list_connected_accounts(home: Path | None = None) -> list[dict[str, Any]]:
     return accounts
 
 
+def connection_for_account(
+    account: dict[str, Any],
+    *,
+    auth_status: str | None = None,
+    last_checked_at: int | None = None,
+    error: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the safe connection payload used by Settings and the chat gate.
+
+    An auth-file signal means "detected", not "verified". Only an explicit
+    provider status command may promote it to ``connected``.
+    """
+
+    cli_present = bool(account.get("cli_present"))
+    authenticated = bool(account.get("authenticated"))
+    if auth_status is None:
+        if authenticated and not cli_present:
+            auth_status = "misconfigured"
+        elif not authenticated:
+            auth_status = "not_configured"
+        else:
+            auth_status = "unknown"
+    if auth_status == "connected":
+        diagnostic = "Connection verified locally."
+    elif auth_status == "unknown":
+        diagnostic = "Account sign-in was detected but has not been verified."
+    elif auth_status == "not_configured":
+        diagnostic = "No provider sign-in was detected."
+    elif auth_status == "misconfigured":
+        diagnostic = "A sign-in was detected, but the provider CLI is unavailable."
+    else:
+        diagnostic = str((error or {}).get("technicalMessage") or "Connection check failed.")
+    return {
+        "providerId": str(account.get("id") or "unknown"),
+        "displayName": str(account.get("label") or account.get("id") or "Provider"),
+        "userFacingName": "OPai",
+        "authStatus": auth_status,
+        "credentialSource": "user_account",
+        "lastCheckedAt": last_checked_at,
+        "lastError": (error or {}).get("userMessage"),
+        "lastErrorCode": (error or {}).get("code"),
+        "safeDiagnostic": diagnostic,
+        "cliPresent": cli_present,
+        "detected": authenticated,
+        "loginHint": account.get("login_hint"),
+    }
+
+
+def account_connections(home: Path | None = None) -> list[dict[str, Any]]:
+    """Return detected connection state without contacting any provider."""
+
+    return [connection_for_account(account) for account in list_connected_accounts(home)]
+
+
+def test_account_connection(
+    account_id: str,
+    *,
+    home: Path | None = None,
+    run: Callable[[list[str]], Any] | None = None,
+) -> dict[str, Any]:
+    """Run a provider's local, non-completion auth status command when available."""
+
+    from opai.provider_contract import normalize_provider_error
+
+    account = next(
+        (item for item in list_connected_accounts(home) if item["id"] == account_id),
+        {
+            "id": account_id,
+            "label": account_id.capitalize(),
+            "cli_present": False,
+            "authenticated": False,
+        },
+    )
+    detected = connection_for_account(account)
+    if detected["authStatus"] in {"not_configured", "misconfigured"}:
+        return detected
+    checked_at = int(time.time() * 1000)
+    if account_id == "copilot":
+        detected["lastCheckedAt"] = checked_at
+        detected["safeDiagnostic"] = (
+            "Account sign-in was detected; this CLI exposes no safe status command."
+        )
+        return detected
+    commands = {
+        "claude": [account.get("cli_path") or "claude", "auth", "status"],
+        "codex": [account.get("cli_path") or "codex", "login", "status"],
+    }
+    command = commands.get(account_id)
+    if command is None:
+        detected["lastCheckedAt"] = checked_at
+        detected["safeDiagnostic"] = "No safe status command is available."
+        return detected
+
+    execute = run or (
+        lambda argv: _hidden_run(argv, cwd=None, timeout=15.0)
+    )
+    try:
+        proc = execute(command)
+    except (OSError, subprocess.SubprocessError) as exc:
+        error = normalize_provider_error(account_id, str(exc))
+        return connection_for_account(
+            account,
+            auth_status="provider_unavailable",
+            last_checked_at=checked_at,
+            error=error,
+        )
+    returncode = int(getattr(proc, "returncode", 0) or 0)
+    if returncode == 0:
+        return connection_for_account(
+            account, auth_status="connected", last_checked_at=checked_at
+        )
+    detail = "\n".join(
+        part.strip()
+        for part in (str(getattr(proc, "stderr", "") or ""), str(getattr(proc, "stdout", "") or ""))
+        if part.strip()
+    )
+    error = normalize_provider_error(account_id, detail, returncode=returncode)
+    status = error["authStatus"]
+    if status == "unknown":
+        status = "disconnected"
+    return connection_for_account(
+        account,
+        auth_status=status,
+        last_checked_at=checked_at,
+        error=error,
+    )
+
+
 # Claude model aliases the `claude` CLI understands, cheapest-capable first.
 CLAUDE_MODELS: list[tuple[str, str]] = [
     ("sonnet", "Sonnet 4.6"),
