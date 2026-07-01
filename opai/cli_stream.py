@@ -85,10 +85,13 @@ def stream_ask(
     convention), 2 anything else. With ``json_out`` the activity lines are
     suppressed and the full result (plus collected events) prints as JSON.
     """
+    from opai.brand import cli_header
     from opaihub.gui_pipeline import handle_gui_message
 
     root = project_root.expanduser().resolve()
     model_id = normalize_model_choice(model)
+    if not json_out:
+        printer(cli_header(mode, model_id))
     cancel = threading.Event()
     done = threading.Event()
     result_box: dict[str, Any] = {}

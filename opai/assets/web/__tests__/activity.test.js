@@ -44,6 +44,25 @@ describe("formatElapsed", () => {
   });
 });
 
+describe("cliMirror (GUI/CLI parity)", () => {
+  const { cliMirror } = OPaiActivity;
+  it("strips the account: prefix to friendly shorthand", () => {
+    expect(cliMirror("account:claude:opus", "plan", "fix tests"))
+      .toBe('opai ask --model claude:opus --mode plan "fix tests"');
+  });
+  it("omits --mode for the default ask mode", () => {
+    expect(cliMirror("auto", "ask", "hello")).toBe('opai ask --model auto "hello"');
+  });
+  it("truncates long tasks and sanitizes quotes", () => {
+    const cmd = cliMirror("auto", "ask", 'say "hi" ' + "x".repeat(100));
+    expect(cmd).not.toContain('"hi"');
+    expect(cmd).toContain("...");
+  });
+  it("uses a placeholder when no task yet", () => {
+    expect(cliMirror("auto", "ask", "")).toContain("<your task>");
+  });
+});
+
 describe("createStore (activity reducer)", () => {
   it("adds, upserts by id, cancels running, clears", () => {
     const s = createStore();
