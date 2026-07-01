@@ -156,11 +156,7 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
 
 def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, Any]:
     """Everything the front-end needs to render the whole shell in one call."""
-    from opaihub.gui_preferences import (
-        DEFAULT_MODE,
-        MODES,
-        load_gui_preferences,
-    )
+    from opaihub.gui_preferences import DEFAULT_MODE, MODES, load_gui_preferences
 
     root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
@@ -179,12 +175,12 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         (m for m in models["models"] if m["id"] == prefs.get("default_model")),
         models["models"][0]
         if models["models"]
-        else {"id": "auto", "label": "Auto", "kind": "auto"},
+        else {"id": "auto", "label": "OPai · Auto mode", "kind": "auto"},
     )
     sel = {
-        "model_label": sel_model.get("label", "Auto"),
+        "model_label": sel_model.get("label", "OPai · Auto mode"),
         "model_advanced_label": sel_model.get(
-            "advanced_label", sel_model.get("label", "Auto")
+            "advanced_label", sel_model.get("label", "Automatic routing")
         ),
         "model_kind": sel_model.get("kind", "auto"),
         "mode": mode,
@@ -192,14 +188,13 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "focus": focus,
         "format": fmt,
         "accounts": models["accounts"],
-        "connections": models["connections"],
     }
     return {
         "workspace": _workspace(root),
         "models": models["models"],
         "selectedModel": sel_model.get("id", "auto"),
-        "modes": [{"id": m, "label": mode_labels.get(m, m)} for m in MODES],
-        "navGroups": [{"group": g, "items": items} for g, items in nav_groups()],
+        "modes": [{"id": item, "label": mode_labels.get(item, item)} for item in MODES],
+        "navGroups": [{"group": group, "items": items} for group, items in nav_groups()],
         "taskModes": task_modes(),
         "outputFormats": output_formats(),
         "prefs": {
@@ -216,8 +211,45 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "defaultView": DEFAULT_VIEW,
         "initialTask": initial_task or "",
         "tools": [
-            {"id": t["id"], "label": t["label"], "desc": t["desc"]} for t in A.TOOLS
+            {"id": tool["id"], "label": tool["label"], "desc": tool["desc"]}
+            for tool in A.TOOLS
         ],
+    }
+
+
+def settings_payload(root: Path) -> dict[str, Any]:
+    """Return the complete, secret-free Settings/Connections payload."""
+
+    from opaihub.gui_preferences import load_gui_preferences
+
+    prefs = load_gui_preferences(root)
+    try:
+        firewall = A.cost_firewall(root)
+    except Exception:  # noqa: BLE001
+        firewall = {}
+    try:
+        overview = A.overview(root)
+    except Exception:  # noqa: BLE001
+        overview = {}
+    models = _models(root)
+    return {
+        "prefs": prefs,
+        "firewall": {
+            "profile": firewall.get("profile"),
+            "panic": firewall.get("panic"),
+            "spent_today": (firewall.get("spent") or {}).get("today_usd", 0),
+            "cloud_gate": bool(firewall.get("require_confirmation_for_cloud")),
+        },
+        "permissions": permissions_for(
+            str(prefs.get("default_mode") or "safe-auto"),
+            safe_auto=prefs.get("safe_auto"),
+        ),
+        "accounts": models["accounts"],
+        "connections": models["connections"],
+        "about": {
+            "version": overview.get("version"),
+            "release_stage": overview.get("release_stage"),
+        },
     }
 
 
@@ -319,37 +351,7 @@ def _run_gui(
 
         @QtCore.Slot(result=str)
         def settingsData(self) -> str:
-            from opaihub.gui_preferences import load_gui_preferences
-
-            prefs = load_gui_preferences(self.root)
-            try:
-                cf = A.cost_firewall(self.root)
-            except Exception:  # noqa: BLE001
-                cf = {}
-            try:
-                o = A.overview(self.root)
-            except Exception:  # noqa: BLE001
-                o = {}
-            return json.dumps(
-                {
-                    "prefs": prefs,
-                    "firewall": {
-                        "profile": cf.get("profile"),
-                        "panic": cf.get("panic"),
-                        "spent_today": (cf.get("spent") or {}).get("today_usd", 0),
-                        "cloud_gate": bool(cf.get("require_confirmation_for_cloud")),
-                    },
-                    "permissions": permissions_for(
-                        str(prefs.get("default_mode") or "safe-auto"),
-                        safe_auto=prefs.get("safe_auto"),
-                    ),
-                    "accounts": _models(self.root)["accounts"],
-                    "about": {
-                        "version": o.get("version"),
-                        "release_stage": o.get("release_stage"),
-                    },
-                }
-            )
+            return json.dumps(settings_payload(self.root))
 
         @QtCore.Slot(str, str)
         def savePref(self, key: str, value: str) -> None:
