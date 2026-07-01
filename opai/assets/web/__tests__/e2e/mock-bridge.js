@@ -14,6 +14,14 @@
   var boot = {
     workspace: { label: "demo", root: "/demo", name: "demo", branch: "main", file_count: 3, recents: [{ path: "/other/proj", label: "other/proj" }] },
     recents: ["summarize my changes"],
+    brand: {
+      name: "OPai",
+      tagline: "Every step visible. Every dollar accounted.",
+      emptyTitle: "Build more. Burn less.",
+      emptyBody: "Tell OPai the goal. It plans, routes to the cheapest capable model, shows every step, and hands you the receipt.",
+      emptyHint: "Press Ctrl+K for commands",
+      composerPlaceholder: "Tell OPai what to build, fix, or explain…",
+    },
     models: [
       { id: "account:claude:opus", label: "Claude Opus · your account", kind: "account", provider: "claude", badge: "slower · highest · $$$" },
       { id: "auto", label: "Auto · cheapest", kind: "auto", badge: "" },

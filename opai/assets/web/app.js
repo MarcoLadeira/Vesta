@@ -80,6 +80,7 @@ function boot() {
     if (m) state.model = { id: m.id, label: m.label, kind: m.kind, provider: m.provider };
     const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || b.modes[0];
     if (md) state.mode = md;
+    applyBrand(b.brand);
     renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
     renderStatus(b.status); renderAccount(); applyPanel();
     renderEmptyChips();
@@ -91,6 +92,19 @@ function boot() {
   bridge.token.connect(onToken);
   bridge.toolReady.connect(onTool);
   bridge.workspaceChanged.connect((json) => { state.boot = JSON.parse(json); rebootFromState(); toast("Workspace switched"); });
+}
+
+// One brand voice, one source: copy comes from opai/brand.py via the boot
+// payload, so the GUI, Qt fallback, and CLI never drift apart.
+function applyBrand(brand) {
+  if (!brand) return;
+  state.brand = brand;
+  const h1 = $("#empty h1");
+  if (h1 && brand.emptyTitle) h1.textContent = brand.emptyTitle;
+  const hint = $("#empty .hint");
+  if (hint && brand.emptyHint) hint.innerHTML = brand.emptyHint.replace(/Ctrl\+K/, "<kbd>Ctrl</kbd>+<kbd>K</kbd>");
+  if (brand.composerPlaceholder) $("#input").placeholder = brand.composerPlaceholder;
+  if (brand.tagline) $("#wsSwitch").title += " — " + brand.tagline;
 }
 
 function rebootFromState() {
@@ -265,10 +279,29 @@ function renderInspector(data) {
     <div class="insp-label">Permissions</div>
     ${perms}
     <div class="insp-label">Privacy</div>
-    <div class="badges">${badges}</div>`;
+    <div class="badges">${badges}</div>
+    <div class="insp-label">CLI mirror</div>
+    <button class="cli-mirror" id="cliMirror" title="Copy the terminal twin of this selection">
+      <code id="cliMirrorCmd"></code><span class="cm-copy">Copy</span>
+    </button>`;
   $("#focusSel").onchange = (e) => { state.focus = e.target.value; bridge.savePref("default_task_mode", state.focus); refreshInspector(); };
   $("#fmtSel").onchange = (e) => { state.format = e.target.value; bridge.savePref("default_output_format", state.format); refreshInspector(); };
+  updateCliMirror();
+  $("#cliMirror").onclick = () => {
+    const cmd = $("#cliMirrorCmd").textContent;
+    if (navigator.clipboard) navigator.clipboard.writeText(cmd);
+    toast("Copied — same run, from your terminal");
+  };
   updateInspectorLive();
+}
+
+// GUI/CLI parity is a brand promise: everything the app does has a terminal
+// twin. The mirror shows the current selection as a ready-to-copy command.
+function updateCliMirror() {
+  const el = $("#cliMirrorCmd");
+  if (!el) return;
+  const task = (state.lastSend && state.lastSend.text) || "";
+  el.textContent = OPaiActivity.cliMirror(state.model.id, state.mode.id, task);
 }
 
 // Live generation block in the inspector (issue #110): current step, elapsed,
@@ -310,9 +343,10 @@ function renderEmptyChips() {
     ["Find a bug", "Look for a likely bug in my recent changes"],
   ];
   const connected = state.accounts.filter((a) => a.connected).map((a) => a.label);
+  const brandBody = (state.brand && state.brand.emptyBody) || "";
   $("#emptySub").textContent = connected.length
-    ? `${connected.join(" and ")} connected · OPai picks the cheapest safe path.`
-    : "Connect your Claude or Codex account, then just type.";
+    ? brandBody || `${connected.join(" and ")} connected.`
+    : "Connect your Claude, Codex, or Copilot account, then just type.";
   $("#chips").innerHTML = chips.map((c) => `<button class="chip" data-p="${esc(c[1])}">${esc(c[0])}</button>`).join("");
   $$("#chips .chip").forEach((b) => (b.onclick = () => { $("#input").value = b.dataset.p; send(); }));
 }

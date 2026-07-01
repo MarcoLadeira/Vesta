@@ -228,6 +228,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "defaultView": DEFAULT_VIEW,
         "initialTask": initial_task or "",
         "recents": _recents(),
+        "brand": _brand(),
         "tools": [
             {"id": t["id"], "label": t["label"], "desc": t["desc"]} for t in A.TOOLS
         ],
@@ -238,6 +239,12 @@ def _recents() -> list[str]:
     from opai.gui_recents import load_recents
 
     return load_recents()
+
+
+def _brand() -> dict[str, str]:
+    from opai.brand import boot_brand
+
+    return boot_brand()
 
 
 def _run_gui(

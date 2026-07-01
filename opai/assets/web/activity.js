@@ -74,12 +74,28 @@
     };
   }
 
+  // The CLI Mirror — the terminal twin of the current GUI selection. GUI/CLI
+  // parity is a brand promise; this shows it, ready to copy. Mirrors
+  // opai/brand.py::cli_mirror so both surfaces render the same command.
+  function cliMirror(model, mode, task) {
+    var short = String(model || "auto");
+    if (short.indexOf("account:") === 0) short = short.slice(8);
+    var parts = ["opai", "ask"];
+    if (short) parts.push("--model", short);
+    if (mode && mode !== "ask") parts.push("--mode", String(mode));
+    var prompt = String(task || "").trim().replace(/"/g, "'");
+    if (prompt.length > 60) prompt = prompt.slice(0, 57) + "...";
+    parts.push('"' + (prompt || "<your task>") + '"');
+    return parts.join(" ");
+  }
+
   var api = {
     shouldApply: shouldApply,
     stageMessage: stageMessage,
     formatElapsed: formatElapsed,
     createStore: createStore,
     shortName: shortName,
+    cliMirror: cliMirror,
     TAKING_LONGER_S: TAKING_LONGER_S,
     STILL_WORKING_S: STILL_WORKING_S,
   };
