@@ -172,7 +172,12 @@ def handle_gui_message(
     warnings = safety_warnings(root, message, mode=selected_mode)
     rec = recommend_model(root, message)
     tier = str(rec.get("recommended_model_tier") or "L1").upper()
-    _emit("model_selected", "success", f"Selected model: {selected_model}")
+    _emit(
+        "model_selected",
+        "success",
+        "Selected OPai mode",
+        metadata={"model": selected_model},
+    )
 
     if warnings and selected_mode != "full-auto":
         _emit("error", "warning", "Blocked before running (looked risky)")
@@ -217,7 +222,73 @@ def handle_gui_message(
         if _cancelled():
             return _cancelled_result(message, tool_trace, selected_model, selected_mode)
         provider = selected_model.split(":")[1] if ":" in selected_model else "account"
-        _emit("provider_request", "running", f"Sending to {provider.capitalize()}")
+        _emit(
+            "provider_checking",
+            "running",
+            "Checking OPai connection",
+            metadata={"provider": provider},
+        )
+        if account_runner is None:
+            from .accounts import test_account_connection
+
+            connection = test_account_connection(provider)
+            if connection["authStatus"] not in {"connected", "unknown"}:
+                from opai.provider_contract import normalize_provider_error
+
+                status_detail = {
+                    "not_configured": "No credentials configured",
+                    "invalid": "401 Invalid authentication credentials",
+                    "expired": "OAuth token expired",
+                    "misconfigured": "Provider CLI is misconfigured",
+                    "provider_unavailable": "Provider unavailable",
+                    "disconnected": "Provider disconnected",
+                }.get(str(connection["authStatus"]), "Provider connection failed")
+                error = normalize_provider_error(
+                    provider,
+                    connection.get("safeDiagnostic")
+                    if connection.get("lastErrorCode")
+                    else status_detail,
+                )
+                event_type = (
+                    "provider_auth_failed"
+                    if error["code"].startswith("AUTH_")
+                    else "failed"
+                )
+                _emit(
+                    event_type,
+                    "error",
+                    error["title"],
+                    metadata={"provider": provider, "code": error["code"]},
+                )
+                return {
+                    "status": "failed",
+                    "answer": error["userMessage"],
+                    "error": error,
+                    "tool_trace": tool_trace,
+                    "changed_files": [],
+                    "warnings": [],
+                    "next_actions": list(error["recoveryActions"]),
+                }
+            if connection["authStatus"] == "connected":
+                _emit(
+                    "provider_authenticated",
+                    "success",
+                    "OPai connection verified",
+                    metadata={"provider": provider},
+                )
+        else:
+            _emit(
+                "provider_authenticated",
+                "success",
+                "OPai connection verified",
+                metadata={"provider": provider},
+            )
+        _emit(
+            "request_sending",
+            "running",
+            "Sending OPai request",
+            metadata={"provider": provider},
+        )
         result = A.ask(
             root,
             message,
@@ -263,9 +334,17 @@ def handle_gui_message(
             else result.get("status", "error")
         )
         if status == "answered":
-            _emit("completion", "success", "Completed")
+            _emit("completed", "success", "OPai completed")
         else:
-            _emit("error", "warning", "Model returned an error")
+            error = result.get("error") if isinstance(result.get("error"), dict) else {}
+            code = str(error.get("code") or "UNKNOWN")
+            event_type = "provider_auth_failed" if code.startswith("AUTH_") else "failed"
+            _emit(
+                event_type,
+                "error",
+                str(error.get("title") or "OPai could not complete this request."),
+                metadata={"provider": provider, "code": code},
+            )
         return {
             "status": status,
             "answer": result.get("answer")
@@ -278,6 +357,7 @@ def handle_gui_message(
             "warnings": [],
             "next_actions": ["Review changed files before committing."],
             "raw_result": result,
+            "error": result.get("error"),
         }
 
     from .ask import run_ask
@@ -302,7 +382,7 @@ def handle_gui_message(
     if _cancelled():
         _emit("cancelled", "cancelled", "Stopped by you")
         return _cancelled_result(message, tool_trace, selected_model, selected_mode)
-    _emit("provider_request", "running", "Running locally")
+    _emit("request_sending", "running", "Running OPai locally")
     result = run_ask(root, message, record=False)
     status_map = {
         "answered_locally": "answered",
@@ -328,11 +408,11 @@ def handle_gui_message(
         )
     final_status = status_map.get(result.get("status"), result.get("status", "error"))
     if final_status == "answered":
-        _emit("completion", "success", "Completed")
+        _emit("completed", "success", "OPai completed")
         if on_text and answer:
             on_text(answer)
     else:
-        _emit("error", "warning", "Couldn't complete locally")
+        _emit("failed", "error", "OPai could not complete locally")
     return {
         "status": final_status,
         "answer": answer,

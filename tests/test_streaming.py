@@ -9,6 +9,7 @@ from pathlib import Path
 
 from _helpers import FakeStreamingRunner, make_repo
 
+from opai.provider_contract import normalize_provider_error
 from opaihub.gui_pipeline import handle_gui_message
 
 
@@ -38,10 +39,33 @@ class AccountStreamingTests(unittest.TestCase):
         self.assertEqual(types[0], "request_prepare")
         self.assertIn("context_read", types)
         self.assertIn("model_selected", types)
-        self.assertIn("provider_request", types)
+        self.assertIn("provider_checking", types)
+        self.assertIn("provider_authenticated", types)
+        self.assertIn("request_sending", types)
         self.assertIn("file_read", types)  # from the runner's scripted events
-        self.assertEqual(types[-1], "completion")
+        self.assertEqual(types[-1], "completed")
         self.assertEqual(result["status"], "answered")
+
+    def test_auth_failure_never_emits_completed(self):
+        class AuthFailureRunner(FakeStreamingRunner):
+            def stream(self, *args, **kwargs):
+                return {
+                    "text": "",
+                    "cost": None,
+                    "returncode": 1,
+                    "error": normalize_provider_error(
+                        "claude", "401 Invalid authentication credentials", returncode=1
+                    ),
+                }
+
+        result, events, texts = self._run(AuthFailureRunner())
+        types = [event["type"] for event in events]
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+        self.assertIn("provider_auth_failed", types)
+        self.assertNotIn("completed", types)
+        self.assertEqual(texts, [])
 
     def test_text_is_streamed_in_order(self):
         result, events, texts = self._run(
@@ -98,8 +122,8 @@ class LocalStreamingTests(unittest.TestCase):
                     cancel=threading.Event(),
                 )
         types = [e["type"] for e in events]
-        self.assertIn("provider_request", types)
-        self.assertEqual(types[-1], "completion")
+        self.assertIn("request_sending", types)
+        self.assertEqual(types[-1], "completed")
         self.assertEqual(result["answer"], "local answer")
         self.assertIn("local answer", "".join(texts))
 

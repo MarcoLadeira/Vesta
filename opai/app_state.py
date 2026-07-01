@@ -697,14 +697,14 @@ def _ask_account(
                     raise
                 result = run.complete(task, project_root=root, allow_edits=allow_edits)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
+        from opai.provider_contract import normalize_provider_error
+
+        error = normalize_provider_error(account_id, str(exc), model=model)
         return {
-            "status": "account_error",
+            "status": "failed",
             "provider": account_id,
-            "answer": (
-                f"{account_id.capitalize()} hit an error and couldn't finish that. "
-                "Try again, or pick a different model."
-            ),
-            "error": str(exc),  # kept for debugging, not shown raw to the user
+            "answer": error["userMessage"],
+            "error": error,
         }
 
     # User stopped it mid-flight: return the partial cleanly (not an error).
@@ -717,27 +717,36 @@ def _ask_account(
             "cost_usd": result.get("cost"),
         }
     if isinstance(result, dict) and result.get("error") and not result.get("text"):
+        from opai.provider_contract import normalize_provider_error
+
+        raw_error = result.get("error")
+        error = (
+            raw_error
+            if isinstance(raw_error, dict) and raw_error.get("code")
+            else normalize_provider_error(
+                account_id,
+                raw_error,
+                model=model,
+                returncode=result.get("returncode"),
+            )
+        )
         return {
-            "status": "account_error",
+            "status": "failed",
             "provider": account_id,
-            "answer": (
-                f"{account_id.capitalize()} hit an error and couldn't finish that. "
-                "Try again, or pick a different model."
-            ),
-            "error": str(result.get("error")),
+            "answer": error["userMessage"],
+            "error": error,
         }
 
     # A long agentic run that hit the time limit: stop cleanly, guide the user.
     if isinstance(result, dict) and result.get("timed_out"):
+        from opai.provider_contract import normalize_provider_error
+
+        error = normalize_provider_error(account_id, "", model=model, timed_out=True)
         return {
-            "status": "account_timeout",
+            "status": "failed",
             "provider": account_id,
-            "answer": (
-                f"{account_id.capitalize()} ran past the time limit and was stopped. "
-                "Big jobs (build a feature and open a PR in one go) often need more "
-                "than one step. Try a smaller request, switch to a faster model "
-                "(Sonnet or Haiku), or run the long task in your terminal."
-            ),
+            "answer": error["userMessage"],
+            "error": error,
         }
 
     # complete() returns {"text", "cost"}; tolerate a plain string too.
@@ -746,6 +755,17 @@ def _ask_account(
         cost = result.get("cost")
     else:
         answer, cost = str(result), None
+
+    if not str(answer).strip():
+        from opai.provider_contract import normalize_provider_error
+
+        error = normalize_provider_error(account_id, "", model=model, returncode=0)
+        return {
+            "status": "failed",
+            "provider": account_id,
+            "answer": error["userMessage"],
+            "error": error,
+        }
 
     # Surface what the agent actually changed, like Claude Code / Cursor do.
     changed = sorted(set(_changed_files(root)) - before) if allow_edits else []
@@ -777,7 +797,7 @@ def _ask_account(
         "allow_edits": allow_edits,
         "cost_usd": cost,
         "changed_files": changed,
-        "answer": answer or "(no output)",
+        "answer": answer,
     }
 
 

@@ -72,7 +72,7 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
     "PROVIDER_TIMEOUT": {
         "authStatus": "unknown",
         "title": "OPai did not receive a response in time.",
-        "userMessage": "Retry, shorten the request, or choose a faster mode.",
+        "userMessage": "Retry with a smaller request or choose a faster mode.",
         "actions": ["retry", "change_mode"],
         "retryable": True,
     },
