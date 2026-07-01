@@ -56,7 +56,7 @@ def _popen(cmd: list[str], *, cwd: str | None):
     kwargs: dict[str, Any] = {
         "cwd": cwd,
         "stdout": subprocess.PIPE,
-        "stderr": subprocess.DEVNULL,
+        "stderr": subprocess.PIPE,
         "text": True,
         "encoding": "utf-8",
         "errors": "replace",
@@ -455,28 +455,31 @@ class AccountRunner:
                 Path(out_path).unlink(missing_ok=True)
             return {"text": "", "cost": None, "error": str(exc)}
 
-        lines: queue.Queue[tuple[str, str | None]] = queue.Queue()
+        lines: queue.Queue[tuple[str, str, str | None]] = queue.Queue()
 
-        def _reader() -> None:
-            pipe = proc.stdout
+        def _reader(source: str) -> None:
+            pipe = getattr(proc, source, None)
             if pipe is None:
-                lines.put(("eof", None))
+                lines.put(("eof", source, None))
                 return
             try:
                 for line in iter(pipe.readline, ""):
-                    lines.put(("line", line))
+                    lines.put(("line", source, line))
             except (OSError, ValueError):
                 pass
             finally:
-                lines.put(("eof", None))
+                lines.put(("eof", source, None))
 
-        threading.Thread(target=_reader, daemon=True).start()
+        threading.Thread(target=_reader, args=("stdout",), daemon=True).start()
+        threading.Thread(target=_reader, args=("stderr",), daemon=True).start()
 
         text_parts: list[str] = []
+        diagnostic_parts: list[str] = []
         cost: float | None = None
         started = time.monotonic()
         stopped: str | None = None
         streamed_any = False
+        open_pipes = 2
         while True:
             if cancel is not None and cancel.is_set():
                 stopped = "cancelled"
@@ -485,13 +488,28 @@ class AccountRunner:
                 stopped = "timed_out"
                 break
             try:
-                kind, payload = lines.get(timeout=0.2)
+                kind, source, payload = lines.get(timeout=0.2)
             except queue.Empty:
                 continue
             if kind == "eof":
-                break
+                open_pipes -= 1
+                if open_pipes == 0:
+                    break
+                continue
+            if source == "stderr":
+                if payload and payload.strip():
+                    diagnostic_parts.append(payload.strip())
+                continue
             if structured:
-                part = parse_claude_line(payload or "")
+                raw_line = payload or ""
+                try:
+                    json.loads(raw_line)
+                except (json.JSONDecodeError, TypeError):
+                    if raw_line.strip():
+                        diagnostic_parts.append(raw_line.strip())
+                    continue
+                diagnostic_parts.append(raw_line.strip())
+                part = parse_claude_line(raw_line)
                 for event in part["events"]:
                     if on_event:
                         on_event(event)
@@ -526,9 +544,10 @@ class AccountRunner:
             return {"text": partial, "cost": cost, "cancelled": True}
 
         try:
-            proc.wait(timeout=5)
+            returncode = proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             _terminate(proc)
+            returncode = getattr(proc, "returncode", None)
 
         text = "".join(text_parts).strip()
         if self.account_id == "codex" and out_path:
@@ -542,7 +561,24 @@ class AccountRunner:
                 pass
             finally:
                 Path(out_path).unlink(missing_ok=True)
-        return {"text": text, "cost": cost}
+        from opai.provider_contract import normalize_provider_error
+
+        diagnostic = "\n".join(part for part in diagnostic_parts if part)
+        normalized = normalize_provider_error(
+            self.account_id,
+            diagnostic or text,
+            model=self.model,
+            returncode=returncode,
+        )
+        known_failure = normalized["code"] not in {"UNKNOWN", "NO_RESPONSE"}
+        if returncode not in (0, None) or (known_failure and not text):
+            return {
+                "text": "",
+                "cost": cost,
+                "error": normalized,
+                "returncode": returncode,
+            }
+        return {"text": text, "cost": cost, "returncode": returncode}
 
 
 def runner_for_account(
