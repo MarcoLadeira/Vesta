@@ -332,13 +332,40 @@ kbd {
 .tool-card .t { font-size: 12.5px; font-weight: 700; margin-bottom: 6px; }
 .tool-card pre { font-size: 12px; color: var(--muted); white-space: pre-wrap; user-select: text; }
 
-/* The receipt strip — OPai's signature footer: torn-edge dashes, mono truth. */
+/* The receipt strip — OPai's signature footer: torn-edge dashes, mono truth.
+   Click (or Enter) copies the receipt. */
 .footer-note {
   color: var(--muted); font-size: 11.5px; margin-top: 10px; padding-top: 8px;
   border-top: 1px dashed rgba(255, 255, 255, 0.14);
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-variant-numeric: tabular-nums; letter-spacing: 0.01em;
+  cursor: copy; transition: color 0.15s var(--ease);
 }
+.footer-note:hover { color: var(--ink); }
+.footer-note:hover::after { content: "  copy"; color: var(--accent); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Approval card — the safety gate made visible: what, why, blast radius,
+   Approve once / Deny. Amber = attention, never scare-red. */
+.approval-card {
+  background: rgba(230, 177, 94, 0.06); border: 1px solid rgba(230, 177, 94, 0.35);
+  border-radius: var(--r-md); padding: 14px 16px; box-shadow: var(--inset-hi);
+}
+.approval-card .ap-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.approval-card .ap-badge {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--amber); background: rgba(230, 177, 94, 0.14); border-radius: 100px; padding: 3px 10px;
+}
+.approval-card .ap-risk { color: var(--faint); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+.approval-card .ap-title { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.approval-card .ap-why { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.approval-card .ap-scope { display: flex; gap: 8px; margin-top: 9px; font-size: 12px; }
+.approval-card .ap-scope .k { color: var(--faint); font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; padding-top: 2px; }
+.approval-card .ap-scope .v { color: var(--muted); }
+.approval-card .ap-actions { display: flex; gap: 8px; margin-top: 12px; }
+.approval-card button:disabled { opacity: 0.45; cursor: default; transform: none; }
+.approval-card .ap-state { margin-top: 10px; font-size: 12.5px; font-weight: 650; }
+.approval-card.approved .ap-state { color: var(--green); }
+.approval-card.denied .ap-state { color: var(--muted); }
 
 .thinking { display: inline-flex; gap: 4px; align-items: center; }
 .thinking i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite both; box-shadow: 0 0 6px var(--accent-glow); }
@@ -488,6 +515,7 @@ kbd {
 .tl-row.cancelled .tl-t { color: var(--faint); }
 .tl-t { color: var(--ink); }
 .tl-d { color: var(--faint); font-family: "Cascadia Code", monospace; font-size: 11.5px; }
+.tl-ts { margin-left: auto; color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; padding-left: 10px; flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .body.stream { white-space: pre-wrap; word-break: break-word; }
 
