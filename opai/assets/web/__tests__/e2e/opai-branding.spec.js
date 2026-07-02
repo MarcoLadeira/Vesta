@@ -17,8 +17,7 @@ test("primary workspace consistently presents the OPai identity", async ({ page 
   await expect(page.locator("#emptySub")).toContainText("Tell OPai the goal");
 });
 
-test("known bug: workspace tooltip retains the OPai tagline", async ({ page }) => {
-  test.fail(true, "BUG-QA-007: renderWorkspace overwrites the tagline applied during brand boot");
+test("workspace tooltip retains the OPai tagline", async ({ page }) => {
   await expect(page.locator("#wsSwitch")).toHaveAttribute("title", /Every step visible\. Every dollar accounted\./);
 });
 
@@ -49,7 +48,6 @@ test("all initial user-facing copy is free of broken-value sentinels", async ({ 
 });
 
 test("primary controls use the same bundled soft UI font", async ({ page }) => {
-  test.fail(true, "BUG-QA-010: form controls fall back to Arial instead of inheriting bundled Inter");
   const families = await page.evaluate(() => [
     getComputedStyle(document.body).fontFamily,
     getComputedStyle(document.querySelector("#input")).fontFamily,

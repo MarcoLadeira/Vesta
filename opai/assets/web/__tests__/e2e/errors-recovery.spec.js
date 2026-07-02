@@ -42,8 +42,7 @@ test("raw stack details are hidden until the user expands them", async ({ page }
   await expect(page.locator(".ec-details pre")).toBeHidden();
 });
 
-test("known bug: malformed answer object never renders object coercion", async ({ page }) => {
-  test.fail(true, "BUG-QA-003: malformed answered payload renders [object Object] in chat");
+test("malformed answer object never renders object coercion", async ({ page }) => {
   await openApp(page);
   const id = await sendPrompt(page);
   await finishRequest(page, id, { status: "answered", answer: { unexpected: "shape" } });

@@ -41,8 +41,7 @@ test("selected mode and model remain attached to the request", async ({ page }) 
   });
 });
 
-test("known bug: unavailable model options are disabled with their reason", async ({ page }) => {
-  test.fail(true, "BUG-QA-008: model rendering ignores availability and disabled_reason fields");
+test("unavailable model options are disabled with their reason", async ({ page }) => {
   await openApp(page, {
     boot: {
       models: MODELS.concat([{
@@ -60,8 +59,7 @@ test("known bug: unavailable model options are disabled with their reason", asyn
   await expect(option).toHaveAttribute("title", /Preview access is not enabled/);
 });
 
-test("known bug: selecting Full Auto requires an explicit risk confirmation", async ({ page }) => {
-  test.fail(true, "BUG-QA-009: web mode selector persists Full Auto without confirmation");
+test("selecting Full Auto requires an explicit risk confirmation", async ({ page }) => {
   await openApp(page);
   let dialogs = 0;
   page.on("dialog", async (dialog) => { dialogs += 1; await dialog.dismiss(); });

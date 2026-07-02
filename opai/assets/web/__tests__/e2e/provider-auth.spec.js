@@ -51,8 +51,7 @@ test("technical details stay collapsed by default", async ({ page }) => {
   await expect(page.locator(".ec-details pre")).toBeVisible();
 });
 
-test("known bug: defensive UI redacts secret-like technical details", async ({ page }) => {
-  test.fail(true, "BUG-QA-002: error details trust backend redaction and render secret-like text verbatim");
+test("defensive UI redacts secret-like technical details", async ({ page }) => {
   await openApp(page);
   const id = await sendPrompt(page);
   await finishRequest(page, id, { status: "account_error", answer: "Sign-in failed.", error: "token=super-secret-value" });

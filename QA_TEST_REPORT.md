@@ -110,3 +110,13 @@ Provider logic changed: NO
 Cost logic changed: NO
 Message logic changed: NO
 ```
+
+## Resolution update (cockpit remodel PR)
+
+BUG-QA-001 through BUG-QA-010 are **fixed**; their `test.fail()` annotations
+were removed and the assertions now run as permanent regression contracts
+(`accessibility`, `activity-truth`, `errors-recovery`, `model-mode`,
+`opai-branding`, `provider-auth`, `responsiveness` specs — all passing).
+BUG-QA-011 (PyYAML-less headless GUI) remains open; its conditional
+annotation in `cli-parity.spec.js` still applies only on Python environments
+without PyYAML.

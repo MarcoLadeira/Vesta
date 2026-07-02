@@ -45,8 +45,7 @@ test("cancelled request never becomes failed or completed", async ({ page }) => 
   await expect(page.locator(".msg.bot")).not.toContainText(/Failed|Completed/);
 });
 
-test("known bug: activity evidence remains reviewable after failure", async ({ page }) => {
-  test.fail(true, "BUG-QA-001: final error rendering discards the activity timeline");
+test("activity evidence remains reviewable after failure", async ({ page }) => {
   const id = await sendPrompt(page);
   await emitActivity(page, id, { id: "failed", type: "status", status: "error", title: "Failed at provider" });
   await finishRequest(page, id, { status: "account_error", answer: "Provider failed" });
