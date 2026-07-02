@@ -273,13 +273,40 @@ def normalize_provider_error(
     }
 
 
+# Lookup tables for the simple (non-advanced) picker label.
+_CLAUDE_DISPLAY: dict[str, str] = {
+    "haiku": "Haiku 4.5",
+    "sonnet": "Sonnet 4.6",
+    "opus": "Opus 4.8",
+}
+_CODEX_DISPLAY: dict[str, str] = {
+    "gpt-5.5": "GPT-5.5",
+    "gpt-5.4": "GPT-5.4",
+    "gpt-5.4-mini": "GPT-5.4 Mini",
+    "gpt-5.3-codex-spark": "Spark",
+}
+_COPILOT_DISPLAY: dict[str, str] = {
+    "claude-sonnet-4.6": "Claude Sonnet",
+    "claude-haiku-4.5": "Claude Haiku",
+    "gpt-5.2": "GPT-5.2",
+}
+
+
 def provider_display_name(
     provider: str, model: str | None = None, *, advanced: bool = False
 ) -> str:
-    """Map internal routes to OPai-first or advanced diagnostic labels."""
+    """Return a picker label for a provider/model pair.
 
+    Simple (``advanced=False``): provider-prefixed model name used in the model
+    picker — e.g. ``"Claude · Sonnet 4.6"``, ``"Codex · GPT-5.5"``.
+
+    Advanced (``advanced=True``): full diagnostic string for the inspector and
+    hover tooltip — e.g. ``"Claude Sonnet 4.6 via Anthropic account connector"``.
+    The advanced format is unchanged from the previous implementation.
+    """
     provider_id = str(provider or "").lower()
     model_id = str(model or "").lower()
+
     if advanced:
         if provider_id == "claude":
             models = {"haiku": "Haiku 4.5", "sonnet": "Sonnet 4.6", "opus": "Opus 4.8"}
@@ -291,12 +318,20 @@ def provider_display_name(
         if provider_id == "local":
             return f"{model or 'Local model'} on this device"
         return f"{provider or 'Automatic'} {model or ''}".strip()
-    if any(part in model_id for part in ("haiku", "mini", "spark")):
-        return "OPai · Fast mode"
-    if any(part in model_id for part in ("opus", "gpt-5.5")):
-        return "OPai · Powerful mode"
+
+    # Simple picker label: provider-prefixed model name.
+    if provider_id == "claude":
+        display = _CLAUDE_DISPLAY.get(model_id, model or "model")
+        return f"Claude · {display}"
+    if provider_id == "codex":
+        display = _CODEX_DISPLAY.get(model_id, model or "model")
+        return f"Codex · {display}"
+    if provider_id == "copilot":
+        display = _COPILOT_DISPLAY.get(model_id, model or "model")
+        return f"Copilot · {display}"
     if provider_id == "local":
         return "OPai · Local mode"
     if provider_id in {"auto", ""}:
         return "OPai · Auto mode"
-    return "OPai · Balanced mode"
+    # Generic fallback keeps OPai branding for any unrecognized provider.
+    return f"OPai · {(model or provider or 'model').strip()}"

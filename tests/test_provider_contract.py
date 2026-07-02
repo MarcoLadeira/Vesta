@@ -69,11 +69,40 @@ class ProviderErrorContractTests(unittest.TestCase):
         )
 
     def test_provider_details_are_advanced_only(self):
-        self.assertEqual(provider_display_name("claude", "haiku"), "OPai · Fast mode")
+        # Simple label now uses provider-prefixed model name (not OPai generic)
+        self.assertEqual(provider_display_name("claude", "haiku"), "Claude · Haiku 4.5")
+        # Advanced label is unchanged — full diagnostic string for inspector/tooltip
         self.assertEqual(
             provider_display_name("claude", "haiku", advanced=True),
             "Claude Haiku 4.5 via Anthropic account connector",
         )
+
+    def test_claude_model_labels(self):
+        self.assertEqual(provider_display_name("claude", "sonnet"), "Claude · Sonnet 4.6")
+        self.assertEqual(provider_display_name("claude", "opus"), "Claude · Opus 4.8")
+        self.assertEqual(provider_display_name("claude", "haiku"), "Claude · Haiku 4.5")
+
+    def test_codex_model_labels(self):
+        self.assertEqual(provider_display_name("codex", "gpt-5.5"), "Codex · GPT-5.5")
+        self.assertEqual(provider_display_name("codex", "gpt-5.4"), "Codex · GPT-5.4")
+        self.assertEqual(provider_display_name("codex", "gpt-5.4-mini"), "Codex · GPT-5.4 Mini")
+        self.assertEqual(
+            provider_display_name("codex", "gpt-5.3-codex-spark"), "Codex · Spark"
+        )
+
+    def test_copilot_model_labels(self):
+        self.assertEqual(
+            provider_display_name("copilot", "claude-sonnet-4.6"), "Copilot · Claude Sonnet"
+        )
+        self.assertEqual(provider_display_name("copilot", "gpt-5.2"), "Copilot · GPT-5.2")
+        self.assertEqual(
+            provider_display_name("copilot", "claude-haiku-4.5"), "Copilot · Claude Haiku"
+        )
+
+    def test_auto_and_local_labels_unchanged(self):
+        self.assertEqual(provider_display_name("auto"), "OPai · Auto mode")
+        self.assertEqual(provider_display_name(""), "OPai · Auto mode")
+        self.assertEqual(provider_display_name("local"), "OPai · Local mode")
 
 
 if __name__ == "__main__":
