@@ -34,12 +34,12 @@ const FREE_MODELS = [
     available: true,
   },
   {
-    id: "free:google:gemini-2.0-flash",
+    id: "free:gemini:gemini-2.0-flash",
     label: "Gemini · 2.0 Flash (free)",
-    advanced_label: "Google Gemini 2.0 Flash via generativelanguage.googleapis.com — set GOOGLE_API_KEY",
+    advanced_label: "Google Gemini 2.0 Flash via Google AI API (free tier)",
     kind: "free",
     group: "free",
-    provider: "google",
+    provider: "gemini",
     paid: false,
     available: false,
     disabled_reason: "Set GOOGLE_API_KEY to enable Gemini · 2.0 Flash (free)",
@@ -91,7 +91,7 @@ test("all 5 free model options are rendered in the picker", async ({ page }) => 
 
 test("free model without API key is disabled with setup hint in title", async ({ page }) => {
   await openApp(page, { boot: { models: MODELS_WITH_FREE } });
-  const opt = page.locator('#modelSel option[value="free:google:gemini-2.0-flash"]');
+  const opt = page.locator('#modelSel option[value="free:gemini:gemini-2.0-flash"]');
   await expect(opt).toBeDisabled();
   await expect(opt).toHaveAttribute("title", /GOOGLE_API_KEY/);
 });

@@ -673,7 +673,12 @@ def _ask_free_model(
 
     if not allow_cloud:
         spec = spec_for_model_id(model_id)
-        provider_name = spec["provider"] if spec else model_id
+        # Extract display name from label "DeepSeek · V3 Chat (free)" → "DeepSeek"
+        if spec:
+            label = spec["label"]
+            provider_name = label.split(" ·")[0] if " ·" in label else spec["provider"]
+        else:
+            provider_name = model_id
         return {
             "status": "confirmation_required",
             "message": (
