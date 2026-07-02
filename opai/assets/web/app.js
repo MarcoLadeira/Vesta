@@ -261,9 +261,40 @@ function renderComposerSelects() {
     bridge.savePref("default_mode", state.mode.id); refreshInspector(); refreshStatus();
   };
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
-  (state.boot.models || []).forEach((m) => {
+  // Group models by their group field into optgroup sections
+  const PICKER_GROUPS = [
+    { id: "claude",  label: "Claude" },
+    { id: "codex",   label: "Codex" },
+    { id: "copilot", label: "Copilot" },
+    { id: "free",    label: "Free models" },
+    { id: "routing", label: "OPai routing" },
+    { id: "local",   label: "Local models" },
+  ];
+  const allModels = state.boot.models || [];
+  const grouped = {};
+  allModels.forEach((m) => {
+    const g = m.group || "routing";
+    if (!grouped[g]) grouped[g] = [];
+    grouped[g].push(m);
+  });
+  PICKER_GROUPS.forEach(({ id: gid, label: glabel }) => {
+    const members = grouped[gid];
+    if (!members || members.length === 0) return;
+    const grp = document.createElement("optgroup");
+    grp.label = glabel;
+    members.forEach((m) => {
+      const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; o.title = m.advanced_label || m.badge || "";
+      // Unavailable models stay visible but unpickable, with the reason (BUG-QA-008).
+      if (m.available === false) { o.disabled = true; o.title = m.disabled_reason || "Not available"; }
+      if (m.id === state.model.id) o.selected = true;
+      grp.appendChild(o);
+    });
+    modelSel.appendChild(grp);
+  });
+  // Append any models with unknown groups directly (backward compat)
+  const knownGroups = new Set(PICKER_GROUPS.map((g) => g.id));
+  allModels.filter((m) => m.group && !knownGroups.has(m.group)).forEach((m) => {
     const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; o.title = m.advanced_label || m.badge || "";
-    // Unavailable models stay visible but unpickable, with the reason (BUG-QA-008).
     if (m.available === false) { o.disabled = true; o.title = m.disabled_reason || "Not available"; }
     if (m.id === state.model.id) o.selected = true; modelSel.appendChild(o);
   });

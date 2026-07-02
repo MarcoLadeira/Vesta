@@ -4,7 +4,7 @@ import { MODELS } from "./helpers/fixtures.js";
 import { openApp, sendPrompt } from "./helpers/app.js";
 
 
-test("model selector exposes Auto, Claude, Codex, Copilot, and local choices", async ({ page }) => {
+test("model selector exposes Auto, Claude, Codex, Copilot, free, and local choices in optgroups", async ({ page }) => {
   await openApp(page);
   const labels = await page.locator("#modelSel option").allTextContents();
   expect(labels).toEqual(expect.arrayContaining([
@@ -12,8 +12,21 @@ test("model selector exposes Auto, Claude, Codex, Copilot, and local choices", a
     expect.stringContaining("Claude"),
     expect.stringContaining("Codex"),
     expect.stringContaining("Copilot"),
+    expect.stringContaining("free"),
     expect.stringContaining("local"),
   ]));
+  // Verify optgroup headings are rendered
+  const optgroups = await page.locator("#modelSel optgroup").allInnerTexts();
+  expect(optgroups.length).toBeGreaterThan(0);
+  const groupLabels = await page.locator("#modelSel optgroup").evaluateAll(
+    (els) => els.map((el) => el.getAttribute("label"))
+  );
+  expect(groupLabels).toContain("Claude");
+  expect(groupLabels).toContain("Codex");
+  expect(groupLabels).toContain("Copilot");
+  expect(groupLabels).toContain("Free models");
+  expect(groupLabels).toContain("OPai routing");
+  expect(groupLabels).toContain("Local models");
 });
 
 test("Safe Auto is default and Full Auto is never silently selected", async ({ page }) => {
@@ -48,6 +61,7 @@ test("unavailable model options are disabled with their reason", async ({ page }
         id: "account:claude:preview",
         label: "Claude Preview · unavailable",
         kind: "account",
+        group: "claude",
         provider: "claude",
         available: false,
         disabled_reason: "Preview access is not enabled.",
