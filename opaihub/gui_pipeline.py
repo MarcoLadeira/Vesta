@@ -338,7 +338,9 @@ def handle_gui_message(
         else:
             error = result.get("error") if isinstance(result.get("error"), dict) else {}
             code = str(error.get("code") or "UNKNOWN")
-            event_type = "provider_auth_failed" if code.startswith("AUTH_") else "failed"
+            event_type = (
+                "provider_auth_failed" if code.startswith("AUTH_") else "failed"
+            )
             _emit(
                 event_type,
                 "error",

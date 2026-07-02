@@ -179,7 +179,9 @@ def connection_for_account(
     elif auth_status == "misconfigured":
         diagnostic = "A sign-in was detected, but the provider CLI is unavailable."
     else:
-        diagnostic = str((error or {}).get("technicalMessage") or "Connection check failed.")
+        diagnostic = str(
+            (error or {}).get("technicalMessage") or "Connection check failed."
+        )
     return {
         "providerId": str(account.get("id") or "unknown"),
         "displayName": str(account.get("label") or account.get("id") or "Provider"),
@@ -199,7 +201,9 @@ def connection_for_account(
 def account_connections(home: Path | None = None) -> list[dict[str, Any]]:
     """Return detected connection state without contacting any provider."""
 
-    return [connection_for_account(account) for account in list_connected_accounts(home)]
+    return [
+        connection_for_account(account) for account in list_connected_accounts(home)
+    ]
 
 
 def test_account_connection(
@@ -241,9 +245,7 @@ def test_account_connection(
         detected["safeDiagnostic"] = "No safe status command is available."
         return detected
 
-    execute = run or (
-        lambda argv: _hidden_run(argv, cwd=None, timeout=15.0)
-    )
+    execute = run or (lambda argv: _hidden_run(argv, cwd=None, timeout=15.0))
     try:
         proc = execute(command)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -261,7 +263,10 @@ def test_account_connection(
         )
     detail = "\n".join(
         part.strip()
-        for part in (str(getattr(proc, "stderr", "") or ""), str(getattr(proc, "stdout", "") or ""))
+        for part in (
+            str(getattr(proc, "stderr", "") or ""),
+            str(getattr(proc, "stdout", "") or ""),
+        )
         if part.strip()
     )
     error = normalize_provider_error(account_id, detail, returncode=returncode)
@@ -310,9 +315,7 @@ def _account_options(
             {
                 "id": f"account:claude:{alias}",
                 "label": provider_display_name("claude", alias),
-                "advanced_label": provider_display_name(
-                    "claude", alias, advanced=True
-                ),
+                "advanced_label": provider_display_name("claude", alias, advanced=True),
                 "provider": "claude",
                 "model": alias,
                 "kind": "account",
@@ -329,9 +332,7 @@ def _account_options(
             {
                 "id": f"account:codex:{model_id}",
                 "label": provider_display_name("codex", model_id),
-                "advanced_label": provider_display_name(
-                    "codex", label, advanced=True
-                ),
+                "advanced_label": provider_display_name("codex", label, advanced=True),
                 "provider": "codex",
                 "model": model_id,
                 "kind": "account",
@@ -368,9 +369,7 @@ def _account_options(
         {
             "id": f"account:{account['id']}",
             "label": provider_display_name(account["id"]),
-            "advanced_label": provider_display_name(
-                account["id"], advanced=True
-            ),
+            "advanced_label": provider_display_name(account["id"], advanced=True),
             "provider": account["id"],
             "model": "",
             "kind": "account",
