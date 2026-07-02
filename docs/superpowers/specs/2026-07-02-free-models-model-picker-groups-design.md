@@ -156,7 +156,7 @@ GROUPS.forEach(({ key, label }) => {
 });
 ```
 
-Models without a `group` field fall back to ungrouped (backward-compatible).
+Models without a `group` field fall into a catch-all render pass after the groups: they are appended ungrouped (backward-compatible with any legacy mock data that omits `group`). In production all models from `available_models()` will carry a `group` field, so this path is only for tests using simplified fixtures.
 
 ---
 
