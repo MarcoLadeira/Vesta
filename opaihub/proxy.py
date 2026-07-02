@@ -193,6 +193,14 @@ def proxy_run(
         )
         if not isinstance(result, dict):
             raise TypeError("account path returned a non-dict result")
+        if result.get("status") == "failed":
+            error = result.get("error")
+            error_code = error.get("code") if isinstance(error, dict) else ""
+            result["status"] = (
+                "account_timeout"
+                if error_code == "PROVIDER_TIMEOUT"
+                else "account_error"
+            )
         result.setdefault("agent", agent)
         result["captured"] = True
         return finish(result)

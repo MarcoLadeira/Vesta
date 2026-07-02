@@ -24,6 +24,9 @@ export async function openApp(page, overrides = {}) {
   await page.addInitScript({ path: MOCK_PATH });
   await page.goto(APP_PATH);
   await page.waitForSelector("#input");
+  await page.waitForFunction(() => (
+    Boolean(window.__opai) && document.querySelector("#modelSel")?.options.length > 0
+  ), undefined, { timeout: 10_000 });
   return diagnostics;
 }
 

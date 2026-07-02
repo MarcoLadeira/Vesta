@@ -88,6 +88,14 @@ class ErrorMapperTests(unittest.TestCase):
         self.assertNotIn("--dangerously-skip-permissions", card["detail"])
         self.assertLessEqual(len(card["detail"]), 2000)
 
+    def test_detail_redacts_credentials_and_duplicate_errors(self):
+        repeated = "Bearer sk-secretvalue123\nBearer sk-secretvalue123"
+
+        card = error_card("unauthorized", detail=repeated)
+
+        self.assertNotIn("sk-secretvalue123", card["detail"])
+        self.assertEqual(card["detail"].count("[REDACTED]"), 1)
+
     def test_classify_error_maps_common_strings(self):
         self.assertEqual(classify_error("HTTP 429 rate limit exceeded"), "rate_limit")
         self.assertEqual(

@@ -66,7 +66,7 @@ class StreamAskTests(unittest.TestCase):
         self.assertEqual(code, 0)
         # Real pipeline stages appear as activity lines.
         self.assertIn("Preparing request", joined)
-        self.assertIn("Selected model", joined)
+        self.assertIn("Selected OPai mode", joined)
         # The runner's scripted tool event appears too.
         self.assertIn("Read file: app.py", joined)
         # Streamed text went to stdout.
@@ -130,9 +130,17 @@ class StreamAskTests(unittest.TestCase):
         self.assertIn(code_box.get("code"), {0, 2})
 
     def test_reassurance_heartbeat_when_slow(self):
-        runner = FakeStreamingRunner(chunks=[], block=True)
+        started = threading.Event()
+
+        class SlowRunner(FakeStreamingRunner):
+            def stream(self, prompt, **kwargs):
+                started.set()
+                return super().stream(prompt, **kwargs)
+
+        runner = SlowRunner(chunks=[], block=True)
 
         def unblock():
+            self.assertTrue(started.wait(timeout=5))
             time.sleep(0.9)
             runner._block = False
 

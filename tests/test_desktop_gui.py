@@ -478,7 +478,8 @@ class AccountConnectionTests(unittest.TestCase):
                 "account:claude:opus",
                 account_runner=SlowRunner(),
             )
-        self.assertEqual(res["status"], "account_timeout")
+        self.assertEqual(res["status"], "failed")
+        self.assertEqual(res["error"]["code"], "PROVIDER_TIMEOUT")
         self.assertNotIn("timed out after", res["answer"])  # no raw command dump
         self.assertNotIn("--dangerously-skip-permissions", res["answer"])
         self.assertIn("smaller", res["answer"].lower())  # actionable guidance

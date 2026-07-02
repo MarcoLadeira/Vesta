@@ -123,6 +123,21 @@ class CaptureSessionLedgerTests(unittest.TestCase):
         self.assertTrue(event["captured"])
         self.assertFalse(event["spend_accounted"])
 
+    def test_provider_timeout_keeps_the_proxy_timeout_contract(self):
+        result = proxy_run(
+            self.root,
+            "inspect the code",
+            agent="claude",
+            runner=FakeAccountRunner(timed_out=True),
+        )
+
+        event = _capture_events(self.root)[0]
+        self.assertEqual(result["status"], "account_timeout")
+        self.assertEqual(result["error"]["code"], "PROVIDER_TIMEOUT")
+        self.assertEqual(event["outcome"], "timeout")
+        self.assertTrue(event["captured"])
+        self.assertFalse(event["spend_accounted"])
+
     def test_fail_open_is_visible_as_an_uncaptured_attempt(self):
         runner = FakeAccountRunner(text="raw answer", cost=0.01)
         with mock.patch(

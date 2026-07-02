@@ -69,7 +69,8 @@ class AccountStatusContractTests(_Base):
             mode="full-auto",
             account_runner=fake,
         )
-        self.assertEqual(res["status"], "account_timeout")
+        self.assertEqual(res["status"], "failed")
+        self.assertEqual(res["error"]["code"], "PROVIDER_TIMEOUT")
         self.assertClean(res["answer"])
         self.assertIn("smaller", res["answer"].lower())
 
@@ -85,17 +86,43 @@ class AccountStatusContractTests(_Base):
         self.assertClean(res["answer"])
         self.assertNotIn("kaboom internal", res["answer"])  # raw exc never shown
 
+    def test_empty_account_response_is_failed_not_completed(self):
+        fake = FakeAccountRunner(text="")
+        events = []
+
+        res = handle_gui_message(
+            self.root,
+            "do x",
+            model_id="account:claude:sonnet",
+            mode="ask",
+            account_runner=fake,
+            on_event=events.append,
+        )
+
+        self.assertEqual(res["status"], "failed")
+        self.assertEqual(res["error"]["code"], "NO_RESPONSE")
+        self.assertNotIn("completed", [event["type"] for event in events])
+
     def test_account_not_connected_points_to_sign_in(self):
-        with mock.patch("opaihub.accounts.runner_for_account", return_value=None):
+        missing = {
+            "authStatus": "not_configured",
+            "safeDiagnostic": "No provider sign-in was detected.",
+            "lastError": None,
+            "lastErrorCode": None,
+        }
+        with mock.patch(
+            "opaihub.accounts.test_account_connection", return_value=missing
+        ):
             res = handle_gui_message(
                 self.root,
                 "do x",
                 model_id="account:codex",
                 mode="ask",
             )
-        self.assertEqual(res["status"], "account_not_connected")
+        self.assertEqual(res["status"], "failed")
+        self.assertEqual(res["error"]["code"], "AUTH_MISSING")
         self.assertClean(res["answer"])
-        self.assertIn("codex", res["answer"])
+        self.assertIn("Settings", res["answer"])
 
     def test_panic_blocks_paid_account_with_clear_message(self):
         A.set_panic(self.root, True)

@@ -31,7 +31,7 @@ const state = {
   model: { id: "auto", label: "Auto", kind: "auto" },
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
-  accounts: [], panel: true,
+  accounts: [], panel: true, message: null, lastFailedRequestId: null,
 };
 
 /* ---------- markdown (escape-first, safe) ---------- */
@@ -77,7 +77,7 @@ function boot() {
     state.focus = b.prefs.focus || "general";
     state.format = b.prefs.format || "normal";
     const m = (b.models || []).find((x) => x.id === b.selectedModel) || b.models[0];
-    if (m) state.model = { id: m.id, label: m.label, kind: m.kind, provider: m.provider };
+    if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
     const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || b.modes[0];
     if (md) state.mode = md;
     applyBrand(b.brand);
@@ -239,14 +239,14 @@ function renderComposerSelects() {
   };
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
   (state.boot.models || []).forEach((m) => {
-    const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; o.title = m.badge || "";
+    const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; o.title = m.advanced_label || m.badge || "";
     // Unavailable models stay visible but unpickable, with the reason (BUG-QA-008).
     if (m.available === false) { o.disabled = true; o.title = m.disabled_reason || "Not available"; }
     if (m.id === state.model.id) o.selected = true; modelSel.appendChild(o);
   });
   modelSel.onchange = () => {
     const m = state.boot.models.find((x) => x.id === modelSel.value);
-    if (m) state.model = { id: m.id, label: m.label, kind: m.kind, provider: m.provider };
+    if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
     setProviderDot(); bridge.savePref("default_model", state.model.id); refreshInspector(); refreshStatus();
   };
   setProviderDot();
@@ -259,7 +259,8 @@ function setProviderDot() {
 /* ---------- inspector ---------- */
 function selPayload() {
   return {
-    model_label: state.model.label, model_kind: state.model.kind,
+    model_label: state.model.label, model_advanced_label: state.model.advancedLabel,
+    model_kind: state.model.kind,
     mode: state.mode.id, mode_label: state.mode.label,
     focus: state.focus, format: state.format, accounts: state.accounts,
   };
@@ -356,11 +357,11 @@ function renderEmptyChips() {
     ["Explain this repo", "Give me a high-level tour of this codebase"],
     ["Find a bug", "Look for a likely bug in my recent changes"],
   ];
-  const connected = state.accounts.filter((a) => a.connected).map((a) => a.label);
+  const connected = state.accounts.some((a) => a.connected);
   const brandBody = (state.brand && state.brand.emptyBody) || "";
-  $("#emptySub").textContent = connected.length
-    ? brandBody || `${connected.join(" and ")} connected.`
-    : "Connect your Claude, Codex, or Copilot account, then just type.";
+  $("#emptySub").textContent = connected
+    ? brandBody || "Your AI connection is ready · OPai picks the cheapest safe path."
+    : "Connect your Claude, Codex, or Copilot account in Settings, then just type.";
   $("#chips").innerHTML = chips.map((c) => `<button class="chip" data-p="${esc(c[1])}">${esc(c[0])}</button>`).join("");
   $$("#chips .chip").forEach((b) => (b.onclick = () => { $("#input").value = b.dataset.p; send(); }));
 }
@@ -371,11 +372,13 @@ function clearChat() {
 }
 function appendMsg(html, cls) {
   $("#empty").style.display = "none";
+  const sc = $("#chatScroll");
+  const follow = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 96;
   const d = document.createElement("div");
   d.className = "msg " + (cls || "");
   d.innerHTML = html;
   $("#thread").appendChild(d);
-  const sc = $("#chatScroll"); sc.scrollTop = sc.scrollHeight;
+  if (follow) sc.scrollTop = sc.scrollHeight;
   return d;
 }
 function roleHeader(label, color) {
@@ -410,6 +413,8 @@ function send(retryOf) {
   }
   const requestId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "r" + Date.now() + Math.random();
   state.currentRequest = requestId;
+  state.message = OPaiMessageState.beginRequest(requestId, { retryOf: retryOf ? state.lastFailedRequestId : null });
+  state.message = OPaiMessageState.transition(state.message, "preparing");
   state.store = OPaiActivity.createStore();
   state.streaming = false;
   state.streamedText = "";
@@ -421,11 +426,8 @@ function send(retryOf) {
 }
 
 function buildPending(sel) {
-  const isAcct = sel.modelKind === "account";
-  const label = isAcct ? String(sel.modelLabel).split(" · ")[0] : "OPai";
-  const color = isAcct ? (PROVIDER_COLOR[sel.modelProvider] || "var(--accent)") : "var(--muted)";
   const el = appendMsg(
-    roleHeader(label, color) +
+    roleHeader("OPai", "var(--accent)") +
     `<div class="gen">
        <div class="gen-head">
          <span class="thinking"><i></i><i></i><i></i></span>
@@ -463,14 +465,20 @@ function renderTimeline() {
 
 function onActivity(json) {
   const d = JSON.parse(json);
-  if (!OPaiActivity.shouldApply(state.currentRequest, d.requestId)) return; // stale guard
+  if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale guard
   state.store.upsert(d.event);
+  const statusByType = {
+    provider_checking: "authenticating", request_sending: "sending",
+    waiting_first_token: "waiting", streaming: "streaming",
+  };
+  if (statusByType[d.event.type]) state.message = OPaiMessageState.transition(state.message, statusByType[d.event.type]);
   renderTimeline();
   updateInspectorLive(d.event && d.event.title);
 }
 function onToken(json) {
   const d = JSON.parse(json);
-  if (!OPaiActivity.shouldApply(state.currentRequest, d.requestId)) return; // stale guard
+  if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale guard
+  state.message = OPaiMessageState.transition(state.message, "streaming");
   if (!state.streaming) { state.streaming = true; updateGenStage(); }
   state.streamedText += d.text;
   const body = state.pending && state.pending.querySelector(".body.stream");
@@ -506,6 +514,7 @@ function stop() {
   if (!state.currentRequest) return;
   bridge.cancel(state.currentRequest);
   state.currentRequest = null; // drop id → any late signal is ignored
+  state.message = OPaiMessageState.transition(state.message, "cancelled");
   state.store.cancelRunning(); renderTimeline();
   stopTimer();
   finalize("cancelled", { answer: state.streamedText || "" });
@@ -513,7 +522,10 @@ function stop() {
 }
 function retry() { send(state.lastSend); }
 
-function scrollBottom() { const sc = $("#chatScroll"); sc.scrollTop = sc.scrollHeight; }
+function scrollBottom(force) {
+  const sc = $("#chatScroll");
+  if (force || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 96) sc.scrollTop = sc.scrollHeight;
+}
 function stripStopNote(t) { return String(t || "").replace(/\n\n_\(stopped by you\)_\s*$/, ""); }
 
 function activitySummaryHtml() {
@@ -532,7 +544,7 @@ function wireActivitySummary(el) {
   };
 }
 function metaFooter(r, sel, durMs) {
-  const bits = [sel.modelKind === "account" ? String(sel.modelLabel).split(" · ")[0] : "Auto/local", OPaiActivity.formatElapsed(durMs)];
+  const bits = [sel.modelLabel || "OPai", OPaiActivity.formatElapsed(durMs)];
   const rc = (r && r.receipt) || {};
   if (+rc.estimated_actual_usd) bits.push("$" + (+rc.estimated_actual_usd).toFixed(4));
   if (+rc.estimated_savings_usd) bits.push("$" + (+rc.estimated_savings_usd).toFixed(4) + " saved");
@@ -548,22 +560,31 @@ function redactSecrets(text) {
 }
 
 function renderErrorCard(el, status, r, sel) {
-  const title = ERROR_TITLES[status] || "Something went wrong";
-  const what = typeof (r && r.answer) === "string" && r.answer
-    ? r.answer : "The request didn't complete.";
+  const error = r && r.error && typeof r.error === "object" ? r.error : {};
+  const title = error.title || ERROR_TITLES[status] || "OPai could not complete this request.";
+  const what = error.userMessage || (typeof (r && r.answer) === "string" && r.answer) || "Retry, or open Settings if the problem continues.";
   const raw = redactSecrets(
-    (r && (r.error || (r.raw_result && JSON.stringify(r.raw_result)))) || ""
+    error.technicalMessage ||
+    (typeof (r && r.error) === "string" ? r.error : "") ||
+    (r && r.raw_result ? JSON.stringify(r.raw_result) : "")
   );
-  // Keep the activity evidence reviewable after a failure — the timeline is
-  // exactly what you need to diagnose it (BUG-QA-001).
-  el.innerHTML = roleHeader("Error", "var(--red)") + activitySummaryHtml() +
+  const actions = error.recoveryActions || ["retry", "open_settings", "show_details"];
+  // Keep the activity evidence reviewable after a failure while retaining the
+  // structured provider recovery actions from the shared message contract.
+  el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
-    `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button><button class="btn" data-a="switch">Switch model</button>` +
-    (raw ? `<button class="btn ghost" data-a="copy">Copy details</button>` : "") + `</div>` +
+    `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button>` +
+    (actions.includes("open_settings") || actions.includes("reconnect") ? `<button class="btn" data-a="settings">Open Settings</button>` : "") +
+    `<button class="btn" data-a="switch">Switch model</button>` +
+    (raw ? `<button class="btn ghost" data-a="details">Show technical details</button><button class="btn ghost" data-a="copy">Copy details</button>` : "") + `</div>` +
     (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
   wireActivitySummary(el);
   el.querySelector('[data-a="retry"]').onclick = () => retry();
+  const settings = el.querySelector('[data-a="settings"]'); if (settings) settings.onclick = () => switchView("settings");
   el.querySelector('[data-a="switch"]').onclick = () => { $("#modelSel").focus(); };
+  const details = el.querySelector('[data-a="details"]'); if (details) details.onclick = () => {
+    const panel = el.querySelector(".ec-details"); if (panel) panel.open = !panel.open;
+  };
   const cp = el.querySelector('[data-a="copy"]'); if (cp) cp.onclick = () => { if (navigator.clipboard) navigator.clipboard.writeText(raw); toast("Details copied"); };
 }
 
@@ -584,11 +605,15 @@ function finalize(status, r) {
     el.querySelector('[data-a="edit"]').onclick = () => { $("#input").value = sel.text || ""; switchView("chat"); $("#input").focus(); };
     return;
   }
-  if (!ANSWERED.includes(status)) { renderErrorCard(el, status, r, sel); return; }
+  if (!ANSWERED.includes(status)) {
+    state.lastFailedRequestId = state.message && state.message.requestId;
+    renderErrorCard(el, status, r, sel); return;
+  }
   // A malformed payload (answer that isn't a string) must never coerce into
   // "[object Object]" in the chat — treat it as a clean error (BUG-QA-003).
   const rawAnswer = r && r.answer;
   if (rawAnswer != null && typeof rawAnswer !== "string" && !state.streamedText) {
+    state.lastFailedRequestId = state.message && state.message.requestId;
     renderErrorCard(el, "empty", { answer: "The model returned an unexpected response shape." }, sel);
     return;
   }
@@ -624,10 +649,12 @@ function wireFilesCard(el) {
 
 function onReply(json) {
   const d = JSON.parse(json);
-  if (!OPaiActivity.shouldApply(state.currentRequest, d.requestId)) return; // stale reply ignored
+  if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale reply ignored
+  const backendStatus = (d.result && d.result.status) || "failed";
+  state.message = OPaiMessageState.transition(state.message, OPaiMessageState.fromBackendStatus(backendStatus));
   state.currentRequest = null;
   setBusy(false);
-  finalize((d.result && d.result.status) || "answered", d.result || {});
+  finalize(backendStatus, d.result || {});
   refreshStatus(); refreshInspector();
 }
 

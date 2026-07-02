@@ -24,7 +24,11 @@ TYPES = (
     "request_prepare",
     "context_read",
     "model_selected",
+    "provider_checking",
+    "provider_authenticated",
+    "provider_auth_failed",
     "provider_request",
+    "request_sending",
     "waiting_first_token",
     "streaming",
     "tool_call",
@@ -35,7 +39,10 @@ TYPES = (
     "ci_watch",
     "validation",
     "retry",
+    "retrying",
     "completion",
+    "completed",
+    "failed",
     "cancelled",
     "error",
 )
@@ -291,11 +298,13 @@ def error_card(
 
 
 def _redact_detail(detail: str) -> str:
-    text = str(detail or "")
+    from .provider_contract import dedupe_error_text, redact_secrets
+
+    text = redact_secrets(detail)
     # Never surface obvious secrets even in the dev-details drawer.
     for token in ("--dangerously-skip-permissions",):
         text = text.replace(token, "[flag]")
-    return text[:2000]
+    return dedupe_error_text(text)[:2000]
 
 
 def classify_error(text: str) -> str:

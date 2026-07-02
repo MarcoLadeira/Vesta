@@ -36,15 +36,15 @@
       composerPlaceholder: "Tell OPai what to build, fix, or explain…",
     },
     models: [
-      { id: "account:claude:opus", label: "Claude Opus · your account", kind: "account", provider: "claude", badge: "slower · highest · $$$" },
-      { id: "auto", label: "Auto · cheapest", kind: "auto", badge: "" },
+      { id: "account:claude:opus", label: "OPai · Powerful mode", advanced_label: "Claude Opus 4.8 via Anthropic account connector", kind: "account", provider: "claude", badge: "slower · highest · $$$" },
+      { id: "auto", label: "OPai · Auto mode", advanced_label: "Automatic local-first routing", kind: "auto", badge: "" },
     ],
     selectedModel: "account:claude:opus",
     modes: [{ id: "ask", label: "Ask" }, { id: "safe-auto", label: "Safe Auto" }],
     navGroups: [{ group: "Control", items: [{ id: "home", label: "Home" }, { id: "agents", label: "Agents" }] }], taskModes: [{ id: "general", label: "General" }], outputFormats: [{ id: "normal", label: "Normal" }],
     prefs: { model: "account:claude:opus", mode: "ask", focus: "general", format: "normal", showPanel: true },
     accounts: [{ id: "claude", label: "Claude", connected: true }],
-    status: { on: true, line: "Claude · Ask · $0.00 today · $0.00 saved" },
+    status: { on: true, line: "OPai · Ask · $0.00 today · $0.00 saved" },
     inspector: { rows: [], budget: { pct: 0, text: "$0.00 today" }, permissions: [], privacy: [] },
     defaultView: "chat", initialTask: "", tools: [],
   };

@@ -38,14 +38,16 @@ class _Pipe:
 
 
 class FakeProc:
-    def __init__(self, lines, hang=False):
+    def __init__(self, lines, hang=False, stderr_lines=None, returncode=0):
         self.stdout = _Pipe(lines, hang)
+        self.stderr = _Pipe(stderr_lines or [], False)
         self.terminated = False
         self.killed = False
         self._alive = True
+        self.returncode = returncode
 
     def poll(self):
-        return None if self._alive else 0
+        return None if self._alive else self.returncode
 
     def terminate(self):
         self.terminated = True
@@ -56,7 +58,8 @@ class FakeProc:
         self._alive = False
 
     def wait(self, timeout=None):
-        return 0
+        self._alive = False
+        return self.returncode
 
 
 class RunnerCancellationTests(unittest.TestCase):
@@ -74,6 +77,30 @@ class RunnerCancellationTests(unittest.TestCase):
         self.assertEqual(result["text"], "Hi there")
         self.assertEqual(result["cost"], 0.02)
         self.assertFalse(result.get("cancelled"))
+
+    def test_nonzero_auth_exit_is_a_structured_failure(self):
+        proc = FakeProc(
+            ["401 Invalid authentication credentials\n"],
+            returncode=1,
+        )
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            result = self._runner().stream("x")
+
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+        self.assertEqual(result["returncode"], 1)
+
+    def test_stderr_failure_is_redacted(self):
+        proc = FakeProc(
+            [],
+            stderr_lines=["Authorization: Bearer sk-secretvalue123 provider unavailable\n"],
+            returncode=1,
+        )
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            result = self._runner().stream("x")
+
+        self.assertNotIn("sk-secretvalue123", result["error"]["technicalMessage"])
+        self.assertEqual(result["error"]["code"], "PROVIDER_UNAVAILABLE")
 
     def test_cancel_terminates_the_process(self):
         proc = FakeProc(

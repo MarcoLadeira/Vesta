@@ -15,7 +15,13 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opai.gui_web import WEB_DIR, boot_payload, resolve_openable, web_available
+from opai.gui_web import (
+    WEB_DIR,
+    boot_payload,
+    resolve_openable,
+    settings_payload,
+    web_available,
+)
 
 
 class WebAvailableTests(unittest.TestCase):
@@ -158,6 +164,24 @@ class WebAssetsTests(unittest.TestCase):
         js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
         self.assertIn("QWebChannel", js)
         self.assertIn("channel.objects.bridge", js)
+
+
+class SettingsPayloadTests(unittest.TestCase):
+    def test_settings_exposes_normalized_connections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            payload = settings_payload(root)
+
+        self.assertIn("connections", payload)
+        self.assertEqual(
+            {"claude", "codex", "copilot"},
+            {connection["providerId"] for connection in payload["connections"]},
+        )
+        for connection in payload["connections"]:
+            self.assertIn("authStatus", connection)
+            self.assertIn("credentialSource", connection)
+            self.assertNotIn("cli_path", connection)
+        json.dumps(payload)
 
 
 if __name__ == "__main__":

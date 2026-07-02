@@ -56,7 +56,7 @@ def _popen(cmd: list[str], *, cwd: str | None):
     kwargs: dict[str, Any] = {
         "cwd": cwd,
         "stdout": subprocess.PIPE,
-        "stderr": subprocess.DEVNULL,
+        "stderr": subprocess.PIPE,
         "text": True,
         "encoding": "utf-8",
         "errors": "replace",
@@ -148,6 +148,134 @@ def list_connected_accounts(home: Path | None = None) -> list[dict[str, Any]]:
     return accounts
 
 
+def connection_for_account(
+    account: dict[str, Any],
+    *,
+    auth_status: str | None = None,
+    last_checked_at: int | None = None,
+    error: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the safe connection payload used by Settings and the chat gate.
+
+    An auth-file signal means "detected", not "verified". Only an explicit
+    provider status command may promote it to ``connected``.
+    """
+
+    cli_present = bool(account.get("cli_present"))
+    authenticated = bool(account.get("authenticated"))
+    if auth_status is None:
+        if authenticated and not cli_present:
+            auth_status = "misconfigured"
+        elif not authenticated:
+            auth_status = "not_configured"
+        else:
+            auth_status = "unknown"
+    if auth_status == "connected":
+        diagnostic = "Connection verified locally."
+    elif auth_status == "unknown":
+        diagnostic = "Account sign-in was detected but has not been verified."
+    elif auth_status == "not_configured":
+        diagnostic = "No provider sign-in was detected."
+    elif auth_status == "misconfigured":
+        diagnostic = "A sign-in was detected, but the provider CLI is unavailable."
+    else:
+        diagnostic = str((error or {}).get("technicalMessage") or "Connection check failed.")
+    return {
+        "providerId": str(account.get("id") or "unknown"),
+        "displayName": str(account.get("label") or account.get("id") or "Provider"),
+        "userFacingName": "OPai",
+        "authStatus": auth_status,
+        "credentialSource": "user_account",
+        "lastCheckedAt": last_checked_at,
+        "lastError": (error or {}).get("userMessage"),
+        "lastErrorCode": (error or {}).get("code"),
+        "safeDiagnostic": diagnostic,
+        "cliPresent": cli_present,
+        "detected": authenticated,
+        "loginHint": account.get("login_hint"),
+    }
+
+
+def account_connections(home: Path | None = None) -> list[dict[str, Any]]:
+    """Return detected connection state without contacting any provider."""
+
+    return [connection_for_account(account) for account in list_connected_accounts(home)]
+
+
+def test_account_connection(
+    account_id: str,
+    *,
+    home: Path | None = None,
+    run: Callable[[list[str]], Any] | None = None,
+) -> dict[str, Any]:
+    """Run a provider's local, non-completion auth status command when available."""
+
+    from opai.provider_contract import normalize_provider_error
+
+    account = next(
+        (item for item in list_connected_accounts(home) if item["id"] == account_id),
+        {
+            "id": account_id,
+            "label": account_id.capitalize(),
+            "cli_present": False,
+            "authenticated": False,
+        },
+    )
+    detected = connection_for_account(account)
+    if detected["authStatus"] in {"not_configured", "misconfigured"}:
+        return detected
+    checked_at = int(time.time() * 1000)
+    if account_id == "copilot":
+        detected["lastCheckedAt"] = checked_at
+        detected["safeDiagnostic"] = (
+            "Account sign-in was detected; this CLI exposes no safe status command."
+        )
+        return detected
+    commands = {
+        "claude": [account.get("cli_path") or "claude", "auth", "status"],
+        "codex": [account.get("cli_path") or "codex", "login", "status"],
+    }
+    command = commands.get(account_id)
+    if command is None:
+        detected["lastCheckedAt"] = checked_at
+        detected["safeDiagnostic"] = "No safe status command is available."
+        return detected
+
+    execute = run or (
+        lambda argv: _hidden_run(argv, cwd=None, timeout=15.0)
+    )
+    try:
+        proc = execute(command)
+    except (OSError, subprocess.SubprocessError) as exc:
+        error = normalize_provider_error(account_id, str(exc))
+        return connection_for_account(
+            account,
+            auth_status="provider_unavailable",
+            last_checked_at=checked_at,
+            error=error,
+        )
+    returncode = int(getattr(proc, "returncode", 0) or 0)
+    if returncode == 0:
+        return connection_for_account(
+            account, auth_status="connected", last_checked_at=checked_at
+        )
+    detail = "\n".join(
+        part.strip()
+        for part in (str(getattr(proc, "stderr", "") or ""), str(getattr(proc, "stdout", "") or ""))
+        if part.strip()
+    )
+    error = normalize_provider_error(account_id, detail, returncode=returncode)
+    status = error["authStatus"]
+    if status == "unknown":
+        status = "disconnected"
+    return connection_for_account(
+        account,
+        auth_status=status,
+        last_checked_at=checked_at,
+        error=error,
+    )
+
+
 # Claude model aliases the `claude` CLI understands, cheapest-capable first.
 CLAUDE_MODELS: list[tuple[str, str]] = [
     ("sonnet", "Sonnet 4.6"),
@@ -174,12 +302,17 @@ COPILOT_MODELS: list[tuple[str, str, str]] = [
 def _account_options(
     account: dict[str, Any], *, connected: bool
 ) -> list[dict[str, Any]]:
+    from opai.provider_contract import provider_display_name
+
     disabled_reason = None if connected else f"{account['label']} is not connected"
     if account["id"] == "claude":
         return [
             {
                 "id": f"account:claude:{alias}",
-                "label": f"Claude {label} · your account",
+                "label": provider_display_name("claude", alias),
+                "advanced_label": provider_display_name(
+                    "claude", alias, advanced=True
+                ),
                 "provider": "claude",
                 "model": alias,
                 "kind": "account",
@@ -195,7 +328,10 @@ def _account_options(
         return [
             {
                 "id": f"account:codex:{model_id}",
-                "label": f"Codex {label} · your account",
+                "label": provider_display_name("codex", model_id),
+                "advanced_label": provider_display_name(
+                    "codex", label, advanced=True
+                ),
                 "provider": "codex",
                 "model": model_id,
                 "kind": "account",
@@ -212,7 +348,10 @@ def _account_options(
         return [
             {
                 "id": f"account:copilot:{model_id}",
-                "label": f"Copilot {label} · your account",
+                "label": provider_display_name("copilot", model_id),
+                "advanced_label": provider_display_name(
+                    "copilot", label, advanced=True
+                ),
                 "provider": "copilot",
                 "model": model_id,
                 "kind": "account",
@@ -228,7 +367,10 @@ def _account_options(
     return [
         {
             "id": f"account:{account['id']}",
-            "label": f"{account['label']} · your account",
+            "label": provider_display_name(account["id"]),
+            "advanced_label": provider_display_name(
+                account["id"], advanced=True
+            ),
             "provider": account["id"],
             "model": "",
             "kind": "account",
@@ -455,28 +597,31 @@ class AccountRunner:
                 Path(out_path).unlink(missing_ok=True)
             return {"text": "", "cost": None, "error": str(exc)}
 
-        lines: queue.Queue[tuple[str, str | None]] = queue.Queue()
+        lines: queue.Queue[tuple[str, str, str | None]] = queue.Queue()
 
-        def _reader() -> None:
-            pipe = proc.stdout
+        def _reader(source: str) -> None:
+            pipe = getattr(proc, source, None)
             if pipe is None:
-                lines.put(("eof", None))
+                lines.put(("eof", source, None))
                 return
             try:
                 for line in iter(pipe.readline, ""):
-                    lines.put(("line", line))
+                    lines.put(("line", source, line))
             except (OSError, ValueError):
                 pass
             finally:
-                lines.put(("eof", None))
+                lines.put(("eof", source, None))
 
-        threading.Thread(target=_reader, daemon=True).start()
+        threading.Thread(target=_reader, args=("stdout",), daemon=True).start()
+        threading.Thread(target=_reader, args=("stderr",), daemon=True).start()
 
         text_parts: list[str] = []
+        diagnostic_parts: list[str] = []
         cost: float | None = None
         started = time.monotonic()
         stopped: str | None = None
         streamed_any = False
+        open_pipes = 2
         while True:
             if cancel is not None and cancel.is_set():
                 stopped = "cancelled"
@@ -485,13 +630,28 @@ class AccountRunner:
                 stopped = "timed_out"
                 break
             try:
-                kind, payload = lines.get(timeout=0.2)
+                kind, source, payload = lines.get(timeout=0.2)
             except queue.Empty:
                 continue
             if kind == "eof":
-                break
+                open_pipes -= 1
+                if open_pipes == 0:
+                    break
+                continue
+            if source == "stderr":
+                if payload and payload.strip():
+                    diagnostic_parts.append(payload.strip())
+                continue
             if structured:
-                part = parse_claude_line(payload or "")
+                raw_line = payload or ""
+                try:
+                    json.loads(raw_line)
+                except (json.JSONDecodeError, TypeError):
+                    if raw_line.strip():
+                        diagnostic_parts.append(raw_line.strip())
+                    continue
+                diagnostic_parts.append(raw_line.strip())
+                part = parse_claude_line(raw_line)
                 for event in part["events"]:
                     if on_event:
                         on_event(event)
@@ -526,9 +686,10 @@ class AccountRunner:
             return {"text": partial, "cost": cost, "cancelled": True}
 
         try:
-            proc.wait(timeout=5)
+            returncode = proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             _terminate(proc)
+            returncode = getattr(proc, "returncode", None)
 
         text = "".join(text_parts).strip()
         if self.account_id == "codex" and out_path:
@@ -542,7 +703,24 @@ class AccountRunner:
                 pass
             finally:
                 Path(out_path).unlink(missing_ok=True)
-        return {"text": text, "cost": cost}
+        from opai.provider_contract import normalize_provider_error
+
+        diagnostic = "\n".join(part for part in diagnostic_parts if part)
+        normalized = normalize_provider_error(
+            self.account_id,
+            diagnostic or text,
+            model=self.model,
+            returncode=returncode,
+        )
+        known_failure = normalized["code"] not in {"UNKNOWN", "NO_RESPONSE"}
+        if returncode not in (0, None) or (known_failure and not text):
+            return {
+                "text": "",
+                "cost": cost,
+                "error": normalized,
+                "returncode": returncode,
+            }
+        return {"text": text, "cost": cost, "returncode": returncode}
 
 
 def runner_for_account(
