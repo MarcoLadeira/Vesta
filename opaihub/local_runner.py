@@ -25,11 +25,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .cancellation import LocalRunCancelled
 from .local_models import classify_endpoint
-
-
-class LocalRunCancelled(Exception):
-    """The user stopped a local model call mid-flight (issue #107)."""
 
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
