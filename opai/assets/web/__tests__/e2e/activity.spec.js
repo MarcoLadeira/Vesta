@@ -146,3 +146,34 @@ test("stop button and activity region are accessible", async ({ page }) => {
   await expect(page.locator(".timeline")).toHaveAttribute("aria-label", "AI activity");
   await expect(page.locator(".gen-reassure")).toHaveAttribute("aria-live", "polite");
 });
+
+test("timeline rows carry real elapsed offsets, never invented ones", async ({ page }) => {
+  await sendPrompt(page);
+  const id = await reqId(page);
+  // Real timestamp -> a "+N.Ns" offset appears.
+  await page.evaluate((id) => window.__mock.emitActivity(id, {
+    id: "t1", type: "file_read", status: "success", title: "Read file: app.py", timestamp: Date.now(),
+  }), id);
+  // No timestamp -> no offset label for that row (honesty rule).
+  await page.evaluate((id) => window.__mock.emitActivity(id, {
+    id: "t2", type: "command_run", status: "success", title: "Ran command: pytest",
+  }), id);
+  await page.click(".gen-toggle");
+  const rows = page.locator(".timeline .tl-row");
+  await expect(rows.filter({ hasText: "Read file" }).locator(".tl-ts")).toHaveText(/\+\d+(\.\d)?s/);
+  await expect(rows.filter({ hasText: "Ran command" }).locator(".tl-ts")).toHaveCount(0);
+});
+
+test("the receipt strip copies a plaintext receipt on click", async ({ page }) => {
+  await sendPrompt(page, "review the auth module");
+  const id = await reqId(page);
+  await page.evaluate((id) => window.__mock.emitReply(id, {
+    status: "answered", answer: "done",
+    receipt: { estimated_actual_usd: 0.0123 },
+  }), id);
+  const strip = page.locator(".footer-note");
+  await expect(strip).toBeVisible();
+  await expect(strip).toHaveAttribute("aria-label", "Copy receipt");
+  await strip.click();
+  await expect(page.locator("#toast")).toContainText("Receipt copied");
+});

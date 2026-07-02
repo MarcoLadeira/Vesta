@@ -425,10 +425,12 @@ function switchView(id) {
 
 /* ---------- chat ---------- */
 function renderEmptyChips() {
+  // Agent-grade starters that show what OPai really does (plan, gate, receipt)
+  // without promising anything the engine doesn't deliver.
   const chips = [
     ["Summarize my changes", "Summarize my uncommitted changes"],
     ["Explain this repo", "Give me a high-level tour of this codebase"],
-    ["Find a bug", "Look for a likely bug in my recent changes"],
+    ["Plan a safe refactor", "Plan a safe refactor of this code: concrete steps, risks, and the tests to run. Don't edit files yet."],
   ];
   const connected = state.accounts.some((a) => a.connected);
   const brandBody = (state.brand && state.brand.emptyBody) || "";
@@ -476,6 +478,17 @@ function send(retryOf) {
   if (state.busy && !retryOf) return; // duplicate-submit protection
   const text = retryOf ? retryOf.text : $("#input").value.trim();
   if (!text) return;
+  // Slash commands run local OPai tools ("/panic", "/savings", "/connect") —
+  // they must NEVER be sent to a paid model as a prompt.
+  if (!retryOf && text.startsWith("/")) {
+    $("#input").value = ""; autoSize();
+    const name = text.slice(1).trim().split(/\s+/)[0].toLowerCase();
+    if (name) {
+      appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
+      bridge.runTool(name);
+    }
+    return;
+  }
   const sel = retryOf || {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
@@ -539,10 +552,16 @@ function buildPending(sel) {
 }
 
 function timelineRows() {
-  return state.store.list().map((e) =>
-    `<div class="tl-row ${e.status}"><span class="tl-ic">${ICON[e.status] || "•"}</span>` +
-    `<span class="tl-t">${esc(e.title)}</span>${e.detail ? `<span class="tl-d">${esc(e.detail)}</span>` : ""}</div>`
-  ).join("");
+  // Each row carries its real offset from the start of the run (the events
+  // have true epoch timestamps). No timestamp -> no label, never invented.
+  return state.store.list().map((e) => {
+    let ts = "";
+    if (typeof e.timestamp === "number" && state.startTime && e.timestamp >= state.startTime) {
+      ts = `<span class="tl-ts">+${((e.timestamp - state.startTime) / 1000).toFixed(1)}s</span>`;
+    }
+    return `<div class="tl-row ${e.status}"><span class="tl-ic">${ICON[e.status] || "•"}</span>` +
+      `<span class="tl-t">${esc(e.title)}</span>${e.detail ? `<span class="tl-d">${esc(e.detail)}</span>` : ""}${ts}</div>`;
+  }).join("");
 }
 function renderTimeline() {
   if (!state.pending) return;
@@ -644,7 +663,21 @@ function metaFooter(r, sel, durMs) {
   if (+rc.estimated_actual_usd) bits.push("$" + (+rc.estimated_actual_usd).toFixed(4));
   if (+rc.estimated_savings_usd) bits.push("$" + (+rc.estimated_savings_usd).toFixed(4) + " saved");
   if (rc.paid_call_avoided) bits.push("paid call avoided");
-  return `<div class="footer-note">${esc(bits.join("   ·   "))}</div>`;
+  return `<div class="footer-note" role="button" tabindex="0" title="Copy this receipt" aria-label="Copy receipt">${esc(bits.join("   ·   "))}</div>`;
+}
+
+// The receipt strip is a claim — let the user take it with them. One click
+// copies a plaintext receipt (task + the same honest numbers shown).
+function wireReceipt(el, sel) {
+  const strip = el.querySelector(".footer-note");
+  if (!strip) return;
+  const copy = () => {
+    const text = `OPai receipt\nTask: ${(sel && sel.text) || "—"}\n${strip.textContent.trim()}`;
+    if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+    toast("Receipt copied");
+  };
+  strip.onclick = copy;
+  strip.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); copy(); } });
 }
 // Defense-in-depth: never trust upstream redaction — scrub secret-shaped text
 // before it can render in the details drawer (BUG-QA-002).
@@ -733,6 +766,7 @@ function finalize(status, r) {
   el.innerHTML = html;
   wireActivitySummary(el);
   wireFilesCard(el);
+  wireReceipt(el, sel);
 }
 
 // A changed file becomes a clickable chip that opens it in the OS file manager;
@@ -961,12 +995,57 @@ function onTool(json) {
   setBusy(false);
   const r = JSON.parse(json);
   if (r.needs_confirm) {
-    if (window.confirm(r.text || "Proceed?")) {
-      bridge.applyTool(r.apply, (j2) => { const a = JSON.parse(j2); appendCard(r.title, a.text); refreshStatus(); refreshInspector(); });
-    } else { appendCard(r.title, "Cancelled."); }
+    renderApprovalCard(r);
     return;
   }
   appendCard(r.title || "Tool", r.text || "");
+}
+
+// What each mutating action actually touches — honest scope labels only
+// (config-level toggles vs. anything unknown). No invented risk theater.
+const APPROVAL_SCOPE = {
+  panic: { risk: "Config change", scope: "Routing policy for this project (reversible)" },
+  repair: { risk: "Config change", scope: "OPai client integration files (additive, no source deleted)" },
+};
+
+// In-chat approval card — replaces the native confirm() with a proper gate:
+// what's requested, why, the blast radius, and Approve once / Deny. Approve is
+// the ONLY path to bridge.applyTool, so nothing can be applied silently.
+function renderApprovalCard(r) {
+  switchView("chat");
+  const info = APPROVAL_SCOPE[r.apply] || { risk: "Mutating action", scope: "See details below" };
+  const el = appendMsg(
+    `<div class="approval-card" role="group" aria-label="Approval required">
+       <div class="ap-head"><span class="ap-badge">Approval required</span><span class="ap-risk">${esc(info.risk)}</span></div>
+       <div class="ap-title">${esc(r.title || "Action")}</div>
+       <div class="ap-why">${esc(r.text || "This action changes state and needs your OK.")}</div>
+       <div class="ap-scope"><span class="k">Affects</span><span class="v">${esc(info.scope)}</span></div>
+       <div class="ap-actions">
+         <button class="btn primary" data-ap="approve">Approve once</button>
+         <button class="btn" data-ap="deny">Deny</button>
+       </div>
+     </div>`, "bot");
+  const card = el.querySelector(".approval-card");
+  const done = (note, cls) => {
+    card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    card.classList.add(cls);
+    const state = document.createElement("div");
+    state.className = "ap-state";
+    state.textContent = note;
+    card.appendChild(state);
+  };
+  el.querySelector('[data-ap="approve"]').onclick = () => {
+    done("Approved — applying…", "approved");
+    bridge.applyTool(r.apply, (j2) => {
+      const a = JSON.parse(j2);
+      appendCard(r.title, a.text);
+      refreshStatus(); refreshInspector();
+    });
+  };
+  el.querySelector('[data-ap="deny"]').onclick = () => {
+    done("Denied — nothing was changed.", "denied");
+    appendCard(r.title, "Cancelled.");
+  };
 }
 function appendCard(title, text) {
   switchView("chat");
