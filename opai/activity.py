@@ -403,3 +403,107 @@ def parse_claude_stream(lines: list[str]) -> dict[str, Any]:
             cost = part["cost"]
         done = done or part["done"]
     return {"events": events, "text": text, "cost": cost, "done": done}
+
+
+# --------------------------------------------------------------------------- #
+# Codex `exec --json` parser — tolerant JSONL → activity events (#106)
+# --------------------------------------------------------------------------- #
+# Codex emits one JSON event per line. Item kinds map to typed activity rows;
+# ONLY completed agent_message items contribute text (never deltas), so text is
+# never duplicated with the --output-last-message fallback. Unknown shapes are
+# skipped silently: a schema drift degrades to "text from the out-file" exactly
+# as before, never a crash and never invented events.
+_CODEX_ITEM_MAP = {
+    "command_execution": ("command_run", "Ran command"),
+    "local_shell_call": ("command_run", "Ran command"),
+    "file_change": ("file_edit", "Changed files"),
+    "patch_apply": ("file_edit", "Applied patch"),
+    "apply_patch": ("file_edit", "Applied patch"),
+    "web_search": ("context_read", "Web search"),
+    "mcp_tool_call": ("tool_call", "Used tool"),
+    "tool_call": ("tool_call", "Used tool"),
+}
+
+
+def parse_codex_line(line: str) -> dict[str, Any]:
+    """Parse one JSONL line from ``codex exec --json``.
+
+    Returns the same shape as :func:`parse_claude_line`:
+    ``{"events": [...], "text": str, "cost": None, "done": bool}``. Codex does
+    not report dollar cost, so ``cost`` is always ``None`` (honest, not zero).
+    """
+    out: dict[str, Any] = {"events": [], "text": "", "cost": None, "done": False}
+    raw = (line or "").strip()
+    if not raw:
+        return out
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        # codex --json stdout should be JSON; anything else is CLI noise, not
+        # answer text — skip it rather than polluting the reply.
+        return out
+    if not isinstance(obj, dict):
+        return out
+    kind = str(obj.get("type") or "")
+    if kind in {"thread.started", "session.created", "session_configured"}:
+        out["events"].append(
+            make_event("provider_request", "success", "Connected to Codex")
+        )
+        return out
+    if kind in {"turn.completed", "turn_complete"}:
+        out["done"] = True
+        return out
+    if kind in {"turn.failed", "error"}:
+        message = str(
+            obj.get("message") or (obj.get("error") or {}).get("message") or "error"
+        )[:200]
+        out["events"].append(make_event("error", "error", f"Codex reported: {message}"))
+        return out
+    item = obj.get("item")
+    if isinstance(item, dict) and kind.startswith("item."):
+        item_type = str(item.get("type") or item.get("item_type") or "")
+        if item_type == "agent_message":
+            # Text only on completion — deltas are never accumulated, so the
+            # out-file fallback can never double the answer.
+            if kind == "item.completed":
+                out["text"] = str(item.get("text") or "")
+            return out
+        if item_type == "reasoning":
+            return out
+        mapped = _CODEX_ITEM_MAP.get(item_type)
+        if mapped and kind in {"item.started", "item.completed"}:
+            etype, verb = mapped
+            target = str(
+                item.get("command")
+                or item.get("cmd")
+                or item.get("path")
+                or item.get("query")
+                or ""
+            )[:200]
+            status = "success" if kind == "item.completed" else "running"
+            title = f"{verb}: {target}" if target else verb
+            out["events"].append(
+                make_event(etype, status, title, detail=target or None)
+            )
+        return out
+    # Older proto-style shapes: {"msg": {"type": "exec_command_begin", ...}}.
+    msg = obj.get("msg")
+    if isinstance(msg, dict):
+        mtype = str(msg.get("type") or "")
+        if mtype in {"exec_command_begin", "exec_command_end"}:
+            command = msg.get("command")
+            if isinstance(command, list):
+                command = " ".join(str(part) for part in command)
+            status = "success" if mtype.endswith("end") else "running"
+            target = str(command or "")[:200]
+            out["events"].append(
+                make_event(
+                    "command_run",
+                    status,
+                    f"Ran command: {target}" if target else "Ran command",
+                    detail=target or None,
+                )
+            )
+        elif mtype == "task_complete":
+            out["done"] = True
+    return out

@@ -545,6 +545,11 @@ class AccountRunner:
                 "never",
                 "--skip-git-repo-check",
             ]
+            if stream:
+                # JSONL events (commands run, files changed, agent messages) so
+                # the GUI/CLI timeline shows real codex activity (#106). The
+                # out-file stays as the answer fallback if the schema drifts.
+                cmd.append("--json")
             if self.model:
                 cmd += ["--model", self.model]
             if out_file:
@@ -650,7 +655,7 @@ class AccountRunner:
         Returns ``{"text","cost","timed_out"?,"cancelled"?,"error"?}`` and never
         raises for provider failures — they degrade to a clean result.
         """
-        from opai.activity import make_event, parse_claude_line
+        from opai.activity import make_event, parse_claude_line, parse_codex_line
 
         cwd = str(project_root) if project_root else None
         out_path: str | None = None
@@ -659,7 +664,10 @@ class AccountRunner:
                 "r", suffix=".txt", delete=False, encoding="utf-8"
             ) as handle:
                 out_path = handle.name
-        structured = self.account_id == "claude"
+        structured = self.account_id in {"claude", "codex"}
+        line_parser = (
+            parse_claude_line if self.account_id == "claude" else parse_codex_line
+        )
         cmd = self.build_command(
             prompt,
             allow_edits=allow_edits,
@@ -728,7 +736,7 @@ class AccountRunner:
                         diagnostic_parts.append(raw_line.strip())
                     continue
                 diagnostic_parts.append(raw_line.strip())
-                part = parse_claude_line(raw_line)
+                part = line_parser(raw_line)
                 for event in part["events"]:
                     if on_event:
                         on_event(event)
@@ -747,11 +755,9 @@ class AccountRunner:
                             make_event("streaming", "running", "Streaming response")
                         )
                     streamed_any = True
-                    # codex stdout is progress logs; its answer is the out-file.
-                    if self.account_id != "codex":
-                        text_parts.append(chunk)
-                        if on_text:
-                            on_text(chunk)
+                    text_parts.append(chunk)
+                    if on_text:
+                        on_text(chunk)
 
         if stopped is not None:
             _terminate(proc)
@@ -772,7 +778,10 @@ class AccountRunner:
         if self.account_id == "codex" and out_path:
             try:
                 final = Path(out_path).read_text(encoding="utf-8").strip()
-                if final:
+                # The JSONL parser already streamed completed agent messages;
+                # the out-file is only the fallback when the schema drifted and
+                # nothing was captured — never a duplicate.
+                if final and not text:
                     text = final
                     if on_text:
                         on_text(final)

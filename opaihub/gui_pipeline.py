@@ -518,7 +518,12 @@ def handle_gui_message(
         _emit("cancelled", "cancelled", "Stopped by you")
         return _cancelled_result(message, tool_trace, selected_model, selected_mode)
     _emit("request_sending", "running", "Running OPai locally")
-    result = run_ask(root, message, record=False)
+    # cancel threads into the local runner too (#107): Stop closes the HTTP
+    # connection mid-generation instead of only ignoring the late result.
+    result = run_ask(root, message, record=False, cancel=cancel)
+    if result.get("status") == "cancelled":
+        _emit("cancelled", "cancelled", "Stopped by you")
+        return _cancelled_result(message, tool_trace, selected_model, selected_mode)
     status_map = {
         "answered_locally": "answered",
         "cache_hit": "answered",

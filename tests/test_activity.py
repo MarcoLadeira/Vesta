@@ -156,5 +156,62 @@ class ClaudeStreamParserTests(unittest.TestCase):
         self.assertTrue(agg["done"])
 
 
+class CodexStreamParserTests(unittest.TestCase):
+    def _parse(self, line):
+        from opai.activity import parse_codex_line
+
+        return parse_codex_line(line)
+
+    def test_agent_message_text_only_on_completion(self):
+        started = self._parse(
+            '{"type":"item.started","item":{"type":"agent_message","text":"partial"}}'
+        )
+        self.assertEqual(started["text"], "")
+        done = self._parse(
+            '{"type":"item.completed","item":{"type":"agent_message","text":"final answer"}}'
+        )
+        self.assertEqual(done["text"], "final answer")
+
+    def test_command_execution_becomes_command_run_event(self):
+        part = self._parse(
+            '{"type":"item.completed","item":{"type":"command_execution","command":"pytest -q"}}'
+        )
+        self.assertEqual(part["events"][0]["type"], "command_run")
+        self.assertIn("pytest -q", part["events"][0]["title"])
+        self.assertEqual(part["events"][0]["status"], "success")
+
+    def test_file_change_and_connect_and_done(self):
+        edit = self._parse(
+            '{"type":"item.started","item":{"type":"file_change","path":"src/app.py"}}'
+        )
+        self.assertEqual(edit["events"][0]["type"], "file_edit")
+        boot = self._parse('{"type":"thread.started"}')
+        self.assertEqual(boot["events"][0]["type"], "provider_request")
+        self.assertIn("Codex", boot["events"][0]["title"])
+        done = self._parse('{"type":"turn.completed","usage":{"input_tokens":10}}')
+        self.assertTrue(done["done"])
+        # Codex never reports dollar cost — honest None, not zero.
+        self.assertIsNone(done["cost"])
+
+    def test_turn_failed_surfaces_an_error_event(self):
+        part = self._parse('{"type":"turn.failed","error":{"message":"boom"}}')
+        self.assertEqual(part["events"][0]["type"], "error")
+        self.assertIn("boom", part["events"][0]["title"])
+
+    def test_proto_exec_command_shape_is_tolerated(self):
+        part = self._parse(
+            '{"id":"1","msg":{"type":"exec_command_begin","command":["git","status"]}}'
+        )
+        self.assertEqual(part["events"][0]["type"], "command_run")
+        self.assertIn("git status", part["events"][0]["title"])
+
+    def test_noise_is_skipped_never_leaked_as_text(self):
+        # Non-JSON CLI noise must not pollute the answer (unlike claude, where
+        # raw text can be a legitimate delta).
+        self.assertEqual(self._parse("plain progress log line")["text"], "")
+        self.assertEqual(self._parse('{"type":"totally.unknown"}')["events"], [])
+        self.assertEqual(self._parse("")["text"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

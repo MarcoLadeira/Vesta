@@ -13,8 +13,11 @@ nothing here calls the network unless a real local server is present.
 
 from __future__ import annotations
 
+import contextlib
+import http.client
 import json
 import os
+import socket
 import threading
 import urllib.error
 import urllib.parse
@@ -23,6 +26,11 @@ from pathlib import Path
 from typing import Any
 
 from .local_models import classify_endpoint
+
+
+class LocalRunCancelled(Exception):
+    """The user stopped a local model call mid-flight (issue #107)."""
+
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.2"
@@ -78,6 +86,83 @@ def _http_json(
         return result
 
 
+def _http_json_cancellable(
+    url: str,
+    *,
+    method: str = "POST",
+    payload: dict[str, Any] | None = None,
+    timeout: float = 60.0,
+    cancel: threading.Event | None = None,
+) -> Any:
+    """POST/GET JSON with true mid-flight cancellation (issue #107).
+
+    ``urllib`` blocks with no interrupt, so a Stop click could only be ignored
+    while the local model kept generating. This uses ``http.client`` directly
+    and a small watcher thread: when ``cancel`` fires, the connection is closed,
+    which aborts the blocked read immediately and raises
+    :class:`LocalRunCancelled`.
+    """
+    parsed = urllib.parse.urlsplit(url)
+    conn_cls = (
+        http.client.HTTPSConnection
+        if parsed.scheme == "https"
+        else http.client.HTTPConnection
+    )
+    conn = conn_cls(parsed.hostname or "127.0.0.1", parsed.port, timeout=timeout)
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    path = parsed.path or "/"
+    if parsed.query:
+        path += "?" + parsed.query
+
+    if cancel is None:
+        try:
+            conn.request(
+                method, path, body=body, headers={"Content-Type": "application/json"}
+            )
+            raw = conn.getresponse().read()
+        finally:
+            with contextlib.suppress(Exception):
+                conn.close()
+        return json.loads(raw.decode("utf-8"))
+
+    # Cancellable path: the blocking read runs on a worker thread while this
+    # thread polls the cancel Event. On cancel we shutdown+close the socket —
+    # the FIN/RST makes the local server abort generation — and return
+    # immediately, regardless of how the platform wakes the blocked recv
+    # (Windows select() won't wake on close/shutdown; we don't depend on it).
+    box: dict[str, Any] = {}
+    done = threading.Event()
+
+    def _work() -> None:
+        try:
+            conn.request(
+                method, path, body=body, headers={"Content-Type": "application/json"}
+            )
+            box["raw"] = conn.getresponse().read()
+        except Exception as exc:  # noqa: BLE001 - reported by the coordinator
+            box["error"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=_work, daemon=True).start()
+    while not done.wait(0.15):
+        if cancel.is_set():
+            with contextlib.suppress(Exception):
+                sock = getattr(conn, "sock", None)
+                if sock is not None:
+                    sock.shutdown(socket.SHUT_RDWR)
+            with contextlib.suppress(Exception):
+                conn.close()
+            raise LocalRunCancelled()
+    with contextlib.suppress(Exception):
+        conn.close()
+    if cancel.is_set():
+        raise LocalRunCancelled()
+    if "error" in box:
+        raise box["error"]
+    return json.loads(box["raw"].decode("utf-8"))
+
+
 class LocalRunner:
     """Base interface. Subclasses talk to a specific local server shape."""
 
@@ -88,7 +173,12 @@ class LocalRunner:
         return False
 
     def complete(
-        self, prompt: str, *, system: str | None = None, timeout: float = 60.0
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        timeout: float = 60.0,
+        cancel: threading.Event | None = None,
     ) -> str:
         raise NotImplementedError
 
@@ -110,17 +200,23 @@ class OllamaRunner(LocalRunner):
         return isinstance(tags, dict) and "models" in tags
 
     def complete(
-        self, prompt: str, *, system: str | None = None, timeout: float = 60.0
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        timeout: float = 60.0,
+        cancel: threading.Event | None = None,
     ) -> str:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        result = _http_json(
+        result = _http_json_cancellable(
             f"{self.base_url}/api/chat",
             method="POST",
             payload={"model": self.model, "messages": messages, "stream": False},
             timeout=timeout,
+            cancel=cancel,
         )
         return str((result.get("message") or {}).get("content", "")).strip()
 
@@ -142,17 +238,23 @@ class OpenAICompatibleRunner(LocalRunner):
         return isinstance(models, dict)
 
     def complete(
-        self, prompt: str, *, system: str | None = None, timeout: float = 60.0
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        timeout: float = 60.0,
+        cancel: threading.Event | None = None,
     ) -> str:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        result = _http_json(
+        result = _http_json_cancellable(
             f"{self.base_url}/chat/completions",
             method="POST",
             payload={"model": self.model, "messages": messages, "stream": False},
             timeout=timeout,
+            cancel=cancel,
         )
         choices = result.get("choices") or [{}]
         return str((choices[0].get("message") or {}).get("content", "")).strip()
