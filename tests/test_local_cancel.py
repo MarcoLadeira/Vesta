@@ -8,6 +8,8 @@ not merely have its late result ignored. Uses a loopback-only hanging server
 from __future__ import annotations
 
 import http.server
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -20,6 +22,30 @@ from _helpers import FakeLocalRunner, make_repo
 from opaihub.ask import run_ask
 from opaihub.gui_pipeline import handle_gui_message
 from opaihub.local_runner import LocalRunCancelled, OllamaRunner
+
+
+class EditableUpgradeCompatibilityTests(unittest.TestCase):
+    def test_ask_import_survives_stale_local_runner_during_editable_upgrade(self):
+        script = """
+import sys
+import types
+
+stale = types.ModuleType("opaihub.local_runner")
+stale.LocalRunner = type("LocalRunner", (), {})
+stale.detect_local_runner = lambda *args, **kwargs: None
+sys.modules["opaihub.local_runner"] = stale
+
+import opaihub.ask
+"""
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[1],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 class _HangingHandler(http.server.BaseHTTPRequestHandler):

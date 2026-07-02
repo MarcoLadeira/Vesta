@@ -14,8 +14,9 @@ from typing import Any
 
 from . import result_cache
 from .cost_model import is_local_tier, load_cost_model
+from .cancellation import LocalRunCancelled
 from .evidence import collect_evidence
-from .local_runner import LocalRunCancelled, LocalRunner, detect_local_runner
+from .local_runner import LocalRunner, detect_local_runner
 from .model_intelligence import recommend_model
 
 SYSTEM_PROMPT = (
