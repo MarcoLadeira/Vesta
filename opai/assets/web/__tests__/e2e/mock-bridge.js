@@ -4,6 +4,19 @@
    page.addInitScript before any page script runs. */
 (function () {
   "use strict";
+  function merge(base, override) {
+    if (!override || typeof override !== "object" || Array.isArray(override)) {
+      return override === undefined ? base : override;
+    }
+    var result = Object.assign({}, base);
+    Object.keys(override).forEach(function (key) {
+      var value = override[key];
+      result[key] = value && typeof value === "object" && !Array.isArray(value)
+        ? merge(base && base[key] ? base[key] : {}, value)
+        : value;
+    });
+    return result;
+  }
   function Sig() {
     var fns = [];
     return {
@@ -11,7 +24,7 @@
       emit: function () { var a = arguments; fns.forEach(function (f) { f.apply(null, a); }); },
     };
   }
-  var boot = {
+  var defaultBoot = {
     workspace: { label: "demo", root: "/demo", name: "demo", branch: "main", file_count: 3, recents: [{ path: "/other/proj", label: "other/proj" }] },
     recents: ["summarize my changes"],
     brand: {
@@ -35,12 +48,10 @@
     inspector: { rows: [], budget: { pct: 0, text: "$0.00 today" }, permissions: [], privacy: [] },
     defaultView: "chat", initialTask: "", tools: [],
   };
-  var bridge = {
-    replyReady: Sig(), activity: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(),
-    boot: function (cb) { cb(JSON.stringify(boot)); },
-    inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
-    statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
-    dashboard: function (id, cb) { cb(JSON.stringify(id === "home" ? {
+  var scenario = window.__OPAI_TEST_SCENARIO__ || {};
+  var boot = merge(defaultBoot, scenario.boot || {});
+  var defaultDashboards = {
+    home: {
       title: "Mission Control",
       subtitle: "Observed proxy sessions only. Direct unwrapped launches are not measurable yet.",
       kpis: [
@@ -48,7 +59,8 @@
         { label: "Observed sessions", value: "3", severity: "neutral" },
       ],
       cards: [{ title: "Capture gap", body: "1 fail-open session was not accounted.", severity: "warning" }],
-    } : id === "agents" ? {
+    },
+    agents: {
       title: "Agent Readiness",
       subtitle: "Know which launches OPai can capture.",
       cards: [{
@@ -58,26 +70,61 @@
           { label: "Capture", value: "selective proxy", severity: "success" },
         ],
       }],
-    } : {})); },
-    prompts: function (q, c, cb) { cb(JSON.stringify({ categories: [], prompts: [] })); },
-    usePrompt: function (id, cb) { cb(JSON.stringify({})); },
-    settingsData: function (cb) { cb(JSON.stringify({ prefs: {}, firewall: {}, permissions: [], accounts: [], about: {} })); },
-    savePref: function () {},
+    },
+  };
+  var dashboards = merge(defaultDashboards, scenario.dashboards || {});
+  var promptData = scenario.prompts || [];
+  var settings = scenario.settings || { prefs: {}, firewall: {}, permissions: [], accounts: [], about: {} };
+  function respond(cb, value, delay) {
+    if (delay) setTimeout(function () { cb(JSON.stringify(value)); }, delay);
+    else cb(JSON.stringify(value));
+  }
+  var bridge = {
+    replyReady: Sig(), activity: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(),
+    boot: function (cb) { cb(JSON.stringify(boot)); },
+    inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
+    statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
+    dashboard: function (id, cb) {
+      var error = scenario.dashboardErrors && scenario.dashboardErrors[id];
+      respond(cb, error ? { error: error } : (dashboards[id] || {}), scenario.dashboardDelayMs);
+    },
+    prompts: function (q, c, cb) {
+      var query = String(q || "").toLowerCase().trim();
+      var items = promptData.filter(function (p) {
+        var hay = [p.title, p.desc, p.category, (p.tags || []).join(" ")].join(" ").toLowerCase();
+        return (!c || p.category === c) && (!query || query.split(/\s+/).every(function (token) { return hay.indexOf(token) >= 0; }));
+      });
+      var categories = Array.from(new Set(promptData.map(function (p) { return p.category; })));
+      respond(cb, { categories: categories, prompts: items }, scenario.promptDelayMs);
+    },
+    usePrompt: function (id, cb) { cb(JSON.stringify(promptData.find(function (p) { return p.id === id; }) || {})); },
+    settingsData: function (cb) { respond(cb, settings, scenario.settingsDelayMs); },
+    savePref: function (key, value) { window.__mock.savedPrefs.push([key, value]); },
     send: function (p) { var m = window.__mock; m.lastRequest = JSON.parse(p); m.sendCount++; },
     cancel: function (id) { var m = window.__mock; m.cancelCount++; m.cancelled.push(id); },
-    runTool: function () {}, applyTool: function (n, cb) { cb("{}"); },
+    runTool: function (name) {
+      window.__mock.runTools.push(name);
+      var response = scenario.toolResponses && scenario.toolResponses[name];
+      if (response) setTimeout(function () { bridge.toolReady.emit(JSON.stringify(response)); }, 0);
+    },
+    applyTool: function (name, cb) {
+      window.__mock.appliedTools.push(name);
+      var response = scenario.applyToolResponses && scenario.applyToolResponses[name];
+      cb(JSON.stringify(response || { text: "Applied safely." }));
+    },
     openWorkspace: function () { window.__mock.openWorkspaceCount++; },
     switchWorkspace: function (p) { window.__mock.switched.push(p); },
     openPath: function (p) { window.__mock.opened.push(p); },
     recents: function (cb) { cb(JSON.stringify(boot.recents)); },
     saveRecent: function (t) { window.__mock.savedRecents.push(t); },
-    openExternal: function () {},
+    openExternal: function (url) { window.__mock.externalUrls.push(url); },
   };
   window.qt = { webChannelTransport: {} };
   window.QWebChannel = function (transport, cb) { cb({ objects: { bridge: bridge } }); };
   window.__mock = {
     bridge: bridge, lastRequest: null, sendCount: 0, cancelCount: 0, cancelled: [],
-    openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [],
+    openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
+    runTools: [], appliedTools: [], externalUrls: [],
     reqId: function () { return window.__mock.lastRequest && window.__mock.lastRequest.requestId; },
     emitActivity: function (id, ev) { bridge.activity.emit(JSON.stringify({ requestId: id, event: ev })); },
     emitToken: function (id, t) { bridge.token.emit(JSON.stringify({ requestId: id, text: t })); },

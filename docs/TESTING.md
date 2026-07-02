@@ -36,6 +36,54 @@ The Playwright harness (`mock-bridge.js`) stubs `QWebChannel`/`qt` and a
 scriptable bridge so the **real** `activity.js` + `app.js` run in Chromium with
 no Qt; the spec drives streaming/cancellation via `window.__mock.*`.
 
+## Comprehensive desktop-web E2E suite
+
+The E2E suite protects the complete visible OPai control-plane surface: shell,
+chat, activity, cancellation, provider/auth states, settings, models/modes,
+savings receipts, cost firewall, context waste, benchmarks, prompt library,
+agents/workflows, proof bundles, inspector, brand rules, recovery, responsive
+layouts, accessibility basics, CLI parity, loading states, and known
+regressions.
+
+Shared fixtures and helpers live under
+`opai/assets/web/__tests__/e2e/helpers/`. `fullScenario()` creates one complete
+deterministic app state, while individual tests override only the state they
+need. The mock records native bridge calls so tests can prove that a UI action
+delegated safely without executing a real provider, shell mutation, or paid
+operation.
+
+```sh
+# List every browser contract
+npx playwright test --list
+
+# Run all browser E2E tests
+npm run test:e2e
+
+# Run one product area while developing
+npx playwright test opai/assets/web/__tests__/e2e/money-saved.spec.js
+
+# Open failure artifacts locally
+npx playwright show-report
+```
+
+The current suite has **148 Playwright tests**: 25 pre-existing tests and 123
+added by the comprehensive QA pass. Expected-failure contracts reproduce ten
+cross-platform defects plus one clean-Linux dependency defect. These are not
+hidden or skipped: Playwright executes each assertion, and unrelated failures
+remain fatal. See `QA_TEST_REPORT.md` for the bug IDs, reproductions, severity,
+and coverage map.
+
+When fixing a documented defect:
+
+1. Find its `BUG-QA-*` expected-failure annotation.
+2. Fix the application in a separate product PR.
+3. Remove `test.fail()` without weakening the assertion.
+4. Run that spec, then `npm run test:e2e` and the Python suite.
+
+The harness ignores one expected static-browser console message for the Qt
+`qrc:` script, which Chromium cannot load outside QWebEngine. Every other
+console error and every uncaught page error fails the relevant test.
+
 ## Python suite
 
 ## Run the tests
