@@ -135,7 +135,7 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
 }
 
 _ASSIGNMENT_SECRET = re.compile(
-    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|session(?:[_-]?token)?|cookie)"
+    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|session(?:[_-]?token)?|token|cookie)"
     r"(\s*[:=]\s*)([^\s,;]+)"
 )
 _BEARER_SECRET = re.compile(r"(?i)(authorization\s*:\s*bearer\s+|bearer\s+)([^\s,;]+)")

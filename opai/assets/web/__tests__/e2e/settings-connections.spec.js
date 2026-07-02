@@ -62,3 +62,72 @@ test("sparse settings data produces honest empty values, never broken sentinels"
   await expect(page.locator("#settingsPage")).toContainText("$0.00");
   await expectNoUiSentinels(page, page.locator("#settingsPage"));
 });
+
+test("settings connects a free provider without retaining the secret in the DOM", async ({ page }) => {
+  await openApp(page, {
+    settings: {
+      prefs: { default_model: "auto", default_mode: "safe-auto" },
+      firewall: {}, permissions: [], accounts: [], about: {},
+      models: [{ id: "free:groq:openai/gpt-oss-120b", label: "Groq · GPT-OSS 120B", provider: "groq", kind: "free" }],
+      credentials: [{ provider: "groq", configured: false, source: null, keychainAvailable: true }],
+      usage: [],
+    },
+  });
+  await openNav(page, "Settings");
+  const input = page.getByLabel("Groq API key");
+  await input.fill("temporary-super-secret");
+  await page.getByRole("button", { name: "Connect Groq" }).click();
+  expect(await page.evaluate(() => window.__mock.savedProviderKeys)).toEqual([["groq", "temporary-super-secret"]]);
+  await expect(input).toHaveValue("");
+  await expect(page.locator('[data-provider="groq"]')).toContainText("Connected securely");
+  await expect(page.locator("#settingsPage")).not.toContainText("temporary-super-secret");
+});
+
+test("settings tests a free provider connection without sending a prompt", async ({ page }) => {
+  await openApp(page, {
+    settings: {
+      prefs: {}, firewall: {}, permissions: [], accounts: [], about: {}, models: [], usage: [],
+      credentials: [{ provider: "groq", configured: true, source: "keychain", keychainAvailable: true }],
+    },
+    providerTestResponses: { groq: { provider: "groq", connected: true, configured: true } },
+  });
+  await openNav(page, "Settings");
+  await page.getByRole("button", { name: "Test Groq" }).click();
+  expect(await page.evaluate(() => window.__mock.providerTests)).toEqual(["groq"]);
+  await expect(page.locator('[data-provider="groq"]')).toContainText("Connection verified");
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
+});
+
+test("settings shows an accessible usage bar and saves a soft limit", async ({ page }) => {
+  const modelId = "account:claude:haiku";
+  await openApp(page, {
+    settings: {
+      prefs: { default_model: "auto", default_mode: "safe-auto" },
+      firewall: {}, permissions: [], accounts: [], about: {}, credentials: [],
+      models: [{ id: modelId, label: "Claude · Haiku 4.5", provider: "claude", kind: "account" }],
+      usage: [{ modelId, provider: "claude", source: "opai", metric: "tokens", used: 2500, limit: 5000, remaining: 2500, percent: 50, window: "month", confidence: "measured" }],
+    },
+  });
+  await openNav(page, "Settings");
+  const card = page.locator(`[data-model-id="${modelId}"]`);
+  await expect(card).toContainText("2,500 / 5,000 tokens");
+  await expect(card.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");
+  await card.getByLabel("Soft token limit").fill("7500");
+  await card.getByRole("button", { name: "Save limit" }).click();
+  expect(await page.evaluate(() => window.__mock.savedUsageLimits)).toEqual([[modelId, "tokens", 7500, "month"]]);
+});
+
+test("known invalid Codex tier is repaired only after confirmation", async ({ page }) => {
+  await openApp(page, {
+    settings: {
+      prefs: { default_model: "auto", default_mode: "safe-auto" },
+      firewall: {}, permissions: [], accounts: [], about: {}, models: [], credentials: [], usage: [],
+      codexConfig: { repairable: true, code: "CODEX_INVALID_SERVICE_TIER", message: "Codex service_tier 'default' is invalid." },
+    },
+  });
+  await openNav(page, "Settings");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Repair Codex config" }).click();
+  expect(await page.evaluate(() => window.__mock.codexRepairs)).toBe(1);
+  await expect(page.locator("#settingsPage")).toContainText("backup created");
+});

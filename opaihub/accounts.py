@@ -28,6 +28,65 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+_CONNECTION_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+_CONNECTION_CACHE_LOCK = threading.RLock()
+_CONNECTION_CACHE_TTL = 300.0
+
+_INVALID_CODEX_TIER = 'service_tier = "default"'
+
+
+def codex_config_issue(home: Path | None = None) -> dict[str, Any]:
+    """Describe the one known-invalid Codex service tier without reading secrets."""
+
+    path = (home or Path.home()).expanduser() / ".codex" / "config.toml"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    matches = [
+        index + 1
+        for index, line in enumerate(lines)
+        if line.strip().split("#", 1)[0].strip() == _INVALID_CODEX_TIER
+    ]
+    return {
+        "provider": "codex",
+        "repairable": len(matches) == 1,
+        "code": "CODEX_INVALID_SERVICE_TIER" if matches else None,
+        "line": matches[0] if len(matches) == 1 else None,
+        "path": str(path),
+        "message": (
+            "Codex service_tier 'default' is invalid. Remove that assignment to use "
+            "Codex's standard default."
+            if matches
+            else None
+        ),
+    }
+
+
+def repair_codex_config(home: Path | None = None) -> dict[str, Any]:
+    """Back up config.toml and remove only the exact invalid tier assignment."""
+
+    issue = codex_config_issue(home)
+    if not issue["repairable"]:
+        raise ValueError("No uniquely repairable Codex service tier was found")
+    path = Path(issue["path"])
+    original = path.read_text(encoding="utf-8")
+    lines = original.splitlines(keepends=True)
+    kept = [
+        line
+        for line in lines
+        if line.strip().split("#", 1)[0].strip() != _INVALID_CODEX_TIER
+    ]
+    backup = path.with_name(f"{path.name}.bak-{int(time.time())}")
+    shutil.copy2(path, backup)
+    path.write_text("".join(kept), encoding="utf-8")
+    return {
+        "provider": "codex",
+        "repaired": True,
+        "path": str(path),
+        "backupPath": str(backup),
+    }
+
 
 def _hidden_run(cmd: list[str], *, cwd: str | None, timeout: float):
     """Run a CLI fully in the background - no console window, no stdin prompt.
@@ -211,10 +270,18 @@ def test_account_connection(
     *,
     home: Path | None = None,
     run: Callable[[list[str]], Any] | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
     """Run a provider's local, non-completion auth status command when available."""
 
     from opai.provider_contract import normalize_provider_error
+
+    cache_key = (account_id, str((home or Path.home()).expanduser().resolve()))
+    if run is None and not force:
+        with _CONNECTION_CACHE_LOCK:
+            cached = _CONNECTION_CACHE.get(cache_key)
+        if cached and time.monotonic() - cached[0] < _CONNECTION_CACHE_TTL:
+            return dict(cached[1])
 
     account = next(
         (item for item in list_connected_accounts(home) if item["id"] == account_id),
@@ -258,9 +325,13 @@ def test_account_connection(
         )
     returncode = int(getattr(proc, "returncode", 0) or 0)
     if returncode == 0:
-        return connection_for_account(
+        result = connection_for_account(
             account, auth_status="connected", last_checked_at=checked_at
         )
+        if run is None:
+            with _CONNECTION_CACHE_LOCK:
+                _CONNECTION_CACHE[cache_key] = (time.monotonic(), dict(result))
+        return result
     detail = "\n".join(
         part.strip()
         for part in (
@@ -387,7 +458,10 @@ def _account_options(
 
 
 def account_models(
-    home: Path | None = None, *, include_unavailable: bool = False
+    home: Path | None = None,
+    *,
+    include_unavailable: bool = False,
+    accounts: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Picker options for connected accounts (paid, run via the user's CLI).
 
@@ -396,7 +470,7 @@ def account_models(
     settings.
     """
     options: list[dict[str, Any]] = []
-    for account in list_connected_accounts(home):
+    for account in accounts if accounts is not None else list_connected_accounts(home):
         connected = bool(account["connected"])
         if not connected and not include_unavailable:
             continue
@@ -462,11 +536,11 @@ class AccountRunner:
             approval = "never" if selected_mode == "full-auto" else "on-request"
             cmd = [
                 self.cli_path,
+                "--ask-for-approval",
+                approval,
                 "exec",
                 "--sandbox",
                 sandbox,
-                "--ask-for-approval",
-                approval,
                 "--color",
                 "never",
                 "--skip-git-repo-check",

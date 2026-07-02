@@ -22,3 +22,14 @@ test("Prompt Library transitions from loading boundary to templates", async ({ p
   await openNav(page, "Prompt Library");
   await expect(page.locator(".prompt-card")).toHaveCount(3);
 });
+
+test("shell renders before delayed local discovery and updates the picker asynchronously", async ({ page }) => {
+  const discovered = [
+    { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing", provider: "auto", available: true },
+    { id: "ollama:qwen", label: "Qwen · local", kind: "local", group: "local", provider: "ollama", available: true },
+  ];
+  await openApp(page, { discoveredModels: discovered, discoveryDelayMs: 700 });
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+  await expect(page.locator('#modelSel option[value="ollama:qwen"]')).toHaveCount(0);
+  await expect(page.locator('#modelSel option[value="ollama:qwen"]')).toHaveCount(1, { timeout: 2000 });
+});

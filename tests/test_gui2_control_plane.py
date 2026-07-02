@@ -183,7 +183,13 @@ class Gui2ModeAndAutomationTests(unittest.TestCase):
         self.assertIn("receipt", result)
         self.assertGreater(result["receipt"]["estimated_baseline_usd"], 0)
         self.assertIn(
-            result["status"], {"answered", "needs_model", "needs_confirmation"}
+            result["status"],
+            {
+                "answered",
+                "needs_model",
+                "needs_confirmation",
+                "needs_auto_confirmation",
+            },
         )
         self.assertTrue(events)
 

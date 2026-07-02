@@ -209,6 +209,12 @@ def record_model_call(
     confirmed: bool,
     real_cost_usd: float | None = None,
     store_summary: bool = False,
+    model_id: str | None = None,
+    provider_id: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    measurement: str = "estimated",
+    quota_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Record an actual model call (cloud or local) and its estimated cost.
 
@@ -223,6 +229,17 @@ def record_model_call(
         if real_cost_usd is not None
         else tier_cost(model_tier, tokens, cost_model)
     )
+    metadata: dict[str, Any] = {"measurement": str(measurement or "estimated")}
+    if model_id:
+        metadata["model_id"] = str(model_id)
+    if provider_id:
+        metadata["provider_id"] = str(provider_id)
+    if input_tokens is not None:
+        metadata["input_tokens"] = int(input_tokens)
+    if output_tokens is not None:
+        metadata["output_tokens"] = int(output_tokens)
+    if quota_snapshot:
+        metadata["quota_snapshot"] = dict(quota_snapshot)
     return record_event(
         root,
         EVENT_MODEL_CALL,
@@ -234,6 +251,7 @@ def record_model_call(
         confirmed=bool(confirmed),
         is_local_route=is_local_tier(model_tier, cost_model),
         estimated_actual_usd=cost,
+        **metadata,
     )
 
 

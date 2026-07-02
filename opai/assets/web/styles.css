@@ -597,6 +597,15 @@ body.ai-working .brand .dot { animation: pulse 1.3s ease-in-out infinite; }
 .set-row .k { color: var(--muted); }
 .set-row .v { color: var(--ink); font-weight: 650; }
 .set-note { color: var(--faint); font-size: 12px; margin-top: 8px; }
+.provider-key-card, .usage-card { background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; margin: 9px 0; }
+.provider-key-head, .usage-head { display: flex; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 13px; font-weight: 700; }
+.provider-key-status, .usage-head span:last-child { color: var(--muted); font-size: 12px; font-weight: 600; }
+.provider-key-form, .usage-limit-form { display: flex; gap: 8px; margin-top: 10px; }
+.provider-key-form input, .usage-limit-form input { min-width: 0; flex: 1; background: var(--surface-2); color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 8px 10px; outline: 0; }
+.usage-track { height: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; margin-top: 10px; }
+.usage-track span { display: block; height: 100%; background: var(--brand-gradient); border-radius: inherit; }
+.usage-meta { margin-top: 7px; color: var(--faint); font-size: 11.5px; }
+.config-repair { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 12px; padding: 12px 14px; border: 1px solid rgba(251,113,133,.4); border-radius: var(--r-md); background: rgba(251,113,133,.06); }
 
 /* ---------- workspace switcher popover ---------- */
 .ws-switch-wrap { position: relative; }

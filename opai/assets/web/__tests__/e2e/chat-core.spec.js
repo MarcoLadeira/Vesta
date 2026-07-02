@@ -74,3 +74,38 @@ test("normal chat hides route IDs and broken-value sentinels", async ({ page }) 
   await expectNoRawProviderIds(page);
   await expectNoUiSentinels(page);
 });
+
+test("Auto fallback names the model and only starts cloud after confirmation", async ({ page }) => {
+  await openApp(page, { boot: { selectedModel: "auto" } });
+  await page.fill("#input", "Explain the project");
+  await page.getByRole("button", { name: "Send" }).click();
+  const first = await page.evaluate(() => window.__mock.lastRequest);
+  await page.evaluate((id) => window.__mock.emitReply(id, {
+    status: "needs_auto_confirmation",
+    answer: "No local model is running. Continue with Groq · GPT-OSS 120B?",
+    fallbackModelId: "free:groq:openai/gpt-oss-120b",
+    fallbackModelLabel: "Groq · GPT-OSS 120B",
+    cloudStarted: false,
+  }), first.requestId);
+  await expect(page.getByText("Continue with Groq · GPT-OSS 120B")).toBeVisible();
+  await page.getByRole("button", { name: "Confirm Groq · GPT-OSS 120B" }).click();
+  const second = await page.evaluate(() => window.__mock.lastRequest);
+  expect(second.allowCloud).toBe(true);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
+});
+
+test("usage limit warning resends only after explicit confirmation", async ({ page }) => {
+  await openApp(page);
+  await page.fill("#input", "Continue working");
+  await page.getByRole("button", { name: "Send" }).click();
+  const first = await page.evaluate(() => window.__mock.lastRequest);
+  await page.evaluate((id) => window.__mock.emitReply(id, {
+    status: "needs_limit_confirmation",
+    answer: "Claude Haiku reached your 5,000 token soft limit.",
+    usage: { percent: 100, used: 5000, limit: 5000 },
+  }), first.requestId);
+  await page.getByRole("button", { name: "Continue past limit" }).click();
+  const second = await page.evaluate(() => window.__mock.lastRequest);
+  expect(second.allowLimit).toBe(true);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
+});
