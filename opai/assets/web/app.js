@@ -116,19 +116,42 @@ function rebootFromState() {
   clearChat(); switchView("chat");
 }
 
-/* ---------- sidebar ---------- */
+/* ---------- sidebar: simple by default ---------- */
+// Groups with no name render as plain items (no header noise). Groups marked
+// collapsed fold behind one quiet toggle row so a first-time user sees a
+// ChatGPT-simple list: Chat, Prompts, Recents — everything else one click away.
 function renderSidebar() {
   const nav = $("#nav"); nav.innerHTML = "";
+  state.navOpen = state.navOpen || {};
   (state.boot.navGroups || []).forEach((g) => {
-    const lab = document.createElement("div");
-    lab.className = "nav-group-label"; lab.textContent = g.group;
-    nav.appendChild(lab);
+    const collapsible = !!g.collapsed && !!g.group;
+    let host = nav;
+    if (collapsible) {
+      const open = state.navOpen[g.group] === true;
+      const toggle = document.createElement("button");
+      toggle.className = "nav-group-toggle" + (open ? " open" : "");
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      toggle.innerHTML = `<span>${esc(g.group)}</span><span class="ngt-chev">${open ? "▾" : "▸"}</span>`;
+      nav.appendChild(toggle);
+      host = document.createElement("div");
+      host.className = "nav-group-body";
+      if (!open) host.hidden = true;
+      nav.appendChild(host);
+      toggle.onclick = () => {
+        state.navOpen[g.group] = !(state.navOpen[g.group] === true);
+        renderSidebar();
+      };
+    } else if (g.group) {
+      const lab = document.createElement("div");
+      lab.className = "nav-group-label"; lab.textContent = g.group;
+      nav.appendChild(lab);
+    }
     g.items.forEach((it) => {
       const b = document.createElement("button");
       b.className = "nav-item" + (it.id === state.view ? " active" : "");
       b.dataset.id = it.id; b.textContent = it.label;
       b.onclick = () => switchView(it.id);
-      nav.appendChild(b);
+      host.appendChild(b);
     });
   });
   const lab = document.createElement("div");
@@ -277,20 +300,23 @@ function renderInspector(data) {
   const perms = (data.permissions || []).map((p) => `<div class="perm"><span class="k">${esc(p.label)}</span><span class="s ${p.state}" title="${esc(p.note || "")}">${esc(p.state)}</span></div>`).join("");
   const badges = (data.privacy || []).map((b) => `<div class="badge ${b.tone}">${esc(b.label)}</div>`).join("");
   const bud = data.budget || { pct: 0, text: "" };
+  // Essentials first (what's running, what it costs); every tuning control
+  // sits below one quiet Advanced divider so the panel reads in two seconds.
   ins.innerHTML = `
     <div class="insp-title">Session</div>
     <div class="insp-live" id="inspLive" aria-live="polite" hidden>
       <div class="il-status"><span class="il-dot"></span><span id="inspLiveStep">Working…</span></div>
       <div class="il-meta"><span id="inspLiveElapsed">00:00</span><span id="inspLiveEvents"></span></div>
     </div>
-    <div class="insp-label">Task focus</div>
-    <select class="select" id="focusSel" style="width:100%">${focusOpts}</select>
-    <div class="insp-label">Output format</div>
-    <select class="select" id="fmtSel" style="width:100%">${fmtOpts}</select>
     <div class="insp-rows" style="margin-top:14px">${rows}</div>
     <div class="insp-label">Budget</div>
     <div class="meter"><i style="width:${Math.max(2, bud.pct)}%"></i></div>
     <div class="meter-text">${esc(bud.text)}</div>
+    <div class="insp-divider"><span>Advanced</span></div>
+    <div class="insp-label">Task focus</div>
+    <select class="select" id="focusSel" style="width:100%">${focusOpts}</select>
+    <div class="insp-label">Output format</div>
+    <select class="select" id="fmtSel" style="width:100%">${fmtOpts}</select>
     <div class="insp-label">Permissions</div>
     ${perms}
     <div class="insp-label">Privacy</div>
@@ -340,6 +366,17 @@ function renderStatus(st) {
 /* ---------- views ---------- */
 function switchView(id) {
   state.view = id;
+  // If the destination lives inside a folded group, unfold it so the active
+  // item is visible (e.g. jumping to an Insights page from the palette).
+  const navBtn = $(`.nav-item[data-id="${id}"]`);
+  if (navBtn) {
+    const body = navBtn.closest(".nav-group-body");
+    if (body && body.hidden) {
+      const group = body.previousElementSibling;
+      const name = group && group.querySelector("span") && group.querySelector("span").textContent;
+      if (name) { state.navOpen = state.navOpen || {}; state.navOpen[name] = true; renderSidebar(); }
+    }
+  }
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
   const map = { chat: "view-chat", prompts: "view-prompts", settings: "view-settings" };
   let target = map[id] || "view-dashboard";
@@ -743,6 +780,15 @@ function renderSettings() {
     const modeLabels = { ask: "Ask", plan: "Plan", "safe-auto": "Safe Auto", "approve-edits": "Approve Edits", "full-auto": "Full Auto" };
     const row = (k, v) => `<div class="set-row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`;
     let h = `<div class="page-title">Settings</div><div class="page-sub">Project: ${esc(state.boot.workspace.root)}</div>`;
+    // Accounts first: connecting a provider is the one thing a new user must
+    // find instantly — everything below is tuning.
+    h += `<div class="set-head">Accounts</div>`;
+    (d.accounts || []).forEach((a) => {
+      const on = !!a.connected;
+      h += `<div class="set-row prov-row"><span class="k"><span class="prov-dot ${on ? "on" : ""}"></span>${esc(a.label || a.id)}</span><span class="v">${on ? "connected" : "not connected"}</span></div>`;
+    });
+    h += `<div class="set-note">OPai signs in through the official Claude, Codex, and Copilot apps — it never sees or stores your passwords or keys.</div>`;
+    h += `<div class="actions"><button class="btn primary" id="setConnect">Connect accounts</button></div>`;
     h += `<div class="set-head">Defaults</div>`;
     h += row("Default model", d.prefs.default_model || "auto");
     h += row("Default run mode", modeLabels[d.prefs.default_mode] || d.prefs.default_mode);
@@ -757,9 +803,6 @@ function renderSettings() {
     h += `<div class="actions"><button class="btn" id="setPanic">${d.firewall.panic ? "Disable panic" : "Enable panic"}</button></div>`;
     h += `<div class="set-head">Tool permissions · ${esc(modeLabels[d.prefs.default_mode] || d.prefs.default_mode)}</div>`;
     (d.permissions || []).forEach((p) => (h += `<div class="perm"><span class="k">${esc(p.label)}</span><span class="s ${p.state}">${esc(p.state)}</span></div>`));
-    h += `<div class="set-head">Accounts</div>`;
-    (d.accounts || []).forEach((a) => (h += row(a.label || a.id, a.connected ? "connected" : "not connected")));
-    h += `<div class="actions"><button class="btn" id="setConnect">Connect accounts</button></div>`;
     h += `<div class="set-head">Privacy</div>`;
     ["No telemetry — nothing leaves your machine.", "No secrets or raw prompts are stored.", "Local-first routing; cloud only on confirmation."].forEach((t) => (h += `<div class="cb">• ${esc(t)}</div>`));
     if (d.about && d.about.version) { h += `<div class="set-head">About</div>` + row("Version", d.about.version) + row("Release stage", d.about.release_stage || "—"); }
@@ -834,6 +877,7 @@ function autoSize() {
 
 function wire() {
   $("#newChat").onclick = () => { if (state.busy) stop(); clearChat(); switchView("chat"); $("#input").focus(); };
+  $("#footSettings").onclick = () => switchView("settings");
   $("#send").onclick = () => (state.busy ? stop() : send());
   $("#panelToggle").onclick = togglePanel;
   $("#wsSwitch").onclick = (e) => { e.stopPropagation(); toggleWsMenu(); };

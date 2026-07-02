@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, expectNoFatalErrors } from "./helpers/app.js";
+import { openApp, openNav, expectNoFatalErrors } from "./helpers/app.js";
 
 
 test("loads the complete OPai workspace shell", async ({ page }) => {
@@ -18,16 +18,18 @@ test("loads the complete OPai workspace shell", async ({ page }) => {
 
 test("all primary navigation destinations are present and activate", async ({ page }) => {
   await openApp(page);
+  // Simple-by-default IA: dashboards live inside the folded Insights group
+  // (openNav unfolds it like a user would); Settings is the fixed footer row.
   const labels = [
     "Chat", "Prompt Library", "Money Saved", "Cost Firewall", "Context Waste",
-    "Benchmark", "Agents", "Proof Bundle", "Workflows", "Settings",
+    "Benchmark", "Agents", "Proof Bundle", "Workflows",
   ];
   for (const label of labels) {
-    const button = page.getByRole("button", { name: label, exact: true });
-    await expect(button).toBeVisible();
-    await button.click();
-    await expect(button).toHaveClass(/active/);
+    await openNav(page, label);
+    await expect(page.getByRole("button", { name: label, exact: true })).toHaveClass(/active/);
   }
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.locator("#view-settings")).toBeVisible();
 });
 
 test("workspace, model, mode, spend status, and provider state are visible", async ({ page }) => {

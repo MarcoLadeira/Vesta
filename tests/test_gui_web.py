@@ -83,14 +83,18 @@ class BootPayloadTests(unittest.TestCase):
         self.assertEqual(payload["initialTask"], "fix login")
         self.assertGreater(len(blob), 100)
 
-    def test_nav_groups_in_order(self):
+    def test_nav_groups_are_simple_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             payload = self._boot(root)
+        # Simple top level (unlabeled) + one folded Insights group.
         self.assertEqual(
             [g["group"] for g in payload["navGroups"]],
-            ["Workspace", "Dashboard", "System"],
+            ["", "Insights"],
         )
+        by_name = {g["group"]: g for g in payload["navGroups"]}
+        self.assertFalse(by_name[""].get("collapsed"))
+        self.assertTrue(by_name["Insights"]["collapsed"])
 
     def test_models_carry_badges_and_auto_present(self):
         with tempfile.TemporaryDirectory() as tmp:

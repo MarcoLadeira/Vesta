@@ -36,7 +36,7 @@ from opai.gui_modes import (
     task_modes,
     task_summary,
 )
-from opai.gui_nav import DEFAULT_VIEW, nav_groups
+from opai.gui_nav import DEFAULT_VIEW, group_collapsed, nav_groups
 from opai.gui_permissions import permission_summary, permissions_for
 from opai.gui_prompts import categories_present, filter_prompts, find_prompt
 from opai.gui_view_model import build_view_model
@@ -218,7 +218,8 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "selectedModel": sel_model.get("id", "auto"),
         "modes": [{"id": item, "label": mode_labels.get(item, item)} for item in MODES],
         "navGroups": [
-            {"group": group, "items": items} for group, items in nav_groups()
+            {"group": group, "items": items, "collapsed": group_collapsed(group)}
+            for group, items in nav_groups()
         ],
         "taskModes": task_modes(),
         "outputFormats": output_formats(),

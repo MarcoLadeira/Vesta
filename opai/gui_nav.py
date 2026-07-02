@@ -1,92 +1,112 @@
-"""Navigation model for the OPai premium desktop workspace.
+"""Navigation model for the OPai desktop workspace.
 
-Qt-free on purpose: the sidebar in ``gui_desktop.py`` renders these items and the
+Qt-free on purpose: the sidebars (web + Qt fallback) render these items and the
 main area is a stack of views keyed by ``id``. Keeping the model here means the
-information architecture is unit-tested without a display, and adding a new
-workspace view is a data change, not a surgery on the window class.
+information architecture is unit-tested without a display.
 
-The IA mirrors the prompt's required zones: a primary workspace (Chat), the
-data-backed dashboard views that already exist in ``gui_view_model`` but were
-never surfaced, a prompt library, and settings — grouped so the sidebar reads as
-sections rather than a flat list.
+**Simple by default, powerful on demand.** A first-time user should read the
+sidebar like ChatGPT: Chat, Prompts, your recent chats — done. The seven
+data-backed dashboard views stay one click away inside a single collapsed
+"Insights" group, and Settings lives as a quiet fixed control in the sidebar
+footer (``hidden`` here so it never adds nav noise, while ``find_nav`` and the
+command palette still resolve it).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-# Each item: id (stable key + stack page), label, group (sidebar section header),
-# and either kind="view" (a bespoke page) or kind="dashboard" with section= (a
-# page rendered from a gui_view_model section). Nav is text-only on purpose:
-# glyph icons render inconsistently across fonts/platforms, and a clean labelled
-# list reads more premium (and less childish) than coloured emoji.
+# Each item: id (stable key + stack page), label, group (sidebar section header;
+# "" renders without a header), and either kind="view" (a bespoke page) or
+# kind="dashboard" with section= (a page rendered from a gui_view_model
+# section). ``hidden`` items are routable (find_nav/palette) but not rendered
+# in the nav list.
 NAV_ITEMS: list[dict[str, Any]] = [
-    {"id": "chat", "label": "Chat", "group": "Workspace", "kind": "view"},
-    {"id": "prompts", "label": "Prompt Library", "group": "Workspace", "kind": "view"},
+    {"id": "chat", "label": "Chat", "group": "", "kind": "view"},
+    {"id": "prompts", "label": "Prompt Library", "group": "", "kind": "view"},
     {
         "id": "home",
         "label": "Money Saved",
-        "group": "Dashboard",
+        "group": "Insights",
         "kind": "dashboard",
         "section": "home",
     },
     {
         "id": "firewall",
         "label": "Cost Firewall",
-        "group": "Dashboard",
+        "group": "Insights",
         "kind": "dashboard",
         "section": "firewall",
     },
     {
         "id": "context",
         "label": "Context Waste",
-        "group": "Dashboard",
+        "group": "Insights",
         "kind": "dashboard",
         "section": "context",
     },
     {
         "id": "benchmark",
         "label": "Benchmark",
-        "group": "Dashboard",
+        "group": "Insights",
         "kind": "dashboard",
         "section": "benchmark",
     },
     {
         "id": "agents",
         "label": "Agents",
-        "group": "Dashboard",
+        "group": "Insights",
         "kind": "dashboard",
         "section": "agents",
     },
     {
         "id": "proof",
         "label": "Proof Bundle",
-        "group": "Dashboard",
+        "group": "Insights",
         "kind": "dashboard",
         "section": "proof",
     },
     {
         "id": "workflows",
         "label": "Workflows",
-        "group": "Dashboard",
+        "group": "Insights",
         "kind": "dashboard",
         "section": "workflows",
     },
-    {"id": "settings", "label": "Settings", "group": "System", "kind": "view"},
+    # Settings renders as the fixed gear row in the sidebar footer, not as a
+    # nav item — hidden keeps the list short while staying routable.
+    {
+        "id": "settings",
+        "label": "Settings",
+        "group": "",
+        "kind": "view",
+        "hidden": True,
+    },
 ]
 
 DEFAULT_VIEW = "chat"
 
+# Groups that start folded: their pages are one click away without occupying
+# ten rows of a first-time user's attention.
+COLLAPSED_GROUPS = {"Insights"}
+
 
 def nav_groups() -> list[tuple[str, list[dict[str, Any]]]]:
-    """Return nav items grouped by section header, in declared order."""
+    """Visible nav items grouped by section header, in declared order."""
     groups: list[tuple[str, list[dict[str, Any]]]] = []
     for item in NAV_ITEMS:
+        if item.get("hidden"):
+            continue
         group = str(item.get("group") or "")
         if not groups or groups[-1][0] != group:
             groups.append((group, []))
         groups[-1][1].append(item)
     return groups
+
+
+def group_collapsed(name: str) -> bool:
+    """Whether a nav group starts folded in the sidebar."""
+    return name in COLLAPSED_GROUPS
 
 
 def nav_ids() -> list[str]:
