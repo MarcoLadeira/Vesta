@@ -514,23 +514,28 @@ def run_benchmark_gate(
 # Chat surface: model picker, ask, and the tool dispatcher (powers the GUI)
 # --------------------------------------------------------------------------- #
 def available_models(project_root: Path) -> dict[str, Any]:
-    """Pickable models: connected accounts first, then Auto, then local (advanced).
+    """Pickable models: connected accounts → free API → Auto → local.
 
-    Accounts (Claude/Codex via your logged-in CLI) are the headline path. Auto
-    routes the cheapest safe option. Local models are the free, advanced
-    fallback. Read-only - never installs, downloads, or signs in.
+    Accounts (Claude/Codex/Copilot via logged-in CLIs) are the headline path.
+    Free API models (DeepSeek, Gemini, Groq, Mistral) always appear — grayed
+    when no API key is set. Auto routes cheapest safe option. Local models are
+    the fully private, advanced fallback. Read-only — never installs, downloads,
+    or signs in.
     """
     from opaihub.accounts import (
         account_connections,
         account_models,
         list_connected_accounts,
     )
+    from opaihub.free_models import list_free_models
     from opaihub.local_runner import list_local_models
 
     accounts = account_models()
     account_catalog = account_models(include_unavailable=True)
     local = list_local_models(project_root)
     options: list[dict[str, Any]] = []
+
+    # 1. Connected account models — group already set by _account_options()
     for account in accounts:
         options.append(
             {
@@ -538,6 +543,7 @@ def available_models(project_root: Path) -> dict[str, Any]:
                 "label": account["label"],
                 "advanced_label": account.get("advanced_label", account["label"]),
                 "kind": "account",
+                "group": account.get("group", "account"),
                 "paid": True,
                 "provider": account["provider"],
                 "model": account.get("model", ""),
@@ -545,14 +551,22 @@ def available_models(project_root: Path) -> dict[str, Any]:
                 "disabled_reason": account.get("disabled_reason"),
             }
         )
+
+    # 2. Free API models (always visible, grayed when no key)
+    options.extend(list_free_models())
+
+    # 3. OPai Auto routing
     options.append(
         {
             "id": "auto",
             "label": "OPai · Auto mode",
             "advanced_label": "Automatic local-first routing",
             "kind": "auto",
+            "group": "routing",
         }
     )
+
+    # 4. Local models (ollama, lmstudio, etc.)
     for model in local:
         options.append(
             {
@@ -560,9 +574,11 @@ def available_models(project_root: Path) -> dict[str, Any]:
                 "label": "OPai · Local mode",
                 "advanced_label": f"{model['model']} via {model['provider']} on this device",
                 "kind": "local",
+                "group": "local",
                 "endpoint": model["endpoint"],
             }
         )
+
     if accounts or local:
         hint = None
     else:
@@ -597,10 +613,12 @@ def ask(
     on_text: Any = None,
     cancel: Any = None,
 ) -> dict[str, Any]:
-    """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', or 'provider:model'.
+    """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', 'free:<id>', or 'provider:model'.
 
     - ``account:<id>`` runs through your connected Claude/Codex CLI: paid, blocked
       under panic mode, and recorded as a real spend (not a saving).
+    - ``free:<id>`` runs through a free public API (DeepSeek/Gemini/Groq/Mistral).
+      Requires the relevant API key env var. Always prompts for confirmation.
     - ``auto`` lets OPai route the cheapest safe path (local execution + cache).
     - a local ``provider:model`` id runs that connected local model.
     Cloud auto-routing is never auto-called - it returns ``confirmation_required``.
@@ -623,6 +641,9 @@ def ask(
             cancel=cancel,
         )
 
+    if model_choice and model_choice.startswith("free:"):
+        return _ask_free_model(root, task, model_choice, allow_cloud=allow_cloud)
+
     from opaihub.ask import run_ask
     from opaihub.local_runner import runner_for_model
 
@@ -630,6 +651,40 @@ def ask(
     if model_choice and model_choice != "auto":
         runner = runner_for_model(model_choice, project_root)
     return run_ask(root, task, runner=runner, record=True, allow_cloud=allow_cloud)
+
+
+def _ask_free_model(
+    project_root: Path,
+    task: str,
+    model_id: str,
+    *,
+    allow_cloud: bool = False,
+) -> dict[str, Any]:
+    """Run a task through a free public API model (DeepSeek, Gemini, Groq, Mistral).
+
+    Free API calls leave the device — always returns ``confirmation_required``
+    unless ``allow_cloud=True`` is explicitly set by the caller (e.g. after user
+    confirmed the dialog). When confirmed, the call is dispatched through
+    FreeAPIRunner which reads the API key from the environment.
+    """
+    from opaihub.ask import run_ask
+    from opaihub.free_models import spec_for_model_id
+    from opaihub.local_runner import runner_for_model
+
+    if not allow_cloud:
+        spec = spec_for_model_id(model_id)
+        provider_name = spec["provider"] if spec else model_id
+        return {
+            "status": "confirmation_required",
+            "message": (
+                f"This will send your task to {provider_name}'s public API. "
+                "Your code and task will leave this device. Continue?"
+            ),
+            "model_id": model_id,
+        }
+
+    runner = runner_for_model(model_id, project_root)
+    return run_ask(project_root, task, runner=runner, record=True, allow_cloud=True)
 
 
 def _changed_files(root: Path) -> list[str]:

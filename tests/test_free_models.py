@@ -199,5 +199,62 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertEqual(messages[0]["content"], "You are a coding assistant.")
 
 
+class AskFreeModelTests(unittest.TestCase):
+    """Tests for the ask() → _ask_free_model() dispatch path."""
+
+    def test_ask_free_requires_confirmation(self):
+        """ask() with a free: model returns confirmation_required without allow_cloud."""
+        from pathlib import Path
+        from opai.app_state import ask
+
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test"}):
+            result = ask(
+                Path("/tmp"),
+                "What is 2+2?",
+                model_choice="free:deepseek:deepseek-chat",
+                allow_cloud=False,
+            )
+
+        self.assertEqual(result["status"], "confirmation_required")
+        self.assertIn("model_id", result)
+        self.assertEqual(result["model_id"], "free:deepseek:deepseek-chat")
+
+    def test_ask_free_dispatches_with_allow_cloud(self):
+        """ask() with allow_cloud=True dispatches through FreeAPIRunner."""
+        from pathlib import Path
+        from opai.app_state import ask
+
+        fake_result = {"status": "ok", "response": "4"}
+        with (
+            mock.patch("opai.app_state._ask_free_model", return_value=fake_result) as m,
+            mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test"}),
+        ):
+            result = ask(
+                Path("/tmp"),
+                "What is 2+2?",
+                model_choice="free:deepseek:deepseek-chat",
+                allow_cloud=True,
+            )
+
+        m.assert_called_once()
+        self.assertEqual(result, fake_result)
+
+    def test_ask_free_confirmation_message_mentions_provider(self):
+        """Confirmation message must name the provider, not a generic label."""
+        from pathlib import Path
+        from opai.app_state import ask
+
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test"}):
+            result = ask(
+                Path("/tmp"),
+                "task",
+                model_choice="free:deepseek:deepseek-chat",
+                allow_cloud=False,
+            )
+
+        # Message must reference DeepSeek by name (from spec_for_model_id)
+        self.assertIn("DeepSeek", result["message"])
+
+
 if __name__ == "__main__":
     unittest.main()

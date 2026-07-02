@@ -219,6 +219,75 @@ class ProviderConnectionTests(unittest.TestCase):
         for opt in options:
             self.assertEqual(opt.get("group"), "copilot")
 
+    def test_available_models_includes_free_group(self):
+        """available_models() must include free models with group='free'."""
+        accounts = [
+            {
+                "id": "claude",
+                "label": "Claude",
+                "vendor": "Anthropic Claude Code",
+                "cli": "claude",
+                "cli_path": "/bin/claude",
+                "cli_present": True,
+                "authenticated": True,
+                "connected": True,
+                "login_hint": "Sign in",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=accounts
+                ),
+                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+            ):
+                payload = available_models(Path(tmp))
+
+        all_models = payload["models"]
+        free_models = [m for m in all_models if m.get("group") == "free"]
+        self.assertGreater(len(free_models), 0, "No free models found in available_models()")
+        # All free models must have kind='free'
+        for m in free_models:
+            self.assertEqual(m.get("kind"), "free", f"{m['id']} has wrong kind")
+
+    def test_available_models_auto_has_routing_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=[]
+                ),
+                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+            ):
+                payload = available_models(Path(tmp))
+
+        auto_opts = [m for m in payload["models"] if m.get("id") == "auto"]
+        self.assertEqual(len(auto_opts), 1)
+        self.assertEqual(auto_opts[0].get("group"), "routing")
+
+    def test_available_models_local_has_local_group(self):
+        fake_local = [
+            {
+                "id": "ollama:llama3",
+                "model": "llama3",
+                "provider": "ollama",
+                "endpoint": "http://localhost:11434",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=[]
+                ),
+                mock.patch(
+                    "opaihub.local_runner.list_local_models", return_value=fake_local
+                ),
+            ):
+                payload = available_models(Path(tmp))
+
+        local_opts = [m for m in payload["models"] if m.get("group") == "local"]
+        self.assertEqual(len(local_opts), 1)
+        self.assertEqual(local_opts[0]["id"], "ollama:llama3")
+
 
 if __name__ == "__main__":
     unittest.main()
