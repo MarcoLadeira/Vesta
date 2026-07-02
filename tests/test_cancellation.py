@@ -151,6 +151,75 @@ class RunnerCancellationTests(unittest.TestCase):
         self.assertEqual("".join(seen_text), "answer")
 
 
+class CodexStructuredStreamTests(unittest.TestCase):
+    """Codex now streams structured JSONL (#106): typed activity events, final
+    agent-message text, and the out-file demoted to a schema-drift fallback."""
+
+    def _runner(self):
+        return AccountRunner("codex", "/bin/codex", model="gpt-5.5")
+
+    def test_stream_command_includes_json_flag(self):
+        cmd = self._runner().build_command("x", stream=True, out_file="/t/o.txt")
+        self.assertIn("--json", cmd)
+        # Non-streaming (blocking complete()) stays exactly as before.
+        self.assertNotIn("--json", self._runner().build_command("x"))
+
+    def test_codex_jsonl_streams_events_and_text(self):
+        lines = [
+            '{"type":"thread.started"}\n',
+            '{"type":"item.completed","item":{"type":"command_execution","command":"pytest -q"}}\n',
+            '{"type":"item.completed","item":{"type":"agent_message","text":"All tests pass."}}\n',
+            '{"type":"turn.completed"}\n',
+        ]
+        proc = FakeProc(lines)
+        seen_events: list[dict] = []
+        seen_text: list[str] = []
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            result = self._runner().stream(
+                "x", on_event=seen_events.append, on_text=seen_text.append
+            )
+        types = [e["type"] for e in seen_events]
+        self.assertIn("provider_request", types)
+        self.assertIn("command_run", types)
+        self.assertEqual("".join(seen_text), "All tests pass.")
+        self.assertEqual(result["text"], "All tests pass.")
+        # Codex reports no dollar cost — honest None.
+        self.assertIsNone(result["cost"])
+
+    def test_out_file_is_only_a_fallback_when_nothing_streamed(self):
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as handle:
+            handle.write("fallback answer")
+            out_path = handle.name
+
+        # Schema drift: no recognizable agent_message in the stream.
+        proc = FakeProc(['{"type":"totally.unknown"}\n'])
+        runner = self._runner()
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            with mock.patch.object(accounts.tempfile, "NamedTemporaryFile") as ntf:
+                ntf.return_value.__enter__.return_value.name = out_path
+                result = runner.stream("x")
+        self.assertEqual(result["text"], "fallback answer")
+
+    def test_cancel_still_kills_codex_stream(self):
+        proc = FakeProc(['{"type":"thread.started"}\n'], hang=True)
+        cancel = threading.Event()
+        result: dict = {}
+
+        def run():
+            with mock.patch.object(accounts, "_popen", return_value=proc):
+                result.update(self._runner().stream("x", cancel=cancel))
+
+        t = threading.Thread(target=run)
+        t.start()
+        time.sleep(0.25)
+        cancel.set()
+        t.join(timeout=3)
+        self.assertTrue(result.get("cancelled"))
+        self.assertTrue(proc.terminated)
+
+
 class PipelineCancellationTests(unittest.TestCase):
     def test_precancel_returns_cancelled_without_calling_runner(self):
         cancel = threading.Event()

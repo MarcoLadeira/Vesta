@@ -15,7 +15,7 @@ from typing import Any
 from . import result_cache
 from .cost_model import is_local_tier, load_cost_model
 from .evidence import collect_evidence
-from .local_runner import LocalRunner, detect_local_runner
+from .local_runner import LocalRunCancelled, LocalRunner, detect_local_runner
 from .model_intelligence import recommend_model
 
 SYSTEM_PROMPT = (
@@ -67,6 +67,7 @@ def run_ask(
     record: bool = True,
     store_answer: bool = True,
     selected_model_id: str | None = None,
+    cancel: Any = None,
 ) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     recommendation = recommend_model(root, task)
@@ -99,9 +100,22 @@ def run_ask(
     # 2. Run locally if a loopback/private model is available.
     active = runner if runner is not None else detect_local_runner(root)
     if active is not None and active.available():
+        if cancel is not None and cancel.is_set():
+            return {**base, "status": "cancelled", "answer": ""}
         prompt = _build_prompt(root, task)
         try:
-            answer = active.complete(prompt, system=SYSTEM_PROMPT)
+            try:
+                # True mid-flight cancel (#107): the runner closes its HTTP
+                # connection when the cancel Event fires.
+                answer = active.complete(prompt, system=SYSTEM_PROMPT, cancel=cancel)
+            except TypeError as exc:
+                if "cancel" not in str(exc):
+                    raise
+                # Runner without cancel support (fakes, free-tier APIs): run
+                # blocking; Stop still works via the stale-response guard.
+                answer = active.complete(prompt, system=SYSTEM_PROMPT)
+        except LocalRunCancelled:
+            return {**base, "status": "cancelled", "answer": ""}
         except Exception as exc:  # noqa: BLE001 - report any runner failure cleanly
             return {**base, "status": "runner_error", "error": str(exc)}
         if store_answer:
