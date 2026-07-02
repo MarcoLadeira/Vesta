@@ -762,11 +762,55 @@ function finalize(status, r) {
   let html = roleHeader(label, color) + activitySummaryHtml() + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];
   if (changed.length) html += filesCardHtml(changed);
+  const planSteps = (r && r.plan && r.plan.steps) || [];
+  if (planSteps.length) html += planCardHtml(planSteps);
   html += metaFooter(r, sel, durMs);
   el.innerHTML = html;
   wireActivitySummary(el);
   wireFilesCard(el);
   wireReceipt(el, sel);
+  wirePlanCard(el, sel);
+}
+
+// The Plan Editor (#130): steps parsed from the REAL plan-mode answer become
+// an editable checklist. Building sends the kept steps back through the real
+// pipeline in Safe Auto — nothing here fakes execution.
+function planCardHtml(steps) {
+  const rows = steps.map((s, i) =>
+    `<label class="plan-step"><input type="checkbox" checked data-step="${i}"><span>${esc(s)}</span></label>`
+  ).join("");
+  return `<div class="plan-card" role="group" aria-label="Plan steps">
+    <div class="pc-head"><span class="pc-badge">Plan · ${steps.length} steps</span>
+    <span class="pc-hint">Untick anything you don't want built</span></div>
+    ${rows}
+    <div class="pc-actions">
+      <button class="btn primary" data-plan="build">Build this plan</button>
+      <span class="pc-note">runs in Safe Auto — edits gated by the usual approvals</span>
+    </div></div>`;
+}
+function wirePlanCard(el, sel) {
+  const card = el.querySelector(".plan-card");
+  if (!card) return;
+  const build = card.querySelector('[data-plan="build"]');
+  const refresh = () => {
+    build.disabled = card.querySelectorAll("input:checked").length === 0;
+  };
+  card.querySelectorAll("input[type=checkbox]").forEach((c) => (c.onchange = refresh));
+  build.onclick = () => {
+    const kept = Array.from(card.querySelectorAll("label.plan-step"))
+      .filter((l) => l.querySelector("input").checked)
+      .map((l) => l.querySelector("span").textContent.trim());
+    if (!kept.length) return;
+    build.disabled = true;
+    // Reflect the mode switch honestly in the composer controls.
+    const safe = (state.boot.modes || []).find((m) => m.id === "safe-auto");
+    if (safe) { state.mode = safe; const ms = $("#modeSel"); if (ms) ms.value = "safe-auto"; }
+    const text = "Implement this plan, in order. Stop and ask if a step becomes impossible:\n" +
+      kept.map((s, i) => `${i + 1}. ${s}`).join("\n");
+    // Through the normal composer path: user bubble, recents, live activity.
+    $("#input").value = text; autoSize();
+    send();
+  };
 }
 
 // A changed file becomes a clickable chip that opens it in the OS file manager;

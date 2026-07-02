@@ -21,6 +21,18 @@ def _mode_label(mode: str) -> str:
     }.get(mode, "Safe Auto")
 
 
+def _plan_payload(mode: str, status: str, answer: str) -> dict[str, Any]:
+    """Structured steps for plan-mode answers (issue #130); {} otherwise."""
+    if mode != "plan" or status != "answered":
+        return {}
+    from opai.gui_modes import parse_plan_steps
+
+    steps = parse_plan_steps(answer)
+    if not steps:
+        return {}
+    return {"steps": steps, "source": "parsed_from_answer"}
+
+
 def _cancelled_result(
     message: str,
     tool_trace: list[dict[str, Any]],
@@ -480,12 +492,15 @@ def handle_gui_message(
                 str(error.get("title") or "OPai could not complete this request."),
                 metadata={"provider": provider, "code": code},
             )
-        return {
-            "status": status,
-            "answer": result.get("answer")
+        answer_text = (
+            result.get("answer")
             or result.get("hint")
             or result.get("reason")
-            or "The model didn't return anything. Try again or pick another model.",
+            or "The model didn't return anything. Try again or pick another model."
+        )
+        return {
+            "status": status,
+            "answer": answer_text,
             "tool_trace": tool_trace,
             "receipt": receipt,
             "changed_files": result.get("changed_files", []),
@@ -493,6 +508,11 @@ def handle_gui_message(
             "next_actions": ["Review changed files before committing."],
             "raw_result": result,
             "error": result.get("error"),
+            # Structured plan (#130): steps parsed from the REAL plan-mode
+            # answer, so the GUI can render an editable checklist and build
+            # only the steps the user keeps. Empty when the answer isn't a
+            # recognizable step list — never invented.
+            "plan": _plan_payload(selected_mode, status, answer_text),
         }
 
     from .ask import run_ask
@@ -584,4 +604,5 @@ def handle_gui_message(
         "warnings": [],
         "next_actions": [result.get("next_command") or "Review the savings receipt."],
         "raw_result": result,
+        "plan": _plan_payload(selected_mode, final_status, answer),
     }

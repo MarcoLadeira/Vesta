@@ -367,6 +367,28 @@ kbd {
 .approval-card.approved .ap-state { color: var(--green); }
 .approval-card.denied .ap-state { color: var(--muted); }
 
+/* Plan Editor card (#130) — steps parsed from the real plan answer. */
+.plan-card {
+  background: rgba(116, 182, 255, 0.05); border: 1px solid rgba(116, 182, 255, 0.28);
+  border-radius: var(--r-md); padding: 14px 16px; margin: 12px 0; box-shadow: var(--inset-hi);
+}
+.plan-card .pc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.plan-card .pc-badge {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--blue); background: rgba(116, 182, 255, 0.14); border-radius: 100px; padding: 3px 10px;
+}
+.plan-card .pc-hint { color: var(--faint); font-size: 11.5px; }
+.plan-step {
+  display: flex; align-items: baseline; gap: 9px; padding: 5px 2px;
+  font-size: 13px; color: var(--ink); cursor: pointer; border-radius: var(--r-sm);
+}
+.plan-step:hover { background: var(--glass-hi); }
+.plan-step input { accent-color: var(--accent); cursor: pointer; }
+.plan-step input:not(:checked) + span { color: var(--faint); text-decoration: line-through; }
+.plan-card .pc-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.plan-card .pc-note { color: var(--faint); font-size: 11.5px; }
+.plan-card button:disabled { opacity: 0.45; cursor: default; transform: none; }
+
 .thinking { display: inline-flex; gap: 4px; align-items: center; }
 .thinking i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite both; box-shadow: 0 0 6px var(--accent-glow); }
 .thinking i:nth-child(2) { animation-delay: 0.2s; }

@@ -89,5 +89,72 @@ class ComposePromptTests(unittest.TestCase):
         self.assertEqual(compose_prompt("   "), "")
 
 
+class ParsePlanStepsTests(unittest.TestCase):
+    def _parse(self, text):
+        from opai.gui_modes import parse_plan_steps
+
+        return parse_plan_steps(text)
+
+    def test_numbered_steps(self):
+        steps = self._parse("Plan:\n1. Add the model\n2. Write tests\n3) Ship it")
+        self.assertEqual(steps, ["Add the model", "Write tests", "Ship it"])
+
+    def test_bulleted_steps_and_markdown_stripping(self):
+        steps = self._parse("- **Refactor auth**\n* `Run tests`")
+        self.assertEqual(steps, ["Refactor auth", "Run tests"])
+
+    def test_prose_is_not_a_plan(self):
+        self.assertEqual(self._parse("Just do the thing carefully."), [])
+
+    def test_single_step_is_not_a_plan(self):
+        self.assertEqual(self._parse("1. Only one step here"), [])
+
+    def test_empty_and_none_are_safe(self):
+        self.assertEqual(self._parse(""), [])
+        self.assertEqual(self._parse(None), [])
+
+    def test_steps_are_capped_in_length(self):
+        steps = self._parse(f"1. {'x' * 500}\n2. second step")
+        self.assertLessEqual(len(steps[0]), 300)
+
+
+class PipelinePlanPayloadTests(unittest.TestCase):
+    def _run(self, mode, answer_text):
+        import tempfile
+        from pathlib import Path
+
+        from _helpers import FakeStreamingRunner, make_repo
+        from opaihub.gui_pipeline import handle_gui_message
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            return handle_gui_message(
+                root,
+                "plan the work",
+                model_id="account:claude:opus",
+                mode=mode,
+                account_runner=FakeStreamingRunner(chunks=[answer_text]),
+                # Callbacks select the streaming path (as the real GUI does).
+                on_event=lambda e: None,
+                on_text=lambda t: None,
+            )
+
+    def test_plan_mode_attaches_parsed_steps(self):
+        result = self._run("plan", "1. First step here\n2. Second step here")
+        self.assertEqual(result["status"], "answered")
+        self.assertEqual(
+            result["plan"]["steps"], ["First step here", "Second step here"]
+        )
+        self.assertEqual(result["plan"]["source"], "parsed_from_answer")
+
+    def test_non_plan_mode_never_attaches_a_plan(self):
+        result = self._run("ask", "1. First step here\n2. Second step here")
+        self.assertEqual(result.get("plan") or {}, {})
+
+    def test_prose_plan_answer_attaches_nothing(self):
+        result = self._run("plan", "I would start by looking at the code.")
+        self.assertEqual(result.get("plan") or {}, {})
+
+
 if __name__ == "__main__":
     unittest.main()

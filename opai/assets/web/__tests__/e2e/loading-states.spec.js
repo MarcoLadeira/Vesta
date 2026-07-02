@@ -28,8 +28,9 @@ test("shell renders before delayed local discovery and updates the picker asynch
     { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing", provider: "auto", available: true },
     { id: "ollama:qwen", label: "Qwen · local", kind: "local", group: "local", provider: "ollama", available: true },
   ];
-  await openApp(page, { discoveredModels: discovered, discoveryDelayMs: 700 });
+  await openApp(page, { discoveredModels: discovered, deferDiscovery: true });
   await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
   await expect(page.locator('#modelSel option[value="ollama:qwen"]')).toHaveCount(0);
+  await page.evaluate(() => window.__mock.emitDiscoveredModels());
   await expect(page.locator('#modelSel option[value="ollama:qwen"]')).toHaveCount(1, { timeout: 2000 });
 });
