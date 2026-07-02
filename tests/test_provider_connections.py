@@ -175,7 +175,8 @@ class ProviderConnectionTests(unittest.TestCase):
 
         for opt in options:
             self.assertEqual(
-                opt.get("group"), "claude",
+                opt.get("group"),
+                "claude",
                 f"Option '{opt['id']}' missing group='claude'",
             )
 
@@ -245,7 +246,9 @@ class ProviderConnectionTests(unittest.TestCase):
 
         all_models = payload["models"]
         free_models = [m for m in all_models if m.get("group") == "free"]
-        self.assertGreater(len(free_models), 0, "No free models found in available_models()")
+        self.assertGreater(
+            len(free_models), 0, "No free models found in available_models()"
+        )
         # All free models must have kind='free'
         for m in free_models:
             self.assertEqual(m.get("kind"), "free", f"{m['id']} has wrong kind")
@@ -253,9 +256,7 @@ class ProviderConnectionTests(unittest.TestCase):
     def test_available_models_auto_has_routing_group(self):
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=[]
-                ),
+                mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
                 mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
             ):
                 payload = available_models(Path(tmp))
@@ -275,9 +276,7 @@ class ProviderConnectionTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=[]
-                ),
+                mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
                 mock.patch(
                     "opaihub.local_runner.list_local_models", return_value=fake_local
                 ),

@@ -1,8 +1,11 @@
 """Tests for the free API model registry and picker options."""
+
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from opaihub.free_models import (
@@ -19,8 +22,15 @@ class FreeModelSpecsTests(unittest.TestCase):
 
     def test_all_specs_have_required_fields(self):
         required = {
-            "id", "label", "advanced_label", "provider", "model_id",
-            "api_base", "env_key", "group", "setup_hint",
+            "id",
+            "label",
+            "advanced_label",
+            "provider",
+            "model_id",
+            "api_base",
+            "env_key",
+            "group",
+            "setup_hint",
         }
         for spec in FREE_MODEL_SPECS:
             missing = required - spec.keys()
@@ -28,27 +38,27 @@ class FreeModelSpecsTests(unittest.TestCase):
 
     def test_all_specs_have_free_group(self):
         for spec in FREE_MODEL_SPECS:
-            self.assertEqual(spec["group"], "free", f"Spec '{spec.get('id')}' has wrong group")
+            self.assertEqual(
+                spec["group"], "free", f"Spec '{spec.get('id')}' has wrong group"
+            )
 
-    def test_five_or_more_free_models_defined(self):
-        self.assertGreaterEqual(len(FREE_MODEL_SPECS), 5)
-
-    def test_deepseek_specs_present(self):
+    def test_registry_only_contains_verified_free_tier_models(self):
         ids = {s["id"] for s in FREE_MODEL_SPECS}
-        self.assertIn("free:deepseek:deepseek-chat", ids)
-        self.assertIn("free:deepseek:deepseek-reasoner", ids)
-
-    def test_gemini_groq_mistral_present(self):
-        ids = {s["id"] for s in FREE_MODEL_SPECS}
-        self.assertIn("free:gemini:gemini-2.0-flash", ids)
-        self.assertIn("free:groq:llama-3.3-70b-versatile", ids)
+        self.assertIn("free:gemini:gemini-3.1-flash-lite", ids)
+        self.assertIn("free:groq:openai/gpt-oss-120b", ids)
         self.assertIn("free:mistral:mistral-small-latest", ids)
+        self.assertFalse(
+            any(s["provider"] == "deepseek" for s in FREE_MODEL_SPECS),
+            "DeepSeek's hosted API is usage-priced, not a free tier",
+        )
+        self.assertNotIn("free:gemini:gemini-2.0-flash", ids)
+        self.assertNotIn("free:groq:llama-3.3-70b-versatile", ids)
 
     def test_spec_for_known_id(self):
-        spec = spec_for_model_id("free:deepseek:deepseek-chat")
+        spec = spec_for_model_id("free:gemini:gemini-3.1-flash-lite")
         self.assertIsNotNone(spec)
-        self.assertEqual(spec["provider"], "deepseek")
-        self.assertEqual(spec["model_id"], "deepseek-chat")
+        self.assertEqual(spec["provider"], "gemini")
+        self.assertEqual(spec["model_id"], "gemini-3.1-flash-lite")
 
     def test_spec_for_unknown_id_returns_none(self):
         self.assertIsNone(spec_for_model_id("free:unknown:model"))
@@ -76,7 +86,7 @@ class ListFreeModelsTests(unittest.TestCase):
                 self.assertTrue(model["disabled_reason"])
 
     def test_enabled_with_api_key(self):
-        spec = FREE_MODEL_SPECS[0]  # deepseek-chat
+        spec = FREE_MODEL_SPECS[0]
         env = self._no_keys()
         env[spec["env_key"]] = "test-key-abc"
         with mock.patch.dict(os.environ, env):
@@ -95,14 +105,24 @@ class ListFreeModelsTests(unittest.TestCase):
 
     def test_all_picker_fields_present(self):
         required = {
-            "id", "label", "advanced_label", "provider", "model",
-            "kind", "group", "paid", "available", "disabled_reason",
+            "id",
+            "label",
+            "advanced_label",
+            "provider",
+            "model",
+            "kind",
+            "group",
+            "paid",
+            "available",
+            "disabled_reason",
         }
         with mock.patch.dict(os.environ, self._no_keys()):
             models = list_free_models()
         for model in models:
             missing = required - model.keys()
-            self.assertFalse(missing, f"'{model.get('id')}' missing picker fields: {missing}")
+            self.assertFalse(
+                missing, f"'{model.get('id')}' missing picker fields: {missing}"
+            )
 
     def test_paid_is_false_for_all_free_models(self):
         with mock.patch.dict(os.environ, self._no_keys()):
@@ -118,29 +138,50 @@ class ListFreeModelsTests(unittest.TestCase):
 
 
 class FreeAPIRunnerTests(unittest.TestCase):
+    def test_runner_rejects_non_https_api_endpoint(self):
+        from opaihub.local_runner import FreeAPIRunner
+
+        with self.assertRaisesRegex(ValueError, "HTTPS"):
+            FreeAPIRunner("http://api.example.test/v1", "example-model", "test-key")
+
     def test_runner_available_with_key(self):
         from opaihub.local_runner import FreeAPIRunner
 
-        runner = FreeAPIRunner("https://api.deepseek.com/v1", "deepseek-chat", "test-key")
+        runner = FreeAPIRunner(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.1-flash-lite",
+            "test-key",
+        )
         self.assertTrue(runner.available())
 
     def test_runner_unavailable_without_key(self):
         from opaihub.local_runner import FreeAPIRunner
 
-        runner = FreeAPIRunner("https://api.deepseek.com/v1", "deepseek-chat", "")
+        runner = FreeAPIRunner(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.1-flash-lite",
+            "",
+        )
         self.assertFalse(runner.available())
 
     def test_runner_unavailable_with_whitespace_key(self):
         from opaihub.local_runner import FreeAPIRunner
 
-        runner = FreeAPIRunner("https://api.deepseek.com/v1", "deepseek-chat", "   ")
+        runner = FreeAPIRunner(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.1-flash-lite",
+            "   ",
+        )
         self.assertFalse(runner.available())
 
     def test_runner_for_free_model_id_with_key(self):
         from opaihub.local_runner import FreeAPIRunner, runner_for_model
 
-        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key-abc"}):
-            runner = runner_for_model("free:deepseek:deepseek-chat")
+        with mock.patch.dict(
+            os.environ,
+            {"GOOGLE_API_KEY": "test-key-abc"},  # pragma: allowlist secret
+        ):
+            runner = runner_for_model("free:gemini:gemini-3.1-flash-lite")
 
         self.assertIsInstance(runner, FreeAPIRunner)
         self.assertTrue(runner.available())
@@ -148,8 +189,8 @@ class FreeAPIRunnerTests(unittest.TestCase):
     def test_runner_for_free_model_id_without_key(self):
         from opaihub.local_runner import FreeAPIRunner, runner_for_model
 
-        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
-            runner = runner_for_model("free:deepseek:deepseek-chat")
+        with mock.patch.dict(os.environ, {"GOOGLE_API_KEY": ""}):
+            runner = runner_for_model("free:gemini:gemini-3.1-flash-lite")
 
         self.assertIsInstance(runner, FreeAPIRunner)
         self.assertFalse(runner.available())
@@ -163,11 +204,17 @@ class FreeAPIRunnerTests(unittest.TestCase):
     def test_runner_complete_sends_auth_header(self):
         from opaihub.local_runner import FreeAPIRunner
 
-        runner = FreeAPIRunner("https://api.deepseek.com/v1", "deepseek-chat", "sk-test-123")
+        runner = FreeAPIRunner(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.1-flash-lite",
+            "sk-test-123",
+        )
         mock_response = {"choices": [{"message": {"content": "Test response"}}]}
         captured_headers: dict = {}
 
-        def fake_http(url, *, method="GET", payload=None, timeout=60.0, extra_headers=None):
+        def fake_http(
+            url, *, method="GET", payload=None, timeout=60.0, extra_headers=None
+        ):
             captured_headers.update(extra_headers or {})
             return mock_response
 
@@ -182,12 +229,14 @@ class FreeAPIRunnerTests(unittest.TestCase):
         from opaihub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
-            "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", "key"
+            "https://api.groq.com/openai/v1", "openai/gpt-oss-120b", "key"
         )
         mock_response = {"choices": [{"message": {"content": "OK"}}]}
         captured_payload: dict = {}
 
-        def fake_http(url, *, method="GET", payload=None, timeout=60.0, extra_headers=None):
+        def fake_http(
+            url, *, method="GET", payload=None, timeout=60.0, extra_headers=None
+        ):
             captured_payload.update(payload or {})
             return mock_response
 
@@ -207,53 +256,110 @@ class AskFreeModelTests(unittest.TestCase):
         from pathlib import Path
         from opai.app_state import ask
 
-        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test"}):
+        with mock.patch.dict(
+            os.environ,
+            {"GOOGLE_API_KEY": "sk-test"},  # pragma: allowlist secret
+        ):
             result = ask(
                 Path("/tmp"),
                 "What is 2+2?",
-                model_choice="free:deepseek:deepseek-chat",
+                model_choice="free:gemini:gemini-3.1-flash-lite",
                 allow_cloud=False,
             )
 
         self.assertEqual(result["status"], "confirmation_required")
         self.assertIn("model_id", result)
-        self.assertEqual(result["model_id"], "free:deepseek:deepseek-chat")
+        self.assertEqual(result["model_id"], "free:gemini:gemini-3.1-flash-lite")
+        self.assertIn("quota or billing", result["message"])
 
     def test_ask_free_dispatches_with_allow_cloud(self):
         """ask() with allow_cloud=True dispatches through FreeAPIRunner."""
         from pathlib import Path
         from opai.app_state import ask
 
-        fake_result = {"status": "ok", "response": "4"}
+        fake_result = {
+            "status": "answered_locally",
+            "answer": "4",
+            "source": "local_model",
+        }
         with (
-            mock.patch("opai.app_state._ask_free_model", return_value=fake_result) as m,
-            mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test"}),
+            mock.patch("opaihub.ask.run_ask", return_value=fake_result) as run_ask,
+            mock.patch.dict(
+                os.environ,
+                {"GOOGLE_API_KEY": "sk-test"},  # pragma: allowlist secret
+            ),
         ):
             result = ask(
                 Path("/tmp"),
                 "What is 2+2?",
-                model_choice="free:deepseek:deepseek-chat",
+                model_choice="free:gemini:gemini-3.1-flash-lite",
                 allow_cloud=True,
             )
 
-        m.assert_called_once()
-        self.assertEqual(result, fake_result)
+        self.assertEqual(result["status"], "answered_by_free_api")
+        self.assertEqual(result["source"], "free_api")
+        self.assertEqual(result["model_id"], "free:gemini:gemini-3.1-flash-lite")
+        self.assertEqual(
+            run_ask.call_args.kwargs["selected_model_id"],
+            "free:gemini:gemini-3.1-flash-lite",
+        )
 
     def test_ask_free_confirmation_message_mentions_provider(self):
         """Confirmation message must name the provider, not a generic label."""
         from pathlib import Path
         from opai.app_state import ask
 
-        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test"}):
+        with mock.patch.dict(
+            os.environ,
+            {"GOOGLE_API_KEY": "sk-test"},  # pragma: allowlist secret
+        ):
             result = ask(
                 Path("/tmp"),
                 "task",
-                model_choice="free:deepseek:deepseek-chat",
+                model_choice="free:gemini:gemini-3.1-flash-lite",
                 allow_cloud=False,
             )
 
-        # Message must reference DeepSeek by name (from spec_for_model_id)
-        self.assertIn("DeepSeek", result["message"])
+        self.assertIn("Gemini", result["message"])
+
+    def test_gui_pipeline_dispatches_confirmed_free_model(self):
+        from opaihub.gui_pipeline import handle_gui_message
+
+        selected = "free:gemini:gemini-3.1-flash-lite"
+        fake_result = {
+            "status": "answered_by_free_api",
+            "answer": "Free-tier answer",
+            "source": "free_api",
+            "model_id": selected,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch("opai.app_state.ask", return_value=fake_result) as ask_mock:
+                result = handle_gui_message(
+                    Path(tmp),
+                    "Explain this project",
+                    model_id=selected,
+                    mode="ask",
+                    allow_cloud=True,
+                )
+
+        self.assertEqual(result["status"], "answered")
+        self.assertEqual(result["answer"], "Free-tier answer")
+        self.assertTrue(ask_mock.call_args.kwargs["allow_cloud"])
+
+    def test_gui_pipeline_cannot_bypass_free_model_confirmation(self):
+        from opaihub.gui_pipeline import handle_gui_message
+
+        selected = "free:gemini:gemini-3.1-flash-lite"
+        with tempfile.TemporaryDirectory() as tmp:
+            result = handle_gui_message(
+                Path(tmp),
+                "Explain this project",
+                model_id=selected,
+                mode="ask",
+                allow_cloud=False,
+            )
+
+        self.assertEqual(result["status"], "needs_free_confirmation")
 
 
 if __name__ == "__main__":

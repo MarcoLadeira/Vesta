@@ -143,6 +143,7 @@ def handle_gui_message(
     on_event: Any = None,
     on_text: Any = None,
     cancel: Any = None,
+    allow_cloud: bool = False,
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -215,6 +216,77 @@ def handle_gui_message(
     # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
     # The selected model always actually answers - no canned template.
     allow_edits = selected_mode in {"safe-auto", "full-auto"}
+
+    if selected_model.startswith("free:"):
+        from opai import app_state as A
+
+        if _cancelled():
+            return _cancelled_result(message, tool_trace, selected_model, selected_mode)
+        provider = selected_model.split(":", 2)[1]
+        _emit(
+            "request_sending" if allow_cloud else "needs_confirmation",
+            "running" if allow_cloud else "warning",
+            "Sending free-tier API request"
+            if allow_cloud
+            else "Free-tier API confirmation required",
+            metadata={"provider": provider},
+        )
+        result = A.ask(
+            root,
+            message,
+            selected_model,
+            allow_cloud=allow_cloud,
+            allow_edits=False,
+            mode=selected_mode,
+        )
+        receipt = build_savings_receipt(
+            root,
+            task=message,
+            selected_model=selected_model,
+            selected_mode=selected_mode,
+            chosen_tier="L2",
+            confidence="estimated",
+        )
+        _record_gui_route(
+            root,
+            message,
+            tier="L2",
+            receipt=receipt,
+            tool_trace=tool_trace,
+            model_id=selected_model,
+            mode=selected_mode,
+        )
+        status_map = {
+            "answered_by_free_api": "answered",
+            "cache_hit": "answered",
+            "confirmation_required": "needs_free_confirmation",
+            "model_unavailable": "needs_model",
+            "runner_error": "runner_error",
+        }
+        status = status_map.get(result.get("status"), result.get("status", "error"))
+        answer = (
+            result.get("answer")
+            or result.get("message")
+            or result.get("hint")
+            or result.get("error")
+            or "The free-tier API did not return an answer."
+        )
+        if status == "answered":
+            _emit("completed", "success", "OPai completed")
+            if on_text and answer:
+                on_text(answer)
+        elif status != "needs_free_confirmation":
+            _emit("failed", "error", "Free-tier API request failed")
+        return {
+            "status": status,
+            "answer": answer,
+            "tool_trace": tool_trace,
+            "receipt": receipt,
+            "changed_files": [],
+            "warnings": [],
+            "next_actions": ["Review provider quota and billing settings."],
+            "raw_result": result,
+        }
 
     if selected_model.startswith("account:"):
         from opai import app_state as A

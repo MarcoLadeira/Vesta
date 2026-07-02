@@ -11,60 +11,39 @@ import { test, expect } from "@playwright/test";
 import { MODELS } from "./helpers/fixtures.js";
 import { openApp } from "./helpers/app.js";
 
-// A scenario where DEEPSEEK is available but GOOGLE is not (mirrors real env)
+// A scenario where Gemini is available but Groq/Mistral are not.
 const FREE_MODELS = [
   {
-    id: "free:deepseek:deepseek-chat",
-    label: "DeepSeek · V3 Chat (free)",
-    advanced_label: "DeepSeek V3 Chat via api.deepseek.com — set DEEPSEEK_API_KEY",
-    kind: "free",
-    group: "free",
-    provider: "deepseek",
-    paid: false,
-    available: true,
-  },
-  {
-    id: "free:deepseek:deepseek-reasoner",
-    label: "DeepSeek · R1 Reasoner (free)",
-    advanced_label: "DeepSeek R1 via api.deepseek.com — set DEEPSEEK_API_KEY",
-    kind: "free",
-    group: "free",
-    provider: "deepseek",
-    paid: false,
-    available: true,
-  },
-  {
-    id: "free:gemini:gemini-2.0-flash",
-    label: "Gemini · 2.0 Flash (free)",
-    advanced_label: "Google Gemini 2.0 Flash via Google AI API (free tier)",
+    id: "free:gemini:gemini-3.1-flash-lite",
+    label: "Gemini · 3.1 Flash-Lite (free tier)",
+    advanced_label: "Google Gemini 3.1 Flash-Lite via Google AI API (free-tier eligible)",
     kind: "free",
     group: "free",
     provider: "gemini",
     paid: false,
-    available: false,
-    disabled_reason: "Set GOOGLE_API_KEY to enable Gemini · 2.0 Flash (free)",
+    available: true,
   },
   {
-    id: "free:groq:llama-3.3-70b-versatile",
-    label: "Groq · Llama 3.3 (free)",
-    advanced_label: "Groq Llama 3.3 70B via api.groq.com — set GROQ_API_KEY",
+    id: "free:groq:openai/gpt-oss-120b",
+    label: "Groq · GPT-OSS 120B (free tier)",
+    advanced_label: "OpenAI GPT-OSS 120B via Groq (free-tier eligible)",
     kind: "free",
     group: "free",
     provider: "groq",
     paid: false,
     available: false,
-    disabled_reason: "Set GROQ_API_KEY to enable Groq · Llama 3.3 (free)",
+    disabled_reason: "Set GROQ_API_KEY to enable Groq · GPT-OSS 120B (free tier)",
   },
   {
     id: "free:mistral:mistral-small-latest",
-    label: "Mistral · Small (free)",
-    advanced_label: "Mistral Small via api.mistral.ai — set MISTRAL_API_KEY",
+    label: "Mistral · Small (free tier)",
+    advanced_label: "Mistral Small via Mistral AI API (free-tier eligible)",
     kind: "free",
     group: "free",
     provider: "mistral",
     paid: false,
     available: false,
-    disabled_reason: "Set MISTRAL_API_KEY to enable Mistral · Small (free)",
+    disabled_reason: "Set MISTRAL_API_KEY to enable Mistral · Small (free tier)",
   },
 ];
 
@@ -79,11 +58,10 @@ test("free models optgroup appears in model picker", async ({ page }) => {
   expect(groupLabels).toContain("Free models");
 });
 
-test("all 5 free model options are rendered in the picker", async ({ page }) => {
+test("all verified free-tier model options are rendered in the picker", async ({ page }) => {
   await openApp(page, { boot: { models: MODELS_WITH_FREE } });
   const freeOptions = await page.locator('#modelSel optgroup[label="Free models"] option').allTextContents();
-  expect(freeOptions).toHaveLength(5);
-  expect(freeOptions.some((t) => t.includes("DeepSeek"))).toBe(true);
+  expect(freeOptions).toHaveLength(3);
   expect(freeOptions.some((t) => t.includes("Gemini"))).toBe(true);
   expect(freeOptions.some((t) => t.includes("Groq"))).toBe(true);
   expect(freeOptions.some((t) => t.includes("Mistral"))).toBe(true);
@@ -91,22 +69,22 @@ test("all 5 free model options are rendered in the picker", async ({ page }) => 
 
 test("free model without API key is disabled with setup hint in title", async ({ page }) => {
   await openApp(page, { boot: { models: MODELS_WITH_FREE } });
-  const opt = page.locator('#modelSel option[value="free:gemini:gemini-2.0-flash"]');
+  const opt = page.locator('#modelSel option[value="free:groq:openai/gpt-oss-120b"]');
   await expect(opt).toBeDisabled();
-  await expect(opt).toHaveAttribute("title", /GOOGLE_API_KEY/);
+  await expect(opt).toHaveAttribute("title", /GROQ_API_KEY/);
 });
 
 test("free model with API key is enabled and selectable", async ({ page }) => {
   await openApp(page, { boot: { models: MODELS_WITH_FREE } });
-  const opt = page.locator('#modelSel option[value="free:deepseek:deepseek-chat"]');
+  const opt = page.locator('#modelSel option[value="free:gemini:gemini-3.1-flash-lite"]');
   await expect(opt).not.toBeDisabled();
 });
 
-test("free model labels include (free) suffix", async ({ page }) => {
+test("free model labels identify free-tier eligibility", async ({ page }) => {
   await openApp(page, { boot: { models: MODELS_WITH_FREE } });
   const freeOptions = await page.locator('#modelSel optgroup[label="Free models"] option').allTextContents();
   for (const label of freeOptions) {
-    expect(label).toMatch(/\(free\)$/);
+    expect(label).toMatch(/\(free tier\)$/);
   }
 });
 
@@ -127,7 +105,27 @@ test("picker groups order: Claude → Codex → Copilot → Free models → OPai
 
 test("free model advanced_label appears as option title tooltip", async ({ page }) => {
   await openApp(page, { boot: { models: MODELS_WITH_FREE } });
-  const opt = page.locator('#modelSel option[value="free:deepseek:deepseek-chat"]');
+  const opt = page.locator('#modelSel option[value="free:gemini:gemini-3.1-flash-lite"]');
   const title = await opt.getAttribute("title");
-  expect(title).toMatch(/DeepSeek/);
+  expect(title).toMatch(/Gemini/);
+});
+
+test("sending to a free-tier API requires explicit confirmation", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  await page.selectOption("#modelSel", "free:gemini:gemini-3.1-flash-lite");
+  await page.fill("#input", "Explain this project");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Send" }).click();
+  const request = await page.evaluate(() => window.__mock.lastRequest);
+  expect(request.allowCloud).toBe(true);
+});
+
+test("rejecting free-tier API confirmation sends nothing", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  await page.selectOption("#modelSel", "free:gemini:gemini-3.1-flash-lite");
+  await page.fill("#input", "Explain this project");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Send" }).click();
+  const sendCount = await page.evaluate(() => window.__mock.sendCount);
+  expect(sendCount).toBe(0);
 });

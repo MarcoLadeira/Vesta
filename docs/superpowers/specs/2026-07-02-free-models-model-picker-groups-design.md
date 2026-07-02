@@ -2,7 +2,16 @@
 
 **Date:** 2026-07-02
 **Branch:** `feat/free-models-model-picker-groups`
-**Status:** Approved
+**Status:** Implemented with provider-contract corrections
+
+> **Final implementation correction (2026-07-02):** Official provider documentation
+> review found that DeepSeek's hosted API is usage-priced, Gemini 2.0 Flash was
+> shut down on 2026-06-01, and Groq announced Llama 3.3 retirement for 2026-08-16.
+> The shipped registry therefore uses Gemini 3.1 Flash-Lite, Groq GPT-OSS 120B,
+> and Mistral Small—each eligible for a documented free tier. Provider quotas or
+> billing may still apply, so every public API call remains confirmation-gated.
+> Historical model examples later in this approved design record the original
+> proposal; `opaihub/free_models.py` and its tests are the implementation truth.
 
 ---
 
@@ -10,14 +19,14 @@
 
 The OPai model picker renders every model as a generic "OPai · Balanced/Fast/Powerful mode" label because `provider_display_name()` in `opai/provider_contract.py` maps all models to just three speed-tier strings. When Claude (3 models) + Codex (4 models) + Copilot (3 models) are all connected, the picker shows 10 nearly identical entries with no way to distinguish them — a usability failure visible in the screenshot provided.
 
-Additionally, OPai has no free-tier cloud model options. Users either need a paid subscription (Claude/Codex/Copilot) or a local GPU (ollama/lmstudio). Free API models like DeepSeek and Groq fill a critical gap.
+Additionally, OPai has no free-tier cloud model options. Users either need a paid subscription (Claude/Codex/Copilot) or a local GPU (ollama/lmstudio). Verified free-tier APIs fill that gap.
 
 ---
 
 ## Goals
 
 1. Fix the model picker: distinct, provider-prefixed labels + `<optgroup>` grouping
-2. Add free API model support: DeepSeek, Gemini, Groq, Mistral
+2. Add verified free-tier API support: Gemini, Groq, Mistral
 3. Full test coverage: Python unit + JS/Vitest unit + Playwright E2E
 
 ---

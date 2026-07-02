@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -38,7 +39,8 @@ def _http_json(
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if extra_headers:
         headers.update(extra_headers)
-    request = urllib.request.Request(  # nosec B310 - scheme validated by caller (loopback only)
+    # Callers provide either local endpoints or registry-owned HTTPS URLs.
+    request = urllib.request.Request(  # nosec B310
         url, data=data, method=method, headers=headers
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
@@ -126,18 +128,21 @@ class OpenAICompatibleRunner(LocalRunner):
 
 
 class FreeAPIRunner(OpenAICompatibleRunner):
-    """OpenAI-compatible runner for free API tiers (DeepSeek, Groq, Gemini, Mistral).
+    """OpenAI-compatible runner for verified free-tier APIs.
 
     Unlike local runners these reach public endpoints and require an API key
     stored in an env var.  ``available()`` checks key presence only — no
     network ping — to avoid latency in the model picker enumeration.  All
     calls go through OPai's policy confirmation gate because they hit a
-    public host.
+    public host. Provider quotas and billing configuration remain authoritative.
     """
 
     name = "free-api"
 
     def __init__(self, base_url: str, model: str, api_key: str) -> None:
+        endpoint = urllib.parse.urlsplit(base_url)
+        if endpoint.scheme.lower() != "https" or not endpoint.hostname:
+            raise ValueError("Free-tier API endpoints must use HTTPS")
         super().__init__(base_url, model)
         self._api_key = api_key.strip()
 

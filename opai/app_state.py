@@ -517,7 +517,7 @@ def available_models(project_root: Path) -> dict[str, Any]:
     """Pickable models: connected accounts → free API → Auto → local.
 
     Accounts (Claude/Codex/Copilot via logged-in CLIs) are the headline path.
-    Free API models (DeepSeek, Gemini, Groq, Mistral) always appear — grayed
+    Verified free-tier API models (Gemini, Groq, Mistral) always appear — grayed
     when no API key is set. Auto routes cheapest safe option. Local models are
     the fully private, advanced fallback. Read-only — never installs, downloads,
     or signs in.
@@ -617,8 +617,9 @@ def ask(
 
     - ``account:<id>`` runs through your connected Claude/Codex CLI: paid, blocked
       under panic mode, and recorded as a real spend (not a saving).
-    - ``free:<id>`` runs through a free public API (DeepSeek/Gemini/Groq/Mistral).
-      Requires the relevant API key env var. Always prompts for confirmation.
+    - ``free:<id>`` runs through a free-tier-eligible public API
+      (Gemini/Groq/Mistral). Requires the relevant API key env var and always
+      prompts because provider quotas or billing may still apply.
     - ``auto`` lets OPai route the cheapest safe path (local execution + cache).
     - a local ``provider:model`` id runs that connected local model.
     Cloud auto-routing is never auto-called - it returns ``confirmation_required``.
@@ -660,9 +661,9 @@ def _ask_free_model(
     *,
     allow_cloud: bool = False,
 ) -> dict[str, Any]:
-    """Run a task through a free public API model (DeepSeek, Gemini, Groq, Mistral).
+    """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
 
-    Free API calls leave the device — always returns ``confirmation_required``
+    Free-tier API calls leave the device — always returns ``confirmation_required``
     unless ``allow_cloud=True`` is explicitly set by the caller (e.g. after user
     confirmed the dialog). When confirmed, the call is dispatched through
     FreeAPIRunner which reads the API key from the environment.
@@ -673,7 +674,7 @@ def _ask_free_model(
 
     if not allow_cloud:
         spec = spec_for_model_id(model_id)
-        # Extract display name from label "DeepSeek · V3 Chat (free)" → "DeepSeek"
+        # Extract display name from label "Gemini · 3.1 Flash-Lite (...)".
         if spec:
             label = spec["label"]
             provider_name = label.split(" ·")[0] if " ·" in label else spec["provider"]
@@ -683,13 +684,36 @@ def _ask_free_model(
             "status": "confirmation_required",
             "message": (
                 f"This will send your task to {provider_name}'s public API. "
-                "Your code and task will leave this device. Continue?"
+                "Your task and compact project context will leave this device. "
+                "Provider quota or billing may apply depending on your account. Continue?"
             ),
             "model_id": model_id,
         }
 
     runner = runner_for_model(model_id, project_root)
-    return run_ask(project_root, task, runner=runner, record=True, allow_cloud=True)
+    spec = spec_for_model_id(model_id)
+    if runner is None or not runner.available():
+        return {
+            "status": "model_unavailable",
+            "model_id": model_id,
+            "hint": (spec or {}).get(
+                "setup_hint", "The selected free-tier model is not configured."
+            ),
+        }
+    result = run_ask(
+        project_root,
+        task,
+        runner=runner,
+        record=True,
+        allow_cloud=True,
+        selected_model_id=model_id,
+    )
+    if result.get("status") == "answered_locally":
+        result["status"] = "answered_by_free_api"
+        result["source"] = "free_api"
+    result["model_id"] = model_id
+    result["free_tier"] = True
+    return result
 
 
 def _changed_files(root: Path) -> list[str]:

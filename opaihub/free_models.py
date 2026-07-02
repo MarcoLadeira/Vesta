@@ -1,7 +1,7 @@
 """Free API model registry for OPai.
 
-Defines FREE_MODEL_SPECS for providers that offer free API tiers (DeepSeek,
-Google Gemini, Groq, Mistral). Models appear in the picker even without a key
+Defines FREE_MODEL_SPECS for providers that offer verified free API tiers
+(Google Gemini, Groq, Mistral). Models appear in the picker even without a key
 — grayed with a setup hint — so users can discover free options without any
 configuration required.
 
@@ -18,88 +18,60 @@ from typing import Any
 
 FREE_MODEL_SPECS: list[dict[str, Any]] = [
     {
-        "id": "free:deepseek:deepseek-chat",
-        "label": "DeepSeek · V3 Chat (free)",
-        "advanced_label": "DeepSeek V3 Chat via DeepSeek API (free tier)",
-        "provider": "deepseek",
-        "model_id": "deepseek-chat",
-        "api_base": "https://api.deepseek.com/v1",
-        "env_key": "DEEPSEEK_API_KEY",
-        "group": "free",
-        "cost_level": "free",
-        "kind": "free",
-        "paid": False,
-        "setup_hint": (
-            "Set DEEPSEEK_API_KEY env var. "
-            "Get a free key at platform.deepseek.com"
+        "id": "free:gemini:gemini-3.1-flash-lite",
+        "label": "Gemini · 3.1 Flash-Lite (free tier)",
+        "advanced_label": (
+            "Google Gemini 3.1 Flash-Lite via Google AI API "
+            "(free-tier eligible; provider limits apply)"
         ),
-    },
-    {
-        "id": "free:deepseek:deepseek-reasoner",
-        "label": "DeepSeek · R1 Reasoner (free)",
-        "advanced_label": "DeepSeek R1 Reasoning Model via DeepSeek API (free tier)",
-        "provider": "deepseek",
-        "model_id": "deepseek-reasoner",
-        "api_base": "https://api.deepseek.com/v1",
-        "env_key": "DEEPSEEK_API_KEY",
-        "group": "free",
-        "cost_level": "free",
-        "kind": "free",
-        "paid": False,
-        "setup_hint": (
-            "Set DEEPSEEK_API_KEY env var. "
-            "Get a free key at platform.deepseek.com"
-        ),
-    },
-    {
-        "id": "free:gemini:gemini-2.0-flash",
-        "label": "Gemini · 2.0 Flash (free)",
-        "advanced_label": "Google Gemini 2.0 Flash via Google AI API (free tier)",
         "provider": "gemini",
-        "model_id": "gemini-2.0-flash",
+        "model_id": "gemini-3.1-flash-lite",
         "api_base": "https://generativelanguage.googleapis.com/v1beta/openai",
         "env_key": "GOOGLE_API_KEY",
         "group": "free",
-        "cost_level": "free",
+        "cost_level": "free-tier",
         "kind": "free",
         "paid": False,
         "setup_hint": (
-            "Set GOOGLE_API_KEY env var. "
-            "Get a free key at aistudio.google.com"
+            "Set GOOGLE_API_KEY env var. Create a free-tier key at aistudio.google.com"
         ),
     },
     {
-        "id": "free:groq:llama-3.3-70b-versatile",
-        "label": "Groq · Llama 3.3 (free)",
-        "advanced_label": "Meta Llama 3.3 70B via Groq API (free tier, very fast inference)",
+        "id": "free:groq:openai/gpt-oss-120b",
+        "label": "Groq · GPT-OSS 120B (free tier)",
+        "advanced_label": (
+            "OpenAI GPT-OSS 120B via Groq API "
+            "(free-tier eligible; provider limits apply)"
+        ),
         "provider": "groq",
-        "model_id": "llama-3.3-70b-versatile",
+        "model_id": "openai/gpt-oss-120b",
         "api_base": "https://api.groq.com/openai/v1",
         "env_key": "GROQ_API_KEY",
         "group": "free",
-        "cost_level": "free",
+        "cost_level": "free-tier",
         "kind": "free",
         "paid": False,
         "setup_hint": (
-            "Set GROQ_API_KEY env var. "
-            "Get a free key at console.groq.com"
+            "Set GROQ_API_KEY env var. Create a free-plan key at console.groq.com"
         ),
     },
     {
         "id": "free:mistral:mistral-small-latest",
-        "label": "Mistral · Small (free)",
-        "advanced_label": "Mistral Small via Mistral AI API (free/low-cost tier)",
+        "label": "Mistral · Small (free tier)",
+        "advanced_label": (
+            "Mistral Small via Mistral AI API "
+            "(free-tier eligible; provider limits apply)"
+        ),
         "provider": "mistral",
         "model_id": "mistral-small-latest",
         "api_base": "https://api.mistral.ai/v1",
         "env_key": "MISTRAL_API_KEY",
         "group": "free",
-        "cost_level": "free",
+        "cost_level": "free-tier",
         "kind": "free",
         "paid": False,
         "setup_hint": (
-            "Set MISTRAL_API_KEY env var. "
-            "Get a free key at console.mistral.ai"
+            "Set MISTRAL_API_KEY env var. Create a free-mode key at console.mistral.ai"
         ),
     },
 ]
@@ -140,7 +112,7 @@ def list_free_models() -> list[dict[str, Any]]:
 
 
 def spec_for_model_id(model_id: str) -> dict[str, Any] | None:
-    """Return the spec dict for a picker id like ``'free:deepseek:deepseek-chat'``.
+    """Return a spec for an id like ``'free:gemini:gemini-3.1-flash-lite'``.
 
     Returns ``None`` for unknown ids or empty/None input.
     """

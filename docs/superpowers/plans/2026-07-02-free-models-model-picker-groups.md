@@ -1,8 +1,16 @@
 # Free Models + Model Picker Groups Implementation Plan
 
+> **Final implementation correction (2026-07-02):** The original task steps below
+> are retained as an execution record, but their initial provider examples were
+> corrected after checking current official documentation. The final registry is
+> Gemini 3.1 Flash-Lite, Groq GPT-OSS 120B, and Mistral Small. DeepSeek's hosted
+> API is usage-priced; Gemini 2.0 Flash is shut down; Groq Llama 3.3 is scheduled
+> for retirement. Public calls require explicit confirmation because account
+> quotas or billing can still apply. Source and tests are authoritative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add free API models (DeepSeek, Gemini, Groq, Mistral) to OPai's model picker and fix the picker so models are displayed with descriptive provider-prefixed labels ("Claude · Sonnet 4.6") grouped by Claude | Codex | Copilot | Free models | OPai routing | Local models, replacing the broken "OPai · Balanced/Fast/Powerful mode" labels that repeat identically for every model.
+**Goal:** Add verified free-tier API models to OPai's model picker and fix the picker so models are displayed with descriptive provider-prefixed labels ("Claude · Sonnet 4.6") grouped by Claude | Codex | Copilot | Free models | OPai routing | Local models, replacing the broken "OPai · Balanced/Fast/Powerful mode" labels that repeat identically for every model.
 
 **Architecture:** Python data layer adds `FREE_MODEL_SPECS` + `FreeAPIRunner`, `provider_display_name()` returns provider-prefixed labels, all model options carry a `group` field. The JS picker renders `<optgroup>` elements per group. Free API models appear always (grayed when no API key) and route through the policy confirmation gate since they hit public endpoints.
 
