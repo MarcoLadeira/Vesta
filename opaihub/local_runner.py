@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -25,6 +26,29 @@ from .local_models import classify_endpoint
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.2"
+DISCOVERY_TIMEOUT = 0.2
+_LOCAL_MODELS_LOCK = threading.RLock()
+_LOCAL_MODELS_CACHE: list[dict[str, Any]] = []
+_LOCAL_DISCOVERY_COMPLETE = False
+
+
+def cache_local_models(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    global _LOCAL_DISCOVERY_COMPLETE, _LOCAL_MODELS_CACHE
+    with _LOCAL_MODELS_LOCK:
+        _LOCAL_MODELS_CACHE = [dict(model) for model in models]
+        _LOCAL_DISCOVERY_COMPLETE = True
+        return [dict(model) for model in _LOCAL_MODELS_CACHE]
+
+
+def cached_local_models() -> list[dict[str, Any]]:
+    with _LOCAL_MODELS_LOCK:
+        return [dict(model) for model in _LOCAL_MODELS_CACHE]
+
+
+class _HTTPPayload(dict):
+    """JSON object with response metadata kept out of serialization."""
+
+    response_headers: dict[str, str]
 
 
 def _http_json(
@@ -44,7 +68,14 @@ def _http_json(
         url, data=data, method=method, headers=headers
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
-        return json.loads(response.read().decode("utf-8"))
+        result = json.loads(response.read().decode("utf-8"))
+        if isinstance(result, dict):
+            wrapped = _HTTPPayload(result)
+            wrapped.response_headers = {
+                str(key).lower(): str(value) for key, value in response.headers.items()
+            }
+            return wrapped
+        return result
 
 
 class LocalRunner:
@@ -73,7 +104,7 @@ class OllamaRunner(LocalRunner):
 
     def available(self) -> bool:
         try:
-            tags = _http_json(f"{self.base_url}/api/tags", timeout=2.0)
+            tags = _http_json(f"{self.base_url}/api/tags", timeout=DISCOVERY_TIMEOUT)
         except (urllib.error.URLError, OSError, ValueError):
             return False
         return isinstance(tags, dict) and "models" in tags
@@ -105,7 +136,7 @@ class OpenAICompatibleRunner(LocalRunner):
 
     def available(self) -> bool:
         try:
-            models = _http_json(f"{self.base_url}/models", timeout=2.0)
+            models = _http_json(f"{self.base_url}/models", timeout=DISCOVERY_TIMEOUT)
         except (urllib.error.URLError, OSError, ValueError):
             return False
         return isinstance(models, dict)
@@ -145,6 +176,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             raise ValueError("Free-tier API endpoints must use HTTPS")
         super().__init__(base_url, model)
         self._api_key = api_key.strip()
+        self.last_usage: dict[str, Any] = {}
 
     def available(self) -> bool:
         return bool(self._api_key)
@@ -166,6 +198,36 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             timeout=timeout,
             extra_headers=self._auth_headers(),
         )
+        usage = result.get("usage") or result.get("usageMetadata") or {}
+        input_tokens = usage.get("prompt_tokens", usage.get("promptTokenCount", 0))
+        output_tokens = usage.get(
+            "completion_tokens", usage.get("candidatesTokenCount", 0)
+        )
+        total_tokens = usage.get("total_tokens", usage.get("totalTokenCount", 0)) or (
+            int(input_tokens or 0) + int(output_tokens or 0)
+        )
+        headers = getattr(result, "response_headers", {})
+        quota = None
+        try:
+            request_limit = int(headers.get("x-ratelimit-limit-requests", "0"))
+            request_remaining = int(headers.get("x-ratelimit-remaining-requests", "0"))
+            if request_limit:
+                quota = {
+                    "metric": "requests",
+                    "limit": request_limit,
+                    "remaining": request_remaining,
+                    "window": "day",
+                    "resetsAt": headers.get("x-ratelimit-reset-requests"),
+                }
+        except (TypeError, ValueError):
+            quota = None
+        self.last_usage = {
+            "input_tokens": int(input_tokens or 0),
+            "output_tokens": int(output_tokens or 0),
+            "tokens": int(total_tokens or 0),
+            "measurement": "provider" if usage else "estimated",
+            "quota_snapshot": quota,
+        }
         choices = result.get("choices") or [{}]
         return str((choices[0].get("message") or {}).get("content", "")).strip()
 
@@ -203,6 +265,15 @@ def detect_local_runner(
     project_root: Path | None = None, *, allow_public: bool = False
 ) -> LocalRunner | None:
     """Return the first reachable local runner on a loopback/private endpoint."""
+    with _LOCAL_MODELS_LOCK:
+        discovery_complete = _LOCAL_DISCOVERY_COMPLETE
+        cached = [dict(model) for model in _LOCAL_MODELS_CACHE]
+    if discovery_complete:
+        return (
+            runner_for_model(str(cached[0].get("id") or ""), project_root)
+            if cached
+            else None
+        )
     for url, runner in _candidate_runners():
         classification = classify_endpoint(url)
         if not classification["is_local"] and not allow_public:
@@ -228,7 +299,9 @@ def list_local_models(
             continue
         try:
             if isinstance(runner, OllamaRunner):
-                tags = _http_json(f"{runner.base_url}/api/tags", timeout=2.0)
+                tags = _http_json(
+                    f"{runner.base_url}/api/tags", timeout=DISCOVERY_TIMEOUT
+                )
                 for entry in tags.get("models") or []:
                     name = entry.get("name") or entry.get("model")
                     if name:
@@ -241,7 +314,9 @@ def list_local_models(
                             }
                         )
             elif isinstance(runner, OpenAICompatibleRunner):
-                data = _http_json(f"{runner.base_url}/models", timeout=2.0)
+                data = _http_json(
+                    f"{runner.base_url}/models", timeout=DISCOVERY_TIMEOUT
+                )
                 for entry in data.get("data") or []:
                     mid = entry.get("id")
                     if mid:
@@ -255,7 +330,7 @@ def list_local_models(
                         )
         except (urllib.error.URLError, OSError, ValueError):
             continue
-    return models
+    return cache_local_models(models)
 
 
 def runner_for_model(
@@ -267,12 +342,13 @@ def runner_for_model(
 
     # Free API models: "free:<provider>:<model_id>" — key from env var.
     if model_id.startswith("free:"):
+        from .credentials import CredentialStore
         from .free_models import spec_for_model_id
 
         spec = spec_for_model_id(model_id)
         if spec is None:
             return None
-        api_key = os.environ.get(spec["env_key"], "").strip()
+        api_key = CredentialStore().get(spec["provider"]) or ""
         return FreeAPIRunner(spec["api_base"], spec["model_id"], api_key)
 
     provider, name = model_id.split(":", 1)

@@ -13,8 +13,9 @@ is determined solely by env var presence (no latency in picker enumeration).
 
 from __future__ import annotations
 
-import os
 from typing import Any
+
+from .credentials import CredentialStore
 
 FREE_MODEL_SPECS: list[dict[str, Any]] = [
     {
@@ -89,8 +90,9 @@ def list_free_models() -> list[dict[str, Any]]:
     connected).
     """
     options: list[dict[str, Any]] = []
+    credentials = CredentialStore()
     for spec in FREE_MODEL_SPECS:
-        api_key = os.environ.get(spec["env_key"], "").strip()
+        api_key = credentials.get(spec["provider"])
         available = bool(api_key)
         options.append(
             {

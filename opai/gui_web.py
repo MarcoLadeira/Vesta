@@ -92,8 +92,8 @@ def resolve_openable(root: Path, target: str) -> Path | None:
 # --------------------------------------------------------------------------- #
 # Bridge payload builders (pure-ish; reuse the Qt-free data layer)
 # --------------------------------------------------------------------------- #
-def _models(root: Path) -> dict[str, Any]:
-    data = A.available_models(root)
+def _models(root: Path, *, discover_local: bool = True) -> dict[str, Any]:
+    data = A.available_models(root, discover_local=discover_local)
     models = []
     for opt in data["models"]:
         models.append({**opt, "badge": model_badge(opt)})
@@ -186,7 +186,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     mode = str(prefs.get("default_mode") or DEFAULT_MODE)
     focus = str(prefs.get("default_task_mode") or DEFAULT_TASK_MODE)
     fmt = str(prefs.get("default_output_format") or DEFAULT_OUTPUT_FORMAT)
-    models = _models(root)
+    models = _models(root, discover_local=False)
     mode_labels = {
         "ask": "Ask",
         "plan": "Plan",
@@ -259,7 +259,11 @@ def settings_payload(root: Path) -> dict[str, Any]:
         overview = A.overview(root)
     except Exception:  # noqa: BLE001
         overview = {}
-    models = _models(root)
+    models = _models(root, discover_local=False)
+    from opaihub.credentials import credential_statuses
+    from opaihub.accounts import codex_config_issue
+    from opaihub.usage import build_usage_snapshots
+
     return {
         "prefs": prefs,
         "firewall": {
@@ -274,6 +278,12 @@ def settings_payload(root: Path) -> dict[str, Any]:
         ),
         "accounts": models["accounts"],
         "connections": models["connections"],
+        "models": models["models"],
+        "usage": build_usage_snapshots(
+            root, models["models"], limits=prefs.get("usage_limits") or {}
+        ),
+        "credentials": credential_statuses(),
+        "codexConfig": codex_config_issue(),
         "about": {
             "version": overview.get("version"),
             "release_stage": overview.get("release_stage"),
@@ -330,6 +340,7 @@ def _run_gui(
         token = QtCore.Signal(str)
         toolReady = QtCore.Signal(str)
         workspaceChanged = QtCore.Signal(str)
+        modelsChanged = QtCore.Signal(str)
 
         def __init__(self, window) -> None:
             super().__init__()
@@ -393,6 +404,65 @@ def _run_gui(
         def settingsData(self) -> str:
             return json.dumps(settings_payload(self.root))
 
+        @QtCore.Slot(str, str, result=str)
+        def saveProviderKey(self, provider: str, secret: str) -> str:
+            from opaihub.credentials import CredentialStore
+
+            try:
+                return json.dumps(CredentialStore().set(provider, secret))
+            except (ValueError, RuntimeError) as exc:
+                return json.dumps(
+                    {"provider": provider, "configured": False, "error": str(exc)}
+                )
+
+        @QtCore.Slot(str, result=str)
+        def deleteProviderKey(self, provider: str) -> str:
+            from opaihub.credentials import CredentialStore
+
+            return json.dumps(CredentialStore().delete(provider))
+
+        @QtCore.Slot(str, result=str)
+        def testProvider(self, provider: str) -> str:
+            from opaihub.provider_adapters import adapter_for
+
+            try:
+                return json.dumps(adapter_for(provider).probe(force=True))
+            except (OSError, RuntimeError, ValueError) as exc:
+                return json.dumps(
+                    {"provider": provider, "connected": False, "error": str(exc)}
+                )
+
+        @QtCore.Slot(result=str)
+        def refreshModels(self) -> str:
+            return json.dumps(A.available_models(self.root, discover_local=True))
+
+        @QtCore.Slot(str, str, str, str, result=str)
+        def saveUsageLimit(
+            self, model_id: str, metric: str, limit: str, window: str
+        ) -> str:
+            from opaihub.gui_preferences import save_usage_limit
+
+            try:
+                save_usage_limit(
+                    self.root,
+                    model_id,
+                    metric=metric,
+                    limit=int(limit),
+                    window=window,
+                )
+                return json.dumps({"ok": True})
+            except (TypeError, ValueError) as exc:
+                return json.dumps({"ok": False, "error": str(exc)})
+
+        @QtCore.Slot(result=str)
+        def repairCodexConfig(self) -> str:
+            from opaihub.accounts import repair_codex_config
+
+            try:
+                return json.dumps(repair_codex_config())
+            except (OSError, ValueError) as exc:
+                return json.dumps({"repaired": False, "error": str(exc)})
+
         @QtCore.Slot(str, str)
         def savePref(self, key: str, value: str) -> None:
             allowed = {
@@ -451,6 +521,7 @@ def _run_gui(
                     on_text=emit_text,
                     cancel=cancel,
                     allow_cloud=bool(payload.get("allowCloud", False)),
+                    allow_limit=bool(payload.get("allowLimit", False)),
                 )
 
             worker = Worker(job)
@@ -462,6 +533,22 @@ def _run_gui(
                         {"requestId": request_id, "result": json.loads(result_json)}
                     )
                 )
+
+            worker.done.connect(_done)
+            worker.finished.connect(
+                lambda w=worker: self._workers.remove(w) if w in self._workers else None
+            )
+            self._workers.append(worker)
+            worker.start()
+
+        @QtCore.Slot()
+        def discoverModels(self) -> None:
+            """Discover loopback models off the GUI thread and publish the catalog."""
+
+            worker = Worker(lambda: A.available_models(self.root, discover_local=True))
+
+            def _done(result_json: str) -> None:
+                self.modelsChanged.emit(result_json)
 
             worker.done.connect(_done)
             worker.finished.connect(

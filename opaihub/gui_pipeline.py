@@ -144,6 +144,7 @@ def handle_gui_message(
     on_text: Any = None,
     cancel: Any = None,
     allow_cloud: bool = False,
+    allow_limit: bool = False,
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -163,6 +164,65 @@ def handle_gui_message(
     prefs = load_gui_preferences(root)
     selected_model = model_id or prefs.get("default_model") or "auto"
     selected_mode = mode or prefs.get("default_mode") or DEFAULT_MODE
+
+    def _fallback_model() -> dict[str, Any] | None:
+        from opai import app_state as app
+
+        catalog = app.available_models(root, discover_local=False)
+        models = list(catalog.get("models") or [])
+        free = [
+            item
+            for item in models
+            if item.get("kind") == "free" and item.get("available") is not False
+        ]
+        if free:
+            return free[0]
+        accounts = [
+            item
+            for item in models
+            if item.get("kind") == "account" and item.get("available") is not False
+        ]
+        preferred = ("haiku", "mini", "spark", "sonnet")
+        return next(
+            (
+                item
+                for suffix in preferred
+                for item in accounts
+                if suffix in str(item.get("id") or "").lower()
+            ),
+            accounts[0] if accounts else None,
+        )
+
+    if selected_model == "auto" and allow_cloud:
+        fallback = _fallback_model()
+        if fallback is not None:
+            selected_model = str(fallback["id"])
+
+    usage_limits = prefs.get("usage_limits") or {}
+    if selected_model in usage_limits and not allow_limit:
+        from .usage import usage_limit_gate
+
+        parts = selected_model.split(":")
+        provider = parts[1] if len(parts) > 1 else "opai"
+        usage = usage_limit_gate(
+            root,
+            selected_model,
+            provider=provider,
+            limits=usage_limits,
+        )
+        if usage["requiresConfirmation"]:
+            return {
+                "status": "needs_limit_confirmation",
+                "answer": (
+                    f"{selected_model} reached your {usage['limit']:,} "
+                    f"{usage['metric']} soft limit. Confirm to continue."
+                ),
+                "usage": usage,
+                "tool_trace": [],
+                "changed_files": [],
+                "warnings": [],
+                "next_actions": ["Confirm this call or raise the limit in Settings."],
+            }
     tool_trace = route_intents(root, message, mode=selected_mode)
     _emit(
         "context_read",
@@ -286,6 +346,7 @@ def handle_gui_message(
             "warnings": [],
             "next_actions": ["Review provider quota and billing settings."],
             "raw_result": result,
+            "error": result.get("error"),
         }
 
     if selected_model.startswith("account:"):
@@ -466,9 +527,31 @@ def handle_gui_message(
     }
     answer = result.get("answer") or result.get("hint") or result.get("reason") or ""
     if result.get("status") == "no_local_model":
+        fallback = _fallback_model() if selected_model == "auto" else None
+        if fallback is not None:
+            label = str(fallback.get("label") or fallback.get("id") or "a cloud model")
+            answer = (
+                f"No local model is running. OPai can continue with {label}, but "
+                "your task will leave this device. Confirm to continue."
+            )
+            return {
+                "status": "needs_auto_confirmation",
+                "answer": answer,
+                "fallbackModelId": fallback["id"],
+                "fallbackModelLabel": label,
+                "cloudStarted": False,
+                "tool_trace": tool_trace,
+                "receipt": receipt,
+                "changed_files": [],
+                "warnings": [],
+                "next_actions": [
+                    "Confirm the named fallback or connect a local model."
+                ],
+                "raw_result": result,
+            }
         answer = (
-            "Auto has no free model to run this. Pick your Claude or Codex account "
-            "in the model menu to answer it, or connect a local model under Advanced."
+            "Auto has no available model. Connect a free API, account, or local "
+            "model in Settings, then retry."
         )
     elif result.get("status") == "confirmation_required":
         answer = (

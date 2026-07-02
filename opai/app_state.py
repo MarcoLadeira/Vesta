@@ -513,7 +513,9 @@ def run_benchmark_gate(
 # --------------------------------------------------------------------------- #
 # Chat surface: model picker, ask, and the tool dispatcher (powers the GUI)
 # --------------------------------------------------------------------------- #
-def available_models(project_root: Path) -> dict[str, Any]:
+def available_models(
+    project_root: Path, *, discover_local: bool = True
+) -> dict[str, Any]:
     """Pickable models: connected accounts → free API → Auto → local.
 
     Accounts (Claude/Codex/Copilot via logged-in CLIs) are the headline path.
@@ -523,16 +525,19 @@ def available_models(project_root: Path) -> dict[str, Any]:
     or signs in.
     """
     from opaihub.accounts import (
-        account_connections,
         account_models,
+        connection_for_account,
         list_connected_accounts,
     )
     from opaihub.free_models import list_free_models
-    from opaihub.local_runner import list_local_models
+    from opaihub.local_runner import cached_local_models, list_local_models
 
-    accounts = account_models()
-    account_catalog = account_models(include_unavailable=True)
-    local = list_local_models(project_root)
+    detected_accounts = list_connected_accounts()
+    accounts = account_models(accounts=detected_accounts)
+    account_catalog = account_models(
+        include_unavailable=True, accounts=detected_accounts
+    )
+    local = list_local_models(project_root) if discover_local else cached_local_models()
     options: list[dict[str, Any]] = []
 
     # 1. Connected account models — group already set by _account_options()
@@ -590,8 +595,10 @@ def available_models(project_root: Path) -> dict[str, Any]:
         "models": options,
         "available_models": options,
         "account_models": account_catalog,
-        "accounts": list_connected_accounts(),
-        "connections": account_connections(),
+        "accounts": detected_accounts,
+        "connections": [
+            connection_for_account(account) for account in detected_accounts
+        ],
         "account_count": len(accounts),
         "account_model_count": len(accounts),
         "local_count": len(local),
@@ -708,9 +715,40 @@ def _ask_free_model(
         allow_cloud=True,
         selected_model_id=model_id,
     )
+    if result.get("status") == "runner_error":
+        from opai.provider_contract import normalize_provider_error
+
+        error = normalize_provider_error(
+            str((spec or {}).get("provider") or "free-api"),
+            result.get("error"),
+            model=str((spec or {}).get("model_id") or model_id),
+        )
+        result["error"] = error
+        result["answer"] = error["userMessage"]
     if result.get("status") == "answered_locally":
         result["status"] = "answered_by_free_api"
         result["source"] = "free_api"
+        with contextlib.suppress(Exception):
+            from opaihub.cost_model import estimate_tokens
+            from opaihub.ledger import record_model_call
+
+            usage = dict(getattr(runner, "last_usage", {}) or {})
+            answer = str(result.get("answer") or "")
+            tokens = int(usage.get("tokens") or estimate_tokens(task + "\n" + answer))
+            record_model_call(
+                project_root,
+                task,
+                model_tier="L2",
+                provider_type="free_api",
+                tokens=tokens,
+                input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+                confirmed=True,
+                model_id=model_id,
+                provider_id=(spec or {}).get("provider"),
+                measurement=str(usage.get("measurement") or "estimated"),
+                quota_snapshot=usage.get("quota_snapshot"),
+            )
     result["model_id"] = model_id
     result["free_tier"] = True
     return result
@@ -879,6 +917,11 @@ def _ask_account(
             tokens=estimate_tokens(task + "\n" + (answer or "")),
             confirmed=True,
             real_cost_usd=cost if isinstance(cost, (int, float)) else None,
+            model_id=f"account:{account_id}:{model}"
+            if model
+            else f"account:{account_id}",
+            provider_id=account_id,
+            measurement="estimated",
         )
         ledger_recorded = True
 

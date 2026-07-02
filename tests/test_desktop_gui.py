@@ -427,7 +427,8 @@ class AccountConnectionTests(unittest.TestCase):
 
         codex = AccountRunner("codex", "/bin/codex", model="gpt-5.4-mini")
         ro = codex.build_command("hi", allow_edits=False, out_file="/t/o.txt")
-        self.assertEqual(ro[:2], ["/bin/codex", "exec"])
+        self.assertEqual(ro[0], "/bin/codex")
+        self.assertLess(ro.index("--ask-for-approval"), ro.index("exec"))
         self.assertIn("read-only", ro)  # no writes unless asked
         self.assertIn("--output-last-message", ro)
         safe_auto = codex.build_command("hi", allow_edits=True)

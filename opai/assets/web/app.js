@@ -92,6 +92,11 @@ function boot() {
   bridge.token.connect(onToken);
   bridge.toolReady.connect(onTool);
   bridge.workspaceChanged.connect((json) => { state.boot = JSON.parse(json); rebootFromState(); toast("Workspace switched"); });
+  if (bridge.modelsChanged) bridge.modelsChanged.connect((json) => {
+    const catalog = JSON.parse(json);
+    if (catalog.models) { state.boot.models = catalog.models; renderComposerSelects(); }
+  });
+  if (bridge.discoverModels) setTimeout(() => bridge.discoverModels(), 0);
 }
 
 // One brand voice, one source: copy comes from opai/brand.py via the boot
@@ -460,6 +465,8 @@ const ERROR_TITLES = {
   account_not_connected: "No account connected", needs_model: "No free model for this",
   needs_confirmation: "Needs a paid model",
   needs_free_confirmation: "Free-tier API confirmation required",
+  needs_auto_confirmation: "Auto needs your confirmation",
+  needs_limit_confirmation: "Usage limit reached",
   blocked: "Blocked as risky",
   blocked_panic: "Panic mode is on", runner_error: "Local model couldn't answer",
   error: "Something went wrong", empty: "Empty response",
@@ -503,7 +510,7 @@ function send(retryOf) {
   setBusy(true);
   bridge.send(JSON.stringify({
     requestId, text, model: sel.model, mode: sel.mode, focus: sel.focus,
-    format: sel.format, allowCloud: sel.allowCloud === true,
+    format: sel.format, allowCloud: sel.allowCloud === true, allowLimit: sel.allowLimit === true,
   }));
 }
 
@@ -563,8 +570,14 @@ function onToken(json) {
   state.message = OPaiMessageState.transition(state.message, "streaming");
   if (!state.streaming) { state.streaming = true; updateGenStage(); }
   state.streamedText += d.text;
-  const body = state.pending && state.pending.querySelector(".body.stream");
-  if (body) { body.textContent = state.streamedText; scrollBottom(); }
+  if (!state.tokenRenderPending) {
+    state.tokenRenderPending = true;
+    requestAnimationFrame(() => {
+      state.tokenRenderPending = false;
+      const body = state.pending && state.pending.querySelector(".body.stream");
+      if (body) { body.textContent = state.streamedText; scrollBottom(); }
+    });
+  }
 }
 
 function startTimer(sel) {
@@ -656,12 +669,20 @@ function renderErrorCard(el, status, r, sel) {
   el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button>` +
+    (status === "needs_auto_confirmation" ? `<button class="btn primary" data-a="fallback">Confirm ${esc(r.fallbackModelLabel || "cloud fallback")}</button>` : "") +
+    (status === "needs_limit_confirmation" ? `<button class="btn primary" data-a="limit">Continue past limit</button>` : "") +
     (actions.includes("open_settings") || actions.includes("reconnect") ? `<button class="btn" data-a="settings">Open Settings</button>` : "") +
     `<button class="btn" data-a="switch">Switch model</button>` +
     (raw ? `<button class="btn ghost" data-a="details">Show technical details</button><button class="btn ghost" data-a="copy">Copy details</button>` : "") + `</div>` +
     (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
   wireActivitySummary(el);
   el.querySelector('[data-a="retry"]').onclick = () => retry();
+  const fallback = el.querySelector('[data-a="fallback"]'); if (fallback) fallback.onclick = () => {
+    send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
+  };
+  const limit = el.querySelector('[data-a="limit"]'); if (limit) limit.onclick = () => {
+    send(Object.assign({}, state.lastSend || {}, { allowLimit: true }));
+  };
   const settings = el.querySelector('[data-a="settings"]'); if (settings) settings.onclick = () => switchView("settings");
   el.querySelector('[data-a="switch"]').onclick = () => { $("#modelSel").focus(); };
   const details = el.querySelector('[data-a="details"]'); if (details) details.onclick = () => {
@@ -836,6 +857,36 @@ function renderSettings() {
     });
     h += `<div class="set-note">OPai signs in through the official Claude, Codex, and Copilot apps — it never sees or stores your passwords or keys.</div>`;
     h += `<div class="actions"><button class="btn primary" id="setConnect">Connect accounts</button></div>`;
+    if (d.codexConfig && d.codexConfig.repairable) {
+      h += `<div class="config-repair"><div><strong>Codex configuration needs repair</strong><div class="set-note">${esc(d.codexConfig.message || "Invalid Codex configuration")}</div></div><button class="btn" id="repairCodex">Repair Codex config</button></div>`;
+    }
+    const providerNames = { gemini: "Gemini", groq: "Groq", mistral: "Mistral" };
+    h += `<div class="set-head">Free model connections</div>`;
+    (d.credentials || []).forEach((credential) => {
+      const provider = credential.provider || "provider";
+      const label = providerNames[provider] || provider;
+      const status = credential.configured ? `Connected securely · ${credential.source}` : (credential.keychainAvailable ? "Not connected" : "OS keychain unavailable — use environment setup");
+      h += `<div class="provider-key-card" data-provider="${esc(provider)}"><div class="provider-key-head"><span>${esc(label)}</span><span class="provider-key-status">${esc(status)}</span></div>` +
+        `<div class="provider-key-form"><input type="password" autocomplete="off" spellcheck="false" aria-label="${esc(label)} API key" placeholder="Paste API key">` +
+        `<button class="btn" data-save-provider="${esc(provider)}">${credential.configured ? "Replace" : "Connect"} ${esc(label)}</button>` +
+        (credential.configured ? `<button class="btn ghost" data-test-provider="${esc(provider)}">Test ${esc(label)}</button>` : "") +
+        (credential.source === "keychain" ? `<button class="btn ghost" data-delete-provider="${esc(provider)}">Remove</button>` : "") + `</div></div>`;
+    });
+    h += `<div class="set-note">Keys are stored only in the operating-system credential store. Environment variables override keychain values.</div>`;
+    h += `<div class="set-head">Model usage limits</div>`;
+    const modelsById = Object.fromEntries((d.models || []).map((model) => [model.id, model]));
+    const fmtUsage = (value) => Number(value || 0).toLocaleString();
+    (d.usage || []).forEach((usage) => {
+      const model = modelsById[usage.modelId] || { label: usage.modelId };
+      const bounded = usage.limit != null;
+      const summary = bounded ? `${fmtUsage(usage.used)} / ${fmtUsage(usage.limit)} ${esc(usage.metric)}` : `${fmtUsage(usage.used)} ${esc(usage.metric)} used · no limit set`;
+      const pct = bounded ? Math.max(0, Math.min(100, +usage.percent || 0)) : 0;
+      h += `<div class="usage-card" data-model-id="${esc(usage.modelId)}"><div class="usage-head"><span>${esc(model.label || usage.modelId)}</span><span>${summary}</span></div>` +
+        `<div class="usage-track" role="progressbar" aria-label="${esc(model.label || usage.modelId)} usage" aria-valuemin="0" aria-valuemax="100"${bounded ? ` aria-valuenow="${pct}"` : ""}><span style="width:${pct}%"></span></div>` +
+        `<div class="usage-meta">${esc(usage.source === "provider" ? "Provider reported" : "OPai tracked")} · ${esc(usage.window || "month")} · ${esc(usage.confidence || "unknown")}</div>` +
+        `<div class="usage-limit-form"><input type="number" min="1" step="1" aria-label="Soft ${esc(String(usage.metric || "tokens").replace(/s$/, ""))} limit" value="${bounded ? esc(usage.limit) : ""}" placeholder="Set limit">` +
+        `<button class="btn ghost" data-save-limit="${esc(usage.modelId)}" data-metric="${esc(usage.metric || "tokens")}" data-window="${esc(usage.window || "month")}">Save limit</button></div></div>`;
+    });
     h += `<div class="set-head">Defaults</div>`;
     h += row("Default model", d.prefs.default_model || "auto");
     h += row("Default run mode", modeLabels[d.prefs.default_mode] || d.prefs.default_mode);
@@ -856,6 +907,52 @@ function renderSettings() {
     page.innerHTML = h;
     const pb = $("#setPanic"); if (pb) pb.onclick = () => { switchView("chat"); bridge.runTool("panic"); };
     const cb = $("#setConnect"); if (cb) cb.onclick = () => { switchView("chat"); bridge.runTool("connect"); };
+    const repair = $("#repairCodex"); if (repair) repair.onclick = () => {
+      if (!window.confirm("Create a backup and remove only service_tier = \"default\" from Codex config?")) return;
+      bridge.repairCodexConfig((json2) => {
+        const result = JSON.parse(json2);
+        if (result.repaired) {
+          repair.closest(".config-repair").innerHTML = `<div><strong>Codex config repaired</strong><div class="set-note">Invalid tier removed; backup created.</div></div>`;
+        } else toast(result.error || "Could not repair Codex config");
+      });
+    };
+    page.querySelectorAll("[data-save-provider]").forEach((button) => {
+      button.onclick = () => {
+        const card = button.closest(".provider-key-card"), input = card.querySelector("input");
+        const secret = input.value.trim(); if (!secret) return;
+        bridge.saveProviderKey(button.dataset.saveProvider, secret, (json2) => {
+          input.value = "";
+          const result = JSON.parse(json2), status = card.querySelector(".provider-key-status");
+          status.textContent = result.configured ? "Connected securely · " + result.source : (result.error || "Not connected");
+          if (result.configured && bridge.refreshModels) bridge.refreshModels((modelsJson) => {
+            const refreshed = JSON.parse(modelsJson); if (refreshed.models) { state.boot.models = refreshed.models; renderComposerSelects(); }
+          });
+        });
+      };
+    });
+    page.querySelectorAll("[data-delete-provider]").forEach((button) => {
+      button.onclick = () => bridge.deleteProviderKey(button.dataset.deleteProvider, () => renderSettings());
+    });
+    page.querySelectorAll("[data-test-provider]").forEach((button) => {
+      button.onclick = () => {
+        const card = button.closest(".provider-key-card"), status = card.querySelector(".provider-key-status");
+        status.textContent = "Testing connection…"; button.disabled = true;
+        bridge.testProvider(button.dataset.testProvider, (json2) => {
+          const result = JSON.parse(json2); button.disabled = false;
+          const detail = result.error && (result.error.userMessage || result.error);
+          status.textContent = result.connected ? "Connection verified" : (detail || "Connection failed");
+        });
+      };
+    });
+    page.querySelectorAll("[data-save-limit]").forEach((button) => {
+      button.onclick = () => {
+        const input = button.closest(".usage-limit-form").querySelector("input"), value = input.value.trim();
+        if (!value || +value <= 0) return;
+        bridge.saveUsageLimit(button.dataset.saveLimit, button.dataset.metric, value, button.dataset.window, (json2) => {
+          const result = JSON.parse(json2); toast(result.ok ? "Usage limit saved" : (result.error || "Could not save limit"));
+        });
+      };
+    });
   });
 }
 

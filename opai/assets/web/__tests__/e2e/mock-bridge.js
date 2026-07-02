@@ -80,7 +80,7 @@
     else cb(JSON.stringify(value));
   }
   var bridge = {
-    replyReady: Sig(), activity: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(),
+    replyReady: Sig(), activity: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
     statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
@@ -99,6 +99,32 @@
     },
     usePrompt: function (id, cb) { cb(JSON.stringify(promptData.find(function (p) { return p.id === id; }) || {})); },
     settingsData: function (cb) { respond(cb, settings, scenario.settingsDelayMs); },
+    saveProviderKey: function (provider, key, cb) {
+      window.__mock.savedProviderKeys.push([provider, key]);
+      cb(JSON.stringify({ provider: provider, configured: true, source: "keychain", keychainAvailable: true }));
+    },
+    deleteProviderKey: function (provider, cb) {
+      window.__mock.deletedProviderKeys.push(provider);
+      cb(JSON.stringify({ provider: provider, configured: false, source: null, keychainAvailable: true }));
+    },
+    testProvider: function (provider, cb) {
+      window.__mock.providerTests.push(provider);
+      cb(JSON.stringify((scenario.providerTestResponses && scenario.providerTestResponses[provider]) || { provider: provider, connected: true }));
+    },
+    saveUsageLimit: function (model, metric, limit, windowName, cb) {
+      window.__mock.savedUsageLimits.push([model, metric, +limit, windowName]);
+      cb(JSON.stringify({ ok: true }));
+    },
+    refreshModels: function (cb) { cb(JSON.stringify({ models: boot.models })); },
+    discoverModels: function () {
+      if (scenario.discoveredModels) setTimeout(function () {
+        bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels }));
+      }, scenario.discoveryDelayMs || 0);
+    },
+    repairCodexConfig: function (cb) {
+      window.__mock.codexRepairs++;
+      cb(JSON.stringify({ repaired: true, backupPath: "/tmp/config.toml.bak" }));
+    },
     savePref: function (key, value) { window.__mock.savedPrefs.push([key, value]); },
     send: function (p) { var m = window.__mock; m.lastRequest = JSON.parse(p); m.sendCount++; },
     cancel: function (id) { var m = window.__mock; m.cancelCount++; m.cancelled.push(id); },
@@ -124,7 +150,8 @@
   window.__mock = {
     bridge: bridge, lastRequest: null, sendCount: 0, cancelCount: 0, cancelled: [],
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
-    runTools: [], appliedTools: [], externalUrls: [],
+    runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [],
+    deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
     reqId: function () { return window.__mock.lastRequest && window.__mock.lastRequest.requestId; },
     emitActivity: function (id, ev) { bridge.activity.emit(JSON.stringify({ requestId: id, event: ev })); },
     emitToken: function (id, t) { bridge.token.emit(JSON.stringify({ requestId: id, text: t })); },

@@ -209,11 +209,24 @@ class LocalRouteContractTests(_Base):
         self.assertEqual(res["status"], "answered")
         self.assertClean(res["answer"])
 
-    def test_no_local_model_guides_to_account(self):
-        res = self._run({"status": "no_local_model", "hint": "h", "next_command": "c"})
-        self.assertEqual(res["status"], "needs_model")
+    def test_no_local_model_offers_named_account_fallback(self):
+        catalog = {
+            "models": [
+                {
+                    "id": "account:claude:haiku",
+                    "label": "Claude · Haiku 4.5",
+                    "kind": "account",
+                    "available": True,
+                }
+            ]
+        }
+        with mock.patch("opai.app_state.available_models", return_value=catalog):
+            res = self._run(
+                {"status": "no_local_model", "hint": "h", "next_command": "c"}
+            )
+        self.assertEqual(res["status"], "needs_auto_confirmation")
         self.assertClean(res["answer"])
-        self.assertIn("account", res["answer"].lower())
+        self.assertIn("Haiku", res["answer"])
 
     def test_confirmation_required_guides_to_account(self):
         res = self._run({"status": "confirmation_required", "reason": "cloud tier"})
