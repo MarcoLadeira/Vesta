@@ -44,6 +44,8 @@
           <div class="scroll" id="chatScroll">
             <div class="thread" id="thread">
               <div class="empty" id="empty">
+                <div class="empty-mark" aria-hidden="true">O</div>
+                <div class="empty-eyebrow" id="emptyEyebrow">OPai · Every step visible. Every dollar accounted.</div>
                 <h1>Build more. Burn less.</h1>
                 <p id="emptySub">Tell OPai the goal. It plans, routes to the cheapest capable model, shows every step, and hands you the receipt.</p>
                 <div class="chips" id="chips"></div>
@@ -55,10 +57,10 @@
             <div class="composer">
               <textarea id="input" rows="1" placeholder="Tell OPai what to build, fix, or explain…"></textarea>
               <div class="composer-row">
-                <select class="select" id="modeSel"></select>
+                <select class="select" id="modeSel" aria-label="Mode"></select>
                 <div class="spacer"></div>
                 <span class="pdot" id="providerDot"></span>
-                <select class="select" id="modelSel" style="max-width:230px"></select>
+                <select class="select" id="modelSel" style="max-width:230px" aria-label="Model"></select>
                 <button class="send" id="send">Send</button>
               </div>
             </div>
@@ -96,8 +98,8 @@
 
   <!-- command palette -->
   <div class="overlay" id="palette">
-    <div class="palette">
-      <input id="paletteInput" placeholder="Type a command…" />
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Commands">
+      <input id="paletteInput" placeholder="Type a command…" aria-label="Search commands" />
       <div class="list" id="paletteList"></div>
     </div>
   </div>

@@ -104,7 +104,8 @@ function applyBrand(brand) {
   const hint = $("#empty .hint");
   if (hint && brand.emptyHint) hint.innerHTML = brand.emptyHint.replace(/Ctrl\+K/, "<kbd>Ctrl</kbd>+<kbd>K</kbd>");
   if (brand.composerPlaceholder) $("#input").placeholder = brand.composerPlaceholder;
-  if (brand.tagline) $("#wsSwitch").title += " — " + brand.tagline;
+  const eyebrow = $("#emptyEyebrow");
+  if (eyebrow && brand.tagline) eyebrow.textContent = brand.name + " · " + brand.tagline;
 }
 
 function rebootFromState() {
@@ -173,7 +174,10 @@ function renderAccount() {
 function renderWorkspace() {
   const w = state.boot.workspace;
   $("#wsLabel").textContent = w.label;
-  $("#wsSwitch").title = `${w.name}${w.branch ? " · " + w.branch : ""} · ${w.file_count} files indexed`;
+  // Single owner of the tooltip: workspace facts + the brand tagline together,
+  // so a re-render can never drop the tagline (BUG-QA-007).
+  const tagline = (state.brand && state.brand.tagline) ? ` — ${state.brand.tagline}` : "";
+  $("#wsSwitch").title = `${w.name}${w.branch ? " · " + w.branch : ""} · ${w.file_count} files indexed${tagline}`;
   const menu = $("#wsMenu"); menu.innerHTML = "";
   const frag = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; };
   const label = (t) => menu.appendChild(frag(`<div class="mlabel">${esc(t)}</div>`));
@@ -222,12 +226,22 @@ function renderComposerSelects() {
     if (m.id === state.mode.id) o.selected = true; modeSel.appendChild(o);
   });
   modeSel.onchange = () => {
+    // Full Auto edits files and runs commands without asking — require an
+    // explicit risk acknowledgement before persisting it (BUG-QA-009).
+    if (modeSel.value === "full-auto") {
+      const ok = window.confirm(
+        "Full Auto lets OPai edit files and run commands without asking first.\nContinue?"
+      );
+      if (!ok) { modeSel.value = state.mode.id; return; }
+    }
     state.mode = state.boot.modes.find((m) => m.id === modeSel.value) || state.mode;
     bridge.savePref("default_mode", state.mode.id); refreshInspector(); refreshStatus();
   };
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
   (state.boot.models || []).forEach((m) => {
     const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; o.title = m.badge || "";
+    // Unavailable models stay visible but unpickable, with the reason (BUG-QA-008).
+    if (m.available === false) { o.disabled = true; o.title = m.disabled_reason || "Not available"; }
     if (m.id === state.model.id) o.selected = true; modelSel.appendChild(o);
   });
   modelSel.onchange = () => {
@@ -525,18 +539,32 @@ function metaFooter(r, sel, durMs) {
   if (rc.paid_call_avoided) bits.push("paid call avoided");
   return `<div class="footer-note">${esc(bits.join("   ·   "))}</div>`;
 }
+// Defense-in-depth: never trust upstream redaction — scrub secret-shaped text
+// before it can render in the details drawer (BUG-QA-002).
+function redactSecrets(text) {
+  return String(text || "")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, "[redacted]")
+    .replace(/\b(token|secret|password|api[_-]?key|bearer)\s*[:=]\s*\S+/gi, "$1=[redacted]");
+}
+
 function renderErrorCard(el, status, r, sel) {
   const title = ERROR_TITLES[status] || "Something went wrong";
-  const what = (r && r.answer) || "The request didn't complete.";
-  const raw = (r && (r.error || (r.raw_result && JSON.stringify(r.raw_result)))) || "";
-  el.innerHTML = roleHeader("Error", "var(--red)") +
+  const what = typeof (r && r.answer) === "string" && r.answer
+    ? r.answer : "The request didn't complete.";
+  const raw = redactSecrets(
+    (r && (r.error || (r.raw_result && JSON.stringify(r.raw_result)))) || ""
+  );
+  // Keep the activity evidence reviewable after a failure — the timeline is
+  // exactly what you need to diagnose it (BUG-QA-001).
+  el.innerHTML = roleHeader("Error", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button><button class="btn" data-a="switch">Switch model</button>` +
     (raw ? `<button class="btn ghost" data-a="copy">Copy details</button>` : "") + `</div>` +
-    (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(String(raw).slice(0, 1500))}</pre></details>` : "") + `</div>`;
+    (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
+  wireActivitySummary(el);
   el.querySelector('[data-a="retry"]').onclick = () => retry();
   el.querySelector('[data-a="switch"]').onclick = () => { $("#modelSel").focus(); };
-  const cp = el.querySelector('[data-a="copy"]'); if (cp) cp.onclick = () => { if (navigator.clipboard) navigator.clipboard.writeText(String(raw)); toast("Details copied"); };
+  const cp = el.querySelector('[data-a="copy"]'); if (cp) cp.onclick = () => { if (navigator.clipboard) navigator.clipboard.writeText(raw); toast("Details copied"); };
 }
 
 function finalize(status, r) {
@@ -557,10 +585,17 @@ function finalize(status, r) {
     return;
   }
   if (!ANSWERED.includes(status)) { renderErrorCard(el, status, r, sel); return; }
+  // A malformed payload (answer that isn't a string) must never coerce into
+  // "[object Object]" in the chat — treat it as a clean error (BUG-QA-003).
+  const rawAnswer = r && r.answer;
+  if (rawAnswer != null && typeof rawAnswer !== "string" && !state.streamedText) {
+    renderErrorCard(el, "empty", { answer: "The model returned an unexpected response shape." }, sel);
+    return;
+  }
   const isAcct = sel.modelKind === "account";
   const label = isAcct ? String(sel.modelLabel).split(" · ")[0] : "OPai";
   const color = isAcct ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
-  const answer = (r && r.answer) || state.streamedText || "OPai didn't return a response for that one.";
+  const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
   let html = roleHeader(label, color) + activitySummaryHtml() + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];
   if (changed.length) html += filesCardHtml(changed);

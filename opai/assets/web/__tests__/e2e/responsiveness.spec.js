@@ -33,7 +33,6 @@ for (const viewport of [
   { name: "mobile small", width: 375, height: 667 },
 ]) {
   test(`${viewport.name} has no overflow and keeps composer usable`, async ({ page }) => {
-    test.fail(true, "BUG-QA-004: desktop grid has no tablet/mobile responsive layout");
     await page.setViewportSize(viewport);
     await openApp(page);
     await expectUsableViewport(page);

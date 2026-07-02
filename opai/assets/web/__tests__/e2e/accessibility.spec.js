@@ -37,14 +37,15 @@ test("activity status uses log and polite live-region semantics", async ({ page 
   await expect(page.locator("#inspLive")).toHaveAttribute("aria-live", "polite");
 });
 
-test("known bug: command palette is exposed as a labelled dialog", async ({ page }) => {
-  test.fail(true, "BUG-QA-005: command palette overlay has no dialog role or accessible label");
+test("command palette is exposed as a labelled dialog", async ({ page }) => {
   await page.keyboard.press("Control+k");
   await expect(page.getByRole("dialog", { name: /command/i })).toBeVisible();
 });
 
-test("known bug: model and mode selectors have accessible names", async ({ page }) => {
-  test.fail(true, "BUG-QA-006: composer select controls have no labels or aria-labels");
-  await expect(page.getByRole("combobox", { name: /model/i })).toBeVisible();
-  await expect(page.getByRole("combobox", { name: /mode/i })).toBeVisible();
+test("model and mode selectors have accessible names", async ({ page }) => {
+  // Anchored regexes: "Model" also contains the substring "mode", so the
+  // unanchored pair could never both resolve uniquely. The intent stands —
+  // each composer select must expose a stable accessible name.
+  await expect(page.getByRole("combobox", { name: /^model$/i })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: /^mode$/i })).toBeVisible();
 });
