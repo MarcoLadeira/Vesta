@@ -19,6 +19,7 @@ without a display and identical across the composer and prompt library.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # run_mode values must match opaihub.gui_preferences.MODES.
@@ -185,6 +186,32 @@ def task_modes() -> list[dict[str, str]]:
 
 def output_formats() -> list[dict[str, str]]:
     return list(OUTPUT_FORMATS)
+
+
+_STEP_RE = re.compile(r"^\s{0,4}(?:(\d{1,2})[.)]\s+|[-*]\s+)(.+)$")
+
+
+def parse_plan_steps(text: str) -> list[str]:
+    """Extract actionable steps from a plan-mode answer (issue #130).
+
+    Pure derivation from the model's real output — numbered lines (``1.`` /
+    ``2)``) or bullets become steps; markdown emphasis is stripped; anything
+    under two steps returns ``[]`` (prose isn't a plan). The GUI renders the
+    result as an editable checklist; building re-prompts the real pipeline
+    with the steps the user kept. Nothing is invented.
+    """
+    steps: list[str] = []
+    for raw_line in str(text or "").splitlines():
+        match = _STEP_RE.match(raw_line)
+        if not match:
+            continue
+        body = match.group(2).strip()
+        # Strip markdown bold/italic/code wrappers around the step title.
+        body = re.sub(r"^[*_`]+|[*_`]+$", "", body).strip()
+        if len(body) < 4:
+            continue
+        steps.append(body[:300])
+    return steps if len(steps) >= 2 else []
 
 
 def task_summary(mode_id: str | None, format_id: str | None) -> dict[str, Any]:
