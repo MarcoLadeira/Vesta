@@ -117,7 +117,7 @@
     },
     refreshModels: function (cb) { cb(JSON.stringify({ models: boot.models })); },
     discoverModels: function () {
-      if (scenario.discoveredModels) setTimeout(function () {
+      if (scenario.discoveredModels && !scenario.deferDiscovery) setTimeout(function () {
         bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels }));
       }, scenario.discoveryDelayMs || 0);
     },
@@ -152,6 +152,9 @@
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
     runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [],
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
+    emitDiscoveredModels: function () {
+      bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
+    },
     reqId: function () { return window.__mock.lastRequest && window.__mock.lastRequest.requestId; },
     emitActivity: function (id, ev) { bridge.activity.emit(JSON.stringify({ requestId: id, event: ev })); },
     emitToken: function (id, t) { bridge.token.emit(JSON.stringify({ requestId: id, text: t })); },
