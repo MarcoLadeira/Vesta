@@ -65,7 +65,18 @@ export async function emitToken(page, requestId, text) {
 }
 
 export async function openNav(page, label) {
-  await page.getByRole("button", { name: label, exact: true }).click();
+  const target = page.getByRole("button", { name: label, exact: true });
+  // Simple-by-default sidebar: dashboard items may sit inside a folded group
+  // ("Insights"). Do what a user does — unfold it, then click.
+  if (!(await target.isVisible().catch(() => false))) {
+    const toggles = page.locator(".nav-group-toggle");
+    const count = await toggles.count();
+    for (let i = 0; i < count; i++) {
+      const toggle = toggles.nth(i);
+      if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    }
+  }
+  await target.click();
 }
 
 export function expectNoFatalErrors(diagnostics) {

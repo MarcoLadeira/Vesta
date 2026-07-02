@@ -16,7 +16,9 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "default_mode": DEFAULT_MODE,
     "default_task_mode": "general",
     "default_output_format": "normal",
-    "show_control_panel": True,
+    # Simple by default: the Inspector is powerful but optional — first-time
+    # users get a clean chat; power users toggle it (Ctrl+I / header pill).
+    "show_control_panel": False,
     "auto_tools": True,
     "safe_auto": {
         "allow_commands": [

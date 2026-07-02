@@ -1,13 +1,18 @@
+// Mirrors the production IA (opai/gui_nav.py): a ChatGPT-simple unlabeled top
+// level, one folded Insights group, and Settings living in the sidebar footer
+// (so it is intentionally NOT a nav item here).
 export const FULL_NAV = [
   {
-    group: "Workspace",
+    group: "",
+    collapsed: false,
     items: [
       { id: "chat", label: "Chat", kind: "view" },
       { id: "prompts", label: "Prompt Library", kind: "view" },
     ],
   },
   {
-    group: "Dashboard",
+    group: "Insights",
+    collapsed: true,
     items: [
       { id: "home", label: "Money Saved", kind: "dashboard", section: "home" },
       { id: "firewall", label: "Cost Firewall", kind: "dashboard", section: "firewall" },
@@ -18,7 +23,6 @@ export const FULL_NAV = [
       { id: "workflows", label: "Workflows", kind: "dashboard", section: "workflows" },
     ],
   },
-  { group: "System", items: [{ id: "settings", label: "Settings", kind: "view" }] },
 ];
 
 export const MODELS = [

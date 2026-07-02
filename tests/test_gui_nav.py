@@ -27,13 +27,22 @@ class NavModelTests(unittest.TestCase):
         for needed in ("chat", "prompts", "settings", "home", "firewall"):
             self.assertIn(needed, nav_ids())
 
-    def test_groups_preserve_order_and_cover_sections(self):
+    def test_groups_are_simple_by_default(self):
+        # ChatGPT-simple top level: an unlabeled workspace pair, then ONE
+        # folded Insights group. Settings is hidden from the list (it lives as
+        # the fixed footer control) but stays routable via find_nav.
+        from opai.gui_nav import group_collapsed
+
         groups = nav_groups()
         names = [g for g, _items in groups]
-        self.assertEqual(names, ["Workspace", "Dashboard", "System"])
-        # Every nav item lands in exactly one group.
+        self.assertEqual(names, ["", "Insights"])
+        self.assertFalse(group_collapsed(""))
+        self.assertTrue(group_collapsed("Insights"))
+        # Visible items cover everything except hidden ones (settings).
         flat = [item["id"] for _g, items in groups for item in items]
-        self.assertEqual(sorted(flat), sorted(nav_ids()))
+        self.assertNotIn("settings", flat)
+        self.assertEqual(sorted(flat + ["settings"]), sorted(nav_ids()))
+        self.assertIsNotNone(find_nav("settings"))
 
     def test_dashboard_sections_are_real_view_model_sections(self):
         known = {key for key, _label in SECTIONS}
