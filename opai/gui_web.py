@@ -66,6 +66,29 @@ def web_available() -> bool:
         return False
 
 
+def resolve_openable(root: Path, target: str) -> Path | None:
+    """Resolve ``target`` to an absolute path that is safe to open in the OS.
+
+    Allows the workspace root itself or any existing path under it (a changed
+    file, a subfolder). Anything outside the project, or that doesn't exist,
+    returns ``None`` — so the front-end can never ask the OS to open an
+    arbitrary path.
+    """
+    try:
+        base = root.expanduser().resolve()
+        raw = Path(target or "")
+        candidate = (raw if raw.is_absolute() else base / raw).resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+    if not candidate.exists():
+        return None
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return None
+    return candidate
+
+
 # --------------------------------------------------------------------------- #
 # Bridge payload builders (pure-ish; reuse the Qt-free data layer)
 # --------------------------------------------------------------------------- #
@@ -210,6 +233,8 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "inspector": _inspector(root, sel),
         "defaultView": DEFAULT_VIEW,
         "initialTask": initial_task or "",
+        "recents": _recents(),
+        "brand": _brand(),
         "tools": [
             {"id": tool["id"], "label": tool["label"], "desc": tool["desc"]}
             for tool in A.TOOLS
@@ -251,6 +276,18 @@ def settings_payload(root: Path) -> dict[str, Any]:
             "release_stage": overview.get("release_stage"),
         },
     }
+
+
+def _recents() -> list[str]:
+    from opai.gui_recents import load_recents
+
+    return load_recents()
+
+
+def _brand() -> dict[str, str]:
+    from opai.brand import boot_brand
+
+    return boot_brand()
 
 
 def _run_gui(
@@ -476,8 +513,19 @@ def _run_gui(
 
         @QtCore.Slot()
         def openWorkspace(self) -> None:
+            # Bring the window forward first so the native picker is never hidden
+            # behind it, and start one level up so sibling projects are one click
+            # away. Runs on the GUI thread (it's a slot), so the modal dialog is
+            # safe.
+            self.window.raise_()
+            self.window.activateWindow()
+            parent = self.root.parent
+            start = str(parent if parent.exists() else self.root)
             chosen = QtWidgets.QFileDialog.getExistingDirectory(
-                self.window, "Open project folder", str(self.root)
+                self.window,
+                "Open project folder",
+                start,
+                QtWidgets.QFileDialog.Option.ShowDirsOnly,
             )
             if chosen and is_valid_workspace(chosen):
                 self._switch(chosen)
@@ -486,6 +534,23 @@ def _run_gui(
         def switchWorkspace(self, path: str) -> None:
             if is_valid_workspace(path):
                 self._switch(path)
+
+        @QtCore.Slot(str)
+        def openPath(self, target: str) -> None:
+            """Open a file or folder from this project in the OS file manager."""
+            resolved = resolve_openable(self.root, target)
+            if resolved is not None:
+                QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(resolved)))
+
+        @QtCore.Slot(result=str)
+        def recents(self) -> str:
+            return json.dumps(_recents())
+
+        @QtCore.Slot(str)
+        def saveRecent(self, text: str) -> None:
+            from opai.gui_recents import add_recent
+
+            add_recent(text)
 
         def _switch(self, path: str) -> None:
             self.root = Path(path).expanduser().resolve()

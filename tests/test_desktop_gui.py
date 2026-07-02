@@ -9,7 +9,7 @@ from pathlib import Path
 
 from opai.cli import build_parser
 from opai import app_state as A
-from opai.gui_desktop import SECTIONS, run_once
+from opai.gui_desktop import SECTIONS, card_metric_rows, run_once
 from opaihub.launch_readiness import build_launch_readiness
 
 
@@ -19,6 +19,20 @@ def _repo(root: Path) -> None:
 
 
 class AppStateReadTests(unittest.TestCase):
+    def test_card_metric_rows_keep_capture_diagnostic_for_qt_fallback(self):
+        rows = card_metric_rows(
+            {
+                "metrics": [
+                    {
+                        "label": "Capture",
+                        "value": "selective proxy",
+                        "severity": "success",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(rows, [("Capture", "selective proxy", "success")])
+
     def test_overview_shape_and_zero_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -420,9 +420,22 @@ def cmd_why(args: argparse.Namespace) -> int:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
+    root = _project(args.project)
+    # --model routes through the same pipeline as the GUI (accounts/auto/local)
+    # with live activity, streaming, Ctrl+C cancel, and a cost/savings footer.
+    # Without it, the classic free local-only path is unchanged.
+    if getattr(args, "model", None):
+        from opai.cli_stream import stream_ask
+
+        return stream_ask(
+            root,
+            args.task,
+            model=args.model,
+            mode=getattr(args, "mode", None) or "ask",
+            json_out=getattr(args, "json", False),
+        )
     from opaihub.ask import render_ask, run_ask
 
-    root = _project(args.project)
     result = run_ask(
         root,
         args.task,
@@ -698,6 +711,33 @@ def cmd_proxy(args: argparse.Namespace) -> int:
     if status in {"answered_by_account", "fail_open"}:
         return 0
     if status == "blocked":
+        return 2
+    return 1
+
+
+def cmd_agent_launch(args: argparse.Namespace) -> int:
+    """Wrapper entrypoint: proxy canonical one-shot calls, otherwise stay silent."""
+    from opaihub.agent_launch import PASSTHROUGH_EXIT, launch_agent
+
+    raw_args = list(getattr(args, "agent_args", []) or [])
+    if raw_args[:1] == ["--"]:
+        raw_args = raw_args[1:]
+    try:
+        result = launch_agent(
+            _project(args.project),
+            args.agent,
+            raw_args,
+        )
+    except Exception:  # noqa: BLE001 - shell wrapper must always fail open
+        return PASSTHROUGH_EXIT
+    if result.get("status") == "passthrough":
+        return PASSTHROUGH_EXIT
+    answer = result.get("answer") or result.get("reason") or ""
+    if answer:
+        print(answer)
+    if result.get("status") in {"answered_by_account", "fail_open"}:
+        return 0
+    if result.get("status") == "blocked":
         return 2
     return 1
 
@@ -1540,6 +1580,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_proxy)
 
     p = sub.add_parser(
+        "agent-launch",
+        help="Internal shell-wrapper entrypoint for capture-aware agent launches",
+    )
+    p.add_argument("agent", help="claude | codex | copilot")
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument("agent_args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_agent_launch)
+
+    p = sub.add_parser(
         "receipt",
         help="Signed, screenshot-able savings receipt you can share and verify",
     )
@@ -1639,11 +1688,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "ask",
-        help="Answer a cheap task locally (local model + result cache, $0, no cloud)",
+        help=(
+            "Ask a task: free local-first by default; --model streams your "
+            "Claude/Codex/Copilot account with live activity (same core as the GUI)"
+        ),
     )
     p.add_argument("task")
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--json", action="store_true")
+    p.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Model to run: auto, claude[:sonnet|opus|haiku], codex[:model], "
+            "copilot[:model], or a full/local model id. Streams live activity."
+        ),
+    )
+    p.add_argument(
+        "--mode",
+        default=None,
+        help="Run mode with --model: ask | plan | safe-auto | approve-edits | full-auto",
+    )
     p.add_argument(
         "--allow-cloud",
         action="store_true",

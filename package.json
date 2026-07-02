@@ -3,12 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "description": "JS unit (Vitest) + E2E (Playwright) tests for the OPai web UI front-end (opai/assets/web).",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
+  },
   "scripts": {
     "test:unit": "vitest run",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.9"
   }
 }

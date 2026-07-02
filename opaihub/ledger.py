@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -22,13 +23,17 @@ EVENT_ROUTE = "route_decision"
 EVENT_MODEL_CALL = "model_call"
 EVENT_CONTEXT_COMPACT = "context_compaction"
 EVENT_CACHE = "cache_lookup"
+EVENT_CAPTURE_SESSION = "capture_session"
 
 KNOWN_EVENT_TYPES = {
     EVENT_ROUTE,
     EVENT_MODEL_CALL,
     EVENT_CONTEXT_COMPACT,
     EVENT_CACHE,
+    EVENT_CAPTURE_SESSION,
 }
+
+_LEDGER_LOCK = threading.RLock()
 
 
 def _now_iso() -> str:
@@ -79,10 +84,64 @@ def record_event(
         event[key] = redact(value) if isinstance(value, str) else value
 
     path = ledger_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event, sort_keys=True) + "\n")
+    with _LEDGER_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, sort_keys=True) + "\n")
     return event
+
+
+def record_capture_session(
+    project_root: Path,
+    task: str,
+    *,
+    capture_id: str,
+    agent: str,
+    mode: str,
+    outcome: str,
+    captured: bool,
+    paid: bool,
+    spend_accounted: bool,
+    model: str | None = None,
+    reason_code: str | None = None,
+    source: str = "proxy",
+) -> dict[str, Any]:
+    """Record one privacy-safe terminal event for a proxied agent session.
+
+    ``capture_id`` makes finalization idempotent inside a process. The event is
+    deliberately separate from ``model_call``: blocked/cancelled sessions prove
+    policy activity, but they are not spend and must not affect savings math.
+    """
+    root = project_root.expanduser().resolve()
+    stable_id = str(capture_id).strip()
+    if not stable_id:
+        raise ValueError("capture_id is required")
+    with _LEDGER_LOCK:
+        for event in read_events(root):
+            if (
+                event.get("event_type") == EVENT_CAPTURE_SESSION
+                and event.get("capture_id") == stable_id
+            ):
+                return event
+        fields: dict[str, Any] = {
+            "capture_id": stable_id,
+            "agent": str(agent).strip().lower(),
+            "mode": str(mode).strip().lower(),
+            "model": str(model or ""),
+            "outcome": str(outcome).strip().lower(),
+            "captured": bool(captured),
+            "paid": bool(paid),
+            "spend_accounted": bool(spend_accounted),
+            "source": str(source or "proxy").strip().lower(),
+        }
+        if reason_code:
+            fields["reason_code"] = str(reason_code).strip().lower()
+        return record_event(
+            root,
+            EVENT_CAPTURE_SESSION,
+            task=task,
+            **fields,
+        )
 
 
 def record_route_decision(
@@ -213,6 +272,9 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
     model_calls = [
         event for event in events if event.get("event_type") == EVENT_MODEL_CALL
     ]
+    capture_sessions = [
+        event for event in events if event.get("event_type") == EVENT_CAPTURE_SESSION
+    ]
 
     by_tier: dict[str, int] = {}
     for route in routes:
@@ -221,6 +283,17 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
 
     cloud_calls_avoided = sum(1 for route in routes if route.get("cloud_call_avoided"))
     local_routes = sum(1 for route in routes if route.get("is_local_route"))
+    captured_sessions = sum(1 for event in capture_sessions if event.get("captured"))
+    uncaptured_sessions = len(capture_sessions) - captured_sessions
+    capture_rate = (
+        round(100 * captured_sessions / len(capture_sessions), 1)
+        if capture_sessions
+        else None
+    )
+    outcomes: dict[str, int] = {}
+    for event in capture_sessions:
+        outcome = str(event.get("outcome") or "unknown")
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
 
     return {
         "project": str(root),
@@ -240,6 +313,23 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         "estimated_savings_usd": _sum(routes, "estimated_savings_usd"),
         "context_chars_saved": int(_sum(routes, "context_chars_saved")),
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),
+        "capture": {
+            "observed_sessions": len(capture_sessions),
+            "captured_sessions": captured_sessions,
+            "uncaptured_sessions": uncaptured_sessions,
+            "rate_percent": capture_rate,
+            "label": (
+                f"{capture_rate:g}% of observed proxy sessions captured"
+                if capture_rate is not None
+                else "No proxy sessions observed"
+            ),
+            "outcomes": dict(sorted(outcomes.items())),
+            "scope": "Observed OPai proxy sessions only",
+            "caveat": (
+                "Direct unwrapped agent launches are not measurable yet and are not "
+                "included in this rate."
+            ),
+        },
         "privacy": "Raw prompts are never stored; only one-way task hashes and counts.",
     }
 

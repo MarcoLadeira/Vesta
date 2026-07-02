@@ -38,6 +38,18 @@ test("activity timeline receives events", async ({ page }) => {
   await expect(page.locator(".timeline .tl-t")).toContainText("Read file: app.py");
 });
 
+test("inspector shows live status while generating and hides after", async ({ page }) => {
+  await expect(page.locator("#inspLive")).toBeHidden();
+  await sendPrompt(page);
+  await expect(page.locator("#inspLive")).toBeVisible();
+  const id = await reqId(page);
+  await page.evaluate((id) => window.__mock.emitActivity(id, { id: "e1", type: "file_read", status: "success", title: "Read file: app.py" }), id);
+  await expect(page.locator("#inspLiveStep")).toContainText("Read file: app.py");
+  await expect(page.locator("#inspLiveEvents")).toContainText("step");
+  await page.evaluate((id) => window.__mock.emitReply(id, { status: "answered", answer: "done", receipt: {} }), id);
+  await expect(page.locator("#inspLive")).toBeHidden();
+});
+
 test("slow model shows 'taking longer' and keeps stop clickable", async ({ page }) => {
   await sendPrompt(page);
   await page.evaluate(() => { window.__opai.state.startTime = Date.now() - 16000; });

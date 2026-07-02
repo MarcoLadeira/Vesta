@@ -27,8 +27,12 @@
     <!-- main -->
     <main class="main">
       <header class="header">
-        <button class="ws-switch" id="wsSwitch"><span id="wsLabel">…</span><span class="chev">▾</span></button>
-        <div class="ws-menu" id="wsMenu"></div>
+        <div class="ws-switch-wrap">
+          <button class="ws-switch" id="wsSwitch" aria-haspopup="true" aria-expanded="false" title="Switch project folder">
+            <span class="ws-ico">📁</span><span id="wsLabel">…</span><span class="chev">▾</span>
+          </button>
+          <div class="ws-menu" id="wsMenu" role="menu"></div>
+        </div>
         <div class="spacer"></div>
         <div class="status-line" id="statusLine"></div>
         <button class="icon-btn on" id="panelToggle">Inspector</button>
@@ -40,8 +44,8 @@
           <div class="scroll" id="chatScroll">
             <div class="thread" id="thread">
               <div class="empty" id="empty">
-                <h1>What do you want to build?</h1>
-                <p id="emptySub">Pick a model and mode, then describe a task. OPai runs it local-first and shows what it costs.</p>
+                <h1>Build more. Burn less.</h1>
+                <p id="emptySub">Tell OPai the goal. It plans, routes to the cheapest capable model, shows every step, and hands you the receipt.</p>
                 <div class="chips" id="chips"></div>
                 <div class="hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> for commands</div>
               </div>
@@ -49,7 +53,7 @@
           </div>
           <div class="composer-wrap">
             <div class="composer">
-              <textarea id="input" rows="1" placeholder="Reply to OPai…"></textarea>
+              <textarea id="input" rows="1" placeholder="Tell OPai what to build, fix, or explain…"></textarea>
               <div class="composer-row">
                 <select class="select" id="modeSel"></select>
                 <div class="spacer"></div>

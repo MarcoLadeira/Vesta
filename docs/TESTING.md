@@ -17,14 +17,20 @@ The Stop-button + live-activity + streaming work is tested at every layer:
 | JS unit (Vitest, Node 22) | `opai/assets/web/__tests__/activity.test.js` | `shouldApply` stale-guard, thresholds, elapsed formatting, activity store |
 | E2E (Playwright, Chromium) | `opai/assets/web/__tests__/e2e/activity.spec.js` (+ `mock-bridge.js`) | generation visibility, slow-model, stop-before-token (no stale overwrite), stop-during-stream, double-stop, duplicate-submit, retry-after-stop, error recovery, a11y |
 
-Run the JS layers (local only — not in the Python CI):
+Run the JS layers locally:
 
 ```sh
-npm install                    # once; installs vitest + @playwright/test
+npm ci                         # reproducible install from package-lock.json
+npm audit --audit-level=high   # security gate for test-only dependencies
 npm run test:unit              # Vitest
 npx playwright install chromium  # once
 npm run test:e2e               # Playwright (serves the repo, injects a mock bridge)
 ```
+
+These packages are development-only and are not included in the OPai Python
+runtime. GitHub CI runs the audit, Vitest suite, and Chromium E2E suite in a
+separate least-privilege Node 22 job. Browser screenshots, traces, and the HTML
+report are retained for seven days when that job fails.
 
 The Playwright harness (`mock-bridge.js`) stubs `QWebChannel`/`qt` and a
 scriptable bridge so the **real** `activity.js` + `app.js` run in Chromium with

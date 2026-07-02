@@ -115,7 +115,7 @@ If Windows says `op` is not on `PATH` before your shell profile reloads, use `py
 Controlled alpha install links may include options for heavier local tools or
 skipping the Superpowers network clone in locked-down environments.
 
-The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project, print a blue one-line `Using OPai` badge, then launch the real CLI command. Set `OPAI_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
+The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project and send canonical one-shot calls through its local cost/safety proxy. Interactive, stdin-driven, structured-output, and unknown advanced forms pass directly to the real CLI with their original arguments, TTY, and exit code. OPai reports those launches as unmeasurable instead of claiming they were captured. The blue one-line `Using OPai` badge is written to stderr so scripted stdout stays clean. Set `OPAI_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
 
 Developer install:
 

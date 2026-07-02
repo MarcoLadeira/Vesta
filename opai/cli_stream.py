@@ -1,0 +1,194 @@
+"""CLI streaming ask — the terminal front-end over the same core as the GUI.
+
+``opai ask --model claude:opus "task"`` runs through
+``opaihub.gui_pipeline.handle_gui_message`` — the exact pipeline the desktop GUI
+uses — with live activity lines, streamed answer text, a real Ctrl+C cancel
+(sets the cancel Event, which kills the provider subprocess), and an honest
+cost/savings footer from the same receipt the GUI shows. One core, two
+surfaces.
+
+Kept import-light and injectable (``account_runner``/``printer``/``clock``) so
+tests drive it with fakes — no real CLI, no network, no spend.
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+from pathlib import Path
+from typing import Any, Callable
+
+from opai.activity import stage_message
+
+# Activity glyphs (stdout is forced to UTF-8 by opai.cli.main).
+_GLYPH = {
+    "pending": "◌",
+    "running": "◐",
+    "success": "✓",
+    "warning": "!",
+    "error": "✗",
+    "cancelled": "⊘",
+}
+
+ANSWERED = {"answered", "cache_hit", "answered_by_account", "answered_locally"}
+
+
+def normalize_model_choice(raw: str | None) -> str:
+    """Map friendly CLI shorthand to pipeline model ids.
+
+    ``auto`` and full ids (``account:claude:opus``, local ids) pass through;
+    ``claude[:alias]`` / ``codex[:model]`` / ``copilot[:model]`` gain the
+    ``account:`` prefix so users don't have to type it.
+    """
+    value = (raw or "auto").strip()
+    if not value or value == "auto":
+        return "auto"
+    if value.startswith("account:"):
+        return value
+    head = value.split(":", 1)[0].lower()
+    if head in {"claude", "codex", "copilot"}:
+        return f"account:{value}"
+    return value
+
+
+def _footer_bits(result: dict[str, Any], elapsed_s: float) -> list[str]:
+    bits = [f"done in {elapsed_s:.0f}s"]
+    receipt = result.get("receipt") or {}
+    actual = receipt.get("estimated_actual_usd")
+    saved = receipt.get("estimated_savings_usd")
+    confidence = str(receipt.get("confidence") or "estimated")
+    if isinstance(actual, (int, float)) and actual:
+        label = "spent" if confidence == "actual" else "est. spent"
+        bits.append(f"${float(actual):.4f} {label}")
+    if isinstance(saved, (int, float)) and saved:
+        bits.append(f"${float(saved):.4f} saved (estimated)")
+    if receipt.get("paid_call_avoided"):
+        bits.append("paid call avoided")
+    return bits
+
+
+def stream_ask(
+    project_root: Path,
+    task: str,
+    *,
+    model: str | None = None,
+    mode: str = "ask",
+    json_out: bool = False,
+    account_runner: Any = None,
+    printer: Callable[[str], None] = print,
+    reassure_after_s: float | None = None,
+) -> int:
+    """Run one task through the shared GUI pipeline with live CLI output.
+
+    Returns the process exit code: 0 answered, 130 cancelled (Ctrl+C
+    convention), 2 anything else. With ``json_out`` the activity lines are
+    suppressed and the full result (plus collected events) prints as JSON.
+    """
+    from opai.brand import cli_header
+    from opaihub.gui_pipeline import handle_gui_message
+
+    root = project_root.expanduser().resolve()
+    model_id = normalize_model_choice(model)
+    if not json_out:
+        printer(cli_header(mode, model_id))
+    cancel = threading.Event()
+    done = threading.Event()
+    result_box: dict[str, Any] = {}
+    events: list[dict[str, Any]] = []
+    # One lock so activity lines, streamed text, and heartbeats never interleave.
+    out_lock = threading.Lock()
+    state = {"streaming": False, "last_line_open": False}
+
+    def _line(text: str) -> None:
+        with out_lock:
+            if state["last_line_open"]:
+                printer("")
+                state["last_line_open"] = False
+            printer(text)
+
+    def on_event(event: dict[str, Any]) -> None:
+        events.append(event)
+        if json_out:
+            return
+        glyph = _GLYPH.get(str(event.get("status")), "•")
+        title = str(event.get("title") or "")
+        detail = str(event.get("detail") or "")
+        _line(f"{glyph} {title}" + (f"  ({detail})" if detail else ""))
+
+    def on_text(chunk: str) -> None:
+        if json_out:
+            return
+        with out_lock:
+            if not state["streaming"]:
+                state["streaming"] = True
+                printer("")
+            print(chunk, end="", flush=True)
+            state["last_line_open"] = not chunk.endswith("\n")
+
+    def job() -> None:
+        try:
+            result_box.update(
+                handle_gui_message(
+                    root,
+                    task,
+                    model_id=model_id,
+                    mode=mode,
+                    account_runner=account_runner,
+                    on_event=on_event,
+                    on_text=on_text,
+                    cancel=cancel,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade to a clean error result
+            result_box.update({"status": "error", "answer": str(exc)})
+        finally:
+            done.set()
+
+    started = time.monotonic()
+    threshold = reassure_after_s
+    if threshold is None:
+        threshold = 15.0
+    next_reassure = threshold
+    worker = threading.Thread(target=job, daemon=True)
+    worker.start()
+    try:
+        while not done.wait(0.2):
+            elapsed = time.monotonic() - started
+            if not json_out and not state["streaming"] and elapsed >= next_reassure:
+                sm = stage_message(elapsed, model_label=model_id)
+                _line(f"… {sm['stage']} · {int(elapsed)}s elapsed (Ctrl+C to stop)")
+                next_reassure = elapsed + threshold
+    except KeyboardInterrupt:
+        cancel.set()
+        _line("⊘ Stopping…")
+        done.wait(10)
+
+    result = result_box or {"status": "error", "answer": "No result."}
+    elapsed_s = time.monotonic() - started
+    status = str(result.get("status") or "error")
+
+    if json_out:
+        payload = dict(result)
+        payload["events"] = events
+        payload["elapsed_s"] = round(elapsed_s, 3)
+        printer(json.dumps(payload, indent=2, default=str, sort_keys=True))
+    else:
+        answer = str(result.get("answer") or "").strip()
+        if not state["streaming"] and answer:
+            # Non-streamed paths (blocked/errors/local hints) still show the answer.
+            _line("")
+            _line(answer)
+        elif state["last_line_open"]:
+            _line("")
+        footer = " · ".join(_footer_bits(result, elapsed_s))
+        if status == "cancelled":
+            _line("⊘ Stopped by you — partial output kept. Retry or switch model.")
+        elif status in ANSWERED:
+            _line(f"✓ {footer}")
+        else:
+            _line(f"✗ {status} · {footer}")
+
+    if status == "cancelled":
+        return 130
+    return 0 if status in ANSWERED else 2
