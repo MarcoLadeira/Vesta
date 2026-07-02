@@ -1,0 +1,131 @@
+/**
+ * E2E tests for free API model picker integration.
+ *
+ * Free models always appear in the picker under "Free models" optgroup.
+ * When no API key is set (available=false), the option is visible but disabled
+ * with the setup hint as its title. When a key is present (available=true),
+ * the option is enabled and selectable.
+ */
+import { test, expect } from "@playwright/test";
+
+import { MODELS } from "./helpers/fixtures.js";
+import { openApp } from "./helpers/app.js";
+
+// A scenario where Gemini is available but Groq/Mistral are not.
+const FREE_MODELS = [
+  {
+    id: "free:gemini:gemini-3.1-flash-lite",
+    label: "Gemini · 3.1 Flash-Lite (free tier)",
+    advanced_label: "Google Gemini 3.1 Flash-Lite via Google AI API (free-tier eligible)",
+    kind: "free",
+    group: "free",
+    provider: "gemini",
+    paid: false,
+    available: true,
+  },
+  {
+    id: "free:groq:openai/gpt-oss-120b",
+    label: "Groq · GPT-OSS 120B (free tier)",
+    advanced_label: "OpenAI GPT-OSS 120B via Groq (free-tier eligible)",
+    kind: "free",
+    group: "free",
+    provider: "groq",
+    paid: false,
+    available: false,
+    disabled_reason: "Set GROQ_API_KEY to enable Groq · GPT-OSS 120B (free tier)",
+  },
+  {
+    id: "free:mistral:mistral-small-latest",
+    label: "Mistral · Small (free tier)",
+    advanced_label: "Mistral Small via Mistral AI API (free-tier eligible)",
+    kind: "free",
+    group: "free",
+    provider: "mistral",
+    paid: false,
+    available: false,
+    disabled_reason: "Set MISTRAL_API_KEY to enable Mistral · Small (free tier)",
+  },
+];
+
+// Base models without the free group entries from fixture, then add all free models
+const MODELS_WITH_FREE = MODELS.filter((m) => m.group !== "free").concat(FREE_MODELS);
+
+test("free models optgroup appears in model picker", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  const groupLabels = await page.locator("#modelSel optgroup").evaluateAll(
+    (els) => els.map((el) => el.getAttribute("label"))
+  );
+  expect(groupLabels).toContain("Free models");
+});
+
+test("all verified free-tier model options are rendered in the picker", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  const freeOptions = await page.locator('#modelSel optgroup[label="Free models"] option').allTextContents();
+  expect(freeOptions).toHaveLength(3);
+  expect(freeOptions.some((t) => t.includes("Gemini"))).toBe(true);
+  expect(freeOptions.some((t) => t.includes("Groq"))).toBe(true);
+  expect(freeOptions.some((t) => t.includes("Mistral"))).toBe(true);
+});
+
+test("free model without API key is disabled with setup hint in title", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  const opt = page.locator('#modelSel option[value="free:groq:openai/gpt-oss-120b"]');
+  await expect(opt).toBeDisabled();
+  await expect(opt).toHaveAttribute("title", /GROQ_API_KEY/);
+});
+
+test("free model with API key is enabled and selectable", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  const opt = page.locator('#modelSel option[value="free:gemini:gemini-3.1-flash-lite"]');
+  await expect(opt).not.toBeDisabled();
+});
+
+test("free model labels identify free-tier eligibility", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  const freeOptions = await page.locator('#modelSel optgroup[label="Free models"] option').allTextContents();
+  for (const label of freeOptions) {
+    expect(label).toMatch(/\(free tier\)$/);
+  }
+});
+
+test("picker groups order: Claude → Codex → Copilot → Free models → OPai routing → Local models", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  const groupLabels = await page.locator("#modelSel optgroup").evaluateAll(
+    (els) => els.map((el) => el.getAttribute("label"))
+  );
+  const expectedOrder = ["Claude", "Codex", "Copilot", "Free models", "OPai routing", "Local models"];
+  // Filter to only our expected groups (some may not appear if no models in them)
+  const presentExpected = expectedOrder.filter((l) => groupLabels.includes(l));
+  // Verify they appear in the correct relative order
+  const presentIndices = presentExpected.map((l) => groupLabels.indexOf(l));
+  for (let i = 1; i < presentIndices.length; i++) {
+    expect(presentIndices[i]).toBeGreaterThan(presentIndices[i - 1]);
+  }
+});
+
+test("free model advanced_label appears as option title tooltip", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  const opt = page.locator('#modelSel option[value="free:gemini:gemini-3.1-flash-lite"]');
+  const title = await opt.getAttribute("title");
+  expect(title).toMatch(/Gemini/);
+});
+
+test("sending to a free-tier API requires explicit confirmation", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  await page.selectOption("#modelSel", "free:gemini:gemini-3.1-flash-lite");
+  await page.fill("#input", "Explain this project");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Send" }).click();
+  const request = await page.evaluate(() => window.__mock.lastRequest);
+  expect(request.allowCloud).toBe(true);
+});
+
+test("rejecting free-tier API confirmation sends nothing", async ({ page }) => {
+  await openApp(page, { boot: { models: MODELS_WITH_FREE } });
+  await page.selectOption("#modelSel", "free:gemini:gemini-3.1-flash-lite");
+  await page.fill("#input", "Explain this project");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Send" }).click();
+  const sendCount = await page.evaluate(() => window.__mock.sendCount);
+  expect(sendCount).toBe(0);
+});

@@ -261,9 +261,40 @@ function renderComposerSelects() {
     bridge.savePref("default_mode", state.mode.id); refreshInspector(); refreshStatus();
   };
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
-  (state.boot.models || []).forEach((m) => {
+  // Group models by their group field into optgroup sections
+  const PICKER_GROUPS = [
+    { id: "claude",  label: "Claude" },
+    { id: "codex",   label: "Codex" },
+    { id: "copilot", label: "Copilot" },
+    { id: "free",    label: "Free models" },
+    { id: "routing", label: "OPai routing" },
+    { id: "local",   label: "Local models" },
+  ];
+  const allModels = state.boot.models || [];
+  const grouped = {};
+  allModels.forEach((m) => {
+    const g = m.group || "routing";
+    if (!grouped[g]) grouped[g] = [];
+    grouped[g].push(m);
+  });
+  PICKER_GROUPS.forEach(({ id: gid, label: glabel }) => {
+    const members = grouped[gid];
+    if (!members || members.length === 0) return;
+    const grp = document.createElement("optgroup");
+    grp.label = glabel;
+    members.forEach((m) => {
+      const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; o.title = m.advanced_label || m.badge || "";
+      // Unavailable models stay visible but unpickable, with the reason (BUG-QA-008).
+      if (m.available === false) { o.disabled = true; o.title = m.disabled_reason || "Not available"; }
+      if (m.id === state.model.id) o.selected = true;
+      grp.appendChild(o);
+    });
+    modelSel.appendChild(grp);
+  });
+  // Append any models with unknown groups directly (backward compat)
+  const knownGroups = new Set(PICKER_GROUPS.map((g) => g.id));
+  allModels.filter((m) => m.group && !knownGroups.has(m.group)).forEach((m) => {
     const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; o.title = m.advanced_label || m.badge || "";
-    // Unavailable models stay visible but unpickable, with the reason (BUG-QA-008).
     if (m.available === false) { o.disabled = true; o.title = m.disabled_reason || "Not available"; }
     if (m.id === state.model.id) o.selected = true; modelSel.appendChild(o);
   });
@@ -423,11 +454,13 @@ function roleHeader(label, color) {
   return `<div class="role" style="color:${color}">${av}${esc(label)}</div>`;
 }
 const ICON = { pending: "◌", running: "◐", success: "✓", warning: "!", error: "✗", cancelled: "⊘" };
-const ANSWERED = ["answered", "cache_hit", "answered_by_account", "answered_locally"];
+const ANSWERED = ["answered", "cache_hit", "answered_by_account", "answered_by_free_api", "answered_locally"];
 const ERROR_TITLES = {
   account_timeout: "Ran out of time", account_error: "The model hit an error",
   account_not_connected: "No account connected", needs_model: "No free model for this",
-  needs_confirmation: "Needs a paid model", blocked: "Blocked as risky",
+  needs_confirmation: "Needs a paid model",
+  needs_free_confirmation: "Free-tier API confirmation required",
+  blocked: "Blocked as risky",
   blocked_panic: "Panic mode is on", runner_error: "Local model couldn't answer",
   error: "Something went wrong", empty: "Empty response",
 };
@@ -436,11 +469,20 @@ function send(retryOf) {
   if (state.busy && !retryOf) return; // duplicate-submit protection
   const text = retryOf ? retryOf.text : $("#input").value.trim();
   if (!text) return;
-  if (!retryOf) { $("#input").value = ""; autoSize(); }
   const sel = retryOf || {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
   };
+  if (sel.modelKind === "free" && sel.allowCloud !== true) {
+    const provider = String(sel.modelLabel || "This provider").split(" · ")[0];
+    const ok = window.confirm(
+      `${provider} will receive your task and compact project context. ` +
+      "Free-tier limits vary, and provider billing may apply to your account. Continue?"
+    );
+    if (!ok) return;
+    sel.allowCloud = true;
+  }
+  if (!retryOf) { $("#input").value = ""; autoSize(); }
   state.lastSend = sel;
   if (!retryOf) {
     appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
@@ -459,7 +501,10 @@ function send(retryOf) {
   buildPending(sel);
   startTimer(sel);
   setBusy(true);
-  bridge.send(JSON.stringify({ requestId, text, model: sel.model, mode: sel.mode, focus: sel.focus, format: sel.format }));
+  bridge.send(JSON.stringify({
+    requestId, text, model: sel.model, mode: sel.mode, focus: sel.focus,
+    format: sel.format, allowCloud: sel.allowCloud === true,
+  }));
 }
 
 function buildPending(sel) {
@@ -654,9 +699,11 @@ function finalize(status, r) {
     renderErrorCard(el, "empty", { answer: "The model returned an unexpected response shape." }, sel);
     return;
   }
-  const isAcct = sel.modelKind === "account";
-  const label = isAcct ? String(sel.modelLabel).split(" · ")[0] : "OPai";
-  const color = isAcct ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
+  const isProvider = sel.modelKind === "account" || sel.modelKind === "free";
+  const label = isProvider
+    ? String(sel.modelLabel).replace(" · ", " ").replace(/\s+\(free tier\)$/, "")
+    : "OPai";
+  const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
   let html = roleHeader(label, color) + activitySummaryHtml() + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];

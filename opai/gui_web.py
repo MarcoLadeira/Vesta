@@ -450,6 +450,7 @@ def _run_gui(
                     on_event=emit_event,
                     on_text=emit_text,
                     cancel=cancel,
+                    allow_cloud=bool(payload.get("allowCloud", False)),
                 )
 
             worker = Worker(job)

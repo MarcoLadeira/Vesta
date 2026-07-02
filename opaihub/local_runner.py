@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -32,10 +33,15 @@ def _http_json(
     method: str = "GET",
     payload: dict[str, Any] | None = None,
     timeout: float = 60.0,
+    extra_headers: dict[str, str] | None = None,
 ) -> Any:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    request = urllib.request.Request(  # nosec B310 - scheme validated by caller (loopback only)
-        url, data=data, method=method, headers={"Content-Type": "application/json"}
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
+    # Callers provide either local endpoints or registry-owned HTTPS URLs.
+    request = urllib.request.Request(  # nosec B310
+        url, data=data, method=method, headers=headers
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
         return json.loads(response.read().decode("utf-8"))
@@ -116,6 +122,49 @@ class OpenAICompatibleRunner(LocalRunner):
             method="POST",
             payload={"model": self.model, "messages": messages, "stream": False},
             timeout=timeout,
+        )
+        choices = result.get("choices") or [{}]
+        return str((choices[0].get("message") or {}).get("content", "")).strip()
+
+
+class FreeAPIRunner(OpenAICompatibleRunner):
+    """OpenAI-compatible runner for verified free-tier APIs.
+
+    Unlike local runners these reach public endpoints and require an API key
+    stored in an env var.  ``available()`` checks key presence only — no
+    network ping — to avoid latency in the model picker enumeration.  All
+    calls go through OPai's policy confirmation gate because they hit a
+    public host. Provider quotas and billing configuration remain authoritative.
+    """
+
+    name = "free-api"
+
+    def __init__(self, base_url: str, model: str, api_key: str) -> None:
+        endpoint = urllib.parse.urlsplit(base_url)
+        if endpoint.scheme.lower() != "https" or not endpoint.hostname:
+            raise ValueError("Free-tier API endpoints must use HTTPS")
+        super().__init__(base_url, model)
+        self._api_key = api_key.strip()
+
+    def available(self) -> bool:
+        return bool(self._api_key)
+
+    def _auth_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._api_key}"}
+
+    def complete(
+        self, prompt: str, *, system: str | None = None, timeout: float = 60.0
+    ) -> str:
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        result = _http_json(
+            f"{self.base_url}/chat/completions",
+            method="POST",
+            payload={"model": self.model, "messages": messages, "stream": False},
+            timeout=timeout,
+            extra_headers=self._auth_headers(),
         )
         choices = result.get("choices") or [{}]
         return str((choices[0].get("message") or {}).get("content", "")).strip()
@@ -215,6 +264,17 @@ def runner_for_model(
     """Build a runner bound to a specific ``provider:model`` id from the picker."""
     if not model_id or ":" not in model_id:
         return None
+
+    # Free API models: "free:<provider>:<model_id>" — key from env var.
+    if model_id.startswith("free:"):
+        from .free_models import spec_for_model_id
+
+        spec = spec_for_model_id(model_id)
+        if spec is None:
+            return None
+        api_key = os.environ.get(spec["env_key"], "").strip()
+        return FreeAPIRunner(spec["api_base"], spec["model_id"], api_key)
+
     provider, name = model_id.split(":", 1)
     for _url, runner in _candidate_runners():
         if provider == "ollama" and isinstance(runner, OllamaRunner):

@@ -66,11 +66,14 @@ def run_ask(
     runner: LocalRunner | None = None,
     record: bool = True,
     store_answer: bool = True,
+    selected_model_id: str | None = None,
 ) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     recommendation = recommend_model(root, task)
     tier = str(recommendation.get("recommended_model_tier") or "L1").upper()
-    model_id = str(recommendation.get("recommended_model_id") or "local")
+    model_id = str(
+        selected_model_id or recommendation.get("recommended_model_id") or "local"
+    )
     cost_model = load_cost_model(root)
     local = is_local_tier(tier, cost_model)
 
