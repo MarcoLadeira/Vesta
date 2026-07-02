@@ -217,7 +217,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "models": models["models"],
         "selectedModel": sel_model.get("id", "auto"),
         "modes": [{"id": item, "label": mode_labels.get(item, item)} for item in MODES],
-        "navGroups": [{"group": group, "items": items} for group, items in nav_groups()],
+        "navGroups": [
+            {"group": group, "items": items} for group, items in nav_groups()
+        ],
         "taskModes": task_modes(),
         "outputFormats": output_formats(),
         "prefs": {

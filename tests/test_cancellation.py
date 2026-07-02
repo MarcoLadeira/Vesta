@@ -93,7 +93,9 @@ class RunnerCancellationTests(unittest.TestCase):
     def test_stderr_failure_is_redacted(self):
         proc = FakeProc(
             [],
-            stderr_lines=["Authorization: Bearer sk-secretvalue123 provider unavailable\n"],
+            stderr_lines=[
+                "Authorization: Bearer sk-secretvalue123 provider unavailable\n"
+            ],
             returncode=1,
         )
         with mock.patch.object(accounts, "_popen", return_value=proc):

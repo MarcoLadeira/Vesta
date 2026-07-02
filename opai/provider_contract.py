@@ -179,23 +179,66 @@ def classify_error_code(
     if timed_out:
         return "PROVIDER_TIMEOUT"
     low = str(detail or "").lower()
-    if "expired" in low and any(word in low for word in ("token", "oauth", "session", "credential")):
+    if "expired" in low and any(
+        word in low for word in ("token", "oauth", "session", "credential")
+    ):
         return "AUTH_EXPIRED"
-    if any(word in low for word in ("no credentials", "missing credential", "not configured", "no api key")):
+    if any(
+        word in low
+        for word in (
+            "no credentials",
+            "missing credential",
+            "not configured",
+            "no api key",
+        )
+    ):
         return "AUTH_MISSING"
-    if any(word in low for word in ("401", "unauthorized", "invalid authentication", "not logged in", "sign in required", "forbidden", "403")):
+    if any(
+        word in low
+        for word in (
+            "401",
+            "unauthorized",
+            "invalid authentication",
+            "not logged in",
+            "sign in required",
+            "forbidden",
+            "403",
+        )
+    ):
         return "AUTH_INVALID"
-    if any(word in low for word in ("429", "rate limit", "too many requests", "quota exceeded")):
+    if any(
+        word in low
+        for word in ("429", "rate limit", "too many requests", "quota exceeded")
+    ):
         return "PROVIDER_RATE_LIMITED"
-    if "context" in low and any(word in low for word in ("large", "limit", "exceed", "too long")):
+    if "context" in low and any(
+        word in low for word in ("large", "limit", "exceed", "too long")
+    ):
         return "CONTEXT_TOO_LARGE"
-    if any(word in low for word in ("unknown model", "model not found", "model unavailable")):
+    if any(
+        word in low
+        for word in ("unknown model", "model not found", "model unavailable")
+    ):
         return "MODEL_UNAVAILABLE"
-    if any(word in low for word in ("connection reset", "network", "dns", "name resolution", "offline")):
+    if any(
+        word in low
+        for word in ("connection reset", "network", "dns", "name resolution", "offline")
+    ):
         return "NETWORK_ERROR"
-    if any(word in low for word in ("service unavailable", "provider unavailable", "502", "503", "maintenance")):
+    if any(
+        word in low
+        for word in (
+            "service unavailable",
+            "provider unavailable",
+            "502",
+            "503",
+            "maintenance",
+        )
+    ):
         return "PROVIDER_UNAVAILABLE"
-    if any(word in low for word in ("stream aborted", "broken pipe", "incomplete stream")):
+    if any(
+        word in low for word in ("stream aborted", "broken pipe", "incomplete stream")
+    ):
         return "STREAM_ABORTED"
     if not low and returncode == 0:
         return "NO_RESPONSE"

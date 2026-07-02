@@ -4,7 +4,11 @@ from pathlib import Path
 from unittest import mock
 
 from opai.app_state import available_models
-from opaihub.accounts import account_models, connection_for_account, test_account_connection
+from opaihub.accounts import (
+    account_models,
+    connection_for_account,
+    test_account_connection,
+)
 
 
 class _Completed:
@@ -117,9 +121,12 @@ class ProviderConnectionTests(unittest.TestCase):
             }
         ]
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch(
-                "opaihub.accounts.list_connected_accounts", return_value=accounts
-            ), mock.patch("opaihub.local_runner.list_local_models", return_value=[]):
+            with (
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=accounts
+                ),
+                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+            ):
                 payload = available_models(Path(tmp))
 
         self.assertEqual(payload["connections"][0]["providerId"], "claude")
