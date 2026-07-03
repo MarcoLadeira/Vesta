@@ -230,6 +230,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             "focus": focus,
             "format": fmt,
             "showPanel": bool(prefs.get("show_control_panel", True)),
+            # Free-model ids the user already consented to (asked once, never
+            # again). Front-end skips the consent card for anything in this list.
+            "freeConsent": list(prefs.get("free_consent") or []),
         },
         "accounts": models["accounts"],
         "connections": models["connections"],
@@ -476,6 +479,17 @@ def _run_gui(
                 return json.dumps(repair_codex_config())
             except (OSError, ValueError) as exc:
                 return json.dumps({"repaired": False, "error": str(exc)})
+
+        @QtCore.Slot(str, result=str)
+        def grantFreeConsent(self, model_id: str) -> str:
+            """Remember consent for a free-tier model id (one-time confirmation)."""
+            from opaihub.gui_preferences import grant_free_consent
+
+            try:
+                updated = grant_free_consent(self.root, model_id)
+                return json.dumps({"ok": True, "freeConsent": updated["free_consent"]})
+            except ValueError as exc:
+                return json.dumps({"ok": False, "error": str(exc)})
 
         @QtCore.Slot(str, str)
         def savePref(self, key: str, value: str) -> None:

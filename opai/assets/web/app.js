@@ -76,6 +76,10 @@ function boot() {
     state.panel = b.prefs.showPanel !== false;
     state.focus = b.prefs.focus || "general";
     state.format = b.prefs.format || "normal";
+    // One-time consent per free-tier model id: after the first "Send to X"
+    // click the card never appears again for that provider (persisted per
+    // workspace by grantFreeConsent). Fresh install → empty Set.
+    state.freeConsent = new Set(b.prefs.freeConsent || []);
     const m = (b.models || []).find((x) => x.id === b.selectedModel) || b.models[0];
     if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
     const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || b.modes[0];
@@ -493,10 +497,13 @@ function send(retryOf) {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
   };
-  // Free-tier consent is handled in-chat, not with a native popup: the send
-  // goes out with allowCloud=false, the pipeline replies needs_free_confirmation,
-  // and the user confirms with the "Send to <provider>" card button. No
-  // provider is contacted until that explicit confirmation.
+  // Free-tier consent: one confirmation per provider, ever. If the user has
+  // already confirmed this free model in the past (persisted per workspace),
+  // send with allowCloud=true up front — no card. Otherwise the pipeline
+  // returns needs_free_confirmation and the in-chat card handles it.
+  if (sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
+    sel.allowCloud = true;
+  }
   if (!retryOf) { $("#input").value = ""; autoSize(); }
   state.lastSend = sel;
   if (!retryOf) {
@@ -710,6 +717,17 @@ function renderErrorCard(el, status, r, sel) {
   wireActivitySummary(el);
   el.querySelector('[data-a="retry"]').onclick = () => retry();
   const free = el.querySelector('[data-a="free"]'); if (free) free.onclick = () => {
+    // Remember consent so this card never appears for this free model again
+    // (persisted per workspace by the bridge — the user asked for at most one
+    // confirmation, ever). In-memory Set is updated synchronously; persistence
+    // is fire-and-forget so a bridge blip can't block the send.
+    const id = (state.lastSend && state.lastSend.model) || (sel && sel.model);
+    if (id) {
+      if (state.freeConsent) state.freeConsent.add(id);
+      if (bridge.grantFreeConsent) {
+        try { bridge.grantFreeConsent(id, () => {}); } catch (_e) { /* ignore */ }
+      }
+    }
     send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
   };
   const fallback = el.querySelector('[data-a="fallback"]'); if (fallback) fallback.onclick = () => {
