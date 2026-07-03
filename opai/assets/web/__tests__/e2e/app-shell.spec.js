@@ -7,7 +7,7 @@ test("loads the complete OPai workspace shell", async ({ page }) => {
   const diagnostics = await openApp(page);
 
   await expect(page.locator(".sidebar")).toBeVisible();
-  await expect(page.getByRole("button", { name: "New chat" })).toBeVisible();
+  await expect(page.locator("#headerNewChat")).toBeVisible();
   await expect(page.locator("#view-chat")).toBeVisible();
   await expect(page.locator("#input")).toBeVisible();
   await expect(page.getByRole("button", { name: "Inspector" })).toBeVisible();
@@ -28,7 +28,7 @@ test("all primary navigation destinations are present and activate", async ({ pa
     await openNav(page, label);
     await expect(page.getByRole("button", { name: label, exact: true })).toHaveClass(/active/);
   }
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.locator("#headerSettings").click();
   await expect(page.locator("#view-settings")).toBeVisible();
 });
 

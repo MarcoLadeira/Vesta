@@ -156,6 +156,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("styles.css", html)
         self.assertIn("app.js", html)
 
+    def test_index_uses_one_unified_desktop_header(self):
+        html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertEqual(html.count('id="appHeader"'), 1)
+        self.assertNotIn('<header class="header">', html)
+        for control in (
+            "sidebarToggle",
+            "headerNewChat",
+            "headerSettings",
+            "panelToggle",
+            "windowControls",
+        ):
+            self.assertIn(f'id="{control}"', html)
+
     def test_styles_load_bundled_inter(self):
         css = (WEB_DIR / "styles.css").read_text(encoding="utf-8")
         self.assertIn("@font-face", css)

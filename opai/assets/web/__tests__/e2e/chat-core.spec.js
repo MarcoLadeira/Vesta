@@ -47,7 +47,7 @@ test("long and hostile-looking text stays inert and readable", async ({ page }) 
 test("new chat clears messages and restores the branded empty state", async ({ page }) => {
   const id = await sendPrompt(page, "temporary conversation");
   await finishRequest(page, id);
-  await page.getByRole("button", { name: "New chat" }).click();
+  await page.locator("#headerNewChat").click();
   await expect(page.locator(".msg")).toHaveCount(0);
   await expect(page.locator("#empty h1")).toHaveText("Build more. Burn less.");
 });

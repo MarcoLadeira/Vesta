@@ -685,10 +685,51 @@ def _run_gui(
             if str(url).startswith(("http://", "https://")):
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl(url))
 
+        # ---- native window chrome ----------------------------------- #
+        @QtCore.Slot()
+        def startWindowMove(self) -> None:
+            """Hand title-bar dragging to the operating system."""
+            handle = self.window.windowHandle()
+            if handle is not None:
+                handle.startSystemMove()
+
+        @QtCore.Slot(str)
+        def startWindowResize(self, edge_name: str) -> None:
+            """Preserve native edge resizing for the frameless app window."""
+            edge = {
+                "top": QtCore.Qt.Edge.TopEdge,
+                "right": QtCore.Qt.Edge.RightEdge,
+                "bottom": QtCore.Qt.Edge.BottomEdge,
+                "left": QtCore.Qt.Edge.LeftEdge,
+                "top-right": QtCore.Qt.Edge.TopEdge | QtCore.Qt.Edge.RightEdge,
+                "bottom-right": QtCore.Qt.Edge.BottomEdge | QtCore.Qt.Edge.RightEdge,
+                "bottom-left": QtCore.Qt.Edge.BottomEdge | QtCore.Qt.Edge.LeftEdge,
+                "top-left": QtCore.Qt.Edge.TopEdge | QtCore.Qt.Edge.LeftEdge,
+            }.get(edge_name)
+            handle = self.window.windowHandle()
+            if edge is not None and handle is not None:
+                handle.startSystemResize(edge)
+
+        @QtCore.Slot()
+        def minimizeWindow(self) -> None:
+            self.window.showMinimized()
+
+        @QtCore.Slot()
+        def toggleMaximizeWindow(self) -> None:
+            if self.window.isMaximized():
+                self.window.showNormal()
+            else:
+                self.window.showMaximized()
+
+        @QtCore.Slot()
+        def closeWindow(self) -> None:
+            self.window.close()
+
     class Window(QtWidgets.QMainWindow):
         def __init__(self) -> None:
             super().__init__()
             self.setWindowTitle(f"OPai · {root.name}")
+            self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
             self.setMinimumSize(1040, 700)
             self.resize(1340, 880)
             self.view = QWebEngineView(self)

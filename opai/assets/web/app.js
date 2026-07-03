@@ -206,6 +206,7 @@ function renderAccount() {
 function renderWorkspace() {
   const w = state.boot.workspace;
   $("#wsLabel").textContent = w.label;
+  $("#wsContext").textContent = w.branch || "Local workspace";
   // Single owner of the tooltip: workspace facts + the brand tagline together,
   // so a re-render can never drop the tagline (BUG-QA-007).
   const tagline = (state.brand && state.brand.tagline) ? ` — ${state.brand.tagline}` : "";
@@ -406,6 +407,7 @@ function renderStatus(st) {
 /* ---------- views ---------- */
 function switchView(id) {
   state.view = id;
+  closeMobileSidebar();
   // If the destination lives inside a folded group, unfold it so the active
   // item is visible (e.g. jumping to an Insights page from the palette).
   const navBtn = $(`.nav-item[data-id="${id}"]`);
@@ -448,6 +450,12 @@ function clearChat() {
   const t = $("#thread");
   t.querySelectorAll(".msg").forEach((m) => m.remove());
   $("#empty").style.display = "";
+}
+function startNewChat() {
+  if (state.busy) stop();
+  clearChat();
+  switchView("chat");
+  $("#input").focus();
 }
 function appendMsg(html, cls) {
   $("#empty").style.display = "none";
@@ -1144,7 +1152,7 @@ function renderPalette(q) {
 function runCommand(id) {
   $("#palette").classList.remove("open");
   switch (id) {
-    case "new_chat": clearChat(); switchView("chat"); break;
+    case "new_chat": startNewChat(); break;
     case "focus_input": switchView("chat"); $("#input").focus(); break;
     case "prompts": switchView("prompts"); break;
     case "inspector": togglePanel(); break;
@@ -1164,6 +1172,47 @@ function togglePanel() {
 function applyPanel() {
   $("#app").classList.toggle("panel-hidden", !state.panel);
   $("#panelToggle").classList.toggle("on", state.panel);
+  $("#panelToggle").setAttribute("aria-pressed", state.panel ? "true" : "false");
+}
+
+function isCompactShell() {
+  return window.matchMedia("(max-width: 700px)").matches;
+}
+function closeMobileSidebar() {
+  $("#app").classList.remove("mobile-sidebar-open");
+  if (isCompactShell()) $("#sidebarToggle").setAttribute("aria-expanded", "false");
+}
+function toggleSidebar() {
+  const app = $("#app");
+  if (isCompactShell()) {
+    const open = !app.classList.contains("mobile-sidebar-open");
+    app.classList.toggle("mobile-sidebar-open", open);
+    $("#sidebarToggle").setAttribute("aria-expanded", open ? "true" : "false");
+    return;
+  }
+  const hidden = !app.classList.contains("sidebar-hidden");
+  app.classList.toggle("sidebar-hidden", hidden);
+  $("#sidebarToggle").setAttribute("aria-expanded", hidden ? "false" : "true");
+}
+
+function wireWindowChrome() {
+  $("#windowMinimize").onclick = () => bridge.minimizeWindow();
+  $("#windowMaximize").onclick = () => bridge.toggleMaximizeWindow();
+  $("#windowClose").onclick = () => bridge.closeWindow();
+
+  const header = $("#appHeader");
+  const interactive = "button, input, select, textarea, a, [role='menuitem']";
+  header.addEventListener("mousedown", (event) => {
+    if (event.button === 0 && !event.target.closest(interactive)) bridge.startWindowMove();
+  });
+  header.addEventListener("dblclick", (event) => {
+    if (!event.target.closest(interactive)) bridge.toggleMaximizeWindow();
+  });
+  $$(".resize-zone").forEach((zone) => {
+    zone.addEventListener("mousedown", (event) => {
+      if (event.button === 0) bridge.startWindowResize(zone.dataset.edge);
+    });
+  });
 }
 
 /* ---------- misc ---------- */
@@ -1177,8 +1226,13 @@ function autoSize() {
 }
 
 function wire() {
-  $("#newChat").onclick = () => { if (state.busy) stop(); clearChat(); switchView("chat"); $("#input").focus(); };
+  if (isCompactShell()) $("#sidebarToggle").setAttribute("aria-expanded", "false");
+  $("#newChat").onclick = startNewChat;
+  $("#headerNewChat").onclick = startNewChat;
   $("#footSettings").onclick = () => switchView("settings");
+  $("#headerSettings").onclick = () => switchView("settings");
+  $("#sidebarToggle").onclick = toggleSidebar;
+  $("#sidebarBackdrop").onclick = closeMobileSidebar;
   $("#send").onclick = () => (state.busy ? stop() : send());
   $("#panelToggle").onclick = togglePanel;
   $("#wsSwitch").onclick = (e) => { e.stopPropagation(); toggleWsMenu(); };
@@ -1205,13 +1259,20 @@ function wire() {
     }
   });
   $("#palette").addEventListener("click", (e) => { if (e.target.id === "palette") $("#palette").classList.remove("open"); });
+  wireWindowChrome();
+  window.addEventListener("resize", () => {
+    if (!isCompactShell()) {
+      $("#app").classList.remove("mobile-sidebar-open");
+      $("#sidebarToggle").setAttribute("aria-expanded", $("#app").classList.contains("sidebar-hidden") ? "false" : "true");
+    }
+  });
   document.addEventListener("click", (e) => {
     const a = e.target.closest("a[data-ext]"); if (a) { e.preventDefault(); bridge.openExternal(a.href); }
   });
   document.addEventListener("keydown", (e) => {
     const c = e.ctrlKey || e.metaKey;
     if (c && e.key === "k") { e.preventDefault(); openPalette(); }
-    else if (c && e.key === "n") { e.preventDefault(); clearChat(); switchView("chat"); $("#input").focus(); }
+    else if (c && e.key === "n") { e.preventDefault(); startNewChat(); }
     else if (c && e.key === "p") { e.preventDefault(); switchView("prompts"); }
     else if (c && e.key === "i") { e.preventDefault(); togglePanel(); }
     else if (c && e.key === "o") { e.preventDefault(); bridge.openWorkspace(); }

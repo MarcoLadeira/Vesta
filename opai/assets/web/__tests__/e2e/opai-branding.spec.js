@@ -12,7 +12,7 @@ import {
 test.beforeEach(async ({ page }) => openApp(page));
 
 test("primary workspace consistently presents the OPai identity", async ({ page }) => {
-  await expect(page.locator(".brand")).toContainText("OPai");
+  await expect(page.locator(".header-brand")).toContainText("OPai");
   await expect(page.locator("#empty h1")).toHaveText("Build more. Burn less.");
   await expect(page.locator("#emptySub")).toContainText("Tell OPai the goal");
 });

@@ -9,13 +9,53 @@
 </head>
 <body>
   <div class="app" id="app">
+    <header class="app-header" id="appHeader">
+      <div class="header-leading">
+        <button class="topbar-icon sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar" aria-expanded="true" title="Toggle sidebar">
+          <span class="menu-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+        </button>
+        <div class="header-brand" aria-label="OPai">
+          <span class="header-logo">O</span>
+          <span class="header-brand-name">OPai</span>
+          <span class="header-on-dot" id="brandDot" aria-hidden="true"></span>
+        </div>
+        <span class="header-divider" aria-hidden="true"></span>
+        <div class="ws-switch-wrap">
+          <button class="ws-switch" id="wsSwitch" aria-label="Switch project folder" aria-haspopup="true" aria-expanded="false" title="Switch project folder">
+            <span class="ws-ico" aria-hidden="true">▰</span>
+            <span class="ws-copy">
+              <span id="wsLabel">…</span>
+              <span class="ws-context" id="wsContext">Local workspace</span>
+            </span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <div class="ws-menu" id="wsMenu" role="menu"></div>
+        </div>
+      </div>
+
+      <div class="header-drag-space" aria-hidden="true"></div>
+
+      <div class="header-actions">
+        <div class="status-line" id="statusLine"></div>
+        <button class="topbar-action" id="headerNewChat" aria-label="New chat" title="New chat">
+          <span class="action-icon" aria-hidden="true">+</span><span class="action-label">New chat</span>
+        </button>
+        <button class="topbar-icon" id="headerSettings" aria-label="Settings" title="Settings">
+          <span class="settings-glyph" aria-hidden="true">⚙</span>
+        </button>
+        <button class="topbar-icon inspector-toggle on" id="panelToggle" aria-label="Inspector" aria-pressed="true" title="Inspector">
+          <span class="panel-glyph" aria-hidden="true"></span>
+        </button>
+        <div class="window-controls" id="windowControls" aria-label="Window controls">
+          <button class="window-control" id="windowMinimize" aria-label="Minimize" title="Minimize"><span aria-hidden="true">−</span></button>
+          <button class="window-control" id="windowMaximize" aria-label="Maximize or restore" title="Maximize or restore"><span aria-hidden="true">□</span></button>
+          <button class="window-control close" id="windowClose" aria-label="Close" title="Close"><span aria-hidden="true">×</span></button>
+        </div>
+      </div>
+    </header>
+
     <!-- sidebar -->
     <aside class="sidebar">
-      <div class="brand">
-        <div class="logo">O</div>
-        <div class="name">OPai</div>
-        <div class="dot" id="brandDot"></div>
-      </div>
       <button class="new-chat" id="newChat"><span>+</span> New chat</button>
       <nav class="nav" id="nav"></nav>
       <div class="side-foot">
@@ -27,18 +67,6 @@
 
     <!-- main -->
     <main class="main">
-      <header class="header">
-        <div class="ws-switch-wrap">
-          <button class="ws-switch" id="wsSwitch" aria-haspopup="true" aria-expanded="false" title="Switch project folder">
-            <span class="ws-ico">📁</span><span id="wsLabel">…</span><span class="chev">▾</span>
-          </button>
-          <div class="ws-menu" id="wsMenu" role="menu"></div>
-        </div>
-        <div class="spacer"></div>
-        <div class="status-line" id="statusLine"></div>
-        <button class="icon-btn on" id="panelToggle">Inspector</button>
-      </header>
-
       <div class="view-wrap" id="viewWrap">
         <!-- chat -->
         <section class="view active" id="view-chat">
@@ -95,7 +123,17 @@
 
     <!-- inspector -->
     <aside class="inspector" id="inspector"></aside>
+    <button class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close sidebar"></button>
   </div>
+
+  <div class="resize-zone north" data-edge="top" aria-hidden="true"></div>
+  <div class="resize-zone east" data-edge="right" aria-hidden="true"></div>
+  <div class="resize-zone south" data-edge="bottom" aria-hidden="true"></div>
+  <div class="resize-zone west" data-edge="left" aria-hidden="true"></div>
+  <div class="resize-zone north-east" data-edge="top-right" aria-hidden="true"></div>
+  <div class="resize-zone south-east" data-edge="bottom-right" aria-hidden="true"></div>
+  <div class="resize-zone south-west" data-edge="bottom-left" aria-hidden="true"></div>
+  <div class="resize-zone north-west" data-edge="top-left" aria-hidden="true"></div>
 
   <!-- command palette -->
   <div class="overlay" id="palette">
