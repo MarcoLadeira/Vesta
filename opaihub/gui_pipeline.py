@@ -271,18 +271,27 @@ def handle_gui_message(
             selected_mode=selected_mode,
         )
         reason = warnings[0].get("reason", "") if warnings else ""
+        # Guide the user to a *safe* next step, never toward Full Auto (#142):
+        # nudging someone to the mode that disables every safeguard just to get
+        # past a risk warning is the opposite of a cost/safety firewall.
         return {
             "status": "blocked",
             "answer": (
-                "Safe Auto stopped this before running it because it looks risky"
-                + (f": {reason}" if reason else ".")
-                + "\nSwitch the mode to Full Auto only if you intend that."
+                "Safe Auto held this back because it matched a command that can "
+                "change or delete files"
+                + (f" ({reason})" if reason else "")
+                + ".\nSwitch to Ask or Plan mode to have OPai explain or plan it "
+                "without running anything, or rephrase the request without the "
+                "risky command."
             ),
             "tool_trace": tool_trace,
             "receipt": receipt,
             "changed_files": [],
             "warnings": warnings,
-            "next_actions": ["Switch to Full Auto only if this is intentional."],
+            "next_actions": [
+                "Switch to Ask or Plan mode to review this safely, or rephrase "
+                "the request."
+            ],
         }
 
     # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
@@ -523,6 +532,7 @@ def handle_gui_message(
         }
 
     from .ask import run_ask
+    from .local_runner import runner_for_model
 
     receipt = build_savings_receipt(
         root,
@@ -536,9 +546,22 @@ def handle_gui_message(
         _emit("cancelled", "cancelled", "Stopped by you")
         return _cancelled_result(message, tool_trace, selected_model, selected_mode)
     _emit("request_sending", "running", "Running OPai locally")
+    # Honour the picked local model (#143): a concrete "provider:model" id must
+    # run *that* model, not whatever detect_local_runner finds first. "auto"
+    # (and unknown ids) fall through to run_ask's own local-first detection.
+    picked_runner = None
+    if selected_model not in {"auto", "", None} and ":" in str(selected_model):
+        picked_runner = runner_for_model(selected_model, root)
     # cancel threads into the local runner too (#107): Stop closes the HTTP
     # connection mid-generation instead of only ignoring the late result.
-    result = run_ask(root, message, record=False, cancel=cancel)
+    result = run_ask(
+        root,
+        message,
+        record=False,
+        cancel=cancel,
+        runner=picked_runner,
+        selected_model_id=selected_model if picked_runner is not None else None,
+    )
     if result.get("status") == "cancelled":
         _emit("cancelled", "cancelled", "Stopped by you")
         return _cancelled_result(message, tool_trace, selected_model, selected_mode)
