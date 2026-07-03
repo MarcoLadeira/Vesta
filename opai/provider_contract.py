@@ -103,10 +103,10 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
         "title": "OPai found a problem in this provider's config.",
         "userMessage": (
             "The provider CLI's config file has an invalid setting, so it won't "
-            "start. Open Settings → Connections and run the one-click repair, "
+            "start. Run the one-click repair (it backs up your config first), "
             "then retry."
         ),
-        "actions": ["open_settings", "show_details"],
+        "actions": ["repair_config", "open_settings", "show_details"],
         "retryable": False,
     },
     "CONTEXT_TOO_LARGE": {

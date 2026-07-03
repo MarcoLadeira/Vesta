@@ -392,20 +392,22 @@ def handle_gui_message(
             if connection["authStatus"] not in {"connected", "unknown"}:
                 from opai.provider_contract import normalize_provider_error
 
-                status_detail = {
-                    "not_configured": "No credentials configured",
-                    "invalid": "401 Invalid authentication credentials",
-                    "expired": "OAuth token expired",
-                    "misconfigured": "Provider CLI is misconfigured",
-                    "provider_unavailable": "Provider unavailable",
-                    "disconnected": "Provider disconnected",
-                }.get(str(connection["authStatus"]), "Provider connection failed")
-                error = normalize_provider_error(
-                    provider,
-                    connection.get("safeDiagnostic")
-                    if connection.get("lastErrorCode")
-                    else status_detail,
-                )
+                # Prefer the structured error the connection check already
+                # produced (e.g. CONFIG_INVALID with the "run the repair"
+                # guidance). Re-normalizing the human diagnostic string lost
+                # that classification and showed a dead-end "could not
+                # complete this request" instead.
+                error = connection.get("error")
+                if not error:
+                    status_detail = {
+                        "not_configured": "No credentials configured",
+                        "invalid": "401 Invalid authentication credentials",
+                        "expired": "OAuth token expired",
+                        "misconfigured": "Provider CLI is misconfigured",
+                        "provider_unavailable": "Provider unavailable",
+                        "disconnected": "Provider disconnected",
+                    }.get(str(connection["authStatus"]), "Provider connection failed")
+                    error = normalize_provider_error(provider, status_detail)
                 event_type = (
                     "provider_auth_failed"
                     if error["code"].startswith("AUTH_")

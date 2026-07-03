@@ -20,6 +20,29 @@ test("missing account result is actionable and never completed", async ({ page }
   await expect(page.locator(".msg.bot")).not.toContainText("Completed");
 });
 
+test("codex invalid-config error offers a one-click repair, then retries", async ({ page }) => {
+  await openApp(page);
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, {
+    status: "failed",
+    error: {
+      code: "CONFIG_INVALID",
+      title: "OPai found a problem in this provider's config.",
+      userMessage: "The provider CLI's config file has an invalid setting, so it won't start.",
+      recoveryActions: ["repair_config", "open_settings", "show_details"],
+      technicalMessage: "unknown variant `default`, expected `fast` or `flex`",
+    },
+  });
+  const repair = page.locator('.error-card [data-a="repair"]');
+  await expect(repair).toBeVisible();
+  await expect(repair).toHaveText("Repair Codex config");
+  const before = await page.evaluate(() => window.__mock.sendCount);
+  await repair.click();
+  // The repair goes through the bridge, then the message is retried.
+  expect(await page.evaluate(() => window.__mock.codexRepairs)).toBe(1);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(before + 1);
+});
+
 test("timeout is distinct, recoverable, and not successful", async ({ page }) => {
   await openApp(page);
   const id = await sendPrompt(page);

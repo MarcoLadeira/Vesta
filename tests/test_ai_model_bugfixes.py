@@ -165,6 +165,72 @@ class CodexConfigErrorTests(unittest.TestCase):
             "AUTH_INVALID",
         )
 
+    def test_config_invalid_offers_repair_action(self):
+        from opai.provider_contract import normalize_provider_error
+
+        err = normalize_provider_error(
+            "codex", "unknown variant `default`, expected `fast`", returncode=1
+        )
+        self.assertIn("repair_config", err["recoveryActions"])
+
+    def _codex_config_error(self):
+        from opai.provider_contract import normalize_provider_error
+
+        return normalize_provider_error(
+            "codex",
+            "Error loading configuration: unknown variant `default`, expected `fast`",
+            returncode=1,
+        )
+
+    def test_connection_surfaces_config_error_not_cli_unavailable(self):
+        # The misconfigured diagnostic must reflect the real config problem and
+        # carry the structured error, not the misleading "CLI unavailable".
+        from opaihub.accounts import connection_for_account
+
+        conn = connection_for_account(
+            {
+                "id": "codex",
+                "label": "Codex",
+                "cli_present": True,
+                "authenticated": True,
+            },
+            auth_status="misconfigured",
+            error=self._codex_config_error(),
+        )
+        self.assertEqual(conn["lastErrorCode"], "CONFIG_INVALID")
+        self.assertEqual(conn["error"]["code"], "CONFIG_INVALID")
+        self.assertNotIn("unavailable", conn["safeDiagnostic"].lower())
+        self.assertIn("invalid setting", conn["safeDiagnostic"].lower())
+
+    def test_pipeline_preserves_config_error_and_repair_guidance(self):
+        # A codex send that hits the config error must return the CONFIG_INVALID
+        # message + repair action, not a generic "could not complete" card.
+        from opaihub.gui_pipeline import handle_gui_message
+        from opaihub.accounts import connection_for_account
+
+        conn = connection_for_account(
+            {
+                "id": "codex",
+                "label": "Codex",
+                "cli_present": True,
+                "authenticated": True,
+            },
+            auth_status="misconfigured",
+            error=self._codex_config_error(),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            with mock.patch(
+                "opaihub.accounts.test_account_connection", return_value=conn
+            ):
+                result = handle_gui_message(
+                    root, "do something", model_id="account:codex", mode="ask"
+                )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["code"], "CONFIG_INVALID")
+        self.assertIn("repair", result["answer"].lower())
+        self.assertIn("repair_config", result["next_actions"])
+
 
 # ---------------------------------------------------------------------------
 # Bug: Claude streamed a real answer but the card showed the raw init JSON.
