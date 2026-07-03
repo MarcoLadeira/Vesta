@@ -56,7 +56,8 @@ from opai.gui_workspace import (
 from opai.message_render import render_message_html
 
 INSTALL_HINT = (
-    'Install desktop GUI support with: python -m pip install -e ".[desktop-gui]"'
+    'Install desktop GUI support with: python -m pip install "opai[desktop-gui]" '
+    '(from a source checkout: python -m pip install -e ".[desktop-gui]")'
 )
 
 

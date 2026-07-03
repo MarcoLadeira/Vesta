@@ -4,10 +4,13 @@ from pathlib import Path
 from unittest import mock
 
 from opai.app_state import available_models
+
+# Aliased: the production name starts with `test_`, and importing it unaliased
+# makes pytest collect it as a test function (fixture 'account_id' not found).
 from opaihub.accounts import (
     account_models,
     connection_for_account,
-    test_account_connection,
+    test_account_connection as check_account_connection,
 )
 
 
@@ -67,7 +70,7 @@ class ProviderConnectionTests(unittest.TestCase):
             (home / ".claude").mkdir()
             (home / ".claude" / ".credentials.json").touch()
             with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
-                connection = test_account_connection(
+                connection = check_account_connection(
                     "claude", home=home, run=lambda argv: _Completed(0, "logged in")
                 )
 
@@ -81,7 +84,7 @@ class ProviderConnectionTests(unittest.TestCase):
             (home / ".claude").mkdir()
             (home / ".claude" / ".credentials.json").touch()
             with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
-                connection = test_account_connection(
+                connection = check_account_connection(
                     "claude",
                     home=home,
                     run=lambda argv: _Completed(
@@ -100,7 +103,7 @@ class ProviderConnectionTests(unittest.TestCase):
             (home / ".copilot" / "config.json").touch()
             run = mock.Mock()
             with mock.patch("opaihub.accounts._which", return_value="/bin/copilot"):
-                connection = test_account_connection("copilot", home=home, run=run)
+                connection = check_account_connection("copilot", home=home, run=run)
 
         run.assert_not_called()
         self.assertEqual(connection["authStatus"], "unknown")
