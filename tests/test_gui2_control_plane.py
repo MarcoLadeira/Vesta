@@ -168,29 +168,28 @@ class Gui2ModeAndAutomationTests(unittest.TestCase):
         self.assertEqual(result["receipt"]["confidence"], "blocked")
 
     def test_gui_message_records_tool_trace_and_savings_receipt(self):
+        # Hermetic (and #144-aware): a route is only ledgered once the task
+        # actually answers, so drive an answered local run deterministically
+        # instead of depending on whatever model the host machine has running.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            result = handle_gui_message(
-                root,
-                "summarize git status and changed files",
-                model_id="auto",
-                mode="safe-auto",
-            )
+            with mock.patch(
+                "opaihub.ask.run_ask",
+                return_value={"status": "answered_locally", "answer": "summary"},
+            ):
+                result = handle_gui_message(
+                    root,
+                    "summarize git status and changed files",
+                    model_id="auto",
+                    mode="safe-auto",
+                )
             events = read_events(root)
 
         self.assertIn("tool_trace", result)
         self.assertIn("receipt", result)
         self.assertGreater(result["receipt"]["estimated_baseline_usd"], 0)
-        self.assertIn(
-            result["status"],
-            {
-                "answered",
-                "needs_model",
-                "needs_confirmation",
-                "needs_auto_confirmation",
-            },
-        )
+        self.assertEqual(result["status"], "answered")
         self.assertTrue(events)
 
     def test_gui_once_exposes_mode_defaults_and_last_receipt(self):

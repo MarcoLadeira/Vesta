@@ -22,10 +22,12 @@ import importlib.metadata
 import importlib.util
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
 from opai import app_state as A
+from opai.gui_lifecycle import drain_workers
 from opai.gui_controls import (
     SHORTCUTS,
     empty_state,
@@ -132,6 +134,25 @@ def _qt():
     from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore[import-not-found]
 
     return QtCore, QtGui, QtWidgets
+
+
+def build_chat_job(root: Path, composed: str, *, model_id: str, mode: str):
+    """One chat send as ``(job, cancel_event)`` — Qt-free so it is unit-tested.
+
+    Stop must actually kill the provider CLI, not just hide its result (#141):
+    the returned Event is threaded into ``handle_gui_message`` so the runner
+    terminates the subprocess / closes the local HTTP connection when it fires.
+    """
+    cancel = threading.Event()
+
+    def job() -> dict[str, Any]:
+        from opaihub.gui_pipeline import handle_gui_message
+
+        return handle_gui_message(
+            root, composed, model_id=model_id, mode=mode, cancel=cancel
+        )
+
+    return job, cancel
 
 
 # OPai's own dark identity: a cool charcoal with an emerald accent (the savings /
@@ -337,7 +358,6 @@ def _run_gui(
     # appears to "print to the console" - it all renders in the UI.
     QtCore.qInstallMessageHandler(lambda *_a: None)
     root = project_root.expanduser().resolve()
-    from opaihub.gui_pipeline import handle_gui_message
     from opaihub.gui_preferences import (
         DEFAULT_MODE,
         MODES,
@@ -360,13 +380,19 @@ def _run_gui(
     class Worker(QtCore.QThread):
         done = QtCore.Signal(object)
 
-        def __init__(self, fn) -> None:
+        def __init__(self, fn, cancel_event=None) -> None:
             super().__init__()
             self._fn = fn
             self._cancelled = False
+            self._cancel_event = cancel_event
 
         def cancel(self) -> None:
+            # Suppress the late result AND kill the underlying work (#141):
+            # setting the event makes the runner terminate its CLI subprocess,
+            # so Stop stops the spend, not just the display.
             self._cancelled = True
+            if self._cancel_event is not None:
+                self._cancel_event.set()
 
         def run(self) -> None:  # noqa: D401 - QThread entry point
             try:
@@ -1670,6 +1696,16 @@ def _run_gui(
                 self._pending = None
             self._say("BotBubble", "OPai", "Stopped.", role_color=MUTED)
 
+        def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+            # Quitting must never leave a paid CLI running in the background,
+            # and Qt must never destroy a live worker thread (#140): cancel
+            # everything, then wait (bounded) before teardown.
+            for worker in list(self._workers):
+                worker.cancel()
+            self._current_worker = None
+            self._workers = drain_workers(self._workers)
+            super().closeEvent(event)
+
         def _send(self) -> None:
             if self._is_busy:
                 self._stop()
@@ -1708,12 +1744,14 @@ def _run_gui(
                 meta="thinking…",
             )
             self._row(self._pending)
-            worker = Worker(
-                lambda: handle_gui_message(
-                    self.root, composed, model_id=model_id, mode=mode
-                )
+            job, cancel_event = build_chat_job(
+                self.root, composed, model_id=model_id, mode=mode
             )
+            worker = Worker(job, cancel_event=cancel_event)
             worker.done.connect(self._on_ask)
+            worker.finished.connect(
+                lambda w=worker: self._workers.remove(w) if w in self._workers else None
+            )
             self._workers.append(worker)
             self._current_worker = worker
             worker.start()
@@ -1801,6 +1839,9 @@ def _run_gui(
             self._busy(True)
             worker = Worker(lambda: A.run_tool(self.root, name, arg))
             worker.done.connect(self._on_tool)
+            worker.finished.connect(
+                lambda w=worker: self._workers.remove(w) if w in self._workers else None
+            )
             self._workers.append(worker)
             worker.start()
 

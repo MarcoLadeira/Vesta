@@ -319,15 +319,6 @@ def handle_gui_message(
             chosen_tier="L2",
             confidence="estimated",
         )
-        _record_gui_route(
-            root,
-            message,
-            tier="L2",
-            receipt=receipt,
-            tool_trace=tool_trace,
-            model_id=selected_model,
-            mode=selected_mode,
-        )
         status_map = {
             "answered_by_free_api": "answered",
             "cache_hit": "answered",
@@ -336,6 +327,18 @@ def handle_gui_message(
             "runner_error": "runner_error",
         }
         status = status_map.get(result.get("status"), result.get("status", "error"))
+        # Ledger truth (#144): a route/savings event is only real once the task
+        # actually answered — confirmation prompts and failures record nothing.
+        if status == "answered":
+            _record_gui_route(
+                root,
+                message,
+                tier="L2",
+                receipt=receipt,
+                tool_trace=tool_trace,
+                model_id=selected_model,
+                mode=selected_mode,
+            )
         answer = (
             result.get("answer")
             or result.get("message")
@@ -464,20 +467,24 @@ def handle_gui_message(
             actual_cost_usd=actual if isinstance(actual, (int, float)) else None,
             confidence="actual" if isinstance(actual, (int, float)) else "estimated",
         )
-        record_event(
-            root,
-            "gui_receipt",
-            task=message,
-            receipt=receipt,
-            selected_model=selected_model,
-            selected_mode=selected_mode,
-            tool_count=len(tool_trace),
-        )
         status = (
             "answered"
             if result.get("status") == "answered_by_account"
             else result.get("status", "error")
         )
+        # Ledger truth (#144): only an answered call leaves a receipt event —
+        # a failed provider call must not become the "last savings receipt".
+        # (The real spend is recorded by record_model_call on success only.)
+        if status == "answered":
+            record_event(
+                root,
+                "gui_receipt",
+                task=message,
+                receipt=receipt,
+                selected_model=selected_model,
+                selected_mode=selected_mode,
+                tool_count=len(tool_trace),
+            )
         if status == "answered":
             _emit("completed", "success", "OPai completed")
         else:
@@ -524,15 +531,6 @@ def handle_gui_message(
         selected_mode=selected_mode,
         chosen_tier=tier,
         confidence="estimated",
-    )
-    _record_gui_route(
-        root,
-        message,
-        tier=tier,
-        receipt=receipt,
-        tool_trace=tool_trace,
-        model_id=selected_model,
-        mode=selected_mode,
     )
     if _cancelled():
         _emit("cancelled", "cancelled", "Stopped by you")
@@ -590,6 +588,18 @@ def handle_gui_message(
         )
     final_status = status_map.get(result.get("status"), result.get("status", "error"))
     if final_status == "answered":
+        # Ledger truth (#144): record the route + savings only for a run that
+        # actually answered. "No local model" cards and runner errors used to
+        # inflate routed_tasks / estimated_savings_usd before anything ran.
+        _record_gui_route(
+            root,
+            message,
+            tier=tier,
+            receipt=receipt,
+            tool_trace=tool_trace,
+            model_id=selected_model,
+            mode=selected_mode,
+        )
         _emit("completed", "success", "OPai completed")
         if on_text and answer:
             on_text(answer)

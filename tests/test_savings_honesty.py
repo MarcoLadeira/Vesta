@@ -15,8 +15,10 @@ The core invariant (the "$0.00 bug" regression guard):
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from _helpers import FakeAccountRunner, make_repo
 from opaihub.budget import budget_status
@@ -24,6 +26,7 @@ from opaihub.cost_model import estimate_route_savings
 from opaihub.gui_pipeline import build_savings_receipt, handle_gui_message
 from opaihub.ledger import (
     EVENT_MODEL_CALL,
+    EVENT_ROUTE,
     read_events,
     record_model_call,
     summarize_ledger,
@@ -553,6 +556,138 @@ class LedgerReconciliationInvariantTests(unittest.TestCase):
         self.assertNotIn(secret_prompt, blob)
         # ...nor in the receipt returned to the GUI.
         self.assertNotIn("sk-supersecret9876543210abcdef", str(res.get("receipt", {})))
+
+
+# ---------------------------------------------------------------------------
+# 7. Record-after-outcome (#144): failed / prompted / cancelled runs must not
+#    leave route or receipt events — only an actual answer is a saving.
+# ---------------------------------------------------------------------------
+class RecordAfterOutcomeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _routes(self) -> list[dict]:
+        return [e for e in read_events(self.root) if e.get("event_type") == EVENT_ROUTE]
+
+    def _receipt_events(self) -> list[dict]:
+        return [
+            e for e in read_events(self.root) if e.get("event_type") == "gui_receipt"
+        ]
+
+    def _no_accounts(self):
+        return mock.patch(
+            "opai.app_state.available_models", return_value={"models": []}
+        )
+
+    def test_no_local_model_failure_records_nothing(self):
+        with (
+            mock.patch(
+                "opaihub.ask.run_ask", return_value={"status": "no_local_model"}
+            ),
+            self._no_accounts(),
+        ):
+            result = handle_gui_message(self.root, "task", model_id="auto", mode="ask")
+        self.assertEqual(result["status"], "needs_model")
+        self.assertEqual(self._routes(), [])
+        self.assertEqual(self._receipt_events(), [])
+        self.assertEqual(summarize_ledger(self.root)["estimated_savings_usd"], 0)
+
+    def test_runner_error_records_nothing(self):
+        with mock.patch(
+            "opaihub.ask.run_ask",
+            return_value={"status": "runner_error", "error": "boom"},
+        ):
+            result = handle_gui_message(self.root, "task", model_id="auto", mode="ask")
+        self.assertNotEqual(result["status"], "answered")
+        self.assertEqual(self._routes(), [])
+
+    def test_answered_local_run_records_exactly_one_route(self):
+        with mock.patch(
+            "opaihub.ask.run_ask",
+            return_value={"status": "answered_locally", "answer": "hi"},
+        ):
+            result = handle_gui_message(self.root, "task", model_id="auto", mode="ask")
+        self.assertEqual(result["status"], "answered")
+        routes = self._routes()
+        self.assertEqual(len(routes), 1)
+        self.assertGreaterEqual(routes[0]["estimated_savings_usd"], 0)
+        self.assertEqual(summarize_ledger(self.root)["route_count"], 1)
+
+    def test_free_confirmation_prompt_records_nothing(self):
+        result = handle_gui_message(
+            self.root,
+            "task",
+            model_id="free:gemini:gemini-3.1-flash-lite",
+            mode="ask",
+            allow_cloud=False,
+        )
+        self.assertEqual(result["status"], "needs_free_confirmation")
+        self.assertEqual(self._routes(), [])
+        self.assertEqual(self._receipt_events(), [])
+
+    def test_answered_free_call_records_one_l2_route(self):
+        with mock.patch(
+            "opai.app_state.ask",
+            return_value={"status": "answered_by_free_api", "answer": "4"},
+        ):
+            result = handle_gui_message(
+                self.root,
+                "task",
+                model_id="free:gemini:gemini-3.1-flash-lite",
+                mode="ask",
+                allow_cloud=True,
+            )
+        self.assertEqual(result["status"], "answered")
+        routes = self._routes()
+        self.assertEqual(len(routes), 1)
+        self.assertEqual(routes[0]["model_tier"], "L2")
+
+    def test_failed_account_call_records_no_receipt_or_spend(self):
+        fake = FakeAccountRunner(raises=RuntimeError("CLI exploded"))
+        result = handle_gui_message(
+            self.root,
+            "task",
+            model_id="account:claude:sonnet",
+            mode="ask",
+            account_runner=fake,
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(self._receipt_events(), [])
+        self.assertEqual(
+            [
+                e
+                for e in read_events(self.root)
+                if e.get("event_type") == EVENT_MODEL_CALL
+            ],
+            [],
+            "a failed provider call must not record spend either",
+        )
+
+    def test_answered_account_call_still_records_receipt_and_spend(self):
+        fake = FakeAccountRunner(text="done", cost=0.03)
+        result = handle_gui_message(
+            self.root,
+            "task",
+            model_id="account:claude:sonnet",
+            mode="ask",
+            account_runner=fake,
+        )
+        self.assertEqual(result["status"], "answered")
+        self.assertEqual(len(self._receipt_events()), 1)
+        self.assertGreater(budget_status(self.root)["spent"]["today_usd"], 0)
+
+    def test_cancelled_before_run_records_nothing(self):
+        cancel = threading.Event()
+        cancel.set()
+        result = handle_gui_message(
+            self.root, "task", model_id="auto", mode="ask", cancel=cancel
+        )
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(read_events(self.root), [])
 
 
 if __name__ == "__main__":
