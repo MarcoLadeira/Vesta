@@ -37,12 +37,59 @@ _DESTRUCTIVE_TERMS = [
 
 _NETWORK_TERMS = ["curl ", "invoke-webrequest", "wget ", "npm publish", "twine upload"]
 
+# Words that open a question or explanation, not an instruction to run something
+# (#142). "explain what `git reset --hard` does" must not be blocked just
+# because it mentions a risky command — the user is asking about it, not asking
+# to run it. High precision on the imperative side: real destructive requests
+# ("delete the repo with rm -rf", "rm -rf the project") do not start with these.
+_INQUIRY_LEADERS = frozenset(
+    {
+        "what",
+        "what's",
+        "whats",
+        "why",
+        "how",
+        "when",
+        "which",
+        "who",
+        "whose",
+        "where",
+        "explain",
+        "describe",
+        "define",
+        "is",
+        "are",
+        "does",
+        "can",
+        "could",
+        "should",
+        "would",
+        "tell",
+    }
+)
+
+
+def _is_inquiry(text: str) -> bool:
+    """True when the message reads as a question/explanation, not a command."""
+    stripped = text.strip()
+    tokens = stripped.split()
+    if not tokens:
+        return False
+    first = tokens[0].strip("`'\"*.,").lower()
+    return first in _INQUIRY_LEADERS
+
 
 def safety_warnings(
     project_root: Path, message: str, *, mode: str
 ) -> list[dict[str, Any]]:
     text = " ".join(message.lower().split())
     if mode not in {"safe-auto", "approve-edits", "ask", "plan"}:
+        return []
+    # A question about a risky command is not a request to run it (#142). The
+    # real backstop for anything that *does* execute is the command-level gate
+    # at run time (sandbox.classify_command); this pre-flight scan only guards
+    # against imperative destructive prompts.
+    if _is_inquiry(text):
         return []
     prefs = load_gui_preferences(project_root)
     deny = [

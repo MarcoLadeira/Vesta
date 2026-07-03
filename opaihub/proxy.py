@@ -32,9 +32,11 @@ def _blocked(agent: str, reason: str) -> dict[str, Any]:
         "paid": False,
         "reason": reason,
         "answer": (
-            "OPai stopped this before running it because it looks risky"
-            + (f": {reason}." if reason else ".")
-            + "\nRe-run in Full Auto only if you intend that."
+            "OPai held this back before spending anything because it matched a "
+            "command that can change or delete files"
+            + (f" ({reason})" if reason else "")
+            + ".\nAsk about it in read-only mode, or rephrase the request without "
+            "the risky command."
         ),
     }
 

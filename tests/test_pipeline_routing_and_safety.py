@@ -1,0 +1,189 @@
+"""Send-pipeline correctness: Safe Auto scope + block copy (#142), and the
+selected local model actually running (#143).
+
+All hermetic — no real CLI, model, or network is touched.
+"""
+
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from _helpers import FakeAccountRunner, FakeLocalRunner, make_repo
+
+from opaihub.gui_pipeline import handle_gui_message
+from opaihub.intent_router import safety_warnings
+
+
+# ---------------------------------------------------------------------------
+# #142 — a question ABOUT a risky command is not a request to RUN it, and the
+# block never nudges the user toward Full Auto. The pre-flight scan still fires
+# for genuine imperative destructive prompts (the paid/exec cost-firewall gate).
+# ---------------------------------------------------------------------------
+class SafeAutoInquiryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_explain_question_is_not_flagged(self):
+        warnings = safety_warnings(
+            self.root, "explain what `git reset --hard` does", mode="safe-auto"
+        )
+        self.assertEqual(warnings, [])
+
+    def test_how_question_is_not_flagged(self):
+        warnings = safety_warnings(self.root, "how does rm -rf work", mode="safe-auto")
+        self.assertEqual(warnings, [])
+
+    def test_what_does_question_with_qmark_is_not_flagged(self):
+        warnings = safety_warnings(
+            self.root, "what does `git reset --hard` actually do?", mode="ask"
+        )
+        self.assertEqual(warnings, [])
+
+    def test_imperative_destructive_is_still_flagged(self):
+        warnings = safety_warnings(
+            self.root, "delete the repository with rm -rf", mode="safe-auto"
+        )
+        self.assertTrue(warnings)
+
+    def test_imperative_destructive_flagged_even_in_ask_mode(self):
+        # Preserved behaviour: an account/proxy paid call in ask mode is still
+        # gated before spend — only the *question* case changed.
+        warnings = safety_warnings(self.root, "rm -rf the whole project", mode="ask")
+        self.assertTrue(warnings)
+
+    def test_full_auto_is_exempt(self):
+        warnings = safety_warnings(self.root, "rm -rf everything", mode="full-auto")
+        self.assertEqual(warnings, [])
+
+    def test_ask_mode_risky_question_is_answered_not_blocked(self):
+        with mock.patch(
+            "opaihub.ask.run_ask",
+            return_value={"status": "answered_locally", "answer": "It resets HEAD."},
+        ):
+            res = handle_gui_message(
+                self.root,
+                "what does `git reset --hard` actually do?",
+                model_id="auto",
+                mode="ask",
+            )
+        self.assertNotEqual(res["status"], "blocked")
+        self.assertEqual(res["status"], "answered")
+
+    def test_blocked_message_does_not_recommend_full_auto(self):
+        res = handle_gui_message(
+            self.root,
+            "delete the repository with rm -rf",
+            model_id="account:claude:sonnet",
+            mode="safe-auto",
+            account_runner=FakeAccountRunner(),
+        )
+        self.assertEqual(res["status"], "blocked")
+        haystack = (res["answer"] + " " + " ".join(res["next_actions"])).lower()
+        self.assertNotIn("full auto", haystack)
+        # ...and it should point somewhere safe instead.
+        self.assertTrue(
+            "ask" in haystack or "plan" in haystack or "rephrase" in haystack
+        )
+
+    def test_blocked_flow_never_invokes_the_model(self):
+        fake = FakeAccountRunner(text="should not run")
+        res = handle_gui_message(
+            self.root,
+            "wipe it: delete everything with rm -rf",
+            model_id="account:claude:sonnet",
+            mode="safe-auto",
+            account_runner=fake,
+        )
+        self.assertEqual(res["status"], "blocked")
+        self.assertEqual(fake.calls, [])
+
+
+# ---------------------------------------------------------------------------
+# #143 — a concrete local model id runs THAT model, not the first discovered.
+# ---------------------------------------------------------------------------
+class SelectedLocalModelTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_selected_local_model_answer_comes_from_that_runner(self):
+        # A provided runner is used before any tier gate, so this proves the
+        # picked model — not detect_local_runner's first hit — produced the text.
+        selected = FakeLocalRunner(model="qwen2.5-coder:7b", answer="SELECTED-ANSWER")
+        with mock.patch(
+            "opaihub.local_runner.runner_for_model", return_value=selected
+        ) as resolver:
+            res = handle_gui_message(
+                self.root,
+                "summarize this file",
+                model_id="ollama:qwen2.5-coder:7b",
+                mode="ask",
+            )
+        resolver.assert_called_once()
+        self.assertEqual(resolver.call_args.args[0], "ollama:qwen2.5-coder:7b")
+        self.assertEqual(res["status"], "answered")
+        self.assertIn("SELECTED-ANSWER", res["answer"])
+
+    def test_selected_runner_is_threaded_into_run_ask(self):
+        captured: dict = {}
+
+        def fake_run_ask(root, task, **kwargs):
+            captured.update(kwargs)
+            return {"status": "answered_locally", "answer": "ok"}
+
+        selected = FakeLocalRunner(answer="ok")
+        with (
+            mock.patch("opaihub.local_runner.runner_for_model", return_value=selected),
+            mock.patch("opaihub.ask.run_ask", side_effect=fake_run_ask),
+        ):
+            handle_gui_message(
+                self.root, "task", model_id="ollama:llama3.2", mode="ask"
+            )
+        self.assertIs(captured["runner"], selected)
+        self.assertEqual(captured["selected_model_id"], "ollama:llama3.2")
+
+    def test_auto_resolves_no_specific_runner(self):
+        captured: dict = {}
+
+        def fake_run_ask(root, task, **kwargs):
+            captured.update(kwargs)
+            return {"status": "answered_locally", "answer": "ok"}
+
+        with (
+            mock.patch("opaihub.local_runner.runner_for_model") as resolver,
+            mock.patch("opaihub.ask.run_ask", side_effect=fake_run_ask),
+        ):
+            handle_gui_message(self.root, "task", model_id="auto", mode="ask")
+        resolver.assert_not_called()
+        self.assertIsNone(captured["runner"])
+        self.assertIsNone(captured["selected_model_id"])
+
+    def test_unavailable_selected_model_maps_to_needs_model(self):
+        with (
+            mock.patch(
+                "opaihub.local_runner.runner_for_model",
+                return_value=FakeLocalRunner(available=False),
+            ),
+            mock.patch(
+                "opaihub.ask.run_ask",
+                return_value={"status": "no_local_model", "hint": "start ollama"},
+            ),
+        ):
+            res = handle_gui_message(
+                self.root, "task", model_id="ollama:not-running", mode="ask"
+            )
+        self.assertEqual(res["status"], "needs_model")
+
+
+if __name__ == "__main__":
+    unittest.main()
