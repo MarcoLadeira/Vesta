@@ -28,6 +28,7 @@ from typing import Any
 
 from opai import app_state as A
 from opai.gui_controls import header_status, model_badge, session_inspector
+from opai.gui_lifecycle import drain_workers, signal_cancels
 from opai.gui_modes import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_TASK_MODE,
@@ -349,6 +350,19 @@ def _run_gui(
             self._workers: list[Any] = []
             self._cancels: dict[str, threading.Event] = {}
 
+        def shutdown(self) -> dict[str, int]:
+            """Stop everything before the window dies (#140).
+
+            Signals every pending cancel (the runners kill their CLI children),
+            then waits — bounded — for worker threads so Qt never destroys a
+            live QThread. Stragglers stay referenced rather than destroyed.
+            """
+            signalled = signal_cancels(self._cancels)
+            self._cancels.clear()
+            stragglers = drain_workers(self._workers)
+            self._workers = list(stragglers)
+            return {"cancelled": signalled, "still_running": len(stragglers)}
+
         # ---- synchronous data slots ---------------------------------- #
         @QtCore.Slot(result=str)
         def boot(self) -> str:
@@ -590,6 +604,9 @@ def _run_gui(
 
             worker = Worker(job)
             worker.done.connect(self.toolReady.emit)
+            worker.finished.connect(
+                lambda w=worker: self._workers.remove(w) if w in self._workers else None
+            )
             self._workers.append(worker)
             worker.start()
 
@@ -679,6 +696,13 @@ def _run_gui(
             self.view.page().setWebChannel(self.channel)
             self.view.setHtml("")  # avoid white flash before load
             self.view.load(QtCore.QUrl.fromLocalFile(str(WEB_DIR / "index.html")))
+
+        def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+            # Closing the window is how most users "stop" an AI app: cancel any
+            # in-flight run (killing its CLI child) and drain workers before Qt
+            # teardown, so nothing keeps spending after quit (#140).
+            self.bridge.shutdown()
+            super().closeEvent(event)
 
     if QtWidgets.QApplication.instance() is None:
         # QtWebEngine needs a shared GL context set before the app is created,
