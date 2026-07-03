@@ -707,6 +707,7 @@ function renderErrorCard(el, status, r, sel) {
   el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button>` +
+    (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
     (status === "needs_free_confirmation" ? `<button class="btn primary" data-a="free">Send to ${esc(freeProvider)}</button>` : "") +
     (status === "needs_auto_confirmation" ? `<button class="btn primary" data-a="fallback">Confirm ${esc(r.fallbackModelLabel || "cloud fallback")}</button>` : "") +
     (status === "needs_limit_confirmation" ? `<button class="btn primary" data-a="limit">Continue past limit</button>` : "") +
@@ -716,6 +717,19 @@ function renderErrorCard(el, status, r, sel) {
     (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
   wireActivitySummary(el);
   el.querySelector('[data-a="retry"]').onclick = () => retry();
+  const repair = el.querySelector('[data-a="repair"]'); if (repair) repair.onclick = () => {
+    // One-click Codex config repair (backs up first, removes only the invalid
+    // line), then retry the message — no hunting through Settings.
+    repair.disabled = true; repair.textContent = "Repairing…";
+    const done = (res) => {
+      let ok = false;
+      try { ok = !!(JSON.parse(res) || {}).repaired; } catch (_e) { ok = false; }
+      if (ok) { toast("Codex config repaired — retrying"); retry(); }
+      else { repair.disabled = false; repair.textContent = "Repair Codex config"; toast("Repair failed — open Settings"); }
+    };
+    if (bridge.repairCodexConfig) { try { bridge.repairCodexConfig(done); } catch (_e) { done("{}"); } }
+    else { done("{}"); }
+  };
   const free = el.querySelector('[data-a="free"]'); if (free) free.onclick = () => {
     // Remember consent so this card never appears for this free model again
     // (persisted per workspace by the bridge — the user asked for at most one

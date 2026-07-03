@@ -236,7 +236,13 @@ def connection_for_account(
     elif auth_status == "not_configured":
         diagnostic = "No provider sign-in was detected."
     elif auth_status == "misconfigured":
-        diagnostic = "A sign-in was detected, but the provider CLI is unavailable."
+        # A provided error (e.g. a broken CLI config file like Codex's invalid
+        # service_tier) is far more specific and actionable than the generic
+        # "CLI unavailable" — surface it so the user gets the real fix.
+        diagnostic = str(
+            (error or {}).get("userMessage")
+            or "A sign-in was detected, but the provider CLI is unavailable."
+        )
     else:
         diagnostic = str(
             (error or {}).get("technicalMessage") or "Connection check failed."
@@ -250,6 +256,9 @@ def connection_for_account(
         "lastCheckedAt": last_checked_at,
         "lastError": (error or {}).get("userMessage"),
         "lastErrorCode": (error or {}).get("code"),
+        # The full normalized error, so callers keep the classification (and its
+        # recovery actions) instead of re-deriving it from the diagnostic text.
+        "error": error or None,
         "safeDiagnostic": diagnostic,
         "cliPresent": cli_present,
         "detected": authenticated,
