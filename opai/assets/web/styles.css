@@ -98,6 +98,7 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 .app {
   display: grid;
   grid-template-columns: 250px 1fr 314px;
+  grid-template-rows: 58px minmax(0, 1fr);
   height: 100vh;
   transition: grid-template-columns 0.28s var(--ease);
 }
@@ -107,11 +108,13 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 
 /* ---------- sidebar: the left rail ---------- */
 .sidebar {
+  grid-column: 1;
+  grid-row: 2;
   background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 16px 12px 12px;
+  padding: 12px;
   overflow: hidden;
   min-width: 0;
   position: relative;
@@ -122,16 +125,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   background: linear-gradient(180deg, transparent, rgba(52, 211, 153, 0.14) 30%, transparent 80%);
   pointer-events: none;
 }
-.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; }
-.brand .logo {
-  width: 26px; height: 26px; border-radius: 8px;
-  background: var(--brand-gradient);
-  box-shadow: 0 2px 14px var(--accent-glow), var(--inset-hi);
-  display: grid; place-items: center; color: var(--accent-ink); font-weight: 800; font-size: 14px;
-}
-.brand .name { font-weight: 800; font-size: 16.5px; letter-spacing: -0.02em; }
-.brand .dot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
-
 .new-chat {
   display: flex; align-items: center; gap: 8px; justify-content: center;
   background: var(--brand-gradient);
@@ -195,8 +188,155 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 .acct .d { width: 7px; height: 7px; border-radius: 50%; }
 .priv-foot { color: var(--faint); font-size: 11px; margin-top: 6px; }
 
-/* ---------- main column + header instrument strip ---------- */
-.main { display: flex; flex-direction: column; min-width: 0; position: relative; }
+/* ---------- unified desktop app header ---------- */
+.app-header {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 8px 7px 10px;
+  background: rgba(11, 14, 19, 0.96);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 10px 28px rgba(0, 0, 0, 0.16);
+  position: relative;
+  z-index: 100;
+}
+.header-leading, .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.header-leading { flex: 0 1 auto; }
+.header-actions { flex: 0 0 auto; }
+.header-drag-space { flex: 1 1 64px; align-self: stretch; min-width: 20px; }
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+.header-logo {
+  width: 27px;
+  height: 27px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--accent-ink);
+  background: var(--brand-gradient);
+  box-shadow: 0 3px 16px var(--accent-glow), var(--inset-hi);
+  font-size: 13px;
+  font-weight: 850;
+}
+.header-brand-name { color: var(--ink); font-size: 15px; font-weight: 780; }
+.header-on-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 9px var(--green);
+}
+.header-divider { width: 1px; height: 22px; background: var(--border); margin: 0 2px; flex-shrink: 0; }
+.topbar-icon, .topbar-action, .window-control {
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s var(--ease), background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.12s var(--ease);
+}
+.topbar-icon { width: 36px; flex: 0 0 36px; }
+.topbar-icon:hover, .window-control:hover { color: var(--ink); background: var(--glass-hi); border-color: var(--border); }
+.topbar-icon:active, .topbar-action:active, .window-control:active { transform: scale(0.96); }
+.topbar-action {
+  gap: 7px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: var(--glass);
+  border-color: var(--border);
+  font-size: 12.5px;
+  font-weight: 680;
+  white-space: nowrap;
+}
+.topbar-action:hover { background: var(--glass-hi); border-color: var(--border-strong); }
+.action-icon { color: var(--accent); font-size: 18px; font-weight: 500; line-height: 1; }
+.menu-lines { width: 15px; height: 14px; display: flex; flex-direction: column; justify-content: space-between; }
+.menu-lines i { display: block; height: 1.5px; border-radius: 2px; background: currentColor; }
+.settings-glyph { font-size: 15px; line-height: 1; }
+.panel-glyph {
+  width: 15px;
+  height: 14px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  position: relative;
+}
+.panel-glyph::after { content: ""; position: absolute; top: 0; bottom: 0; right: 4px; width: 1px; background: currentColor; opacity: 0.7; }
+.inspector-toggle.on { color: var(--accent); background: rgba(52, 211, 153, 0.07); border-color: rgba(52, 211, 153, 0.24); }
+.window-controls { display: flex; align-items: center; margin-left: 2px; }
+.window-control { width: 38px; border-radius: 6px; font-size: 15px; }
+.window-control.close:hover { color: #fff; background: #c42b3a; border-color: #c42b3a; }
+
+.ws-switch {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(36vw, 390px);
+  padding: 5px 9px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.ws-switch:hover, .ws-switch-wrap.open .ws-switch { background: var(--glass-hi); border-color: var(--border); }
+.ws-copy { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.ws-switch #wsLabel { overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+.ws-context { overflow: hidden; color: var(--faint); font-size: 10.5px; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
+.ws-ico { color: var(--amber); font-size: 12px; transform: rotate(90deg); opacity: 0.9; flex-shrink: 0; }
+.ws-switch .chev { color: var(--faint); font-size: 10px; transition: transform 0.18s var(--ease); flex-shrink: 0; }
+.ws-switch-wrap.open .chev { transform: rotate(180deg); }
+.status-line {
+  max-width: 330px;
+  overflow: hidden;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: 0 7px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-line b { color: var(--ink); font-weight: 650; }
+
+/* Fixed hit targets preserve native resize behavior on a frameless Qt window. */
+.resize-zone { position: fixed; z-index: 200; pointer-events: auto; }
+.resize-zone.north, .resize-zone.south { left: 6px; right: 6px; height: 5px; }
+.resize-zone.east, .resize-zone.west { top: 6px; bottom: 6px; width: 5px; }
+.resize-zone.north { top: 0; cursor: n-resize; }
+.resize-zone.east { right: 0; cursor: e-resize; }
+.resize-zone.south { bottom: 0; cursor: s-resize; }
+.resize-zone.west { left: 0; cursor: w-resize; }
+.resize-zone.north-east, .resize-zone.south-east, .resize-zone.south-west, .resize-zone.north-west { width: 8px; height: 8px; }
+.resize-zone.north-east { top: 0; right: 0; cursor: ne-resize; }
+.resize-zone.south-east { right: 0; bottom: 0; cursor: se-resize; }
+.resize-zone.south-west { bottom: 0; left: 0; cursor: sw-resize; }
+.resize-zone.north-west { top: 0; left: 0; cursor: nw-resize; }
+
+/* ---------- main column ---------- */
+.main { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; min-width: 0; position: relative; }
 .main::before {
   /* subtle instrument-panel dot grid behind the workspace */
   content: ""; position: absolute; inset: 0;
@@ -204,48 +344,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   background-size: 26px 26px;
   pointer-events: none;
 }
-.header {
-  display: flex; align-items: center; gap: 12px; padding: 11px 20px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(10, 12, 17, 0.72); backdrop-filter: blur(14px);
-  /* Stays above the chat/view area so the workspace popover is clickable. */
-  position: relative; z-index: 40;
-}
-.header::after {
-  /* the ledger line under the instrument strip */
-  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.22) 18%, transparent 55%);
-  pointer-events: none;
-}
-.ws-switch {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--glass); border: 1px solid var(--border); color: var(--ink);
-  font-weight: 650; font-size: 13px; padding: 7px 12px; border-radius: var(--r-md); cursor: pointer;
-  box-shadow: var(--inset-hi);
-  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
-  max-width: 42vw;
-}
-.ws-switch:hover { background: var(--glass-hi); border-color: var(--border-strong); }
-.ws-switch #wsLabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-switch .ws-ico { opacity: 0.8; flex-shrink: 0; }
-.ws-switch .chev { color: var(--faint); font-size: 11px; transition: transform 0.18s var(--ease); flex-shrink: 0; }
-.ws-switch-wrap.open .chev { transform: rotate(180deg); }
-.header .spacer { flex: 1; }
-.status-line {
-  color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums;
-  background: var(--glass); border: 1px solid var(--border); border-radius: 100px;
-  padding: 5px 14px; box-shadow: var(--inset-hi); white-space: nowrap;
-}
-.status-line b { color: var(--ink); font-weight: 650; }
-.icon-btn {
-  display: inline-flex; align-items: center; gap: 7px;
-  background: transparent; border: 1px solid var(--border); color: var(--muted);
-  font-size: 12.5px; font-weight: 650; padding: 7px 13px; border-radius: 100px; cursor: pointer;
-  transition: all 0.15s var(--ease);
-}
-.icon-btn:hover { color: var(--ink); border-color: var(--border-strong); background: var(--glass-hi); }
-.icon-btn.on { color: var(--accent); border-color: rgba(52, 211, 153, 0.45); background: rgba(52, 211, 153, 0.06); }
-
 .view-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .view { position: absolute; inset: 0; display: none; flex-direction: column; min-height: 0; }
 .view.active { display: flex; animation: viewIn 0.24s var(--ease); }
@@ -438,11 +536,14 @@ kbd {
 
 /* ---------- inspector: the control tower ---------- */
 .inspector {
+  grid-column: 3;
+  grid-row: 2;
   background: linear-gradient(180deg, var(--surface), var(--bg));
   border-left: 1px solid var(--border);
   padding: 18px 16px; overflow-y: auto; overflow-x: hidden; min-width: 0;
 }
 .app.panel-hidden .inspector { opacity: 0; pointer-events: none; }
+.sidebar-backdrop { display: none; }
 .insp-title { font-size: 12px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); position: relative; padding-bottom: 8px; }
 .insp-title::after {
   content: ""; position: absolute; left: 0; bottom: 0; width: 44px; height: 2px; border-radius: 2px;
@@ -564,7 +665,7 @@ kbd {
 }
 
 /* global "AI working" pulse on the brand dot */
-body.ai-working .brand .dot { animation: pulse 1.3s ease-in-out infinite; }
+body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 10px var(--green); } 50% { opacity: 0.4; box-shadow: 0 0 3px var(--green); } }
 
 /* ---------- dashboard: pods, hero, kpis ---------- */
@@ -733,6 +834,10 @@ body.ai-working .brand .dot { animation: pulse 1.3s ease-in-out infinite; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* ---------- responsive cockpit (BUG-QA-004) ---------- */
+@media (max-width: 1180px) {
+  .status-line { display: none; }
+}
+
 /* Tablet: the inspector folds away but the nav rail stays usable. */
 @media (max-width: 980px) {
   .app, .app.panel-hidden, .app.sidebar-hidden, .app.sidebar-hidden.panel-hidden {
@@ -740,29 +845,75 @@ body.ai-working .brand .dot { animation: pulse 1.3s ease-in-out infinite; }
   }
   .app.sidebar-hidden, .app.sidebar-hidden.panel-hidden { grid-template-columns: 0px 1fr; }
   .inspector { display: none; }
+  #panelToggle { display: none; }
   .sidebar { width: auto; }
-  .header { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+  .main { grid-column: 2; }
+  .app.sidebar-hidden .main { grid-column: 2; }
+  .app-header { gap: 8px; }
+  .ws-switch { max-width: 31vw; }
   .page { padding: 22px 18px 48px; }
   .thread { padding: 20px 16px 8px; }
   .composer-wrap { padding: 8px 14px 16px; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .msg.user .bubble { max-width: 90%; }
 }
-/* Phone: rails fold entirely; chat + instrument strip stay, no overflow. */
+/* Phone: the sidebar becomes an intentional drawer and the title bar compacts. */
 @media (max-width: 700px) {
   .app, .app.panel-hidden, .app.sidebar-hidden, .app.sidebar-hidden.panel-hidden {
-    display: flex; flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 54px minmax(0, 1fr);
   }
-  .sidebar { display: none; }
-  .main { flex: 1; min-height: 0; }
-  .status-line { display: none; }
-  .icon-btn { padding: 7px 10px; }
-  .ws-switch { max-width: 56vw; }
+  .app-header { grid-column: 1; height: 54px; padding: 6px; gap: 5px; }
+  .header-leading, .header-actions { gap: 4px; }
+  .header-drag-space { min-width: 0; }
+  .header-brand-name, .header-on-dot, .header-divider, #headerSettings { display: none; }
+  .header-brand { padding: 0; }
+  .header-logo { width: 26px; height: 26px; }
+  .topbar-icon { width: 34px; flex-basis: 34px; }
+  .topbar-action { width: 34px; padding: 0; }
+  .topbar-action .action-label { display: none; }
+  .window-control { width: 31px; }
+  .window-controls { margin-left: 0; }
+  .ws-switch { max-width: min(31vw, 132px); padding: 4px 6px; gap: 6px; }
+  .ws-context, .ws-ico { display: none; }
+  .sidebar {
+    display: flex;
+    position: fixed;
+    z-index: 120;
+    top: 54px;
+    bottom: 0;
+    left: 0;
+    width: min(82vw, 280px);
+    transform: translateX(-102%);
+    transition: transform 0.22s var(--ease);
+    box-shadow: var(--shadow-lg);
+  }
+  .app.mobile-sidebar-open .sidebar { transform: translateX(0); }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    z-index: 110;
+    inset: 54px 0 0;
+    border: 0;
+    background: rgba(2, 4, 8, 0.58);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s var(--ease);
+  }
+  .app.mobile-sidebar-open .sidebar-backdrop { opacity: 1; pointer-events: auto; }
+  .main, .app.sidebar-hidden .main { grid-column: 1; grid-row: 2; min-height: 0; }
   .kpis { grid-template-columns: 1fr; }
   .chips { gap: 8px; }
   .empty { padding: 0 18px; }
   .thread { padding: 18px 12px 8px; }
   .composer-wrap { padding: 8px 10px 14px; }
+}
+
+@media (max-width: 430px) {
+  .header-brand { display: none; }
+  .ws-switch { max-width: 112px; }
+  .window-control { width: 29px; }
 }
 
 /* ---------- reduced motion ---------- */

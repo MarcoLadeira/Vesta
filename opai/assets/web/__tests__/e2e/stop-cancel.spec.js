@@ -23,7 +23,7 @@ test("composer send control becomes Stop and returns to Send", async ({ page }) 
 
 test("new chat during generation cancels before clearing", async ({ page }) => {
   await sendPrompt(page);
-  await page.getByRole("button", { name: "New chat" }).click();
+  await page.locator("#headerNewChat").click();
   expect(await page.evaluate(() => window.__mock.cancelCount)).toBe(1);
   await expect(page.locator(".msg")).toHaveCount(0);
   await expect(page.locator("#empty")).toBeVisible();

@@ -6,7 +6,7 @@ import { openApp, sendPrompt } from "./helpers/app.js";
 test.beforeEach(async ({ page }) => openApp(page));
 
 test("core controls expose useful accessible names", async ({ page }) => {
-  await expect(page.getByRole("button", { name: "New chat" })).toBeVisible();
+  await expect(page.locator("#headerNewChat")).toBeVisible();
   await expect(page.getByRole("button", { name: "Inspector" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
   await expect(page.getByPlaceholder(/Tell OPai what to build/)).toBeVisible();

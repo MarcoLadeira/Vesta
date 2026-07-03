@@ -65,6 +65,10 @@ export async function emitToken(page, requestId, text) {
 }
 
 export async function openNav(page, label) {
+  if (label === "Settings") {
+    await page.locator("#headerSettings").click();
+    return;
+  }
   const target = page.getByRole("button", { name: label, exact: true });
   // Simple-by-default sidebar: dashboard items may sit inside a folded group
   // ("Insights"). Do what a user does — unfold it, then click.
