@@ -789,24 +789,32 @@ class AccountRunner:
                 pass
             finally:
                 Path(out_path).unlink(missing_ok=True)
+        # A real answer wins over the exit code: if the model streamed text,
+        # return it even when the CLI later exits non-zero or prints a stderr
+        # diagnostic. Discarding streamed text turned a perfectly good answer
+        # into a raw "could not complete this request" card showing the init
+        # JSON as the error (the reported Claude bug).
+        if text:
+            return {"text": text, "cost": cost, "returncode": returncode}
+
         from opai.provider_contract import normalize_provider_error
 
         diagnostic = "\n".join(part for part in diagnostic_parts if part)
         normalized = normalize_provider_error(
             self.account_id,
-            diagnostic or text,
+            diagnostic,
             model=self.model,
             returncode=returncode,
         )
         known_failure = normalized["code"] not in {"UNKNOWN", "NO_RESPONSE"}
-        if returncode not in (0, None) or (known_failure and not text):
+        if returncode not in (0, None) or known_failure:
             return {
                 "text": "",
                 "cost": cost,
                 "error": normalized,
                 "returncode": returncode,
             }
-        return {"text": text, "cost": cost, "returncode": returncode}
+        return {"text": "", "cost": cost, "returncode": returncode}
 
 
 def runner_for_account(

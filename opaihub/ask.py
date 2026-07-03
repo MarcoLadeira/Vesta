@@ -20,8 +20,11 @@ from .local_runner import LocalRunner, detect_local_runner
 from .model_intelligence import recommend_model
 
 SYSTEM_PROMPT = (
-    "You are OPai's local-first coding assistant. Answer concisely using only "
-    "the provided local evidence. Do not invent files or commands."
+    "You are OPai's local-first coding assistant. Reply directly to the user's "
+    "message. The project context below is background you may use ONLY when it "
+    "is relevant to what they asked. For a greeting, small talk, or a general "
+    "question, respond naturally and briefly and do NOT bring up the project, "
+    "its files, or how to run its tests. Never invent files or commands."
 )
 
 
@@ -29,9 +32,10 @@ def _build_prompt(project_root: Path, task: str) -> str:
     evidence = collect_evidence(project_root, task)
     git = evidence.get("git", {})
     lines = [
-        f"Task: {task}",
+        f"User message: {task}",
         "",
-        "Local project evidence (compact, already redacted):",
+        "Project context (reference only if it is relevant to the message above; "
+        "otherwise ignore it entirely):",
         f"- languages: {', '.join(evidence.get('languages', [])) or 'unknown'}",
         f"- markers: {', '.join(evidence.get('markers', [])) or 'none'}",
         f"- test commands: {', '.join(evidence.get('test_commands', [])) or 'none'}",
@@ -42,7 +46,7 @@ def _build_prompt(project_root: Path, task: str) -> str:
     diff = str(git.get("diff_stat", {}).get("output_tail", "")).strip()
     if diff:
         lines.append("- diff stat:\n" + diff[-500:])
-    lines.append("\nAnswer concisely.")
+    lines.append("\nNow respond to the user message.")
     return "\n".join(lines)
 
 

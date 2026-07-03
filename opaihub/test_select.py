@@ -12,6 +12,8 @@ import subprocess  # nosec B404
 from pathlib import Path
 from typing import Any
 
+from .proc import no_window_kwargs
+
 
 # Base test command per framework marker.
 FRAMEWORK_COMMANDS = [
@@ -57,6 +59,7 @@ def _git_changed_files(root: Path) -> list[str]:
                 timeout=10,
                 encoding="utf-8",
                 errors="replace",
+                **no_window_kwargs(),  # no flashing console window on Windows
             )
         except (OSError, subprocess.SubprocessError):
             continue

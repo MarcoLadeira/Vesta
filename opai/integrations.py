@@ -14,6 +14,7 @@ from opai import __brand__, __release_stage__, __version__
 from opai.context_slim import AI_IGNORE_FILES, write_ai_ignore_files
 from opai.terminal_ui import render_badge
 from opaihub.loader import hub_root
+from opaihub.proc import no_window_kwargs
 from opaihub.skills import skill_items
 from opaihub.state import attach_project, state_dir
 
@@ -304,6 +305,7 @@ def _install_superpowers_source(
             capture_output=True,
             text=True,
             timeout=timeout,
+            **no_window_kwargs(),  # no flashing console window on Windows
         )
     except OSError as exc:
         return {"status": "failed", "reason": str(exc)}
@@ -865,7 +867,12 @@ def update_opai_source(home: Path | None = None, timeout: int = 120) -> dict[str
     command = [git, "-C", str(source), "pull", "--ff-only"]
     try:
         completed = subprocess.run(  # nosec
-            command, check=False, capture_output=True, text=True, timeout=timeout
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            **no_window_kwargs(),  # no flashing console window on Windows
         )
     except OSError as exc:
         return {"status": "failed", "reason": str(exc)}

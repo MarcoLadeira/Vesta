@@ -493,15 +493,10 @@ function send(retryOf) {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
   };
-  if (sel.modelKind === "free" && sel.allowCloud !== true) {
-    const provider = String(sel.modelLabel || "This provider").split(" · ")[0];
-    const ok = window.confirm(
-      `${provider} will receive your task and compact project context. ` +
-      "Free-tier limits vary, and provider billing may apply to your account. Continue?"
-    );
-    if (!ok) return;
-    sel.allowCloud = true;
-  }
+  // Free-tier consent is handled in-chat, not with a native popup: the send
+  // goes out with allowCloud=false, the pipeline replies needs_free_confirmation,
+  // and the user confirms with the "Send to <provider>" card button. No
+  // provider is contacted until that explicit confirmation.
   if (!retryOf) { $("#input").value = ""; autoSize(); }
   state.lastSend = sel;
   if (!retryOf) {
@@ -697,11 +692,15 @@ function renderErrorCard(el, status, r, sel) {
     (r && r.raw_result ? JSON.stringify(r.raw_result) : "")
   );
   const actions = error.recoveryActions || ["retry", "open_settings", "show_details"];
+  // Free-tier consent card (replaces the old native confirm popup): confirm to
+  // send to the provider's public API with the same explicit warning text.
+  const freeProvider = String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
   el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button>` +
+    (status === "needs_free_confirmation" ? `<button class="btn primary" data-a="free">Send to ${esc(freeProvider)}</button>` : "") +
     (status === "needs_auto_confirmation" ? `<button class="btn primary" data-a="fallback">Confirm ${esc(r.fallbackModelLabel || "cloud fallback")}</button>` : "") +
     (status === "needs_limit_confirmation" ? `<button class="btn primary" data-a="limit">Continue past limit</button>` : "") +
     (actions.includes("open_settings") || actions.includes("reconnect") ? `<button class="btn" data-a="settings">Open Settings</button>` : "") +
@@ -710,6 +709,9 @@ function renderErrorCard(el, status, r, sel) {
     (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
   wireActivitySummary(el);
   el.querySelector('[data-a="retry"]').onclick = () => retry();
+  const free = el.querySelector('[data-a="free"]'); if (free) free.onclick = () => {
+    send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
+  };
   const fallback = el.querySelector('[data-a="fallback"]'); if (fallback) fallback.onclick = () => {
     send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
   };

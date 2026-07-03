@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .evidence import MARKERS, collect_evidence
+from .proc import no_window_kwargs
 from .state import state_dir
 
 
@@ -42,6 +43,7 @@ def _git_output(root: Path, args: list[str]) -> str | None:
             timeout=10,
             encoding="utf-8",
             errors="replace",
+            **no_window_kwargs(),  # no flashing console window on Windows
         )
     except (OSError, subprocess.SubprocessError):
         return None
