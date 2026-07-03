@@ -31,7 +31,16 @@ include = ["opai", "opai.*", "opaihub", "opaihub.*", "opcoding", "opcoding.*"]
 exclude = ["tests", "tests.*"]
 
 [tool.setuptools.package-data]
-opai = ["assets/*", "assets/gui-icons/*", "assets/fonts/*"]
+# package-data globs do not recurse: every asset subfolder needs its own entry.
+# assets/web/* is the entire web GUI (issue #139) — extension globs keep the
+# __tests__/ subfolder out of the wheel.
+opai = [
+    "assets/*",
+    "assets/fonts/*",
+    "assets/web/*.html",
+    "assets/web/*.js",
+    "assets/web/*.css",
+]
 opaihub = ["data/hub/**/*"]
 
 [tool.opai]

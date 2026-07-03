@@ -89,9 +89,23 @@ def main() -> int:
             root,
         )
 
+        # The web GUI ships as package data; a wheel without it silently falls
+        # back to the legacy Qt window (issue #139). Fail the smoke instead.
+        gui_assets_check = (
+            "from opai.gui_web import WEB_DIR\n"
+            "import sys\n"
+            "required = ['index.html', 'app.js', 'styles.css', 'activity.js',"
+            " 'message-state.js']\n"
+            "missing = [n for n in required if not (WEB_DIR / n).is_file()]\n"
+            "if missing:\n"
+            "    sys.exit('wheel is missing web GUI assets: ' + ', '.join(missing))\n"
+            "print('web GUI assets present:', len(required))\n"
+        )
+
         with tempfile.TemporaryDirectory() as tmp:
             outside_repo = Path(tmp)
             run([str(python), "-m", "opai", "version"], outside_repo)
+            run([str(python), "-c", gui_assets_check], outside_repo)
             run([str(python), "-m", "opaihub", "validate"], outside_repo)
             run([str(python), "-m", "opai", "hub", "list-tools"], outside_repo)
             run(

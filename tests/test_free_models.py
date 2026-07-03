@@ -67,6 +67,13 @@ class FreeModelSpecsTests(unittest.TestCase):
 
 
 class ListFreeModelsTests(unittest.TestCase):
+    def setUp(self):
+        # Hermetic: never consult the developer's real OS keyring — a stored
+        # Gemini/Groq key on the machine must not flip "no key" assertions.
+        patcher = mock.patch("opaihub.credentials._default_backend", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _no_keys(self):
         """Env patch that clears all free model API keys."""
         return {s["env_key"]: "" for s in FREE_MODEL_SPECS}
@@ -138,6 +145,12 @@ class ListFreeModelsTests(unittest.TestCase):
 
 
 class FreeAPIRunnerTests(unittest.TestCase):
+    def setUp(self):
+        # Hermetic: keep the real OS keyring out of runner_for_model key lookup.
+        patcher = mock.patch("opaihub.credentials._default_backend", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_runner_rejects_non_https_api_endpoint(self):
         from opaihub.local_runner import FreeAPIRunner
 
