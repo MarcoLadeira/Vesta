@@ -126,6 +126,10 @@
       cb(JSON.stringify({ repaired: true, backupPath: "/tmp/config.toml.bak" }));
     },
     savePref: function (key, value) { window.__mock.savedPrefs.push([key, value]); },
+    grantFreeConsent: function (modelId, cb) {
+      window.__mock.freeConsentGrants.push(modelId);
+      if (cb) cb(JSON.stringify({ ok: true, freeConsent: window.__mock.freeConsentGrants.slice() }));
+    },
     send: function (p) { var m = window.__mock; m.lastRequest = JSON.parse(p); m.sendCount++; },
     cancel: function (id) { var m = window.__mock; m.cancelCount++; m.cancelled.push(id); },
     runTool: function (name) {
@@ -152,6 +156,7 @@
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
     runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [],
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
+    freeConsentGrants: [],
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },

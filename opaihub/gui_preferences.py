@@ -21,6 +21,10 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "show_control_panel": False,
     "auto_tools": True,
     "usage_limits": {},
+    # Free-model ids the user has already consented to send to. One-time
+    # confirmation per free provider is enough; asking on every message is a
+    # trust-badgering pattern that trains users to click through popups.
+    "free_consent": [],
     "safe_auto": {
         "allow_commands": [
             "git status",
@@ -53,6 +57,7 @@ _ALLOWED_KEYS = {
     "show_control_panel",
     "auto_tools",
     "usage_limits",
+    "free_consent",
     "safe_auto",
 }
 
@@ -97,8 +102,41 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
                     "window": window,
                 }
     clean["usage_limits"] = clean_limits
+    # Free-model consent list: strings only, deduplicated, capped.
+    raw_consent = clean.get("free_consent")
+    seen: set[str] = set()
+    consent: list[str] = []
+    if isinstance(raw_consent, list):
+        for entry in raw_consent:
+            if not isinstance(entry, str):
+                continue
+            model_id = redact(entry).strip()
+            if not model_id or model_id in seen:
+                continue
+            # Only accept ids from the free-tier namespace so this pref can
+            # never quietly grant consent for a paid or arbitrary model id.
+            if not model_id.startswith("free:"):
+                continue
+            seen.add(model_id)
+            consent.append(model_id)
+    clean["free_consent"] = consent[:32]
     clean["schema_version"] = 2
     return clean
+
+
+def grant_free_consent(project_root: Path, model_id: str) -> dict[str, Any]:
+    """Persist that the user has consented to send to ``model_id`` (free tier).
+
+    Only accepts ``free:`` ids so this cannot be used to grant consent for a
+    paid model. Returns the updated preferences.
+    """
+    if not isinstance(model_id, str) or not model_id.startswith("free:"):
+        raise ValueError("Only free:<provider>:<model> ids may be granted consent")
+    current = load_gui_preferences(project_root)
+    consent = list(current.get("free_consent") or [])
+    if model_id not in consent:
+        consent.append(model_id)
+    return save_gui_preferences(project_root, {"free_consent": consent})
 
 
 def load_gui_preferences(project_root: Path) -> dict[str, Any]:
