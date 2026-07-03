@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from .proc import no_window_kwargs
 from .sandbox import classify_command
 
 
@@ -140,6 +141,9 @@ def run_policy_command(
             encoding="utf-8",
             errors="replace",
             env=env,
+            # No flashing console window on Windows: this runs git/tests on
+            # every message via collect_evidence (issue: burst of terminals).
+            **no_window_kwargs(),
         )
         return HubCommandResult(
             command=display,

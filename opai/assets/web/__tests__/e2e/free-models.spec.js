@@ -110,22 +110,36 @@ test("free model advanced_label appears as option title tooltip", async ({ page 
   expect(title).toMatch(/Gemini/);
 });
 
-test("sending to a free-tier API requires explicit confirmation", async ({ page }) => {
+test("free-tier API asks for confirmation in-chat, then sends on confirm", async ({ page }) => {
   await openApp(page, { boot: { models: MODELS_WITH_FREE } });
   await page.selectOption("#modelSel", "free:gemini:gemini-3.1-flash-lite");
   await page.fill("#input", "Explain this project");
-  page.once("dialog", (dialog) => dialog.accept());
+  // No native dialog: the first send goes out immediately with allowCloud=false.
   await page.getByRole("button", { name: "Send" }).click();
-  const request = await page.evaluate(() => window.__mock.lastRequest);
-  expect(request.allowCloud).toBe(true);
+  const first = await page.evaluate(() => window.__mock.lastRequest);
+  expect(first.allowCloud).toBe(false);
+  // The pipeline asks for consent → an in-chat card with a "Send to Gemini" button.
+  await page.evaluate(() => {
+    const id = window.__mock.lastRequest.requestId;
+    window.__mock.emitReply(id, {
+      status: "needs_free_confirmation",
+      answer: "Gemini will receive your task and compact project context. Continue?",
+    });
+  });
+  await page.getByRole("button", { name: /Send to Gemini/i }).click();
+  const second = await page.evaluate(() => window.__mock.lastRequest);
+  expect(second.allowCloud).toBe(true);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
 });
 
-test("rejecting free-tier API confirmation sends nothing", async ({ page }) => {
+test("no free-tier cloud send happens without explicit confirmation", async ({ page }) => {
   await openApp(page, { boot: { models: MODELS_WITH_FREE } });
   await page.selectOption("#modelSel", "free:gemini:gemini-3.1-flash-lite");
   await page.fill("#input", "Explain this project");
-  page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "Send" }).click();
-  const sendCount = await page.evaluate(() => window.__mock.sendCount);
-  expect(sendCount).toBe(0);
+  const first = await page.evaluate(() => window.__mock.lastRequest);
+  // The provider is never contacted without consent: the only send is gated.
+  expect(first.allowCloud).toBe(false);
+  // Without clicking the confirm button, no second (allowCloud=true) send fires.
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
 });

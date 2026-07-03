@@ -33,6 +33,7 @@ ERROR_CODES = (
     "PROVIDER_UNAVAILABLE",
     "NETWORK_ERROR",
     "MODEL_UNAVAILABLE",
+    "CONFIG_INVALID",
     "CONTEXT_TOO_LARGE",
     "STREAM_ABORTED",
     "USER_CANCELLED",
@@ -95,6 +96,17 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
         "title": "This OPai mode is unavailable.",
         "userMessage": "Choose another mode or update the provider connection.",
         "actions": ["change_mode", "open_settings", "show_details"],
+        "retryable": False,
+    },
+    "CONFIG_INVALID": {
+        "authStatus": "misconfigured",
+        "title": "OPai found a problem in this provider's config.",
+        "userMessage": (
+            "The provider CLI's config file has an invalid setting, so it won't "
+            "start. Open Settings → Connections and run the one-click repair, "
+            "then retry."
+        ),
+        "actions": ["open_settings", "show_details"],
         "retryable": False,
     },
     "CONTEXT_TOO_LARGE": {
@@ -215,6 +227,14 @@ def classify_error_code(
         word in low for word in ("large", "limit", "exceed", "too long")
     ):
         return "CONTEXT_TOO_LARGE"
+    # Provider CLI config is broken before it can even authenticate, e.g. Codex's
+    # `Error loading configuration: …unknown variant 'default', expected 'fast'
+    # or 'flex'`. Catch it so the user gets the one-click repair, not a generic
+    # "could not complete this request".
+    if "error loading configuration" in low or (
+        "unknown variant" in low and "expected" in low
+    ):
+        return "CONFIG_INVALID"
     if any(
         word in low
         for word in ("unknown model", "model not found", "model unavailable")
