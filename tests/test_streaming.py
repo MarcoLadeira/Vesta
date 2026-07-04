@@ -46,6 +46,12 @@ class AccountStreamingTests(unittest.TestCase):
         self.assertEqual(types[-1], "completed")
         self.assertEqual(result["status"], "answered")
 
+        authenticated = next(
+            event for event in events if event["type"] == "provider_authenticated"
+        )
+        self.assertIn("sign-in", authenticated["title"].lower())
+        self.assertNotIn("connection verified", authenticated["title"].lower())
+
     def test_auth_failure_never_emits_completed(self):
         class AuthFailureRunner(FakeStreamingRunner):
             def stream(self, *args, **kwargs):

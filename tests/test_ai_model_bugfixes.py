@@ -8,6 +8,7 @@ non-zero CLI exit. No real CLI, model, or network is used.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -248,9 +249,9 @@ class _Pipe:
 
 
 class _FakeProc:
-    def __init__(self, lines, returncode=0):
+    def __init__(self, lines, returncode=0, stderr_lines=None):
         self.stdout = _Pipe(lines)
-        self.stderr = _Pipe([])
+        self.stderr = _Pipe(stderr_lines or [])
         self.returncode = returncode
         self._alive = True
 
@@ -298,6 +299,263 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
             result = self._runner().stream("hi")
         self.assertEqual(result["text"], "")
         self.assertIn("error", result)
+
+    def test_claude_native_auth_failure_is_never_streamed_as_answer(self):
+        from opaihub import accounts
+
+        lines = [
+            '{"type":"system","subtype":"init","model":"claude-haiku-4-5"}\n',
+            '{"type":"result","subtype":"error_during_execution",'
+            '"is_error":true,"result":"Failed to authenticate. API Error: 401 '
+            'Invalid authentication credentials"}\n',
+        ]
+        streamed: list[str] = []
+        proc_obj = _FakeProc(lines, returncode=1)
+        with mock.patch.object(accounts, "_popen", return_value=proc_obj):
+            result = self._runner().stream("hi", on_text=streamed.append)
+
+        self.assertEqual(streamed, [])
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+        self.assertEqual(
+            result["error"]["technicalMessage"],
+            "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+        )
+
+    def test_codex_turn_failed_is_failure_even_with_zero_exit(self):
+        from opaihub import accounts
+        from opaihub.accounts import AccountRunner
+
+        lines = [
+            '{"type":"thread.started","thread_id":"thread_1"}\n',
+            '{"type":"turn.failed","error":{"message":'
+            '"The model failed before producing a response"}}\n',
+        ]
+        streamed: list[str] = []
+        proc_obj = _FakeProc(lines, returncode=0)
+        runner = AccountRunner("codex", "/bin/codex", model="gpt-5.5")
+        with mock.patch.object(accounts, "_popen", return_value=proc_obj):
+            result = runner.stream("hi", on_text=streamed.append)
+
+        self.assertEqual(streamed, [])
+        self.assertEqual(result["text"], "")
+        self.assertIn("error", result)
+        self.assertEqual(result["error"]["code"], "UNKNOWN")
+        self.assertEqual(
+            result["error"]["technicalMessage"],
+            "The model failed before producing a response",
+        )
+
+    def test_codex_failed_turn_never_streams_last_message_file(self):
+        from opaihub import accounts
+        from opaihub.accounts import AccountRunner
+
+        lines = [
+            '{"type":"turn.failed","error":{"message":'
+            '"401 Invalid authentication credentials"}}\n'
+        ]
+        proc_obj = _FakeProc(lines, returncode=1)
+        streamed: list[str] = []
+
+        def fake_popen(command, *, cwd):
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(
+                "401 Invalid authentication credentials", encoding="utf-8"
+            )
+            return proc_obj
+
+        runner = AccountRunner("codex", "/bin/codex", model="gpt-5.5")
+        with mock.patch.object(accounts, "_popen", side_effect=fake_popen):
+            result = runner.stream("hi", on_text=streamed.append)
+
+        self.assertEqual(streamed, [])
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+
+    def test_claude_final_result_does_not_duplicate_streamed_answer(self):
+        from opaihub import accounts
+
+        lines = [
+            '{"type":"assistant","message":{"content":['
+            '{"type":"text","text":"Hello there"}]}}\n',
+            '{"type":"result","subtype":"success","is_error":false,'
+            '"result":"Hello there"}\n',
+        ]
+        streamed: list[str] = []
+        proc_obj = _FakeProc(lines, returncode=0)
+        with mock.patch.object(accounts, "_popen", return_value=proc_obj):
+            result = self._runner().stream("hi", on_text=streamed.append)
+
+        self.assertEqual(result["text"], "Hello there")
+        self.assertEqual(streamed, ["Hello there"])
+
+    def test_known_stderr_failure_wins_over_partial_text_on_failed_process(self):
+        from opaihub import accounts
+
+        lines = [
+            '{"type":"assistant","message":{"content":['
+            '{"type":"text","text":"Partial answer"}]}}\n',
+        ]
+        proc_obj = _FakeProc(
+            lines,
+            returncode=1,
+            stderr_lines=["401 Invalid authentication credentials\n"],
+        )
+        with mock.patch.object(accounts, "_popen", return_value=proc_obj):
+            result = self._runner().stream("hi")
+
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+
+    def test_auth_failure_invalidates_cached_connection_probe(self):
+        from opaihub import accounts
+
+        key = ("claude", str(Path.home().expanduser().resolve()))
+        accounts._CONNECTION_CACHE[key] = (0.0, {"authStatus": "connected"})
+        lines = [
+            '{"type":"result","subtype":"error_during_execution",'
+            '"is_error":true,"result":"401 Invalid authentication credentials"}\n'
+        ]
+        proc_obj = _FakeProc(lines, returncode=1)
+        try:
+            with mock.patch.object(accounts, "_popen", return_value=proc_obj):
+                self._runner().stream("hi")
+            self.assertNotIn(key, accounts._CONNECTION_CACHE)
+        finally:
+            accounts._CONNECTION_CACHE.pop(key, None)
+
+    def test_gui_pipeline_has_one_failed_terminal_state_for_native_auth_error(self):
+        from opaihub import accounts
+        from opaihub.gui_pipeline import handle_gui_message
+
+        lines = [
+            '{"type":"system","subtype":"init","model":"claude-haiku-4-5"}\n',
+            '{"type":"result","subtype":"error_during_execution",'
+            '"is_error":true,"result":"Failed to authenticate. API Error: 401 '
+            'Invalid authentication credentials"}\n',
+        ]
+        events: list[dict] = []
+        texts: list[str] = []
+        proc_obj = _FakeProc(lines, returncode=1)
+        runner = self._runner()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            with (
+                mock.patch.object(accounts, "_popen", return_value=proc_obj),
+                mock.patch.object(runner, "available", return_value=True),
+            ):
+                result = handle_gui_message(
+                    root,
+                    "hi",
+                    model_id="account:claude:haiku",
+                    mode="ask",
+                    account_runner=runner,
+                    on_event=events.append,
+                    on_text=texts.append,
+                )
+
+        terminal = [
+            event
+            for event in events
+            if event["type"] in {"provider_auth_failed", "failed", "completed"}
+        ]
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+        self.assertEqual(
+            [event["type"] for event in terminal], ["provider_auth_failed"]
+        )
+        self.assertEqual(texts, [])
+
+
+class BlockingAccountResultTests(unittest.TestCase):
+    def test_claude_json_error_is_not_returned_as_answer(self):
+        from opaihub import accounts
+        from opaihub.accounts import AccountRunner
+
+        completed = mock.Mock(
+            returncode=1,
+            stdout=(
+                '{"type":"result","subtype":"error_during_execution",'
+                '"is_error":true,"result":"401 Invalid authentication credentials"}'
+            ),
+            stderr="",
+        )
+        runner = AccountRunner("claude", "/bin/claude", model="haiku")
+        with mock.patch.object(accounts, "_hidden_run", return_value=completed):
+            result = runner.complete("hi")
+
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+
+    def test_codex_failed_process_stderr_is_not_returned_as_answer(self):
+        from opaihub import accounts
+        from opaihub.accounts import AccountRunner
+
+        completed = mock.Mock(
+            returncode=1,
+            stdout="",
+            stderr="OAuth token expired",
+        )
+        runner = AccountRunner("codex", "/bin/codex", model="gpt-5.5")
+        with mock.patch.object(accounts, "_hidden_run", return_value=completed):
+            result = runner.complete("hi")
+
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["error"]["code"], "AUTH_EXPIRED")
+
+    def test_codex_zero_exit_auth_stderr_is_not_returned_as_answer(self):
+        from opaihub import accounts
+        from opaihub.accounts import AccountRunner
+
+        completed = mock.Mock(
+            returncode=0,
+            stdout="",
+            stderr="401 Invalid authentication credentials",
+        )
+        runner = AccountRunner("codex", "/bin/codex", model="gpt-5.5")
+        with mock.patch.object(accounts, "_hidden_run", return_value=completed):
+            result = runner.complete("hi")
+
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+
+    def test_claude_zero_exit_auth_stderr_is_not_returned_as_answer(self):
+        from opaihub import accounts
+        from opaihub.accounts import AccountRunner
+
+        completed = mock.Mock(
+            returncode=0,
+            stdout="",
+            stderr="401 Invalid authentication credentials",
+        )
+        runner = AccountRunner("claude", "/bin/claude", model="haiku")
+        with mock.patch.object(accounts, "_hidden_run", return_value=completed):
+            result = runner.complete("hi")
+
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+
+    def test_successful_claude_answer_may_discuss_401_errors(self):
+        from opaihub import accounts
+        from opaihub.accounts import AccountRunner
+
+        answer = (
+            "A 401 Invalid authentication response usually means credentials failed."
+        )
+        completed = mock.Mock(
+            returncode=0,
+            stdout=(
+                '{"type":"result","subtype":"success","is_error":false,'
+                f'"result":{json.dumps(answer)}}}'
+            ),
+            stderr="",
+        )
+        runner = AccountRunner("claude", "/bin/claude", model="haiku")
+        with mock.patch.object(accounts, "_hidden_run", return_value=completed):
+            result = runner.complete("explain HTTP 401")
+
+        self.assertEqual(result["text"], answer)
+        self.assertNotIn("error", result)
 
 
 if __name__ == "__main__":

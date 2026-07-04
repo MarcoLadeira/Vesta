@@ -137,6 +137,38 @@ class ClaudeStreamParserTests(unittest.TestCase):
         self.assertEqual(part["cost"], 0.5)
         self.assertTrue(part["done"])
 
+    def test_error_result_is_diagnostic_not_answer_text(self):
+        part = parse_claude_line(
+            '{"type":"result","subtype":"error_during_execution",'
+            '"is_error":true,"result":"Failed to authenticate. API Error: 401 '
+            'Invalid authentication credentials","total_cost_usd":0}'
+        )
+
+        self.assertEqual(part["text"], "")
+        self.assertEqual(
+            part["error"],
+            "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+        )
+        self.assertTrue(part["done"])
+
+    def test_is_error_wins_even_when_subtype_is_success(self):
+        part = parse_claude_line(
+            '{"type":"result","subtype":"success","is_error":true,'
+            '"result":"OAuth token expired"}'
+        )
+
+        self.assertEqual(part["text"], "")
+        self.assertEqual(part["error"], "OAuth token expired")
+
+    def test_error_result_redacts_credentials_before_leaving_parser(self):
+        part = parse_claude_line(
+            '{"type":"result","is_error":true,'
+            '"result":"Authorization: Bearer sk-live-secret123456"}'
+        )
+
+        self.assertNotIn("sk-live-secret123456", part["error"])
+        self.assertIn("[REDACTED]", part["error"])
+
     def test_malformed_line_degrades_to_text_not_crash(self):
         part = parse_claude_line("not json at all")
         self.assertEqual(part["text"], "not json at all")
@@ -148,7 +180,8 @@ class ClaudeStreamParserTests(unittest.TestCase):
             '{"type":"system","model":"claude-opus"}',
             '{"type":"assistant","message":{"content":[{"type":"text","text":"Hello "}]}}',
             '{"type":"assistant","message":{"content":[{"type":"text","text":"world"}]}}',
-            '{"type":"result","total_cost_usd":0.02}',
+            '{"type":"result","subtype":"success","is_error":false,'
+            '"result":"Hello world","total_cost_usd":0.02}',
         ]
         agg = parse_claude_stream(lines)
         self.assertEqual(agg["text"], "Hello world")
@@ -197,6 +230,26 @@ class CodexStreamParserTests(unittest.TestCase):
         part = self._parse('{"type":"turn.failed","error":{"message":"boom"}}')
         self.assertEqual(part["events"][0]["type"], "error")
         self.assertIn("boom", part["events"][0]["title"])
+        self.assertEqual(part["error"], "boom")
+        self.assertEqual(part["text"], "")
+        self.assertTrue(part["done"])
+
+    def test_top_level_error_exposes_full_diagnostic(self):
+        detail = "401 Invalid authentication credentials"
+        part = self._parse(
+            '{"type":"error","message":"401 Invalid authentication credentials"}'
+        )
+
+        self.assertEqual(part["error"], detail)
+        self.assertEqual(part["text"], "")
+        self.assertEqual(part["events"][0]["type"], "error")
+
+    def test_top_level_error_redacts_event_title_and_diagnostic(self):
+        part = self._parse('{"type":"error","message":"token=token_supersecretvalue"}')
+
+        self.assertNotIn("token_supersecretvalue", part["error"])
+        self.assertNotIn("token_supersecretvalue", part["events"][0]["title"])
+        self.assertIn("[REDACTED]", part["error"])
 
     def test_proto_exec_command_shape_is_tolerated(self):
         part = self._parse(
