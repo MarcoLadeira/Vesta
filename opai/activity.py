@@ -324,14 +324,27 @@ def classify_error(text: str) -> str:
 # --------------------------------------------------------------------------- #
 # Claude stream-json parser — real agent activity from `--output-format stream-json`
 # --------------------------------------------------------------------------- #
+def _safe_provider_diagnostic(value: Any) -> str:
+    from .provider_contract import dedupe_error_text, redact_secrets
+
+    return dedupe_error_text(redact_secrets(value))
+
+
 def parse_claude_line(line: str) -> dict[str, Any]:
     """Parse one JSONL line from `claude -p --output-format stream-json --verbose`.
 
-    Returns ``{"events": [...], "text": "<delta>", "cost": <float|None>,
-    "done": bool}``. Tolerant: unknown/blank lines yield an empty delta so a
-    format drift degrades to "no rich events" rather than crashing.
+    Returns ``{"events": [...], "text": "<delta>", "error": "<diagnostic>",
+    "cost": <float|None>, "done": bool}``. Tolerant: unknown/blank lines yield
+    an empty delta so a format drift degrades to "no rich events" rather than
+    crashing.
     """
-    out: dict[str, Any] = {"events": [], "text": "", "cost": None, "done": False}
+    out: dict[str, Any] = {
+        "events": [],
+        "text": "",
+        "error": "",
+        "cost": None,
+        "done": False,
+    }
     line = (line or "").strip()
     if not line:
         return out
@@ -364,6 +377,17 @@ def parse_claude_line(line: str) -> dict[str, Any]:
         cost = obj.get("total_cost_usd")
         if isinstance(cost, (int, float)):
             out["cost"] = float(cost)
+        subtype = str(obj.get("subtype") or "")
+        is_error = obj.get("is_error") is True or subtype.startswith("error_")
+        if is_error:
+            error = obj.get("error")
+            if isinstance(error, dict):
+                error = error.get("message")
+            out["error"] = _safe_provider_diagnostic(
+                obj.get("result") or error or subtype or "error"
+            )
+            out["done"] = True
+            return out
         # `result` also carries the final text when not captured incrementally.
         if not out["text"] and obj.get("result"):
             out["text"] = str(obj.get("result"))
@@ -390,19 +414,28 @@ def _tool_event(block: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_claude_stream(lines: list[str]) -> dict[str, Any]:
-    """Aggregate a whole claude stream into ``{events, text, cost, done}``."""
+    """Aggregate a Claude stream into ``{events, text, error, cost, done}``."""
     events: list[dict[str, Any]] = []
     text = ""
+    error = ""
     cost = None
     done = False
     for line in lines:
         part = parse_claude_line(line)
         events.extend(part["events"])
-        text += part["text"]
+        if part["text"] and not (part["done"] and text):
+            text += part["text"]
+        error = part["error"] or error
         if part["cost"] is not None:
             cost = part["cost"]
         done = done or part["done"]
-    return {"events": events, "text": text, "cost": cost, "done": done}
+    return {
+        "events": events,
+        "text": text,
+        "error": error,
+        "cost": cost,
+        "done": done,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -429,10 +462,17 @@ def parse_codex_line(line: str) -> dict[str, Any]:
     """Parse one JSONL line from ``codex exec --json``.
 
     Returns the same shape as :func:`parse_claude_line`:
-    ``{"events": [...], "text": str, "cost": None, "done": bool}``. Codex does
-    not report dollar cost, so ``cost`` is always ``None`` (honest, not zero).
+    ``{"events": [...], "text": str, "error": str, "cost": None,
+    "done": bool}``. Codex does not report dollar cost, so ``cost`` is always
+    ``None`` (honest, not zero).
     """
-    out: dict[str, Any] = {"events": [], "text": "", "cost": None, "done": False}
+    out: dict[str, Any] = {
+        "events": [],
+        "text": "",
+        "error": "",
+        "cost": None,
+        "done": False,
+    }
     raw = (line or "").strip()
     if not raw:
         return out
@@ -454,10 +494,15 @@ def parse_codex_line(line: str) -> dict[str, Any]:
         out["done"] = True
         return out
     if kind in {"turn.failed", "error"}:
-        message = str(
-            obj.get("message") or (obj.get("error") or {}).get("message") or "error"
-        )[:200]
-        out["events"].append(make_event("error", "error", f"Codex reported: {message}"))
+        error = obj.get("error")
+        if isinstance(error, dict):
+            error = error.get("message")
+        message = _safe_provider_diagnostic(obj.get("message") or error or "error")
+        out["error"] = message
+        out["done"] = True
+        out["events"].append(
+            make_event("error", "error", f"Codex reported: {message[:200]}")
+        )
         return out
     item = obj.get("item")
     if isinstance(item, dict) and kind.startswith("item."):

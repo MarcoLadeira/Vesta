@@ -432,14 +432,14 @@ def handle_gui_message(
                 _emit(
                     "provider_authenticated",
                     "success",
-                    "OPai connection verified",
+                    "OPai sign-in verified locally",
                     metadata={"provider": provider},
                 )
         else:
             _emit(
                 "provider_authenticated",
                 "success",
-                "OPai connection verified",
+                "OPai sign-in detected",
                 metadata={"provider": provider},
             )
         _emit(

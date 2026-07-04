@@ -34,6 +34,22 @@ _CONNECTION_CACHE_TTL = 300.0
 
 _INVALID_CODEX_TIER = 'service_tier = "default"'
 
+_AUTH_FAILURE_CODES = {"AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED"}
+
+
+def invalidate_account_connection_cache(account_id: str) -> None:
+    """Discard local probe results after execution proves auth is unusable."""
+
+    with _CONNECTION_CACHE_LOCK:
+        stale = [key for key in _CONNECTION_CACHE if key[0] == account_id]
+        for key in stale:
+            _CONNECTION_CACHE.pop(key, None)
+
+
+def _invalidate_cache_for_error(account_id: str, error: dict[str, Any]) -> None:
+    if str(error.get("code") or "") in _AUTH_FAILURE_CODES:
+        invalidate_account_connection_cache(account_id)
+
 
 def codex_config_issue(home: Path | None = None) -> dict[str, Any]:
     """Describe the one known-invalid Codex service tier without reading secrets."""
@@ -141,6 +157,13 @@ def _terminate(proc: Any) -> None:
         pass
 
 
+def _process_returncode(proc: Any) -> int:
+    """Return a real process code; tolerate lightweight test/provider shims."""
+
+    value = getattr(proc, "returncode", 0)
+    return value if isinstance(value, int) else 0
+
+
 # How to detect a logged-in account and how to drive its CLI non-interactively.
 ACCOUNT_SPECS: list[dict[str, Any]] = [
     {
@@ -230,7 +253,7 @@ def connection_for_account(
         else:
             auth_status = "unknown"
     if auth_status == "connected":
-        diagnostic = "Connection verified locally."
+        diagnostic = "Sign-in verified locally; provider acceptance is confirmed by each request."
     elif auth_status == "unknown":
         diagnostic = "Account sign-in was detected but has not been verified."
     elif auth_status == "not_configured":
@@ -333,14 +356,6 @@ def test_account_connection(
             error=error,
         )
     returncode = int(getattr(proc, "returncode", 0) or 0)
-    if returncode == 0:
-        result = connection_for_account(
-            account, auth_status="connected", last_checked_at=checked_at
-        )
-        if run is None:
-            with _CONNECTION_CACHE_LOCK:
-                _CONNECTION_CACHE[cache_key] = (time.monotonic(), dict(result))
-        return result
     detail = "\n".join(
         part.strip()
         for part in (
@@ -349,7 +364,34 @@ def test_account_connection(
         )
         if part.strip()
     )
-    error = normalize_provider_error(account_id, detail, returncode=returncode)
+    status_error = normalize_provider_error(account_id, detail, returncode=returncode)
+    structured_logged_in: bool | None = None
+    if account_id == "claude" and returncode == 0:
+        try:
+            status_payload = json.loads(str(getattr(proc, "stdout", "") or ""))
+        except (json.JSONDecodeError, TypeError):
+            status_payload = None
+        if isinstance(status_payload, dict) and isinstance(
+            status_payload.get("loggedIn"), bool
+        ):
+            structured_logged_in = status_payload["loggedIn"]
+            if not structured_logged_in:
+                status_error = normalize_provider_error(
+                    account_id, "Not logged in", returncode=returncode
+                )
+    status_failed = structured_logged_in is False or (
+        structured_logged_in is None
+        and status_error["code"] not in {"UNKNOWN", "NO_RESPONSE"}
+    )
+    if returncode == 0 and not status_failed:
+        result = connection_for_account(
+            account, auth_status="connected", last_checked_at=checked_at
+        )
+        if run is None:
+            with _CONNECTION_CACHE_LOCK:
+                _CONNECTION_CACHE[cache_key] = (time.monotonic(), dict(result))
+        return result
+    error = status_error
     status = error["authStatus"]
     if status == "unknown":
         status = "disconnected"
@@ -601,6 +643,8 @@ class AccountRunner:
         ``TimeoutExpired`` that would dump the raw command into the chat.
         """
         cwd = str(project_root) if project_root else None
+        from opai.provider_contract import normalize_provider_error
+
         if self.account_id == "codex":
             with tempfile.NamedTemporaryFile(
                 "r", suffix=".txt", delete=False, encoding="utf-8"
@@ -620,15 +664,40 @@ class AccountRunner:
                 answer = ""
             finally:
                 Path(out_path).unlink(missing_ok=True)
+            returncode = _process_returncode(proc)
+            diagnostic = "\n".join(
+                part.strip()
+                for part in (str(proc.stderr or ""), str(proc.stdout or ""), answer)
+                if part.strip()
+            )
+            normalized = normalize_provider_error(
+                self.account_id,
+                diagnostic,
+                model=self.model,
+                returncode=returncode,
+            )
+            known_failure = normalized["code"] not in {"UNKNOWN", "NO_RESPONSE"}
+            if (returncode != 0 and not answer) or (
+                known_failure and (returncode != 0 or not answer)
+            ):
+                _invalidate_cache_for_error(self.account_id, normalized)
+                return {
+                    "text": "",
+                    "cost": None,
+                    "error": normalized,
+                    "returncode": returncode,
+                }
             return {
                 "text": answer or (proc.stdout or proc.stderr or "").strip(),
                 "cost": None,
+                "returncode": returncode,
             }
         cmd = self.build_command(prompt, allow_edits=allow_edits, mode=mode)
         try:
             proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
         except subprocess.TimeoutExpired:
             return {"text": "", "cost": None, "timed_out": True}
+        returncode = _process_returncode(proc)
         raw = (proc.stdout or "").strip()
         # claude --output-format json -> {"result": "...", "total_cost_usd": ...}.
         # Degrade gracefully to raw text if it isn't JSON.
@@ -636,9 +705,59 @@ class AccountRunner:
             data = json.loads(raw)
             text = str(data.get("result") or "").strip()
             cost = data.get("total_cost_usd")
-            return {"text": text or raw, "cost": cost}
+            subtype = str(data.get("subtype") or "")
+            native_error = data.get("is_error") is True or subtype.startswith("error_")
+            diagnostic = "\n".join(
+                part.strip()
+                for part in (
+                    text,
+                    str(data.get("error") or ""),
+                    str(proc.stderr or ""),
+                )
+                if part.strip()
+            )
+            normalized = normalize_provider_error(
+                self.account_id,
+                diagnostic,
+                model=self.model,
+                returncode=returncode,
+            )
+            known_failure = normalized["code"] not in {"UNKNOWN", "NO_RESPONSE"}
+            if native_error or (returncode != 0 and (known_failure or not text)):
+                _invalidate_cache_for_error(self.account_id, normalized)
+                return {
+                    "text": "",
+                    "cost": cost,
+                    "error": normalized,
+                    "returncode": returncode,
+                }
+            return {
+                "text": text or raw,
+                "cost": cost,
+                "returncode": returncode,
+            }
         except (json.JSONDecodeError, TypeError):
-            return {"text": raw or (proc.stderr or "").strip(), "cost": None}
+            text = raw or (proc.stderr or "").strip()
+            normalized = normalize_provider_error(
+                self.account_id,
+                "\n".join(
+                    part.strip()
+                    for part in (str(proc.stderr or ""), raw)
+                    if part.strip()
+                ),
+                model=self.model,
+                returncode=returncode,
+            )
+            known_failure = normalized["code"] not in {"UNKNOWN", "NO_RESPONSE"}
+            if known_failure and (returncode != 0 or not raw):
+                _invalidate_cache_for_error(self.account_id, normalized)
+                return {
+                    "text": "",
+                    "cost": None,
+                    "error": normalized,
+                    "returncode": returncode,
+                }
+            return {"text": text, "cost": None, "returncode": returncode}
 
     def stream(
         self,
@@ -711,6 +830,7 @@ class AccountRunner:
 
         text_parts: list[str] = []
         diagnostic_parts: list[str] = []
+        provider_errors: list[str] = []
         cost: float | None = None
         started = time.monotonic()
         stopped: str | None = None
@@ -744,12 +864,15 @@ class AccountRunner:
                     if raw_line.strip():
                         diagnostic_parts.append(raw_line.strip())
                     continue
-                diagnostic_parts.append(raw_line.strip())
                 part = line_parser(raw_line)
                 for event in part["events"]:
                     if on_event:
                         on_event(event)
-                if part["text"]:
+                if part.get("error"):
+                    provider_errors.append(str(part["error"]))
+                if part["text"] and not (
+                    self.account_id == "claude" and part.get("done") and text_parts
+                ):
                     streamed_any = True
                     text_parts.append(part["text"])
                     if on_text:
@@ -790,7 +913,7 @@ class AccountRunner:
                 # The JSONL parser already streamed completed agent messages;
                 # the out-file is only the fallback when the schema drifted and
                 # nothing was captured — never a duplicate.
-                if final and not text:
+                if final and not text and not provider_errors:
                     text = final
                     if on_text:
                         on_text(final)
@@ -798,16 +921,22 @@ class AccountRunner:
                 pass
             finally:
                 Path(out_path).unlink(missing_ok=True)
-        # A real answer wins over the exit code: if the model streamed text,
-        # return it even when the CLI later exits non-zero or prints a stderr
-        # diagnostic. Discarding streamed text turned a perfectly good answer
-        # into a raw "could not complete this request" card showing the init
-        # JSON as the error (the reported Claude bug).
-        if text:
-            return {"text": text, "cost": cost, "returncode": returncode}
-
         from opai.provider_contract import normalize_provider_error
 
+        if provider_errors:
+            normalized = normalize_provider_error(
+                self.account_id,
+                "\n".join(provider_errors),
+                model=self.model,
+                returncode=returncode,
+            )
+            _invalidate_cache_for_error(self.account_id, normalized)
+            return {
+                "text": "",
+                "cost": cost,
+                "error": normalized,
+                "returncode": returncode,
+            }
         diagnostic = "\n".join(part for part in diagnostic_parts if part)
         normalized = normalize_provider_error(
             self.account_id,
@@ -816,7 +945,21 @@ class AccountRunner:
             returncode=returncode,
         )
         known_failure = normalized["code"] not in {"UNKNOWN", "NO_RESPONSE"}
+        if returncode not in (0, None) and known_failure:
+            _invalidate_cache_for_error(self.account_id, normalized)
+            return {
+                "text": "",
+                "cost": cost,
+                "error": normalized,
+                "returncode": returncode,
+            }
+        # A real answer wins over an unexplained non-zero exit. Provider-native
+        # error events and known stderr diagnostics were handled above, so this
+        # preserves valid partial answers without promoting error payloads.
+        if text:
+            return {"text": text, "cost": cost, "returncode": returncode}
         if returncode not in (0, None) or known_failure:
+            _invalidate_cache_for_error(self.account_id, normalized)
             return {
                 "text": "",
                 "cost": cost,

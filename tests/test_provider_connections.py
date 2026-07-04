@@ -76,7 +76,8 @@ class ProviderConnectionTests(unittest.TestCase):
 
         self.assertEqual(connection["authStatus"], "connected")
         self.assertIsNotNone(connection["lastCheckedAt"])
-        self.assertEqual(connection["safeDiagnostic"], "Connection verified locally.")
+        self.assertIn("sign-in verified locally", connection["safeDiagnostic"].lower())
+        self.assertIn("request", connection["safeDiagnostic"].lower())
 
     def test_claude_status_failure_maps_invalid(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -95,6 +96,49 @@ class ProviderConnectionTests(unittest.TestCase):
         self.assertEqual(connection["authStatus"], "invalid")
         self.assertEqual(connection["lastErrorCode"], "AUTH_INVALID")
         self.assertNotIn("401", connection["displayName"])
+
+    def test_zero_exit_not_logged_in_is_not_connected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".claude").mkdir()
+            (home / ".claude" / ".credentials.json").touch()
+            with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
+                connection = check_account_connection(
+                    "claude",
+                    home=home,
+                    run=lambda argv: _Completed(0, '{"loggedIn":false}'),
+                )
+
+        self.assertNotEqual(connection["authStatus"], "connected")
+        self.assertEqual(connection["lastErrorCode"], "AUTH_INVALID")
+
+    def test_logged_in_json_does_not_classify_identifier_digits_as_http_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".claude").mkdir()
+            (home / ".claude" / ".credentials.json").touch()
+            payload = '{"loggedIn":true,"orgId":"org-401-example"}'
+            with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
+                connection = check_account_connection(
+                    "claude", home=home, run=lambda argv: _Completed(0, payload)
+                )
+
+        self.assertEqual(connection["authStatus"], "connected")
+        self.assertIsNone(connection["lastErrorCode"])
+
+    def test_codex_success_status_on_stderr_remains_connected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".codex").mkdir()
+            (home / ".codex" / "auth.json").touch()
+            with mock.patch("opaihub.accounts._which", return_value="/bin/codex"):
+                connection = check_account_connection(
+                    "codex",
+                    home=home,
+                    run=lambda argv: _Completed(0, "", "Logged in using ChatGPT"),
+                )
+
+        self.assertEqual(connection["authStatus"], "connected")
 
     def test_copilot_presence_remains_unverified_without_model_call(self):
         with tempfile.TemporaryDirectory() as tmp:
