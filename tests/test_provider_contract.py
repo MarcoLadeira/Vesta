@@ -16,8 +16,11 @@ class ProviderErrorContractTests(unittest.TestCase):
 
         self.assertEqual(error["code"], "AUTH_INVALID")
         self.assertEqual(error["authStatus"], "invalid")
-        self.assertEqual(error["title"], "OPai could not authenticate this connection.")
+        self.assertEqual(
+            error["title"], "This account's sign-in was rejected by the provider."
+        )
         self.assertIn("open_settings", error["recoveryActions"])
+        self.assertIn("disconnect", error["recoveryActions"])
         self.assertFalse(error["retryable"])
 
     def test_expired_token_is_distinct_from_invalid(self):

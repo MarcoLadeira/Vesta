@@ -721,6 +721,11 @@ function renderErrorCard(el, status, r, sel) {
     // 401'd — "Open Settings" alone showed nothing new. This runs the same
     // check right here and reports the truth, plus the concrete next step.
     (actions.includes("reconnect") ? `<button class="btn" data-a="reconnect">Test connection</button>` : "") +
+    // A stale local session (detected but no longer valid server-side) can
+    // pass every local check yet keep 401ing forever — "Retry" alone cannot
+    // fix that. Disconnect forces a genuine sign-out via the provider's own
+    // CLI so the next sign-in starts clean.
+    (actions.includes("disconnect") ? `<button class="btn" data-a="disconnect">Disconnect account</button>` : "") +
     (status === "needs_free_confirmation" ? `<button class="btn primary" data-a="free">Send to ${esc(freeProvider)}</button>` : "") +
     (status === "needs_auto_confirmation" ? `<button class="btn primary" data-a="fallback">Confirm ${esc(r.fallbackModelLabel || "cloud fallback")}</button>` : "") +
     (status === "needs_limit_confirmation" ? `<button class="btn primary" data-a="limit">Continue past limit</button>` : "") +
@@ -753,6 +758,16 @@ function renderErrorCard(el, status, r, sel) {
       if (result.authStatus === "connected") { toast("Connection verified — Retry should work now"); return; }
       const hint = result.loginHint ? " " + result.loginHint : "";
       toast((result.safeDiagnostic || "Still not connected.") + hint);
+    });
+  };
+  const disconnect = el.querySelector('[data-a="disconnect"]'); if (disconnect) disconnect.onclick = () => {
+    const provider = error.provider || (sel && sel.modelProvider) || "";
+    if (!provider || !bridge.disconnectAccount) { switchView("settings"); return; }
+    disconnect.disabled = true; disconnect.textContent = "Disconnecting…";
+    bridge.disconnectAccount(provider, (json2) => {
+      let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
+      disconnect.disabled = false; disconnect.textContent = "Disconnect account";
+      toast(result.message || (result.disconnected ? "Signed out." : "Could not sign out."));
     });
   };
   const free = el.querySelector('[data-a="free"]'); if (free) free.onclick = () => {
@@ -995,7 +1010,8 @@ function renderSettings() {
       // that died since detection (the exact gap behind a live 401 after
       // OPai said "connected") gets caught here instead of silently retried.
       h += `<div class="set-row prov-row" data-account-row="${esc(a.id)}"><span class="k"><span class="prov-dot ${on ? "on" : ""}"></span>${esc(a.label || a.id)}</span><span class="v" data-account-status="${esc(a.id)}">${on ? "connected" : "not connected"}</span></div>`;
-      if (on) h += `<div class="set-note account-test" data-account-note="${esc(a.id)}"><button class="btn ghost" data-test-account="${esc(a.id)}">Test connection</button></div>`;
+      if (on) h += `<div class="set-note account-test" data-account-note="${esc(a.id)}"><button class="btn ghost" data-test-account="${esc(a.id)}">Test connection</button>` +
+        `<button class="btn ghost" data-disconnect-account="${esc(a.id)}" data-account-label="${esc(a.label || a.id)}">Disconnect</button></div>`;
     });
     h += `<div class="set-note">OPai signs in through the official Claude, Codex, and Copilot apps — it never sees or stores your passwords or keys.</div>`;
     h += `<div class="actions"><button class="btn primary" id="setConnect">Connect accounts</button></div>`;
@@ -1105,6 +1121,35 @@ function renderSettings() {
           if (live) { toast("Connection verified"); return; }
           const hint = result.loginHint ? " " + result.loginHint : "";
           toast((result.safeDiagnostic || "Connection check failed.") + hint);
+        });
+      };
+    });
+    // Disconnect runs the provider's OWN sign-out command (claude "auth
+    // logout", codex "logout") — never touches credential files directly.
+    // This is the real fix for a session that Test connection can't detect
+    // as broken until a real request actually fails against it: force a
+    // clean sign-out so the next `claude`/`codex` run starts a fresh login.
+    page.querySelectorAll("[data-disconnect-account]").forEach((button) => {
+      button.onclick = () => {
+        const id = button.dataset.disconnectAccount;
+        const label = button.dataset.accountLabel || id;
+        if (!window.confirm(`Sign out of ${label}? You'll need to sign in again to use it.`)) return;
+        button.disabled = true; button.textContent = "Disconnecting…";
+        bridge.disconnectAccount(id, (json2) => {
+          let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
+          button.textContent = "Disconnect";
+          toast(result.message || (result.disconnected ? "Signed out." : "Could not sign out."));
+          if (result.disconnected) {
+            const status = page.querySelector(`[data-account-status="${id}"]`);
+            const dot = page.querySelector(`[data-account-row="${id}"] .prov-dot`);
+            if (status) status.textContent = "not connected";
+            if (dot) dot.classList.remove("on");
+            const testBtn = page.querySelector(`[data-test-account="${id}"]`);
+            if (testBtn) testBtn.disabled = true;
+            button.disabled = true; // nothing left here to disconnect again
+          } else {
+            button.disabled = false;
+          }
         });
       };
     });

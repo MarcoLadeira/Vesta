@@ -40,6 +40,26 @@ test("test connection on a genuinely healthy account confirms connected", async 
   await expect(page.locator('[data-account-status="claude"]')).toHaveText("connected");
 });
 
+test("disconnect asks for confirmation, then signs out and updates the row", async ({ page }) => {
+  await openApp(page);
+  await openNav(page, "Settings");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator('[data-disconnect-account="claude"]').click();
+  expect(await page.evaluate(() => window.__mock.disconnects)).toContain("claude");
+  await expect(page.locator('[data-account-status="claude"]')).toHaveText("not connected");
+  // Nothing left to disconnect or test once signed out.
+  await expect(page.locator('[data-disconnect-account="claude"]')).toBeDisabled();
+});
+
+test("cancelling the disconnect confirmation leaves the account untouched", async ({ page }) => {
+  await openApp(page);
+  await openNav(page, "Settings");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.locator('[data-disconnect-account="claude"]').click();
+  expect(await page.evaluate(() => window.__mock.disconnects)).toEqual([]);
+  await expect(page.locator('[data-account-status="claude"]')).toHaveText("connected");
+});
+
 test("settings renders disconnected accounts without crashing", async ({ page }) => {
   await openApp(page, { settings: { accounts: DISCONNECTED_ACCOUNTS } });
   await openNav(page, "Settings");

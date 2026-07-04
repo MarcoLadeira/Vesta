@@ -422,6 +422,69 @@ def test_account_connection(
     )
 
 
+# Each provider's own sanctioned, non-interactive sign-out. OPai never touches
+# a credential file directly — only a documented CLI subcommand. Copilot has
+# no such command (verified: its --help lists `login` but no `logout`), so it
+# is deliberately absent here rather than guessed at.
+_LOGOUT_ARGV: dict[str, list[str]] = {
+    "claude": ["auth", "logout"],
+    "codex": ["logout"],
+}
+
+
+def disconnect_account(account_id: str, *, home: Path | None = None) -> dict[str, Any]:
+    """Sign out of a connected AI account using its own CLI's logout command.
+
+    This is the real fix for the "OPai says connected but the real request
+    401s" gap: a session can go stale (expired, revoked elsewhere) in a way
+    OPai's local checks cannot detect in advance. Signing out and back in via
+    the provider's own flow clears it. Never reads or writes credential files
+    directly; always shells out to the CLI's documented sign-out command.
+    """
+    spec = next((item for item in ACCOUNT_SPECS if item["id"] == account_id), None)
+    if spec is None:
+        return {
+            "provider": account_id,
+            "disconnected": False,
+            "message": "Unknown provider.",
+        }
+    logout_argv = _LOGOUT_ARGV.get(account_id)
+    if logout_argv is None:
+        return {
+            "provider": account_id,
+            "disconnected": False,
+            "unsupported": True,
+            "message": (
+                f"{spec['label']} CLI has no command-line sign-out. Revoke its "
+                "access from your account settings or OS keychain, then run "
+                f"`{spec['cli']}` again to sign back in."
+            ),
+        }
+    cli_path = _which(spec["cli"])
+    if not cli_path:
+        return {
+            "provider": account_id,
+            "disconnected": False,
+            "message": f"{spec['label']} CLI was not found on PATH.",
+        }
+    try:
+        proc = _hidden_run([cli_path, *logout_argv], cwd=None, timeout=20.0)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"provider": account_id, "disconnected": False, "message": str(exc)}
+    invalidate_connection_cache(account_id)
+    ok = _process_returncode(proc) == 0
+    detail = (getattr(proc, "stderr", "") or getattr(proc, "stdout", "") or "").strip()
+    return {
+        "provider": account_id,
+        "disconnected": ok,
+        "message": (
+            f"Signed out of {spec['label']}. Run `{spec['cli']}` to sign back in."
+            if ok
+            else (detail or "Sign-out failed.")
+        ),
+    }
+
+
 # Claude model aliases the `claude` CLI understands, cheapest-capable first.
 CLAUDE_MODELS: list[tuple[str, str]] = [
     ("sonnet", "Sonnet 4.6"),

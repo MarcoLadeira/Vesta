@@ -125,6 +125,12 @@
       window.__mock.codexRepairs++;
       cb(JSON.stringify({ repaired: true, backupPath: "/tmp/config.toml.bak" }));
     },
+    disconnectAccount: function (provider, cb) {
+      window.__mock.disconnects.push(provider);
+      const response = (scenario.disconnectResponses && scenario.disconnectResponses[provider])
+        || { provider: provider, disconnected: true, message: "Signed out." };
+      cb(JSON.stringify(response));
+    },
     savePref: function (key, value) { window.__mock.savedPrefs.push([key, value]); },
     grantFreeConsent: function (modelId, cb) {
       window.__mock.freeConsentGrants.push(modelId);
@@ -163,7 +169,7 @@
     windowMaximizes: 0, windowCloses: 0,
     runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [],
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
-    freeConsentGrants: [],
+    freeConsentGrants: [], disconnects: [],
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },

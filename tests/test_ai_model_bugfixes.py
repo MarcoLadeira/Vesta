@@ -683,5 +683,114 @@ class FakeAccountRunnerAuthFail:
         raise RuntimeError("API Error: 401 Invalid authentication credentials")
 
 
+# ---------------------------------------------------------------------------
+# Feature: a real Disconnect action, because a session that passes every local
+# check but keeps 401ing has no other way to force a clean re-login.
+# ---------------------------------------------------------------------------
+class DisconnectAccountTests(unittest.TestCase):
+    def test_unknown_provider_reports_cleanly(self):
+        from opaihub.accounts import disconnect_account
+
+        result = disconnect_account("not-a-real-provider")
+        self.assertFalse(result["disconnected"])
+        self.assertIn("Unknown provider", result["message"])
+
+    def test_copilot_has_no_cli_logout_and_says_so_honestly(self):
+        # Verified against the real copilot --help: only `login` is listed,
+        # no `logout` subcommand — OPai must not fabricate one.
+        from opaihub.accounts import disconnect_account
+
+        result = disconnect_account("copilot")
+        self.assertFalse(result["disconnected"])
+        self.assertTrue(result.get("unsupported"))
+        self.assertIn("no command-line sign-out", result["message"])
+        self.assertIn("copilot", result["message"])
+
+    def test_cli_missing_from_path_reports_cleanly(self):
+        from opaihub import accounts
+
+        with mock.patch.object(accounts, "_which", return_value=None):
+            result = accounts.disconnect_account("claude")
+        self.assertFalse(result["disconnected"])
+        self.assertIn("not found on PATH", result["message"])
+
+    def test_claude_logout_success_invalidates_cache_and_reports_signed_out(self):
+        from opaihub import accounts
+
+        with (
+            mock.patch.object(accounts, "_which", return_value="/bin/claude"),
+            mock.patch.object(
+                accounts,
+                "_hidden_run",
+                return_value=mock.Mock(returncode=0, stdout="", stderr=""),
+            ) as hidden_run,
+        ):
+            # Prime the cache the same way a real check would, then prove
+            # disconnect clears it.
+            with mock.patch.object(
+                accounts,
+                "list_connected_accounts",
+                return_value=[
+                    {
+                        "id": "claude",
+                        "label": "Claude",
+                        "cli_present": True,
+                        "authenticated": True,
+                        "connected": True,
+                        "login_hint": "hint",
+                    }
+                ],
+            ):
+                accounts.test_account_connection(
+                    "claude", home=Path(tempfile.mkdtemp())
+                )
+            hidden_run.reset_mock()  # priming also calls _hidden_run once; isolate disconnect's call
+            result = accounts.disconnect_account("claude")
+
+        self.assertTrue(result["disconnected"])
+        self.assertIn("Signed out", result["message"])
+        self.assertIn("claude", result["message"])
+        # The exact CLI-documented subcommand, not a guess.
+        hidden_run.assert_called_once()
+        argv = hidden_run.call_args.args[0]
+        self.assertEqual(argv[-2:], ["auth", "logout"])
+        self.assertFalse(
+            any(key[0] == "claude" for key in accounts._CONNECTION_CACHE),
+            "disconnect must clear the cached 'connected' verdict",
+        )
+
+    def test_codex_logout_uses_documented_subcommand(self):
+        from opaihub import accounts
+
+        with (
+            mock.patch.object(accounts, "_which", return_value="/bin/codex"),
+            mock.patch.object(
+                accounts,
+                "_hidden_run",
+                return_value=mock.Mock(returncode=0, stdout="", stderr=""),
+            ) as hidden_run,
+        ):
+            result = accounts.disconnect_account("codex")
+        self.assertTrue(result["disconnected"])
+        self.assertEqual(hidden_run.call_args.args[0][-1], "logout")
+
+    def test_logout_failure_surfaces_cli_output_not_a_false_success(self):
+        from opaihub import accounts
+
+        with (
+            mock.patch.object(accounts, "_which", return_value="/bin/claude"),
+            mock.patch.object(
+                accounts,
+                "_hidden_run",
+                return_value=mock.Mock(
+                    returncode=1, stdout="", stderr="network unreachable"
+                ),
+            ),
+        ):
+            result = accounts.disconnect_account("claude")
+        self.assertFalse(result["disconnected"])
+        self.assertIn("network unreachable", result["message"])
+
+
 if __name__ == "__main__":
     unittest.main()
