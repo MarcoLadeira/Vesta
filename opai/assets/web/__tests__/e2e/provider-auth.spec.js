@@ -69,6 +69,29 @@ test("a live 401 after 'connected' offers a real Test connection check, not just
   expect(await page.evaluate(() => window.__mock.providerTests)).toContain("claude");
 });
 
+test("a live 401 also offers Disconnect account, since Retry alone cannot fix a dead session", async ({ page }) => {
+  await openApp(page);
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, {
+    status: "failed",
+    error: {
+      code: "AUTH_INVALID",
+      title: "This account's sign-in was rejected by the provider.",
+      userMessage: "OPai detected a signed-in session, but the request was refused (401).",
+      recoveryActions: ["disconnect", "reconnect", "open_settings", "show_details"],
+      provider: "claude",
+    },
+  });
+  const disconnectBtn = page.locator('.error-card [data-a="disconnect"]');
+  await expect(disconnectBtn).toBeVisible();
+  await expect(disconnectBtn).toHaveText("Disconnect account");
+  // No native confirm here — the error card commits directly, matching the
+  // existing single-click convention for other consequential card actions
+  // (Send to <provider>, Confirm cloud fallback).
+  await disconnectBtn.click();
+  expect(await page.evaluate(() => window.__mock.disconnects)).toContain("claude");
+});
+
 test("timeout is distinct, recoverable, and not successful", async ({ page }) => {
   await openApp(page);
   const id = await sendPrompt(page);

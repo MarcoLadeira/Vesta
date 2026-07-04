@@ -51,16 +51,27 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
     },
     "AUTH_INVALID": {
         "authStatus": "invalid",
-        "title": "OPai could not authenticate this connection.",
-        "userMessage": "Reconnect the provider account or update its credentials in Settings.",
-        "actions": ["open_settings", "reconnect", "show_details"],
+        "title": "This account's sign-in was rejected by the provider.",
+        "userMessage": (
+            "OPai detected a signed-in session for this account, but the "
+            "request itself was refused by the provider (a 401). This "
+            "usually means the session expired or was revoked outside "
+            "OPai — sign-in checks can look fine locally right up until a "
+            "real request fails. Disconnect this account, then sign in "
+            "again to get a fresh session."
+        ),
+        "actions": ["disconnect", "reconnect", "open_settings", "show_details"],
         "retryable": False,
     },
     "AUTH_EXPIRED": {
         "authStatus": "expired",
-        "title": "OPai needs you to reconnect.",
-        "userMessage": "This provider session expired. Reconnect it in Settings and retry.",
-        "actions": ["open_settings", "reconnect", "show_details"],
+        "title": "This account's session has expired.",
+        "userMessage": (
+            "The provider rejected this request because the session expired. "
+            "Disconnect this account, then sign in again to get a fresh "
+            "session — Retry alone will keep failing with the same session."
+        ),
+        "actions": ["disconnect", "reconnect", "open_settings", "show_details"],
         "retryable": False,
     },
     "PROVIDER_RATE_LIMITED": {

@@ -481,6 +481,18 @@ def _run_gui(
                 return json.dumps({"repaired": False, "error": str(exc)})
 
         @QtCore.Slot(str, result=str)
+        def disconnectAccount(self, provider: str) -> str:
+            """Sign out via the provider's own CLI (never touches credential files)."""
+            from opaihub.accounts import disconnect_account
+
+            try:
+                return json.dumps(disconnect_account(provider))
+            except Exception as exc:  # noqa: BLE001 - always report cleanly
+                return json.dumps(
+                    {"provider": provider, "disconnected": False, "message": str(exc)}
+                )
+
+        @QtCore.Slot(str, result=str)
         def grantFreeConsent(self, model_id: str) -> str:
             """Remember consent for a free-tier model id (one-time confirmation)."""
             from opaihub.gui_preferences import grant_free_consent
