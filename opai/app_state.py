@@ -764,6 +764,24 @@ def _changed_files(root: Path) -> list[str]:
     return []
 
 
+def _invalidate_stale_auth_cache(account_id: str, error: dict[str, Any]) -> None:
+    """Bust the connection cache when a real completion call proves it stale.
+
+    The pre-flight connection check can report "connected" from a 5-minute
+    cache while the account's OAuth session has actually died in between —
+    the exact gap that turns "OPai says connected" into a live 401. Once a
+    genuine completion call proves the cached verdict wrong, drop it so the
+    next check (an automatic retry, or "Test connection" in Settings) reflects
+    reality instead of repeating the stale "connected" for the rest of the
+    cache window.
+    """
+    if str(error.get("code") or "").startswith("AUTH_"):
+        with contextlib.suppress(Exception):
+            from opaihub.accounts import invalidate_connection_cache
+
+            invalidate_connection_cache(account_id)
+
+
 def _ask_account(
     project_root: Path,
     task: str,
@@ -829,6 +847,7 @@ def _ask_account(
         from opai.provider_contract import normalize_provider_error
 
         error = normalize_provider_error(account_id, str(exc), model=model)
+        _invalidate_stale_auth_cache(account_id, error)
         return {
             "status": "failed",
             "provider": account_id,
@@ -859,6 +878,7 @@ def _ask_account(
                 returncode=result.get("returncode"),
             )
         )
+        _invalidate_stale_auth_cache(account_id, error)
         return {
             "status": "failed",
             "provider": account_id,

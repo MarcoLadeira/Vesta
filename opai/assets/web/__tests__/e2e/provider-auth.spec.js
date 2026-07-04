@@ -43,6 +43,32 @@ test("codex invalid-config error offers a one-click repair, then retries", async
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(before + 1);
 });
 
+test("a live 401 after 'connected' offers a real Test connection check, not just Open Settings", async ({ page }) => {
+  // The reported bug: OPai says connected, the real send still 401s. Open
+  // Settings alone showed nothing new (it just repeats the same cached
+  // "connected" row) — this proves the error card offers an actual live
+  // re-check with the concrete next step (login hint), right where the
+  // failure happened.
+  await openApp(page, { providerTestResponses: { claude: { authStatus: "invalid", safeDiagnostic: "Session expired.", loginHint: "Run `claude` once and sign in to connect your account." } } });
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, {
+    status: "failed",
+    error: {
+      code: "AUTH_INVALID",
+      title: "OPai could not authenticate this connection.",
+      userMessage: "Reconnect the provider account or update its credentials in Settings.",
+      recoveryActions: ["open_settings", "reconnect", "show_details"],
+      technicalMessage: "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+      provider: "claude",
+    },
+  });
+  const test = page.locator('.error-card [data-a="reconnect"]');
+  await expect(test).toBeVisible();
+  await expect(test).toHaveText("Test connection");
+  await test.click();
+  expect(await page.evaluate(() => window.__mock.providerTests)).toContain("claude");
+});
+
 test("timeout is distinct, recoverable, and not successful", async ({ page }) => {
   await openApp(page);
   const id = await sendPrompt(page);
