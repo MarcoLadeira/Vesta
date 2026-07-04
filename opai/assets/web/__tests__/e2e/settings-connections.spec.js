@@ -18,6 +18,28 @@ test("settings renders defaults, firewall, accounts, privacy, and version", asyn
   await expect(settings).toContainText("0.2.0a1");
 });
 
+test("test connection on a connected account reports the live truth, not the cached label", async ({ page }) => {
+  // Reproduces the reported bug: OPai's on-disk "connected" state can be stale
+  // (an OAuth session that died since detection). Clicking Test connection
+  // must run a live check and update the row, not just repeat "connected".
+  await openApp(page, {
+    providerTestResponses: { claude: { authStatus: "invalid", safeDiagnostic: "Session expired.", loginHint: "Run `claude` once and sign in to connect your account." } },
+  });
+  await openNav(page, "Settings");
+  const row = page.locator('[data-account-row="claude"]');
+  await expect(row).toContainText("connected");
+  await page.locator('[data-test-account="claude"]').click();
+  expect(await page.evaluate(() => window.__mock.providerTests)).toContain("claude");
+  await expect(page.locator('[data-account-status="claude"]')).toHaveText("invalid");
+});
+
+test("test connection on a genuinely healthy account confirms connected", async ({ page }) => {
+  await openApp(page, { providerTestResponses: { claude: { authStatus: "connected" } } });
+  await openNav(page, "Settings");
+  await page.locator('[data-test-account="claude"]').click();
+  await expect(page.locator('[data-account-status="claude"]')).toHaveText("connected");
+});
+
 test("settings renders disconnected accounts without crashing", async ({ page }) => {
   await openApp(page, { settings: { accounts: DISCONNECTED_ACCOUNTS } });
   await openNav(page, "Settings");

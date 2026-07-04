@@ -716,6 +716,11 @@ function renderErrorCard(el, status, r, sel) {
     `<div class="error-card"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button>` +
     (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
+    // A live re-check, not just a link to Settings: OPai may have said
+    // "connected" from a cached/on-disk signal right before this exact call
+    // 401'd — "Open Settings" alone showed nothing new. This runs the same
+    // check right here and reports the truth, plus the concrete next step.
+    (actions.includes("reconnect") ? `<button class="btn" data-a="reconnect">Test connection</button>` : "") +
     (status === "needs_free_confirmation" ? `<button class="btn primary" data-a="free">Send to ${esc(freeProvider)}</button>` : "") +
     (status === "needs_auto_confirmation" ? `<button class="btn primary" data-a="fallback">Confirm ${esc(r.fallbackModelLabel || "cloud fallback")}</button>` : "") +
     (status === "needs_limit_confirmation" ? `<button class="btn primary" data-a="limit">Continue past limit</button>` : "") +
@@ -737,6 +742,18 @@ function renderErrorCard(el, status, r, sel) {
     };
     if (bridge.repairCodexConfig) { try { bridge.repairCodexConfig(done); } catch (_e) { done("{}"); } }
     else { done("{}"); }
+  };
+  const reconnect = el.querySelector('[data-a="reconnect"]'); if (reconnect) reconnect.onclick = () => {
+    const provider = error.provider || (sel && sel.modelProvider) || "";
+    if (!provider || !bridge.testProvider) { switchView("settings"); return; }
+    reconnect.disabled = true; reconnect.textContent = "Testing…";
+    bridge.testProvider(provider, (json2) => {
+      let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
+      reconnect.disabled = false; reconnect.textContent = "Test connection";
+      if (result.authStatus === "connected") { toast("Connection verified — Retry should work now"); return; }
+      const hint = result.loginHint ? " " + result.loginHint : "";
+      toast((result.safeDiagnostic || "Still not connected.") + hint);
+    });
   };
   const free = el.querySelector('[data-a="free"]'); if (free) free.onclick = () => {
     // Remember consent so this card never appears for this free model again
@@ -973,7 +990,12 @@ function renderSettings() {
     h += `<div class="set-head">Accounts</div>`;
     (d.accounts || []).forEach((a) => {
       const on = !!a.connected;
-      h += `<div class="set-row prov-row"><span class="k"><span class="prov-dot ${on ? "on" : ""}"></span>${esc(a.label || a.id)}</span><span class="v">${on ? "connected" : "not connected"}</span></div>`;
+      // "connected" here means "a sign-in was detected on disk" — not a live
+      // verification. Test connection actually asks the CLI, so a session
+      // that died since detection (the exact gap behind a live 401 after
+      // OPai said "connected") gets caught here instead of silently retried.
+      h += `<div class="set-row prov-row" data-account-row="${esc(a.id)}"><span class="k"><span class="prov-dot ${on ? "on" : ""}"></span>${esc(a.label || a.id)}</span><span class="v" data-account-status="${esc(a.id)}">${on ? "connected" : "not connected"}</span></div>`;
+      if (on) h += `<div class="set-note account-test" data-account-note="${esc(a.id)}"><button class="btn ghost" data-test-account="${esc(a.id)}">Test connection</button></div>`;
     });
     h += `<div class="set-note">OPai signs in through the official Claude, Codex, and Copilot apps — it never sees or stores your passwords or keys.</div>`;
     h += `<div class="actions"><button class="btn primary" id="setConnect">Connect accounts</button></div>`;
@@ -1061,6 +1083,28 @@ function renderSettings() {
           const result = JSON.parse(json2); button.disabled = false;
           const detail = result.error && (result.error.userMessage || result.error);
           status.textContent = result.connected ? "Connection verified" : (detail || "Connection failed");
+        });
+      };
+    });
+    // Account (Claude/Codex/Copilot) connections: unlike the free-tier
+    // buttons above, this hits the SAME live check OPai runs before a real
+    // send (test_account_connection, force=True — bypasses the 5-minute
+    // cache), so the row updates to what the CLI actually reports right now
+    // instead of the on-disk "sign-in detected" presence check.
+    page.querySelectorAll("[data-test-account]").forEach((button) => {
+      button.onclick = () => {
+        const id = button.dataset.testAccount;
+        const status = page.querySelector(`[data-account-status="${id}"]`);
+        button.disabled = true; button.textContent = "Testing…";
+        if (status) status.textContent = "testing…";
+        bridge.testProvider(id, (json2) => {
+          let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
+          button.disabled = false; button.textContent = "Test connection";
+          const live = result.authStatus === "connected";
+          if (status) status.textContent = live ? "connected" : (result.authStatus || "needs attention");
+          if (live) { toast("Connection verified"); return; }
+          const hint = result.loginHint ? " " + result.loginHint : "";
+          toast((result.safeDiagnostic || "Connection check failed.") + hint);
         });
       };
     });

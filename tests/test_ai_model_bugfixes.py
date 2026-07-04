@@ -558,5 +558,130 @@ class BlockingAccountResultTests(unittest.TestCase):
         self.assertNotIn("error", result)
 
 
+# ---------------------------------------------------------------------------
+# Bug: OPai says "connected" (Claude auth status / cache) but a real send 401s,
+# and the cached "connected" verdict then keeps lying for up to 5 minutes.
+# ---------------------------------------------------------------------------
+class ConnectionCacheInvalidationTests(unittest.TestCase):
+    def _prime_cache(self, account_id: str, *, home) -> None:
+        """Populate the connection cache the same way a real check would."""
+        from opaihub import accounts
+
+        with (
+            mock.patch.object(
+                accounts,
+                "list_connected_accounts",
+                return_value=[
+                    {
+                        "id": account_id,
+                        "label": account_id.capitalize(),
+                        "cli_present": True,
+                        "authenticated": True,
+                        "connected": True,
+                        "login_hint": "hint",
+                    }
+                ],
+            ),
+            mock.patch.object(
+                accounts,
+                "_hidden_run",
+                return_value=mock.Mock(returncode=0, stdout="ok", stderr=""),
+            ),
+        ):
+            result = accounts.test_account_connection(account_id, home=home)
+        self.assertEqual(result["authStatus"], "connected")
+
+    def _cache_has(self, account_id: str) -> bool:
+        from opaihub.accounts import _CONNECTION_CACHE
+
+        return any(key[0] == account_id for key in _CONNECTION_CACHE)
+
+    def test_invalidate_clears_only_the_matching_provider(self):
+        from opaihub.accounts import invalidate_connection_cache
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self._prime_cache("claude", home=home)
+            self._prime_cache("codex", home=home)
+            self.assertTrue(self._cache_has("claude"))
+            self.assertTrue(self._cache_has("codex"))
+            invalidate_connection_cache("claude")
+            self.assertFalse(self._cache_has("claude"))
+            self.assertTrue(self._cache_has("codex"), "unrelated provider must survive")
+
+    def test_ask_account_auth_failure_busts_the_stale_connected_cache(self):
+        # _ask_account never calls test_account_connection itself (that
+        # pre-flight lives in gui_pipeline); invalidate_connection_cache
+        # matches purely on account_id, so priming under any home still
+        # proves a genuine 401 clears the entry regardless of which check
+        # populated it.
+        from opai.app_state import ask
+
+        with (
+            tempfile.TemporaryDirectory() as home_tmp,
+            tempfile.TemporaryDirectory() as repo_tmp,
+        ):
+            self._prime_cache("claude", home=Path(home_tmp))
+            self.assertTrue(self._cache_has("claude"))
+
+            root = make_repo(Path(repo_tmp))
+            result = ask(
+                root,
+                "task",
+                model_choice="account:claude:sonnet",
+                allow_edits=False,
+                account_runner=FakeAccountRunnerAuthFail(),
+            )
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+            self.assertFalse(
+                self._cache_has("claude"),
+                "a genuine 401 must invalidate the stale 'connected' cache entry",
+            )
+
+    def test_non_auth_failure_does_not_touch_the_cache(self):
+        from opai.app_state import ask
+
+        class _TimeoutRunner:
+            paid = True
+
+            def available(self):
+                return True
+
+            def complete(self, prompt, **kwargs):
+                return {"text": "", "cost": None, "timed_out": True}
+
+        with (
+            tempfile.TemporaryDirectory() as home_tmp,
+            tempfile.TemporaryDirectory() as repo_tmp,
+        ):
+            self._prime_cache("claude", home=Path(home_tmp))
+
+            root = make_repo(Path(repo_tmp))
+            result = ask(
+                root,
+                "task",
+                model_choice="account:claude:sonnet",
+                account_runner=_TimeoutRunner(),
+            )
+            self.assertEqual(result["error"]["code"], "PROVIDER_TIMEOUT")
+            self.assertTrue(
+                self._cache_has("claude"),
+                "a non-auth failure (timeout) must not bust an unrelated cache entry",
+            )
+
+
+class FakeAccountRunnerAuthFail:
+    """A connected-looking runner whose real completion 401s (the reported bug)."""
+
+    paid = True
+
+    def available(self):
+        return True
+
+    def complete(self, prompt, **kwargs):
+        raise RuntimeError("API Error: 401 Invalid authentication credentials")
+
+
 if __name__ == "__main__":
     unittest.main()

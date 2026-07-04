@@ -289,6 +289,25 @@ def connection_for_account(
     }
 
 
+def invalidate_connection_cache(account_id: str) -> None:
+    """Drop any cached 'connected' verdicts for this provider.
+
+    ``test_account_connection`` caches a successful check for
+    ``_CONNECTION_CACHE_TTL`` (5 minutes) so repeated messages don't re-shell
+    out on every send. But a Claude/Codex OAuth session can die *between*
+    messages — the cached check said connected, yet the next real completion
+    call gets a genuine 401 from the provider. Without invalidation, OPai
+    would keep telling the user "connected" (from cache) for up to 5 more
+    minutes while every send keeps failing. Call this the moment a live
+    completion comes back with an auth-shaped error, so the next check (an
+    automatic retry, or the user clicking "Test connection") does a fresh
+    probe instead of repeating the stale verdict.
+    """
+    with _CONNECTION_CACHE_LOCK:
+        for key in [k for k in _CONNECTION_CACHE if k[0] == account_id]:
+            _CONNECTION_CACHE.pop(key, None)
+
+
 def account_connections(home: Path | None = None) -> list[dict[str, Any]]:
     """Return detected connection state without contacting any provider."""
 
