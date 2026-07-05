@@ -28,7 +28,11 @@ from opaihub.github_workflow import (
     rank_issues,
     select_small_important_issue,
 )
-from opaihub.workflow_state import WorkflowState, load_workflow_state, save_workflow_state
+from opaihub.workflow_state import (
+    WorkflowState,
+    load_workflow_state,
+    save_workflow_state,
+)
 
 from tests._helpers import FakeAccountRunner, make_repo
 
@@ -53,10 +57,14 @@ class AgentPolicyTests(unittest.TestCase):
             "Solve issue #18.",
         ):
             with self.subTest(request=request):
-                self.assertEqual(resolve_agent_policy(request).mode, AgentMode.IMPLEMENT)
+                self.assertEqual(
+                    resolve_agent_policy(request).mode, AgentMode.IMPLEMENT
+                )
 
     def test_explain_only_selects_read_only_explain_mode(self):
-        policy = resolve_agent_policy("Explain how the auth flow works. Do not edit files.")
+        policy = resolve_agent_policy(
+            "Explain how the auth flow works. Do not edit files."
+        )
 
         self.assertEqual(policy.mode, AgentMode.EXPLAIN)
         self.assertFalse(policy.allows("edit_files"))
@@ -73,20 +81,32 @@ class AgentPolicyTests(unittest.TestCase):
                 self.assertFalse(policy.allows("edit_files"))
 
     def test_review_without_edits_selects_review_mode(self):
-        policy = resolve_agent_policy("Review this repository for correctness. Report findings only; no edits.")
+        policy = resolve_agent_policy(
+            "Review this repository for correctness. Report findings only; no edits."
+        )
 
         self.assertEqual(policy.mode, AgentMode.REVIEW)
         self.assertTrue(policy.allows("read_files"))
         self.assertFalse(policy.allows("edit_files"))
 
     def test_make_pr_implies_file_edits_commits_and_push(self):
-        policy = resolve_agent_policy("Make a PR that fixes the broken workspace picker.")
+        policy = resolve_agent_policy(
+            "Make a PR that fixes the broken workspace picker."
+        )
 
-        for capability in ("edit_files", "create_branch", "commit", "push", "create_pr"):
+        for capability in (
+            "edit_files",
+            "create_branch",
+            "commit",
+            "push",
+            "create_pr",
+        ):
             self.assertTrue(policy.allows(capability), capability)
 
     def test_merge_after_tests_selects_ship_with_conditional_merge(self):
-        policy = resolve_agent_policy("Fix it, open a PR, and merge it after tests pass.")
+        policy = resolve_agent_policy(
+            "Fix it, open a PR, and merge it after tests pass."
+        )
 
         self.assertEqual(policy.mode, AgentMode.SHIP)
         self.assertTrue(policy.allows("merge_pr"))
@@ -113,7 +133,9 @@ class AgentPolicyTests(unittest.TestCase):
                 self.assertTrue(policy.requires_confirmation)
                 self.assertFalse(policy.allows("force_push"))
 
-    def test_safety_constraints_that_forbid_force_push_do_not_become_dangerous_intent(self):
+    def test_safety_constraints_that_forbid_force_push_do_not_become_dangerous_intent(
+        self,
+    ):
         policy = resolve_agent_policy(
             "Fix the bug, run tests, and open a PR. Do not force push or reset --hard."
         )
@@ -126,7 +148,9 @@ class AgentPolicyTests(unittest.TestCase):
         self.assertTrue(policy.requires_confirmation)
 
     def test_capability_contract_redacts_secrets_and_is_action_oriented(self):
-        policy = resolve_agent_policy("Fix auth using token sk-abcdefghijklmnopqrst and make a PR.")
+        policy = resolve_agent_policy(
+            "Fix auth using token sk-abcdefghijklmnopqrst and make a PR."
+        )
         contract = build_capability_contract(policy, active_repo="C:/repo")
 
         self.assertNotIn("sk-abcdefghijklmnopqrst", contract)
@@ -137,7 +161,10 @@ class AgentPolicyTests(unittest.TestCase):
 
 class RepoContextTests(unittest.TestCase):
     def test_persisted_active_repo_is_reused_on_next_gui_start(self):
-        with tempfile.TemporaryDirectory() as workspace_tmp, tempfile.TemporaryDirectory() as repo_tmp:
+        with (
+            tempfile.TemporaryDirectory() as workspace_tmp,
+            tempfile.TemporaryDirectory() as repo_tmp,
+        ):
             workspace = Path(workspace_tmp)
             repo = make_repo(Path(repo_tmp), commit=True)
             context = resolve_repo_context(repo)
@@ -217,7 +244,9 @@ class RepoContextTests(unittest.TestCase):
         self.assertFalse(assessment.can_proceed)
         self.assertEqual(assessment.conflicting_paths, ("opai/agent_policy.py",))
 
-    def test_safe_worktree_command_uses_new_branch_and_preserves_unrelated_changes(self):
+    def test_safe_worktree_command_uses_new_branch_and_preserves_unrelated_changes(
+        self,
+    ):
         calls = []
 
         def fake_run(argv, **kwargs):
@@ -303,9 +332,13 @@ class GitHubWorkflowTests(unittest.TestCase):
         def fake_run(argv, **kwargs):
             calls.append(argv)
             if argv[1:3] == ["issue", "list"]:
-                return subprocess.CompletedProcess(argv, 0, __import__("json").dumps(self.issues), "")
+                return subprocess.CompletedProcess(
+                    argv, 0, __import__("json").dumps(self.issues), ""
+                )
             if argv[1:3] == ["pr", "create"]:
-                return subprocess.CompletedProcess(argv, 0, "https://github.test/pr/5\n", "")
+                return subprocess.CompletedProcess(
+                    argv, 0, "https://github.test/pr/5\n", ""
+                )
             raise AssertionError(argv)
 
         adapter = GitHubAdapter(Path("C:/repo"), run=fake_run)
@@ -339,7 +372,9 @@ class GitHubWorkflowTests(unittest.TestCase):
                 return subprocess.CompletedProcess(
                     argv, 0, '[{"name":"test","state":"SUCCESS","bucket":"pass"}]', ""
                 )
-            return subprocess.CompletedProcess(argv, 0, "https://github.test/pr/5\n", "")
+            return subprocess.CompletedProcess(
+                argv, 0, "https://github.test/pr/5\n", ""
+            )
 
         adapter = GitHubAdapter(Path("C:/repo"), run=fake_run)
         linked = adapter.find_linked_pr(11)
@@ -349,7 +384,10 @@ class GitHubWorkflowTests(unittest.TestCase):
 
         self.assertEqual(linked["number"], 5)
         self.assertEqual(checks[0]["state"], "SUCCESS")
-        self.assertIn(["gh", "pr", "edit", "5", "--title", "Better title", "--body", "Updated"], calls)
+        self.assertIn(
+            ["gh", "pr", "edit", "5", "--title", "Better title", "--body", "Updated"],
+            calls,
+        )
         self.assertIn(["gh", "pr", "comment", "5", "--body", "Tests passed"], calls)
 
     def test_merge_runs_only_when_every_ship_gate_passes(self):
@@ -504,7 +542,13 @@ class GuiAutonomySurfaceTests(unittest.TestCase):
 
         self.assertEqual(
             summary,
-            ["Ship", "Completed", "Tests: passed", "https://github.test/pr/9", "Merge: merged"],
+            [
+                "Ship",
+                "Completed",
+                "Tests: passed",
+                "https://github.test/pr/9",
+                "Merge: merged",
+            ],
         )
 
     def test_boot_payload_surfaces_active_repo_and_workflow_truth(self):
@@ -573,9 +617,7 @@ class InstructionContractTests(unittest.TestCase):
     def test_read_only_focus_is_advisory_when_current_request_is_to_fix(self):
         from opai.gui_modes import compose_prompt
 
-        prompt = compose_prompt(
-            "Fix the bug and make a PR.", task_mode_id="explain"
-        )
+        prompt = compose_prompt("Fix the bug and make a PR.", task_mode_id="explain")
 
         self.assertIn("advisory", prompt.lower())
         self.assertNotIn("Do not modify any files", prompt)

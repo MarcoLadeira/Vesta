@@ -44,7 +44,10 @@ _FORWARD: dict[RuntimePhase, set[RuntimePhase]] = {
         RuntimePhase.CONTEXT_GATHERING,
         RuntimePhase.PLANNING,
     },
-    RuntimePhase.ISSUE_SELECTED: {RuntimePhase.CONTEXT_GATHERING, RuntimePhase.PLANNING},
+    RuntimePhase.ISSUE_SELECTED: {
+        RuntimePhase.CONTEXT_GATHERING,
+        RuntimePhase.PLANNING,
+    },
     RuntimePhase.CONTEXT_GATHERING: {
         RuntimePhase.PLANNING,
         RuntimePhase.AWAITING_APPROVAL,
@@ -129,7 +132,9 @@ class AgentRuntimeState:
 
 
 class AgentRuntime:
-    def __init__(self, project_root: Path, *, task: str, task_id: str | None = None) -> None:
+    def __init__(
+        self, project_root: Path, *, task: str, task_id: str | None = None
+    ) -> None:
         self.project_root = project_root.expanduser().resolve()
         self.task = task
         self.task_id = _valid_task_id(task_id or uuid.uuid4().hex[:16])
@@ -161,9 +166,14 @@ class AgentRuntime:
         validate: bool = True,
     ) -> AgentRuntimeState:
         previous = self.state.phase
-        allowed = _FORWARD.get(previous, set()) | {RuntimePhase.BLOCKED, RuntimePhase.FAILED}
+        allowed = _FORWARD.get(previous, set()) | {
+            RuntimePhase.BLOCKED,
+            RuntimePhase.FAILED,
+        }
         if validate and phase not in allowed:
-            raise ValueError(f"Invalid runtime transition: {previous.value} -> {phase.value}")
+            raise ValueError(
+                f"Invalid runtime transition: {previous.value} -> {phase.value}"
+            )
         created = _now()
         safe_metadata = redact_structure(dict(metadata or {}))
         event = RuntimeEvent(
@@ -214,7 +224,9 @@ class AgentRuntime:
             next_actions=next_actions,
         )
 
-    def block(self, reason: str, *, next_actions: Iterable[str] = ()) -> AgentRuntimeState:
+    def block(
+        self, reason: str, *, next_actions: Iterable[str] = ()
+    ) -> AgentRuntimeState:
         return self._move(
             RuntimePhase.BLOCKED,
             message="OPai needs a safe resolution before continuing",
@@ -222,7 +234,9 @@ class AgentRuntime:
             next_actions=next_actions,
         )
 
-    def fail(self, reason: str, *, next_actions: Iterable[str] = ()) -> AgentRuntimeState:
+    def fail(
+        self, reason: str, *, next_actions: Iterable[str] = ()
+    ) -> AgentRuntimeState:
         return self._move(
             RuntimePhase.FAILED,
             message="The workflow failed",
@@ -231,7 +245,11 @@ class AgentRuntime:
         )
 
     def resume(
-        self, phase: RuntimePhase, *, message: str, metadata: dict[str, Any] | None = None
+        self,
+        phase: RuntimePhase,
+        *,
+        message: str,
+        metadata: dict[str, Any] | None = None,
     ) -> AgentRuntimeState:
         if self.state.phase not in {RuntimePhase.BLOCKED, RuntimePhase.FAILED}:
             raise ValueError("Only blocked or failed workflows can be resumed")
@@ -315,14 +333,19 @@ class AgentWorkbench:
         phase = self.runtime.state.phase
         if phase is RuntimePhase.IMPLEMENTING and kind in {"patch_apply", "command"}:
             if not ok:
-                self.runtime.fail("Implementation action failed", next_actions=("inspect the structured error",))
+                self.runtime.fail(
+                    "Implementation action failed",
+                    next_actions=("inspect the structured error",),
+                )
                 return self._decision("inspect_error", "implementation failed")
             self.runtime.transition(
                 RuntimePhase.TESTING,
                 message="Implementation changed; focused tests are next",
                 next_actions=("run focused tests",),
             )
-            return self._decision("run_focused_tests", "implementation produced a change")
+            return self._decision(
+                "run_focused_tests", "implementation produced a change"
+            )
         if phase is RuntimePhase.TESTING and kind == "test_run":
             if ok:
                 self.runtime.transition(
@@ -335,7 +358,10 @@ class AgentWorkbench:
             if self.repair_attempts >= self.max_repairs:
                 self.runtime.block(
                     "Test repair limit reached",
-                    next_actions=("review the last failure", "choose a product direction"),
+                    next_actions=(
+                        "review the last failure",
+                        "choose a product direction",
+                    ),
                 )
                 return self._decision("request_direction", "repair budget exhausted")
             self.repair_attempts += 1
@@ -359,4 +385,6 @@ class AgentWorkbench:
                 next_actions=("rerun focused tests",),
             )
             return self._decision("run_focused_tests", "repair needs verification")
-        return self._decision("inspect_observation", f"no automatic transition for {phase.value}/{kind}")
+        return self._decision(
+            "inspect_observation", f"no automatic transition for {phase.value}/{kind}"
+        )

@@ -153,7 +153,9 @@ class AgentComputerInterfaceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             aci = AgentComputerInterface(Path(tmp), run=fake_run)
-            result = aci.run_command(["python", "-m", "unittest"], purpose="focused tests")
+            result = aci.run_command(
+                ["python", "-m", "unittest"], purpose="focused tests"
+            )
 
         self.assertTrue(result.ok)
         self.assertEqual(result.kind, "command")
@@ -223,7 +225,10 @@ class StructuredProviderContractTests(unittest.TestCase):
 
     def test_provider_events_normalize_without_owning_runtime_state(self):
         event = adapter_for("claude").normalize_event(
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "done"}]}}
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "done"}]},
+            }
         )
         self.assertEqual(event["kind"], "provider_event")
         self.assertEqual(event["provider"], "claude")
@@ -261,9 +266,9 @@ class TestRepairLoopTests(unittest.TestCase):
             return next(focused_results)
 
         repairs = []
-        result = TestLoop(run=run, repair=lambda failure, attempt: repairs.append(attempt)).execute(
-            focused=["focused"], full=["full"], max_repairs=2
-        )
+        result = TestLoop(
+            run=run, repair=lambda failure, attempt: repairs.append(attempt)
+        ).execute(focused=["focused"], full=["full"], max_repairs=2)
         self.assertTrue(result.passed)
         self.assertEqual(repairs, [1])
         self.assertEqual(commands, [("focused",), ("focused",), ("full",)])

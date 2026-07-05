@@ -124,7 +124,9 @@ def _has_positive_danger(text: str) -> bool:
     """Distinguish a destructive request from an explicit safety constraint."""
 
     for match in _DANGEROUS.finditer(text):
-        clause = re.split(r"[.;\n]", text[max(0, match.start() - 90) : match.start()])[-1]
+        clause = re.split(r"[.;\n]", text[max(0, match.start() - 90) : match.start()])[
+            -1
+        ]
         if re.search(
             r"\b(?:do\s+not|don't|never|without|avoid|forbid|must\s+not|ask\s+before)\b",
             clause,
@@ -227,10 +229,14 @@ def build_capability_contract(policy: AgentPolicy, *, active_repo: str) -> str:
             "- Inspect before acting, preserve unrelated user changes, test the result, and report concrete evidence."
         )
     else:
-        lines.append("- This is read-only: do not modify files or run mutating commands.")
+        lines.append(
+            "- This is read-only: do not modify files or run mutating commands."
+        )
     if policy.mode is AgentMode.SHIP:
         lines.append(
-            "- Merge only after every gate passes: " + ", ".join(policy.merge_requirements) + "."
+            "- Merge only after every gate passes: "
+            + ", ".join(policy.merge_requirements)
+            + "."
         )
     lines.append(
         "- Always ask before force-push, destructive deletion, secret exposure, paid service use, or production credential changes."

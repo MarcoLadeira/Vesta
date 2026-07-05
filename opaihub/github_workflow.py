@@ -45,7 +45,9 @@ def _score_issue(issue: dict[str, Any]) -> IssueCandidate:
     score = 0
     reasons: list[str] = []
 
-    if any(label in labels for label in ("release-blocker", "release blocker", "blocker")):
+    if any(
+        label in labels for label in ("release-blocker", "release blocker", "blocker")
+    ):
         score += 45
         reasons.append("release blocker")
     if "bug" in labels or "regression" in labels:
@@ -54,7 +56,10 @@ def _score_issue(issue: dict[str, Any]) -> IssueCandidate:
     if any(label in labels for label in ("high-impact", "priority:high", "p1")):
         score += 25
         reasons.append("high impact")
-    if any(label in labels for label in ("size:s", "size:small", "small", "good first issue")):
+    if any(
+        label in labels
+        for label in ("size:s", "size:small", "small", "good first issue")
+    ):
         score += 20
         reasons.append("bounded")
     if "test" in text or "reproduc" in text:
@@ -66,10 +71,16 @@ def _score_issue(issue: dict[str, Any]) -> IssueCandidate:
     if any(label in labels for label in ("size:xl", "size:large", "epic")):
         score -= 40
         reasons.append("too large")
-    if any(term in text for term in ("entire architecture", "architectural migration", "multi-quarter")):
+    if any(
+        term in text
+        for term in ("entire architecture", "architectural migration", "multi-quarter")
+    ):
         score -= 35
         reasons.append("architectural scope")
-    if any(label in labels for label in ("risk:high", "security-critical", "breaking-change")):
+    if any(
+        label in labels
+        for label in ("risk:high", "security-critical", "breaking-change")
+    ):
         score -= 20
         reasons.append("high risk")
 
@@ -158,7 +169,9 @@ class GitHubAdapter:
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         result = self._run_impl(command, **kwargs)
         if result.returncode != 0:
-            detail = redact(str(result.stderr or result.stdout or "GitHub command failed"))
+            detail = redact(
+                str(result.stderr or result.stdout or "GitHub command failed")
+            )
             raise RuntimeError(detail)
         return str(result.stdout or "").strip()
 
@@ -244,9 +257,7 @@ class GitHubAdapter:
         return None
 
     def update_pr(self, number: int, *, title: str, body: str) -> str:
-        return self._run(
-            ["pr", "edit", str(number), "--title", title, "--body", body]
-        )
+        return self._run(["pr", "edit", str(number), "--title", title, "--body", body])
 
     def pr_checks(self, number: int) -> list[dict[str, Any]]:
         output = self._run(

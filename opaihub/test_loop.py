@@ -47,7 +47,9 @@ def parse_test_failure(output: str) -> TestFailure:
         ),
         "Test command failed",
     )
-    return TestFailure(failed=max(1, failed), summary=actionable[:500], output=text[-20_000:])
+    return TestFailure(
+        failed=max(1, failed), summary=actionable[:500], output=text[-20_000:]
+    )
 
 
 class TestLoop:
@@ -78,7 +80,9 @@ class TestLoop:
                 break
             failure = parse_test_failure(output)
             if attempts >= max(0, int(max_repairs)):
-                return TestLoopResult(False, "focused", attempts, tuple(commands), failure)
+                return TestLoopResult(
+                    False, "focused", attempts, tuple(commands), failure
+                )
             attempts += 1
             self.repair(failure, attempts)
 

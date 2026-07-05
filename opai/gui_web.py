@@ -189,19 +189,21 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
         [
             {"label": "Agent mode", "value": workflow.mode.title()},
             {"label": "Workflow", "value": workflow.phase.replace("_", " ").title()},
-            {"label": "Tests", "value": workflow.tests_status.replace("_", " ").title()},
+            {
+                "label": "Tests",
+                "value": workflow.tests_status.replace("_", " ").title(),
+            },
             {
                 "label": "PR / merge",
-                "value": workflow.pr_url or workflow.merge_status.replace("_", " ").title(),
+                "value": workflow.pr_url
+                or workflow.merge_status.replace("_", " ").title(),
             },
         ]
     )
     if workflow.blocker:
         data["rows"].append({"label": "Blocker", "value": workflow.blocker})
     if workflow.next_actions:
-        data["rows"].append(
-            {"label": "Next action", "value": workflow.next_actions[0]}
-        )
+        data["rows"].append({"label": "Next action", "value": workflow.next_actions[0]})
     return data
 
 

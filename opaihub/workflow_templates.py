@@ -8,7 +8,13 @@ from typing import Any
 
 
 def _template_path() -> Path:
-    return Path(__file__).resolve().parent / "data" / "hub" / "workflows" / "coding-agent.json"
+    return (
+        Path(__file__).resolve().parent
+        / "data"
+        / "hub"
+        / "workflows"
+        / "coding-agent.json"
+    )
 
 
 def workflow_templates() -> dict[str, dict[str, Any]]:

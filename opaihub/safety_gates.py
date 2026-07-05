@@ -35,6 +35,8 @@ def is_destructive_command(command: Iterable[str]) -> bool:
         r"\bdel\s+/[sq]\b",
     )
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
 def _normal(value: str) -> PurePosixPath:
     return PurePosixPath(str(value).replace("\\", "/").strip("/"))
 
@@ -75,7 +77,9 @@ def evaluate_safety_gates(
     changed = tuple(_normal(item) for item in changed_files)
     intended = tuple(_normal(item) for item in intended_files)
     unrelated = tuple(
-        str(path) for path in changed if not any(_overlap(path, target) for target in intended)
+        str(path)
+        for path in changed
+        if not any(_overlap(path, target) for target in intended)
     )
     risky = tuple(
         str(path)
@@ -87,7 +91,9 @@ def evaluate_safety_gates(
     production_paths = tuple(
         str(path)
         for path in changed
-        if any(part in {"production", "prod", "auth", "credentials"} for part in path.parts)
+        if any(
+            part in {"production", "prod", "auth", "credentials"} for part in path.parts
+        )
     )
     gates = {
         "secrets": not bool(_SECRET.search(diff_text)),

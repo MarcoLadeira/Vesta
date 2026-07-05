@@ -764,9 +764,7 @@ def _run_gui(
                     ]
                 )
                 if workflow.blocker:
-                    data["rows"].append(
-                        {"label": "Blocker", "value": workflow.blocker}
-                    )
+                    data["rows"].append({"label": "Blocker", "value": workflow.blocker})
             except Exception:  # noqa: BLE001
                 pass
             for r in data["rows"]:

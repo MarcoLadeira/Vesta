@@ -56,7 +56,11 @@ class AgentComputerInterface:
         return Observation(
             "repo_overview",
             files.ok and status.ok,
-            {"root": str(self.repo_root), "files": files.data.get("files", []), "status": status.data},
+            {
+                "root": str(self.repo_root),
+                "files": files.data.get("files", []),
+                "status": status.data,
+            },
             status.error_code if not status.ok else files.error_code,
         )
 
@@ -65,7 +69,8 @@ class AgentComputerInterface:
         files = []
         for path in self.repo_root.rglob(pattern):
             if not path.is_file() or any(
-                part in {".git", "node_modules", "build", "dist", ".opaihub", ".opcoding"}
+                part
+                in {".git", "node_modules", "build", "dist", ".opaihub", ".opcoding"}
                 for part in path.parts
             ):
                 continue
@@ -79,7 +84,9 @@ class AgentComputerInterface:
             duration_ms=int((time.monotonic() - started) * 1000),
         )
 
-    def search(self, query: str, *, paths: Iterable[str] = (), limit: int = 200) -> Observation:
+    def search(
+        self, query: str, *, paths: Iterable[str] = (), limit: int = 200
+    ) -> Observation:
         command = [
             "rg",
             "--line-number",
@@ -96,7 +103,11 @@ class AgentComputerInterface:
         return Observation(
             "search",
             result.ok,
-            {"query": query, "matches": result.data.get("stdout", "").splitlines(), "command": result.data.get("command", [])},
+            {
+                "query": query,
+                "matches": result.data.get("stdout", "").splitlines(),
+                "command": result.data.get("command", []),
+            },
             result.error_code,
             result.message,
             result.duration_ms,
@@ -113,12 +124,26 @@ class AgentComputerInterface:
         started = time.monotonic()
         resolved = self._path(path)
         if resolved is None:
-            return Observation("file_slice", False, error_code="PATH_OUTSIDE_REPO", message="Path is outside the active repository")
+            return Observation(
+                "file_slice",
+                False,
+                error_code="PATH_OUTSIDE_REPO",
+                message="Path is outside the active repository",
+            )
         if not resolved.is_file():
-            return Observation("file_slice", False, error_code="FILE_NOT_FOUND", message="File does not exist")
+            return Observation(
+                "file_slice",
+                False,
+                error_code="FILE_NOT_FOUND",
+                message="File does not exist",
+            )
         lines = resolved.read_text(encoding="utf-8", errors="replace").splitlines()
         first = max(1, int(start_line))
-        last = len(lines) if end_line is None else min(len(lines), max(first, int(end_line)))
+        last = (
+            len(lines)
+            if end_line is None
+            else min(len(lines), max(first, int(end_line)))
+        )
         text = "\n".join(lines[first - 1 : last])
         truncated = len(text) > max_chars
         return Observation(
@@ -144,8 +169,17 @@ class AgentComputerInterface:
         )
 
     def apply_patch(self, patch: str, *, check_only: bool = False) -> Observation:
-        command = ["git", "apply", "--check" if check_only else "--whitespace=nowarn", "-"]
-        return self.run_command(command, purpose="validate patch" if check_only else "apply patch", input_text=patch)
+        command = [
+            "git",
+            "apply",
+            "--check" if check_only else "--whitespace=nowarn",
+            "-",
+        ]
+        return self.run_command(
+            command,
+            purpose="validate patch" if check_only else "apply patch",
+            input_text=patch,
+        )
 
     def git_status(self) -> Observation:
         result = self.run_command(
@@ -192,7 +226,9 @@ class AgentComputerInterface:
     ) -> Observation:
         argv = [str(item) for item in command]
         if not argv:
-            return Observation("command", False, error_code="EMPTY_COMMAND", message="Command is empty")
+            return Observation(
+                "command", False, error_code="EMPTY_COMMAND", message="Command is empty"
+            )
         if is_destructive_command(argv):
             return Observation(
                 "command",
@@ -217,9 +253,21 @@ class AgentComputerInterface:
         try:
             completed = self._run(argv, **kwargs)
         except subprocess.TimeoutExpired:
-            return Observation("command", False, {"command": argv, "purpose": purpose}, "TIMEOUT", "Command timed out")
+            return Observation(
+                "command",
+                False,
+                {"command": argv, "purpose": purpose},
+                "TIMEOUT",
+                "Command timed out",
+            )
         except OSError as exc:
-            return Observation("command", False, {"command": argv, "purpose": purpose}, "SPAWN_FAILED", redact(str(exc)))
+            return Observation(
+                "command",
+                False,
+                {"command": argv, "purpose": purpose},
+                "SPAWN_FAILED",
+                redact(str(exc)),
+            )
         stdout = redact(str(completed.stdout or ""))[: self.max_output_chars]
         stderr = redact(str(completed.stderr or ""))[: self.max_output_chars]
         return Observation(
@@ -231,7 +279,9 @@ class AgentComputerInterface:
                 "returncode": int(completed.returncode),
                 "stdout": stdout,
                 "stderr": stderr,
-                "truncated": len(str(completed.stdout or "")) + len(str(completed.stderr or "")) > self.max_output_chars,
+                "truncated": len(str(completed.stdout or ""))
+                + len(str(completed.stderr or ""))
+                > self.max_output_chars,
             },
             "COMMAND_FAILED" if completed.returncode else "",
             stderr if completed.returncode else "",

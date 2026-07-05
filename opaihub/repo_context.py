@@ -170,14 +170,18 @@ def _overlaps(left: PurePosixPath, right: PurePosixPath) -> bool:
 def classify_dirty_paths(
     dirty_paths: Iterable[str], intended_paths: Iterable[str] | None
 ) -> DirtyAssessment:
-    dirty = tuple(dict.fromkeys(str(_normal(path)) for path in dirty_paths if str(path)))
+    dirty = tuple(
+        dict.fromkeys(str(_normal(path)) for path in dirty_paths if str(path))
+    )
     if not dirty:
         return DirtyAssessment("clean", True)
     if intended_paths is None:
         return DirtyAssessment("needs_inspection", True, unrelated_paths=dirty)
     intended = tuple(_normal(path) for path in intended_paths if str(path))
     conflicts = tuple(
-        path for path in dirty if any(_overlaps(_normal(path), target) for target in intended)
+        path
+        for path in dirty
+        if any(_overlaps(_normal(path), target) for target in intended)
     )
     unrelated = tuple(path for path in dirty if path not in conflicts)
     if conflicts:

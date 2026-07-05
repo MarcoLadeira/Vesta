@@ -53,7 +53,10 @@ class WorkflowLedger:
             "task_id": self.task_id,
             "task_hash": task_fingerprint(task),
             "metadata": redact_structure(metadata or {}),
-            **{redact(str(key)): redact_structure(value) for key, value in fields.items()},
+            **{
+                redact(str(key)): redact_structure(value)
+                for key, value in fields.items()
+            },
         }
         with _LOCK:
             self.path.parent.mkdir(parents=True, exist_ok=True)

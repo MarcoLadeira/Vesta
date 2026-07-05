@@ -140,7 +140,9 @@ class ProviderAdapter:
         """
 
         if self.kind != "account":
-            raise ValueError("Structured CLI execution is only available for account providers")
+            raise ValueError(
+                "Structured CLI execution is only available for account providers"
+            )
         from .accounts import AccountRunner
         from .proc import provider_child_env
 
@@ -150,7 +152,10 @@ class ProviderAdapter:
                 "workspace-write" if mode in {"safe-auto", "full-auto"} else "read-only"
             )
             expected_permission = "never" if mode == "full-auto" else "on-request"
-            if request.sandbox != expected_sandbox or request.permission != expected_permission:
+            if (
+                request.sandbox != expected_sandbox
+                or request.permission != expected_permission
+            ):
                 raise ValueError(
                     "Codex sandbox and permission must match the centralized OPai mode"
                 )
@@ -192,7 +197,13 @@ class ProviderAdapter:
         elif self.provider_id == "codex":
             parsed = parse_codex_line(line)
         else:
-            parsed = {"events": [], "text": "", "error": "", "cost": None, "done": False}
+            parsed = {
+                "events": [],
+                "text": "",
+                "error": "",
+                "cost": None,
+                "done": False,
+            }
         return {
             "kind": "provider_event",
             "provider": self.provider_id,
