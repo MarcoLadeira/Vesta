@@ -303,6 +303,65 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_automation(args: argparse.Namespace) -> int:
+    from .background_runs import (
+        BackgroundRunner,
+        enqueue_automation,
+        list_automation_schedules,
+        list_runs,
+        pipeline_executor,
+        read_notifications,
+        recover_interrupted_runs,
+        request_cancel,
+        schedule_automation,
+        tick_automations,
+    )
+
+    root = _project(args.project)
+    try:
+        if args.automation_command == "enqueue":
+            run = enqueue_automation(
+                root,
+                args.workflow_id,
+                args.task,
+                allow_cloud=args.allow_cloud,
+                cloud_confirmed=args.confirm_cloud,
+            )
+            print_json(run.to_dict())
+        elif args.automation_command == "list":
+            print_json([run.to_dict() for run in list_runs(root, status=args.status)])
+        elif args.automation_command == "cancel":
+            print_json(request_cancel(root, args.run_id).to_dict())
+        elif args.automation_command == "run":
+            runner = BackgroundRunner(
+                root, executor=pipeline_executor(model_id=args.model, mode=args.mode)
+            )
+            print_json(runner.run_now(args.run_id).to_dict())
+        elif args.automation_command == "tick":
+            print_json([run.to_dict() for run in tick_automations(root)])
+        elif args.automation_command == "notifications":
+            print_json(read_notifications(root, limit=args.limit))
+        elif args.automation_command == "schedule":
+            print_json(
+                schedule_automation(
+                    root,
+                    args.workflow_id,
+                    args.task,
+                    cadence=args.cadence,
+                    allow_cloud=args.allow_cloud,
+                    cloud_confirmed=args.confirm_cloud,
+                )
+            )
+        elif args.automation_command == "schedules":
+            print_json(list_automation_schedules(root))
+        elif args.automation_command == "recover":
+            print_json([run.to_dict() for run in recover_interrupted_runs(root)])
+    except (ValueError, FileExistsError, FileNotFoundError, RuntimeError) as exc:
+        print_json({"status": "error", "message": str(exc)})
+        return 2
+    return 0
+
+
 def cmd_analytics(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.analytics_command == "status":
@@ -529,6 +588,44 @@ def build_parser() -> argparse.ArgumentParser:
     sc.set_defaults(func=cmd_schedule)
     sc = schedule_sub.add_parser("list")
     sc.set_defaults(func=cmd_schedule)
+
+    p = sub.add_parser("automation")
+    automation_sub = p.add_subparsers(dest="automation_command", required=True)
+    au = automation_sub.add_parser("enqueue")
+    au.add_argument("workflow_id")
+    au.add_argument("--task", required=True)
+    au.add_argument("--allow-cloud", action="store_true")
+    au.add_argument("--confirm-cloud", action="store_true")
+    au.set_defaults(func=cmd_automation)
+    au = automation_sub.add_parser("list")
+    au.add_argument("--status")
+    au.set_defaults(func=cmd_automation)
+    au = automation_sub.add_parser("cancel")
+    au.add_argument("run_id")
+    au.set_defaults(func=cmd_automation)
+    au = automation_sub.add_parser("run")
+    au.add_argument("run_id")
+    au.add_argument("--model")
+    au.add_argument("--mode")
+    au.set_defaults(func=cmd_automation)
+    au = automation_sub.add_parser("tick")
+    au.set_defaults(func=cmd_automation)
+    au = automation_sub.add_parser("notifications")
+    au.add_argument("--limit", type=int, default=20)
+    au.set_defaults(func=cmd_automation)
+    au = automation_sub.add_parser("schedule")
+    au.add_argument("workflow_id")
+    au.add_argument("--task", required=True)
+    au.add_argument(
+        "--cadence", default="daily", choices=["manual", "hourly", "daily", "weekly"]
+    )
+    au.add_argument("--allow-cloud", action="store_true")
+    au.add_argument("--confirm-cloud", action="store_true")
+    au.set_defaults(func=cmd_automation)
+    au = automation_sub.add_parser("schedules")
+    au.set_defaults(func=cmd_automation)
+    au = automation_sub.add_parser("recover")
+    au.set_defaults(func=cmd_automation)
 
     p = sub.add_parser("analytics")
     analytics_sub = p.add_subparsers(dest="analytics_command", required=True)
