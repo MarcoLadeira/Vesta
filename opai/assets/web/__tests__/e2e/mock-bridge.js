@@ -80,7 +80,7 @@
     else cb(JSON.stringify(value));
   }
   var bridge = {
-    replyReady: Sig(), activity: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(),
+    replyReady: Sig(), activity: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
     statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
@@ -131,6 +131,18 @@
         || { provider: provider, disconnected: true, message: "Signed out." };
       cb(JSON.stringify(response));
     },
+    startProviderLogin: function (provider, requestId) {
+      window.__mock.providerLogins.push({ provider: provider, requestId: requestId });
+      const response = scenario.loginResponses && scenario.loginResponses[provider];
+      if (response && !scenario.deferProviderLogin) setTimeout(function () {
+        bridge.providerLoginReady.emit(JSON.stringify({ requestId: requestId, provider: provider, result: response }));
+      }, scenario.loginDelayMs || 0);
+    },
+    refreshConnectionDoctor: function (requestId) {
+      if (scenario.refreshedDoctorEntries) setTimeout(function () {
+        bridge.connectionDoctorReady.emit(JSON.stringify({ requestId: requestId, entries: scenario.refreshedDoctorEntries }));
+      }, scenario.doctorDelayMs || 0);
+    },
     savePref: function (key, value) { window.__mock.savedPrefs.push([key, value]); },
     grantFreeConsent: function (modelId, cb) {
       window.__mock.freeConsentGrants.push(modelId);
@@ -173,7 +185,7 @@
     windowMaximizes: 0, windowCloses: 0,
     runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [],
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
-    freeConsentGrants: [], disconnects: [], diffDecisions: [],
+    freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },
@@ -181,5 +193,6 @@
     emitActivity: function (id, ev) { bridge.activity.emit(JSON.stringify({ requestId: id, event: ev })); },
     emitToken: function (id, t) { bridge.token.emit(JSON.stringify({ requestId: id, text: t })); },
     emitReply: function (id, result) { bridge.replyReady.emit(JSON.stringify({ requestId: id, result: result })); },
+    emitProviderLogin: function (id, result) { bridge.providerLoginReady.emit(JSON.stringify({ requestId: id, provider: result.provider, result: result })); },
   };
 })();

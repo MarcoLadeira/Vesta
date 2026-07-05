@@ -749,6 +749,24 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .set-row .v { color: var(--ink); font-weight: 650; }
 .set-note { color: var(--faint); font-size: 12px; margin-top: 8px; }
 .provider-key-card, .usage-card { background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; margin: 9px 0; }
+.connection-doctor { margin-top: 4px; }
+.doctor-grid { display: grid; gap: 10px; margin-top: 10px; }
+.doctor-card { background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; box-shadow: var(--inset-hi); }
+.doctor-head, .doctor-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.doctor-head > div { display: flex; align-items: baseline; gap: 7px; }
+.doctor-head strong { color: var(--ink); font-size: 13px; }
+.doctor-kind, .doctor-status { color: var(--faint); font-size: 10.5px; }
+.doctor-health { border: 1px solid var(--border-strong); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 700; padding: 2px 7px; text-transform: capitalize; }
+.doctor-health.verified { border-color: rgba(52,211,153,.35); color: var(--green); }
+.doctor-health.detected { border-color: rgba(116,182,255,.35); color: var(--blue); }
+.doctor-health.failed, .doctor-health.degraded { border-color: rgba(242,118,138,.38); color: var(--red); }
+.doctor-meta { display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 8px; }
+.doctor-meta span { color: var(--faint); font-size: 10.5px; }
+.doctor-meta b { color: var(--muted); font-weight: 600; }
+.doctor-diagnostic, .doctor-env, .doctor-error { color: var(--muted); font-size: 11px; line-height: 1.45; margin-top: 7px; }
+.doctor-env { color: var(--blue); overflow-wrap: anywhere; }
+.doctor-error { color: var(--amber); }
+.doctor-actions { justify-content: flex-start; flex-wrap: wrap; margin-top: 9px; }
 .provider-key-head, .usage-head { display: flex; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 13px; font-weight: 700; }
 .provider-key-status, .usage-head span:last-child { color: var(--muted); font-size: 12px; font-weight: 600; }
 .provider-key-form, .usage-limit-form { display: flex; gap: 8px; margin-top: 10px; }

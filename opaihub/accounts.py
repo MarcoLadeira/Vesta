@@ -28,29 +28,99 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .command_runner import redact
 from .proc import provider_child_env
 
 _CONNECTION_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _CONNECTION_CACHE_LOCK = threading.RLock()
 _CONNECTION_CACHE_TTL = 300.0
+_CONNECTION_HISTORY: dict[tuple[str, str], dict[str, Any]] = {}
+_CONNECTION_HISTORY_LIMIT = 64
+_CLI_VERSION_CACHE: dict[str, str] = {}
 
 _INVALID_CODEX_TIER = 'service_tier = "default"'
 
 _AUTH_FAILURE_CODES = {"AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED"}
 
+_LOGIN_ARGV: dict[str, list[str]] = {
+    "claude": ["auth", "login"],
+    "codex": ["login"],
+    "copilot": ["login"],
+}
 
-def invalidate_account_connection_cache(account_id: str) -> None:
-    """Discard local probe results after execution proves auth is unusable."""
 
+def _connection_key(account_id: str, home: Path | None = None) -> tuple[str, str]:
+    return account_id, str((home or Path.home()).expanduser().resolve())
+
+
+def _safe_connection_summary(result: dict[str, Any]) -> dict[str, Any]:
+    error = result.get("error") if isinstance(result.get("error"), dict) else {}
+    safe_error = {
+        key: error[key]
+        for key in (
+            "code",
+            "title",
+            "userMessage",
+            "authStatus",
+            "provider",
+            "recoveryActions",
+        )
+        if key in error
+    }
+    return {
+        key: value
+        for key, value in {
+            "providerId": result.get("providerId"),
+            "displayName": result.get("displayName"),
+            "authStatus": result.get("authStatus"),
+            "credentialSource": result.get("credentialSource"),
+            "lastCheckedAt": result.get("lastCheckedAt"),
+            "lastError": result.get("lastError"),
+            "lastErrorCode": result.get("lastErrorCode"),
+            "error": safe_error or None,
+            "safeDiagnostic": result.get("safeDiagnostic"),
+            "cliPresent": result.get("cliPresent"),
+            "detected": result.get("detected"),
+            "loginHint": result.get("loginHint"),
+            "envOverridesRemoved": list(result.get("envOverridesRemoved") or []),
+        }.items()
+        if value is not None
+    }
+
+
+def _remember_connection(
+    account_id: str, result: dict[str, Any], *, home: Path | None = None
+) -> dict[str, Any]:
     with _CONNECTION_CACHE_LOCK:
-        stale = [key for key in _CONNECTION_CACHE if key[0] == account_id]
-        for key in stale:
-            _CONNECTION_CACHE.pop(key, None)
+        key = _connection_key(account_id, home)
+        _CONNECTION_HISTORY.pop(key, None)
+        _CONNECTION_HISTORY[key] = _safe_connection_summary(result)
+        while len(_CONNECTION_HISTORY) > _CONNECTION_HISTORY_LIMIT:
+            _CONNECTION_HISTORY.pop(next(iter(_CONNECTION_HISTORY)))
+    return result
 
 
 def _invalidate_cache_for_error(account_id: str, error: dict[str, Any]) -> None:
     if str(error.get("code") or "") in _AUTH_FAILURE_CODES:
-        invalidate_account_connection_cache(account_id)
+        invalidate_connection_cache(account_id)
+        account = next(
+            (item for item in list_connected_accounts() if item["id"] == account_id),
+            {
+                "id": account_id,
+                "label": account_id.capitalize(),
+                "cli_present": False,
+                "authenticated": False,
+            },
+        )
+        _remember_connection(
+            account_id,
+            connection_for_account(
+                account,
+                auth_status=str(error.get("authStatus") or "invalid"),
+                last_checked_at=int(time.time() * 1000),
+                error=error,
+            ),
+        )
 
 
 def codex_config_issue(home: Path | None = None) -> dict[str, Any]:
@@ -327,7 +397,9 @@ def connection_for_account(
     }
 
 
-def invalidate_connection_cache(account_id: str) -> None:
+def invalidate_connection_cache(
+    account_id: str, *, clear_history: bool = False
+) -> None:
     """Drop any cached 'connected' verdicts for this provider.
 
     ``test_account_connection`` caches a successful check for
@@ -344,6 +416,9 @@ def invalidate_connection_cache(account_id: str) -> None:
     with _CONNECTION_CACHE_LOCK:
         for key in [k for k in _CONNECTION_CACHE if k[0] == account_id]:
             _CONNECTION_CACHE.pop(key, None)
+        if clear_history:
+            for key in [k for k in _CONNECTION_HISTORY if k[0] == account_id]:
+                _CONNECTION_HISTORY.pop(key, None)
 
 
 def account_connections(home: Path | None = None) -> list[dict[str, Any]]:
@@ -365,7 +440,7 @@ def test_account_connection(
 
     from opai.provider_contract import normalize_provider_error
 
-    cache_key = (account_id, str((home or Path.home()).expanduser().resolve()))
+    cache_key = _connection_key(account_id, home)
     if run is None and not force:
         with _CONNECTION_CACHE_LOCK:
             cached = _CONNECTION_CACHE.get(cache_key)
@@ -383,14 +458,14 @@ def test_account_connection(
     )
     detected = connection_for_account(account)
     if detected["authStatus"] in {"not_configured", "misconfigured"}:
-        return detected
+        return _remember_connection(account_id, detected, home=home)
     checked_at = int(time.time() * 1000)
     if account_id == "copilot":
         detected["lastCheckedAt"] = checked_at
         detected["safeDiagnostic"] = (
             "Account sign-in was detected; this CLI exposes no safe status command."
         )
-        return detected
+        return _remember_connection(account_id, detected, home=home)
     commands = {
         "claude": [account.get("cli_path") or "claude", "auth", "status"],
         "codex": [account.get("cli_path") or "codex", "login", "status"],
@@ -399,7 +474,7 @@ def test_account_connection(
     if command is None:
         detected["lastCheckedAt"] = checked_at
         detected["safeDiagnostic"] = "No safe status command is available."
-        return detected
+        return _remember_connection(account_id, detected, home=home)
 
     # The status probe must run in a SANITIZED environment: inherited parent
     # AI-session variables (CLAUDE_CODE_*, stale ANTHROPIC_/OPENAI_ overrides)
@@ -413,12 +488,16 @@ def test_account_connection(
         proc = execute(command)
     except (OSError, subprocess.SubprocessError) as exc:
         error = normalize_provider_error(account_id, str(exc))
-        return connection_for_account(
-            account,
-            auth_status="provider_unavailable",
-            last_checked_at=checked_at,
-            error=error,
-            env_overrides_removed=env_removed,
+        return _remember_connection(
+            account_id,
+            connection_for_account(
+                account,
+                auth_status="provider_unavailable",
+                last_checked_at=checked_at,
+                error=error,
+                env_overrides_removed=env_removed,
+            ),
+            home=home,
         )
     returncode = int(getattr(proc, "returncode", 0) or 0)
     detail = "\n".join(
@@ -458,18 +537,353 @@ def test_account_connection(
         if run is None:
             with _CONNECTION_CACHE_LOCK:
                 _CONNECTION_CACHE[cache_key] = (time.monotonic(), dict(result))
-        return result
+        return _remember_connection(account_id, result, home=home)
     error = status_error
     status = error["authStatus"]
     if status == "unknown":
         status = "disconnected"
-    return connection_for_account(
-        account,
-        auth_status=status,
-        last_checked_at=checked_at,
-        error=error,
-        env_overrides_removed=env_removed,
+    return _remember_connection(
+        account_id,
+        connection_for_account(
+            account,
+            auth_status=status,
+            last_checked_at=checked_at,
+            error=error,
+            env_overrides_removed=env_removed,
+        ),
+        home=home,
     )
+
+
+def _connection_health(connection: dict[str, Any]) -> str:
+    if not connection.get("cliPresent", True):
+        return "not_installed"
+    return {
+        "not_configured": "not_configured",
+        "unknown": "detected",
+        "connected": "verified",
+        "misconfigured": "degraded",
+        "provider_unavailable": "degraded",
+        "invalid": "failed",
+        "expired": "failed",
+        "disconnected": "failed",
+    }.get(str(connection.get("authStatus") or "unknown"), "degraded")
+
+
+def _with_connection_history(
+    current: dict[str, Any], history: dict[str, Any]
+) -> dict[str, Any]:
+    """Keep the latest check unless local install/credential evidence changed."""
+
+    if not history:
+        return current
+    changed = any(
+        key in history and current.get(key) != history.get(key)
+        for key in ("cliPresent", "detected")
+    )
+    merged = {**current, **history}
+    for key in ("cliPresent", "detected", "loginHint"):
+        if key in current:
+            merged[key] = current[key]
+    if changed:
+        for key in ("authStatus", "safeDiagnostic", "error"):
+            merged[key] = current.get(key)
+    return merged
+
+
+def _account_cli_version(
+    account: dict[str, Any], *, run: Callable[[list[str]], Any] | None = None
+) -> str:
+    cli_path = str(account.get("cli_path") or "")
+    if not cli_path:
+        return ""
+    if run is None and cli_path in _CLI_VERSION_CACHE:
+        return _CLI_VERSION_CACHE[cli_path]
+    child_env, _removed = provider_child_env(str(account.get("id") or ""))
+    execute = run or (
+        lambda argv: _hidden_run(argv, cwd=None, timeout=0.75, env=child_env)
+    )
+    try:
+        result = execute([cli_path, "--version"])
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if int(getattr(result, "returncode", 0) or 0) != 0:
+        return ""
+    raw = str(getattr(result, "stdout", "") or getattr(result, "stderr", "") or "")
+    version = redact(raw).strip().splitlines()[0][:160] if raw.strip() else ""
+    if run is None:
+        _CLI_VERSION_CACHE[cli_path] = version
+    return version
+
+
+def provider_connection_doctor(
+    *,
+    home: Path | None = None,
+    accounts: list[dict[str, Any]] | None = None,
+    connections: list[dict[str, Any]] | None = None,
+    credentials: list[dict[str, Any]] | None = None,
+    version_run: Callable[[list[str]], Any] | None = None,
+    include_cli_versions: bool = True,
+    include_history: bool | None = None,
+) -> list[dict[str, Any]]:
+    """Aggregate provider health without reading credentials or probing auth."""
+
+    detected_accounts = (
+        list_connected_accounts(home) if accounts is None else list(accounts)
+    )
+    base_connections = (
+        [connection_for_account(item) for item in detected_accounts]
+        if connections is None
+        else list(connections)
+    )
+    use_history = connections is None if include_history is None else include_history
+    by_provider = {
+        str(item.get("providerId") or ""): dict(item) for item in base_connections
+    }
+    entries: list[dict[str, Any]] = []
+    for account in detected_accounts:
+        provider = str(account.get("id") or "")
+        connection = by_provider.get(provider, connection_for_account(account))
+        if use_history:
+            with _CONNECTION_CACHE_LOCK:
+                history = dict(
+                    _CONNECTION_HISTORY.get(_connection_key(provider, home)) or {}
+                )
+            connection = _with_connection_history(connection, history)
+        error = connection.get("error")
+        recovery = (
+            list(error.get("recoveryActions") or []) if isinstance(error, dict) else []
+        )
+        if connection.get("authStatus") != "connected" and "sign_in" not in recovery:
+            recovery.append("sign_in")
+        entries.append(
+            {
+                "providerId": provider,
+                "displayName": str(account.get("label") or provider.title()),
+                "kind": "account",
+                "health": _connection_health(connection),
+                "authStatus": str(connection.get("authStatus") or "unknown"),
+                "credentialSource": "user_account",
+                "credentialSourceLabel": "Subscription sign-in",
+                "cliInstalled": bool(account.get("cli_present")),
+                "cliVersion": (
+                    _account_cli_version(account, run=version_run)
+                    if include_cli_versions
+                    else ""
+                ),
+                "lastCheckedAt": connection.get("lastCheckedAt"),
+                "lastError": str(connection.get("lastError") or ""),
+                "lastErrorCode": str(connection.get("lastErrorCode") or ""),
+                "safeDiagnostic": str(connection.get("safeDiagnostic") or ""),
+                "envOverridesRemoved": [
+                    str(item) for item in connection.get("envOverridesRemoved") or []
+                ],
+                "recoveryActions": recovery,
+                "loginHint": str(
+                    connection.get("loginHint") or account.get("login_hint") or ""
+                ),
+                "detected": bool(connection.get("detected")),
+                "loginSupported": provider in _LOGIN_ARGV,
+            }
+        )
+
+    if credentials is None:
+        from .credentials import credential_statuses
+
+        credential_items = credential_statuses()
+    else:
+        credential_items = list(credentials)
+    labels = {"gemini": "Gemini", "groq": "Groq", "mistral": "Mistral"}
+    for credential in credential_items:
+        provider = str(credential.get("provider") or "")
+        configured = bool(credential.get("configured"))
+        source = str(credential.get("source") or "")
+        entries.append(
+            {
+                "providerId": provider,
+                "displayName": labels.get(provider, provider.title()),
+                "kind": "api",
+                "health": "detected" if configured else "not_configured",
+                "authStatus": "detected" if configured else "not_configured",
+                "credentialSource": source,
+                "credentialSourceLabel": {
+                    "environment": "Environment variable",
+                    "keychain": "OS credential store",
+                }.get(source, "Not configured"),
+                "credentialEnvironmentName": str(credential.get("envKey") or ""),
+                "cliInstalled": None,
+                "cliVersion": "",
+                "lastCheckedAt": credential.get("lastCheckedAt"),
+                "lastError": "",
+                "lastErrorCode": "",
+                "safeDiagnostic": (
+                    "API credential detected; use Test connection to verify it."
+                    if configured
+                    else "No API credential configured."
+                ),
+                "envOverridesRemoved": [],
+                "recoveryActions": ["test_connection"] if configured else [],
+                "loginHint": "",
+                "detected": configured,
+                "loginSupported": False,
+            }
+        )
+    return entries
+
+
+def interactive_provider_login(
+    account_id: str,
+    *,
+    home: Path | None = None,
+    popen: Callable[..., Any] = subprocess.Popen,
+    probe: Callable[..., dict[str, Any]] | None = None,
+    platform_name: str | None = None,
+    which: Callable[[str], str | None] = shutil.which,
+    timeout: float = 900.0,
+    cancel: threading.Event | None = None,
+) -> dict[str, Any]:
+    """Run one allowlisted provider login in a deliberately visible terminal."""
+
+    provider = str(account_id or "").strip().lower()
+    spec = next((item for item in ACCOUNT_SPECS if item["id"] == provider), None)
+    login_argv = _LOGIN_ARGV.get(provider)
+    if spec is None or login_argv is None:
+        return {
+            "provider": provider,
+            "signedIn": False,
+            "status": "failed",
+            "errorCode": "PROVIDER_UNKNOWN",
+            "message": "This provider does not support guided sign-in.",
+        }
+    cli_path = which(str(spec["cli"]))
+    if not cli_path:
+        return {
+            "provider": provider,
+            "signedIn": False,
+            "status": "failed",
+            "errorCode": "CLI_NOT_INSTALLED",
+            "message": f"{spec['label']} CLI is not installed or not on PATH.",
+        }
+    child_env, removed = provider_child_env(provider)
+    platform = platform_name or sys.platform
+    command = [cli_path, *login_argv]
+    kwargs: dict[str, Any] = {
+        "cwd": str(home.expanduser().resolve()) if home is not None else None,
+        "env": child_env,
+    }
+    if platform == "win32":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10)
+    elif platform.startswith("linux"):
+        terminal_specs = (
+            ("x-terminal-emulator", ["-e"]),
+            ("gnome-terminal", ["--wait", "--"]),
+            ("konsole", ["-e"]),
+        )
+        terminal = None
+        for name, args in terminal_specs:
+            terminal_path = which(name)
+            if terminal_path:
+                terminal = (terminal_path, args)
+                break
+        if terminal is None:
+            return {
+                "provider": provider,
+                "signedIn": False,
+                "status": "failed",
+                "errorCode": "VISIBLE_TERMINAL_UNAVAILABLE",
+                "message": "No supported visible terminal application was found.",
+                "envOverridesRemoved": removed,
+            }
+        command = [str(terminal[0]), *terminal[1], *command]
+    else:
+        return {
+            "provider": provider,
+            "signedIn": False,
+            "status": "failed",
+            "errorCode": "VISIBLE_TERMINAL_UNAVAILABLE",
+            "message": "Guided sign-in is not available on this platform yet.",
+            "envOverridesRemoved": removed,
+        }
+    process = None
+    try:
+        process = popen(command, **kwargs)  # nosec B603 - fixed allowlisted argv
+        if cancel is None:
+            returncode = int(process.wait(timeout=timeout) or 0)
+        else:
+            deadline = time.monotonic() + timeout
+            while True:
+                if cancel.is_set():
+                    _terminate(process)
+                    return {
+                        "provider": provider,
+                        "signedIn": False,
+                        "status": "cancelled",
+                        "errorCode": "LOGIN_CANCELLED",
+                        "message": "Sign-in was cancelled when OPai closed.",
+                        "envOverridesRemoved": removed,
+                    }
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                try:
+                    returncode = int(process.wait(timeout=min(0.25, remaining)) or 0)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+    except subprocess.TimeoutExpired:
+        if process is not None:
+            _terminate(process)
+        return {
+            "provider": provider,
+            "signedIn": False,
+            "status": "timed_out",
+            "errorCode": "LOGIN_TIMEOUT",
+            "message": "The sign-in window timed out before completion.",
+            "envOverridesRemoved": removed,
+        }
+    except (OSError, ValueError) as exc:
+        return {
+            "provider": provider,
+            "signedIn": False,
+            "status": "failed",
+            "errorCode": "LOGIN_LAUNCH_FAILED",
+            "message": redact(str(exc))[:500],
+            "envOverridesRemoved": removed,
+        }
+
+    invalidate_connection_cache(provider)
+    check = probe or test_account_connection
+    try:
+        connection = check(provider, home=home, force=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return {
+            "provider": provider,
+            "signedIn": False,
+            "status": "failed",
+            "errorCode": "LOGIN_VERIFY_FAILED",
+            "message": redact(str(exc))[:500],
+            "envOverridesRemoved": removed,
+        }
+    signed_in = bool(
+        connection.get("authStatus") in {"connected", "unknown"}
+        and (connection.get("authStatus") == "connected" or connection.get("detected"))
+    )
+    return {
+        "provider": provider,
+        "signedIn": signed_in,
+        "status": "signed_in" if signed_in else "not_verified",
+        "returncode": returncode,
+        "message": (
+            f"{spec['label']} sign-in verified."
+            if signed_in
+            else str(
+                connection.get("safeDiagnostic")
+                or "The provider did not report a usable sign-in."
+            )
+        ),
+        "envOverridesRemoved": removed,
+        "connection": _safe_connection_summary(connection),
+    }
 
 
 # Each provider's own sanctioned, non-interactive sign-out. OPai never touches
@@ -524,8 +938,8 @@ def disconnect_account(account_id: str, *, home: Path | None = None) -> dict[str
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return {"provider": account_id, "disconnected": False, "message": str(exc)}
-    invalidate_connection_cache(account_id)
     ok = _process_returncode(proc) == 0
+    invalidate_connection_cache(account_id, clear_history=ok)
     detail = (getattr(proc, "stderr", "") or getattr(proc, "stdout", "") or "").strip()
     return {
         "provider": account_id,

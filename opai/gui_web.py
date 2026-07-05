@@ -308,10 +308,11 @@ def settings_payload(root: Path) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         overview = {}
     models = _models(root, discover_local=False)
+    from opaihub.accounts import codex_config_issue, provider_connection_doctor
     from opaihub.credentials import credential_statuses
-    from opaihub.accounts import codex_config_issue
     from opaihub.usage import build_usage_snapshots
 
+    credentials = credential_statuses()
     return {
         "prefs": prefs,
         "firewall": {
@@ -330,7 +331,14 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "usage": build_usage_snapshots(
             root, models["models"], limits=prefs.get("usage_limits") or {}
         ),
-        "credentials": credential_statuses(),
+        "credentials": credentials,
+        "connectionDoctor": provider_connection_doctor(
+            accounts=models["accounts"],
+            connections=models["connections"],
+            credentials=credentials,
+            include_cli_versions=False,
+            include_history=True,
+        ),
         "codexConfig": codex_config_issue(),
         "about": {
             "version": overview.get("version"),
@@ -391,6 +399,8 @@ def _run_gui(
         toolReady = QtCore.Signal(str)
         workspaceChanged = QtCore.Signal(str)
         modelsChanged = QtCore.Signal(str)
+        providerLoginReady = QtCore.Signal(str)
+        connectionDoctorReady = QtCore.Signal(str)
 
         def __init__(self, window) -> None:
             super().__init__()
@@ -543,6 +553,59 @@ def _run_gui(
                 return json.dumps(
                     {"provider": provider, "disconnected": False, "message": str(exc)}
                 )
+
+        @QtCore.Slot(str, str)
+        def startProviderLogin(self, provider: str, request_id: str) -> None:
+            """Launch the explicit visible-terminal login flow off the UI thread."""
+            from opaihub.accounts import interactive_provider_login
+
+            cancel = threading.Event()
+            self._cancels[request_id] = cancel
+            worker = Worker(lambda: interactive_provider_login(provider, cancel=cancel))
+
+            def _done(result_json: str) -> None:
+                self._cancels.pop(request_id, None)
+                self.providerLoginReady.emit(
+                    json.dumps(
+                        {
+                            "requestId": request_id,
+                            "provider": provider,
+                            "result": json.loads(result_json),
+                        }
+                    )
+                )
+
+            worker.done.connect(_done)
+            worker.finished.connect(
+                lambda w=worker: self._workers.remove(w) if w in self._workers else None
+            )
+            self._workers.append(worker)
+            worker.start()
+
+        @QtCore.Slot(str)
+        def refreshConnectionDoctor(self, request_id: str) -> None:
+            """Collect local CLI versions without blocking Qt's UI thread."""
+            from opaihub.accounts import provider_connection_doctor
+
+            worker = Worker(provider_connection_doctor)
+
+            def _done(result_json: str) -> None:
+                result = json.loads(result_json)
+                self.connectionDoctorReady.emit(
+                    json.dumps(
+                        {
+                            "requestId": request_id,
+                            "entries": result if isinstance(result, list) else [],
+                        }
+                    )
+                )
+
+            worker.done.connect(_done)
+            worker.finished.connect(
+                lambda w=worker: self._workers.remove(w) if w in self._workers else None
+            )
+            self._workers.append(worker)
+            worker.start()
 
         @QtCore.Slot(str, result=str)
         def grantFreeConsent(self, model_id: str) -> str:
