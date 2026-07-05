@@ -36,11 +36,12 @@ from opai.gui_controls import (
     model_badge,
     session_inspector,
     thinking_text,
+    workflow_summary,
 )
 from opai.gui_modes import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_TASK_MODE,
-    compose_prompt,
+    output_format,
     output_formats,
     task_modes,
     task_summary,
@@ -136,7 +137,15 @@ def _qt():
     return QtCore, QtGui, QtWidgets
 
 
-def build_chat_job(root: Path, composed: str, *, model_id: str, mode: str):
+def build_chat_job(
+    root: Path,
+    message: str,
+    *,
+    model_id: str,
+    mode: str,
+    focus_hint: str | None = None,
+    output_instruction: str | None = None,
+):
     """One chat send as ``(job, cancel_event)`` — Qt-free so it is unit-tested.
 
     Stop must actually kill the provider CLI, not just hide its result (#141):
@@ -148,9 +157,16 @@ def build_chat_job(root: Path, composed: str, *, model_id: str, mode: str):
     def job() -> dict[str, Any]:
         from opaihub.gui_pipeline import handle_gui_message
 
-        return handle_gui_message(
-            root, composed, model_id=model_id, mode=mode, cancel=cancel
-        )
+        kwargs: dict[str, Any] = {
+            "model_id": model_id,
+            "mode": mode,
+            "cancel": cancel,
+        }
+        if focus_hint is not None:
+            kwargs["focus_hint"] = focus_hint
+        if output_instruction is not None:
+            kwargs["output_instruction"] = output_instruction
+        return handle_gui_message(root, message, **kwargs)
 
     return job, cancel
 
@@ -357,7 +373,9 @@ def _run_gui(
     # Keep Qt's internal warnings out of the launching terminal so nothing ever
     # appears to "print to the console" - it all renders in the UI.
     QtCore.qInstallMessageHandler(lambda *_a: None)
-    root = project_root.expanduser().resolve()
+    from opaihub.repo_context import active_repo_context
+
+    root = active_repo_context(project_root).path
     from opaihub.gui_preferences import (
         DEFAULT_MODE,
         MODES,
@@ -582,7 +600,9 @@ def _run_gui(
             if not is_valid_workspace(path):
                 self._toast("That folder is no longer available.")
                 return
-            self.root = Path(path).expanduser().resolve()
+            from opaihub.repo_context import active_repo_context
+
+            self.root = active_repo_context(Path(path)).path
             add_recent_workspace(self.root)
             self._preferences = load_gui_preferences(self.root)
             self.setWindowTitle(f"OPai · {self.root.name}")
@@ -721,6 +741,29 @@ def _run_gui(
                 permission_summary=permission_summary(run_mode),
                 connected=connected,
             )
+            from opaihub.workflow_state import load_workflow_state
+
+            workflow = load_workflow_state(self.root)
+            data["rows"].extend(
+                [
+                    {"label": "Agent mode", "value": workflow.mode.title()},
+                    {
+                        "label": "Workflow",
+                        "value": workflow.phase.replace("_", " ").title(),
+                    },
+                    {
+                        "label": "Tests",
+                        "value": workflow.tests_status.replace("_", " ").title(),
+                    },
+                    {
+                        "label": "PR / merge",
+                        "value": workflow.pr_url
+                        or workflow.merge_status.replace("_", " ").title(),
+                    },
+                ]
+            )
+            if workflow.blocker:
+                data["rows"].append({"label": "Blocker", "value": workflow.blocker})
             for r in data["rows"]:
                 self.inspector_box.addLayout(self._kv_row(r["label"], r["value"]))
 
@@ -1724,13 +1767,6 @@ def _run_gui(
             opt = self._selected()
             model_id = opt.get("id", "auto")
             mode = self._selected_mode()
-            # Frame the user's text with the chosen task focus + output format.
-            # Defaults (General + Normal) leave the prompt untouched.
-            composed = compose_prompt(
-                text,
-                task_mode_id=self._task_mode_id,
-                output_format_id=self._format_id,
-            )
             if opt.get("kind") == "account":
                 role = opt.get("label", "Account").split(" · ")[0]
                 color = PROVIDER_COLOR.get(opt.get("provider"), ACCENT)
@@ -1745,7 +1781,14 @@ def _run_gui(
             )
             self._row(self._pending)
             job, cancel_event = build_chat_job(
-                self.root, composed, model_id=model_id, mode=mode
+                self.root,
+                text,
+                model_id=model_id,
+                mode=mode,
+                focus_hint=self._task_mode_id,
+                output_instruction=output_format(self._format_id).get(
+                    "instruction", ""
+                ),
             )
             worker = Worker(job, cancel_event=cancel_event)
             worker.done.connect(self._on_ask)
@@ -1822,8 +1865,11 @@ def _run_gui(
                 )
             # One quiet footer instead of two repetitive cards every message.
             bits = []
+            bits.extend(workflow_summary(result))
             if receipt.get("mode_label"):
-                bits.append(str(receipt["mode_label"]))
+                receipt_mode = str(receipt["mode_label"])
+                if receipt_mode not in bits:
+                    bits.append(receipt_mode)
             actual = float(receipt.get("estimated_actual_usd") or 0)
             saved = float(receipt.get("estimated_savings_usd") or 0)
             if actual:

@@ -38,7 +38,7 @@ TASK_MODES: list[dict[str, str]] = [
         "icon": "\U0001f528",
         "run_mode": "safe-auto",
         "desc": "Implement a feature or change.",
-        "preface": "Implement the requested change cleanly and idiomatically, matching the surrounding code.",
+        "preface": "Implement the requested change cleanly and idiomatically, matching the surrounding code. This task focus is advisory; the current explicit user request controls permissions.",
     },
     {
         "id": "debug",
@@ -46,7 +46,7 @@ TASK_MODES: list[dict[str, str]] = [
         "icon": "\U0001f41e",
         "run_mode": "safe-auto",
         "desc": "Find and fix a bug.",
-        "preface": "Diagnose the root cause first, then apply the smallest fix that addresses it.",
+        "preface": "Advisory focus: diagnose the root cause first, then apply the smallest fix that addresses it. The current explicit user request controls permissions.",
     },
     {
         "id": "explain",
@@ -54,7 +54,7 @@ TASK_MODES: list[dict[str, str]] = [
         "icon": "\U0001f4d6",
         "run_mode": "ask",
         "desc": "Understand code. Read-only.",
-        "preface": "Explain clearly and concisely. Do not modify any files.",
+        "preface": "Advisory focus: explain clearly and concisely. A later explicit user request controls whether files may be modified.",
     },
     {
         "id": "refactor",
@@ -62,7 +62,7 @@ TASK_MODES: list[dict[str, str]] = [
         "icon": "♻",
         "run_mode": "approve-edits",
         "desc": "Improve structure; behavior unchanged.",
-        "preface": "Preserve existing behavior exactly. Improve clarity and structure only, and explain each change.",
+        "preface": "Advisory focus: preserve existing behavior exactly, improve clarity and structure, and explain each change. The current explicit user request controls permissions.",
     },
     {
         "id": "test",
@@ -70,7 +70,7 @@ TASK_MODES: list[dict[str, str]] = [
         "icon": "\U0001f9ea",
         "run_mode": "safe-auto",
         "desc": "Write or run tests.",
-        "preface": "Write focused, deterministic tests. Prefer the project's existing test style and runner.",
+        "preface": "Advisory focus: write focused, deterministic tests using the project's existing style. The current explicit user request controls permissions.",
     },
     {
         "id": "plan",
@@ -78,7 +78,7 @@ TASK_MODES: list[dict[str, str]] = [
         "icon": "\U0001f5fa",
         "run_mode": "plan",
         "desc": "Design before building. Read-only.",
-        "preface": "Produce a concrete, step-by-step plan. Do not edit files yet.",
+        "preface": "Advisory focus: produce a concrete, step-by-step plan. A later explicit implementation request supersedes this planning hint.",
     },
     {
         "id": "review",
@@ -86,7 +86,7 @@ TASK_MODES: list[dict[str, str]] = [
         "icon": "\U0001f50e",
         "run_mode": "ask",
         "desc": "Audit for risks. Read-only.",
-        "preface": "Audit the code for security, correctness, and reliability risks. Do not modify files; report findings.",
+        "preface": "Advisory focus: audit for security, correctness, and reliability risks and report findings. A later explicit user request controls whether files may be modified.",
     },
 ]
 

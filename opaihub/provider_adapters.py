@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,20 @@ ACCOUNT_PROVIDERS = {"claude", "codex", "copilot"}
 FREE_PROVIDERS = {"gemini", "groq", "mistral"}
 LOCAL_PROVIDERS = {"ollama", "openai-compatible"}
 SUPPORTED_PROVIDERS = ACCOUNT_PROVIDERS | FREE_PROVIDERS | LOCAL_PROVIDERS
+
+
+@dataclass(frozen=True)
+class ExecutionRequest:
+    """Explicit provider execution boundary; workflow state remains in OPai."""
+
+    prompt: str
+    cwd: str
+    mode: str = "ask"
+    model: str | None = None
+    sandbox: str = "read-only"
+    permission: str = "on-request"
+    max_retries: int = 0
+    out_file: str | None = None
 
 
 def test_free_provider_connection(
@@ -115,6 +130,89 @@ class ProviderAdapter:
         return AccountRunner(
             self.provider_id, cli_path or self.provider_id, model=model
         ).build_command(prompt, mode=mode, out_file=out_file)
+
+    def prepare_execution(self, request: ExecutionRequest) -> dict[str, Any]:
+        """Build a structured, cancellable account-provider invocation.
+
+        Provider-specific environment values are intentionally not returned;
+        ``AccountRunner`` sanitizes them at spawn time. The public contract only
+        reports which override names would be removed.
+        """
+
+        if self.kind != "account":
+            raise ValueError(
+                "Structured CLI execution is only available for account providers"
+            )
+        from .accounts import AccountRunner
+        from .proc import provider_child_env
+
+        mode = str(request.mode or "ask")
+        if self.provider_id == "codex":
+            expected_sandbox = (
+                "workspace-write" if mode in {"safe-auto", "full-auto"} else "read-only"
+            )
+            expected_permission = "never" if mode == "full-auto" else "on-request"
+            if (
+                request.sandbox != expected_sandbox
+                or request.permission != expected_permission
+            ):
+                raise ValueError(
+                    "Codex sandbox and permission must match the centralized OPai mode"
+                )
+        command = AccountRunner(
+            self.provider_id,
+            self.provider_id,
+            model=request.model,
+        ).build_command(
+            request.prompt,
+            mode=mode,
+            out_file=request.out_file,
+            stream=True,
+        )
+        _environment, removed = provider_child_env(self.provider_id)
+        return {
+            "provider": self.provider_id,
+            "cwd": str(request.cwd),
+            "command": command,
+            "sandbox": request.sandbox,
+            "permission": request.permission,
+            "model": request.model or "",
+            "supports_cancel": True,
+            "environment_sanitized": True,
+            "removed_environment_names": removed,
+            "retry": {
+                "max_attempts": max(1, int(request.max_retries) + 1),
+                "retryable": ["TIMEOUT", "RATE_LIMIT", "PROVIDER_UNAVAILABLE"],
+            },
+        }
+
+    def normalize_event(self, event: dict[str, Any] | str) -> dict[str, Any]:
+        """Normalize transport output without inventing workflow transitions."""
+
+        from opai.activity import parse_claude_line, parse_codex_line
+
+        line = event if isinstance(event, str) else json.dumps(event)
+        if self.provider_id == "claude":
+            parsed = parse_claude_line(line)
+        elif self.provider_id == "codex":
+            parsed = parse_codex_line(line)
+        else:
+            parsed = {
+                "events": [],
+                "text": "",
+                "error": "",
+                "cost": None,
+                "done": False,
+            }
+        return {
+            "kind": "provider_event",
+            "provider": self.provider_id,
+            "events": parsed.get("events") or [],
+            "text": parsed.get("text") or "",
+            "error": parsed.get("error") or "",
+            "cost": parsed.get("cost"),
+            "done": bool(parsed.get("done")),
+        }
 
     def parse_result(
         self,

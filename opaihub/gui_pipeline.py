@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Any
 
+from .agent_policy import (
+    AgentMode,
+    build_capability_contract,
+    resolve_agent_policy,
+)
+from .agent_runtime import AgentRuntime, RuntimePhase
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
 from .gui_preferences import DEFAULT_MODE, load_gui_preferences
 from .intent_router import route_intents, safety_warnings
 from .ledger import record_event, record_route_decision, read_events
 from .model_intelligence import recommend_model
+from .repo_context import classify_dirty_paths, resolve_repo_context, save_active_repo
+from .task_packet import build_task_packet
+from .workflow_state import WorkflowState, load_workflow_state, save_workflow_state
 
 
 def _mode_label(mode: str) -> str:
@@ -157,6 +167,8 @@ def handle_gui_message(
     cancel: Any = None,
     allow_cloud: bool = False,
     allow_limit: bool = False,
+    focus_hint: str | None = None,
+    output_instruction: str | None = None,
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -175,7 +187,244 @@ def handle_gui_message(
     _emit("request_prepare", "success", "Preparing request")
     prefs = load_gui_preferences(root)
     selected_model = model_id or prefs.get("default_model") or "auto"
-    selected_mode = mode or prefs.get("default_mode") or DEFAULT_MODE
+    requested_run_mode = mode or prefs.get("default_mode") or DEFAULT_MODE
+    policy = resolve_agent_policy(message, focus_hint=focus_hint)
+    if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
+        selected_mode = "safe-auto"
+    elif requested_run_mode == "plan":
+        selected_mode = "plan"
+    else:
+        selected_mode = "ask"
+    repo_context = resolve_repo_context(root)
+    save_active_repo(root, repo_context)
+    previous_workflow = load_workflow_state(root)
+    runtime = AgentRuntime(root, task=message)
+    runtime.transition(
+        RuntimePhase.INTENT_RESOLVED,
+        message=f"{policy.mode.value.title()} mode selected",
+        metadata={"mode": policy.mode.value},
+        next_actions=("resolve active repository",),
+    )
+    runtime.transition(
+        RuntimePhase.REPO_RESOLVED,
+        message="Active repository resolved",
+        metadata={
+            "path": str(repo_context.path),
+            "branch": repo_context.branch,
+            "remote": repo_context.remote,
+            "dirty_count": len(repo_context.dirty_paths),
+        },
+        next_actions=("gather bounded context",),
+    )
+    runtime.transition(
+        RuntimePhase.CONTEXT_GATHERING,
+        message="Task context assembled",
+        metadata={"dirty_paths": list(repo_context.dirty_paths)},
+    )
+    if policy.requires_confirmation:
+        runtime.transition(
+            RuntimePhase.AWAITING_APPROVAL,
+            message="A dangerous action requires explicit approval",
+            next_actions=("confirm the exact dangerous action",),
+        )
+    elif policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
+        runtime.transition(
+            RuntimePhase.IMPLEMENTING,
+            message="Provider is executing the authorized implementation",
+            next_actions=("inspect the structured provider result",),
+        )
+    else:
+        runtime.transition(
+            RuntimePhase.PLANNING,
+            message="Provider is preparing a read-only response",
+        )
+    dirty = classify_dirty_paths(repo_context.dirty_paths, None)
+    task_packet = build_task_packet(
+        user_request=message,
+        mode=policy.mode.value,
+        repo=repo_context.to_dict(),
+        dirty=dirty.to_dict(),
+        issue=(
+            {"number": previous_workflow.issue_number}
+            if previous_workflow.issue_number is not None
+            else {}
+        ),
+        constraints=(
+            "preserve unrelated user changes",
+            "no force push, hard reset, clean, branch deletion, secret exposure, or production credential changes",
+            "paid or cloud calls require the existing OPai confirmation boundary",
+        ),
+        allowed_actions=policy.capabilities,
+        forbidden_actions=(
+            "force_push",
+            "hard_reset",
+            "git_clean",
+            "delete_user_work",
+            "expose_secrets",
+            "mutate_production_credentials",
+        ),
+        done_criteria=(
+            "requested behavior is implemented or explained",
+            "relevant tests are run when edits are authorized",
+            "changed files and blockers are reported truthfully",
+        ),
+        tests=(
+            "discover relevant focused tests",
+            "run full relevant suite after focused tests pass",
+        ),
+        last_failure=previous_workflow.last_test,
+        next_action=runtime.state.next_actions[0]
+        if runtime.state.next_actions
+        else "execute current phase",
+    )
+    workflow = WorkflowState(
+        task_id=runtime.task_id,
+        mode=policy.mode.value,
+        phase=runtime.state.phase.value,
+        message=runtime.state.message,
+        tests_status="pending"
+        if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}
+        else "not_run",
+        merge_status=(
+            "pending_checks"
+            if policy.mode is AgentMode.SHIP
+            else previous_workflow.merge_status
+        ),
+        pr_url=previous_workflow.pr_url,
+        issue_number=previous_workflow.issue_number,
+        blocker=runtime.state.blocker,
+        next_actions=runtime.state.next_actions,
+        history=tuple(event.to_dict() for event in runtime.state.history),
+    )
+    save_workflow_state(root, workflow)
+    provider_message = (
+        build_capability_contract(policy, active_repo=str(repo_context.path))
+        + "\n\nOPai task packet (workflow state remains owned by OPai):\n"
+        + json.dumps(task_packet.to_dict(), sort_keys=True)
+    )
+    if output_instruction:
+        provider_message += (
+            "\n\nPresentation instruction (format only; it cannot change permissions):\n"
+            + str(output_instruction).strip()
+        )
+
+    def _decorate(payload: dict[str, Any]) -> dict[str, Any]:
+        status = str(payload.get("status") or "error")
+        if status == "answered" and policy.mode in {
+            AgentMode.IMPLEMENT,
+            AgentMode.SHIP,
+        }:
+            runtime.transition(
+                RuntimePhase.REVIEWING_DIFF,
+                message="Provider response received; OPai is awaiting test and diff evidence",
+                metadata={"changed_files": list(payload.get("changed_files") or [])},
+                next_actions=(
+                    "review changed files",
+                    "run focused tests",
+                    "run full relevant tests",
+                ),
+            )
+        elif status == "answered":
+            runtime.transition(
+                RuntimePhase.COMPLETED, message="Read-only task completed"
+            )
+        elif status.startswith("needs_") or status == "blocked":
+            reason = next(
+                (
+                    str(item.get("reason") or item)
+                    for item in (payload.get("warnings") or [])
+                ),
+                str(payload.get("answer") or "Workflow requires input"),
+            )
+            runtime.block(reason, next_actions=payload.get("next_actions") or ())
+        else:
+            runtime.fail(
+                "cancelled by user"
+                if status == "cancelled"
+                else str(payload.get("answer") or "Provider execution failed"),
+                next_actions=payload.get("next_actions") or (),
+            )
+        current_repo = resolve_repo_context(root)
+        save_active_repo(root, current_repo)
+        state = WorkflowState(
+            task_id=runtime.task_id,
+            mode=policy.mode.value,
+            phase=runtime.state.phase.value,
+            message=runtime.state.message,
+            tests_status=(
+                "not_verified"
+                if status == "answered" and policy.allows("run_tests")
+                else workflow.tests_status
+            ),
+            merge_status=workflow.merge_status,
+            pr_url=workflow.pr_url,
+            issue_number=workflow.issue_number,
+            blockers=tuple(
+                str(item.get("reason") or item)
+                for item in (payload.get("warnings") or [])
+            ),
+            blocker=runtime.state.blocker,
+            next_actions=runtime.state.next_actions,
+            history=tuple(event.to_dict() for event in runtime.state.history),
+            changed_files=tuple(
+                str(item) for item in payload.get("changed_files") or []
+            ),
+            provider={"model": selected_model, "run_mode": selected_mode},
+            cost=dict(payload.get("receipt") or {}),
+        )
+        runtime.ledger.append(
+            "turn_result",
+            task=message,
+            repo=str(current_repo.path),
+            provider=selected_model,
+            mode=policy.mode.value,
+            phase=runtime.state.phase.value,
+            files=list(payload.get("changed_files") or []),
+            tests=state.tests_status,
+            pr=state.pr_url,
+            error=payload.get("error") or "",
+            cost=payload.get("receipt") or {},
+        )
+        save_workflow_state(root, state)
+        return {
+            **payload,
+            "agent_policy": policy.to_dict(),
+            "requested_run_mode": requested_run_mode,
+            "effective_run_mode": selected_mode,
+            "repo_context": current_repo.to_dict(),
+            "workflow": state.to_dict(),
+            "task_packet": task_packet.to_dict(),
+        }
+
+    if policy.requires_confirmation:
+        blocked_tier = str(
+            recommend_model(root, message).get("recommended_model_tier") or "L1"
+        ).upper()
+        blocked_receipt = build_savings_receipt(
+            root,
+            task=message,
+            selected_model=selected_model,
+            selected_mode=selected_mode,
+            chosen_tier=blocked_tier,
+            confidence="blocked",
+        )
+        return _decorate(
+            {
+                "status": "blocked",
+                "answer": (
+                    "This request includes a destructive or irreversible action. "
+                    "Switch to Ask or Plan to review it without execution, or "
+                    "confirm that specific action before OPai runs it."
+                ),
+                "tool_trace": [],
+                "receipt": blocked_receipt,
+                "changed_files": [],
+                "warnings": [{"severity": "danger", "reason": policy.rationale}],
+                "next_actions": [
+                    "Switch to Ask or Plan, rephrase safely, or confirm the exact dangerous action."
+                ],
+            }
+        )
 
     def _fallback_model() -> dict[str, Any] | None:
         from opai import app_state as app
@@ -223,18 +472,22 @@ def handle_gui_message(
             limits=usage_limits,
         )
         if usage["requiresConfirmation"]:
-            return {
-                "status": "needs_limit_confirmation",
-                "answer": (
-                    f"{selected_model} reached your {usage['limit']:,} "
-                    f"{usage['metric']} soft limit. Confirm to continue."
-                ),
-                "usage": usage,
-                "tool_trace": [],
-                "changed_files": [],
-                "warnings": [],
-                "next_actions": ["Confirm this call or raise the limit in Settings."],
-            }
+            return _decorate(
+                {
+                    "status": "needs_limit_confirmation",
+                    "answer": (
+                        f"{selected_model} reached your {usage['limit']:,} "
+                        f"{usage['metric']} soft limit. Confirm to continue."
+                    ),
+                    "usage": usage,
+                    "tool_trace": [],
+                    "changed_files": [],
+                    "warnings": [],
+                    "next_actions": [
+                        "Confirm this call or raise the limit in Settings."
+                    ],
+                }
+            )
     tool_trace = route_intents(root, message, mode=selected_mode)
     _emit(
         "context_read",
@@ -274,25 +527,27 @@ def handle_gui_message(
         # Guide the user to a *safe* next step, never toward Full Auto (#142):
         # nudging someone to the mode that disables every safeguard just to get
         # past a risk warning is the opposite of a cost/safety firewall.
-        return {
-            "status": "blocked",
-            "answer": (
-                "Safe Auto held this back because it matched a command that can "
-                "change or delete files"
-                + (f" ({reason})" if reason else "")
-                + ".\nSwitch to Ask or Plan mode to have OPai explain or plan it "
-                "without running anything, or rephrase the request without the "
-                "risky command."
-            ),
-            "tool_trace": tool_trace,
-            "receipt": receipt,
-            "changed_files": [],
-            "warnings": warnings,
-            "next_actions": [
-                "Switch to Ask or Plan mode to review this safely, or rephrase "
-                "the request."
-            ],
-        }
+        return _decorate(
+            {
+                "status": "blocked",
+                "answer": (
+                    "Safe Auto held this back because it matched a command that can "
+                    "change or delete files"
+                    + (f" ({reason})" if reason else "")
+                    + ".\nSwitch to Ask or Plan mode to have OPai explain or plan it "
+                    "without running anything, or rephrase the request without the "
+                    "risky command."
+                ),
+                "tool_trace": tool_trace,
+                "receipt": receipt,
+                "changed_files": [],
+                "warnings": warnings,
+                "next_actions": [
+                    "Switch to Ask or Plan mode to review this safely, or rephrase "
+                    "the request."
+                ],
+            }
+        )
 
     # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
     # The selected model always actually answers - no canned template.
@@ -302,7 +557,9 @@ def handle_gui_message(
         from opai import app_state as A
 
         if _cancelled():
-            return _cancelled_result(message, tool_trace, selected_model, selected_mode)
+            return _decorate(
+                _cancelled_result(message, tool_trace, selected_model, selected_mode)
+            )
         provider = selected_model.split(":", 2)[1]
         _emit(
             "request_sending" if allow_cloud else "needs_confirmation",
@@ -314,7 +571,7 @@ def handle_gui_message(
         )
         result = A.ask(
             root,
-            message,
+            provider_message,
             selected_model,
             allow_cloud=allow_cloud,
             allow_edits=False,
@@ -361,23 +618,27 @@ def handle_gui_message(
                 on_text(answer)
         elif status != "needs_free_confirmation":
             _emit("failed", "error", "Free-tier API request failed")
-        return {
-            "status": status,
-            "answer": answer,
-            "tool_trace": tool_trace,
-            "receipt": receipt,
-            "changed_files": [],
-            "warnings": [],
-            "next_actions": ["Review provider quota and billing settings."],
-            "raw_result": result,
-            "error": result.get("error"),
-        }
+        return _decorate(
+            {
+                "status": status,
+                "answer": answer,
+                "tool_trace": tool_trace,
+                "receipt": receipt,
+                "changed_files": [],
+                "warnings": [],
+                "next_actions": ["Review provider quota and billing settings."],
+                "raw_result": result,
+                "error": result.get("error"),
+            }
+        )
 
     if selected_model.startswith("account:"):
         from opai import app_state as A
 
         if _cancelled():
-            return _cancelled_result(message, tool_trace, selected_model, selected_mode)
+            return _decorate(
+                _cancelled_result(message, tool_trace, selected_model, selected_mode)
+            )
         provider = selected_model.split(":")[1] if ":" in selected_model else "account"
         _emit(
             "provider_checking",
@@ -419,15 +680,17 @@ def handle_gui_message(
                     error["title"],
                     metadata={"provider": provider, "code": error["code"]},
                 )
-                return {
-                    "status": "failed",
-                    "answer": error["userMessage"],
-                    "error": error,
-                    "tool_trace": tool_trace,
-                    "changed_files": [],
-                    "warnings": [],
-                    "next_actions": list(error["recoveryActions"]),
-                }
+                return _decorate(
+                    {
+                        "status": "failed",
+                        "answer": error["userMessage"],
+                        "error": error,
+                        "tool_trace": tool_trace,
+                        "changed_files": [],
+                        "warnings": [],
+                        "next_actions": list(error["recoveryActions"]),
+                    }
+                )
             if connection["authStatus"] == "connected":
                 _emit(
                     "provider_authenticated",
@@ -450,7 +713,7 @@ def handle_gui_message(
         )
         result = A.ask(
             root,
-            message,
+            provider_message,
             selected_model,
             allow_edits=allow_edits,
             account_runner=account_runner,
@@ -461,12 +724,14 @@ def handle_gui_message(
         )
         if result.get("status") == "cancelled":
             _emit("cancelled", "cancelled", "Stopped by you")
-            return _cancelled_result(
-                message,
-                tool_trace,
-                selected_model,
-                selected_mode,
-                answer=result.get("answer") or "",
+            return _decorate(
+                _cancelled_result(
+                    message,
+                    tool_trace,
+                    selected_model,
+                    selected_mode,
+                    answer=result.get("answer") or "",
+                )
             )
         actual = result.get("cost_usd")
         receipt = build_savings_receipt(
@@ -516,22 +781,24 @@ def handle_gui_message(
             or result.get("reason")
             or "The model didn't return anything. Try again or pick another model."
         )
-        return {
-            "status": status,
-            "answer": answer_text,
-            "tool_trace": tool_trace,
-            "receipt": receipt,
-            "changed_files": result.get("changed_files", []),
-            "warnings": [],
-            "next_actions": ["Review changed files before committing."],
-            "raw_result": result,
-            "error": result.get("error"),
-            # Structured plan (#130): steps parsed from the REAL plan-mode
-            # answer, so the GUI can render an editable checklist and build
-            # only the steps the user keeps. Empty when the answer isn't a
-            # recognizable step list — never invented.
-            "plan": _plan_payload(selected_mode, status, answer_text),
-        }
+        return _decorate(
+            {
+                "status": status,
+                "answer": answer_text,
+                "tool_trace": tool_trace,
+                "receipt": receipt,
+                "changed_files": result.get("changed_files", []),
+                "warnings": [],
+                "next_actions": ["Review changed files before committing."],
+                "raw_result": result,
+                "error": result.get("error"),
+                # Structured plan (#130): steps parsed from the REAL plan-mode
+                # answer, so the GUI can render an editable checklist and build
+                # only the steps the user keeps. Empty when the answer isn't a
+                # recognizable step list — never invented.
+                "plan": _plan_payload(selected_mode, status, answer_text),
+            }
+        )
 
     from .ask import run_ask
     from .local_runner import runner_for_model
@@ -546,7 +813,9 @@ def handle_gui_message(
     )
     if _cancelled():
         _emit("cancelled", "cancelled", "Stopped by you")
-        return _cancelled_result(message, tool_trace, selected_model, selected_mode)
+        return _decorate(
+            _cancelled_result(message, tool_trace, selected_model, selected_mode)
+        )
     _emit("request_sending", "running", "Running OPai locally")
     # Honour the picked local model (#143): a concrete "provider:model" id must
     # run *that* model, not whatever detect_local_runner finds first. "auto"
@@ -558,7 +827,7 @@ def handle_gui_message(
     # connection mid-generation instead of only ignoring the late result.
     result = run_ask(
         root,
-        message,
+        provider_message,
         record=False,
         cancel=cancel,
         runner=picked_runner,
@@ -566,7 +835,9 @@ def handle_gui_message(
     )
     if result.get("status") == "cancelled":
         _emit("cancelled", "cancelled", "Stopped by you")
-        return _cancelled_result(message, tool_trace, selected_model, selected_mode)
+        return _decorate(
+            _cancelled_result(message, tool_trace, selected_model, selected_mode)
+        )
     status_map = {
         "answered_locally": "answered",
         "cache_hit": "answered",
@@ -582,21 +853,23 @@ def handle_gui_message(
                 f"No local model is running. OPai can continue with {label}, but "
                 "your task will leave this device. Confirm to continue."
             )
-            return {
-                "status": "needs_auto_confirmation",
-                "answer": answer,
-                "fallbackModelId": fallback["id"],
-                "fallbackModelLabel": label,
-                "cloudStarted": False,
-                "tool_trace": tool_trace,
-                "receipt": receipt,
-                "changed_files": [],
-                "warnings": [],
-                "next_actions": [
-                    "Confirm the named fallback or connect a local model."
-                ],
-                "raw_result": result,
-            }
+            return _decorate(
+                {
+                    "status": "needs_auto_confirmation",
+                    "answer": answer,
+                    "fallbackModelId": fallback["id"],
+                    "fallbackModelLabel": label,
+                    "cloudStarted": False,
+                    "tool_trace": tool_trace,
+                    "receipt": receipt,
+                    "changed_files": [],
+                    "warnings": [],
+                    "next_actions": [
+                        "Confirm the named fallback or connect a local model."
+                    ],
+                    "raw_result": result,
+                }
+            )
         answer = (
             "Auto has no available model. Connect a free API, account, or local "
             "model in Settings, then retry."
@@ -630,14 +903,18 @@ def handle_gui_message(
             on_text(answer)
     else:
         _emit("failed", "error", "OPai could not complete locally")
-    return {
-        "status": final_status,
-        "answer": answer,
-        "tool_trace": tool_trace,
-        "receipt": receipt,
-        "changed_files": [],
-        "warnings": [],
-        "next_actions": [result.get("next_command") or "Review the savings receipt."],
-        "raw_result": result,
-        "plan": _plan_payload(selected_mode, final_status, answer),
-    }
+    return _decorate(
+        {
+            "status": final_status,
+            "answer": answer,
+            "tool_trace": tool_trace,
+            "receipt": receipt,
+            "changed_files": [],
+            "warnings": [],
+            "next_actions": [
+                result.get("next_command") or "Review the savings receipt."
+            ],
+            "raw_result": result,
+            "plan": _plan_payload(selected_mode, final_status, answer),
+        }
+    )

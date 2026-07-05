@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "workflows": [
+    {"id": "issue_triage", "version": 1, "steps": ["list", "rank", "select", "confirm_scope"]},
+    {"id": "bug_fix", "version": 1, "steps": ["reproduce", "focused_test", "patch", "verify", "review_diff"]},
+    {"id": "feature", "version": 1, "steps": ["context", "plan", "contract_test", "implement", "verify"]},
+    {"id": "review", "version": 1, "steps": ["resolve_diff", "inspect", "test_evidence", "report"]},
+    {"id": "refactor", "version": 1, "steps": ["characterize", "transform", "focused_test", "full_test", "review_diff"]},
+    {"id": "dependency_update", "version": 1, "steps": ["inventory", "risk_check", "update", "lockfile_review", "verify"]},
+    {"id": "test_repair", "version": 1, "steps": ["parse_failure", "reproduce", "repair", "rerun", "full_test"]},
+    {"id": "ci_repair", "version": 1, "steps": ["read_checks", "read_logs", "reproduce", "repair", "verify"]},
+    {"id": "docs", "version": 1, "steps": ["locate_source", "edit", "link_check", "review_diff"]},
+    {"id": "pr_preparation", "version": 1, "steps": ["review_diff", "secret_scan", "tests", "commit", "push", "open_pr"]},
+    {"id": "guarded_merge", "version": 1, "steps": ["branch_check", "diff_check", "test_check", "pr_checks", "merge"]}
+  ]
+}

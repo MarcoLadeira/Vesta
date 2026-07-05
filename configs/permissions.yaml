@@ -18,9 +18,10 @@ shell:
     - "go test"
     - "cargo test"
   confirm:
-    - "git push"
-    - "git merge"
     - "git rebase"
+    - "git push --force"
+    - "git reset --hard"
+    - "git clean"
     - "git branch -D"
     - "npm publish"
     - "docker compose down -v"

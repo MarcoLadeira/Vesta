@@ -67,8 +67,10 @@ class OPaiIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as project_tmp:
             project = Path(project_tmp)
 
-            self.assertLess(len(project_instruction_text(project)), 520)
-            self.assertLess(len(instruction_text(project)), 620)
+            # The autonomy contract adds one compact paragraph while remaining
+            # tiny enough for every client instruction context.
+            self.assertLess(len(project_instruction_text(project)), 850)
+            self.assertLess(len(instruction_text(project)), 950)
             self.assertIn("No generated dirs", project_instruction_text(project))
             self.assertNotIn(str(project), project_instruction_text(project))
 

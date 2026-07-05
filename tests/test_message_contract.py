@@ -140,25 +140,28 @@ class AccountStatusContractTests(_Base):
 
 
 class ModeContractTests(_Base):
-    def test_modes_control_edit_permission(self):
-        for mode, edits in [
-            ("ask", False),
-            ("plan", False),
-            ("approve-edits", False),
-            ("safe-auto", True),
-            ("full-auto", True),
-        ]:
+    def test_current_explicit_intent_controls_edit_permission(self):
+        for mode in ("ask", "plan", "approve-edits", "safe-auto", "full-auto"):
             with self.subTest(mode=mode):
-                fake = FakeAccountRunner(text="done")
+                explain_runner = FakeAccountRunner(text="summary")
                 handle_gui_message(
                     self.root,
                     "summarize my changes",
                     model_id="account:claude:sonnet",
                     mode=mode,
-                    account_runner=fake,
+                    account_runner=explain_runner,
                 )
-                self.assertTrue(fake.calls, "the model must actually run")
-                self.assertEqual(fake.calls[-1].get("allow_edits"), edits)
+                self.assertFalse(explain_runner.calls[-1].get("allow_edits"))
+
+                implement_runner = FakeAccountRunner(text="fixed")
+                handle_gui_message(
+                    self.root,
+                    "fix issue #1 and make a PR",
+                    model_id="account:claude:sonnet",
+                    mode=mode,
+                    account_runner=implement_runner,
+                )
+                self.assertTrue(implement_runner.calls[-1].get("allow_edits"))
 
     def test_plan_mode_runs_model_not_canned_template(self):
         fake = FakeAccountRunner(text="Real plan: add a settings page, then tests.")

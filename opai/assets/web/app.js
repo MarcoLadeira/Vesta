@@ -206,11 +206,12 @@ function renderAccount() {
 function renderWorkspace() {
   const w = state.boot.workspace;
   $("#wsLabel").textContent = w.label;
-  $("#wsContext").textContent = w.branch || "Local workspace";
+  const dirtyCount = (w.dirty_paths || []).length;
+  $("#wsContext").textContent = `${w.branch || "Local workspace"}${dirtyCount ? ` · ${dirtyCount} uncommitted` : ""}`;
   // Single owner of the tooltip: workspace facts + the brand tagline together,
   // so a re-render can never drop the tagline (BUG-QA-007).
   const tagline = (state.brand && state.brand.tagline) ? ` — ${state.brand.tagline}` : "";
-  $("#wsSwitch").title = `${w.name}${w.branch ? " · " + w.branch : ""} · ${w.file_count} files indexed${tagline}`;
+  $("#wsSwitch").title = `${w.name}${w.branch ? " · " + w.branch : ""}${w.remote ? " · " + w.remote : ""} · ${w.file_count} files indexed${tagline}`;
   const menu = $("#wsMenu"); menu.innerHTML = "";
   const frag = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; };
   const label = (t) => menu.appendChild(frag(`<div class="mlabel">${esc(t)}</div>`));
@@ -836,6 +837,7 @@ function finalize(status, r) {
   let html = roleHeader(label, color) + activitySummaryHtml() + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];
   if (changed.length) html += filesCardHtml(changed);
+  if (r && (r.workflow || r.agent_policy)) html += workflowCardHtml(r);
   const planSteps = (r && r.plan && r.plan.steps) || [];
   if (planSteps.length) html += planCardHtml(planSteps);
   html += metaFooter(r, sel, durMs);
@@ -844,6 +846,39 @@ function finalize(status, r) {
   wireFilesCard(el);
   wireReceipt(el, sel);
   wirePlanCard(el, sel);
+}
+
+function workflowCardHtml(result) {
+  const flow = result.workflow || {};
+  const policy = result.agent_policy || {};
+  const mode = policy.label || policy.mode || flow.mode || "—";
+  const pretty = (value) => String(value || "—").replaceAll("_", " ");
+  const title = (value) => { const text = pretty(value); return text.charAt(0).toUpperCase() + text.slice(1); };
+  const blockerItems = [...(flow.blockers || [])];
+  if (flow.blocker && !blockerItems.includes(flow.blocker)) blockerItems.push(flow.blocker);
+  const blockers = blockerItems.map((item) => `<div class="wf-blocker">${esc(item)}</div>`).join("");
+  const actions = (flow.next_actions || []).map((item) => `<li>${esc(item)}</li>`).join("");
+  const history = (flow.history || []).slice(-5).map((item) =>
+    `<div class="wf-event"><span>${esc(title(item.phase))}</span><small>${esc(item.message || "")}</small></div>`
+  ).join("");
+  const provider = flow.provider || {};
+  const cost = flow.cost || {};
+  const gates = flow.safety_gates || {};
+  const failedGates = gates.failed || [];
+  return `<div class="workflow-card">
+    <div class="wf-head"><span>${esc(mode)}</span><span>${esc(title(flow.phase))}</span></div>
+    ${flow.message ? `<div class="wf-message">${esc(flow.message)}</div>` : ""}
+    <div class="wf-row"><span>Tests</span><strong>${esc(pretty(flow.tests_status))}</strong></div>
+    <div class="wf-row"><span>PR</span><strong>${esc(flow.pr_url || "not opened")}</strong></div>
+    <div class="wf-row"><span>Merge</span><strong>${esc(pretty(flow.merge_status))}</strong></div>
+    ${flow.issue_number ? `<div class="wf-row"><span>Issue</span><strong>#${esc(flow.issue_number)}</strong></div>` : ""}
+    ${provider.model ? `<div class="wf-row"><span>Provider</span><strong>${esc(provider.model)}</strong></div>` : ""}
+    ${cost.estimated_actual_usd != null ? `<div class="wf-row"><span>Cost</span><strong>$${esc(Number(cost.estimated_actual_usd).toFixed(4))}</strong></div>` : ""}
+    ${failedGates.length ? `<div class="wf-row"><span>Failed gates</span><strong>${esc(failedGates.join(", "))}</strong></div>` : ""}
+    ${blockers}
+    ${actions ? `<div class="wf-subhead">Next actions</div><ul class="wf-actions">${actions}</ul>` : ""}
+    ${history ? `<details class="wf-history"><summary>Timeline · ${(flow.history || []).length} events</summary>${history}</details>` : ""}
+  </div>`;
 }
 
 // The Plan Editor (#130): steps parsed from the REAL plan-mode answer become

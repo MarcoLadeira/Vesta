@@ -32,7 +32,7 @@ from opai.gui_lifecycle import drain_workers, signal_cancels
 from opai.gui_modes import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_TASK_MODE,
-    compose_prompt,
+    output_format,
     output_formats,
     task_modes,
     task_summary,
@@ -123,15 +123,22 @@ def _status(root: Path, model_label: str, mode_label: str) -> dict[str, Any]:
 
 
 def _workspace(root: Path) -> dict[str, Any]:
+    from opaihub.repo_context import resolve_repo_context, save_active_repo
+
+    context = resolve_repo_context(root)
+    save_active_repo(root, context)
     try:
-        ws = A.workspace_summary(root)
+        ws = A.workspace_summary(context.path)
     except Exception:  # noqa: BLE001
         ws = {"name": root.name, "branch": "", "file_count": 0}
     return {
         "label": workspace_label(root),
         "name": ws["name"],
-        "root": str(root),
-        "branch": ws.get("branch", ""),
+        "root": str(context.path),
+        "branch": context.branch or ws.get("branch", ""),
+        "remote": context.remote,
+        "dirty": bool(context.dirty_paths),
+        "dirty_paths": list(context.dirty_paths),
         "file_count": ws.get("file_count", 0),
         "recents": [
             {"path": p, "label": workspace_label(p)}
@@ -142,6 +149,8 @@ def _workspace(root: Path) -> dict[str, Any]:
 
 
 def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
+    from opaihub.workflow_state import load_workflow_state
+
     model_label = (
         sel.get("model_advanced_label") or sel.get("model_label") or "Automatic routing"
     )
@@ -175,12 +184,33 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
     data["permissions"] = permissions_for(
         run_mode, safe_auto=(prefs or {}).get("safe_auto")
     )
+    workflow = load_workflow_state(root)
+    data.setdefault("rows", []).extend(
+        [
+            {"label": "Agent mode", "value": workflow.mode.title()},
+            {"label": "Workflow", "value": workflow.phase.replace("_", " ").title()},
+            {
+                "label": "Tests",
+                "value": workflow.tests_status.replace("_", " ").title(),
+            },
+            {
+                "label": "PR / merge",
+                "value": workflow.pr_url
+                or workflow.merge_status.replace("_", " ").title(),
+            },
+        ]
+    )
+    if workflow.blocker:
+        data["rows"].append({"label": "Blocker", "value": workflow.blocker})
+    if workflow.next_actions:
+        data["rows"].append({"label": "Next action", "value": workflow.next_actions[0]})
     return data
 
 
 def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, Any]:
     """Everything the front-end needs to render the whole shell in one call."""
     from opaihub.gui_preferences import DEFAULT_MODE, MODES, load_gui_preferences
+    from opaihub.workflow_state import load_workflow_state
 
     root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
@@ -213,8 +243,10 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "format": fmt,
         "accounts": models["accounts"],
     }
+    workflow = load_workflow_state(root)
     return {
         "workspace": _workspace(root),
+        "workflow": workflow.to_dict(),
         "models": models["models"],
         "selectedModel": sel_model.get("id", "auto"),
         "modes": [{"id": item, "label": mode_labels.get(item, item)} for item in MODES],
@@ -320,7 +352,9 @@ def _run_gui(
     from PySide6.QtWebEngineWidgets import QWebEngineView
 
     QtCore.qInstallMessageHandler(lambda *_a: None)
-    root = project_root.expanduser().resolve()
+    from opaihub.repo_context import active_repo_context
+
+    root = active_repo_context(project_root).path
     from opaihub.gui_pipeline import handle_gui_message
     from opaihub.gui_preferences import save_gui_preferences
 
@@ -532,11 +566,6 @@ def _run_gui(
             request_id = str(payload.get("requestId") or uuid.uuid4().hex[:12])
             model_id = payload.get("model", "auto")
             mode = payload.get("mode", "safe-auto")
-            composed = compose_prompt(
-                text,
-                task_mode_id=payload.get("focus"),
-                output_format_id=payload.get("format"),
-            )
             cancel = threading.Event()
             self._cancels[request_id] = cancel
 
@@ -554,9 +583,13 @@ def _run_gui(
             def job() -> dict[str, Any]:
                 return handle_gui_message(
                     self.root,
-                    composed,
+                    text,
                     model_id=model_id,
                     mode=mode,
+                    focus_hint=payload.get("focus"),
+                    output_instruction=output_format(payload.get("format")).get(
+                        "instruction", ""
+                    ),
                     on_event=emit_event,
                     on_text=emit_text,
                     cancel=cancel,
@@ -687,7 +720,9 @@ def _run_gui(
             add_recent(text)
 
         def _switch(self, path: str) -> None:
-            self.root = Path(path).expanduser().resolve()
+            from opaihub.repo_context import active_repo_context
+
+            self.root = active_repo_context(Path(path)).path
             add_recent_workspace(self.root)
             self.window.setWindowTitle(f"OPai · {self.root.name}")
             self.workspaceChanged.emit(json.dumps(boot_payload(self.root)))

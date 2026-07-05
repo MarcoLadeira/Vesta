@@ -787,6 +787,19 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .files-card { background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; margin: 12px 0; box-shadow: var(--inset-hi); }
 .files-card .fc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .files-card .fc-t { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.workflow-card { background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; margin: 12px 0; box-shadow: var(--inset-hi); }
+.workflow-card .wf-head { display: flex; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 12.5px; font-weight: 700; text-transform: capitalize; margin-bottom: 8px; }
+.workflow-card .wf-row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; color: var(--muted); font-size: 11.5px; }
+.workflow-card .wf-row strong { color: var(--ink); font-weight: 500; text-align: right; }
+.workflow-card .wf-blocker { color: var(--amber); font-size: 11.5px; margin-top: 6px; }
+.workflow-card .wf-message { color: var(--muted); font-size: 11.5px; margin: -2px 0 7px; }
+.workflow-card .wf-subhead { color: var(--faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; margin-top: 9px; text-transform: uppercase; }
+.workflow-card .wf-actions { color: var(--muted); font-size: 11.5px; margin: 5px 0 0; padding-left: 18px; }
+.workflow-card .wf-history { border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; margin-top: 10px; padding-top: 8px; }
+.workflow-card .wf-history summary { cursor: pointer; color: var(--faint); }
+.workflow-card .wf-event { display: grid; grid-template-columns: 105px 1fr; gap: 8px; margin-top: 6px; }
+.workflow-card .wf-event span { color: var(--ink); }
+.workflow-card .wf-event small { color: var(--muted); }
 .file-chip {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
   background: transparent; border: 0; border-radius: var(--r-sm); cursor: pointer;
