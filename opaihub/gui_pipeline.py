@@ -12,6 +12,7 @@ from .agent_policy import (
 )
 from .agent_runtime import AgentRuntime, RuntimePhase
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
+from .diff_review import build_diff_review
 from .gui_preferences import DEFAULT_MODE, load_gui_preferences
 from .intent_router import route_intents, safety_warnings
 from .ledger import record_event, record_route_decision, read_events
@@ -346,6 +347,20 @@ def handle_gui_message(
             )
         current_repo = resolve_repo_context(root)
         save_active_repo(root, current_repo)
+        changed_files = tuple(str(item) for item in payload.get("changed_files") or [])
+        attributed_paths = changed_files or tuple(
+            path
+            for path in current_repo.dirty_paths
+            if path not in set(repo_context.dirty_paths)
+        )
+        diff_review: dict[str, Any] = {}
+        if status == "answered" and policy.mode in {
+            AgentMode.IMPLEMENT,
+            AgentMode.SHIP,
+        }:
+            diff_review = build_diff_review(
+                current_repo.path, include_paths=attributed_paths
+            )
         state = WorkflowState(
             task_id=runtime.task_id,
             mode=policy.mode.value,
@@ -366,11 +381,10 @@ def handle_gui_message(
             blocker=runtime.state.blocker,
             next_actions=runtime.state.next_actions,
             history=tuple(event.to_dict() for event in runtime.state.history),
-            changed_files=tuple(
-                str(item) for item in payload.get("changed_files") or []
-            ),
+            changed_files=changed_files,
             provider={"model": selected_model, "run_mode": selected_mode},
             cost=dict(payload.get("receipt") or {}),
+            diff_review=diff_review,
         )
         runtime.ledger.append(
             "turn_result",

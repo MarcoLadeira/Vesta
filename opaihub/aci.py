@@ -113,6 +113,102 @@ class AgentComputerInterface:
             result.duration_ms,
         )
 
+    def build_semantic_index(self, paths: Iterable[str] | None = None) -> Observation:
+        """Build a deterministic local index without persisting source text."""
+        from .semantic_index import LocalSemanticIndex
+
+        started = time.monotonic()
+        try:
+            data = LocalSemanticIndex(self.repo_root).build(paths)
+        except (OSError, RuntimeError, ValueError) as exc:
+            return Observation(
+                "semantic_index",
+                False,
+                error_code="SEMANTIC_INDEX_FAILED",
+                message=redact(str(exc)),
+            )
+        return Observation(
+            "semantic_index",
+            True,
+            data,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+
+    def semantic_search(
+        self, query: str, *, limit: int = 8, max_chars: int = 12_000
+    ) -> Observation:
+        """Return bounded, provenance-rich matches from the local index."""
+        from .semantic_index import LocalSemanticIndex, MODEL_ID
+
+        started = time.monotonic()
+        index = LocalSemanticIndex(self.repo_root)
+        try:
+            if not index.path.is_file():
+                index.build()
+            matches = index.search(query, limit=limit, max_chars=max_chars)
+        except (OSError, RuntimeError, ValueError) as exc:
+            return Observation(
+                "semantic_search",
+                False,
+                {"query": redact(query), "matches": []},
+                "SEMANTIC_SEARCH_FAILED",
+                redact(str(exc)),
+            )
+        return Observation(
+            "semantic_search",
+            True,
+            {"query": redact(query), "model": MODEL_ID, "matches": matches},
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+
+    def discover_mcp_tools(
+        self,
+        runtime: Any,
+        server_id: str | None = None,
+        *,
+        allow_remote: bool = False,
+        cancel: Any = None,
+    ) -> Observation:
+        started = time.monotonic()
+        data = runtime.discover(server_id, allow_remote=allow_remote, cancel=cancel)
+        return Observation(
+            "mcp_tools",
+            bool(data.get("ok")),
+            data,
+            str(data.get("error_code") or ""),
+            str(data.get("message") or ""),
+            int((time.monotonic() - started) * 1000),
+        )
+
+    def invoke_mcp_tool(
+        self,
+        runtime: Any,
+        server_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        allow_write: bool = False,
+        allow_remote: bool = False,
+        cancel: Any = None,
+    ) -> Observation:
+        started = time.monotonic()
+        data = runtime.invoke(
+            server_id,
+            tool_name,
+            arguments,
+            allow_write=allow_write,
+            allow_remote=allow_remote,
+            cancel=cancel,
+        )
+        return Observation(
+            "mcp_tool",
+            bool(data.get("ok")),
+            data,
+            str(data.get("error_code") or ""),
+            str(data.get("message") or ""),
+            int((time.monotonic() - started) * 1000),
+        )
+
     def read_slice(
         self,
         path: str | Path,

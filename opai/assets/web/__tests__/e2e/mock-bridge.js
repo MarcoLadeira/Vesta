@@ -148,6 +148,10 @@
       var response = scenario.applyToolResponses && scenario.applyToolResponses[name];
       cb(JSON.stringify(response || { text: "Applied safely." }));
     },
+    reviewDiff: function (path, decision, cb) {
+      window.__mock.diffDecisions.push([path, decision]);
+      cb(JSON.stringify({ ok: true, workflow: { diff_review: {} } }));
+    },
     openWorkspace: function () { window.__mock.openWorkspaceCount++; },
     switchWorkspace: function (p) { window.__mock.switched.push(p); },
     openPath: function (p) { window.__mock.opened.push(p); },
@@ -169,7 +173,7 @@
     windowMaximizes: 0, windowCloses: 0,
     runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [],
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
-    freeConsentGrants: [], disconnects: [],
+    freeConsentGrants: [], disconnects: [], diffDecisions: [],
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },

@@ -764,6 +764,18 @@ def _run_gui(
             )
             if workflow.blocker:
                 data["rows"].append({"label": "Blocker", "value": workflow.blocker})
+            review_summary = workflow.diff_review.get("summary", {})
+            if review_summary:
+                data["rows"].append(
+                    {
+                        "label": "Diff review",
+                        "value": (
+                            f"{review_summary.get('approved', 0)} approved · "
+                            f"{review_summary.get('pending', 0)} pending · "
+                            f"{review_summary.get('rejected', 0)} rejected"
+                        ),
+                    }
+                )
             for r in data["rows"]:
                 self.inspector_box.addLayout(self._kv_row(r["label"], r["value"]))
 

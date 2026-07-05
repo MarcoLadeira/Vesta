@@ -202,6 +202,18 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
     )
     if workflow.blocker:
         data["rows"].append({"label": "Blocker", "value": workflow.blocker})
+    review_summary = workflow.diff_review.get("summary", {})
+    if review_summary:
+        data["rows"].append(
+            {
+                "label": "Diff review",
+                "value": (
+                    f"{review_summary.get('approved', 0)} approved · "
+                    f"{review_summary.get('pending', 0)} pending · "
+                    f"{review_summary.get('rejected', 0)} rejected"
+                ),
+            }
+        )
     if workflow.next_actions:
         data["rows"].append({"label": "Next action", "value": workflow.next_actions[0]})
     return data
@@ -450,6 +462,12 @@ def _run_gui(
         @QtCore.Slot(str, result=str)
         def usePrompt(self, prompt_id: str) -> str:
             return json.dumps(find_prompt(prompt_id) or {})
+
+        @QtCore.Slot(str, str, result=str)
+        def reviewDiff(self, path: str, decision: str) -> str:
+            from opaihub.diff_review import record_diff_decision
+
+            return json.dumps(record_diff_decision(self.root, path, decision))
 
         @QtCore.Slot(result=str)
         def settingsData(self) -> str:

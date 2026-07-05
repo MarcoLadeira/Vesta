@@ -800,6 +800,24 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .workflow-card .wf-event { display: grid; grid-template-columns: 105px 1fr; gap: 8px; margin-top: 6px; }
 .workflow-card .wf-event span { color: var(--ink); }
 .workflow-card .wf-event small { color: var(--muted); }
+.diff-review { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; }
+.diff-review-head, .diff-file-head, .diff-stats, .diff-actions, .diff-nav { display: flex; align-items: center; gap: 8px; }
+.diff-review-head, .diff-file-head { justify-content: space-between; }
+.diff-review-head small { display: block; color: var(--muted); font-size: 10.5px; margin-top: 2px; }
+.diff-nav span { color: var(--faint); font-size: 10.5px; min-width: 34px; text-align: center; }
+.diff-nav .btn { min-width: 28px; padding: 3px 7px; }
+.diff-file { margin-top: 10px; }
+.diff-file-head strong { color: var(--ink); font-size: 11.5px; overflow-wrap: anywhere; }
+.diff-decision { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.diff-stats { color: var(--muted); font-size: 10px; margin: 5px 0; flex-wrap: wrap; }
+.diff-stats span:first-child { color: var(--green); }
+.diff-risk { background: rgba(230, 177, 94, 0.12); border: 1px solid rgba(230, 177, 94, 0.35); border-radius: 999px; color: var(--amber) !important; padding: 1px 5px; }
+.diff-hunk { border: 1px solid var(--border); border-radius: 6px; margin-top: 7px; overflow: hidden; }
+.diff-hunk-head { background: var(--glass); color: var(--faint); font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace; font-size: 9.5px; padding: 5px 7px; }
+.diff-hunk pre { background: var(--bg); margin: 0; max-height: 210px; overflow: auto; padding: 6px 7px; }
+.diff-hunk code { color: var(--muted); display: block; font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace; font-size: 9.5px; line-height: 1.45; white-space: pre-wrap; }
+.diff-empty { color: var(--faint); font-size: 10.5px; padding: 8px 0; }
+.diff-actions { justify-content: flex-end; margin-top: 8px; }
 .file-chip {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
   background: transparent; border: 0; border-radius: var(--r-sm); cursor: pointer;
