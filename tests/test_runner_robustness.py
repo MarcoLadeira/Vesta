@@ -259,7 +259,7 @@ class CodexCompleteTests(unittest.TestCase):
     ) -> dict:
         runner = AccountRunner("codex", _CODEX_CLI, model="gpt-5.5")
 
-        def fake_hidden_run(cmd, *, cwd, timeout):
+        def fake_hidden_run(cmd, *, cwd, timeout, env=None):
             out_file = None
             for i, arg in enumerate(cmd):
                 if arg == "--output-last-message" and i + 1 < len(cmd):

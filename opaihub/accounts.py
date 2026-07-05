@@ -28,6 +28,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .proc import provider_child_env
+
 _CONNECTION_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _CONNECTION_CACHE_LOCK = threading.RLock()
 _CONNECTION_CACHE_TTL = 300.0
@@ -104,13 +106,22 @@ def repair_codex_config(home: Path | None = None) -> dict[str, Any]:
     }
 
 
-def _hidden_run(cmd: list[str], *, cwd: str | None, timeout: float):
+def _hidden_run(
+    cmd: list[str],
+    *,
+    cwd: str | None,
+    timeout: float,
+    env: dict[str, str] | None = None,
+):
     """Run a CLI fully in the background - no console window, no stdin prompt.
 
     On Windows a GUI app (PySide6) that shells out to a console program pops a
     visible terminal; CREATE_NO_WINDOW suppresses it so the chat stays inline.
     stdin is closed so a CLI never blocks waiting for input, and output is
     decoded as UTF-8 with replacement so odd bytes can't crash the GUI.
+    ``env`` (when given) is the sanitized child environment from
+    :func:`opaihub.proc.provider_child_env` — parent AI-session variables must
+    never leak into a provider CLI OPai owns.
     """
     kwargs: dict[str, Any] = {
         "cwd": cwd,
@@ -121,12 +132,14 @@ def _hidden_run(cmd: list[str], *, cwd: str | None, timeout: float):
         "timeout": timeout,
         "stdin": subprocess.DEVNULL,
     }
+    if env is not None:
+        kwargs["env"] = env
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     return subprocess.run(cmd, **kwargs)  # nosec B603 - argv list, no shell, user's own CLI
 
 
-def _popen(cmd: list[str], *, cwd: str | None):
+def _popen(cmd: list[str], *, cwd: str | None, env: dict[str, str] | None = None):
     """Start a killable, line-buffered CLI process for streaming reads."""
     kwargs: dict[str, Any] = {
         "cwd": cwd,
@@ -138,9 +151,23 @@ def _popen(cmd: list[str], *, cwd: str | None):
         "stdin": subprocess.DEVNULL,
         "bufsize": 1,
     }
+    if env is not None:
+        kwargs["env"] = env
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     return subprocess.Popen(cmd, **kwargs)  # nosec B603 - argv list, no shell, user's own CLI
+
+
+def _is_login_sentinel(text: str) -> bool:
+    """True when a CLI 'answer' is really its not-signed-in message.
+
+    The claude CLI can exit non-zero yet still emit structured output whose
+    ``result`` field is literally "Not logged in · Please run /login". That is
+    an auth failure wearing an answer's clothes — rendering it as a normal
+    assistant message (and recording a receipt for it) misleads the user.
+    """
+    t = str(text or "").strip().lower()
+    return t.startswith("not logged in") and len(t) <= 120
 
 
 def _terminate(proc: Any) -> None:
@@ -236,6 +263,7 @@ def connection_for_account(
     auth_status: str | None = None,
     last_checked_at: int | None = None,
     error: dict[str, Any] | None = None,
+    env_overrides_removed: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build the safe connection payload used by Settings and the chat gate.
 
@@ -270,6 +298,12 @@ def connection_for_account(
         diagnostic = str(
             (error or {}).get("technicalMessage") or "Connection check failed."
         )
+    if env_overrides_removed:
+        # Names only — explains why OPai's verdict can differ from a terminal
+        # that still carries a parent AI session's variables.
+        diagnostic += " Ignored inherited session overrides: " + ", ".join(
+            env_overrides_removed
+        )
     return {
         "providerId": str(account.get("id") or "unknown"),
         "displayName": str(account.get("label") or account.get("id") or "Provider"),
@@ -286,6 +320,10 @@ def connection_for_account(
         "cliPresent": cli_present,
         "detected": authenticated,
         "loginHint": account.get("login_hint"),
+        # Names (never values) of parent-session env vars OPai stripped before
+        # probing/running this CLI, so diagnostics can explain why OPai's
+        # verdict may differ from a contaminated terminal's.
+        "envOverridesRemoved": list(env_overrides_removed or []),
     }
 
 
@@ -363,7 +401,14 @@ def test_account_connection(
         detected["safeDiagnostic"] = "No safe status command is available."
         return detected
 
-    execute = run or (lambda argv: _hidden_run(argv, cwd=None, timeout=15.0))
+    # The status probe must run in a SANITIZED environment: inherited parent
+    # AI-session variables (CLAUDE_CODE_*, stale ANTHROPIC_/OPENAI_ overrides)
+    # make `claude auth status` report the parent's session instead of the
+    # CLI's own persisted login — the exact "says connected, then 401s" trap.
+    child_env, env_removed = provider_child_env(account_id)
+    execute = run or (
+        lambda argv: _hidden_run(argv, cwd=None, timeout=15.0, env=child_env)
+    )
     try:
         proc = execute(command)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -373,6 +418,7 @@ def test_account_connection(
             auth_status="provider_unavailable",
             last_checked_at=checked_at,
             error=error,
+            env_overrides_removed=env_removed,
         )
     returncode = int(getattr(proc, "returncode", 0) or 0)
     detail = "\n".join(
@@ -404,7 +450,10 @@ def test_account_connection(
     )
     if returncode == 0 and not status_failed:
         result = connection_for_account(
-            account, auth_status="connected", last_checked_at=checked_at
+            account,
+            auth_status="connected",
+            last_checked_at=checked_at,
+            env_overrides_removed=env_removed,
         )
         if run is None:
             with _CONNECTION_CACHE_LOCK:
@@ -419,6 +468,7 @@ def test_account_connection(
         auth_status=status,
         last_checked_at=checked_at,
         error=error,
+        env_overrides_removed=env_removed,
     )
 
 
@@ -467,8 +517,11 @@ def disconnect_account(account_id: str, *, home: Path | None = None) -> dict[str
             "disconnected": False,
             "message": f"{spec['label']} CLI was not found on PATH.",
         }
+    logout_env, _ = provider_child_env(account_id)
     try:
-        proc = _hidden_run([cli_path, *logout_argv], cwd=None, timeout=20.0)
+        proc = _hidden_run(
+            [cli_path, *logout_argv], cwd=None, timeout=20.0, env=logout_env
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         return {"provider": account_id, "disconnected": False, "message": str(exc)}
     invalidate_connection_cache(account_id)
@@ -727,6 +780,10 @@ class AccountRunner:
         cwd = str(project_root) if project_root else None
         from opai.provider_contract import normalize_provider_error
 
+        # Sanitized child env: parent AI-session variables must never steer
+        # this CLI's auth or model selection (see opaihub.proc).
+        child_env, _env_removed = provider_child_env(self.account_id)
+
         if self.account_id == "codex":
             with tempfile.NamedTemporaryFile(
                 "r", suffix=".txt", delete=False, encoding="utf-8"
@@ -736,7 +793,7 @@ class AccountRunner:
                 prompt, allow_edits=allow_edits, out_file=out_path, mode=mode
             )
             try:
-                proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
+                proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
             except subprocess.TimeoutExpired:
                 Path(out_path).unlink(missing_ok=True)
                 return {"text": "", "cost": None, "timed_out": True}
@@ -776,7 +833,7 @@ class AccountRunner:
             }
         cmd = self.build_command(prompt, allow_edits=allow_edits, mode=mode)
         try:
-            proc = _hidden_run(cmd, cwd=cwd, timeout=timeout)
+            proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
         except subprocess.TimeoutExpired:
             return {"text": "", "cost": None, "timed_out": True}
         returncode = _process_returncode(proc)
@@ -805,7 +862,11 @@ class AccountRunner:
                 returncode=returncode,
             )
             known_failure = normalized["code"] not in {"UNKNOWN", "NO_RESPONSE"}
-            if native_error or (returncode != 0 and (known_failure or not text)):
+            if (
+                native_error
+                or _is_login_sentinel(text)
+                or (returncode != 0 and (known_failure or not text))
+            ):
                 _invalidate_cache_for_error(self.account_id, normalized)
                 return {
                     "text": "",
@@ -831,7 +892,9 @@ class AccountRunner:
                 returncode=returncode,
             )
             known_failure = normalized["code"] not in {"UNKNOWN", "NO_RESPONSE"}
-            if known_failure and (returncode != 0 or not raw):
+            if _is_login_sentinel(text) or (
+                known_failure and (returncode != 0 or not raw)
+            ):
                 _invalidate_cache_for_error(self.account_id, normalized)
                 return {
                     "text": "",
@@ -885,8 +948,11 @@ class AccountRunner:
             mode=mode,
             stream=structured,
         )
+        # Sanitized child env: parent AI-session variables must never steer
+        # this CLI's auth or model selection (see opaihub.proc).
+        child_env, _env_removed = provider_child_env(self.account_id)
         try:
-            proc = _popen(cmd, cwd=cwd)
+            proc = _popen(cmd, cwd=cwd, env=child_env)
         except OSError as exc:
             if out_path:
                 Path(out_path).unlink(missing_ok=True)
@@ -1033,6 +1099,24 @@ class AccountRunner:
                 "text": "",
                 "cost": cost,
                 "error": normalized,
+                "returncode": returncode,
+            }
+        # An auth failure wearing an answer's clothes: the claude CLI can emit
+        # "Not logged in · Please run /login" as its RESULT text. Rendering
+        # that as a normal assistant message (and receipting it) misleads the
+        # user — surface it as the auth error it really is.
+        if _is_login_sentinel(text):
+            sentinel_error = normalize_provider_error(
+                self.account_id,
+                text,
+                model=self.model,
+                returncode=returncode,
+            )
+            _invalidate_cache_for_error(self.account_id, sentinel_error)
+            return {
+                "text": "",
+                "cost": cost,
+                "error": sentinel_error,
                 "returncode": returncode,
             }
         # A real answer wins over an unexplained non-zero exit. Provider-native
