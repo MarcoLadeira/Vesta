@@ -213,6 +213,11 @@ def classify_error_code(
             "missing credential",
             "not configured",
             "no api key",
+            # The claude CLI's own signed-out sentinel ("Not logged in ·
+            # Please run /login"): there is no session at all, so this is
+            # missing auth — telling the user to Disconnect (AUTH_INVALID's
+            # remedy) would be nonsense here.
+            "please run /login",
         )
     ):
         return "AUTH_MISSING"

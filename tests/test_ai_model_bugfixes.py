@@ -357,7 +357,7 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         proc_obj = _FakeProc(lines, returncode=1)
         streamed: list[str] = []
 
-        def fake_popen(command, *, cwd):
+        def fake_popen(command, *, cwd, env=None):
             output_path = Path(command[command.index("--output-last-message") + 1])
             output_path.write_text(
                 "401 Invalid authentication credentials", encoding="utf-8"
