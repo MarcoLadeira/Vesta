@@ -12,6 +12,11 @@ from .agent_policy import (
 )
 from .agent_runtime import AgentRuntime, RuntimePhase
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
+from .cost_telemetry import (
+    estimated_telemetry,
+    normalize_account_result,
+    record_workflow_cost,
+)
 from .diff_review import build_diff_review
 from .gui_preferences import DEFAULT_MODE, load_gui_preferences
 from .intent_router import route_intents, safety_warnings
@@ -383,7 +388,14 @@ def handle_gui_message(
             history=tuple(event.to_dict() for event in runtime.state.history),
             changed_files=changed_files,
             provider={"model": selected_model, "run_mode": selected_mode},
-            cost=dict(payload.get("receipt") or {}),
+            cost={
+                **(payload.get("receipt") or {}),
+                **(
+                    {"telemetry": payload["cost_telemetry"]}
+                    if payload.get("cost_telemetry")
+                    else {}
+                ),
+            },
             diff_review=diff_review,
         )
         runtime.ledger.append(
@@ -398,6 +410,7 @@ def handle_gui_message(
             pr=state.pr_url,
             error=payload.get("error") or "",
             cost=payload.get("receipt") or {},
+            telemetry=payload.get("cost_telemetry") or {},
         )
         save_workflow_state(root, state)
         return {
@@ -609,6 +622,7 @@ def handle_gui_message(
         status = status_map.get(result.get("status"), result.get("status", "error"))
         # Ledger truth (#144): a route/savings event is only real once the task
         # actually answered — confirmation prompts and failures record nothing.
+        free_telemetry = None
         if status == "answered":
             _record_gui_route(
                 root,
@@ -619,6 +633,15 @@ def handle_gui_message(
                 model_id=selected_model,
                 mode=selected_mode,
             )
+            # Free APIs report no dollars here, so the telemetry is honestly
+            # labelled estimated (#178) - never presented as a real spend.
+            free_telemetry = estimated_telemetry(
+                provider,
+                tokens=int(receipt["estimated_tokens"]),
+                cost_usd=float(receipt["estimated_actual_usd"]),
+                model=selected_model,
+            )
+            record_workflow_cost(root, runtime.task_id, free_telemetry, task=message)
         answer = (
             result.get("answer")
             or result.get("message")
@@ -643,6 +666,7 @@ def handle_gui_message(
                 "next_actions": ["Review provider quota and billing settings."],
                 "raw_result": result,
                 "error": result.get("error"),
+                "cost_telemetry": free_telemetry.to_dict() if free_telemetry else {},
             }
         )
 
@@ -757,6 +781,14 @@ def handle_gui_message(
             actual_cost_usd=actual if isinstance(actual, (int, float)) else None,
             confidence="actual" if isinstance(actual, (int, float)) else "estimated",
         )
+        # Provider cost telemetry (#178): the call actually ran, so record
+        # what the provider itself reported - claude's total_cost_usd stays
+        # "actual", codex stays honestly estimated - into the redacted
+        # workflow ledger. This observes spend; it never authorizes it.
+        account_telemetry = normalize_account_result(
+            provider, result, model=selected_model
+        )
+        record_workflow_cost(root, runtime.task_id, account_telemetry, task=message)
         status = (
             "answered"
             if result.get("status") == "answered_by_account"
@@ -806,6 +838,7 @@ def handle_gui_message(
                 "next_actions": ["Review changed files before committing."],
                 "raw_result": result,
                 "error": result.get("error"),
+                "cost_telemetry": account_telemetry.to_dict(),
                 # Structured plan (#130): steps parsed from the REAL plan-mode
                 # answer, so the GUI can render an editable checklist and build
                 # only the steps the user keeps. Empty when the answer isn't a

@@ -8,6 +8,7 @@ from opai import __brand__, __release_stage__, __version__
 from opai.integrations import project_status
 from opaihub.benchmark import latest_benchmark_report
 from opaihub.budget import budget_status
+from opaihub.cost_telemetry import summarize_cost_telemetry
 from opaihub.local_models import discover_local_models
 from opaihub.savings import build_savings_report
 
@@ -115,6 +116,7 @@ def build_cockpit(project_root: Path) -> dict[str, Any]:
             "caps": budget["caps"],
             "spent": budget["spent"],
         },
+        "cost_telemetry": summarize_cost_telemetry(root),
         "benchmark": _benchmark_status(root),
         "local_models": {
             "available": local_models["available"],
@@ -166,6 +168,7 @@ def render_cockpit(payload: dict[str, Any]) -> str:
     clients = payload["clients"]
     savings = payload["savings"]
     budget = payload["budget"]
+    telemetry = payload["cost_telemetry"]
     benchmark = payload["benchmark"]
     local = payload["local_models"]
     wrappers = payload["wrappers"]
@@ -189,6 +192,16 @@ def render_cockpit(payload: dict[str, Any]) -> str:
         f"Budget: {'panic mode ON' if budget['panic'] else 'budget ok'} ({budget['profile']})",
         f"- Spent today: ${budget['spent']['today_usd']:.4f}",
         f"- Spent this month: ${budget['spent']['month_usd']:.4f}",
+        "",
+        "Provider telemetry: "
+        + (
+            f"${telemetry['actual_usd']:.4f} actual"
+            f" / ${telemetry['derived_usd']:.4f} derived"
+            f" / ${telemetry['estimated_usd']:.4f} estimated"
+            f" across {telemetry['calls']} call(s)"
+            if telemetry["has_data"]
+            else "no provider calls recorded yet"
+        ),
         "",
         f"Benchmark: {benchmark['claim']}",
         f"Local model / ask: {'available' if local['available'] else 'not running'}",

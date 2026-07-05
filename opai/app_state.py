@@ -941,7 +941,9 @@ def _ask_account(
             if model
             else f"account:{account_id}",
             provider_id=account_id,
-            measurement="estimated",
+            # Claude reports total_cost_usd itself: that entry is an actual
+            # spend, not an estimate (#178). Codex stays honestly estimated.
+            measurement="actual" if isinstance(cost, (int, float)) else "estimated",
         )
         ledger_recorded = True
 
