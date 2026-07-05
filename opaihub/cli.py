@@ -366,6 +366,25 @@ def cmd_automation(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_opaibench(args: argparse.Namespace) -> int:
+    from .opaibench import (
+        build_opaibench_dashboard,
+        read_opaibench_history,
+        run_opaibench,
+    )
+
+    root = _project(args.project)
+    if args.opaibench_command == "run":
+        report = run_opaibench(root, write=not args.no_write)
+        print_json(report)
+        return 0 if report["totals"]["passed"] == report["totals"]["total"] else 1
+    if args.opaibench_command == "dashboard":
+        print_json({"path": str(build_opaibench_dashboard(root)), "format": "html"})
+    elif args.opaibench_command == "history":
+        print_json(read_opaibench_history(root, limit=args.limit))
+    return 0
+
+
 def cmd_analytics(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.analytics_command == "status":
@@ -635,6 +654,17 @@ def build_parser() -> argparse.ArgumentParser:
     au.set_defaults(func=cmd_automation)
     au = automation_sub.add_parser("recover")
     au.set_defaults(func=cmd_automation)
+
+    p = sub.add_parser("opaibench")
+    opaibench_sub = p.add_subparsers(dest="opaibench_command", required=True)
+    ob = opaibench_sub.add_parser("run")
+    ob.add_argument("--no-write", action="store_true")
+    ob.set_defaults(func=cmd_opaibench)
+    ob = opaibench_sub.add_parser("dashboard")
+    ob.set_defaults(func=cmd_opaibench)
+    ob = opaibench_sub.add_parser("history")
+    ob.add_argument("--limit", type=int, default=10)
+    ob.set_defaults(func=cmd_opaibench)
 
     p = sub.add_parser("analytics")
     analytics_sub = p.add_subparsers(dest="analytics_command", required=True)

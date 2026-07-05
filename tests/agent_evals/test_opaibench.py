@@ -35,6 +35,16 @@ class OPaiBenchScenarios(unittest.TestCase):
         )
         self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
 
+    def test_full_opaibench_runner_covers_every_dimension_and_passes(self):
+        from opaihub.opaibench import DIMENSIONS, run_opaibench
+
+        with tempfile.TemporaryDirectory() as tmp:
+            report = run_opaibench(Path(tmp), write=False)
+
+        self.assertEqual(set(report["dimensions"]), set(DIMENSIONS))
+        self.assertEqual(report["totals"]["passed"], report["totals"]["total"])
+        self.assertEqual(report["cost"]["cloud_calls"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
