@@ -28,6 +28,7 @@ class WorkflowState:
     provider: dict[str, object] = field(default_factory=dict)
     cost: dict[str, object] = field(default_factory=dict)
     safety_gates: dict[str, object] = field(default_factory=dict)
+    diff_review: dict[str, object] = field(default_factory=dict)
     updated_at: str = ""
 
     def to_dict(self) -> dict[str, object]:
@@ -82,5 +83,6 @@ def load_workflow_state(project_root: Path) -> WorkflowState:
         provider=dict(data.get("provider") or {}),
         cost=dict(data.get("cost") or {}),
         safety_gates=dict(data.get("safety_gates") or {}),
+        diff_review=dict(data.get("diff_review") or {}),
         updated_at=str(data.get("updated_at") or ""),
     )

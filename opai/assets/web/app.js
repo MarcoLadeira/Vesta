@@ -846,6 +846,65 @@ function finalize(status, r) {
   wireFilesCard(el);
   wireReceipt(el, sel);
   wirePlanCard(el, sel);
+  wireDiffReview(el);
+}
+
+function diffReviewHtml(review, testsStatus) {
+  const files = (review && review.files) || [];
+  if (!files.length) return "";
+  const summary = review.summary || {};
+  const panels = files.map((file, index) => {
+    const risks = (file.risk_reasons || []).map((reason) => `<span class="diff-risk">${esc(reason)}</span>`).join("");
+    const hunks = (file.hunks || []).map((hunk) => {
+      const lines = (hunk.lines || []).map((line) => `<code>${esc(line)}</code>`).join("");
+      return `<section class="diff-hunk"><div class="diff-hunk-head">@@ -${esc(hunk.old_start)},${esc(hunk.old_count)} +${esc(hunk.new_start)},${esc(hunk.new_count)} @@ ${esc(hunk.heading || "")}</div><pre>${lines}${hunk.truncated ? "<code>… bounded preview</code>" : ""}</pre></section>`;
+    }).join("");
+    return `<article class="diff-file" data-diff-index="${index}" data-diff-path="${esc(file.path)}" ${index ? "hidden" : ""}>
+      <div class="diff-file-head"><strong>${esc(file.path)}</strong><span class="diff-decision">${esc(file.decision || "pending")}</span></div>
+      <div class="diff-stats"><span>+${esc(file.additions || 0)}</span><span>−${esc(file.deletions || 0)}</span>${file.untracked ? "<span>untracked</span>" : ""}${risks}</div>
+      ${hunks || '<div class="diff-empty">No textual hunk available.</div>'}
+      <div class="diff-actions"><button class="btn ghost" data-diff-decision="rejected">Reject</button><button class="btn primary" data-diff-decision="approved">Approve</button></div>
+    </article>`;
+  }).join("");
+  return `<section class="diff-review" aria-label="Changed-file review">
+    <div class="diff-review-head"><div><strong>Review changes</strong><small><span data-diff-counts>${esc(summary.files || files.length)} files · ${esc(summary.pending || 0)} pending${summary.risky ? ` · ${esc(summary.risky)} risky` : ""}</span> · Tests: ${esc(String(testsStatus || "not run").replaceAll("_", " "))}</small></div><div class="diff-nav"><button class="btn ghost" data-diff-nav="prev" aria-label="Previous changed file">←</button><span data-diff-position>1 / ${files.length}</span><button class="btn ghost" data-diff-nav="next" aria-label="Next changed file">→</button></div></div>
+    ${panels}
+  </section>`;
+}
+
+function wireDiffReview(el) {
+  const review = el.querySelector(".diff-review");
+  if (!review) return;
+  const files = Array.from(review.querySelectorAll(".diff-file"));
+  let active = 0;
+  const show = (index) => {
+    active = (index + files.length) % files.length;
+    files.forEach((file, item) => { file.hidden = item !== active; });
+    review.querySelector("[data-diff-position]").textContent = `${active + 1} / ${files.length}`;
+  };
+  review.querySelector('[data-diff-nav="prev"]').onclick = () => show(active - 1);
+  review.querySelector('[data-diff-nav="next"]').onclick = () => show(active + 1);
+  review.querySelectorAll("[data-diff-decision]").forEach((button) => {
+    button.onclick = () => {
+      const file = button.closest(".diff-file");
+      const decision = button.dataset.diffDecision;
+      if (!bridge.reviewDiff) return;
+      button.disabled = true;
+      bridge.reviewDiff(file.dataset.diffPath, decision, (raw) => {
+        button.disabled = false;
+        let result = {};
+        try { result = JSON.parse(raw || "{}"); } catch (_) { result = {}; }
+        if (!result.ok) { toast("Could not save the diff decision"); return; }
+        file.querySelector(".diff-decision").textContent = decision;
+        const pending = files.filter((item) => item.querySelector(".diff-decision").textContent === "pending").length;
+        const approved = files.filter((item) => item.querySelector(".diff-decision").textContent === "approved").length;
+        const rejected = files.filter((item) => item.querySelector(".diff-decision").textContent === "rejected").length;
+        review.querySelector("[data-diff-counts]").textContent = `${files.length} files · ${pending} pending · ${approved} approved · ${rejected} rejected`;
+        refreshInspector();
+        toast(`Marked ${file.dataset.diffPath} ${decision}`);
+      });
+    };
+  });
 }
 
 function workflowCardHtml(result) {
@@ -878,6 +937,7 @@ function workflowCardHtml(result) {
     ${blockers}
     ${actions ? `<div class="wf-subhead">Next actions</div><ul class="wf-actions">${actions}</ul>` : ""}
     ${history ? `<details class="wf-history"><summary>Timeline · ${(flow.history || []).length} events</summary>${history}</details>` : ""}
+    ${diffReviewHtml(flow.diff_review, flow.tests_status)}
   </div>`;
 }
 

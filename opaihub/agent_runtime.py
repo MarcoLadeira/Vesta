@@ -331,6 +331,25 @@ class AgentWorkbench:
             metadata={"kind": kind, "ok": ok, "data": data},
         )
         phase = self.runtime.state.phase
+        if phase is RuntimePhase.IMPLEMENTING and kind == "mcp_tool":
+            if not ok:
+                self.runtime.fail(
+                    "MCP implementation action failed",
+                    next_actions=("inspect the structured MCP error",),
+                )
+                return self._decision("inspect_error", "MCP implementation failed")
+            tool = data.get("tool") if isinstance(data.get("tool"), dict) else {}
+            if not tool.get("read_only", True):
+                self.runtime.transition(
+                    RuntimePhase.TESTING,
+                    message="MCP implementation changed state; focused tests are next",
+                    metadata={
+                        "server_id": data.get("server_id"),
+                        "tool": tool.get("name"),
+                    },
+                    next_actions=("run focused tests",),
+                )
+                return self._decision("run_focused_tests", "MCP tool produced a change")
         if phase is RuntimePhase.IMPLEMENTING and kind in {"patch_apply", "command"}:
             if not ok:
                 self.runtime.fail(
