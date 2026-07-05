@@ -19,9 +19,10 @@ shell:
     - "python -m opcoding"
     - "python -m opaihub"
   require_confirmation:
-    - "git push"
-    - "git merge"
     - "git rebase"
+    - "git push --force"
+    - "git reset --hard"
+    - "git clean"
     - "git branch -D"
     - "rm -rf"
     - "Remove-Item -Recurse"

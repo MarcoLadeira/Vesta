@@ -350,3 +350,27 @@ def session_inspector(
         "privacy": privacy_badges(model_kind=model_kind, connected=connected),
         "read_only": bool(task.get("read_only")),
     }
+
+
+def workflow_summary(result: dict[str, Any]) -> list[str]:
+    """Compact, truthful footer fields for a completed coding-agent turn."""
+
+    policy = result.get("agent_policy") or {}
+    workflow = result.get("workflow") or {}
+    pretty = lambda value: str(value or "").replace("_", " ")  # noqa: E731
+    parts: list[str] = []
+    mode = str(policy.get("label") or policy.get("mode") or workflow.get("mode") or "")
+    if mode:
+        parts.append(mode.title())
+    phase = pretty(workflow.get("phase"))
+    if phase:
+        parts.append(phase.title())
+    tests = pretty(workflow.get("tests_status"))
+    if tests and tests != "not run":
+        parts.append(f"Tests: {tests}")
+    if workflow.get("pr_url"):
+        parts.append(str(workflow["pr_url"]))
+    merge = pretty(workflow.get("merge_status"))
+    if merge and merge != "not requested":
+        parts.append(f"Merge: {merge}")
+    return parts
