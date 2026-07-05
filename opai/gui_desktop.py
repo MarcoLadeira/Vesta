@@ -741,32 +741,29 @@ def _run_gui(
                 permission_summary=permission_summary(run_mode),
                 connected=connected,
             )
-            try:
-                from opaihub.workflow_state import load_workflow_state
+            from opaihub.workflow_state import load_workflow_state
 
-                workflow = load_workflow_state(self.root)
-                data["rows"].extend(
-                    [
-                        {"label": "Agent mode", "value": workflow.mode.title()},
-                        {
-                            "label": "Workflow",
-                            "value": workflow.phase.replace("_", " ").title(),
-                        },
-                        {
-                            "label": "Tests",
-                            "value": workflow.tests_status.replace("_", " ").title(),
-                        },
-                        {
-                            "label": "PR / merge",
-                            "value": workflow.pr_url
-                            or workflow.merge_status.replace("_", " ").title(),
-                        },
-                    ]
-                )
-                if workflow.blocker:
-                    data["rows"].append({"label": "Blocker", "value": workflow.blocker})
-            except Exception:  # noqa: BLE001
-                pass
+            workflow = load_workflow_state(self.root)
+            data["rows"].extend(
+                [
+                    {"label": "Agent mode", "value": workflow.mode.title()},
+                    {
+                        "label": "Workflow",
+                        "value": workflow.phase.replace("_", " ").title(),
+                    },
+                    {
+                        "label": "Tests",
+                        "value": workflow.tests_status.replace("_", " ").title(),
+                    },
+                    {
+                        "label": "PR / merge",
+                        "value": workflow.pr_url
+                        or workflow.merge_status.replace("_", " ").title(),
+                    },
+                ]
+            )
+            if workflow.blocker:
+                data["rows"].append({"label": "Blocker", "value": workflow.blocker})
             for r in data["rows"]:
                 self.inspector_box.addLayout(self._kv_row(r["label"], r["value"]))
 
