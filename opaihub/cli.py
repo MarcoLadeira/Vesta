@@ -248,6 +248,10 @@ def cmd_models(args: argparse.Namespace) -> int:
         from .eval_harness import run_eval
 
         print_json(run_eval(root, write=not args.no_write))
+    elif args.models_command == "fallback":
+        from .local_fallback import plan_workflow_fallback
+
+        print_json(plan_workflow_fallback(root, args.task_kind).to_dict())
     return 0
 
 
@@ -546,6 +550,11 @@ def build_parser() -> argparse.ArgumentParser:
     mo.set_defaults(func=cmd_models)
     mo = models_sub.add_parser("eval")
     mo.add_argument("--no-write", action="store_true")
+    mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser("fallback")
+    mo.add_argument(
+        "task_kind", choices=["planning", "context_classification", "repair"]
+    )
     mo.set_defaults(func=cmd_models)
 
     p = sub.add_parser("policy")
