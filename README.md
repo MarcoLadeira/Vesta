@@ -9,7 +9,7 @@ your confirmation — then proves the savings in numbers, locally and privately.
 OPai measures the sessions it observes (its GUI chat and wrapped/proxy runs);
 direct unwrapped launches are shown as pass-through, not counted as captured.
 
-OPai 0.2.0 alpha.1 is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, governance controls, benchmark proof, and a real cost ledger.
+OPai 0.2.0 alpha.2 is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, governance controls, benchmark proof, and a real cost ledger.
 
 The goal is simple: make AI-assisted development feel close to "one prompt to build, one prompt to ship" without blindly burning expensive model credits.
 
@@ -231,6 +231,20 @@ op status
 This installs OPai's small core runtime dependency set. Desktop Qt and terminal
 image support remain opt-in through the `desktop-gui` and `terminal-ui` extras.
 
+**Run the CI gate locally.** `scripts/ci_local.py` runs the same checks as the
+GitHub "Test and package" job, so you get a green/red verdict without spending
+GitHub Actions minutes:
+
+```powershell
+python scripts/ci_local.py          # ruff format+check, tests, validate, bandit
+python scripts/ci_local.py --fast   # skip bandit for a quicker inner loop
+python scripts/ci_local.py --full   # also run pip-audit + detect-secrets (network)
+```
+
+It fails fast on the first red step and exits non-zero unless every step passes —
+the same contract as CI. Install the check tools once with
+`python -m pip install "ruff==0.15.9" bandit pip-audit detect-secrets`.
+
 Optional free local tools:
 
 ```powershell
@@ -244,7 +258,7 @@ After the first install, restart terminal sessions and AI coding clients so nati
 
 ## Ultra-Low Credit Mode
 
-OPai 0.2.0 alpha.1 is tuned to spend less than normal AI coding by default:
+OPai 0.2.0 alpha.2 is tuned to spend less than normal AI coding by default:
 
 - `opai route` returns compact local evidence instead of large logs and full diffs.
 - `opai slim` writes AI-client ignore files and reports generated context bloat.
@@ -292,7 +306,7 @@ OPai writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAUD
 ## OPai Commands
 
 ```text
-opai version          show OPai 0.2.0a1 alpha.1
+opai version          show OPai 0.2.0a2 alpha.2
 op version            same as opai version
 op activate           attach current project and ensure Superpowers/AI instructions
 op status             show activation, Superpowers, wrappers, and project state
