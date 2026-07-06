@@ -1,12 +1,13 @@
-name: OPai CI
+name: OPai CI (hosted)
 
+# GitHub-hosted CI. Manual-only for now: this private repo's Actions minutes are
+# capped, so on push/pull_request every job aborts at startup (0 steps) and shows
+# red even though the code is fine. Day-to-day CI runs on the self-hosted runner
+# (ci-selfhosted.yml) at $0. Run this full hosted matrix on demand — e.g. before
+# a release, or once the Actions spending limit is raised — via the Actions tab
+# ("Run workflow"). To restore automatic hosted CI, add back the `pull_request:`
+# and `push:` triggers below.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-  # Manual trigger to run the full cross-OS matrix on demand (e.g. before a
-  # release) without waiting for a push to main.
   workflow_dispatch:
 
 env:
