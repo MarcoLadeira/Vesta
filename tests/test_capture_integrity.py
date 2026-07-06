@@ -12,6 +12,7 @@ from opai import app_state
 from opai.gui_desktop import run_once
 from opai.gui_view_model import build_view_model
 from opaihub.ledger import (
+    CAPTURE_RATE_DEFINITION,
     EVENT_CAPTURE_SESSION,
     read_events,
     record_capture_session,
@@ -271,6 +272,78 @@ class CaptureAggregationTests(unittest.TestCase):
         self.assertIn("capture", once)
         capture_kpi = next(k for k in home["kpis"] if k["label"] == "Capture health")
         self.assertEqual(capture_kpi["value"], "100%")
+
+
+class CaptureClaimContractTests(unittest.TestCase):
+    """Copy and metric semantics must not exceed measured behavior (#9)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_capture_block_exposes_the_four_named_counts_and_denominator(self):
+        capture = summarize_ledger(self.root)["capture"]
+        for key in (
+            "measurable_sessions",
+            "captured_sessions",
+            "pass_through_sessions",
+            "unmeasured_sessions",
+            "denominator",
+            "definition",
+        ):
+            self.assertIn(key, capture, key)
+        self.assertEqual(capture["denominator"], "observed proxy sessions")
+        self.assertEqual(capture["unmeasured_sessions"], "unknown")
+
+    def test_definition_is_the_single_canonical_source(self):
+        capture = summarize_ledger(self.root)["capture"]
+        self.assertEqual(capture["definition"], CAPTURE_RATE_DEFINITION)
+        self.assertIn("not in the denominator", CAPTURE_RATE_DEFINITION["excludes"])
+        self.assertIn(
+            "Client readiness is not capture", CAPTURE_RATE_DEFINITION["excludes"]
+        )
+
+    def test_pass_through_equals_observed_minus_captured(self):
+        for capture_id, captured, outcome in (
+            ("a", True, "completed"),
+            ("b", False, "fail_open"),
+            ("c", False, "fail_open"),
+        ):
+            record_capture_session(
+                self.root,
+                "task",
+                capture_id=capture_id,
+                agent="claude",
+                mode="ask",
+                outcome=outcome,
+                captured=captured,
+                paid=False,
+                spend_accounted=False,
+            )
+        capture = summarize_ledger(self.root)["capture"]
+        self.assertEqual(capture["measurable_sessions"], 3)
+        self.assertEqual(capture["captured_sessions"], 1)
+        self.assertEqual(capture["pass_through_sessions"], 2)
+
+    def test_full_client_readiness_never_implies_full_session_capture(self):
+        # 5/5 clients wired, but zero sessions observed → rate is unknown, not
+        # 100%. Readiness and capture are different denominators.
+        capture = summarize_ledger(self.root)["capture"]
+        self.assertIsNone(capture["rate_percent"])
+        self.assertEqual(capture["measurable_sessions"], 0)
+
+    def test_launch_and_readme_copy_carry_the_capture_boundary(self):
+        root = Path(__file__).resolve().parents[1]
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        checklist = (root / "docs" / "LAUNCH_CHECKLIST.md").read_text(encoding="utf-8")
+        # The universal-capture claim is gone from the headline copy.
+        self.assertNotIn("routes every task", readme)
+        self.assertNotIn("routes every task", checklist)
+        # The honest boundary is present in the README.
+        self.assertIn("pass-through", readme.lower())
 
 
 if __name__ == "__main__":
