@@ -282,15 +282,23 @@ function renderComposerSelects() {
     // asks for acknowledgement, then pins via the dedicated bridge slot — a
     // plain savePref for full-auto is deliberately downgraded server-side.
     if (modeSel.value === "full-auto") {
-      const ok = window.confirm(
-        "Full Auto lets OPai edit files and run commands without asking first.\nPin it until you unpin?"
-      );
-      if (!ok || !bridge.pinFullAuto) { modeSel.value = state.mode.id; return; }
-      bridge.pinFullAuto((res) => {
-        try { const d = JSON.parse(res); state.boot.prefs.fullAutoPinned = !!d.full_auto_pinned; } catch (e) {}
+      // Revert the selector until the styled card is confirmed (#151).
+      modeSel.value = state.mode.id;
+      chatConfirm({
+        title: "Pin Full Auto?",
+        body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Push, deploy, and destructive actions still ask for confirmation.",
+        confirmLabel: "Pin Full Auto",
+        cancelLabel: "Keep current mode",
+        danger: true,
+      }).then((ok) => {
+        if (!ok || !bridge.pinFullAuto) return;
+        bridge.pinFullAuto((res) => {
+          try { const d = JSON.parse(res); state.boot.prefs.fullAutoPinned = !!d.full_auto_pinned; } catch (e) {}
+        });
+        state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
+        modeSel.value = "full-auto";
+        refreshInspector(); refreshStatus();
       });
-      state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
-      refreshInspector(); refreshStatus();
       return;
     }
     // Leaving Full Auto unpins it so the durable default falls back to safe.
@@ -1294,12 +1302,21 @@ function renderSettings() {
     const pb = $("#setPanic"); if (pb) pb.onclick = () => { switchView("chat"); bridge.runTool("panic"); };
     const cb = $("#setConnect"); if (cb) cb.onclick = () => { switchView("chat"); bridge.runTool("connect"); };
     const repair = $("#repairCodex"); if (repair) repair.onclick = () => {
-      if (!window.confirm("Create a backup and remove only service_tier = \"default\" from Codex config?")) return;
-      bridge.repairCodexConfig((json2) => {
-        const result = JSON.parse(json2);
-        if (result.repaired) {
-          repair.closest(".config-repair").innerHTML = `<div><strong>Codex config repaired</strong><div class="set-note">Invalid tier removed; backup created.</div></div>`;
-        } else toast(result.error || "Could not repair Codex config");
+      const host = repair.closest(".config-repair") || repair.parentElement;
+      repair.disabled = true;
+      inlineConfirm(host, {
+        title: "Repair Codex config?",
+        body: "OPai will create a backup, then remove only the invalid service_tier = \"default\" line from your Codex config.",
+        confirmLabel: "Repair config",
+      }).then((ok) => {
+        repair.disabled = false;
+        if (!ok) return;
+        bridge.repairCodexConfig((json2) => {
+          const result = JSON.parse(json2);
+          if (result.repaired) {
+            host.innerHTML = `<div><strong>Codex config repaired</strong><div class="set-note">Invalid tier removed; backup created.</div></div>`;
+          } else toast(result.error || "Could not repair Codex config");
+        });
       });
     };
     page.querySelectorAll("[data-save-provider]").forEach((button) => {
@@ -1377,8 +1394,16 @@ function renderSettings() {
       button.onclick = () => {
         const id = button.dataset.disconnectAccount;
         const label = button.dataset.accountLabel || id;
-        if (!window.confirm(`Sign out of ${label}? You'll need to sign in again to use it.`)) return;
-        button.disabled = true; button.textContent = "Disconnecting…";
+        const host = button.closest(".doctor-card") || button.closest("[data-account-row]") || button.parentElement;
+        button.disabled = true;
+        inlineConfirm(host, {
+          title: `Sign out of ${label}?`,
+          body: "OPai runs the provider's own sign-out so the next run starts a fresh login. You'll need to sign in again to use it.",
+          confirmLabel: "Sign out",
+          danger: true,
+        }).then((ok) => {
+        if (!ok) { button.disabled = false; return; }
+        button.textContent = "Disconnecting…";
         bridge.disconnectAccount(id, (json2) => {
           let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
           button.textContent = "Disconnect";
@@ -1396,6 +1421,7 @@ function renderSettings() {
           } else {
             button.disabled = false;
           }
+        });
         });
       };
     });
@@ -1432,6 +1458,57 @@ const APPROVAL_SCOPE = {
   panic: { risk: "Config change", scope: "Routing policy for this project (reversible)" },
   repair: { risk: "Config change", scope: "OPai client integration files (additive, no source deleted)" },
 };
+
+// Styled inline confirmation (#151) — the in-app replacement for native
+// window.confirm(). Renders explicit consequences, is keyboard-operable
+// (Enter confirms, Escape cancels, the confirm button is focused), and
+// returns a Promise<boolean>. Used for Full Auto (in chat), and the Codex
+// repair / account disconnect settings actions (in place).
+function confirmMarkup({ title, body, confirmLabel = "Confirm", cancelLabel = "Cancel", danger = false }) {
+  return `<div class="inline-confirm${danger ? " danger" : ""}" role="group" aria-label="${esc(title)}" tabindex="-1">
+     <div class="ic-title">${esc(title)}</div>
+     <div class="ic-body">${esc(body)}</div>
+     <div class="ic-actions">
+       <button class="btn primary" data-ic="ok">${esc(confirmLabel)}</button>
+       <button class="btn" data-ic="cancel">${esc(cancelLabel)}</button>
+     </div>
+   </div>`;
+}
+
+function wireConfirm(scope) {
+  return new Promise((resolve) => {
+    const box = scope.querySelector(".inline-confirm");
+    let settled = false;
+    const finish = (val) => {
+      if (settled) return;
+      settled = true;
+      box.querySelectorAll("button").forEach((b) => (b.disabled = true));
+      box.removeEventListener("keydown", onKey);
+      resolve(val);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); finish(false); }
+      else if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    };
+    box.addEventListener("keydown", onKey);
+    box.querySelector('[data-ic="ok"]').onclick = () => finish(true);
+    box.querySelector('[data-ic="cancel"]').onclick = () => finish(false);
+    const ok = box.querySelector('[data-ic="ok"]'); if (ok) ok.focus();
+  });
+}
+
+function chatConfirm(opts) {
+  switchView("chat");
+  return wireConfirm(appendMsg(confirmMarkup(opts), "bot"));
+}
+
+function inlineConfirm(hostEl, opts) {
+  const holder = document.createElement("div");
+  holder.className = "inline-confirm-holder";
+  holder.innerHTML = confirmMarkup(opts);
+  hostEl.appendChild(holder);
+  return wireConfirm(holder).then((ok) => { holder.remove(); return ok; });
+}
 
 // In-chat approval card — replaces the native confirm() with a proper gate:
 // what's requested, why, the blast radius, and Approve once / Deny. Approve is

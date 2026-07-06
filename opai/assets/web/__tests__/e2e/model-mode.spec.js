@@ -73,25 +73,40 @@ test("unavailable model options are disabled with their reason", async ({ page }
   await expect(option).toHaveAttribute("title", /Preview access is not enabled/);
 });
 
-test("selecting Full Auto requires an explicit risk confirmation", async ({ page }) => {
+test("selecting Full Auto shows a styled in-chat confirm, no native dialog (#151)", async ({ page }) => {
   await openApp(page);
   let dialogs = 0;
   page.on("dialog", async (dialog) => { dialogs += 1; await dialog.dismiss(); });
   await page.selectOption("#modeSel", "full-auto");
-  expect(dialogs).toBe(1);
+  // The confirmation is an in-chat card, never a native window.confirm.
+  await expect(page.locator(".inline-confirm")).toBeVisible();
+  await expect(page.locator(".inline-confirm .ic-title")).toContainText("Pin Full Auto");
+  expect(dialogs).toBe(0);
+  // Cancelling keeps the current mode and does not pin (#137).
+  await page.click('.inline-confirm [data-ic="cancel"]');
   await expect(page.locator("#modeSel")).toHaveValue("safe-auto");
-  // Dismissing the confirmation must not pin Full Auto (#137).
   expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(0);
 });
 
-test("confirming Full Auto pins it via the dedicated bridge slot (#137)", async ({ page }) => {
+test("confirming the Full Auto card pins it via the dedicated bridge slot (#137/#151)", async ({ page }) => {
   await openApp(page);
   page.on("dialog", async (dialog) => { await dialog.accept(); });
   await page.selectOption("#modeSel", "full-auto");
+  await page.click('.inline-confirm [data-ic="ok"]');
   expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(1);
+  await expect(page.locator("#modeSel")).toHaveValue("full-auto");
   // A plain savePref for full-auto must never be used to persist it.
   const savedFullAuto = await page.evaluate(() =>
     window.__mock.savedPrefs.filter((p) => p[0] === "default_mode" && p[1] === "full-auto").length
   );
   expect(savedFullAuto).toBe(0);
+});
+
+test("the Full Auto confirm is keyboard-operable (#151)", async ({ page }) => {
+  await openApp(page);
+  await page.selectOption("#modeSel", "full-auto");
+  await expect(page.locator(".inline-confirm")).toBeVisible();
+  // Enter on the focused confirm button pins Full Auto.
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(1);
 });

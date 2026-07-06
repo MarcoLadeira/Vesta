@@ -40,11 +40,16 @@ test("test connection on a genuinely healthy account confirms connected", async 
   await expect(page.locator('[data-account-status="claude"]')).toHaveText("connected");
 });
 
-test("disconnect asks for confirmation, then signs out and updates the row", async ({ page }) => {
+test("disconnect asks with a styled inline confirm, then signs out and updates the row", async ({ page }) => {
+  let dialogs = 0;
+  page.on("dialog", async (dialog) => { dialogs += 1; await dialog.dismiss(); });
   await openApp(page);
   await openNav(page, "Settings");
-  page.once("dialog", (dialog) => dialog.accept());
   await page.locator('[data-disconnect-account="claude"]').click();
+  // Confirmation is an in-place card, never a native dialog (#151).
+  await expect(page.locator(".inline-confirm").first()).toBeVisible();
+  expect(dialogs).toBe(0);
+  await page.locator('.inline-confirm [data-ic="ok"]').first().click();
   expect(await page.evaluate(() => window.__mock.disconnects)).toContain("claude");
   await expect(page.locator('[data-account-status="claude"]')).toHaveText("not connected");
   // Nothing left to disconnect or test once signed out.
@@ -54,10 +59,12 @@ test("disconnect asks for confirmation, then signs out and updates the row", asy
 test("cancelling the disconnect confirmation leaves the account untouched", async ({ page }) => {
   await openApp(page);
   await openNav(page, "Settings");
-  page.once("dialog", (dialog) => dialog.dismiss());
   await page.locator('[data-disconnect-account="claude"]').click();
+  await page.locator('.inline-confirm [data-ic="cancel"]').first().click();
   expect(await page.evaluate(() => window.__mock.disconnects)).toEqual([]);
   await expect(page.locator('[data-account-status="claude"]')).toHaveText("connected");
+  // The button is usable again after cancelling.
+  await expect(page.locator('[data-disconnect-account="claude"]')).toBeEnabled();
 });
 
 test("settings renders disconnected accounts without crashing", async ({ page }) => {
@@ -168,8 +175,13 @@ test("known invalid Codex tier is repaired only after confirmation", async ({ pa
     },
   });
   await openNav(page, "Settings");
-  page.once("dialog", (dialog) => dialog.accept());
+  let dialogs = 0;
+  page.on("dialog", async (dialog) => { dialogs += 1; await dialog.dismiss(); });
   await page.getByRole("button", { name: "Repair Codex config" }).click();
+  // Confirmation is an in-place card, never a native dialog (#151).
+  await expect(page.locator(".inline-confirm .ic-title")).toContainText("Repair Codex config");
+  expect(dialogs).toBe(0);
+  await page.locator('.inline-confirm [data-ic="ok"]').click();
   expect(await page.evaluate(() => window.__mock.codexRepairs)).toBe(1);
   await expect(page.locator("#settingsPage")).toContainText("backup created");
 });

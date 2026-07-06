@@ -465,6 +465,18 @@ kbd {
 .approval-card.approved .ap-state { color: var(--green); }
 .approval-card.denied .ap-state { color: var(--muted); }
 
+/* Styled inline confirmation (#151) — replaces native window.confirm(). */
+.inline-confirm {
+  background: rgba(0, 0, 0, 0.02); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: 13px 15px; margin-top: 8px; box-shadow: var(--inset-hi);
+  outline: none;
+}
+.inline-confirm.danger { background: rgba(230, 177, 94, 0.06); border-color: rgba(230, 177, 94, 0.4); }
+.inline-confirm .ic-title { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.inline-confirm .ic-body { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.inline-confirm .ic-actions { display: flex; gap: 8px; margin-top: 12px; }
+.inline-confirm button:disabled { opacity: 0.45; cursor: default; transform: none; }
+
 /* Plan Editor card (#130) — steps parsed from the real plan answer. */
 .plan-card {
   background: rgba(116, 182, 255, 0.05); border: 1px solid rgba(116, 182, 255, 0.28);
