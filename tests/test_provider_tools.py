@@ -128,6 +128,21 @@ deleted file mode 100644
         self.assertEqual(malformed["error_code"], "INVALID_TOOL_ARGUMENTS")
         self.assertEqual(cancelled["error_code"], "CANCELLED")
 
+    def test_invalid_numeric_arguments_and_absolute_globs_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            executor = RepositoryToolExecutor(root, allow_edits=False)
+
+            invalid_limit = executor.invoke("find_files", {"limit": "many"})
+            invalid_line = executor.invoke(
+                "read_file", {"path": "app.py", "start_line": "first"}
+            )
+            absolute_glob = executor.invoke("find_files", {"pattern": str(root / "*")})
+
+        self.assertEqual(invalid_limit["error_code"], "INVALID_TOOL_ARGUMENTS")
+        self.assertEqual(invalid_line["error_code"], "INVALID_TOOL_ARGUMENTS")
+        self.assertEqual(absolute_glob["error_code"], "INVALID_TOOL_ARGUMENTS")
+
     def test_test_tool_accepts_only_detected_fixed_command_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(

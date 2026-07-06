@@ -385,6 +385,51 @@ class FreeAPIRunnerTests(unittest.TestCase):
         ]
         self.assertNotIn("apply_patch", names)
 
+    def test_tool_loop_enforces_limit_across_batched_calls(self):
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "read-1",
+                                "function": {
+                                    "name": "apply_patch",
+                                    "arguments": '{"patch":'
+                                    + json.dumps(PATCH_ONE_TO_TWO)
+                                    + "}",
+                                },
+                            },
+                            {
+                                "id": "read-2",
+                                "function": {
+                                    "name": "read_file",
+                                    "arguments": '{"path":"app.py"}',
+                                },
+                            },
+                        ],
+                    }
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch(
+                "opaihub.local_runner._http_json_cancellable", return_value=response
+            ):
+                with self.assertRaisesRegex(RuntimeError, "tool-call limit"):
+                    runner.complete_with_tools(
+                        "Read app.py",
+                        project_root=root,
+                        allow_edits=True,
+                        max_tool_calls=1,
+                    )
+            self.assertEqual((root / "app.py").read_text(), "value = 1\n")
+
 
 class AskFreeModelTests(unittest.TestCase):
     """Tests for the ask() → _ask_free_model() dispatch path."""

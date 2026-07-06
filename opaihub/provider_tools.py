@@ -49,6 +49,20 @@ def _error(code: str, message: str, *, kind: str = "provider_tool") -> dict[str,
     ).to_dict()
 
 
+def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int | None:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < minimum or parsed > maximum:
+        return None
+    return parsed
+
+
 def _patch_paths(patch: str) -> tuple[str, ...]:
     paths: list[str] = []
     for line in patch.splitlines():
@@ -240,7 +254,16 @@ class RepositoryToolExecutor:
             return _error("INVALID_TOOL_ARGUMENTS", "Tool arguments must be an object")
         if name == "find_files":
             pattern = str(arguments.get("pattern") or "*")
-            limit = min(500, max(1, int(arguments.get("limit") or 200)))
+            if Path(pattern).is_absolute() or ".." in Path(pattern).parts:
+                return _error(
+                    "INVALID_TOOL_ARGUMENTS",
+                    "File pattern must be repository-relative",
+                )
+            limit = _bounded_int(
+                arguments.get("limit"), default=200, minimum=1, maximum=500
+            )
+            if limit is None:
+                return _error("INVALID_TOOL_ARGUMENTS", "Invalid file result limit")
             return self.aci.find_files(pattern, limit=limit).to_dict()
         if name == "search_code":
             query = arguments.get("query")
@@ -251,20 +274,34 @@ class RepositoryToolExecutor:
                 return _error(
                     "PATH_OUTSIDE_REPO", "Search path is outside the repository"
                 )
-            limit = min(200, max(1, int(arguments.get("limit") or 200)))
+            limit = _bounded_int(
+                arguments.get("limit"), default=200, minimum=1, maximum=200
+            )
+            if limit is None:
+                return _error("INVALID_TOOL_ARGUMENTS", "Invalid search result limit")
             return self.aci.search(query, paths=paths, limit=limit).to_dict()
         if name == "read_file":
             path = arguments.get("path")
             if not isinstance(path, str) or not path:
                 return _error("INVALID_TOOL_ARGUMENTS", "File path is required")
+            start_line = _bounded_int(
+                arguments.get("start_line"),
+                default=1,
+                minimum=1,
+                maximum=1_000_000,
+            )
+            end_line = _bounded_int(
+                arguments.get("end_line"),
+                default=1_000_000,
+                minimum=1,
+                maximum=1_000_000,
+            )
+            if start_line is None or end_line is None:
+                return _error("INVALID_TOOL_ARGUMENTS", "Invalid file line range")
             return self.aci.read_slice(
                 path,
-                start_line=max(1, int(arguments.get("start_line") or 1)),
-                end_line=(
-                    max(1, int(arguments["end_line"]))
-                    if arguments.get("end_line") is not None
-                    else None
-                ),
+                start_line=start_line,
+                end_line=(end_line if arguments.get("end_line") is not None else None),
             ).to_dict()
         if name == "apply_patch":
             return self._apply_patch(arguments)

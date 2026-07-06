@@ -204,7 +204,7 @@ def _classify_gemini(agent: str, argv: Sequence[str]) -> InvocationPlan:
             if model is None:
                 return _passthrough(agent, argv, "missing_option_value")
             index += 1
-        elif token == "--approval-mode":
+        elif token == "--approval-mode":  # nosec B105
             approval_mode, index = _option_value(argv, index)
             mapped = opai_mode_for_gemini_approval(str(approval_mode or ""))
             if mapped is None:
@@ -221,7 +221,7 @@ def _classify_gemini(agent: str, argv: Sequence[str]) -> InvocationPlan:
             output_format, index = _option_value(argv, index)
             if output_format != "text":
                 return _passthrough(agent, argv, "unsupported_option")
-        elif token == "--output-format=text":
+        elif token == "--output-format=text":  # nosec B105
             index += 1
         else:
             return _passthrough(

@@ -402,7 +402,8 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         measured = False
         quota = None
         limit = max(1, int(max_tool_calls or MAX_TOOL_CALLS))
-        for _ in range(limit):
+        tool_calls_used = 0
+        while True:
             if cancel is not None and cancel.is_set():
                 raise LocalRunCancelled("Provider tool loop cancelled")
             result = self._chat(
@@ -418,6 +419,8 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             quota = usage.get("quota_snapshot") or quota
             message = (result.get("choices") or [{}])[0].get("message") or {}
             calls = message.get("tool_calls") or []
+            if not isinstance(calls, list):
+                raise RuntimeError("Provider returned malformed tool calls")
             if not calls:
                 self.last_usage = {
                     "input_tokens": input_tokens,
@@ -430,6 +433,8 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                     "text": str(message.get("content") or "").strip(),
                     "tool_trace": trace,
                 }
+            if len(calls) > limit - tool_calls_used:
+                raise RuntimeError("Provider tool-call limit reached")
             messages.append(
                 {
                     "role": "assistant",
@@ -441,10 +446,11 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                 observation = executor.invoke_call(call, cancel=cancel)
                 function = call.get("function") if isinstance(call, dict) else {}
                 name = str((function or {}).get("name") or "unknown")
+                call_id = str(call.get("id") or "") if isinstance(call, dict) else ""
                 trace.append(
                     {
                         "tool": name,
-                        "call_id": str(call.get("id") or ""),
+                        "call_id": call_id,
                         "ok": bool(observation.get("ok")),
                         "error_code": str(observation.get("error_code") or ""),
                         "message": str(observation.get("message") or ""),
@@ -454,11 +460,11 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": str(call.get("id") or ""),
+                        "tool_call_id": call_id,
                         "content": json.dumps(observation, sort_keys=True),
                     }
                 )
-        raise RuntimeError("Provider tool-call limit reached")
+            tool_calls_used += len(calls)
 
 
 def _candidate_runners() -> list[tuple[str, LocalRunner]]:
