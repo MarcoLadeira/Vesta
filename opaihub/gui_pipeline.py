@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import uuid
 from pathlib import Path
@@ -12,6 +13,7 @@ from .agent_policy import (
 )
 from .agent_runtime import AgentRuntime, RuntimePhase
 from .autonomy import effective_mode
+from .checkpoints import create_run_checkpoint, finalize_run_checkpoint
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
 from .cost_telemetry import (
     estimated_telemetry,
@@ -335,6 +337,20 @@ def handle_gui_message(
         history=tuple(event.to_dict() for event in runtime.state.history),
     )
     save_workflow_state(root, workflow)
+    # Recoverable checkpoint (#75): every run is checkpointed BEFORE the provider
+    # can touch files, so an edit-capable path always has a checkpoint id and
+    # git/mode/policy/budget baseline recorded first. Read-only runs get an
+    # honest, non-edit checkpoint too. Never stores prompts or secrets.
+    edit_capable = policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}
+    checkpoint = create_run_checkpoint(
+        root,
+        task=message,
+        task_id=runtime.task_id,
+        edit_capable=edit_capable,
+        mode=policy.mode.value,
+        model=selected_model,
+        policy=policy.to_dict(),
+    )
     provider_message = (
         build_capability_contract(policy, active_repo=str(repo_context.path))
         + "\n\nOPai task packet (workflow state remains owned by OPai):\n"
@@ -445,12 +461,45 @@ def handle_gui_message(
             telemetry=payload.get("cost_telemetry") or {},
         )
         save_workflow_state(root, state)
+        # Finalize the checkpoint (#75) with the run's real result. Completion
+        # state is honest per outcome: an edit-capable answered run is
+        # "answered"; a read-only answer is "read_only"; confirmation prompts
+        # edited nothing; a cancel with no in-run changes is
+        # "cancelled_before_edit".
+        if status == "answered":
+            completion = "answered" if edit_capable else "read_only"
+        elif status == "cancelled":
+            completion = "cancelled_before_edit" if not changed_files else "cancelled"
+        elif status == "blocked":
+            completion = "blocked"
+        elif status.startswith("needs_"):
+            completion = "read_only"
+        else:
+            completion = "failed"
+        recovery = tuple(str(item) for item in payload.get("next_actions") or ())
+        with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
+            finalize_run_checkpoint(
+                root,
+                checkpoint.checkpoint_id,
+                completion_state=completion,
+                outcome=str(payload.get("status") or ""),
+                changed_files=changed_files,
+                diff_summary=diff_review.get("summary") or {},
+                recovery_actions=recovery,
+            )
         return {
             **payload,
             "agent_policy": policy.to_dict(),
             "requested_run_mode": autonomy.requested_mode,
             "effective_run_mode": selected_mode,
             "autonomy": autonomy.to_dict(),
+            "checkpoint_id": checkpoint.checkpoint_id,
+            "checkpoint": {
+                "id": checkpoint.checkpoint_id,
+                "edit_capable": checkpoint.edit_capable,
+                "completion_state": completion,
+                "git_head": checkpoint.git.get("head", ""),
+            },
             "repo_context": current_repo.to_dict(),
             "workflow": state.to_dict(),
             "task_packet": task_packet.to_dict(),
