@@ -650,7 +650,9 @@ def ask(
         )
 
     if model_choice and model_choice.startswith("free:"):
-        return _ask_free_model(root, task, model_choice, allow_cloud=allow_cloud)
+        return _ask_free_model(
+            root, task, model_choice, allow_cloud=allow_cloud, cancel=cancel
+        )
 
     from opaihub.ask import run_ask
     from opaihub.local_runner import runner_for_model
@@ -658,7 +660,9 @@ def ask(
     runner = None
     if model_choice and model_choice != "auto":
         runner = runner_for_model(model_choice, project_root)
-    return run_ask(root, task, runner=runner, record=True, allow_cloud=allow_cloud)
+    return run_ask(
+        root, task, runner=runner, record=True, allow_cloud=allow_cloud, cancel=cancel
+    )
 
 
 def _ask_free_model(
@@ -667,6 +671,7 @@ def _ask_free_model(
     model_id: str,
     *,
     allow_cloud: bool = False,
+    cancel: Any = None,
 ) -> dict[str, Any]:
     """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
 
@@ -714,6 +719,7 @@ def _ask_free_model(
         record=True,
         allow_cloud=True,
         selected_model_id=model_id,
+        cancel=cancel,
     )
     if result.get("status") == "runner_error":
         from opai.provider_contract import normalize_provider_error
