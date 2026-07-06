@@ -67,6 +67,17 @@ def gemini_approval_mode(mode: str) -> str:
     }.get(str(mode or "").lower(), "plan")
 
 
+def opai_mode_for_gemini_approval(approval_mode: str) -> str | None:
+    """Translate a supported Gemini CLI approval mode back to OPai autonomy."""
+
+    return {
+        "plan": "plan",
+        "default": "ask",
+        "auto_edit": "safe-auto",
+        "yolo": "full-auto",
+    }.get(str(approval_mode or "").lower())
+
+
 def resolve_execution_plan(
     adapter: ProviderAdapter,
     policy: Any,

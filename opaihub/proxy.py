@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-SUPPORTED_AGENTS = ("claude", "codex", "copilot")
+SUPPORTED_AGENTS = ("claude", "codex", "copilot", "gemini")
 _EDIT_MODES = {"safe-auto", "full-auto"}
 
 

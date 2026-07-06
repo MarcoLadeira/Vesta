@@ -32,7 +32,7 @@ defines the Free / Pro / Team / Enterprise boundaries (issue #38).
 - Local-first cost-aware routing and evidence collection (`opai route`).
 - Privacy-safe local **usage ledger** and per-project **savings report**
   (`opai savings`).
-- Activation across **Claude, Codex, Copilot, Cursor, and Cline**
+- Activation across **Claude, Codex, Copilot, Gemini, Cursor, and Cline**
   (`opai activate`, `opai doctor`).
 - `solo-cheap` and `solo-balanced` **policy profiles**.
 - Guarded-workflow contract with fail-closed gates.

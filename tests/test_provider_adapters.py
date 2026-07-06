@@ -4,6 +4,7 @@ from opaihub.agent_policy import resolve_agent_policy
 from opaihub.provider_adapters import (
     adapter_for,
     gemini_approval_mode,
+    opai_mode_for_gemini_approval,
     resolve_execution_plan,
 )
 
@@ -41,6 +42,11 @@ class ProviderCapabilityTests(unittest.TestCase):
         self.assertEqual(gemini_approval_mode("approve-edits"), "auto_edit")
         self.assertEqual(gemini_approval_mode("full-auto"), "yolo")
         self.assertEqual(gemini_approval_mode("unknown"), "plan")
+        self.assertEqual(opai_mode_for_gemini_approval("plan"), "plan")
+        self.assertEqual(opai_mode_for_gemini_approval("default"), "ask")
+        self.assertEqual(opai_mode_for_gemini_approval("auto_edit"), "safe-auto")
+        self.assertEqual(opai_mode_for_gemini_approval("yolo"), "full-auto")
+        self.assertIsNone(opai_mode_for_gemini_approval("unknown"))
 
 
 if __name__ == "__main__":

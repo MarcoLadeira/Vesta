@@ -289,7 +289,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "label": "Agents",
         "icon": "users",
         "title": "Agent Readiness",
-        "subtitle": "Claude, Codex, Copilot, Cursor, and Cline should all start from OPai policy.",
+        "subtitle": "Claude, Codex, Copilot, Gemini, Cursor, and Cline should all start from OPai policy.",
         "cards": agent_cards,
         "actions": [
             _action(

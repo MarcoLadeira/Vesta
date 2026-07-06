@@ -1,6 +1,6 @@
 """Per-client activation detection for OPai (issue #35).
 
-Reports whether each supported AI client (Claude, Codex, Copilot, Cursor, Cline)
+Reports whether each supported AI client (Claude, Codex, Copilot, Gemini, Cursor, Cline)
 is active, broken, or missing for a project, and gives a concrete repair command
 when something is wrong. Also detects stale/moved install paths.
 """
@@ -36,6 +36,14 @@ def _client_specs(project_root: Path, home: Path) -> list[dict[str, Any]]:
             "project_files": [project_root / ".github" / "copilot-instructions.md"],
             "global_files": [
                 opai_home(home) / "integrations" / "copilot-instructions.md"
+            ],
+        },
+        {
+            "id": "gemini",
+            "label": "Gemini CLI",
+            "project_files": [project_root / "GEMINI.md"],
+            "global_files": [
+                opai_home(home) / "integrations" / "gemini-instructions.md"
             ],
         },
         {

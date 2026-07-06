@@ -1459,7 +1459,9 @@ def build_parser() -> argparse.ArgumentParser:
     i = integrate_sub.add_parser("install")
     i.add_argument("--project", default=None, help="Project root")
     i.add_argument(
-        "--targets", default="all", help="Comma list: codex,claude,copilot,shell or all"
+        "--targets",
+        default="all",
+        help="Comma list: codex,claude,copilot,gemini,shell or all",
     )
     i.add_argument("--shell-aliases", action="store_true")
     i.add_argument("--home", help=argparse.SUPPRESS)
@@ -1640,7 +1642,7 @@ def build_parser() -> argparse.ArgumentParser:
         "agent-launch",
         help="Internal shell-wrapper entrypoint for capture-aware agent launches",
     )
-    p.add_argument("agent", help="claude | codex | copilot")
+    p.add_argument("agent", help="claude | codex | copilot | gemini")
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("agent_args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_agent_launch)

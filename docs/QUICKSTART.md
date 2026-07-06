@@ -18,7 +18,7 @@ Then restart your terminal once. If `op` is not yet on `PATH`, use
 opai doctor
 ```
 
-`readiness` is `ready` when Claude, Codex, Copilot, Cursor, and Cline all show
+`readiness` is `ready` when Claude, Codex, Copilot, Gemini, Cursor, and Cline all show
 `active`. Anything `broken` or `missing` comes with a concrete repair command:
 
 ```sh

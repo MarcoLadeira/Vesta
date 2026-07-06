@@ -71,7 +71,7 @@ python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
 
 ```text
 OPai is the AI coding cost firewall: local-first routing, benchmarks, savings,
-and governance for Claude, Codex, Copilot, Cursor, and Cline.
+and governance for Claude, Codex, Copilot, Gemini, Cursor, and Cline.
 ```
 
 ## Days 8-14: First Users

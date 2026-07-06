@@ -14,7 +14,7 @@ from typing import Any, Sequence
 from uuid import uuid4
 
 PASSTHROUGH_EXIT = 125
-SUPPORTED_AGENTS = {"claude", "codex", "copilot"}
+SUPPORTED_AGENTS = {"claude", "codex", "copilot", "gemini"}
 
 
 @dataclass(frozen=True)
@@ -177,6 +177,71 @@ def _classify_copilot(agent: str, argv: Sequence[str]) -> InvocationPlan:
     )
 
 
+def _classify_gemini(agent: str, argv: Sequence[str]) -> InvocationPlan:
+    from .provider_adapters import opai_mode_for_gemini_approval
+
+    prompt: str | None = None
+    model: str | None = None
+    mode = "ask"
+    index = 0
+    while index < len(argv):
+        token = str(argv[index])
+        if token in {"-p", "--prompt"}:
+            prompt, index = _option_value(argv, index)
+            if not prompt:
+                return _passthrough(agent, argv, "missing_option_value")
+        elif token.startswith("--prompt="):
+            prompt = token.partition("=")[2] or None
+            if prompt is None:
+                return _passthrough(agent, argv, "missing_option_value")
+            index += 1
+        elif token in {"-m", "--model"}:
+            model, index = _option_value(argv, index)
+            if not model:
+                return _passthrough(agent, argv, "missing_option_value")
+        elif token.startswith("--model="):
+            model = token.partition("=")[2] or None
+            if model is None:
+                return _passthrough(agent, argv, "missing_option_value")
+            index += 1
+        elif token == "--approval-mode":
+            approval_mode, index = _option_value(argv, index)
+            mapped = opai_mode_for_gemini_approval(str(approval_mode or ""))
+            if mapped is None:
+                return _passthrough(agent, argv, "unsupported_approval_mode")
+            mode = mapped
+        elif token.startswith("--approval-mode="):
+            approval_mode = token.partition("=")[2]
+            mapped = opai_mode_for_gemini_approval(approval_mode)
+            if mapped is None:
+                return _passthrough(agent, argv, "unsupported_approval_mode")
+            mode = mapped
+            index += 1
+        elif token in {"--output-format", "-o"}:
+            output_format, index = _option_value(argv, index)
+            if output_format != "text":
+                return _passthrough(agent, argv, "unsupported_option")
+        elif token == "--output-format=text":
+            index += 1
+        else:
+            return _passthrough(
+                agent,
+                argv,
+                "unsupported_option" if token.startswith("-") else "management_command",
+            )
+    if not prompt or not prompt.strip():
+        return _passthrough(agent, argv, "interactive_or_management")
+    return InvocationPlan(
+        agent=agent,
+        kind="proxy",
+        argv=tuple(str(item) for item in argv),
+        reason="canonical_prompt",
+        prompt=prompt,
+        model=model,
+        mode=mode,
+    )
+
+
 def classify_invocation(agent: str, argv: Sequence[str]) -> InvocationPlan:
     """Return a conservative proxy/passthrough plan without side effects."""
     normalized = (agent or "").strip().lower()
@@ -187,7 +252,9 @@ def classify_invocation(agent: str, argv: Sequence[str]) -> InvocationPlan:
         return _classify_claude(normalized, args)
     if normalized == "codex":
         return _classify_codex(normalized, args)
-    return _classify_copilot(normalized, args)
+    if normalized == "copilot":
+        return _classify_copilot(normalized, args)
+    return _classify_gemini(normalized, args)
 
 
 def _record_passthrough(root: Path, plan: InvocationPlan, reason: str) -> None:

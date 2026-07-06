@@ -14,7 +14,7 @@ Every step is a real command with an observable result.
       (Fallback before PATH reloads: `python -m opai version`.)
 - [ ] **Project activates.** `opai activate` writes project instructions and
       returns `"status": "active"`.
-- [ ] **All five clients active.** `opai doctor` shows `readiness: ready` and
+- [ ] **All six clients active.** `opai doctor` shows `readiness: ready` and
       `client_integrations.summary.active` lists
       `claude, codex, copilot, cursor, cline`.
 - [ ] **Client rule files exist:**

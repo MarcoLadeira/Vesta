@@ -29,7 +29,7 @@ class OPaiIntegrationTests(unittest.TestCase):
             result = install_global_integrations(
                 project,
                 home=home,
-                targets=["codex", "claude", "copilot", "shell"],
+                targets=["codex", "claude", "copilot", "gemini", "shell"],
                 install_shell_aliases=False,
             )
 
@@ -43,6 +43,10 @@ class OPaiIntegrationTests(unittest.TestCase):
                 (home / ".opai" / "integrations" / "copilot-instructions.md").exists()
             )
             self.assertTrue((home / ".opai" / "bin" / "opai-codex.ps1").exists())
+            self.assertTrue((home / ".opai" / "bin" / "opai-gemini.ps1").exists())
+            self.assertTrue(
+                (home / ".opai" / "integrations" / "gemini-instructions.md").exists()
+            )
 
             status = load_global_status(home)
             self.assertEqual(status["brand"], "OPai")
@@ -122,6 +126,7 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertTrue((project / ".opaihub" / "activation.json").exists())
             self.assertTrue((project / "AGENTS.md").exists())
             self.assertTrue((project / "CLAUDE.md").exists())
+            self.assertTrue((project / "GEMINI.md").exists())
             self.assertTrue((project / ".claudeignore").exists())
             self.assertTrue((project / ".opaiignore").exists())
             self.assertTrue((project / ".github" / "copilot-instructions.md").exists())
@@ -298,6 +303,7 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertIn('-m opai "$@"; }', text)
             self.assertIn("opai() { ", text)
             self.assertIn("opai-codex", text)
+            self.assertIn("opai-gemini", text)
 
     def test_posix_wrappers_delegate_to_capture_adapter_then_exec_raw(self):
         with (
@@ -308,7 +314,7 @@ class OPaiIntegrationTests(unittest.TestCase):
             home = Path(home_tmp)
             install_global_integrations(project, home=home, targets=["shell"])
 
-            for agent in ("claude", "codex", "copilot"):
+            for agent in ("claude", "codex", "copilot", "gemini"):
                 wrapper = (home / ".opai" / "bin" / f"opai-{agent}").read_text(
                     encoding="utf-8"
                 )

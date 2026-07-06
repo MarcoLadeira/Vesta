@@ -329,7 +329,7 @@ class CaptureClaimContractTests(unittest.TestCase):
         self.assertEqual(capture["pass_through_sessions"], 2)
 
     def test_full_client_readiness_never_implies_full_session_capture(self):
-        # 5/5 clients wired, but zero sessions observed → rate is unknown, not
+        # All clients wired, but zero sessions observed → rate is unknown, not
         # 100%. Readiness and capture are different denominators.
         capture = summarize_ledger(self.root)["capture"]
         self.assertIsNone(capture["rate_percent"])
