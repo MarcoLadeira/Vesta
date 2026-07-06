@@ -144,16 +144,21 @@ def cmd_cost(args: argparse.Namespace) -> int:
 
 def cmd_git(args: argparse.Namespace) -> int:
     root = resolve_project_path(args.project)
-    if args.git_command == "summary":
-        print_json(git_summary(root, args.base))
-    elif args.git_command == "secrets":
-        print_json(secret_scan_diff(root, staged=args.staged))
-    elif args.git_command == "commit-message":
-        print(suggest_commit_message(root, args.base))
-    elif args.git_command == "branch-name":
-        print(suggest_branch_name(args.task, prefix=args.prefix))
-    elif args.git_command == "pr":
-        print(pr_description(root, args.base))
+    try:
+        if args.git_command == "summary":
+            print_json(git_summary(root, args.base))
+        elif args.git_command == "secrets":
+            print_json(secret_scan_diff(root, staged=args.staged))
+        elif args.git_command == "commit-message":
+            print(suggest_commit_message(root, args.base))
+        elif args.git_command == "branch-name":
+            print(suggest_branch_name(args.task, prefix=args.prefix))
+        elif args.git_command == "pr":
+            print(pr_description(root, args.base))
+    except ValueError as exc:
+        # Unsafe or unknown ref (#20): refuse loudly, never run the command.
+        print_json({"status": "error", "message": str(exc)})
+        return 2
     return 0
 
 
@@ -176,7 +181,12 @@ def cmd_test(args: argparse.Namespace) -> int:
 
 def cmd_review(args: argparse.Namespace) -> int:
     root = resolve_project_path(args.project)
-    result = review_diff(root, args.base)
+    try:
+        result = review_diff(root, args.base)
+    except ValueError as exc:
+        # Unsafe or unknown ref (#20): refuse loudly, never run the command.
+        print_json({"status": "error", "message": str(exc)})
+        return 2
     if args.json:
         print_json(result)
     else:

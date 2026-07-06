@@ -6,18 +6,73 @@ from typing import Any
 
 from .utils import find_secret_hits, run_command, slugify
 
+# Refs cross a security boundary (#20): user input becomes a Git positional
+# argument. Only plain branch/tag/commit names pass - the charset excludes
+# option dashes up front, whitespace, shell metacharacters, control bytes,
+# and every revision-expression operator (~ ^ : @{ } ? * [ \). Range syntax,
+# empty path segments, and ".lock" endings are rejected explicitly.
+_REF_GRAMMAR = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$")
+
+
+def validate_ref(ref: str) -> str:
+    """Accept only a plain ref name; anything ambiguous fails closed."""
+
+    value = str(ref or "").strip()
+    if (
+        not value
+        or not _REF_GRAMMAR.fullmatch(value)
+        or ".." in value
+        or "//" in value
+        or value.endswith((".lock", "/", "."))
+    ):
+        raise ValueError(
+            "Rejected unsafe Git ref: use a plain branch, tag, or commit name"
+        )
+    return value
+
+
+def resolve_ref(root: Path, ref: str) -> str:
+    """Grammar-check ``ref`` and confirm it names a real commit (fail closed)."""
+
+    value = validate_ref(ref)
+    result = run_command(
+        ["git", "rev-parse", "--verify", "--quiet", f"{value}^{{commit}}"],
+        root,
+        timeout=15,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        raise ValueError(f"Unknown Git ref: {value}")
+    return value
+
+
+def _diff_argv(*options: str, rev_range: str | None) -> list[str]:
+    """Structured git-diff argv: resolved range, no external diff, terminator."""
+
+    argv = ["git", "diff", "--no-ext-diff", *options]
+    if rev_range:
+        argv.append(rev_range)
+    argv += ["--", "."]
+    return argv
+
+
+def _rev_range(root: Path, base: str | None) -> str | None:
+    """Validate then resolve ``base`` before any other command is built."""
+
+    return f"{resolve_ref(root, base)}...HEAD" if base else None
+
 
 def git_summary(root: Path, base: str | None = None) -> dict[str, Any]:
-    status = run_command("git status --short --branch -- .", root, timeout=20)
-    stat_cmd = f"git diff --stat {base}...HEAD -- ." if base else "git diff --stat -- ."
-    name_cmd = (
-        f"git diff --name-status {base}...HEAD -- ."
-        if base
-        else "git diff --name-status -- ."
+    rev = _rev_range(root, base)
+    status = run_command(
+        ["git", "status", "--short", "--branch", "--", "."], root, timeout=20
     )
-    diff_stat = run_command(stat_cmd, root, timeout=30)
-    names = run_command(name_cmd, root, timeout=30)
-    cached = run_command("git diff --cached --stat -- .", root, timeout=20)
+    diff_stat = run_command(_diff_argv("--stat", rev_range=rev), root, timeout=30)
+    names = run_command(_diff_argv("--name-status", rev_range=rev), root, timeout=30)
+    cached = run_command(
+        ["git", "diff", "--no-ext-diff", "--cached", "--stat", "--", "."],
+        root,
+        timeout=20,
+    )
     return {
         "is_repo": status.returncode == 0,
         "status": status.stdout.strip(),
@@ -30,31 +85,50 @@ def git_summary(root: Path, base: str | None = None) -> dict[str, Any]:
 
 
 def secret_scan_diff(root: Path, staged: bool = False) -> dict[str, Any]:
-    cmd = "git diff --cached -- ." if staged else "git diff -- ."
-    diff = run_command(cmd, root, timeout=40)
-    hits = find_secret_hits(diff.stdout)
+    """Scan the diff for secrets; every failure mode blocks the action (#20)."""
+
+    argv = ["git", "diff", "--no-ext-diff"]
+    if staged:
+        argv.append("--cached")
+    argv += ["--", "."]
+    diff = run_command(argv, root, timeout=40)
+    scanner_ok = diff.returncode == 0 and not diff.timed_out
+    hits: list[str] = []
+    reason = "clean"
+    if scanner_ok:
+        try:
+            hits = find_secret_hits(diff.stdout)
+        except Exception:  # noqa: BLE001 - a broken scanner must block, not pass
+            scanner_ok = False
+            reason = "secret scanner failed; blocking until it can run"
+        if hits:
+            reason = "potential secrets detected in the diff"
+    else:
+        reason = "git diff failed or timed out; result is unreadable"
     return {
-        "command": cmd,
+        "command": " ".join(argv),
         "returncode": diff.returncode,
         "hits": hits,
-        "safe_to_commit": len(hits) == 0,
+        "scanner_ok": scanner_ok,
+        "safe_to_commit": scanner_ok and not hits,
+        "reason": reason,
     }
 
 
 def changed_files(root: Path, base: str | None = None) -> list[str]:
-    cmd = (
-        f"git diff --name-only {base}...HEAD -- ."
-        if base
-        else "git diff --name-only -- ."
-    )
-    result = run_command(cmd, root, timeout=30)
+    rev = _rev_range(root, base)
+    result = run_command(_diff_argv("--name-only", rev_range=rev), root, timeout=30)
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 def suggest_commit_message(root: Path, base: str | None = None) -> str:
     files = changed_files(root, base)
     if not files:
-        staged = run_command("git diff --cached --name-only -- .", root, timeout=20)
+        staged = run_command(
+            ["git", "diff", "--no-ext-diff", "--cached", "--name-only", "--", "."],
+            root,
+            timeout=20,
+        )
         files = [line.strip() for line in staged.stdout.splitlines() if line.strip()]
     if not files:
         return "chore: update project"
