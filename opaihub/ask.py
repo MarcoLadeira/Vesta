@@ -116,8 +116,9 @@ def run_ask(
             except TypeError as exc:
                 if "cancel" not in str(exc):
                     raise
-                # Runner without cancel support (fakes, free-tier APIs): run
+                # Runner without cancel support (e.g. a test fake): run
                 # blocking; Stop still works via the stale-response guard.
+                # Real local and free-tier (#152) runners are cancellable.
                 answer = active.complete(prompt, system=SYSTEM_PROMPT)
         except LocalRunCancelled:
             return {**base, "status": "cancelled", "answer": ""}

@@ -83,6 +83,17 @@ def _http_json(
         return result
 
 
+def _decode_http_json(raw: bytes, headers: dict[str, str]) -> Any:
+    result = json.loads(raw.decode("utf-8"))
+    if isinstance(result, dict):
+        wrapped = _HTTPPayload(result)
+        wrapped.response_headers = {
+            str(key).lower(): str(value) for key, value in headers.items()
+        }
+        return wrapped
+    return result
+
+
 def _http_json_cancellable(
     url: str,
     *,
@@ -90,14 +101,17 @@ def _http_json_cancellable(
     payload: dict[str, Any] | None = None,
     timeout: float = 60.0,
     cancel: threading.Event | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> Any:
-    """POST/GET JSON with true mid-flight cancellation (issue #107).
+    """POST/GET JSON with true mid-flight cancellation (issues #107, #152).
 
     ``urllib`` blocks with no interrupt, so a Stop click could only be ignored
-    while the local model kept generating. This uses ``http.client`` directly
-    and a small watcher thread: when ``cancel`` fires, the connection is closed,
+    while the request kept running. This uses ``http.client`` directly and a
+    small watcher thread: when ``cancel`` fires, the connection is closed,
     which aborts the blocked read immediately and raises
-    :class:`LocalRunCancelled`.
+    :class:`LocalRunCancelled`. Free-tier public APIs (#152) route their auth'd
+    request through here too, so Stop aborts the network call itself, not just
+    the result rendering. Response headers are preserved for quota extraction.
     """
     parsed = urllib.parse.urlsplit(url)
     conn_cls = (
@@ -107,35 +121,38 @@ def _http_json_cancellable(
     )
     conn = conn_cls(parsed.hostname or "127.0.0.1", parsed.port, timeout=timeout)
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {"Content-Type": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
     path = parsed.path or "/"
     if parsed.query:
         path += "?" + parsed.query
 
     if cancel is None:
         try:
-            conn.request(
-                method, path, body=body, headers={"Content-Type": "application/json"}
-            )
-            raw = conn.getresponse().read()
+            conn.request(method, path, body=body, headers=headers)
+            response = conn.getresponse()
+            raw = response.read()
+            response_headers = dict(response.getheaders())
         finally:
             with contextlib.suppress(Exception):
                 conn.close()
-        return json.loads(raw.decode("utf-8"))
+        return _decode_http_json(raw, response_headers)
 
     # Cancellable path: the blocking read runs on a worker thread while this
     # thread polls the cancel Event. On cancel we shutdown+close the socket —
-    # the FIN/RST makes the local server abort generation — and return
-    # immediately, regardless of how the platform wakes the blocked recv
-    # (Windows select() won't wake on close/shutdown; we don't depend on it).
+    # the FIN/RST makes the server abort — and return immediately, regardless
+    # of how the platform wakes the blocked recv (Windows select() won't wake
+    # on close/shutdown; we don't depend on it).
     box: dict[str, Any] = {}
     done = threading.Event()
 
     def _work() -> None:
         try:
-            conn.request(
-                method, path, body=body, headers={"Content-Type": "application/json"}
-            )
-            box["raw"] = conn.getresponse().read()
+            conn.request(method, path, body=body, headers=headers)
+            response = conn.getresponse()
+            box["raw"] = response.read()
+            box["headers"] = dict(response.getheaders())
         except Exception as exc:  # noqa: BLE001 - reported by the coordinator
             box["error"] = exc
         finally:
@@ -157,7 +174,7 @@ def _http_json_cancellable(
         raise LocalRunCancelled()
     if "error" in box:
         raise box["error"]
-    return json.loads(box["raw"].decode("utf-8"))
+    return _decode_http_json(box["raw"], box.get("headers") or {})
 
 
 class LocalRunner:
@@ -284,17 +301,26 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         return {"Authorization": f"Bearer {self._api_key}"}
 
     def complete(
-        self, prompt: str, *, system: str | None = None, timeout: float = 60.0
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        timeout: float = 60.0,
+        cancel: threading.Event | None = None,
     ) -> str:
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        result = _http_json(
+        # Cancellation truth (#152): route the auth'd request through the
+        # cancellable transport so Stop aborts the network call itself, not
+        # just the result renderer. LocalRunCancelled propagates to run_ask.
+        result = _http_json_cancellable(
             f"{self.base_url}/chat/completions",
             method="POST",
             payload={"model": self.model, "messages": messages, "stream": False},
             timeout=timeout,
+            cancel=cancel,
             extra_headers=self._auth_headers(),
         )
         usage = result.get("usage") or result.get("usageMetadata") or {}

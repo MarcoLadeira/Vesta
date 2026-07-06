@@ -308,7 +308,9 @@ class UsageSnapshotTests(unittest.TestCase):
             usage={"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20},
         )
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "secret")
-        with mock.patch("opaihub.local_runner._http_json", return_value=payload):
+        with mock.patch(
+            "opaihub.local_runner._http_json_cancellable", return_value=payload
+        ):
             self.assertEqual(runner.complete("hello"), "answer")
 
         self.assertEqual(runner.last_usage["input_tokens"], 12)
