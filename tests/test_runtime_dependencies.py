@@ -4,7 +4,6 @@ import builtins
 import importlib.util
 import os
 import tempfile
-import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -44,23 +43,22 @@ def _load_smoke_module():
 
 class RuntimeDependencyMetadataTests(unittest.TestCase):
     def test_pyyaml_is_a_bounded_core_runtime_dependency(self):
-        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
-            "project"
-        ]
-        dependencies = project["dependencies"]
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-        self.assertIn("PyYAML>=6.0.2,<7", dependencies)
+        self.assertIn('dependencies = ["PyYAML>=6.0.2,<7"]', pyproject)
 
     def test_pytest_collection_warnings_are_errors(self):
-        config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-        warnings = config["tool"]["pytest"]["ini_options"]["filterwarnings"]
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-        self.assertIn("error::pytest.PytestCollectionWarning", warnings)
+        self.assertIn(
+            'filterwarnings = ["error::pytest.PytestCollectionWarning"]', pyproject
+        )
 
-    def test_production_test_loop_is_not_a_pytest_test_class(self):
-        from opaihub.test_loop import TestLoop
+    def test_production_test_loop_module_is_not_collected_by_pytest(self):
+        import opaihub.test_loop as test_loop
 
-        self.assertIs(TestLoop.__test__, False)
+        self.assertIs(test_loop.__test__, False)
+        self.assertIs(test_loop.TestLoop.__test__, False)
 
     def test_active_installers_never_bypass_core_dependencies(self):
         installers = [

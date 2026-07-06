@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 
+__test__ = False
+
+
 @dataclass(frozen=True)
 class TestFailure:
     failed: int

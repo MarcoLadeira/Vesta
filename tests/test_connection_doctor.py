@@ -245,7 +245,8 @@ class InteractiveProviderLoginTests(unittest.TestCase):
         argv, kwargs = launched[0]
         self.assertEqual(argv, ["C:/tools/claude.exe", "auth", "login"])
         self.assertEqual(kwargs["env"], {"PATH": "safe"})
-        self.assertTrue(kwargs["creationflags"] & subprocess.CREATE_NEW_CONSOLE)
+        create_new_console = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10)
+        self.assertTrue(kwargs["creationflags"] & create_new_console)
         self.assertNotIn("stdout", kwargs)
         self.assertEqual(process.wait_timeout, 321)
         self.assertEqual(probes, [("claude", None, True)])
