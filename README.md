@@ -72,6 +72,19 @@ opai gui --classic                # force the classic Qt window (no Chromium)
 On Windows you can also run `python -m opai gui` if `opai` is not yet on your
 `PATH`.
 
+**Windowed launcher (no console).** Installing OPai also adds an `opai-gui`
+launcher. Unlike `opai gui`, it opens the app **without a background console
+window**, so it's what you want for a desktop/Start-menu/taskbar shortcut:
+
+```sh
+opai-gui                          # open the desktop app, no console window
+opai-gui --project /path/to/repo  # same options as `opai gui`
+```
+
+To pin it on Windows, create a shortcut to the `opai-gui.exe` in your Python
+`Scripts` directory (`python -c "import sysconfig; print(sysconfig.get_path('scripts'))"`)
+and drag it to the Start menu or taskbar.
+
 ### 3. Use it
 
 - **Type a task** in the composer and press **Send** (or `Enter`; use

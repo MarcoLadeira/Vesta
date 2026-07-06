@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.2.0 Alpha.2
+
+A security, reliability, and desktop-polish patch. Every change is local-first
+and privacy-preserving by default; nothing new phones home.
+
+### Desktop app
+
+- Added a windowed `opai-gui` launcher (`[project.gui_scripts]`): on Windows a
+  Start-menu/taskbar shortcut now opens the app with **no attached console
+  window**. `opai gui` from a terminal is unchanged.
+- The window, taskbar, and Alt-Tab now show the packaged OPai icon (with a
+  Windows AppUserModelID so the app groups under its own icon, not `pythonw`).
+- Replaced the last native `window.confirm` dialogs with styled, keyboard-
+  operable in-app approval cards.
+
+### Local-first onboarding
+
+- Added `opai models onboard [--smoke]`: a guided readiness state machine
+  (not installed → stopped → unreachable → incompatible → no model → ready) for
+  Ollama and OpenAI-compatible runtimes. Every non-ready state returns a
+  concrete, consent-gated next command as text — OPai never downloads a model,
+  starts a service, or reaches a public host on its own.
+
+### Security & privacy
+
+- Raw prompts are no longer stored globally: chat history is redacted, hashed
+  per workspace, and clearable from the sidebar.
+- Locked down the web GUI surface: no remote-URL or clipboard access and a
+  deny-by-default content-security policy; copy goes through a write-only bridge.
+- MCP configurations now enforce path/write policies — filesystem access is
+  read-only by default and `.git`, `.env`, secrets, and caches are blocked, with
+  `validate_mcp_config` to check a config before use.
+- Hardened git operations with reference validation and fail-closed secret
+  scanning (a scan error blocks rather than silently passes).
+- Added signed, verifiable savings receipts: `opai receipt verify <file>` reports
+  `VERIFIED` / `CONTENT_VERIFIED` / `TAMPERED` from a portable content hash plus
+  an HMAC signature.
+
+### Reliability
+
+- **Stop** now genuinely cancels across account CLIs, free-tier API requests, and
+  local generation, terminating the whole process tree (no orphaned children
+  that keep spending after you quit or close the window).
+- Every edit-capable run creates a recoverable checkpoint before it may touch
+  files and finalizes with the resulting changes, so no edit route is unrecorded.
+- Replaced the generic tool doctor with real per-tool health checks
+  (installed / runnable / passed-on-this-project) so a stale or broken local tool
+  is no longer reported as healthy.
+
+### Cost & honesty
+
+- Paid and cloud calls are never counted as savings; receipts carry explicit
+  confidence labels.
+- Capture claims are now honest — sessions are reported as measurable,
+  pass-through, or unmeasured rather than implying every task is routed.
+- Cut per-message context and ledger overhead on the send path.
+
+### Autonomy
+
+- Full Auto must be explicitly pinned and acknowledged before it can run;
+  persisted full-auto is reset until re-pinned. Manage it with
+  `opai autonomy status | pin | unpin`.
+
+### Developer workflow
+
+- Leaner CI: pull requests run on Linux for fast, low-cost feedback while the
+  full Windows and cross-OS wheel matrix runs on `main` and on manual dispatch.
+- Added clean-install verification and a hermetic test suite that runs without
+  network access or provider credentials.
+
 ## 0.2.0 Alpha.1
 
 - Added the public static launch funnel under `site/`, ready for Cloudflare
