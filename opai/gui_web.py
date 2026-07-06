@@ -221,12 +221,17 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
 
 def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, Any]:
     """Everything the front-end needs to render the whole shell in one call."""
-    from opaihub.gui_preferences import DEFAULT_MODE, MODES, load_gui_preferences
+    from opaihub.gui_preferences import MODES, load_gui_preferences
     from opaihub.workflow_state import load_workflow_state
+
+    from opaihub.autonomy import resolve_startup_mode
 
     root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
-    mode = str(prefs.get("default_mode") or DEFAULT_MODE)
+    # Central autonomy decision (#137): boot into the effective mode, which is
+    # Full Auto only when it is explicitly pinned.
+    autonomy = resolve_startup_mode(prefs)
+    mode = autonomy.effective_mode
     focus = str(prefs.get("default_task_mode") or DEFAULT_TASK_MODE)
     fmt = str(prefs.get("default_output_format") or DEFAULT_OUTPUT_FORMAT)
     models = _models(root, discover_local=False)
@@ -274,10 +279,14 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             "focus": focus,
             "format": fmt,
             "showPanel": bool(prefs.get("show_control_panel", True)),
+            # Full Auto pin state (#137) so the UI can show danger styling and
+            # an unpin action, and never silently present unpinned Full Auto.
+            "fullAutoPinned": autonomy.full_auto_pinned,
             # Free-model ids the user already consented to (asked once, never
             # again). Front-end skips the consent card for anything in this list.
             "freeConsent": list(prefs.get("free_consent") or []),
         },
+        "autonomy": autonomy.to_dict(),
         "accounts": models["accounts"],
         "connections": models["connections"],
         "status": _status(root, sel["model_label"], sel["mode_label"]),
@@ -629,10 +638,33 @@ def _run_gui(
             }
             if key not in allowed:
                 return
+            # Full Auto pin contract (#137): selecting Full Auto never persists a
+            # bare full-auto default. It must go through the explicit pin slot,
+            # so a plain savePref for it downgrades to Safe Auto.
+            if key == "default_mode" and value == "full-auto":
+                value = "safe-auto"
             val: Any = value
             if value in ("true", "false"):
                 val = value == "true"
             save_gui_preferences(self.root, {key: val})
+
+        @QtCore.Slot(result=str)
+        def pinFullAuto(self) -> str:
+            """Explicitly pin Full Auto with a recorded acknowledgement (#137)."""
+            from opaihub.autonomy import resolve_startup_mode
+            from opaihub.gui_preferences import pin_full_auto
+
+            prefs = pin_full_auto(self.root)
+            return json.dumps(resolve_startup_mode(prefs).to_dict())
+
+        @QtCore.Slot(result=str)
+        def unpinFullAuto(self) -> str:
+            """Clear the Full Auto pin and fall back to Safe Auto (#137)."""
+            from opaihub.autonomy import resolve_startup_mode
+            from opaihub.gui_preferences import unpin_full_auto
+
+            prefs = unpin_full_auto(self.root)
+            return json.dumps(resolve_startup_mode(prefs).to_dict())
 
         # ---- async slots --------------------------------------------- #
         @QtCore.Slot(str)

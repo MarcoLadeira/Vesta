@@ -82,14 +82,19 @@ def dependency_status() -> dict[str, Any]:
 def run_once(project_root: Path) -> dict[str, Any]:
     """Headless smoke: build state + model list and return a summary. No Qt."""
     from opaihub.gui_pipeline import last_savings_receipt
-    from opaihub.gui_preferences import DEFAULT_MODE, MODES, load_gui_preferences
+    from opaihub.gui_preferences import MODES, load_gui_preferences
 
     root = project_root.expanduser().resolve()
+    from opaihub.autonomy import resolve_startup_mode
+
     state = A.full_state(root)
     o = state["overview"]
     models = A.available_models(root)
     setup = models["setup"]
-    mode = load_gui_preferences(root).get("default_mode") or DEFAULT_MODE
+    # Central autonomy decision (#137): the classic GUI boots into the same
+    # effective mode as every other surface - Full Auto only when pinned.
+    autonomy = resolve_startup_mode(load_gui_preferences(root))
+    mode = autonomy.effective_mode
     return {
         "ok": True,
         "on": o["on"],
@@ -121,7 +126,11 @@ def run_once(project_root: Path) -> dict[str, Any]:
         "sections": [key for key, _ in SECTIONS],
         "mode": mode,
         "available_models": [m["id"] for m in models["models"]],
-        "auto_policy": {"default_mode": mode, "modes": list(MODES)},
+        "auto_policy": {
+            "default_mode": mode,
+            "modes": list(MODES),
+            "full_auto_pinned": autonomy.full_auto_pinned,
+        },
         "last_savings_receipt": last_savings_receipt(root),
         "capture": o["capture"],
         "capture_rate_percent": o["capture"]["rate_percent"],

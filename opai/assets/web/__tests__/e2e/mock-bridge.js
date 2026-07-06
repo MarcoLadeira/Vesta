@@ -144,6 +144,8 @@
       }, scenario.doctorDelayMs || 0);
     },
     savePref: function (key, value) { window.__mock.savedPrefs.push([key, value]); },
+    pinFullAuto: function (cb) { window.__mock.fullAutoPins++; if (cb) cb(JSON.stringify({ effective_mode: "full-auto", full_auto_pinned: true })); },
+    unpinFullAuto: function (cb) { window.__mock.fullAutoUnpins++; if (cb) cb(JSON.stringify({ effective_mode: "safe-auto", full_auto_pinned: false })); },
     grantFreeConsent: function (modelId, cb) {
       window.__mock.freeConsentGrants.push(modelId);
       if (cb) cb(JSON.stringify({ ok: true, freeConsent: window.__mock.freeConsentGrants.slice() }));
@@ -185,6 +187,7 @@
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
     clearedRecents: 0,
     copiedTexts: [],
+    fullAutoPins: 0, fullAutoUnpins: 0,
     windowMoves: 0, windowResizes: [], windowMinimizes: 0,
     windowMaximizes: 0, windowCloses: 0,
     runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [],

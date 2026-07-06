@@ -277,13 +277,26 @@ function renderComposerSelects() {
     if (m.id === state.mode.id) o.selected = true; modeSel.appendChild(o);
   });
   modeSel.onchange = () => {
-    // Full Auto edits files and runs commands without asking — require an
-    // explicit risk acknowledgement before persisting it (BUG-QA-009).
+    // Full Auto edits files and runs commands without asking, so it is only
+    // ever the effective mode when explicitly pinned (#137). Selecting it
+    // asks for acknowledgement, then pins via the dedicated bridge slot — a
+    // plain savePref for full-auto is deliberately downgraded server-side.
     if (modeSel.value === "full-auto") {
       const ok = window.confirm(
-        "Full Auto lets OPai edit files and run commands without asking first.\nContinue?"
+        "Full Auto lets OPai edit files and run commands without asking first.\nPin it until you unpin?"
       );
-      if (!ok) { modeSel.value = state.mode.id; return; }
+      if (!ok || !bridge.pinFullAuto) { modeSel.value = state.mode.id; return; }
+      bridge.pinFullAuto((res) => {
+        try { const d = JSON.parse(res); state.boot.prefs.fullAutoPinned = !!d.full_auto_pinned; } catch (e) {}
+      });
+      state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
+      refreshInspector(); refreshStatus();
+      return;
+    }
+    // Leaving Full Auto unpins it so the durable default falls back to safe.
+    if (state.mode.id === "full-auto" && bridge.unpinFullAuto) {
+      bridge.unpinFullAuto(() => {});
+      state.boot.prefs.fullAutoPinned = false;
     }
     state.mode = state.boot.modes.find((m) => m.id === modeSel.value) || state.mode;
     bridge.savePref("default_mode", state.mode.id); refreshInspector(); refreshStatus();
