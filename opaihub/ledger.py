@@ -286,7 +286,22 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
     """Aggregate the local ledger into cost-control signals. Read-only."""
     root = project_root.expanduser().resolve()
     events = read_events(root)
-    routes = [event for event in events if event.get("event_type") == EVENT_ROUTE]
+    all_routes = [event for event in events if event.get("event_type") == EVENT_ROUTE]
+    # Savings truth (#76): only routes with a known tier have a verifiable
+    # cost basis. Legacy events (e.g. the old "CLOUD" pseudo-tier, whose $0
+    # rate inflated savings to the full baseline) are counted separately and
+    # excluded from every trusted total below.
+    known_tiers = {"L0", "L1", "L2", "L3", "L4"}
+    routes = [
+        event
+        for event in all_routes
+        if str(event.get("model_tier", "")).upper() in known_tiers
+    ]
+    legacy_routes = [
+        event
+        for event in all_routes
+        if str(event.get("model_tier", "")).upper() not in known_tiers
+    ]
     model_calls = [
         event for event in events if event.get("event_type") == EVENT_MODEL_CALL
     ]
@@ -318,6 +333,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         "ledger_path": str(ledger_path(root)),
         "event_count": len(events),
         "route_count": len(routes),
+        "legacy_route_count": len(legacy_routes),
         "model_call_count": len(model_calls),
         "routes_by_tier": dict(sorted(by_tier.items())),
         "local_routes": local_routes,

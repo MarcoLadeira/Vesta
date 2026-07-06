@@ -62,6 +62,7 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
             "estimated_actual_spend_usd": summary["estimated_actual_spend_usd"],
             "estimated_savings_usd": savings,
             "estimated_savings_percent": pct,
+            "legacy_routes_excluded": summary.get("legacy_route_count", 0),
             "context_chars_saved": summary["context_chars_saved"],
             "context_tokens_saved": summary["context_tokens_saved"],
         },
@@ -72,7 +73,16 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
             f"Baseline assumes un-routed {cost_model.get('baseline_tier', 'L3')} usage for every task.",
             f"~{cost_model.get('chars_per_token', 4)} characters per token.",
             "Tune hub/model-intelligence/cost_model.yaml to match your providers.",
-        ],
+            "Paid provider calls record spend with zero implied savings.",
+        ]
+        + (
+            [
+                f"{summary.get('legacy_route_count', 0)} legacy route event(s) with an "
+                "unverifiable cost basis are excluded from these totals."
+            ]
+            if summary.get("legacy_route_count", 0)
+            else []
+        ),
         "privacy": summary["privacy"],
         "next_steps": [
             'Record more routes with: opai route "<task>" --record',
