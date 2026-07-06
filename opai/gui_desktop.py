@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
-import json
 import os
 import threading
 from pathlib import Path
@@ -1163,7 +1162,8 @@ def _run_gui(
             box.addWidget(self._settings_head("Privacy"))
             for text in (
                 "No telemetry — nothing leaves your machine.",
-                "No secrets or raw prompts are stored.",
+                "No secrets stored; chat history is redacted, kept per "
+                "workspace on this machine, and can be cleared.",
                 "Local-first routing; cloud only on confirmation.",
             ):
                 box.addWidget(self._lbl("• " + text, name="CardBody"))
@@ -1412,53 +1412,25 @@ def _run_gui(
                 f"color:{GREEN if connected else MUTED}; font-size:12px; font-weight:600;"
             )
 
-        # -- recents --------------------------------------------------------- #
+        # -- recents (per-workspace, redacted; #145) -------------------------- #
         def _add_recent(self, text: str) -> None:
-            short = text.strip().replace("\n", " ")
-            if not short or short in self._recents:
-                return
-            self._recents.insert(0, short)
-            self._recents = self._recents[:8]
-            self.recents_hint.hide()
-            while self.recents_box.count() > 1:
-                item = self.recents_box.takeAt(1)
-                if item.widget():
-                    item.widget().setParent(None)
-            for entry in self._recents:
-                label = entry if len(entry) <= 28 else entry[:27] + "…"
-                btn = QtWidgets.QPushButton(label)
-                btn.setObjectName("Recent")
-                btn.setToolTip(entry)
-                btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-                btn.clicked.connect(lambda _c=False, t=entry: self._fill(t))
-                self.recents_box.addWidget(btn)
-            self._save_recents()
+            from opai.gui_recents import add_recent
+
+            self._recents = add_recent(self.root, text)[:8]
+            self._render_recents()
 
         def _fill(self, text: str) -> None:
             self._switch_view("chat")
             self.input.setPlainText(text)
             self.input.setFocus()
 
-        def _recents_path(self) -> Path:
-            return Path.home() / ".opai" / "gui_recents.json"
-
-        def _save_recents(self) -> None:
-            try:
-                p = self._recents_path()
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(
-                    json.dumps(self._recents, ensure_ascii=False), encoding="utf-8"
-                )
-            except OSError:
-                pass
-
         def _load_recents(self) -> None:
-            try:
-                data = json.loads(self._recents_path().read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    self._recents = [str(x) for x in data if x][:8]
-            except (OSError, ValueError):
-                return
+            from opai.gui_recents import load_recents
+
+            self._recents = load_recents(self.root)[:8]
+            self._render_recents()
+
+        def _render_recents(self) -> None:
             if not self._recents:
                 return
             self.recents_hint.hide()

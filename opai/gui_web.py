@@ -284,7 +284,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "inspector": _inspector(root, sel),
         "defaultView": DEFAULT_VIEW,
         "initialTask": initial_task or "",
-        "recents": _recents(),
+        "recents": _recents(root),
         "brand": _brand(),
         "tools": [
             {"id": tool["id"], "label": tool["label"], "desc": tool["desc"]}
@@ -339,10 +339,10 @@ def settings_payload(root: Path) -> dict[str, Any]:
     }
 
 
-def _recents() -> list[str]:
+def _recents(root: Path) -> list[str]:
     from opai.gui_recents import load_recents
 
-    return load_recents()
+    return load_recents(root)
 
 
 def _brand() -> dict[str, str]:
@@ -729,13 +729,19 @@ def _run_gui(
 
         @QtCore.Slot(result=str)
         def recents(self) -> str:
-            return json.dumps(_recents())
+            return json.dumps(_recents(self.root))
 
         @QtCore.Slot(str)
         def saveRecent(self, text: str) -> None:
             from opai.gui_recents import add_recent
 
-            add_recent(text)
+            add_recent(self.root, text)
+
+        @QtCore.Slot(result=str)
+        def clearRecents(self) -> str:
+            from opai.gui_recents import clear_recents
+
+            return json.dumps(clear_recents(self.root))
 
         def _switch(self, path: str) -> None:
             from opaihub.repo_context import active_repo_context

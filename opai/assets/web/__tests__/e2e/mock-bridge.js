@@ -162,6 +162,7 @@
     closeWindow: function () { window.__mock.windowCloses++; },
     recents: function (cb) { cb(JSON.stringify(boot.recents)); },
     saveRecent: function (t) { window.__mock.savedRecents.push(t); },
+    clearRecents: function (cb) { window.__mock.clearedRecents++; if (cb) cb("[]"); },
     openExternal: function (url) { window.__mock.externalUrls.push(url); },
   };
   window.qt = { webChannelTransport: {} };
@@ -169,6 +170,7 @@
   window.__mock = {
     bridge: bridge, lastRequest: null, sendCount: 0, cancelCount: 0, cancelled: [],
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
+    clearedRecents: 0,
     windowMoves: 0, windowResizes: [], windowMinimizes: 0,
     windowMaximizes: 0, windowCloses: 0,
     runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [],

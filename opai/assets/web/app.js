@@ -188,6 +188,19 @@ function renderRecents() {
     b.onclick = () => { switchView("chat"); $("#input").value = text; autoSize(); $("#input").focus(); };
     rec.appendChild(b);
   });
+  // Privacy control (#145): history is per-workspace and deletable in one click.
+  const clear = document.createElement("button");
+  clear.className = "recent";
+  clear.id = "clearRecents";
+  clear.style.color = "var(--faint)";
+  clear.textContent = "Clear history";
+  clear.title = "Delete this workspace's stored chat history";
+  clear.onclick = () => {
+    if (bridge.clearRecents) bridge.clearRecents(() => {});
+    state.boot.recents = [];
+    renderRecents();
+  };
+  rec.appendChild(clear);
 }
 
 function renderAccount() {
@@ -1155,7 +1168,7 @@ function renderSettings() {
     h += `<div class="set-head">Tool permissions · ${esc(modeLabels[d.prefs.default_mode] || d.prefs.default_mode)}</div>`;
     (d.permissions || []).forEach((p) => (h += `<div class="perm"><span class="k">${esc(p.label)}</span><span class="s ${p.state}">${esc(p.state)}</span></div>`));
     h += `<div class="set-head">Privacy</div>`;
-    ["No telemetry — nothing leaves your machine.", "No secrets or raw prompts are stored.", "Local-first routing; cloud only on confirmation."].forEach((t) => (h += `<div class="cb">• ${esc(t)}</div>`));
+    ["No telemetry — nothing leaves your machine.", "No secrets stored; chat history is redacted, kept per workspace on this machine, and can be cleared from the sidebar.", "Local-first routing; cloud only on confirmation."].forEach((t) => (h += `<div class="cb">• ${esc(t)}</div>`));
     if (d.about && d.about.version) { h += `<div class="set-head">About</div>` + row("Version", d.about.version) + row("Release stage", d.about.release_stage || "—"); }
     page.innerHTML = h;
     const pb = $("#setPanic"); if (pb) pb.onclick = () => { switchView("chat"); bridge.runTool("panic"); };
