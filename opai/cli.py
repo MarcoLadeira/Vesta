@@ -771,11 +771,34 @@ def cmd_receipt(args: argparse.Namespace) -> int:
         try:
             receipt = json.loads(Path(args.file).read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
-            print_json({"verified": False, "problems": [f"unreadable receipt: {exc}"]})
+            print("TAMPERED — do not trust this receipt.")
+            print_json(
+                {
+                    "status": "TAMPERED",
+                    "verified": False,
+                    "problems": [f"unreadable receipt: {exc}"],
+                }
+            )
             return 1
         result = verify_receipt(root, receipt)
+        status = result.get("status", "TAMPERED")
+        # Human verdict first, then the machine-readable detail (#88).
+        print(
+            {
+                "VERIFIED": "VERIFIED — signature and content hash both check out.",
+                "CONTENT_VERIFIED": (
+                    "VERIFIED (content) — the numbers match the embedded hash. The "
+                    "signature was not checked here (no shared key on this machine)."
+                ),
+                "TAMPERED": "TAMPERED — do not trust this receipt.",
+            }.get(status, "TAMPERED — do not trust this receipt.")
+        )
+        if status == "TAMPERED" and result.get("failing_section"):
+            print(f"Failing section: {result['failing_section']}")
         print_json(result)
-        return 0 if result["verified"] else 1
+        # A portable content-verified receipt (no shared key here) is not
+        # tampering, so only TAMPERED exits non-zero.
+        return 1 if status == "TAMPERED" else 0
 
     receipt = build_receipt(root, sign=not getattr(args, "no_sign", False))
     wrote_any = False
