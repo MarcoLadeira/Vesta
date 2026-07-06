@@ -12,6 +12,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from _helpers import make_repo
 
@@ -187,7 +188,11 @@ class SettingsPayloadTests(unittest.TestCase):
     def test_settings_exposes_normalized_connections(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
-            payload = settings_payload(root)
+            with mock.patch(
+                "opaihub.accounts._account_cli_version",
+                side_effect=AssertionError("synchronous CLI version lookup"),
+            ):
+                payload = settings_payload(root)
 
         self.assertIn("connections", payload)
         self.assertEqual(
@@ -198,6 +203,12 @@ class SettingsPayloadTests(unittest.TestCase):
             self.assertIn("authStatus", connection)
             self.assertIn("credentialSource", connection)
             self.assertNotIn("cli_path", connection)
+        self.assertIn("connectionDoctor", payload)
+        self.assertEqual(
+            {"claude", "codex", "copilot", "gemini", "groq", "mistral"},
+            {item["providerId"] for item in payload["connectionDoctor"]},
+        )
+        self.assertNotIn("cli_path", json.dumps(payload["connectionDoctor"]))
         json.dumps(payload)
 
 

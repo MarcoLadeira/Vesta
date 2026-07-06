@@ -33,6 +33,8 @@ const state = {
   focus: "general", format: "normal",
   accounts: [], panel: true, message: null, lastFailedRequestId: null,
 };
+const providerLoginRequests = new Map();
+let doctorRefreshRequestId = null;
 
 /* ---------- markdown (escape-first, safe) ---------- */
 function mdToHtml(src) {
@@ -100,6 +102,8 @@ function boot() {
     const catalog = JSON.parse(json);
     if (catalog.models) { state.boot.models = catalog.models; renderComposerSelects(); }
   });
+  if (bridge.providerLoginReady) bridge.providerLoginReady.connect(onProviderLoginReady);
+  if (bridge.connectionDoctorReady) bridge.connectionDoctorReady.connect(onConnectionDoctorReady);
   if (bridge.discoverModels) setTimeout(() => bridge.discoverModels(), 0);
 }
 
@@ -698,6 +702,77 @@ function redactSecrets(text) {
     .replace(/\b(token|secret|password|api[_-]?key|bearer)\s*[:=]\s*\S+/gi, "$1=[redacted]");
 }
 
+function providerName(provider) {
+  return ({ claude: "Claude", codex: "Codex", copilot: "Copilot" })[provider] || String(provider || "Provider");
+}
+
+function connectionHealth(result) {
+  if (result.cliPresent === false || (result.connection && result.connection.cliPresent === false)) return "not_installed";
+  if (result.signedIn || result.connected || result.authStatus === "connected" || (result.connection && result.connection.authStatus === "connected")) return "verified";
+  const authStatus = (result.connection && result.connection.authStatus) || result.authStatus || "";
+  return ({ not_configured: "not_configured", unknown: "detected", misconfigured: "degraded", provider_unavailable: "degraded", invalid: "failed", expired: "failed", disconnected: "failed" })[authStatus] || "failed";
+}
+
+function connectionHealthLabel(value) {
+  return ({ not_installed: "Not installed", not_configured: "Not configured", detected: "Detected", verified: "Verified", degraded: "Degraded", failed: "Failed" })[value] || String(value || "Unknown").replaceAll("_", " ");
+}
+
+function updateDoctorCard(provider, result) {
+  const card = document.querySelector(`[data-doctor-provider="${CSS.escape(String(provider || ""))}"]`);
+  if (!card) return;
+  const healthValue = connectionHealth(result);
+  const signedIn = healthValue === "verified";
+  const status = card.querySelector(`[data-account-status="${CSS.escape(String(provider || ""))}"]`);
+  const health = card.querySelector("[data-doctor-health]");
+  const diagnostic = card.querySelector("[data-doctor-diagnostic]");
+  if (status) status.textContent = signedIn ? "connected" : (result.authStatus || result.status || "needs attention").replaceAll("_", " ");
+  if (health) { health.textContent = connectionHealthLabel(healthValue); health.className = `doctor-health ${healthValue}`; }
+  if (diagnostic) diagnostic.textContent = (result.connection && result.connection.safeDiagnostic) || result.safeDiagnostic || result.message || diagnostic.textContent;
+}
+
+function startGuidedProviderLogin(provider, { button = null, retryPayload = null, retryRequestId = null } = {}) {
+  if (!provider || !bridge.startProviderLogin) { toast("Guided sign-in is unavailable"); return; }
+  const requestId = `login-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const originalLabel = button ? button.textContent : "";
+  providerLoginRequests.set(requestId, { provider, button, originalLabel, retryPayload, retryRequestId });
+  if (button) { button.disabled = true; button.textContent = "Waiting for sign-in…"; }
+  try {
+    bridge.startProviderLogin(provider, requestId);
+  } catch (_e) {
+    providerLoginRequests.delete(requestId);
+    if (button) { button.disabled = false; button.textContent = originalLabel; }
+    toast("Could not launch the sign-in window");
+  }
+}
+
+function onProviderLoginReady(json) {
+  let envelope = {};
+  try { envelope = JSON.parse(json || "{}"); } catch (_e) { return; }
+  const pending = providerLoginRequests.get(envelope.requestId);
+  if (!pending) return;
+  providerLoginRequests.delete(envelope.requestId);
+  const result = envelope.result || {};
+  if (pending.button && pending.button.isConnected) {
+    pending.button.disabled = false;
+    pending.button.textContent = pending.originalLabel;
+  }
+  updateDoctorCard(pending.provider, result);
+  if (!result.signedIn) { toast(result.message || "Sign-in was not verified"); return; }
+  toast(result.message || `${providerName(pending.provider)} sign-in verified`);
+  if (pending.retryPayload && !state.busy && (!pending.retryRequestId || (state.message && state.message.requestId === pending.retryRequestId))) send(pending.retryPayload);
+}
+
+function onConnectionDoctorReady(json) {
+  let envelope = {};
+  try { envelope = JSON.parse(json || "{}"); } catch (_e) { return; }
+  if (!envelope.requestId || envelope.requestId !== doctorRefreshRequestId) return;
+  (envelope.entries || []).forEach((item) => {
+    const card = document.querySelector(`[data-doctor-provider="${CSS.escape(String(item.providerId || ""))}"]`);
+    const version = card && card.querySelector("[data-doctor-cli]");
+    if (version && item.cliVersion) version.textContent = item.cliVersion;
+  });
+}
+
 function renderErrorCard(el, status, r, sel) {
   const error = r && r.error && typeof r.error === "object" ? r.error : {};
   const title = error.title || ERROR_TITLES[status] || "OPai could not complete this request.";
@@ -708,6 +783,8 @@ function renderErrorCard(el, status, r, sel) {
     (r && r.raw_result ? JSON.stringify(r.raw_result) : "")
   );
   const actions = error.recoveryActions || ["retry", "open_settings", "show_details"];
+  const loginProvider = error.provider || (sel && sel.modelProvider) || "";
+  const offerLogin = ["AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED"].includes(String(error.code || "")) && !!loginProvider;
   // Free-tier consent card (replaces the old native confirm popup): confirm to
   // send to the provider's public API with the same explicit warning text.
   const freeProvider = String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
@@ -717,6 +794,7 @@ function renderErrorCard(el, status, r, sel) {
     `<div class="error-card"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button>` +
     (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
+    (offerLogin ? `<button class="btn primary" data-a="signin">Sign in to ${esc(providerName(loginProvider))}</button>` : "") +
     // A live re-check, not just a link to Settings: OPai may have said
     // "connected" from a cached/on-disk signal right before this exact call
     // 401'd — "Open Settings" alone showed nothing new. This runs the same
@@ -736,6 +814,10 @@ function renderErrorCard(el, status, r, sel) {
     (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
   wireActivitySummary(el);
   el.querySelector('[data-a="retry"]').onclick = () => retry();
+  const signIn = el.querySelector('[data-a="signin"]'); if (signIn) signIn.onclick = () => {
+    const retryPayload = state.lastSend ? { ...state.lastSend } : (sel ? { ...sel } : null);
+    startGuidedProviderLogin(loginProvider, { button: signIn, retryPayload, retryRequestId: state.lastFailedRequestId });
+  };
   const repair = el.querySelector('[data-a="repair"]'); if (repair) repair.onclick = () => {
     // One-click Codex config repair (backs up first, removes only the invalid
     // line), then retry the message — no hunting through Settings.
@@ -1095,22 +1177,42 @@ function renderSettings() {
     const modeLabels = { ask: "Ask", plan: "Plan", "safe-auto": "Safe Auto", "approve-edits": "Approve Edits", "full-auto": "Full Auto" };
     const row = (k, v) => `<div class="set-row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`;
     let h = `<div class="page-title">Settings</div><div class="page-sub">Project: ${esc(state.boot.workspace.root)}</div>`;
-    // Accounts first: connecting a provider is the one thing a new user must
-    // find instantly — everything below is tuning.
-    h += `<div class="set-head">Accounts</div>`;
-    (d.accounts || []).forEach((a) => {
-      const on = !!a.connected;
-      // "connected" here means "a sign-in was detected on disk" — not a live
-      // verification. Test connection actually asks the CLI, so a session
-      // that died since detection (the exact gap behind a live 401 after
-      // OPai said "connected") gets caught here instead of silently retried.
-      h += `<div class="set-row prov-row" data-account-row="${esc(a.id)}"><span class="k"><span class="prov-dot ${on ? "on" : ""}"></span>${esc(a.label || a.id)}</span><span class="v" data-account-status="${esc(a.id)}">${on ? "connected" : "not connected"}</span></div>`;
-      if (on) h += `<div class="set-note account-test" data-account-note="${esc(a.id)}"><button class="btn ghost" data-test-account="${esc(a.id)}">Test connection</button>` +
-        `<button class="btn ghost" data-disconnect-account="${esc(a.id)}" data-account-label="${esc(a.label || a.id)}">Disconnect</button></div>`;
+    // One compact source of provider truth. Production supplies the normalized
+    // doctor payload; the account fallback keeps sparse/older payloads safe.
+    const doctorItems = Array.isArray(d.connectionDoctor) ? d.connectionDoctor : (d.accounts || []).map((a) => ({
+      providerId: a.id, displayName: a.label || a.id, kind: "account",
+      health: a.connected ? "verified" : (a.cli_present === false ? "not_installed" : "not_configured"),
+      authStatus: a.connected ? "connected" : "not connected", credentialSourceLabel: "Subscription sign-in",
+      cliInstalled: a.cli_present !== false, cliVersion: "", safeDiagnostic: a.connected ? "Sign-in detected; test the connection to verify it." : "No provider sign-in was detected.",
+      detected: !!a.authenticated || !!a.connected, loginSupported: true, recoveryActions: a.connected ? ["test_connection", "disconnect"] : ["sign_in"],
+    }));
+    const checkedLabel = (value) => value ? new Date(Number(value)).toLocaleString() : "Never checked";
+    h += `<section class="connection-doctor" role="region" aria-label="Connection Doctor"><div class="set-head">Connection Doctor</div><div class="set-note">Accounts and API provider health in one place. Credential values and files are never read or displayed.</div><div class="doctor-grid">`;
+    doctorItems.forEach((item) => {
+      const id = item.providerId || "provider", isAccount = item.kind === "account";
+      const actions = item.recoveryActions || [];
+      const envNames = item.envOverridesRemoved || [];
+      h += `<article class="doctor-card" data-doctor-provider="${esc(id)}"${isAccount ? ` data-account-row="${esc(id)}"` : ""}>` +
+        `<div class="doctor-head"><div><strong>${esc(item.displayName || id)}</strong><span class="doctor-kind">${isAccount ? "account CLI" : "API"}</span></div><span class="doctor-health ${esc(item.health)}" data-doctor-health>${esc(connectionHealthLabel(item.health))}</span></div>` +
+        `<div class="doctor-meta"><span>Credential <b>${esc(item.credentialSourceLabel || "Not configured")}</b></span>` +
+        (isAccount ? `<span>CLI <b data-doctor-cli>${esc(item.cliInstalled === false ? "not installed" : (item.cliVersion || "installed"))}</b></span>` : "") +
+        (item.credentialEnvironmentName ? `<span>Variable <b>${esc(item.credentialEnvironmentName)}</b></span>` : "") +
+        `<span>Last checked <b>${esc(checkedLabel(item.lastCheckedAt))}</b></span></div>` +
+        `<div class="doctor-diagnostic" data-doctor-diagnostic>${esc(item.safeDiagnostic || "No diagnostic available.")}</div>` +
+        (envNames.length ? `<div class="doctor-env">Ignored inherited overrides: ${envNames.map(esc).join(", ")}</div>` : "") +
+        (item.lastError ? `<div class="doctor-error">${esc(item.lastErrorCode || "Connection error")}: ${esc(item.lastError)}</div>` : "") +
+        (isAccount ? `<div class="doctor-status">Status: <span data-account-status="${esc(id)}">${esc(item.authStatus || "unknown")}</span></div>` : "") +
+        `<div class="doctor-actions">` +
+        (isAccount && item.cliInstalled !== false ? `<button class="btn ghost" data-test-account="${esc(id)}">Test ${esc(item.displayName || id)}</button>` : "") +
+        (isAccount && item.loginSupported !== false && item.health !== "verified" ? `<button class="btn primary" data-login-account="${esc(id)}">Sign in to ${esc(item.displayName || id)}</button>` : "") +
+        (isAccount && (item.detected || actions.includes("disconnect")) ? `<button class="btn ghost" data-disconnect-account="${esc(id)}" data-account-label="${esc(item.displayName || id)}">Disconnect</button>` : "") +
+        (id === "codex" && d.codexConfig && d.codexConfig.repairable ? `<button class="btn" id="repairCodex">Repair Codex config</button>` : "") +
+        (!isAccount && actions.includes("test_connection") ? `<button class="btn ghost" data-doctor-test-provider="${esc(id)}">Test ${esc(item.displayName || id)}</button>` : "") +
+        `</div></article>`;
     });
-    h += `<div class="set-note">OPai signs in through the official Claude, Codex, and Copilot apps — it never sees or stores your passwords or keys.</div>`;
+    h += `</div></section>`;
     h += `<div class="actions"><button class="btn primary" id="setConnect">Connect accounts</button></div>`;
-    if (d.codexConfig && d.codexConfig.repairable) {
+    if (d.codexConfig && d.codexConfig.repairable && !doctorItems.some((item) => item.providerId === "codex")) {
       h += `<div class="config-repair"><div><strong>Codex configuration needs repair</strong><div class="set-note">${esc(d.codexConfig.message || "Invalid Codex configuration")}</div></div><button class="btn" id="repairCodex">Repair Codex config</button></div>`;
     }
     const providerNames = { gemini: "Gemini", groq: "Groq", mistral: "Mistral" };
@@ -1197,6 +1299,21 @@ function renderSettings() {
         });
       };
     });
+    page.querySelectorAll("[data-doctor-test-provider]").forEach((button) => {
+      button.onclick = () => {
+        const id = button.dataset.doctorTestProvider;
+        button.disabled = true; button.textContent = "Testing…";
+        bridge.testProvider(id, (json2) => {
+          let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
+          button.disabled = false; button.textContent = `Test ${providerName(id)}`;
+          updateDoctorCard(id, result);
+          toast(result.connected ? "Connection verified" : ((result.error && result.error.userMessage) || "Connection failed"));
+        });
+      };
+    });
+    page.querySelectorAll("[data-login-account]").forEach((button) => {
+      button.onclick = () => startGuidedProviderLogin(button.dataset.loginAccount, { button });
+    });
     // Account (Claude/Codex/Copilot) connections: unlike the free-tier
     // buttons above, this hits the SAME live check OPai runs before a real
     // send (test_account_connection, force=True — bypasses the 5-minute
@@ -1213,6 +1330,7 @@ function renderSettings() {
           button.disabled = false; button.textContent = "Test connection";
           const live = result.authStatus === "connected";
           if (status) status.textContent = live ? "connected" : (result.authStatus || "needs attention");
+          updateDoctorCard(id, result);
           if (live) { toast("Connection verified"); return; }
           const hint = result.loginHint ? " " + result.loginHint : "";
           toast((result.safeDiagnostic || "Connection check failed.") + hint);
@@ -1239,6 +1357,8 @@ function renderSettings() {
             const dot = page.querySelector(`[data-account-row="${id}"] .prov-dot`);
             if (status) status.textContent = "not connected";
             if (dot) dot.classList.remove("on");
+            const health = button.closest(".doctor-card") && button.closest(".doctor-card").querySelector("[data-doctor-health]");
+            if (health) { health.textContent = "Not configured"; health.className = "doctor-health not_configured"; }
             const testBtn = page.querySelector(`[data-test-account="${id}"]`);
             if (testBtn) testBtn.disabled = true;
             button.disabled = true; // nothing left here to disconnect again
@@ -1257,6 +1377,10 @@ function renderSettings() {
         });
       };
     });
+    if (bridge.refreshConnectionDoctor) {
+      doctorRefreshRequestId = `doctor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      bridge.refreshConnectionDoctor(doctorRefreshRequestId);
+    }
   });
 }
 

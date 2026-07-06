@@ -34,11 +34,13 @@ class AgentComputerInterface:
         repo_root: Path,
         *,
         run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        on_event: Callable[[dict[str, Any]], Any] | None = None,
         timeout: float = 120.0,
         max_output_chars: int = 120_000,
     ) -> None:
         self.repo_root = repo_root.expanduser().resolve()
         self._run = run
+        self._on_event = on_event
         self.timeout = timeout
         self.max_output_chars = max_output_chars
 
@@ -303,7 +305,32 @@ class AgentComputerInterface:
         )
 
     def run_tests(self, command: Iterable[str], *, scope: str) -> Observation:
+        from opai.activity import emit_event
+
+        safe_scope = " ".join(redact(str(scope or "selected")).split())[:120]
+        safe_scope = safe_scope or "selected"
+        label = safe_scope[:1].upper() + safe_scope[1:]
+        started = emit_event(
+            self._on_event,
+            "validation",
+            "running",
+            f"Running {safe_scope} tests",
+            metadata={"operation": "run_tests", "scope": safe_scope},
+        )
         result = self.run_command(command, purpose=f"{scope} tests")
+        emit_event(
+            self._on_event,
+            "validation",
+            "success" if result.ok else "error",
+            f"{label} tests {'passed' if result.ok else 'failed'}",
+            event_id=started["id"],
+            duration_ms=result.duration_ms,
+            metadata={
+                "operation": "run_tests",
+                "scope": safe_scope,
+                "returncode": result.data.get("returncode"),
+            },
+        )
         return Observation(
             "test_run",
             result.ok,
