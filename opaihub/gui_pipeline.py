@@ -689,7 +689,7 @@ def handle_gui_message(
             provider_message,
             selected_model,
             allow_cloud=allow_cloud,
-            allow_edits=False,
+            allow_edits=allow_edits,
             mode=selected_mode,
             cancel=cancel,
         )
@@ -753,9 +753,9 @@ def handle_gui_message(
             {
                 "status": status,
                 "answer": answer,
-                "tool_trace": tool_trace,
+                "tool_trace": tool_trace + list(result.get("tool_trace") or []),
                 "receipt": receipt,
-                "changed_files": [],
+                "changed_files": list(result.get("changed_files") or []),
                 "warnings": [],
                 "next_actions": ["Review provider quota and billing settings."],
                 "raw_result": result,

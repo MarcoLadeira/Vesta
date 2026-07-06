@@ -9,6 +9,7 @@ and recorded to the ledger. Cloud-tier tasks are never auto-called - they return
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +153,74 @@ def run_ask(
         "status": "no_local_model",
         "hint": "Start Ollama (`ollama serve`) or set LOCAL_MODEL_URL to a loopback endpoint, then retry.",
         "next_command": "opai models discover-local",
+    }
+
+
+def run_explicit_model(
+    project_root: Path,
+    task: str,
+    *,
+    runner: LocalRunner,
+    selected_model_id: str,
+    allow_edits: bool = False,
+    mode: str = "ask",
+    record: bool = True,
+    cancel: Any = None,
+) -> dict[str, Any]:
+    """Run an explicitly selected model without Auto routing or prose caching."""
+
+    root = project_root.expanduser().resolve()
+    base = {
+        "task_hash": hashlib.sha256(
+            (selected_model_id + "\0" + task).encode("utf-8")
+        ).hexdigest()[:16],
+        "tier": "L2",
+        "model_id": selected_model_id,
+    }
+    if cancel is not None and cancel.is_set():
+        return {**base, "status": "cancelled", "answer": ""}
+    try:
+        if allow_edits:
+            complete_with_tools = getattr(runner, "complete_with_tools", None)
+            if not callable(complete_with_tools):
+                return {
+                    **base,
+                    "status": "capability_mismatch",
+                    "error": "The selected provider cannot edit repository files.",
+                }
+            completed = complete_with_tools(
+                task,
+                project_root=root,
+                allow_edits=True,
+                system=SYSTEM_PROMPT,
+                cancel=cancel,
+            )
+            answer = str(completed.get("text") or "")
+            tool_trace = list(completed.get("tool_trace") or [])
+        else:
+            try:
+                answer = runner.complete(task, system=SYSTEM_PROMPT, cancel=cancel)
+            except TypeError as exc:
+                if "cancel" not in str(exc):
+                    raise
+                answer = runner.complete(task, system=SYSTEM_PROMPT)
+            tool_trace = []
+    except LocalRunCancelled:
+        return {**base, "status": "cancelled", "answer": ""}
+    except Exception as exc:  # noqa: BLE001 - normalize provider failures upstream
+        return {**base, "status": "runner_error", "error": str(exc)}
+    if record:
+        _record(root, task, "L2", cache_hit=False)
+    return {
+        **base,
+        "status": "answered_locally",
+        "free": True,
+        "source": "explicit_model",
+        "runner": runner.name,
+        "model": runner.model,
+        "mode": mode,
+        "answer": answer,
+        "tool_trace": tool_trace,
     }
 
 
