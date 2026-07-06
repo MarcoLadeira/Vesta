@@ -230,7 +230,11 @@ def handle_gui_message(
     requested_run_mode = autonomy.effective_mode
     policy = resolve_agent_policy(message, focus_hint=focus_hint)
     if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
-        selected_mode = "safe-auto"
+        selected_mode = (
+            requested_run_mode
+            if requested_run_mode in {"safe-auto", "full-auto"}
+            else "safe-auto"
+        )
     elif requested_run_mode == "plan":
         selected_mode = "plan"
     else:

@@ -6,6 +6,7 @@ import unittest
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 from opaihub.agent_policy import (
     AgentMode,
@@ -482,6 +483,32 @@ class WorkflowPipelineTests(unittest.TestCase):
         self.assertEqual(result["task_packet"]["mode"], "implement")
         self.assertIn("run_tests", result["task_packet"]["allowed_actions"])
         self.assertTrue(result["repo_context"]["path"])
+
+    def test_pipeline_preserves_pinned_full_auto_for_implementation(self):
+        from opaihub.gui_pipeline import handle_gui_message
+
+        runner = FakeAccountRunner(text="Implemented and tested.")
+        prefs = {
+            "default_mode": "full-auto",
+            "full_auto_pinned": True,
+            "full_auto_acknowledged_at": "2026-07-06T00:00:00+00:00",
+        }
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("opaihub.gui_pipeline.load_gui_preferences", return_value=prefs),
+        ):
+            root = make_repo(Path(tmp), commit=True)
+            result = handle_gui_message(
+                root,
+                "Fix the bug and run tests.",
+                model_id="account:claude:sonnet",
+                mode="full-auto",
+                account_runner=runner,
+            )
+
+        self.assertEqual(result["effective_run_mode"], "full-auto")
+        self.assertEqual(runner.calls[0]["mode"], "full-auto")
+        self.assertTrue(runner.calls[0]["allow_edits"])
 
     def test_pipeline_explain_request_remains_read_only_even_from_safe_auto(self):
         from opaihub.gui_pipeline import handle_gui_message
