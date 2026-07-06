@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import threading
@@ -282,9 +283,39 @@ def _sum(events: Iterable[dict[str, Any]], key: str) -> float:
     return round(total, 6)
 
 
+_SUMMARY_CACHE: dict[str, tuple[int, int, dict[str, Any]]] = {}
+_SUMMARY_CACHE_LOCK = threading.RLock()
+
+
+def _ledger_signature(path: Path) -> tuple[int, int]:
+    """(size, mtime_ns) of the ledger file; (0, 0) when it does not exist."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return (0, 0)
+    return (int(stat.st_size), int(stat.st_mtime_ns))
+
+
+def clear_ledger_summary_cache() -> None:
+    with _SUMMARY_CACHE_LOCK:
+        _SUMMARY_CACHE.clear()
+
+
 def summarize_ledger(project_root: Path) -> dict[str, Any]:
-    """Aggregate the local ledger into cost-control signals. Read-only."""
+    """Aggregate the local ledger into cost-control signals. Read-only.
+
+    Performance (#153): the ledger JSONL is append-only and grows forever, and
+    this headline read runs on every chat send *and* after every answer. The
+    result is cached by the file's (size, mtime); an append changes both, so
+    the cache invalidates itself correctly and repeated reads are O(1).
+    """
     root = project_root.expanduser().resolve()
+    signature = _ledger_signature(ledger_path(root))
+    key = str(root)
+    with _SUMMARY_CACHE_LOCK:
+        cached = _SUMMARY_CACHE.get(key)
+        if cached is not None and cached[:2] == signature:
+            return copy.deepcopy(cached[2])
     events = read_events(root)
     all_routes = [event for event in events if event.get("event_type") == EVENT_ROUTE]
     # Savings truth (#76): only routes with a known tier have a verifiable
@@ -328,7 +359,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         outcome = str(event.get("outcome") or "unknown")
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
 
-    return {
+    summary = {
         "project": str(root),
         "ledger_path": str(ledger_path(root)),
         "event_count": len(events),
@@ -366,6 +397,9 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         },
         "privacy": "Raw prompts are never stored; only one-way task hashes and counts.",
     }
+    with _SUMMARY_CACHE_LOCK:
+        _SUMMARY_CACHE[key] = (signature[0], signature[1], copy.deepcopy(summary))
+    return summary
 
 
 def _iso_week(created_at: str) -> str:
