@@ -11,9 +11,14 @@ DEFAULT_MODE = "safe-auto"
 MODES = ["ask", "plan", "safe-auto", "approve-edits", "full-auto"]
 
 DEFAULT_PREFERENCES: dict[str, Any] = {
-    "schema_version": 2,
+    "schema_version": 3,
     "default_model": "auto",
     "default_mode": DEFAULT_MODE,
+    # Full Auto pin contract (#137): Full Auto is the effective mode only when
+    # explicitly pinned with a recorded acknowledgement. A stale persisted
+    # full-auto default is reset to Safe Auto on load unless it is pinned.
+    "full_auto_pinned": False,
+    "full_auto_acknowledged_at": "",
     "default_task_mode": "general",
     "default_output_format": "normal",
     # Simple by default: the Inspector is powerful but optional — first-time
@@ -52,6 +57,8 @@ _ALLOWED_KEYS = {
     "schema_version",
     "default_model",
     "default_mode",
+    "full_auto_pinned",
+    "full_auto_acknowledged_at",
     "default_task_mode",
     "default_output_format",
     "show_control_panel",
@@ -120,7 +127,22 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
             seen.add(model_id)
             consent.append(model_id)
     clean["free_consent"] = consent[:32]
-    clean["schema_version"] = 2
+    # Full Auto pin contract (#137): the pin is real only with an
+    # acknowledgement timestamp; a persisted full-auto default that is not
+    # pinned is reset to Safe Auto so a fresh session never reopens with
+    # broader authority than the user explicitly kept.
+    clean["full_auto_pinned"] = bool(clean.get("full_auto_pinned"))
+    ack = clean.get("full_auto_acknowledged_at")
+    clean["full_auto_acknowledged_at"] = str(ack) if isinstance(ack, str) else ""
+    pinned = clean["full_auto_pinned"] and bool(
+        clean["full_auto_acknowledged_at"].strip()
+    )
+    if not pinned:
+        clean["full_auto_pinned"] = False
+        clean["full_auto_acknowledged_at"] = ""
+        if clean.get("default_mode") == "full-auto":
+            clean["default_mode"] = DEFAULT_MODE
+    clean["schema_version"] = 3
     return clean
 
 
@@ -137,6 +159,36 @@ def grant_free_consent(project_root: Path, model_id: str) -> dict[str, Any]:
     if model_id not in consent:
         consent.append(model_id)
     return save_gui_preferences(project_root, {"free_consent": consent})
+
+
+def pin_full_auto(project_root: Path) -> dict[str, Any]:
+    """Explicitly pin Full Auto with a recorded acknowledgement time (#137)."""
+
+    from datetime import datetime, timezone
+
+    return save_gui_preferences(
+        project_root,
+        {
+            "full_auto_pinned": True,
+            "full_auto_acknowledged_at": datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat(),
+            "default_mode": "full-auto",
+        },
+    )
+
+
+def unpin_full_auto(project_root: Path) -> dict[str, Any]:
+    """Clear the Full Auto pin and fall back to Safe Auto (#137)."""
+
+    current = load_gui_preferences(project_root)
+    updates: dict[str, Any] = {
+        "full_auto_pinned": False,
+        "full_auto_acknowledged_at": "",
+    }
+    if current.get("default_mode") == "full-auto":
+        updates["default_mode"] = DEFAULT_MODE
+    return save_gui_preferences(project_root, updates)
 
 
 def load_gui_preferences(project_root: Path) -> dict[str, Any]:

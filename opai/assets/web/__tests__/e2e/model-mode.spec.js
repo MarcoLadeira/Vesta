@@ -80,4 +80,18 @@ test("selecting Full Auto requires an explicit risk confirmation", async ({ page
   await page.selectOption("#modeSel", "full-auto");
   expect(dialogs).toBe(1);
   await expect(page.locator("#modeSel")).toHaveValue("safe-auto");
+  // Dismissing the confirmation must not pin Full Auto (#137).
+  expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(0);
+});
+
+test("confirming Full Auto pins it via the dedicated bridge slot (#137)", async ({ page }) => {
+  await openApp(page);
+  page.on("dialog", async (dialog) => { await dialog.accept(); });
+  await page.selectOption("#modeSel", "full-auto");
+  expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(1);
+  // A plain savePref for full-auto must never be used to persist it.
+  const savedFullAuto = await page.evaluate(() =>
+    window.__mock.savedPrefs.filter((p) => p[0] === "default_mode" && p[1] === "full-auto").length
+  );
+  expect(savedFullAuto).toBe(0);
 });

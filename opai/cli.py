@@ -183,6 +183,27 @@ def cmd_cockpit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_autonomy(args: argparse.Namespace) -> int:
+    """Show or change the Full Auto pin so the CLI matches every surface (#137)."""
+    from opaihub.autonomy import resolve_startup_mode
+    from opaihub.gui_preferences import (
+        load_gui_preferences,
+        pin_full_auto,
+        unpin_full_auto,
+    )
+
+    root = _project(args.project)
+    command = getattr(args, "autonomy_command", "status") or "status"
+    if command == "pin":
+        prefs = pin_full_auto(root)
+    elif command == "unpin":
+        prefs = unpin_full_auto(root)
+    else:
+        prefs = load_gui_preferences(root)
+    print_json(resolve_startup_mode(prefs).to_dict())
+    return 0
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     from opai.gui_desktop import INSTALL_HINT, launch, render_screenshot, run_once
 
@@ -1340,6 +1361,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_cockpit)
+
+    p = sub.add_parser("autonomy", help="Show or change the Full Auto pin (#137)")
+    p.add_argument("--project", default=None, help="Project root")
+    autonomy_sub = p.add_subparsers(dest="autonomy_command")
+    for name, helptext in (
+        ("status", "Show the effective mode and Full Auto pin state"),
+        ("pin", "Explicitly pin Full Auto with acknowledgement"),
+        ("unpin", "Clear the Full Auto pin and fall back to Safe Auto"),
+    ):
+        a = autonomy_sub.add_parser(name, help=helptext)
+        a.add_argument("--project", default=None, help="Project root")
+        a.set_defaults(func=cmd_autonomy)
+    p.set_defaults(func=cmd_autonomy)
 
     p = sub.add_parser(
         "gui",

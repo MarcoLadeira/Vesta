@@ -11,6 +11,7 @@ from .agent_policy import (
     resolve_agent_policy,
 )
 from .agent_runtime import AgentRuntime, RuntimePhase
+from .autonomy import effective_mode
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
 from .cost_telemetry import (
     estimated_telemetry,
@@ -18,7 +19,7 @@ from .cost_telemetry import (
     record_workflow_cost,
 )
 from .diff_review import build_diff_review
-from .gui_preferences import DEFAULT_MODE, load_gui_preferences
+from .gui_preferences import load_gui_preferences
 from .intent_router import route_intents, safety_warnings
 from .ledger import record_event, record_route_decision, read_events
 from .model_intelligence import recommend_model
@@ -221,7 +222,10 @@ def handle_gui_message(
     _emit("request_prepare", "success", "Preparing request")
     prefs = load_gui_preferences(root)
     selected_model = model_id or prefs.get("default_model") or "auto"
-    requested_run_mode = mode or prefs.get("default_mode") or DEFAULT_MODE
+    # Central autonomy decision (#137): a requested/stored full-auto is honored
+    # only when Full Auto is pinned; otherwise it is downgraded to Safe Auto.
+    autonomy = effective_mode(mode, prefs)
+    requested_run_mode = autonomy.effective_mode
     policy = resolve_agent_policy(message, focus_hint=focus_hint)
     if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
         selected_mode = "safe-auto"
@@ -444,8 +448,9 @@ def handle_gui_message(
         return {
             **payload,
             "agent_policy": policy.to_dict(),
-            "requested_run_mode": requested_run_mode,
+            "requested_run_mode": autonomy.requested_mode,
             "effective_run_mode": selected_mode,
+            "autonomy": autonomy.to_dict(),
             "repo_context": current_repo.to_dict(),
             "workflow": state.to_dict(),
             "task_packet": task_packet.to_dict(),
