@@ -22,7 +22,14 @@ concurrency:
 jobs:
   test:
     name: Test and package
-    runs-on: windows-latest
+    # Pull requests run on Linux (billed 1x) for cheap, fast feedback. Push to
+    # main and manual dispatch run on Windows (2x) -- OPai is a Windows-first
+    # desktop app with Windows-specific process handling (CREATE_NO_WINDOW,
+    # taskkill, process-group kills), so the platform that actually ships is the
+    # one that gates code landing on main. Nothing merges without a Windows run.
+    runs-on: >-
+      ${{ (github.event_name == 'pull_request' && 'ubuntu-latest')
+        || 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
