@@ -1,10 +1,47 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .gui_preferences import load_gui_preferences
+
+# Per-message overhead cache (#153): profiling the repo (a full walk) and
+# selecting tests are gated behind the cheap repo fingerprint so a normal
+# chat send never re-walks an unchanged repository. Keyed by
+# (project root, fingerprint) → the last computed tool-trace row data.
+_REPO_WORK_CACHE: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+_REPO_WORK_LOCK = threading.RLock()
+
+
+def clear_repo_work_cache() -> None:
+    with _REPO_WORK_LOCK:
+        _REPO_WORK_CACHE.clear()
+
+
+def _cached_repo_work(
+    root: Path, kind: str, compute: Callable[[], dict[str, Any]]
+) -> dict[str, Any]:
+    """Return cached tool-row data for ``kind``, recomputing only on repo change."""
+    from .evidence_cache import repo_fingerprint
+
+    fingerprint = repo_fingerprint(root)
+    key = (str(root), fingerprint)
+    with _REPO_WORK_LOCK:
+        entry = _REPO_WORK_CACHE.get(key)
+        if entry is not None and kind in entry:
+            return entry[kind]
+    data = compute()
+    with _REPO_WORK_LOCK:
+        # A new fingerprint supersedes stale entries so the cache stays small.
+        stale = [
+            item for item in _REPO_WORK_CACHE if item[0] == str(root) and item != key
+        ]
+        for item in stale:
+            _REPO_WORK_CACHE.pop(item, None)
+        _REPO_WORK_CACHE.setdefault(key, {})[kind] = data
+    return data
 
 
 @dataclass
@@ -185,32 +222,42 @@ def route_intents(
         word in text
         for word in ["context", "cheap", "cost", "repo", "summarize", "fix"]
     ):
-        from .context_engine import profile_context
+        # Full repo walk gated behind the cheap fingerprint (#153): an
+        # unchanged repo reuses the last profile instead of re-walking on
+        # every "fix this bug".
+        def _profile() -> dict[str, Any]:
+            from .context_engine import profile_context
 
-        profile = profile_context(root)
+            profile = profile_context(root)
+            return {
+                "waste_share": profile.get("waste_share"),
+                "tokens_wasted": profile.get("estimated_tokens_wasted"),
+            }
+
         actions.append(
             _safe_action(
                 "context_profile",
                 "Profiled context waste",
-                {
-                    "waste_share": profile.get("waste_share"),
-                    "tokens_wasted": profile.get("estimated_tokens_wasted"),
-                },
+                _cached_repo_work(root, "context", _profile),
             )
         )
 
     if any(word in text for word in ["test", "failing", "failure", "bug", "fix"]):
-        from .test_select import select_tests
 
-        selected = select_tests(root)
+        def _tests() -> dict[str, Any]:
+            from .test_select import select_tests
+
+            selected = select_tests(root)
+            return {
+                "selected": selected.get("selected_tests", []),
+                "targeted_command": selected.get("targeted_command"),
+            }
+
         actions.append(
             _safe_action(
                 "test_select",
                 "Selected likely tests",
-                {
-                    "selected": selected.get("selected_tests", []),
-                    "targeted_command": selected.get("targeted_command"),
-                },
+                _cached_repo_work(root, "tests", _tests),
             )
         )
 
