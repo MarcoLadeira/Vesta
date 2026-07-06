@@ -110,6 +110,16 @@ def cmd_tool(args: argparse.Namespace) -> int:
     tools = effective_tools(root)
     if args.tool_command == "health":
         if args.id:
+            # Real per-tool check (#2): run a cheap tool-specific command
+            # (ruff --version + ruff check .) instead of the generic doctor.
+            from .tool_health import check_tool_health, is_known_tool
+            from .health import log_health
+
+            if is_known_tool(args.id):
+                result = check_tool_health(args.id, root, timeout=args.timeout)
+                log_health(root, [result])
+                print_json(result)
+                return 0 if result["status"] in {"passed", "runnable"} else 1
             matches = [tool for tool in tools if tool.get("id") == args.id]
             if not matches:
                 print_json({"status": "missing", "id": args.id})
@@ -421,7 +431,12 @@ def cmd_team(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
+    from .tool_health import tool_health_summary
+
     root = _project(args.project)
+    # Per-tool health (#2): version-only so doctor stays fast, and it names the
+    # specific failing tools + their fixes instead of a generic "installed".
+    known_tools = tool_health_summary(root)
     print_json(
         {
             "scan": {"project": str(root), "hub": str(hub_root(root))},
@@ -431,6 +446,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             },
             "validation": validate_all(root),
             "tool_health": health_all(root),
+            "known_tool_health": known_tools,
             "local_models": discover_local_models(root),
             "safe_next_steps": [
                 "Run opai doctor for the branded readiness check.",
