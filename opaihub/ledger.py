@@ -34,6 +34,19 @@ KNOWN_EVENT_TYPES = {
     EVENT_CAPTURE_SESSION,
 }
 
+# Capture-rate contract (#9): defined once so every surface reports the same
+# boundary. Client readiness (how many clients are wired) is NOT capture — a
+# 5/5 readiness never means 100% of sessions are measured.
+CAPTURE_RATE_DEFINITION = {
+    "numerator": "capture_session events with captured=true (a session OPai measured)",
+    "denominator": "all observed capture_session events (measurable sessions)",
+    "excludes": (
+        "Direct unwrapped agent launches OPai never sees are unmeasurable and are "
+        "not in the denominator. Client readiness is not capture."
+    ),
+    "unit": "percent of observed proxy sessions",
+}
+
 _LEDGER_LOCK = threading.RLock()
 
 
@@ -380,9 +393,18 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),
         "capture": {
             "observed_sessions": len(capture_sessions),
+            # Measurable = sessions OPai actually observed (the denominator).
+            # Pass-through = observed but not captured (fail-open/unsupported).
+            # Unmeasured = direct unwrapped launches OPai never saw: unknown by
+            # definition, so they are NOT counted here (#9).
+            "measurable_sessions": len(capture_sessions),
             "captured_sessions": captured_sessions,
             "uncaptured_sessions": uncaptured_sessions,
+            "pass_through_sessions": uncaptured_sessions,
+            "unmeasured_sessions": "unknown",
             "rate_percent": capture_rate,
+            "denominator": "observed proxy sessions",
+            "definition": dict(CAPTURE_RATE_DEFINITION),
             "label": (
                 f"{capture_rate:g}% of observed proxy sessions captured"
                 if capture_rate is not None
@@ -392,7 +414,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
             "scope": "Observed OPai proxy sessions only",
             "caveat": (
                 "Direct unwrapped agent launches are not measurable yet and are not "
-                "included in this rate."
+                "included in this rate. Client readiness is not session capture."
             ),
         },
         "privacy": "Raw prompts are never stored; only one-way task hashes and counts.",

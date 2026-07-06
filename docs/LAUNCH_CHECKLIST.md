@@ -6,9 +6,9 @@ Reddit, and short-form video.
 
 ## One-line message (use verbatim)
 
-> OPai is the AI coding cost firewall — it routes every task to the cheapest
-> safe path across Claude, Codex, Copilot, Cursor, and Cline, then proves the
-> savings locally and privately.
+> OPai is the AI coding cost firewall — it routes the tasks it runs to the
+> cheapest safe path across Claude, Codex, Copilot, Cursor, and Cline, then
+> proves the savings locally and privately.
 
 ## Pre-launch (grounded claims only)
 

@@ -3,9 +3,11 @@
 ![OPai mascot](opai/assets/opai-mascot.png)
 
 **OPai is the AI coding cost firewall.** It sits in front of Claude, Codex,
-Copilot, Cursor, and Cline and routes every task to the cheapest safe path —
-deterministic tools and local models first, paid cloud models only with your
-confirmation — then proves the savings in numbers, locally and privately.
+Copilot, Cursor, and Cline and routes the tasks it runs to the cheapest safe
+path — deterministic tools and local models first, paid cloud models only with
+your confirmation — then proves the savings in numbers, locally and privately.
+OPai measures the sessions it observes (its GUI chat and wrapped/proxy runs);
+direct unwrapped launches are shown as pass-through, not counted as captured.
 
 OPai 0.2.0 alpha.1 is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, governance controls, benchmark proof, and a real cost ledger.
 
