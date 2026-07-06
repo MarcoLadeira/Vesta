@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 # --------------------------------------------------------------------------- #
@@ -92,6 +93,24 @@ def make_event(
         "durationMs": duration_ms,
         "metadata": metadata or {},
     }
+
+
+def emit_event(
+    on_event: Callable[[dict[str, Any]], Any] | None,
+    event_type: str,
+    status: str,
+    title: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Build and best-effort deliver one event without risking the operation."""
+
+    event = make_event(event_type, status, title, **kwargs)
+    if on_event is not None:
+        try:
+            on_event(event)
+        except Exception:  # noqa: BLE001 - activity is observability, not control flow
+            return event
+    return event
 
 
 # --------------------------------------------------------------------------- #

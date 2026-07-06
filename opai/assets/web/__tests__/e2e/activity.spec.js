@@ -38,6 +38,30 @@ test("activity timeline receives events", async ({ page }) => {
   await expect(page.locator(".timeline .tl-t")).toContainText("Read file: app.py");
 });
 
+test("real agent operations update distinct timeline rows without duplicates", async ({ page }) => {
+  await sendPrompt(page, "ship the fix");
+  const id = await reqId(page);
+  const emit = (event) => page.evaluate(
+    ({ id, event }) => window.__mock.emitActivity(id, event), { id, event },
+  );
+  await emit({ id: "tests", type: "validation", status: "running", title: "Running full tests" });
+  await emit({ id: "tests", type: "validation", status: "success", title: "Full tests passed" });
+  await emit({ id: "pr", type: "tool_call", status: "success", title: "Pull request opened" });
+  await emit({ id: "ci", type: "ci_watch", status: "running", title: "CI checks pending" });
+  await emit({ id: "ci", type: "ci_watch", status: "success", title: "CI checks passed" });
+  await emit({ id: "merge", type: "command_complete", status: "success", title: "Pull request merged" });
+  await page.click(".gen-toggle");
+
+  const rows = page.locator(".timeline .tl-row");
+  await expect(rows).toHaveCount(4);
+  await expect(rows).toContainText([
+    "Full tests passed",
+    "Pull request opened",
+    "CI checks passed",
+    "Pull request merged",
+  ]);
+});
+
 test("inspector shows live status while generating and hides after", async ({ page }) => {
   await expect(page.locator("#inspLive")).toBeHidden();
   await sendPrompt(page);
