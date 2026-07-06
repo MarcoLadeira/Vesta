@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+  # Manual trigger to run the full cross-OS matrix on demand (e.g. before a
+  # release) without waiting for a push to main.
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -23,9 +26,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version:
-          - "3.10"
-          - "3.13"
+        # Fast feedback on pull requests runs the min-supported and current
+        # Python only where it is cheapest. The full span (3.10 + 3.13) runs on
+        # push to main and on manual dispatch, so nothing merges to main without
+        # both being exercised. Windows minutes bill at 2x on private repos, so
+        # halving the PR matrix is the single biggest per-PR saving.
+        python-version: >-
+          ${{ (github.event_name == 'pull_request'
+            && fromJSON('["3.13"]'))
+            || fromJSON('["3.10", "3.13"]') }}
 
     steps:
       - name: Checkout
@@ -107,6 +116,12 @@ jobs:
 
   clean-install:
     name: Clean wheel install (${{ matrix.os }})
+    # The three-OS wheel matrix includes a macOS runner, billed at 10x private-
+    # repo minutes — by far the most expensive job here. It proves cross-OS
+    # packaging, which only needs to hold at the point code lands on main (or a
+    # deliberate pre-release dispatch), not on every PR push. PRs still get the
+    # full test/lint/security gate plus web E2E; they just skip cross-OS wheels.
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
