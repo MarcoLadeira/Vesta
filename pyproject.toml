@@ -7,7 +7,7 @@ name = "opai"
 version = "0.2.0a1"
 description = "OPai alpha: the local-first AI coding cost firewall for routing, benchmarks, governance, and safe project workflows."
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["PyYAML>=6.0.2,<7"]
 
 [project.optional-dependencies]
 desktop-gui = ["PySide6>=6.7", "keyring==25.7.0"]
@@ -50,3 +50,6 @@ default_mode = "local-first"
 
 [tool.opcoding]
 phase = "legacy-compatible"
+
+[tool.pytest.ini_options]
+filterwarnings = ["error::pytest.PytestCollectionWarning"]

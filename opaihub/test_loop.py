@@ -53,6 +53,8 @@ def parse_test_failure(output: str) -> TestFailure:
 
 
 class TestLoop:
+    __test__ = False
+
     def __init__(
         self,
         *,

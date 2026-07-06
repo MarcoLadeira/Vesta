@@ -131,7 +131,7 @@ Project activation writes OPai managed blocks at the top of `AGENTS.md`, `CLAUDE
 ## Python Editable Install
 
 ```sh
-python -m pip install -e . --no-deps
+python -m pip install -e .
 opai install --no-tools
 ```
 

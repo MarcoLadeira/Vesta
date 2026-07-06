@@ -93,7 +93,7 @@ $Python = if ($env:OPAI_PYTHON) {
     (Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 }
 
-& $Python -m pip install -e "$Root" --no-deps
+& $Python -m pip install -e "$Root"
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

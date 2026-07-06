@@ -19,7 +19,7 @@ sh ./install.sh
 Developer install:
 
 ```sh
-python -m pip install -e . --no-deps
+python -m pip install -e .
 opai install --no-tools
 ```
 

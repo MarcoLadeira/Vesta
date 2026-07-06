@@ -33,7 +33,7 @@ The data + formatting live in **`opai/gui_controls.py`** — Qt-free and
 dependency-light, so the palette commands, model badges, header strip, shortcut
 list, and state messages are **unit-tested headlessly** (`tests/test_gui_controls.py`,
 24 pure tests). The PySide widgets consume those helpers. A guarded headless
-**render smoke** (skipped where PySide6 isn't installed, e.g. CI `--no-deps`)
+**render smoke** (skipped where the optional PySide6 desktop extra isn't installed)
 constructs the real window offscreen so the wiring can't crash the renderer.
 
 Why this split: the GUI file is a single large PySide module; keeping logic in a

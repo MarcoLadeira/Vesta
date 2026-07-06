@@ -59,7 +59,7 @@ fi
 
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
-"$OPAI_PYTHON" -m pip install -e "$ROOT" --no-deps
+"$OPAI_PYTHON" -m pip install -e "$ROOT"
 
 INSTALL_ARGS="--no-tools"
 if [ "$WITH_TOOLS" = "1" ]; then

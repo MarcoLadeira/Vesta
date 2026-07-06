@@ -120,10 +120,13 @@ The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`
 Developer install:
 
 ```powershell
-python -m pip install -e . --no-deps
+python -m pip install -e .
 op activate --repair --shell-aliases
 op status
 ```
+
+This installs OPai's small core runtime dependency set. Desktop Qt and terminal
+image support remain opt-in through the `desktop-gui` and `terminal-ui` extras.
 
 Optional free local tools:
 

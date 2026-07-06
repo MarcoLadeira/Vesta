@@ -17,6 +17,15 @@ from typing import Any
 from unittest import mock
 
 
+PROVIDER_CREDENTIAL_ENV = {
+    "GOOGLE_API_KEY",
+    "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+}
+
+
 def make_repo(
     root: Path, *, files: dict[str, str] | None = None, commit: bool = False
 ) -> Path:
@@ -43,13 +52,15 @@ def make_repo(
 
 @contextlib.contextmanager
 def isolated_home():
-    """Patch HOME/USERPROFILE to a throwaway dir.
+    """Patch home paths and provider credentials to a throwaway environment.
 
     Makes account/global-discovery detection hermetic so the developer's real
     home can't leak into a result (the cause of an earlier CI-only failure).
     """
     with tempfile.TemporaryDirectory() as home:
         with mock.patch.dict(os.environ, {"HOME": home, "USERPROFILE": home}):
+            for name in PROVIDER_CREDENTIAL_ENV:
+                os.environ.pop(name, None)
             yield Path(home)
 
 
