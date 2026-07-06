@@ -46,7 +46,7 @@ jobs:
           python -m pip install "ruff==0.15.9" bandit pip-audit detect-secrets
 
       - name: Install OPai editable
-        run: python -m pip install -e . --no-deps
+        run: python -m pip install -e .
 
       - name: Format check
         run: python -m ruff format --check .
@@ -72,7 +72,64 @@ jobs:
           --exclude-files "(^|[\\/])\\.opcoding-tools([\\/]|$)|(^|[\\/])\\.ruff_cache([\\/]|$)|(^|[\\/])\\.opcoding([\\/]|$)|(^|[\\/])\\.opaihub([\\/]|$)|(^|[\\/])opai[\\/]assets[\\/].*\\.png$"
           --exclude-lines "MORPH_API_KEY|api_key_env|api_key_present"
 
-      - name: Isolated install smoke
+  hermetic-tests:
+    name: Hostile-environment Python suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOOGLE_API_KEY: hostile-google # pragma: allowlist secret
+      GROQ_API_KEY: hostile-groq # pragma: allowlist secret
+      MISTRAL_API_KEY: hostile-mistral # pragma: allowlist secret
+      GH_TOKEN: hostile-gh # pragma: allowlist secret
+      GITHUB_TOKEN: hostile-github # pragma: allowlist secret
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install OPai and pytest
+        run: python -m pip install -e . pytest
+
+      - name: Run canonical unittest suite with populated keyring
+        env:
+          PYTHONPATH: tests/fixtures/hostile_keyring
+        run: python -m unittest discover -s tests
+
+      - name: Run pytest suite with populated keyring
+        env:
+          PYTHONPATH: tests/fixtures/hostile_keyring
+        run: python -m pytest tests -q
+
+  clean-install:
+    name: Clean wheel install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Upgrade package installer
+        run: python -m pip install --upgrade pip
+
+      - name: Build, install, and smoke the wheel in isolation
         run: python scripts/smoke-install.py
 
   web-test:

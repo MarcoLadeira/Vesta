@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-import json
 import os
 from importlib import resources
 from pathlib import Path
 from typing import Any
+
+
+class RegistryLoadError(RuntimeError):
+    """A registry could not be decoded or parsed safely."""
 
 
 def packaged_hub_root() -> Path:
@@ -29,13 +32,25 @@ def hub_root(start: Path | None = None) -> Path:
 
 
 def load_registry(path: Path) -> Any:
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise RegistryLoadError(
+            f"Could not load registry {path}: content must be valid UTF-8."
+        ) from exc
     try:
         import yaml  # type: ignore
-
+    except ModuleNotFoundError as exc:
+        raise RegistryLoadError(
+            f"Could not load registry {path}: PyYAML is required. "
+            "Repair the installation with `python -m pip install opai`."
+        ) from exc
+    try:
         return yaml.safe_load(text)
-    except Exception:
-        return json.loads(text)
+    except yaml.YAMLError as exc:
+        raise RegistryLoadError(
+            f"Could not load registry {path}: malformed YAML."
+        ) from exc
 
 
 def registry_file(name: str, root: Path | None = None) -> Path:

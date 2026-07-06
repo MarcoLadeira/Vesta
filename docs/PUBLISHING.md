@@ -47,10 +47,14 @@ op activate --repair --shell-aliases
 Local developer install:
 
 ```powershell
-python -m pip install -e . --no-deps
+python -m pip install -e .
 op activate --repair --shell-aliases
 op status
 ```
+
+The normal editable install resolves declared core runtime dependencies. Use
+`--no-deps` only for an intentional maintainer check that supplies dependencies
+separately.
 
 Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `opcoding`.
 

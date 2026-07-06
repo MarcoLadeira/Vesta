@@ -13,7 +13,7 @@
     "windows_with_shell_aliases": "powershell -ExecutionPolicy Bypass -File .\\install.ps1 -ShellAliases",
     "posix_local": "sh ./install.sh",
     "posix_with_shell_aliases": "sh ./install.sh --shell-aliases",
-    "editable_python": "python -m pip install -e . --no-deps && opai install --no-tools"
+    "editable_python": "python -m pip install -e . && opai install --no-tools"
   },
   "optional_tool_install": "opai install --with-tools",
   "notes": [

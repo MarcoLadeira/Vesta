@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 
+__test__ = False
+
+
 @dataclass(frozen=True)
 class TestFailure:
     failed: int
@@ -53,6 +56,8 @@ def parse_test_failure(output: str) -> TestFailure:
 
 
 class TestLoop:
+    __test__ = False
+
     def __init__(
         self,
         *,
