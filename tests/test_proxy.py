@@ -180,10 +180,12 @@ class AgentSupportTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_supported_agents_are_claude_codex_copilot(self):
-        # Copilot is now a first-class connector (accounts + proxy shim), so the
-        # inline-capture proxy routes it alongside Claude and Codex.
-        self.assertEqual(set(SUPPORTED_AGENTS), {"claude", "codex", "copilot"})
+    def test_supported_agents_include_gemini(self):
+        # Gemini one-shot prompts can now enter the same capture-aware wrapper;
+        # unsupported or interactive invocations still pass through unchanged.
+        self.assertEqual(
+            set(SUPPORTED_AGENTS), {"claude", "codex", "copilot", "gemini"}
+        )
 
     def test_unsupported_agent_is_clean_and_never_calls_runner(self):
         fake = FakeAccountRunner(text="x", cost=0.01)

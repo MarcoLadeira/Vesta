@@ -663,7 +663,13 @@ def ask(
 
     if model_choice and model_choice.startswith("free:"):
         return _ask_free_model(
-            root, task, model_choice, allow_cloud=allow_cloud, cancel=cancel
+            root,
+            task,
+            model_choice,
+            allow_cloud=allow_cloud,
+            allow_edits=allow_edits,
+            mode=mode,
+            cancel=cancel,
         )
 
     from opaihub.ask import run_ask
@@ -683,6 +689,8 @@ def _ask_free_model(
     model_id: str,
     *,
     allow_cloud: bool = False,
+    allow_edits: bool = False,
+    mode: str | None = None,
     cancel: Any = None,
 ) -> dict[str, Any]:
     """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
@@ -692,7 +700,7 @@ def _ask_free_model(
     confirmed the dialog). When confirmed, the call is dispatched through
     FreeAPIRunner which reads the API key from the environment.
     """
-    from opaihub.ask import run_ask
+    from opaihub.ask import run_explicit_model
     from opaihub.free_models import spec_for_model_id
     from opaihub.local_runner import runner_for_model
 
@@ -704,11 +712,16 @@ def _ask_free_model(
             provider_name = label.split(" ·")[0] if " ·" in label else spec["provider"]
         else:
             provider_name = model_id
+        context_description = (
+            "your task and repository file contents requested by the coding tools"
+            if allow_edits
+            else "your task and compact project context"
+        )
         return {
             "status": "confirmation_required",
             "message": (
                 f"This will send your task to {provider_name}'s public API. "
-                "Your task and compact project context will leave this device. "
+                f"{context_description.capitalize()} will leave this device. "
                 "Provider quota or billing may apply depending on your account. Continue?"
             ),
             "model_id": model_id,
@@ -724,13 +737,15 @@ def _ask_free_model(
                 "setup_hint", "The selected free-tier model is not configured."
             ),
         }
-    result = run_ask(
+    before = set(_changed_files(project_root)) if allow_edits else set()
+    result = run_explicit_model(
         project_root,
         task,
         runner=runner,
-        record=True,
-        allow_cloud=True,
         selected_model_id=model_id,
+        allow_edits=allow_edits,
+        mode=mode or ("safe-auto" if allow_edits else "ask"),
+        record=True,
         cancel=cancel,
     )
     if result.get("status") == "runner_error":
@@ -767,6 +782,9 @@ def _ask_free_model(
                 measurement=str(usage.get("measurement") or "estimated"),
                 quota_snapshot=usage.get("quota_snapshot"),
             )
+        result["changed_files"] = (
+            sorted(set(_changed_files(project_root)) - before) if allow_edits else []
+        )
     result["model_id"] = model_id
     result["free_tier"] = True
     return result

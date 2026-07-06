@@ -21,6 +21,7 @@ opai welcome --image kitty
 opai launch codex
 opai launch claude
 opai launch copilot
+opai launch gemini
 ```
 
 ## Files Written
@@ -33,19 +34,20 @@ opai launch copilot
 - `~/.agents/skills/superpowers`: Superpowers discovery bridge.
 - `~/.claude/CLAUDE.md`: managed OPai memory block.
 - `~/.opai/integrations/copilot-instructions.md`: Copilot instruction seed.
-- `~/.opai/bin/opai-codex*`, `opai-claude*`, `opai-copilot*`: terminal launch wrappers.
+- `~/.opai/bin/opai-codex*`, `opai-claude*`, `opai-copilot*`, `opai-gemini*`: terminal launch wrappers.
 
-For each project, `opai activate` writes the OPai managed block at the top of `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`, plus dedicated rule files for Cursor (`.cursor/rules/opai.mdc`) and Cline (`.clinerules/opai.md`), so clients see OPai before older project notes. Folder-form rule files are used for Cursor and Cline so existing single-file user rules are never overwritten.
+For each project, `opai activate` writes the OPai managed block at the top of `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `.github/copilot-instructions.md`, plus dedicated rule files for Cursor (`.cursor/rules/opai.mdc`) and Cline (`.clinerules/opai.md`), so clients see OPai before older project notes. Folder-form rule files are used for Cursor and Cline so existing single-file user rules are never overwritten.
 
 ## Supported Clients & Readiness
 
-OPai targets five clients and reports each one explicitly:
+OPai targets six clients and reports each one explicitly:
 
 | Client | Project file | Global discovery |
 | --- | --- | --- |
 | Claude Code | `CLAUDE.md` | `~/.claude/CLAUDE.md` |
 | Codex | `AGENTS.md` | `~/.agents/skills/opai/SKILL.md` |
 | GitHub Copilot | `.github/copilot-instructions.md` | `~/.opai/integrations/copilot-instructions.md` |
+| Gemini CLI | `GEMINI.md` | `~/.opai/integrations/gemini-instructions.md` |
 | Cursor | `.cursor/rules/opai.mdc` | — |
 | Cline | `.clinerules/opai.md` | — |
 

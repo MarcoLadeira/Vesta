@@ -7,7 +7,7 @@ Reddit, and short-form video.
 ## One-line message (use verbatim)
 
 > OPai is the AI coding cost firewall — it routes the tasks it runs to the
-> cheapest safe path across Claude, Codex, Copilot, Cursor, and Cline, then
+> cheapest safe path across Claude, Codex, Copilot, Gemini, Cursor, and Cline, then
 > proves the savings locally and privately.
 
 ## Pre-launch (grounded claims only)
@@ -61,7 +61,7 @@ Reddit, and short-form video.
 ## Short-form video (60–90s script)
 
 1. Hook (0–10s): "Your AI coding assistant bills you for `git status`. Here's the firewall."
-2. Install (10–25s): one command, then `opai doctor` → five clients active.
+2. Install (10–25s): one command, then `opai doctor` → six clients active.
 3. Route (25–45s): `opai route "fix the failing test"` → cheapest safe tier, read-only.
 4. Proof (45–70s): `opai savings --markdown` → dollars saved, cloud calls avoided.
 5. Trust (70–90s): `opai guard action "git push"` → denied (fail closed); privacy line.

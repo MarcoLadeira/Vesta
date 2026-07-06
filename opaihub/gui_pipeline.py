@@ -230,7 +230,11 @@ def handle_gui_message(
     requested_run_mode = autonomy.effective_mode
     policy = resolve_agent_policy(message, focus_hint=focus_hint)
     if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
-        selected_mode = "safe-auto"
+        selected_mode = (
+            requested_run_mode
+            if requested_run_mode in {"safe-auto", "full-auto"}
+            else "safe-auto"
+        )
     elif requested_run_mode == "plan":
         selected_mode = "plan"
     else:
@@ -685,7 +689,7 @@ def handle_gui_message(
             provider_message,
             selected_model,
             allow_cloud=allow_cloud,
-            allow_edits=False,
+            allow_edits=allow_edits,
             mode=selected_mode,
             cancel=cancel,
         )
@@ -749,9 +753,9 @@ def handle_gui_message(
             {
                 "status": status,
                 "answer": answer,
-                "tool_trace": tool_trace,
+                "tool_trace": tool_trace + list(result.get("tool_trace") or []),
                 "receipt": receipt,
-                "changed_files": [],
+                "changed_files": list(result.get("changed_files") or []),
                 "warnings": [],
                 "next_actions": ["Review provider quota and billing settings."],
                 "raw_result": result,

@@ -13,7 +13,7 @@ from opai.integrations import (
 
 
 class ClientDetectionTests(unittest.TestCase):
-    def test_activation_makes_all_five_clients_active(self):
+    def test_activation_makes_all_six_clients_active(self):
         with (
             tempfile.TemporaryDirectory() as ptmp,
             tempfile.TemporaryDirectory() as htmp,
@@ -24,7 +24,7 @@ class ClientDetectionTests(unittest.TestCase):
 
         self.assertEqual(
             set(status["summary"]["active"]),
-            {"claude", "codex", "copilot", "cursor", "cline"},
+            {"claude", "codex", "copilot", "gemini", "cursor", "cline"},
         )
         self.assertEqual(status["summary"]["broken"], [])
         self.assertEqual(status["summary"]["missing"], [])
@@ -38,6 +38,24 @@ class ClientDetectionTests(unittest.TestCase):
             activate_project(proj, home=home, install_global=False)
             self.assertTrue((proj / ".cursor" / "rules" / "opai.mdc").exists())
             self.assertTrue((proj / ".clinerules" / "opai.md").exists())
+
+    def test_gemini_memory_is_written_and_preserves_user_content(self):
+        with (
+            tempfile.TemporaryDirectory() as ptmp,
+            tempfile.TemporaryDirectory() as htmp,
+        ):
+            proj, home = Path(ptmp), Path(htmp)
+            gemini = proj / "GEMINI.md"
+            gemini.write_text("# User Gemini notes\nKeep this.\n", encoding="utf-8")
+
+            activate_project(proj, home=home, install_global=False)
+            activate_project(proj, home=home, install_global=False, repair=True)
+            text = gemini.read_text(encoding="utf-8")
+
+        self.assertEqual(text.count("OPai managed block: start"), 1)
+        self.assertIn("latest explicit request controls", text.lower())
+        self.assertIn("# User Gemini notes", text)
+        self.assertIn("Keep this.", text)
 
     def test_missing_client_reports_missing_with_repair(self):
         with tempfile.TemporaryDirectory() as tmp:

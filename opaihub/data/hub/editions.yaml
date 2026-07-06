@@ -47,7 +47,7 @@ features:
     description: Per-project savings report (opai savings).
   - id: client_activation
     min_edition: free
-    description: Activation across Claude, Codex, Copilot, Cursor, and Cline.
+    description: Activation across Claude, Codex, Copilot, Gemini, Cursor, and Cline.
   - id: policy_profiles_solo
     min_edition: free
     description: solo-cheap and solo-balanced policy profiles.

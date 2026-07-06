@@ -376,7 +376,7 @@ class UsageSnapshotTests(unittest.TestCase):
                     "opaihub.local_runner.runner_for_model", return_value=Runner()
                 ),
                 mock.patch(
-                    "opaihub.ask.run_ask",
+                    "opaihub.ask.run_explicit_model",
                     return_value={"status": "answered_locally", "answer": "ok"},
                 ),
             ):

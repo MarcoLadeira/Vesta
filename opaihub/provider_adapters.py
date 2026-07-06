@@ -30,6 +30,87 @@ class ExecutionRequest:
     out_file: str | None = None
 
 
+@dataclass(frozen=True)
+class ProviderCapabilities:
+    """Concrete execution abilities exposed by one provider transport."""
+
+    repo_read: bool
+    patch_edit: bool
+    run_tests: bool
+    native_tools: bool
+    streaming: bool
+
+
+@dataclass(frozen=True)
+class ProviderExecutionPlan:
+    """Effective capabilities after user policy and provider support intersect."""
+
+    provider_id: str
+    mode: str
+    allow_edits: bool
+    tools: tuple[str, ...]
+
+
+_READ_TOOLS = ("find_files", "search_code", "read_file")
+_WRITE_TOOLS = ("apply_patch", "run_tests")
+
+
+def gemini_approval_mode(mode: str) -> str:
+    """Map OPai autonomy to Gemini CLI's current approval vocabulary."""
+
+    return {
+        "ask": "plan",
+        "plan": "plan",
+        "approve-edits": "auto_edit",
+        "safe-auto": "auto_edit",
+        "full-auto": "yolo",
+    }.get(str(mode or "").lower(), "plan")
+
+
+def opai_mode_for_gemini_approval(approval_mode: str) -> str | None:
+    """Translate a supported Gemini CLI approval mode back to OPai autonomy."""
+
+    return {
+        "plan": "plan",
+        "default": "ask",
+        "auto_edit": "safe-auto",
+        "yolo": "full-auto",
+    }.get(str(approval_mode or "").lower())
+
+
+def resolve_execution_plan(
+    adapter: ProviderAdapter,
+    policy: Any,
+    *,
+    effective_mode: str,
+) -> ProviderExecutionPlan:
+    """Intersect current intent, autonomy, and physical provider abilities."""
+
+    from .agent_policy import AgentMode
+
+    capabilities = adapter.capabilities
+    writable_intent = policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}
+    requested_mode = str(effective_mode or "ask")
+    editable_mode = requested_mode in {"safe-auto", "full-auto"}
+    allow_edits = bool(writable_intent and editable_mode and capabilities.patch_edit)
+    mode = (
+        requested_mode
+        if allow_edits
+        else ("plan" if requested_mode == "plan" else "ask")
+    )
+    tools = _READ_TOOLS if capabilities.repo_read else ()
+    if allow_edits:
+        tools += tuple(
+            tool
+            for tool, supported in (
+                ("apply_patch", capabilities.patch_edit),
+                ("run_tests", capabilities.run_tests),
+            )
+            if supported
+        )
+    return ProviderExecutionPlan(adapter.provider_id, mode, allow_edits, tools)
+
+
 def test_free_provider_connection(
     provider_id: str,
     *,
@@ -87,6 +168,14 @@ class ProviderAdapter:
         if self.provider_id in FREE_PROVIDERS:
             return "free"
         return "local"
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        if self.kind == "account":
+            return ProviderCapabilities(True, True, True, True, True)
+        if self.kind == "free":
+            return ProviderCapabilities(True, True, True, False, False)
+        return ProviderCapabilities(False, False, False, False, True)
 
     def probe(self, *, home: Path | None = None, force: bool = False) -> dict[str, Any]:
         """Run only local/presence diagnostics; never send a model prompt."""

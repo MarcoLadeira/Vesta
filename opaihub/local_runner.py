@@ -300,29 +300,31 @@ class FreeAPIRunner(OpenAICompatibleRunner):
     def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"}
 
-    def complete(
+    def _chat(
         self,
-        prompt: str,
+        messages: list[dict[str, Any]],
         *,
-        system: str | None = None,
-        timeout: float = 60.0,
-        cancel: threading.Event | None = None,
-    ) -> str:
-        messages: list[dict[str, str]] = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-        # Cancellation truth (#152): route the auth'd request through the
-        # cancellable transport so Stop aborts the network call itself, not
-        # just the result renderer. LocalRunCancelled propagates to run_ask.
-        result = _http_json_cancellable(
+        timeout: float,
+        cancel: threading.Event | None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+        }
+        if tools:
+            payload.update({"tools": tools, "tool_choice": "auto"})
+        return _http_json_cancellable(
             f"{self.base_url}/chat/completions",
             method="POST",
-            payload={"model": self.model, "messages": messages, "stream": False},
+            payload=payload,
             timeout=timeout,
             cancel=cancel,
             extra_headers=self._auth_headers(),
         )
+
+    def _usage(self, result: dict[str, Any]) -> dict[str, Any]:
         usage = result.get("usage") or result.get("usageMetadata") or {}
         input_tokens = usage.get("prompt_tokens", usage.get("promptTokenCount", 0))
         output_tokens = usage.get(
@@ -346,15 +348,123 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                 }
         except (TypeError, ValueError):
             quota = None
-        self.last_usage = {
+        return {
             "input_tokens": int(input_tokens or 0),
             "output_tokens": int(output_tokens or 0),
             "tokens": int(total_tokens or 0),
             "measurement": "provider" if usage else "estimated",
             "quota_snapshot": quota,
         }
+
+    def complete(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        timeout: float = 60.0,
+        cancel: threading.Event | None = None,
+    ) -> str:
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        # Cancellation truth (#152): route the auth'd request through the
+        # cancellable transport so Stop aborts the network call itself, not
+        # just the result renderer. LocalRunCancelled propagates to run_ask.
+        result = self._chat(messages, timeout=timeout, cancel=cancel)
+        self.last_usage = self._usage(result)
         choices = result.get("choices") or [{}]
         return str((choices[0].get("message") or {}).get("content", "")).strip()
+
+    def complete_with_tools(
+        self,
+        prompt: str,
+        *,
+        project_root: Path,
+        allow_edits: bool,
+        system: str | None = None,
+        timeout: float = 60.0,
+        cancel: threading.Event | None = None,
+        max_tool_calls: int | None = None,
+    ) -> dict[str, Any]:
+        """Run a bounded repository tool loop through an OpenAI-compatible API."""
+
+        from .provider_tools import MAX_TOOL_CALLS, RepositoryToolExecutor
+
+        executor = RepositoryToolExecutor(project_root, allow_edits=allow_edits)
+        messages: list[dict[str, Any]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        trace: list[dict[str, Any]] = []
+        input_tokens = 0
+        output_tokens = 0
+        measured = False
+        quota = None
+        limit = max(1, int(max_tool_calls or MAX_TOOL_CALLS))
+        tool_calls_used = 0
+        while True:
+            if cancel is not None and cancel.is_set():
+                raise LocalRunCancelled("Provider tool loop cancelled")
+            result = self._chat(
+                messages,
+                tools=executor.schemas(),
+                timeout=timeout,
+                cancel=cancel,
+            )
+            usage = self._usage(result)
+            input_tokens += int(usage["input_tokens"])
+            output_tokens += int(usage["output_tokens"])
+            measured = measured or usage["measurement"] == "provider"
+            quota = usage.get("quota_snapshot") or quota
+            message = (result.get("choices") or [{}])[0].get("message") or {}
+            calls = message.get("tool_calls") or []
+            if not isinstance(calls, list):
+                raise RuntimeError("Provider returned malformed tool calls")
+            if not calls:
+                self.last_usage = {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "tokens": input_tokens + output_tokens,
+                    "measurement": "provider" if measured else "estimated",
+                    "quota_snapshot": quota,
+                }
+                return {
+                    "text": str(message.get("content") or "").strip(),
+                    "tool_trace": trace,
+                }
+            if len(calls) > limit - tool_calls_used:
+                raise RuntimeError("Provider tool-call limit reached")
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": message.get("content") or "",
+                    "tool_calls": calls,
+                }
+            )
+            for call in calls:
+                observation = executor.invoke_call(call, cancel=cancel)
+                function = call.get("function") if isinstance(call, dict) else {}
+                name = str((function or {}).get("name") or "unknown")
+                call_id = str(call.get("id") or "") if isinstance(call, dict) else ""
+                trace.append(
+                    {
+                        "tool": name,
+                        "call_id": call_id,
+                        "ok": bool(observation.get("ok")),
+                        "error_code": str(observation.get("error_code") or ""),
+                        "message": str(observation.get("message") or ""),
+                        "duration_ms": int(observation.get("duration_ms") or 0),
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": json.dumps(observation, sort_keys=True),
+                    }
+                )
+            tool_calls_used += len(calls)
 
 
 def _candidate_runners() -> list[tuple[str, LocalRunner]]:

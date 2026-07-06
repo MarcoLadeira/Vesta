@@ -81,6 +81,37 @@ class InvocationClassifierTests(unittest.TestCase):
         self.assertEqual(plan.kind, "passthrough")
         self.assertEqual(plan.argv, tuple(argv))
 
+    def test_gemini_approval_modes_map_to_opai_modes(self):
+        cases = {
+            "plan": "plan",
+            "default": "ask",
+            "auto_edit": "safe-auto",
+            "yolo": "full-auto",
+        }
+        for approval_mode, expected in cases.items():
+            with self.subTest(approval_mode=approval_mode):
+                plan = classify_invocation(
+                    "gemini",
+                    [
+                        "-p",
+                        "fix the tests",
+                        "--approval-mode",
+                        approval_mode,
+                        "--model",
+                        "gemini-2.5-pro",
+                    ],
+                )
+                self.assertEqual(plan.kind, "proxy")
+                self.assertEqual(plan.prompt, "fix the tests")
+                self.assertEqual(plan.model, "gemini-2.5-pro")
+                self.assertEqual(plan.mode, expected)
+
+    def test_gemini_interactive_and_structured_output_pass_through(self):
+        for argv in ([], ["--output-format", "json", "-p", "task"]):
+            with self.subTest(argv=argv):
+                plan = classify_invocation("gemini", argv)
+                self.assertEqual(plan.kind, "passthrough")
+
     def test_interactive_and_management_commands_always_pass_through(self):
         cases = [
             ("claude", []),

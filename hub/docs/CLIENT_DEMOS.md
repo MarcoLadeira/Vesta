@@ -2,7 +2,7 @@
 
 Reproducible before/after demos for each AI client. The "before" is the agent
 spending freely; the "after" is the same task routed through OPai's local-first
-firewall. All five clients consume the same OPai policy, skills, wrappers, and
+firewall. All six clients consume the same OPai policy, skills, wrappers, and
 repair flow.
 
 ## Readiness check (all clients)
@@ -50,6 +50,11 @@ opai savings --markdown                    # dollars saved, cloud calls avoided
 - OPai writes `.github/copilot-instructions.md` and `.copilotignore`.
 - Demo: `opai doctor` shows Copilot active; `.copilotignore` keeps generated
   files out of Copilot context.
+
+### Gemini CLI
+- OPai writes `GEMINI.md`, `.geminiignore`, and `opai-gemini` wrappers.
+- Demo: launch Gemini through the wrapper; Plan stays read-only, Auto Edit may
+  edit repository files, and YOLO maps to acknowledged Full Auto behavior.
 
 ## Verify the wrappers (Windows + POSIX)
 

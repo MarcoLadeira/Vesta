@@ -45,7 +45,7 @@ class CockpitTests(unittest.TestCase):
 
         self.assertEqual(payload["status"], "on")
         self.assertIn("OPai ON", text)
-        self.assertIn("Clients: 5/5 active", text)
+        self.assertIn("Clients: 6/6 active", text)
         self.assertIn("Savings:", text)
         self.assertIn("Budget:", text)
         self.assertIn("Run `opai route", text)
@@ -84,7 +84,7 @@ class CockpitTests(unittest.TestCase):
             line = render_statusline(project_root=root, width=120, color=False)
 
         self.assertIn("OPai ON", line)
-        self.assertIn("5/5 clients", line)
+        self.assertIn("6/6 clients", line)
         self.assertIn("$0.00 saved", line)
         self.assertIn("budget ok", line)
 
@@ -105,7 +105,7 @@ class CockpitTests(unittest.TestCase):
         self.assertEqual(payload["status"], "on")
         self.assertEqual(
             set(payload["clients"]["summary"]["active"]),
-            {"claude", "codex", "copilot", "cursor", "cline"},
+            {"claude", "codex", "copilot", "gemini", "cursor", "cline"},
         )
 
 

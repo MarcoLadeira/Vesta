@@ -235,6 +235,7 @@ def _write_project_instructions(project_root: Path) -> list[str]:
     for path in [
         project_root / "AGENTS.md",
         project_root / "CLAUDE.md",
+        project_root / "GEMINI.md",
         project_root / ".github" / "copilot-instructions.md",
     ]:
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -269,6 +270,7 @@ def _planned_project_files(project_root: Path) -> list[str]:
     return [
         str(project_root / "AGENTS.md"),
         str(project_root / "CLAUDE.md"),
+        str(project_root / "GEMINI.md"),
         str(project_root / ".github" / "copilot-instructions.md"),
         str(project_root / ".cursor" / "rules" / "opai.mdc"),
         str(project_root / ".clinerules" / "opai.md"),
@@ -393,7 +395,7 @@ def activate_project(
         install_global_integrations(
             root,
             home=user_home,
-            targets=["codex", "claude", "copilot", "shell"],
+            targets=["codex", "claude", "copilot", "gemini", "shell"],
             install_shell_aliases=install_shell_aliases,
             ensure_superpowers=True,
             install_superpowers=False,
@@ -411,7 +413,7 @@ def activate_project(
         "superpowers": superpowers,
         "global_integrations": global_result,
         "next_steps": [
-            "Restart Codex/Claude/Copilot sessions after first activation so skills are rediscovered.",
+            "Restart Codex/Claude/Copilot/Gemini sessions after first activation so instructions are rediscovered.",
             "Launch AI CLIs through OPai wrappers so this activation runs in every project.",
             'Run opai route "<task>" to collect local evidence before model use.',
             "Run opai slim --clean to remove generated caches from this project.",
@@ -462,13 +464,14 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
     instruction_files = {
         "agents": root / "AGENTS.md",
         "claude": root / "CLAUDE.md",
+        "gemini": root / "GEMINI.md",
         "copilot": root / ".github" / "copilot-instructions.md",
     }
     superpowers_target = user_home / ".agents" / "skills" / "superpowers"
     superpowers_source = user_home / ".codex" / "superpowers" / "skills"
     wrappers = {
         tool: opai_home(user_home) / "bin" / f"opai-{tool}.ps1"
-        for tool in ["codex", "claude", "copilot"]
+        for tool in ["codex", "claude", "copilot", "gemini"]
     }
     global_status = load_global_status(user_home)
     instruction_status = {}
@@ -671,7 +674,7 @@ exec "$COMMAND" "$@"
 
 def _write_shell_wrappers(home: Path) -> list[str]:
     written = []
-    for tool in ["codex", "claude", "copilot"]:
+    for tool in ["codex", "claude", "copilot", "gemini"]:
         written.append(
             str(
                 _write(
@@ -706,6 +709,7 @@ function opai {{ & {python_ps} -m opai @args }}
 function codex {{ & "{bin_dir / "opai-codex.ps1"}" @args }}
 function claude {{ & "{bin_dir / "opai-claude.ps1"}" @args }}
 function copilot {{ & "{bin_dir / "opai-copilot.ps1"}" @args }}
+function gemini {{ & "{bin_dir / "opai-gemini.ps1"}" @args }}
 {PS_END_MARKER}"""
     for profile in powershell_profiles:
         existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
@@ -722,6 +726,7 @@ opai() {{ {python_sh} -m opai "$@"; }}
 codex() {{ "{posix_bin / "opai-codex"}" "$@"; }}
 claude() {{ "{posix_bin / "opai-claude"}" "$@"; }}
 copilot() {{ "{posix_bin / "opai-copilot"}" "$@"; }}
+gemini() {{ "{posix_bin / "opai-gemini"}" "$@"; }}
 {PS_END_MARKER}"""
     for profile in posix_profiles:
         existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
@@ -739,9 +744,9 @@ def install_global_integrations(
 ) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     user_home = (home or Path.home()).expanduser().resolve()
-    selected = set(targets or ["codex", "claude", "copilot", "shell"])
+    selected = set(targets or ["codex", "claude", "copilot", "gemini", "shell"])
     if "all" in selected:
-        selected = {"codex", "claude", "copilot", "shell"}
+        selected = {"codex", "claude", "copilot", "gemini", "shell"}
 
     base = opai_home(user_home)
     previous_global = load_global_status(user_home)
@@ -776,6 +781,15 @@ def install_global_integrations(
                 )
             )
         )
+    if "gemini" in selected:
+        written.append(
+            str(
+                _write(
+                    base / "integrations" / "gemini-instructions.md",
+                    instruction_text(),
+                )
+            )
+        )
     if "shell" in selected:
         written.extend(_write_shell_wrappers(user_home))
         if install_shell_aliases:
@@ -806,6 +820,7 @@ def install_global_integrations(
             "OPai ensures ~/.agents/skills/superpowers when ~/.codex/superpowers/skills is available.",
             "Claude Code receives a managed global memory block when target claude is selected.",
             "Copilot support is instruction-file based; client UI support varies.",
+            "Gemini CLI receives GEMINI.md plus OPai shell-wrapper activation.",
             "Closed desktop apps may not expose a status badge surface. Use OPai instructions where supported.",
         ],
     }
@@ -945,6 +960,7 @@ def uninstall_opai(
             [
                 (root / "AGENTS.md", START_MARKER, END_MARKER),
                 (root / "CLAUDE.md", START_MARKER, END_MARKER),
+                (root / "GEMINI.md", START_MARKER, END_MARKER),
                 (
                     root / ".github" / "copilot-instructions.md",
                     START_MARKER,
