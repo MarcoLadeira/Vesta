@@ -30,6 +30,7 @@ from typing import Any
 
 from .command_runner import redact
 from .proc import provider_child_env
+from .process_tree import isolated_group_kwargs, terminate_tree
 
 _CONNECTION_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _CONNECTION_CACHE_LOCK = threading.RLock()
@@ -210,7 +211,12 @@ def _hidden_run(
 
 
 def _popen(cmd: list[str], *, cwd: str | None, env: dict[str, str] | None = None):
-    """Start a killable, line-buffered CLI process for streaming reads."""
+    """Start a killable, line-buffered CLI process for streaming reads.
+
+    Launched in its own process group/session (#108) so a Stop or window close
+    can terminate the entire tree — provider CLIs spawn grandchildren that must
+    not survive cancellation and keep spending or mutating the repo.
+    """
     kwargs: dict[str, Any] = {
         "cwd": cwd,
         "stdout": subprocess.PIPE,
@@ -223,8 +229,7 @@ def _popen(cmd: list[str], *, cwd: str | None, env: dict[str, str] | None = None
     }
     if env is not None:
         kwargs["env"] = env
-    if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    kwargs.update(isolated_group_kwargs())
     return subprocess.Popen(cmd, **kwargs)  # nosec B603 - argv list, no shell, user's own CLI
 
 
@@ -241,17 +246,10 @@ def _is_login_sentinel(text: str) -> bool:
 
 
 def _terminate(proc: Any) -> None:
-    """Stop a running process: terminate, then hard-kill if it won't exit."""
-    try:
-        if proc.poll() is not None:
-            return
-        proc.terminate()
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-    except (OSError, ValueError):
-        pass
+    """Stop a running process *and its whole tree* (#108): grandchildren spawned
+    by a provider CLI must not survive Stop and keep spending or mutating the
+    repo. Delegates to the platform-aware, idempotent tree killer."""
+    terminate_tree(proc)
 
 
 def _process_returncode(proc: Any) -> int:
