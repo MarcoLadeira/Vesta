@@ -245,6 +245,12 @@ It fails fast on the first red step and exits non-zero unless every step passes 
 the same contract as CI. Install the check tools once with
 `python -m pip install "ruff==0.15.9" bandit pip-audit detect-secrets`.
 
+**Green checks without GitHub minutes.** The GitHub-hosted matrix
+(`.github/workflows/ci.yml`) is manual-only, and a self-hosted runner workflow
+(`.github/workflows/ci-selfhosted.yml`) runs this same gate on your own machine
+for every push/PR at $0. See [docs/SELF_HOSTED_CI.md](docs/SELF_HOSTED_CI.md) for
+the ~2-minute runner setup.
+
 Optional free local tools:
 
 ```powershell

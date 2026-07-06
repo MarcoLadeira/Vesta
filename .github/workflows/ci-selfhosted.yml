@@ -1,0 +1,39 @@
+name: OPai CI (self-hosted)
+
+# Runs the CI gate on a self-hosted runner you register on your own machine, so
+# it works at $0 with no GitHub-hosted Actions minutes (see docs/SELF_HOSTED_CI.md).
+# Until a runner is registered these jobs sit queued (pending) rather than failing;
+# the moment a runner comes online they execute and report green/red.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opai-ci-selfhosted-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Local gate (ruff, tests, validate, bandit)
+    runs-on: [self-hosted]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OPai and check tools
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . "ruff==0.15.9" bandit
+
+      - name: Run the CI gate
+        shell: bash
+        run: python scripts/ci_local.py
