@@ -12,6 +12,9 @@ honest, technical, protective; never hype, never fake precision.
 
 from __future__ import annotations
 
+import importlib.resources as _resources
+from pathlib import Path as _Path
+
 NAME = "OPai"
 CATEGORY = "cost-aware AI coding cockpit"
 TAGLINE = "Every step visible. Every dollar accounted."
@@ -104,3 +107,24 @@ def boot_brand() -> dict[str, str]:
         "emptyHint": EMPTY_HINT,
         "composerPlaceholder": COMPOSER_PLACEHOLDER,
     }
+
+
+APP_ICON_NAME = "opai-icon.png"
+
+
+def app_icon_path():
+    """Absolute path to the packaged square app icon, or ``None`` if absent.
+
+    Resolved through ``importlib.resources`` so it works from an installed wheel
+    or a closed-source artifact, not just a source checkout (#148). OPai ships as
+    a normal (unzipped) wheel, so the resource is a real filesystem path that
+    stays valid after this returns. Never raises: a missing icon simply degrades
+    to the default window icon.
+    """
+    try:
+        resource = _resources.files("opai") / "assets" / APP_ICON_NAME
+        if resource.is_file():
+            return _Path(str(resource))
+    except (FileNotFoundError, ModuleNotFoundError, TypeError, OSError):
+        return None
+    return None

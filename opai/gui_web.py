@@ -945,6 +945,11 @@ def _run_gui(
         )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window()
+    # Window/taskbar/Alt-Tab icon + Windows taskbar grouping, set before show so
+    # the app never presents as a generic Python window (#148).
+    from opai.gui_identity import apply_window_identity
+
+    apply_window_identity(app, window)
     window.show()
     app.exec()
     return 0
