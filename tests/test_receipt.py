@@ -224,6 +224,113 @@ class ReceiptCliTests(unittest.TestCase):
         rc = main(["receipt", "verify", str(out), "--project", str(self.root)])
         self.assertEqual(rc, 1)
 
+    def test_cli_verify_prints_verified_word(self):
+        import contextlib
+        import io
+
+        out = self.root / "receipt.json"
+        main(["receipt", "--project", str(self.root), "--out", str(out)])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["receipt", "verify", str(out), "--project", str(self.root)])
+        self.assertEqual(rc, 0)
+        self.assertIn("VERIFIED", buf.getvalue())
+
+    def test_cli_verify_tampered_names_the_failing_section(self):
+        import contextlib
+        import io
+
+        out = self.root / "receipt.json"
+        main(["receipt", "--project", str(self.root), "--out", str(out)])
+        data = json.loads(out.read_text(encoding="utf-8"))
+        data["totals"]["estimated_savings_usd"] = 4242.0
+        out.write_text(json.dumps(data), encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["receipt", "verify", str(out), "--project", str(self.root)])
+        text = buf.getvalue()
+        self.assertEqual(rc, 1)
+        self.assertIn("TAMPERED", text)
+        self.assertIn("content_hash", text)
+
+    def test_cli_verify_tampered_signature_is_named(self):
+        import contextlib
+        import io
+
+        out = self.root / "receipt.json"
+        main(["receipt", "--project", str(self.root), "--out", str(out)])
+        data = json.loads(out.read_text(encoding="utf-8"))
+        # Flip the signature value but keep the body (so the content hash still
+        # matches): the signature check must catch it and name that section.
+        data["signature"]["value"] = "0" * 64
+        out.write_text(json.dumps(data), encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["receipt", "verify", str(out), "--project", str(self.root)])
+        text = buf.getvalue()
+        self.assertEqual(rc, 1)
+        self.assertIn("TAMPERED", text)
+        self.assertIn("signature", text)
+
+    def test_cli_verify_is_portable_without_the_shared_key(self):
+        import contextlib
+        import io
+
+        # A receipt built here, verified on a "different machine": a fresh
+        # project root with no signing key. The content hash is portable, so
+        # verification succeeds (exit 0) as content-verified — not tampered.
+        out = self.root / "receipt.json"
+        main(["receipt", "--project", str(self.root), "--out", str(out)])
+        other = Path(self._tmp.name) / "other_machine"
+        other.mkdir()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["receipt", "verify", str(out), "--project", str(other)])
+        text = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("VERIFIED (content)", text)
+
+
+class VerifyReceiptDetailTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        _repo(self.root)
+        _seed_savings(self.root)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_clean_receipt_status_is_verified(self):
+        result = verify_receipt(self.root, build_receipt(self.root))
+        self.assertEqual(result["status"], "VERIFIED")
+        self.assertTrue(result["content_verified"])
+        self.assertEqual(result["signature_status"], "valid")
+        self.assertIsNone(result["failing_section"])
+
+    def test_no_key_is_content_verified_not_tampered(self):
+        receipt = build_receipt(self.root)
+        other = Path(self._tmp.name) / "no_key_root"
+        other.mkdir()
+        result = verify_receipt(other, receipt)
+        self.assertEqual(result["status"], "CONTENT_VERIFIED")
+        self.assertTrue(result["content_verified"])
+        self.assertEqual(result["signature_status"], "no_key")
+
+    def test_mutated_body_is_tampered_at_content_hash(self):
+        receipt = json.loads(json.dumps(build_receipt(self.root)))
+        receipt["totals"]["routed_tasks"] = 9999
+        result = verify_receipt(self.root, receipt)
+        self.assertEqual(result["status"], "TAMPERED")
+        self.assertEqual(result["failing_section"], "content_hash")
+
+    def test_mutated_signature_is_tampered_at_signature(self):
+        receipt = json.loads(json.dumps(build_receipt(self.root)))
+        receipt["signature"]["value"] = "0" * 64
+        result = verify_receipt(self.root, receipt)
+        self.assertEqual(result["status"], "TAMPERED")
+        self.assertEqual(result["failing_section"], "signature")
+
 
 if __name__ == "__main__":
     unittest.main()

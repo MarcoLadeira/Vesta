@@ -74,24 +74,64 @@ def build_receipt(project_root: Path, *, sign: bool = True) -> dict[str, Any]:
 
 
 def verify_receipt(project_root: Path, receipt: dict[str, Any]) -> dict[str, Any]:
-    """Fail-closed verification: content hash + signature (used by #88).
+    """Fail-closed verification: content hash + signature (#88).
 
-    A receipt is VERIFIED only if its embedded ``receipt_hash`` matches a fresh
-    hash of the body *and* the signature is valid. Any mutated byte breaks one or
-    both. ``problems`` names each failing section.
+    Two independent checks:
+
+    - **content hash** — a fresh SHA-256 of the body must match the embedded
+      ``receipt_hash``. This is machine-independent: anyone can recompute it
+      without any key, so it is portable tamper-evidence of the numbers.
+    - **signature** — the HMAC-SHA256 signature is checked when the shared key
+      is available on this machine. A *mismatch* is tampering; a *missing key*
+      is not — the content stays portably verified (``status`` distinguishes
+      ``VERIFIED`` from ``CONTENT_VERIFIED`` from ``TAMPERED``).
+
+    ``verified`` stays True only for a fully checked, valid receipt (content +
+    signature), so existing callers keep their strict contract; ``status`` and
+    ``failing_section`` carry the finer verdict for the CLI.
     """
     problems: list[str] = []
+    failing_section: str | None = None
     actual_hash = str(receipt.get("receipt_hash", ""))
     expected_hash = _content_hash(receipt)
+    content_ok = bool(actual_hash) and actual_hash == expected_hash
     if not actual_hash:
-        problems.append("missing receipt_hash")
-    elif actual_hash != expected_hash:
-        problems.append("content hash mismatch (tampered)")
+        problems.append("content hash: missing receipt_hash")
+        failing_section = "content_hash"
+    elif not content_ok:
+        problems.append("content hash: mismatch (payload was altered)")
+        failing_section = "content_hash"
+
     sig = verify_signature(project_root, receipt)
-    if not sig.get("verified"):
-        problems.append(f"signature: {sig.get('reason', 'invalid')}")
+    reason = str(sig.get("reason", ""))
+    if sig.get("verified"):
+        signature_status = "valid"
+    elif "no signature present" in reason:
+        signature_status = "unsigned"
+        problems.append("signature: receipt is unsigned")
+    elif "no signing key" in reason:
+        # Different/absent key on this machine — the HMAC cannot be checked, but
+        # the content hash above is portable. Not tampering.
+        signature_status = "no_key"
+    else:
+        signature_status = "mismatch"
+        problems.append("signature: mismatch (tampered or wrong key)")
+        if failing_section is None:
+            failing_section = "signature"
+
+    if not content_ok or signature_status == "mismatch":
+        status = "TAMPERED"
+    elif signature_status == "valid":
+        status = "VERIFIED"
+    else:  # content_ok, signature unsigned or unverifiable here
+        status = "CONTENT_VERIFIED"
+
     return {
-        "verified": not problems,
+        "verified": status == "VERIFIED",
+        "status": status,
+        "content_verified": content_ok,
+        "signature_status": signature_status,
+        "failing_section": failing_section,
         "problems": problems,
         "receipt_hash": actual_hash,
         "signature": sig,
