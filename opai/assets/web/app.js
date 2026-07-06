@@ -388,8 +388,7 @@ function renderInspector(data) {
   $("#fmtSel").onchange = (e) => { state.format = e.target.value; bridge.savePref("default_output_format", state.format); refreshInspector(); };
   updateCliMirror();
   $("#cliMirror").onclick = () => {
-    const cmd = $("#cliMirrorCmd").textContent;
-    if (navigator.clipboard) navigator.clipboard.writeText(cmd);
+    copyText($("#cliMirrorCmd").textContent);
     toast("Copied — same run, from your terminal");
   };
   updateInspectorLive();
@@ -397,6 +396,13 @@ function renderInspector(data) {
 
 // GUI/CLI parity is a brand promise: everything the app does has a terminal
 // twin. The mirror shows the current selection as a ready-to-copy command.
+// Write-only copy path (#149): prefer the bridge (system clipboard via Qt) so
+// the page needs no clipboard permission at all and can never read it back.
+function copyText(text) {
+  if (bridge.copyText) { bridge.copyText(String(text || "")); return; }
+  if (navigator.clipboard) navigator.clipboard.writeText(String(text || "")).catch(() => {});
+}
+
 function updateCliMirror() {
   const el = $("#cliMirrorCmd");
   if (!el) return;
@@ -700,8 +706,7 @@ function wireReceipt(el, sel) {
   const strip = el.querySelector(".footer-note");
   if (!strip) return;
   const copy = () => {
-    const text = `OPai receipt\nTask: ${(sel && sel.text) || "—"}\n${strip.textContent.trim()}`;
-    if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+    copyText(`OPai receipt\nTask: ${(sel && sel.text) || "—"}\n${strip.textContent.trim()}`);
     toast("Receipt copied");
   };
   strip.onclick = copy;
@@ -891,7 +896,7 @@ function renderErrorCard(el, status, r, sel) {
   const details = el.querySelector('[data-a="details"]'); if (details) details.onclick = () => {
     const panel = el.querySelector(".ec-details"); if (panel) panel.open = !panel.open;
   };
-  const cp = el.querySelector('[data-a="copy"]'); if (cp) cp.onclick = () => { if (navigator.clipboard) navigator.clipboard.writeText(raw); toast("Details copied"); };
+  const cp = el.querySelector('[data-a="copy"]'); if (cp) cp.onclick = () => { copyText(raw); toast("Details copied"); };
 }
 
 function finalize(status, r) {
@@ -1148,7 +1153,7 @@ function renderDashboard(section) {
 function runAction(aid, cmd) {
   if (aid === "panic_toggle") { switchView("chat"); bridge.runTool("panic"); return; }
   if (aid === "safe_repair") { switchView("chat"); bridge.runTool("repair"); return; }
-  if (cmd) { navigator.clipboard && navigator.clipboard.writeText(cmd); toast("Copied: " + cmd); }
+  if (cmd) { copyText(cmd); toast("Copied: " + cmd); }
   else toast("Run it from your terminal.");
 }
 function sevColor(s) {

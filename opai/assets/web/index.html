@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <!-- Defense in depth (#149): this page is local-only; its data arrives over
+       the QWebChannel bridge. No connect-src means fetch/XHR/WebSocket are
+       blocked entirely, so rendered model output cannot exfiltrate anything. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: qrc:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data:; font-src 'self' file:; base-uri 'none'; form-action 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>OPai</title>
   <link rel="stylesheet" href="styles.css" />

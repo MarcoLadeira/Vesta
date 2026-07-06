@@ -819,6 +819,11 @@ def _run_gui(
             if str(url).startswith(("http://", "https://")):
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl(url))
 
+        @QtCore.Slot(str)
+        def copyText(self, text: str) -> None:
+            """Write-only clipboard for copy buttons; the page never reads it."""
+            QtGui.QGuiApplication.clipboard().setText(str(text or "")[:20000])
+
         # ---- native window chrome ----------------------------------- #
         @QtCore.Slot()
         def startWindowMove(self) -> None:
@@ -871,11 +876,15 @@ def _run_gui(
             s.setAttribute(
                 QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
             )
+            # Local-only render surface (#149): every byte of data arrives over
+            # the QWebChannel bridge, so the page gets no network reach and no
+            # clipboard permission. Copy buttons go through the write-only
+            # bridge slot; external links go through openExternal.
             s.setAttribute(
-                QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True
+                QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False
             )
             s.setAttribute(
-                QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True
+                QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, False
             )
             s.setAttribute(QWebEngineSettings.WebAttribute.ShowScrollBars, False)
             self.setCentralWidget(self.view)
