@@ -226,12 +226,20 @@ class FreeAPIRunnerTests(unittest.TestCase):
         captured_headers: dict = {}
 
         def fake_http(
-            url, *, method="GET", payload=None, timeout=60.0, extra_headers=None
+            url,
+            *,
+            method="POST",
+            payload=None,
+            timeout=60.0,
+            cancel=None,
+            extra_headers=None,
         ):
             captured_headers.update(extra_headers or {})
             return mock_response
 
-        with mock.patch("opaihub.local_runner._http_json", side_effect=fake_http):
+        with mock.patch(
+            "opaihub.local_runner._http_json_cancellable", side_effect=fake_http
+        ):
             result = runner.complete("What is 2+2?")
 
         self.assertEqual(result, "Test response")
@@ -248,12 +256,20 @@ class FreeAPIRunnerTests(unittest.TestCase):
         captured_payload: dict = {}
 
         def fake_http(
-            url, *, method="GET", payload=None, timeout=60.0, extra_headers=None
+            url,
+            *,
+            method="POST",
+            payload=None,
+            timeout=60.0,
+            cancel=None,
+            extra_headers=None,
         ):
             captured_payload.update(payload or {})
             return mock_response
 
-        with mock.patch("opaihub.local_runner._http_json", side_effect=fake_http):
+        with mock.patch(
+            "opaihub.local_runner._http_json_cancellable", side_effect=fake_http
+        ):
             runner.complete("Hello", system="You are a coding assistant.")
 
         messages = captured_payload.get("messages", [])

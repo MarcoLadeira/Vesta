@@ -629,6 +629,8 @@ def handle_gui_message(
             else "Free-tier API confirmation required",
             metadata={"provider": provider},
         )
+        # Real Stop for free-tier (#152): thread the cancel Event so the HTTP
+        # request is aborted mid-flight, not just hidden by the stale guard.
         result = A.ask(
             root,
             provider_message,
@@ -636,7 +638,13 @@ def handle_gui_message(
             allow_cloud=allow_cloud,
             allow_edits=False,
             mode=selected_mode,
+            cancel=cancel,
         )
+        if result.get("status") == "cancelled":
+            _emit("cancelled", "cancelled", "Stopped by you")
+            return _decorate(
+                _cancelled_result(message, tool_trace, selected_model, selected_mode)
+            )
         receipt = build_savings_receipt(
             root,
             task=message,
