@@ -56,9 +56,17 @@ test("a recent project switches workspace", async ({ page }) => {
 });
 
 test("chat history: recents render and reload into the composer", async ({ page }) => {
-  await expect(page.locator("#recents .recent")).toContainText("summarize my changes");
-  await page.click("#recents .recent");
+  await expect(page.locator("#recents .recent").first()).toContainText("summarize my changes");
+  await page.locator("#recents .recent").first().click();
   await expect(page.locator("#input")).toHaveValue("summarize my changes");
+});
+
+test("chat history can be cleared in one click (#145)", async ({ page }) => {
+  await expect(page.locator("#recents .recent").first()).toContainText("summarize my changes");
+  await page.click("#clearRecents");
+  expect(await page.evaluate(() => window.__mock.clearedRecents)).toBe(1);
+  await expect(page.locator("#clearRecents")).toHaveCount(0);
+  await expect(page.locator("#recents")).toContainText("Your chats appear here.");
 });
 
 test("sending a prompt saves it to history", async ({ page }) => {
