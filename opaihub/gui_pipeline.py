@@ -83,19 +83,46 @@ def build_savings_receipt(
     actual_cost_usd: float | None = None,
     context_tokens_saved: int = 0,
     confidence: str = "estimated",
+    paid_call: bool = False,
 ) -> dict[str, Any]:
     cost_model = load_cost_model(project_root)
     tokens = estimate_tokens(task, cost_model) or int(
         cost_model.get("default_task_tokens", 6000)
     )
     route = estimate_route_savings(chosen_tier, task_tokens=tokens, model=cost_model)
-    actual = (
-        route["estimated_actual_usd"]
-        if actual_cost_usd is None
-        else float(actual_cost_usd)
+    measured = (
+        float(actual_cost_usd)
+        if isinstance(actual_cost_usd, (int, float))
+        and not isinstance(actual_cost_usd, bool)
+        else None
     )
-    savings = max(0.0, round(route["estimated_baseline_usd"] - actual, 6))
+    if paid_call:
+        # Savings truth (#76): a paid provider call records spend, never
+        # savings - there is no separately measured comparison to claim one.
+        # A reported $0.00 is subscription-style billing, not "free": the
+        # spend is shown as the tier estimate and labelled unknown.
+        if measured is not None and measured > 0:
+            actual, effective_confidence = measured, "actual"
+        elif measured == 0.0:
+            actual, effective_confidence = route["estimated_actual_usd"], "unknown"
+        else:
+            actual, effective_confidence = (
+                route["estimated_actual_usd"],
+                "estimated",
+            )
+        savings = 0.0
+        paid_avoided = False
+        basis = "paid_call_records_spend_not_savings"
+    else:
+        actual = route["estimated_actual_usd"] if measured is None else measured
+        effective_confidence = confidence
+        savings = max(0.0, round(route["estimated_baseline_usd"] - actual, 6))
+        paid_avoided = bool(
+            route["cloud_call_avoided"] and actual <= route["estimated_actual_usd"]
+        )
+        basis = "estimated_vs_unrouted_baseline"
     return {
+        "schema": 2,
         "session_id": uuid.uuid4().hex[:12],
         "message_id": uuid.uuid4().hex[:12],
         "selected_model": selected_model,
@@ -107,11 +134,12 @@ def build_savings_receipt(
         "estimated_baseline_usd": route["estimated_baseline_usd"],
         "estimated_actual_usd": round(actual, 6),
         "estimated_savings_usd": savings,
-        "paid_call_avoided": bool(
-            route["cloud_call_avoided"] and actual <= route["estimated_actual_usd"]
-        ),
+        "measured_cost_usd": measured,
+        "paid_call": bool(paid_call),
+        "paid_call_avoided": paid_avoided,
+        "savings_basis": basis,
         "context_tokens_saved": int(context_tokens_saved),
-        "confidence": confidence,
+        "confidence": effective_confidence,
         "privacy": "Raw prompts are not stored; receipts use task hashes and estimates.",
     }
 
@@ -772,6 +800,10 @@ def handle_gui_message(
                 )
             )
         actual = result.get("cost_usd")
+        # Savings truth (#76): an account call is a real spend; the receipt
+        # records it with zero implied savings and derives its own confidence
+        # (actual > 0 measured, unknown for subscription-style $0.00,
+        # estimated when the provider reports nothing).
         receipt = build_savings_receipt(
             root,
             task=message,
@@ -779,7 +811,7 @@ def handle_gui_message(
             selected_mode=selected_mode,
             chosen_tier="L3",
             actual_cost_usd=actual if isinstance(actual, (int, float)) else None,
-            confidence="actual" if isinstance(actual, (int, float)) else "estimated",
+            paid_call=True,
         )
         # Provider cost telemetry (#178): the call actually ran, so record
         # what the provider itself reported - claude's total_cost_usd stays
