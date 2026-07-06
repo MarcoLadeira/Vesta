@@ -1930,6 +1930,10 @@ def _run_gui(
     base_font.setStyleStrategy(QtGui.QFont.StyleStrategy.PreferAntialias)
     app.setFont(base_font)
     window = ChatWindow()
+    # Window/taskbar/Alt-Tab icon + Windows taskbar grouping (#148).
+    from opai.gui_identity import apply_window_identity
+
+    apply_window_identity(app, window)
     if initial_task:
         # CLI companion: `opai gui "fix the login bug"` opens pre-loaded.
         window.input.setPlainText(initial_task)

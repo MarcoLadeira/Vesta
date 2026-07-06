@@ -258,6 +258,18 @@ def cmd_gui(args: argparse.Namespace) -> int:
         return 1
 
 
+def gui_main() -> int:
+    """Windowed entry point for the ``opai-gui`` launcher (#148).
+
+    Installed via ``[project.gui_scripts]``, so on Windows pip generates a GUI
+    executable (pythonw-backed) that opens the desktop app with **no attached
+    console window** — suitable for a Start-menu/taskbar shortcut. Any arguments
+    are forwarded to the ``gui`` subcommand, so ``opai-gui --project X`` and
+    ``opai-gui "fix the bug"`` behave exactly like ``opai gui ...``.
+    """
+    return main(["gui", *sys.argv[1:]])
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     from opaihub.local_models import discover_local_models
     from opaihub.loader import registry_items
