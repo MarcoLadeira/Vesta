@@ -1184,6 +1184,20 @@ def cmd_models(args: argparse.Namespace) -> int:
         from opaihub.local_models import discover_local_models
 
         print_json(discover_local_models(root))
+    elif args.models_command == "onboard":
+        # Guided local-model readiness (#3): detect state per runtime and,
+        # optionally, prove one privacy-safe local route. Never downloads or
+        # starts anything — commands are shown, not run.
+        from opaihub.local_onboarding import (
+            local_onboarding_status,
+            local_route_smoke_test,
+        )
+
+        status = local_onboarding_status(root)
+        if getattr(args, "smoke", False) and status["ready"]:
+            status["smoke_test"] = local_route_smoke_test(root)
+        print_json(status)
+        return 0 if status["ready"] else 1
     elif args.models_command == "recommend":
         print_json(recommend_model(root, args.task))
     elif args.models_command == "eval":
@@ -1945,6 +1959,17 @@ def build_parser() -> argparse.ArgumentParser:
         "discover-local", help="Detect Ollama, LM Studio, or local model endpoints"
     )
     mo.add_argument("--project", default=None, help="Project root")
+    mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser(
+        "onboard",
+        help="Guided local-model readiness with consent-gated next steps (#3)",
+    )
+    mo.add_argument("--project", default=None, help="Project root")
+    mo.add_argument(
+        "--smoke",
+        action="store_true",
+        help="If a local model is ready, run one privacy-safe route smoke test",
+    )
     mo.set_defaults(func=cmd_models)
     mo = models_sub.add_parser("recommend")
     mo.add_argument("task")

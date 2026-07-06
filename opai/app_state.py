@@ -97,6 +97,18 @@ def model_setup(project_root: Path) -> dict[str, Any]:
     }
 
 
+def local_model_onboarding(project_root: Path) -> dict[str, Any]:
+    """Guided local-model readiness for the GUI and CLI (#3), one shared source.
+
+    Every surface (``opai models onboard``, ``opai doctor``, the desktop GUI)
+    derives readiness from ``opaihub.local_onboarding`` so they agree. Never
+    downloads a model, starts a service, or reaches a public host on its own.
+    """
+    from opaihub.local_onboarding import local_onboarding_status
+
+    return local_onboarding_status(project_root.expanduser().resolve())
+
+
 # Plain-English of what each run mode is actually allowed to do (no sci-fi labels).
 MODE_CAPABILITY = {
     "ask": "Answers only. No files changed, no commands run.",
