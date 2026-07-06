@@ -29,6 +29,94 @@ opai benchmark gate --min-context-reduction 10 # CI gate for benchmark proof
 opai share --markdown                          # a shareable savings badge for your README
 ```
 
+## Desktop app (GUI)
+
+OPai ships a local-first desktop control center — a chat window where you type a
+task, pick a model and a run mode, and watch OPai route it to the cheapest safe
+path while showing every step and the running cost. It renders in Chromium
+(QtWebEngine) with a classic Qt window as an automatic fallback. Everything is
+local: no telemetry, and nothing leaves your machine unless you confirm a cloud
+call.
+
+### 1. Install the GUI
+
+The desktop UI needs the optional `desktop-gui` extra (PySide6 + keyring); the
+core CLI does not depend on Qt.
+
+```sh
+# From PyPI / a published wheel:
+python -m pip install "opai[desktop-gui]"
+
+# From a source checkout (this repo):
+python -m pip install -e ".[desktop-gui]"
+```
+
+Verify it can start without opening a window:
+
+```sh
+opai gui --once        # prints the control-center state as JSON, exits 0 if ready
+```
+
+If you see `{"status": "gui_unavailable", ...}`, install the extra above (that is
+the only requirement).
+
+### 2. Launch it
+
+```sh
+opai gui                          # open the desktop window for the current project
+opai gui --project /path/to/repo  # open it for a specific project
+opai gui "summarize my changes"   # open with a task pre-filled in the composer
+opai gui --classic                # force the classic Qt window (no Chromium)
+```
+
+On Windows you can also run `python -m opai gui` if `opai` is not yet on your
+`PATH`.
+
+### 3. Use it
+
+- **Type a task** in the composer and press **Send** (or `Enter`; use
+  `Shift`+`Enter` for a newline). OPai gathers cheap local context first, routes
+  to the cheapest capable model, and streams the answer with a live activity
+  timeline.
+- **Pick a model** (top-right selector): `Auto` (local-first routing), your
+  connected Claude/Codex/Copilot account, a free-tier API, or a local model.
+  Paid and cloud calls always ask before they run.
+- **Pick a run mode** (mode selector):
+  - **Ask** — answers only; no files changed, no commands run.
+  - **Plan** — lays out the steps; nothing is changed yet.
+  - **Safe Auto** — edits files after safe checks; asks before risky commands.
+  - **Approve Edits** — proposes edits for your approval before writing to disk.
+  - **Full Auto** — edits and runs without asking; it is opt-in and must be
+    *pinned* with an explicit confirmation (push/deploy/destructive actions still
+    ask).
+- **Stop** aborts an in-flight run — the account CLI, the free-tier request, and
+  local generation are all cancellable, and the whole process tree is
+  terminated.
+- **Inspector** (right panel, toggle with `Ctrl`+`I`) shows the effective mode,
+  budget spent today, the indexed workspace, and the current workflow/diff state.
+- **Settings** (sidebar) connects accounts, sets per-model usage limits, and
+  manages privacy — chat history is redacted, kept per workspace, and clearable.
+- **Money Saved / receipts** show the estimated spend avoided; export a signed,
+  verifiable savings receipt and check it with `opai receipt verify <file>`.
+- **Command palette**: press `Ctrl`+`K`.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Enter` | Send the current task (`Shift`+`Enter` for a newline) |
+| `Ctrl`+`L` | Focus the composer |
+| `Ctrl`+`I` | Toggle the Inspector panel |
+| `Ctrl`+`K` | Open the command palette |
+
+### Headless / CI use
+
+```sh
+opai gui --once                       # JSON readiness smoke test (no window)
+opai gui --screenshot out.png         # render a screenshot for visual QA and exit
+opai gui --screenshot out.png --width 1440 --height 900
+```
+
 **New to OPai?** The one-page install funnel lives in [`site/index.html`](site/index.html).
 Read the [Business Strategy](docs/BUSINESS_STRATEGY.md) for positioning and the
 open-core model.
