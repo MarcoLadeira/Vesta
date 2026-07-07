@@ -22,7 +22,7 @@ opcoding = "opcoding.cli:main"
 # Windowed launcher: on Windows, pip builds a GUI (pythonw-backed) executable
 # from a gui_scripts entry point, so a Start-menu/taskbar shortcut opens the app
 # with no attached console window (#148). `opai gui` from a terminal still works.
-[project.gui_scripts]
+[project.gui-scripts]
 opai-gui = "opai.cli:gui_main"
 
 [project.urls]
