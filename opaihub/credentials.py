@@ -16,6 +16,9 @@ PROVIDER_ENV = {
     "gemini": "GOOGLE_API_KEY",
     "groq": "GROQ_API_KEY",
     "mistral": "MISTRAL_API_KEY",
+    # GitHub personal access token for the git/PR connector (#github). Stored
+    # through the same keychain-or-env contract as the free-model keys.
+    "github": "GITHUB_TOKEN",
 }
 
 

@@ -691,7 +691,12 @@ def provider_connection_doctor(
         credential_items = credential_statuses()
     else:
         credential_items = list(credentials)
-    labels = {"gemini": "Gemini", "groq": "Groq", "mistral": "Mistral"}
+    labels = {
+        "gemini": "Gemini",
+        "groq": "Groq",
+        "mistral": "Mistral",
+        "github": "GitHub",
+    }
     for credential in credential_items:
         provider = str(credential.get("provider") or "")
         configured = bool(credential.get("configured"))
