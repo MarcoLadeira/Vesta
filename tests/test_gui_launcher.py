@@ -123,7 +123,8 @@ class EntryPointTests(unittest.TestCase):
             import tomllib
 
             data = tomllib.loads(text)
-            gui_scripts = data["project"]["gui_scripts"]
+            # PEP 621 canonical table name is dashed: [project.gui-scripts].
+            gui_scripts = data["project"]["gui-scripts"]
             self.assertEqual(gui_scripts.get("opai-gui"), "opai.cli:gui_main")
         except ModuleNotFoundError:  # Python 3.10 has no tomllib
             self.assertIn('opai-gui = "opai.cli:gui_main"', text)
