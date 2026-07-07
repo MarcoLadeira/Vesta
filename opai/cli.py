@@ -204,6 +204,56 @@ def cmd_autonomy(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_github(args: argparse.Namespace) -> int:
+    """Connect a GitHub account so runs can commit, push, and open PRs."""
+    from opaihub.github_connector import (
+        connect_github,
+        disconnect_github,
+        github_status,
+        set_push_allowed,
+    )
+
+    command = getattr(args, "github_command", "status") or "status"
+    if command == "connect":
+        token = str(getattr(args, "token", "") or "").strip()
+        if not token:
+            import os
+
+            token = str(
+                os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+            ).strip()
+        if not token:
+            print_json(
+                {
+                    "connected": False,
+                    "error": (
+                        "No token given. Pass --token <PAT> or set GITHUB_TOKEN "
+                        "before running connect."
+                    ),
+                }
+            )
+            return 1
+        result = connect_github(token)
+        print_json(result)
+        return 0 if result.get("connected") else 1
+    if command == "disconnect":
+        print_json(disconnect_github())
+        return 0
+    if command == "allow-push":
+        enabled = str(getattr(args, "state", "") or "").lower() == "on"
+        result = set_push_allowed(enabled)
+        result["note"] = (
+            "Runs may now push branches and open PRs on your GitHub repos."
+            if enabled
+            else "Pushes and PR creation are disabled again."
+        )
+        print_json(result)
+        return 0
+    status = github_status()
+    print_json(status)
+    return 0 if status.get("connected") else 1
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     from opai.gui_desktop import INSTALL_HINT, launch, render_screenshot, run_once
 
@@ -1423,6 +1473,34 @@ def build_parser() -> argparse.ArgumentParser:
         a.add_argument("--project", default=None, help="Project root")
         a.set_defaults(func=cmd_autonomy)
     p.set_defaults(func=cmd_autonomy)
+
+    p = sub.add_parser(
+        "github",
+        help="Connect a GitHub account so runs can commit, push, and open PRs",
+    )
+    github_sub = p.add_subparsers(dest="github_command")
+    g = github_sub.add_parser(
+        "connect", help="Validate and store a GitHub personal access token"
+    )
+    g.add_argument(
+        "--token",
+        default=None,
+        help="Personal access token (defaults to GITHUB_TOKEN/GH_TOKEN)",
+    )
+    g.set_defaults(func=cmd_github)
+    g = github_sub.add_parser("status", help="Show connection and push consent")
+    g.set_defaults(func=cmd_github)
+    g = github_sub.add_parser(
+        "disconnect", help="Remove the stored token and revoke push consent"
+    )
+    g.set_defaults(func=cmd_github)
+    g = github_sub.add_parser(
+        "allow-push",
+        help="Enable or disable pushes and PR creation from coding runs",
+    )
+    g.add_argument("state", choices=["on", "off"], help="on enables push/PR tools")
+    g.set_defaults(func=cmd_github)
+    p.set_defaults(func=cmd_github)
 
     p = sub.add_parser(
         "gui",

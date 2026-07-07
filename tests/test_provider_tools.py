@@ -27,7 +27,11 @@ class RepositoryToolExecutorTests(unittest.TestCase):
             names = [item["function"]["name"] for item in executor.schemas()]
             denied = executor.invoke("apply_patch", {"patch": PATCH_ONE_TO_TWO})
 
-        self.assertEqual(names, ["find_files", "search_code", "read_file"])
+        # git_status joined the read set with the git/PR tools work; every
+        # write-capable tool stays out of a read-only schema.
+        self.assertEqual(
+            names, ["find_files", "search_code", "read_file", "git_status"]
+        )
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["error_code"], "TOOL_NOT_ALLOWED")
 

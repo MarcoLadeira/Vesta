@@ -113,6 +113,27 @@ and drag it to the Start menu or taskbar.
   verifiable savings receipt and check it with `opai receipt verify <file>`.
 - **Command palette**: press `Ctrl`+`K`.
 
+### Let runs commit, push, and open PRs (GitHub connector)
+
+Coding runs can create files and edit code out of the box (Safe Auto / Full
+Auto). To let them also push branches and open pull requests on your GitHub
+repositories, connect your account once and grant push consent explicitly:
+
+```sh
+opai github connect --token <PAT>   # validates, then stores in the OS keychain
+opai github status                  # connection + consent at a glance
+opai github allow-push on           # explicit consent for push/PR (revocable)
+opai github allow-push off          # turn it back off any time
+opai github disconnect              # remove the token and revoke consent
+```
+
+Create the token at github.com/settings/tokens with `repo` scope (classic) or
+Contents + Pull requests read/write (fine-grained). `GITHUB_TOKEN`/`GH_TOKEN`
+environment variables work too. The token never lands in project files or
+logs; pushes and PRs stay disabled until `allow-push on` — connecting alone
+never grants them. With consent on, chat runs gain `git_push` and `open_pr`
+tools (commits are always staged from only the files that run touched).
+
 ### Keyboard shortcuts
 
 | Shortcut | Action |

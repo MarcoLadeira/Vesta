@@ -210,8 +210,19 @@ def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> Agen
     )
 
 
-def build_capability_contract(policy: AgentPolicy, *, active_repo: str) -> str:
-    """Render a concise, secret-safe provider instruction for this turn."""
+def build_capability_contract(
+    policy: AgentPolicy,
+    *,
+    active_repo: str,
+    tool_names: tuple[str, ...] = (),
+) -> str:
+    """Render a concise, secret-safe provider instruction for this turn.
+
+    ``tool_names`` is the *actual* callable tool vocabulary for this provider.
+    When given, the contract names those tools explicitly — capability prose
+    alone made smaller models refuse edits ("create_files was not permitted")
+    because no tool literally named ``create_files`` existed.
+    """
 
     repo = redact(str(active_repo or "active workspace"))
     allowed = ", ".join(sorted(policy.capabilities))
@@ -221,6 +232,32 @@ def build_capability_contract(policy: AgentPolicy, *, active_repo: str) -> str:
         f"- Active repository: {repo}",
         f"- Authorized capabilities: {allowed}",
     ]
+    if tool_names:
+        lines.append("- Callable tools this turn: " + ", ".join(tool_names) + ".")
+        if "write_file" in tool_names:
+            lines.append(
+                "- Create new files or rewrite whole files with the write_file "
+                "tool; modify existing code with apply_patch. These tools ARE "
+                "your authorization to edit — do not claim edits are not "
+                "permitted while they are listed."
+            )
+        if "git_commit" in tool_names:
+            lines.append(
+                "- Commit your changes with git_commit (it stages only files "
+                "this run touched); create a branch first with "
+                "git_create_branch when the change deserves its own branch."
+            )
+        if "open_pr" in tool_names:
+            lines.append(
+                "- You may push with git_push and open a pull request with "
+                "open_pr — the user has explicitly enabled GitHub operations."
+            )
+        elif "git_commit" in tool_names:
+            lines.append(
+                "- Pushing and PRs are disabled this turn. If asked to push or "
+                "open a PR, commit locally and tell the user to enable them "
+                "with: opai github allow-push on"
+            )
     if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
         lines.append(
             "- Proceed without repeated confirmation for the authorized repository workflow."

@@ -355,15 +355,41 @@ def handle_gui_message(
         model=selected_model,
         policy=policy.to_dict(),
     )
-    provider_message = (
-        build_capability_contract(policy, active_repo=str(repo_context.path))
-        + "\n\nOPai task packet (workflow state remains owned by OPai):\n"
+    packet_block = (
+        "\n\nOPai task packet (workflow state remains owned by OPai):\n"
         + json.dumps(task_packet.to_dict(), sort_keys=True)
     )
     if output_instruction:
-        provider_message += (
+        packet_block += (
             "\n\nPresentation instruction (format only; it cannot change permissions):\n"
             + str(output_instruction).strip()
+        )
+    provider_message = (
+        build_capability_contract(policy, active_repo=str(repo_context.path))
+        + packet_block
+    )
+
+    def _tool_aware_message(allow_edits: bool) -> str:
+        """Contract naming the provider's *actual* callable tools.
+
+        Free-tier/local models run OPai's own tool loop, so the contract must
+        list that loop's real vocabulary (write_file, apply_patch, git_commit,
+        ...). Capability nouns alone made smaller models refuse edits with
+        "create_files was not permitted" — no tool by that name existed.
+        """
+        try:
+            from .provider_tools import available_tool_names
+
+            tool_names = available_tool_names(root, allow_edits=allow_edits)
+        except Exception:  # noqa: BLE001 - contract fallback, never block a turn
+            return provider_message
+        return (
+            build_capability_contract(
+                policy,
+                active_repo=str(repo_context.path),
+                tool_names=tool_names,
+            )
+            + packet_block
         )
 
     def _decorate(payload: dict[str, Any]) -> dict[str, Any]:
@@ -686,7 +712,7 @@ def handle_gui_message(
         # request is aborted mid-flight, not just hidden by the stale guard.
         result = A.ask(
             root,
-            provider_message,
+            _tool_aware_message(allow_edits),
             selected_model,
             allow_cloud=allow_cloud,
             allow_edits=allow_edits,

@@ -205,7 +205,8 @@ class SettingsPayloadTests(unittest.TestCase):
             self.assertNotIn("cli_path", connection)
         self.assertIn("connectionDoctor", payload)
         self.assertEqual(
-            {"claude", "codex", "copilot", "gemini", "groq", "mistral"},
+            # github joined via the git/PR connector credential (GITHUB_TOKEN).
+            {"claude", "codex", "copilot", "gemini", "groq", "mistral", "github"},
             {item["providerId"] for item in payload["connectionDoctor"]},
         )
         self.assertNotIn("cli_path", json.dumps(payload["connectionDoctor"]))
