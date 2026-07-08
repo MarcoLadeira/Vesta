@@ -381,6 +381,90 @@ def _safe_provider_diagnostic(value: Any) -> str:
     return dedupe_error_text(redact_secrets(value))
 
 
+class ActivitySession:
+    """Per-request stateful emitter for the Calm Stream contract.
+
+    Owns the derived-id state (docs/AI_ACTIVITY_UX.md) so repeated stream
+    states coalesce into single rows via the front-end's id-keyed upsert:
+    one ``{rid}:connect`` status event per request, one ``{rid}:stream`` row
+    updated in place per chunk, and ``{rid}:tool:{seq}`` tool events grouped
+    by consecutive tool type. Durations are measured, never synthesized.
+
+    ``request_id`` defaults to a session-minted id — coalescing only needs
+    stability within one request (the GUI store is per-request). Threading
+    the GUI's real request id through the pipeline lands with #225.
+    """
+
+    def __init__(self, request_id: str | None = None) -> None:
+        self.request_id = request_id or new_id()
+        self._connected = False
+        self._stream_started_ms: int | None = None
+        self._stream_chars = 0
+        self._tool_seq = 0
+        self._group_seq = -1
+        self._last_tool_type: str | None = None
+
+    def parse_claude_line(self, line: str) -> dict[str, Any]:
+        """Session-aware twin of :func:`parse_claude_line` (stable ids)."""
+        return _parse_claude_line(line, self)
+
+    def _connect_event(self, title: str) -> dict[str, Any] | None:
+        if self._connected:
+            return None  # announce once per request, never per system line
+        self._connected = True
+        return make_event(
+            "provider_request",
+            "success",
+            title,
+            event_id=derived_id(self.request_id, "connect"),
+            request_id=self.request_id,
+            channel="status",
+        )
+
+    def _stream_event(self, chunk: str) -> dict[str, Any]:
+        now_ms = int(time.time() * 1000)
+        if self._stream_started_ms is None:
+            self._stream_started_ms = now_ms
+        self._stream_chars += len(chunk)
+        elapsed_s = max(0, (now_ms - self._stream_started_ms) // 1000)
+        detail = (
+            f"{self._stream_chars:,} chars · {elapsed_s // 60:02d}:{elapsed_s % 60:02d}"
+        )
+        return make_event(
+            "streaming",
+            "running",
+            "Streaming response",
+            detail=detail,
+            event_id=derived_id(self.request_id, "stream"),
+            request_id=self.request_id,
+        )
+
+    def _finish_stream(self, ok: bool) -> dict[str, Any] | None:
+        if self._stream_started_ms is None:
+            return None  # nothing streamed -> no row to close
+        duration_ms = max(0, int(time.time() * 1000) - self._stream_started_ms)
+        return make_event(
+            "streaming",
+            "success" if ok else "error",
+            "Response received" if ok else "Streaming interrupted",
+            detail=f"{self._stream_chars:,} chars",
+            event_id=derived_id(self.request_id, "stream"),
+            request_id=self.request_id,
+            duration_ms=duration_ms,
+        )
+
+    def _tool(self, block: dict[str, Any]) -> dict[str, Any]:
+        event = _tool_event(block)
+        if event["type"] != self._last_tool_type:
+            self._group_seq += 1
+            self._last_tool_type = event["type"]
+        event["id"] = derived_id(self.request_id, f"tool:{self._tool_seq}")
+        event["requestId"] = self.request_id
+        event["group"] = f"{self.request_id}:g{self._group_seq}"
+        self._tool_seq += 1
+        return event
+
+
 def parse_claude_line(line: str) -> dict[str, Any]:
     """Parse one JSONL line from `claude -p --output-format stream-json --verbose`.
 
@@ -388,7 +472,15 @@ def parse_claude_line(line: str) -> dict[str, Any]:
     "cost": <float|None>, "done": bool}``. Tolerant: unknown/blank lines yield
     an empty delta so a format drift degrades to "no rich events" rather than
     crashing.
+
+    Stateless v1 behavior (one event per line, random ids) — kept for
+    backward compatibility. The stream path uses :class:`ActivitySession`
+    so repeated states coalesce.
     """
+    return _parse_claude_line(line, None)
+
+
+def _parse_claude_line(line: str, session: ActivitySession | None) -> dict[str, Any]:
     out: dict[str, Any] = {
         "events": [],
         "text": "",
@@ -409,7 +501,12 @@ def parse_claude_line(line: str) -> dict[str, Any]:
     if kind == "system":
         model = (obj.get("model") or "").strip()
         title = f"Connected to Claude{f' · {model}' if model else ''}"
-        out["events"].append(make_event("provider_request", "success", title))
+        if session is None:
+            out["events"].append(make_event("provider_request", "success", title))
+        else:
+            connect = session._connect_event(title)
+            if connect is not None:
+                out["events"].append(connect)
         return out
     if kind == "assistant":
         content = ((obj.get("message") or {}).get("content")) or []
@@ -418,10 +515,14 @@ def parse_claude_line(line: str) -> dict[str, Any]:
             if btype == "text":
                 out["text"] += block.get("text") or ""
             elif btype == "tool_use":
-                out["events"].append(_tool_event(block))
+                out["events"].append(
+                    _tool_event(block) if session is None else session._tool(block)
+                )
         if out["text"]:
             out["events"].append(
                 make_event("streaming", "running", "Streaming response")
+                if session is None
+                else session._stream_event(out["text"])
             )
         return out
     if kind == "result":
@@ -438,11 +539,19 @@ def parse_claude_line(line: str) -> dict[str, Any]:
                 obj.get("result") or error or subtype or "error"
             )
             out["done"] = True
+            if session is not None:
+                interrupted = session._finish_stream(ok=False)
+                if interrupted is not None:
+                    out["events"].append(interrupted)
             return out
         # `result` also carries the final text when not captured incrementally.
         if not out["text"] and obj.get("result"):
             out["text"] = str(obj.get("result"))
         out["done"] = True
+        if session is not None:
+            finished = session._finish_stream(ok=True)
+            if finished is not None:
+                out["events"].append(finished)
         return out
     return out
 
