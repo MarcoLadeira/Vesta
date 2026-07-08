@@ -111,6 +111,10 @@ def stream_ask(
         events.append(event)
         if json_out:
             return
+        if event.get("channel") == "status":
+            # Status-strip mirrors (connection/model) duplicate what the feed
+            # line already says; CLI presentation for them lands with #227.
+            return
         glyph = _GLYPH.get(str(event.get("status")), "•")
         title = str(event.get("title") or "")
         detail = str(event.get("detail") or "")
