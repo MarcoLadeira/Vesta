@@ -80,6 +80,53 @@ class AccountStreamingTests(unittest.TestCase):
         self.assertEqual("".join(texts), "Hello world")
         self.assertEqual(result["answer"], "Hello world")
 
+    def test_preamble_coalesces_into_one_phase_row(self):
+        # #225: every pre-provider step updates ONE derived id in place, and
+        # the row closes ("Request sent") when the provider takes over.
+        result, events, texts = self._run(FakeStreamingRunner())
+        preamble_types = {
+            "request_prepare",
+            "context_read",
+            "model_selected",
+            "provider_checking",
+            "provider_authenticated",
+            "request_sending",
+        }
+        preamble = [
+            e
+            for e in events
+            if e["type"] in preamble_types and e.get("channel") != "status"
+        ]
+        self.assertGreaterEqual(len(preamble), 6)
+        self.assertEqual(len({e["id"] for e in preamble}), 1)
+        self.assertTrue(preamble[0]["id"].endswith(":phase"))
+        self.assertEqual(preamble[-1]["status"], "success")
+        self.assertEqual(preamble[-1]["title"], "Request sent")
+        # Ambient facts are mirrored to the status channel for the strip.
+        status_ids = [e["id"] for e in events if e.get("channel") == "status"]
+        self.assertTrue(any(i.endswith(":model") for i in status_ids))
+        self.assertTrue(any(i.endswith(":connect") for i in status_ids))
+
+    def test_auth_failure_closes_the_phase_row_as_error(self):
+        class AuthFailureRunner(FakeStreamingRunner):
+            def stream(self, *args, **kwargs):
+                return {
+                    "text": "",
+                    "cost": None,
+                    "returncode": 1,
+                    "error": normalize_provider_error(
+                        "claude", "401 Invalid authentication credentials", returncode=1
+                    ),
+                }
+
+        result, events, texts = self._run(AuthFailureRunner())
+        phased = [e for e in events if str(e["id"]).endswith(":phase")]
+        # The stream call itself failed after send; the preamble row closed
+        # honestly at handoff and the terminal failed event reports the rest.
+        self.assertEqual(phased[-1]["status"], "success")
+        self.assertEqual(result["status"], "failed")
+        self.assertNotIn("completed", [e["type"] for e in events])
+
     def test_no_callbacks_still_works_unchanged(self):
         # Backward-compat: without callbacks the pipeline uses the blocking path.
         with tempfile.TemporaryDirectory() as tmp:
@@ -132,6 +179,10 @@ class LocalStreamingTests(unittest.TestCase):
         self.assertEqual(types[-1], "completed")
         self.assertEqual(result["answer"], "local answer")
         self.assertIn("local answer", "".join(texts))
+        # #225: the local phase row closes on completion, never left spinning.
+        phased = [e for e in events if str(e["id"]).endswith(":phase")]
+        self.assertEqual(phased[-1]["status"], "success")
+        self.assertEqual(phased[-1]["title"], "Answered locally")
 
 
 if __name__ == "__main__":

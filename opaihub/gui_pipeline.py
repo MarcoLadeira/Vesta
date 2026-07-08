@@ -220,8 +220,39 @@ def handle_gui_message(
     def _cancelled() -> bool:
         return cancel is not None and cancel.is_set()
 
+    # One preamble row per turn (#225): every pre-provider step updates the
+    # same derived event id in place, so preparation reads as one calm row
+    # instead of 4-6 appended rows. Connection/model facts are mirrored on the
+    # status channel for the status strip (docs/AI_ACTIVITY_UX.md).
+    from opai.activity import derived_id, new_id
+
+    turn_id = new_id()
+    _phase_id = derived_id(turn_id, "phase")
+    _phase_state = {"open": False, "etype": "request_prepare"}
+
+    def _phase(etype: str, status: str, title: str, **kw: Any) -> None:
+        _phase_state["open"] = status == "running"
+        _phase_state["etype"] = etype
+        _emit(etype, status, title, event_id=_phase_id, request_id=turn_id, **kw)
+
+    def _phase_close(status: str, title: str) -> None:
+        # Never leave the preamble row spinning after a terminal outcome.
+        if _phase_state["open"]:
+            _phase(_phase_state["etype"], status, title)
+
+    def _status_mirror(phase: str, etype: str, title: str, **kw: Any) -> None:
+        _emit(
+            etype,
+            "success",
+            title,
+            event_id=derived_id(turn_id, phase),
+            request_id=turn_id,
+            channel="status",
+            **kw,
+        )
+
     root = project_root.expanduser().resolve()
-    _emit("request_prepare", "success", "Preparing request")
+    _phase("request_prepare", "running", "Preparing request")
     prefs = load_gui_preferences(root)
     selected_model = model_id or prefs.get("default_model") or "auto"
     # Central autonomy decision (#137): a requested/stored full-auto is honored
@@ -611,6 +642,7 @@ def handle_gui_message(
             limits=usage_limits,
         )
         if usage["requiresConfirmation"]:
+            _phase_close("warning", "Awaiting your confirmation")
             return _decorate(
                 {
                     "status": "needs_limit_confirmation",
@@ -628,24 +660,30 @@ def handle_gui_message(
                 }
             )
     tool_trace = route_intents(root, message, mode=selected_mode)
-    _emit(
+    _phase(
         "context_read",
-        "success",
+        "running",
         "Read project context",
         detail=f"{len(tool_trace)} routing step(s)",
     )
     warnings = safety_warnings(root, message, mode=selected_mode)
     rec = recommend_model(root, message)
     tier = str(rec.get("recommended_model_tier") or "L1").upper()
-    _emit(
+    _phase(
         "model_selected",
-        "success",
+        "running",
         "Selected OPai mode",
+        metadata={"model": selected_model},
+    )
+    _status_mirror(
+        "model",
+        "model_selected",
+        f"Model: {selected_model}",
         metadata={"model": selected_model},
     )
 
     if warnings and selected_mode != "full-auto":
-        _emit("error", "warning", "Blocked before running (looked risky)")
+        _phase("error", "warning", "Blocked before running (looked risky)")
         receipt = build_savings_receipt(
             root,
             task=message,
@@ -696,11 +734,12 @@ def handle_gui_message(
         from opai import app_state as A
 
         if _cancelled():
+            _phase_close("cancelled", "Stopped by you")
             return _decorate(
                 _cancelled_result(message, tool_trace, selected_model, selected_mode)
             )
         provider = selected_model.split(":", 2)[1]
-        _emit(
+        _phase(
             "request_sending" if allow_cloud else "needs_confirmation",
             "running" if allow_cloud else "warning",
             "Sending free-tier API request"
@@ -720,6 +759,7 @@ def handle_gui_message(
             cancel=cancel,
         )
         if result.get("status") == "cancelled":
+            _phase_close("cancelled", "Stopped by you")
             _emit("cancelled", "cancelled", "Stopped by you")
             return _decorate(
                 _cancelled_result(message, tool_trace, selected_model, selected_mode)
@@ -770,11 +810,15 @@ def handle_gui_message(
             or "The free-tier API did not return an answer."
         )
         if status == "answered":
+            _phase_close("success", "Request sent")
             _emit("completed", "success", "OPai completed")
             if on_text and answer:
                 on_text(answer)
         elif status != "needs_free_confirmation":
+            _phase_close("error", "Free-tier API request failed")
             _emit("failed", "error", "Free-tier API request failed")
+        else:
+            _phase_close("warning", "Awaiting your confirmation")
         return _decorate(
             {
                 "status": status,
@@ -794,11 +838,12 @@ def handle_gui_message(
         from opai import app_state as A
 
         if _cancelled():
+            _phase_close("cancelled", "Stopped by you")
             return _decorate(
                 _cancelled_result(message, tool_trace, selected_model, selected_mode)
             )
         provider = selected_model.split(":")[1] if ":" in selected_model else "account"
-        _emit(
+        _phase(
             "provider_checking",
             "running",
             "Checking OPai connection",
@@ -832,7 +877,7 @@ def handle_gui_message(
                     if error["code"].startswith("AUTH_")
                     else "failed"
                 )
-                _emit(
+                _phase(
                     event_type,
                     "error",
                     error["title"],
@@ -850,25 +895,40 @@ def handle_gui_message(
                     }
                 )
             if connection["authStatus"] == "connected":
-                _emit(
+                _phase(
                     "provider_authenticated",
-                    "success",
+                    "running",
                     "OPai sign-in verified locally",
                     metadata={"provider": provider},
                 )
+                _status_mirror(
+                    "connect",
+                    "provider_authenticated",
+                    f"Connected · {provider}",
+                    metadata={"provider": provider},
+                )
         else:
-            _emit(
+            _phase(
                 "provider_authenticated",
-                "success",
+                "running",
                 "OPai sign-in detected",
                 metadata={"provider": provider},
             )
-        _emit(
+            _status_mirror(
+                "connect",
+                "provider_authenticated",
+                f"Connected · {provider}",
+                metadata={"provider": provider},
+            )
+        _phase(
             "request_sending",
             "running",
             "Sending OPai request",
             metadata={"provider": provider},
         )
+        # The provider stream takes over from here (its own connect/stream
+        # rows are the live surface), so the preamble row closes honestly.
+        _phase("request_sending", "success", "Request sent")
         result = A.ask(
             root,
             provider_message,
@@ -983,11 +1043,12 @@ def handle_gui_message(
         confidence="estimated",
     )
     if _cancelled():
+        _phase_close("cancelled", "Stopped by you")
         _emit("cancelled", "cancelled", "Stopped by you")
         return _decorate(
             _cancelled_result(message, tool_trace, selected_model, selected_mode)
         )
-    _emit("request_sending", "running", "Running OPai locally")
+    _phase("request_sending", "running", "Running OPai locally")
     # Honour the picked local model (#143): a concrete "provider:model" id must
     # run *that* model, not whatever detect_local_runner finds first. "auto"
     # (and unknown ids) fall through to run_ask's own local-first detection.
@@ -1005,6 +1066,7 @@ def handle_gui_message(
         selected_model_id=selected_model if picked_runner is not None else None,
     )
     if result.get("status") == "cancelled":
+        _phase_close("cancelled", "Stopped by you")
         _emit("cancelled", "cancelled", "Stopped by you")
         return _decorate(
             _cancelled_result(message, tool_trace, selected_model, selected_mode)
@@ -1024,6 +1086,7 @@ def handle_gui_message(
                 f"No local model is running. OPai can continue with {label}, but "
                 "your task will leave this device. Confirm to continue."
             )
+            _phase_close("warning", "Needs your confirmation")
             return _decorate(
                 {
                     "status": "needs_auto_confirmation",
@@ -1069,10 +1132,12 @@ def handle_gui_message(
             model_id=selected_model,
             mode=selected_mode,
         )
+        _phase_close("success", "Answered locally")
         _emit("completed", "success", "OPai completed")
         if on_text and answer:
             on_text(answer)
     else:
+        _phase_close("error", "OPai could not complete locally")
         _emit("failed", "error", "OPai could not complete locally")
     return _decorate(
         {
