@@ -6,6 +6,7 @@ import threading
 import unittest
 from pathlib import Path
 
+from opai.activity import derived_id, emit_event, make_event
 from opaihub.aci import AgentComputerInterface
 from opaihub.github_workflow import GitHubAdapter
 
@@ -204,6 +205,77 @@ class AgentOperationActivityTests(unittest.TestCase):
 
         self.assertEqual(events[-1]["status"], "error")
         self.assertEqual(events[0]["id"], events[-1]["id"])
+
+
+class EventSchemaV2Tests(unittest.TestCase):
+    """Schema v2 (docs/AI_ACTIVITY_UX.md): requestId/phase/channel/group."""
+
+    def test_v1_payload_shape_is_unchanged_when_v2_fields_absent(self):
+        event = make_event("tool_call", "running", "Used tool")
+        self.assertEqual(
+            sorted(event),
+            [
+                "detail",
+                "durationMs",
+                "id",
+                "metadata",
+                "status",
+                "timestamp",
+                "title",
+                "type",
+            ],
+        )
+
+    def test_v2_fields_serialize_with_wire_names(self):
+        event = make_event(
+            "streaming",
+            "running",
+            "Streaming response",
+            request_id="req-1",
+            phase="stream",
+            channel="status",
+            group="req-1:g0",
+        )
+        self.assertEqual(event["requestId"], "req-1")
+        self.assertEqual(event["phase"], "stream")
+        self.assertEqual(event["channel"], "status")
+        self.assertEqual(event["group"], "req-1:g0")
+
+    def test_unknown_channel_falls_back_to_feed(self):
+        event = make_event("streaming", "running", "x", channel="popup")
+        self.assertEqual(event["channel"], "feed")
+
+    def test_derived_id_is_stable_and_request_scoped(self):
+        self.assertEqual(derived_id("req-1", "stream"), "req-1:stream")
+        self.assertEqual(derived_id("req-1", "stream"), derived_id("req-1", "stream"))
+        self.assertNotEqual(
+            derived_id("req-1", "stream"), derived_id("req-2", "stream")
+        )
+
+    def test_derived_id_coalesces_repeated_states_to_one_event_id(self):
+        stream_id = derived_id("req-1", "stream")
+        first = make_event(
+            "streaming", "running", "Streaming response", event_id=stream_id
+        )
+        final = make_event(
+            "streaming", "success", "Response received", event_id=stream_id
+        )
+        self.assertEqual(first["id"], final["id"])
+
+    def test_emit_event_forwards_v2_fields(self):
+        events = []
+        emit_event(
+            events.append,
+            "provider_request",
+            "success",
+            "Connected to Claude",
+            request_id="req-9",
+            channel="status",
+            event_id=derived_id("req-9", "connect"),
+        )
+        self.assertEqual(events[0]["id"], "req-9:connect")
+        self.assertEqual(events[0]["requestId"], "req-9")
+        self.assertEqual(events[0]["channel"], "status")
 
 
 if __name__ == "__main__":

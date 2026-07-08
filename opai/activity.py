@@ -64,8 +64,22 @@ _TOOL_MAP = {
 }
 
 
+# Schema v2 channels (docs/AI_ACTIVITY_UX.md): "feed" renders a timeline row,
+# "status" feeds the persistent status strip and never becomes a row.
+CHANNELS = ("feed", "status")
+
+
 def new_id() -> str:
     return uuid.uuid4().hex[:12]
+
+
+def derived_id(request_id: str, phase: str) -> str:
+    """Stable id for one logical step of a request.
+
+    Repeated states that share a derived id upsert the same row in place
+    instead of appending duplicates (the Calm Stream coalescing contract).
+    """
+    return f"{request_id}:{phase}"
 
 
 def make_event(
@@ -77,13 +91,22 @@ def make_event(
     metadata: dict[str, Any] | None = None,
     event_id: str | None = None,
     duration_ms: int | None = None,
+    request_id: str | None = None,
+    phase: str | None = None,
+    channel: str | None = None,
+    group: str | None = None,
 ) -> dict[str, Any]:
-    """Build one activity event. ``timestamp`` is ms since epoch."""
+    """Build one activity event. ``timestamp`` is ms since epoch.
+
+    Schema v2 fields (``request_id``/``phase``/``channel``/``group``) serialize
+    as ``requestId``/``phase``/``channel``/``group`` and are omitted when not
+    provided, so v1 payloads stay byte-identical.
+    """
     if event_type not in TYPES:
         event_type = "tool_call"
     if status not in STATUSES:
         status = "running"
-    return {
+    event: dict[str, Any] = {
         "id": event_id or new_id(),
         "type": event_type,
         "status": status,
@@ -93,6 +116,15 @@ def make_event(
         "durationMs": duration_ms,
         "metadata": metadata or {},
     }
+    if request_id is not None:
+        event["requestId"] = request_id
+    if phase is not None:
+        event["phase"] = phase
+    if channel is not None:
+        event["channel"] = channel if channel in CHANNELS else "feed"
+    if group is not None:
+        event["group"] = group
+    return event
 
 
 def emit_event(
