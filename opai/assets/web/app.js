@@ -32,6 +32,7 @@ const state = {
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
   accounts: [], panel: true, message: null, lastFailedRequestId: null,
+  tlNodes: null, activityRenderPending: false, timelineRenders: 0,
 };
 const providerLoginRequests = new Map();
 let doctorRefreshRequestId = null;
@@ -606,24 +607,61 @@ function buildPending(sel) {
   };
 }
 
-function timelineRows() {
+function tlRowInner(e) {
   // Each row carries its real offset from the start of the run (the events
   // have true epoch timestamps). No timestamp -> no label, never invented.
-  return state.store.list().map((e) => {
-    let ts = "";
-    if (typeof e.timestamp === "number" && state.startTime && e.timestamp >= state.startTime) {
-      ts = `<span class="tl-ts">+${((e.timestamp - state.startTime) / 1000).toFixed(1)}s</span>`;
-    }
-    return `<div class="tl-row ${e.status}"><span class="tl-ic">${ICON[e.status] || "•"}</span>` +
-      `<span class="tl-t">${esc(e.title)}</span>${e.detail ? `<span class="tl-d">${esc(e.detail)}</span>` : ""}${ts}</div>`;
-  }).join("");
+  let ts = "";
+  if (typeof e.timestamp === "number" && state.startTime && e.timestamp >= state.startTime) {
+    ts = `<span class="tl-ts">+${((e.timestamp - state.startTime) / 1000).toFixed(1)}s</span>`;
+  }
+  return `<span class="tl-ic">${ICON[e.status] || "•"}</span>` +
+    `<span class="tl-t">${esc(e.title)}</span>${e.detail ? `<span class="tl-d">${esc(e.detail)}</span>` : ""}${ts}`;
+}
+function timelineRows() {
+  return state.store.list().map((e) => `<div class="tl-row ${e.status}">${tlRowInner(e)}</div>`).join("");
 }
 function renderTimeline() {
   if (!state.pending) return;
   const tl = state.pending.querySelector(".timeline");
-  if (tl) tl.innerHTML = timelineRows();
+  if (tl) {
+    // Keyed reconcile: patch changed rows in place, append new ones. A full
+    // innerHTML rewrite per event is O(n^2) DOM work across a turn (#228).
+    if (!state.tlNodes || state.tlNodes.container !== tl) {
+      state.tlNodes = { container: tl, rows: new Map() };
+      tl.textContent = "";
+    }
+    const rows = state.tlNodes.rows;
+    for (const e of state.store.list()) {
+      const key = String(e.id);
+      const cls = "tl-row " + e.status;
+      const inner = tlRowInner(e);
+      let row = rows.get(key);
+      if (!row) {
+        const node = document.createElement("div");
+        node.className = cls;
+        node.innerHTML = inner;
+        row = { node, cls, inner };
+        rows.set(key, row);
+        tl.appendChild(node);
+      } else {
+        if (row.cls !== cls) { row.node.className = cls; row.cls = cls; }
+        if (row.inner !== inner) { row.node.innerHTML = inner; row.inner = inner; }
+      }
+    }
+    state.timelineRenders++;
+  }
   const btn = state.pending.querySelector(".gen-toggle");
   if (btn && btn.getAttribute("aria-expanded") !== "true") btn.textContent = "Show activity (" + state.store.events.length + ")";
+}
+function scheduleTimelineRender() {
+  // Activity shares the token path's rAF cadence: a burst of events in one
+  // frame costs one render instead of one render per event (#228).
+  if (state.activityRenderPending) return;
+  state.activityRenderPending = true;
+  requestAnimationFrame(() => {
+    state.activityRenderPending = false;
+    renderTimeline();
+  });
 }
 
 function onActivity(json) {
@@ -635,7 +673,7 @@ function onActivity(json) {
     waiting_first_token: "waiting", streaming: "streaming",
   };
   if (statusByType[d.event.type]) state.message = OPaiMessageState.transition(state.message, statusByType[d.event.type]);
-  renderTimeline();
+  scheduleTimelineRender();
   updateInspectorLive(d.event && d.event.title);
 }
 function onToken(json) {
