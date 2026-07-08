@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
-from opai.activity import derived_id, emit_event, make_event
+from opai.activity import (
+    ActivitySession,
+    derived_id,
+    emit_event,
+    make_event,
+    parse_claude_line,
+)
 from opaihub.aci import AgentComputerInterface
 from opaihub.github_workflow import GitHubAdapter
 
@@ -276,6 +283,167 @@ class EventSchemaV2Tests(unittest.TestCase):
         self.assertEqual(events[0]["id"], "req-9:connect")
         self.assertEqual(events[0]["requestId"], "req-9")
         self.assertEqual(events[0]["channel"], "status")
+
+
+def _claude_stream_fixture() -> list[str]:
+    """A realistic multi-chunk stream: 2 system lines, text deltas, a run of
+    two reads, one command, more text, then the result line."""
+    return [
+        json.dumps({"type": "system", "model": "claude-opus"}),
+        json.dumps({"type": "system", "subtype": "warning"}),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "Hel"}]},
+            }
+        ),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Read",
+                            "input": {"file_path": "a.py"},
+                        }
+                    ]
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Read",
+                            "input": {"file_path": "b.py"},
+                        }
+                    ]
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Bash",
+                            "input": {"command": "pytest"},
+                        }
+                    ]
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "lo"}]},
+            }
+        ),
+        json.dumps({"type": "result", "total_cost_usd": 0.01, "result": "Hello"}),
+    ]
+
+
+class ActivitySessionClaudeStreamTests(unittest.TestCase):
+    """#223: the stream path emits stable derived ids that coalesce."""
+
+    def _run_fixture(self) -> list[dict]:
+        session = ActivitySession("req-1")
+        events: list[dict] = []
+        for line in _claude_stream_fixture():
+            events.extend(session.parse_claude_line(line)["events"])
+        return events
+
+    def test_connect_fires_once_on_the_status_channel(self):
+        events = self._run_fixture()
+        connects = [e for e in events if e["type"] == "provider_request"]
+        self.assertEqual(len(connects), 1)
+        self.assertEqual(connects[0]["id"], "req-1:connect")
+        self.assertEqual(connects[0]["channel"], "status")
+        self.assertEqual(connects[0]["requestId"], "req-1")
+        self.assertIn("claude-opus", connects[0]["title"])
+
+    def test_stream_chunks_share_one_id_and_finish_with_real_duration(self):
+        events = self._run_fixture()
+        stream = [e for e in events if e["type"] == "streaming"]
+        self.assertEqual(len(stream), 3)  # two running chunks + the finish
+        self.assertEqual({e["id"] for e in stream}, {"req-1:stream"})
+        self.assertEqual(
+            [e["status"] for e in stream], ["running", "running", "success"]
+        )
+        final = stream[-1]
+        self.assertEqual(final["title"], "Response received")
+        self.assertIsInstance(final["durationMs"], int)
+        self.assertGreaterEqual(final["durationMs"], 0)
+        self.assertIn("chars", final["detail"])
+
+    def test_tool_events_get_sequential_ids_and_type_run_groups(self):
+        events = self._run_fixture()
+        tools = [e for e in events if e["type"] in ("file_read", "command_run")]
+        self.assertEqual(
+            [e["id"] for e in tools],
+            ["req-1:tool:0", "req-1:tool:1", "req-1:tool:2"],
+        )
+        # Two consecutive reads share a group; the command starts a new one.
+        self.assertEqual(
+            [e["group"] for e in tools], ["req-1:g0", "req-1:g0", "req-1:g1"]
+        )
+
+    def test_timestamps_are_real_and_monotonic(self):
+        events = self._run_fixture()
+        stamps = [e["timestamp"] for e in events]
+        self.assertEqual(stamps, sorted(stamps))
+
+    def test_provider_error_flips_the_stream_row_to_error(self):
+        session = ActivitySession("req-2")
+        session.parse_claude_line(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "par"}]},
+                }
+            )
+        )
+        part = session.parse_claude_line(
+            json.dumps({"type": "result", "is_error": True, "error": "boom"})
+        )
+        self.assertTrue(part["error"])
+        self.assertEqual(part["events"][-1]["id"], "req-2:stream")
+        self.assertEqual(part["events"][-1]["status"], "error")
+        self.assertEqual(part["events"][-1]["title"], "Streaming interrupted")
+
+    def test_result_without_streamed_text_closes_no_stream_row(self):
+        session = ActivitySession("req-3")
+        part = session.parse_claude_line(
+            json.dumps({"type": "result", "result": "answer"})
+        )
+        self.assertEqual(part["events"], [])
+        self.assertEqual(part["text"], "answer")
+
+    def test_v1_wrapper_keeps_stateless_per_line_behavior(self):
+        line = json.dumps({"type": "system", "model": "m"})
+        first = parse_claude_line(line)["events"][0]
+        second = parse_claude_line(line)["events"][0]
+        self.assertNotEqual(first["id"], second["id"])  # v1: random per line
+        self.assertNotIn("requestId", first)
+        self.assertNotIn("channel", first)
+
+    def test_session_minted_request_id_still_coalesces(self):
+        session = ActivitySession()
+        chunk = json.dumps(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "x"}]},
+            }
+        )
+        first = session.parse_claude_line(chunk)["events"][0]
+        second = session.parse_claude_line(chunk)["events"][0]
+        self.assertEqual(first["id"], second["id"])
 
 
 if __name__ == "__main__":

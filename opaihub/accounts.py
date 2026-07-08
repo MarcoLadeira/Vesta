@@ -1345,7 +1345,7 @@ class AccountRunner:
         Returns ``{"text","cost","timed_out"?,"cancelled"?,"error"?}`` and never
         raises for provider failures — they degrade to a clean result.
         """
-        from opai.activity import make_event, parse_claude_line, parse_codex_line
+        from opai.activity import ActivitySession, make_event, parse_codex_line
 
         cwd = str(project_root) if project_root else None
         out_path: str | None = None
@@ -1355,8 +1355,13 @@ class AccountRunner:
             ) as handle:
                 out_path = handle.name
         structured = self.account_id in {"claude", "codex"}
+        # One session per stream call: stable derived ids so repeated states
+        # ("Connected", per-chunk "Streaming response") coalesce into single
+        # rows instead of flooding the feed (#223).
         line_parser = (
-            parse_claude_line if self.account_id == "claude" else parse_codex_line
+            ActivitySession().parse_claude_line
+            if self.account_id == "claude"
+            else parse_codex_line
         )
         cmd = self.build_command(
             prompt,
