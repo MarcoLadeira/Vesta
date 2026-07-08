@@ -27,6 +27,26 @@ through those modules, not inline strings.
 | CLI run start | (nothing) | `OPai · plan · account:claude:opus` |
 | Cost footer | — | `✓ done in 42s · $0.0312 spent` / `$0.04 saved (estimated)` |
 
+## Calm Stream phase copy (`{rid}:phase` row)
+
+One row, detail advancing in place — present tense while working, past tense
+when done (Principle 3). Canonical strings:
+
+| Phase | Detail while running | On completion |
+| --- | --- | --- |
+| prepare | "Preparing request…" | — (superseded by next step) |
+| context | "Reading project context…" | "Read project context" |
+| model | "Model: {name}" | — (also mirrored to the status strip) |
+| connect | "Checking connection…" | — (status strip shows "Connected · {provider}") |
+| send | "Sending request…" | row flips `success`, title "Request sent" |
+| (failure) | — | row flips `error`: "{Step} failed. {Next action}." |
+| (cancel) | — | row flips `cancelled`: "Stopped by you." |
+
+Status strip copy: "Connected · {provider} · {model}" — providers named,
+raw ids stay in code surfaces (Principle 5). Grouped tool rows: `{Verb} {N}
+{objects}` — "Read 4 files", "Ran 3 commands"; expanding shows the raw
+`{Verb} {object}: {detail}` lines.
+
 ## Patterns
 
 - **Error:** `{What broke}. {Next action}.` — e.g. "Claude hit an error and
