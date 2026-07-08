@@ -13,6 +13,7 @@ from opai.activity import (
     emit_event,
     make_event,
     parse_claude_line,
+    parse_codex_line,
 )
 from opaihub.aci import AgentComputerInterface
 from opaihub.github_workflow import GitHubAdapter
@@ -444,6 +445,82 @@ class ActivitySessionClaudeStreamTests(unittest.TestCase):
         first = session.parse_claude_line(chunk)["events"][0]
         second = session.parse_claude_line(chunk)["events"][0]
         self.assertEqual(first["id"], second["id"])
+
+
+class ActivitySessionCodexStreamTests(unittest.TestCase):
+    """#224: Codex started/completed pairs coalesce into one measured row."""
+
+    @staticmethod
+    def _item_line(kind: str, item_id: str = "item_0") -> str:
+        return json.dumps(
+            {
+                "type": kind,
+                "item": {
+                    "type": "command_execution",
+                    "id": item_id,
+                    "command": "pytest",
+                },
+            }
+        )
+
+    def test_started_and_completed_share_one_id_with_measured_duration(self):
+        session = ActivitySession("req-1")
+        started = session.parse_codex_line(self._item_line("item.started"))
+        completed = session.parse_codex_line(self._item_line("item.completed"))
+        first, final = started["events"][0], completed["events"][0]
+        self.assertEqual(first["id"], "req-1:codex:item_0")
+        self.assertEqual(final["id"], first["id"])
+        self.assertEqual([first["status"], final["status"]], ["running", "success"])
+        self.assertIsInstance(final["durationMs"], int)
+        self.assertGreaterEqual(final["durationMs"], 0)
+
+    def test_connect_fires_once_across_thread_and_session_lines(self):
+        session = ActivitySession("req-2")
+        first = session.parse_codex_line(json.dumps({"type": "thread.started"}))
+        second = session.parse_codex_line(json.dumps({"type": "session.created"}))
+        self.assertEqual(len(first["events"]), 1)
+        self.assertEqual(first["events"][0]["id"], "req-2:connect")
+        self.assertEqual(first["events"][0]["channel"], "status")
+        self.assertEqual(second["events"], [])
+
+    def test_legacy_exec_begin_end_coalesce_fifo(self):
+        session = ActivitySession("req-3")
+        begin = session.parse_codex_line(
+            json.dumps({"msg": {"type": "exec_command_begin", "command": ["ls"]}})
+        )["events"][0]
+        end = session.parse_codex_line(
+            json.dumps({"msg": {"type": "exec_command_end", "command": ["ls"]}})
+        )["events"][0]
+        self.assertEqual(begin["id"], end["id"])
+        self.assertEqual([begin["status"], end["status"]], ["running", "success"])
+        self.assertGreaterEqual(end["durationMs"], 0)
+
+    def test_failed_turn_flips_open_items_to_error(self):
+        session = ActivitySession("req-4")
+        session.parse_codex_line(self._item_line("item.started"))
+        part = session.parse_codex_line(
+            json.dumps({"type": "turn.failed", "error": {"message": "boom"}})
+        )
+        self.assertTrue(part["error"])
+        flipped = [e for e in part["events"] if e["id"] == "req-4:codex:item_0"]
+        self.assertEqual(len(flipped), 1)
+        self.assertEqual(flipped[0]["status"], "error")
+        self.assertGreaterEqual(flipped[0]["durationMs"], 0)
+        self.assertEqual(part["events"][-1]["type"], "error")
+
+    def test_completed_without_started_still_renders_one_row(self):
+        session = ActivitySession("req-5")
+        part = session.parse_codex_line(self._item_line("item.completed"))
+        event = part["events"][0]
+        self.assertEqual(event["id"], "req-5:codex:item_0")
+        self.assertEqual(event["status"], "success")
+        self.assertIsNone(event["durationMs"])
+
+    def test_v1_wrapper_keeps_two_events_with_random_ids(self):
+        first = parse_codex_line(self._item_line("item.started"))["events"][0]
+        second = parse_codex_line(self._item_line("item.completed"))["events"][0]
+        self.assertNotEqual(first["id"], second["id"])  # v1: no coalescing
+        self.assertNotIn("requestId", first)
 
 
 if __name__ == "__main__":

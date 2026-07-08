@@ -403,10 +403,18 @@ class ActivitySession:
         self._tool_seq = 0
         self._group_seq = -1
         self._last_tool_type: str | None = None
+        # Open Codex items: event_id -> (started_ms, etype, title, detail).
+        self._codex_open: dict[str, tuple[int, str, str, str | None]] = {}
+        self._codex_execs: list[str] = []  # FIFO of open legacy exec ids
+        self._codex_exec_seq = 0
 
     def parse_claude_line(self, line: str) -> dict[str, Any]:
         """Session-aware twin of :func:`parse_claude_line` (stable ids)."""
         return _parse_claude_line(line, self)
+
+    def parse_codex_line(self, line: str) -> dict[str, Any]:
+        """Session-aware twin of :func:`parse_codex_line` (stable ids)."""
+        return _parse_codex_line(line, self)
 
     def _connect_event(self, title: str) -> dict[str, Any] | None:
         if self._connected:
@@ -463,6 +471,96 @@ class ActivitySession:
         event["group"] = f"{self.request_id}:g{self._group_seq}"
         self._tool_seq += 1
         return event
+
+    def _codex_item(
+        self,
+        kind: str,
+        etype: str,
+        title: str,
+        detail: str | None,
+        item_id: str,
+    ) -> dict[str, Any]:
+        """One row per Codex item: started opens it, completed closes it."""
+        event_id = derived_id(self.request_id, f"codex:{item_id}")
+        now_ms = int(time.time() * 1000)
+        if kind == "item.started":
+            self._codex_open[event_id] = (now_ms, etype, title, detail)
+            return make_event(
+                etype,
+                "running",
+                title,
+                detail=detail,
+                event_id=event_id,
+                request_id=self.request_id,
+            )
+        opened = self._codex_open.pop(event_id, None)
+        duration_ms = max(0, now_ms - opened[0]) if opened else None
+        return make_event(
+            etype,
+            "success",
+            title,
+            detail=detail,
+            event_id=event_id,
+            request_id=self.request_id,
+            duration_ms=duration_ms,
+        )
+
+    def _codex_exec(
+        self, begin: bool, title: str, detail: str | None
+    ) -> dict[str, Any]:
+        """Legacy exec_command begin/end pairs coalesce FIFO (no item ids)."""
+        now_ms = int(time.time() * 1000)
+        if begin:
+            self._codex_exec_seq += 1
+            event_id = derived_id(self.request_id, f"codex:exec:{self._codex_exec_seq}")
+            self._codex_execs.append(event_id)
+            self._codex_open[event_id] = (now_ms, "command_run", title, detail)
+            return make_event(
+                "command_run",
+                "running",
+                title,
+                detail=detail,
+                event_id=event_id,
+                request_id=self.request_id,
+            )
+        if self._codex_execs:
+            event_id = self._codex_execs.pop(0)
+            opened = self._codex_open.pop(event_id, None)
+            duration_ms = max(0, now_ms - opened[0]) if opened else None
+            return make_event(
+                "command_run",
+                "success",
+                title,
+                detail=detail,
+                event_id=event_id,
+                request_id=self.request_id,
+                duration_ms=duration_ms,
+            )
+        # An end with no open begin (schema drift): standalone row, honest.
+        return make_event(
+            "command_run", "success", title, detail=detail, request_id=self.request_id
+        )
+
+    def _codex_fail_open(self) -> list[dict[str, Any]]:
+        """A failed turn flips every still-running item to error — never
+        leave a row spinning after the provider gave up."""
+        now_ms = int(time.time() * 1000)
+        events = []
+        for event_id, (started_ms, etype, title, detail) in self._codex_open.items():
+            events.append(
+                make_event(
+                    etype,
+                    "error",
+                    title,
+                    detail=detail,
+                    event_id=event_id,
+                    request_id=self.request_id,
+                    duration_ms=max(0, now_ms - started_ms),
+                )
+            )
+        self._codex_open.clear()
+        self._codex_execs.clear()
+        return events
 
 
 def parse_claude_line(line: str) -> dict[str, Any]:
@@ -625,7 +723,15 @@ def parse_codex_line(line: str) -> dict[str, Any]:
     ``{"events": [...], "text": str, "error": str, "cost": None,
     "done": bool}``. Codex does not report dollar cost, so ``cost`` is always
     ``None`` (honest, not zero).
+
+    Stateless v1 behavior (one event per line, random ids) — kept for
+    backward compatibility. The stream path uses :class:`ActivitySession`
+    so ``item.started``/``item.completed`` coalesce into one row.
     """
+    return _parse_codex_line(line, None)
+
+
+def _parse_codex_line(line: str, session: ActivitySession | None) -> dict[str, Any]:
     out: dict[str, Any] = {
         "events": [],
         "text": "",
@@ -646,9 +752,14 @@ def parse_codex_line(line: str) -> dict[str, Any]:
         return out
     kind = str(obj.get("type") or "")
     if kind in {"thread.started", "session.created", "session_configured"}:
-        out["events"].append(
-            make_event("provider_request", "success", "Connected to Codex")
-        )
+        if session is None:
+            out["events"].append(
+                make_event("provider_request", "success", "Connected to Codex")
+            )
+        else:
+            connect = session._connect_event("Connected to Codex")
+            if connect is not None:
+                out["events"].append(connect)
         return out
     if kind in {"turn.completed", "turn_complete"}:
         out["done"] = True
@@ -660,6 +771,8 @@ def parse_codex_line(line: str) -> dict[str, Any]:
         message = _safe_provider_diagnostic(obj.get("message") or error or "error")
         out["error"] = message
         out["done"] = True
+        if session is not None:
+            out["events"].extend(session._codex_fail_open())
         out["events"].append(
             make_event("error", "error", f"Codex reported: {message[:200]}")
         )
@@ -685,11 +798,18 @@ def parse_codex_line(line: str) -> dict[str, Any]:
                 or item.get("query")
                 or ""
             )[:200]
-            status = "success" if kind == "item.completed" else "running"
             title = f"{verb}: {target}" if target else verb
-            out["events"].append(
-                make_event(etype, status, title, detail=target or None)
-            )
+            item_id = str(item.get("id") or "")
+            if session is not None and item_id:
+                out["events"].append(
+                    session._codex_item(kind, etype, title, target or None, item_id)
+                )
+            else:
+                # No session or no item id: v1 one-event-per-line behavior.
+                status = "success" if kind == "item.completed" else "running"
+                out["events"].append(
+                    make_event(etype, status, title, detail=target or None)
+                )
         return out
     # Older proto-style shapes: {"msg": {"type": "exec_command_begin", ...}}.
     msg = obj.get("msg")
@@ -699,16 +819,19 @@ def parse_codex_line(line: str) -> dict[str, Any]:
             command = msg.get("command")
             if isinstance(command, list):
                 command = " ".join(str(part) for part in command)
-            status = "success" if mtype.endswith("end") else "running"
             target = str(command or "")[:200]
-            out["events"].append(
-                make_event(
-                    "command_run",
-                    status,
-                    f"Ran command: {target}" if target else "Ran command",
-                    detail=target or None,
+            title = f"Ran command: {target}" if target else "Ran command"
+            if session is not None:
+                out["events"].append(
+                    session._codex_exec(
+                        mtype == "exec_command_begin", title, target or None
+                    )
                 )
-            )
+            else:
+                status = "success" if mtype.endswith("end") else "running"
+                out["events"].append(
+                    make_event("command_run", status, title, detail=target or None)
+                )
         elif mtype == "task_complete":
             out["done"] = True
     return out
