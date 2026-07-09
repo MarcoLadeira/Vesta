@@ -673,6 +673,37 @@ kbd {
 @keyframes spin { to { transform: rotate(360deg); } }
 .body.stream { white-space: pre-wrap; word-break: break-word; }
 
+/* Status strip (#232): a persistent, calm bar for ambient state — connection,
+   model, live cost, elapsed. Fed only by channel:"status" events + tokens +
+   the receipt; it is never a timeline row. */
+.status-strip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 16px; font-size: 12px; color: var(--muted);
+  background: var(--panel); border-bottom: 1px solid var(--surface);
+  flex-shrink: 0;
+}
+.status-strip[hidden] { display: none; }
+.ss-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--faint); transition: background 0.2s var(--ease);
+}
+.status-strip.ss-connecting .ss-dot { background: var(--amber); animation: ssPulse 1.2s ease-in-out infinite; }
+.status-strip.ss-connected .ss-dot { background: var(--accent); }
+.status-strip.ss-active .ss-dot { background: var(--accent); animation: ssPulse 1.2s ease-in-out infinite; }
+.status-strip.ss-error .ss-dot { background: var(--red); }
+.status-strip.ss-cancelled .ss-dot { background: var(--faint); }
+.ss-conn { color: var(--ink); font-weight: 500; }
+.ss-model { color: var(--muted); font-variant-numeric: tabular-nums; }
+.ss-model::before { content: "·"; margin-right: 8px; color: var(--faint); }
+.ss-model:empty::before { content: none; }
+.ss-spacer { flex: 1 1 auto; }
+.ss-cost { color: var(--muted); font-variant-numeric: tabular-nums; }
+.ss-time { color: var(--faint); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+@keyframes ssPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .status-strip .ss-dot { animation: none !important; }
+}
+
 .stopped-card {
   background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md);
   padding: 14px 16px; box-shadow: var(--inset-hi);
