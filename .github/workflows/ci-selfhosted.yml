@@ -2,14 +2,13 @@ name: OPai CI (self-hosted)
 
 # Runs the CI gate on a self-hosted runner you register on your own machine, so
 # it works at $0 with no GitHub-hosted Actions minutes (see docs/SELF_HOSTED_CI.md).
-# Until a runner is registered these jobs sit queued (pending) rather than failing;
-# the moment a runner comes online they execute and report green/red.
+#
+# Manual-only (same policy as the hosted ci.yml): the desktop runner's broker
+# long-poll wedges and auto-triggered runs queue forever (#264). The merge gate
+# is the local one — `python scripts/ci_local.py` plus the web suites — run
+# before every merge; dispatch this workflow when an on-runner check is wanted.
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
   workflow_dispatch:
 
 permissions:
