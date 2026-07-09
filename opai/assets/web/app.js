@@ -33,6 +33,7 @@ const state = {
   focus: "general", format: "normal",
   accounts: [], panel: true, message: null, lastFailedRequestId: null,
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
+  expandedGroups: new Set(),
 };
 const providerLoginRequests = new Map();
 let doctorRefreshRequestId = null;
@@ -619,40 +620,117 @@ function tlRowInner(e) {
     `<span class="tl-t">${esc(e.title)}</span>${e.detail ? `<span class="tl-d">${esc(e.detail)}</span>` : ""}${ts}`;
 }
 function timelineRows() {
+  // Flat archive: every raw event, all detail visible. Used by the frozen
+  // post-completion block so nothing is ever hidden after the fact.
   return state.store.list().map((e) => `<div class="tl-row ${e.status}">${tlRowInner(e)}</div>`).join("");
+}
+// A group is auto-expanded when any child errored (surface the failure), else
+// it honors the user's toggle.
+function groupExpanded(row) {
+  if (row.children.some((c) => c.status === "error")) return true;
+  return state.expandedGroups.has(row.key);
+}
+function buildSingleNode(event) {
+  const node = document.createElement("div");
+  node.className = "tl-row " + event.status;
+  node.innerHTML = tlRowInner(event);
+  return { type: "single", node, cls: node.className, inner: node.innerHTML };
+}
+function updateSingleNode(entry, event) {
+  const cls = "tl-row " + event.status;
+  const inner = tlRowInner(event);
+  if (entry.cls !== cls) { entry.node.className = cls; entry.cls = cls; }
+  if (entry.inner !== inner) { entry.node.innerHTML = inner; entry.inner = inner; }
+}
+function groupHeaderInner(row, expanded) {
+  return `<button class="tl-group-toggle" aria-expanded="${expanded}" tabindex="0">` +
+    `<span class="tl-ic">${ICON[row.status] || "•"}</span>` +
+    `<span class="tl-caret">${expanded ? "▾" : "▸"}</span>` +
+    `<span class="tl-t">${esc(row.label)}</span></button>`;
+}
+function reconcileGroupNode(entry, row) {
+  const expanded = groupExpanded(row);
+  if (!entry || entry.type !== "group") {
+    const node = document.createElement("div");
+    node.className = "tl-row tl-group " + row.status;
+    const header = document.createElement("div");
+    header.className = "tl-group-head";
+    header.innerHTML = groupHeaderInner(row, expanded);
+    const kids = document.createElement("div");
+    kids.className = "tl-children";
+    node.appendChild(header);
+    node.appendChild(kids);
+    entry = { type: "group", node, header, kids, childNodes: new Map() };
+    header.querySelector(".tl-group-toggle").onclick = () => {
+      if (state.expandedGroups.has(row.key)) state.expandedGroups.delete(row.key);
+      else state.expandedGroups.add(row.key);
+      renderTimeline(); // immediate, not rAF — a click deserves a live response
+    };
+  }
+  entry.node.className = "tl-row tl-group " + row.status;
+  entry.header.innerHTML = groupHeaderInner(row, expanded);
+  entry.header.querySelector(".tl-group-toggle").onclick = () => {
+    if (state.expandedGroups.has(row.key)) state.expandedGroups.delete(row.key);
+    else state.expandedGroups.add(row.key);
+    renderTimeline();
+  };
+  if (expanded) entry.kids.removeAttribute("hidden"); else entry.kids.setAttribute("hidden", "");
+  // Reconcile the group's children (keyed by event id within the group).
+  const seenKids = new Set();
+  for (const child of row.children) {
+    const ck = String(child.id);
+    seenKids.add(ck);
+    let ce = entry.childNodes.get(ck);
+    if (!ce) { ce = buildSingleNode(child); entry.childNodes.set(ck, ce); }
+    else updateSingleNode(ce, child);
+    entry.kids.appendChild(ce.node);
+  }
+  for (const [ck, ce] of entry.childNodes) {
+    if (!seenKids.has(ck)) { ce.node.remove(); entry.childNodes.delete(ck); }
+  }
+  return entry;
 }
 function renderTimeline() {
   if (!state.pending) return;
   const tl = state.pending.querySelector(".timeline");
+  const grouped = OPaiActivity.groupRows(state.store.list());
   if (tl) {
-    // Keyed reconcile: patch changed rows in place, append new ones. A full
-    // innerHTML rewrite per event is O(n^2) DOM work across a turn (#228).
+    // Keyed reconcile over LOGICAL rows: singles keyed by event id, groups by
+    // group key. Presentation is grouped/calm; storage keeps every raw event
+    // (#231). A full innerHTML rewrite per event was O(n^2) (#228).
     if (!state.tlNodes || state.tlNodes.container !== tl) {
       state.tlNodes = { container: tl, rows: new Map() };
+      state.expandedGroups = new Set();
       tl.textContent = "";
     }
     const rows = state.tlNodes.rows;
-    for (const e of state.store.list()) {
-      const key = String(e.id);
-      const cls = "tl-row " + e.status;
-      const inner = tlRowInner(e);
-      let row = rows.get(key);
-      if (!row) {
-        const node = document.createElement("div");
-        node.className = cls;
-        node.innerHTML = inner;
-        row = { node, cls, inner };
-        rows.set(key, row);
-        tl.appendChild(node);
+    const seen = new Set();
+    const order = [];
+    for (const row of grouped) {
+      if (row.kind === "single") {
+        const key = "s:" + row.event.id;
+        seen.add(key);
+        let entry = rows.get(key);
+        if (!entry || entry.type !== "single") { entry = buildSingleNode(row.event); rows.set(key, entry); }
+        else updateSingleNode(entry, row.event);
+        order.push(entry.node);
       } else {
-        if (row.cls !== cls) { row.node.className = cls; row.cls = cls; }
-        if (row.inner !== inner) { row.node.innerHTML = inner; row.inner = inner; }
+        const key = "g:" + row.key;
+        seen.add(key);
+        const entry = reconcileGroupNode(rows.get(key), row);
+        rows.set(key, entry);
+        order.push(entry.node);
       }
     }
+    for (const [key, entry] of rows) {
+      if (!seen.has(key)) { entry.node.remove(); rows.delete(key); }
+    }
+    // Enforce order (appendChild moves existing nodes — cheap, no HTML reparse).
+    for (const node of order) tl.appendChild(node);
     state.timelineRenders++;
   }
   const btn = state.pending.querySelector(".gen-toggle");
-  if (btn && btn.getAttribute("aria-expanded") !== "true") btn.textContent = "Show activity (" + state.store.events.length + ")";
+  if (btn && btn.getAttribute("aria-expanded") !== "true") btn.textContent = "Show activity (" + grouped.length + ")";
 }
 function scheduleTimelineRender() {
   // Activity shares the token path's rAF cadence: a burst of events in one
