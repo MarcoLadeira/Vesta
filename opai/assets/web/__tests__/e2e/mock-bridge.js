@@ -80,7 +80,7 @@
     else cb(JSON.stringify(value));
   }
   var bridge = {
-    replyReady: Sig(), activity: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
+    replyReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
     statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
@@ -198,6 +198,9 @@
     },
     reqId: function () { return window.__mock.lastRequest && window.__mock.lastRequest.requestId; },
     emitActivity: function (id, ev) { bridge.activity.emit(JSON.stringify({ requestId: id, event: ev })); },
+    // Schema v2 batch path (#226/#230): one signal carrying an event array,
+    // the wire shape the real bridge's activityBatch QTimer flush will use.
+    emitActivityBatch: function (id, list) { bridge.activityBatch.emit(JSON.stringify({ requestId: id, events: list })); },
     emitToken: function (id, t) { bridge.token.emit(JSON.stringify({ requestId: id, text: t })); },
     emitReply: function (id, result) { bridge.replyReady.emit(JSON.stringify({ requestId: id, result: result })); },
     emitProviderLogin: function (id, result) { bridge.providerLoginReady.emit(JSON.stringify({ requestId: id, provider: result.provider, result: result })); },
