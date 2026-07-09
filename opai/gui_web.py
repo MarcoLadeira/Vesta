@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from opai import app_state as A
+from opai.activity_batch import FLUSH_INTERVAL_MS, ActivityBatcher
 from opai.gui_controls import header_status, model_badge, session_inspector
 from opai.gui_lifecycle import drain_workers, signal_cancels
 from opai.gui_modes import (
@@ -404,6 +405,7 @@ def _run_gui(
     class Bridge(QtCore.QObject):
         replyReady = QtCore.Signal(str)
         activity = QtCore.Signal(str)
+        activityBatch = QtCore.Signal(str)
         token = QtCore.Signal(str)
         toolReady = QtCore.Signal(str)
         workspaceChanged = QtCore.Signal(str)
@@ -682,13 +684,29 @@ def _run_gui(
             cancel = threading.Event()
             self._cancels[request_id] = cancel
 
-            # Callbacks run on the worker thread; emitting a Bridge signal is a
-            # safe cross-thread queued call. Every payload carries the request_id
-            # so the front-end can drop anything from a stale/cancelled request.
+            # Activity batching (#226): worker threads append events to a
+            # lock-guarded buffer; a GUI-thread QTimer drains it into ONE
+            # `activityBatch` payload every ~33ms, so a burst of activity costs
+            # one cross-thread signal instead of one per event. The legacy
+            # per-event `activity` signal stays defined for the classic GUI
+            # (#138) but the web path no longer floods it.
+            batcher = ActivityBatcher(request_id)
+
+            def flush_batch() -> None:
+                payload = batcher.flush()
+                if payload is not None:
+                    self.activityBatch.emit(payload)
+
+            timer = QtCore.QTimer(self)
+            timer.setInterval(FLUSH_INTERVAL_MS)
+            timer.timeout.connect(flush_batch)
+            timer.start()
+
+            # Callbacks run on the worker thread; appending is thread-safe and
+            # the GUI-thread timer does the emitting. Every payload carries the
+            # request_id so the front-end drops anything stale/cancelled.
             def emit_event(event: dict[str, Any]) -> None:
-                self.activity.emit(
-                    json.dumps({"requestId": request_id, "event": event})
-                )
+                batcher.append(event)
 
             def emit_text(chunk: str) -> None:
                 self.token.emit(json.dumps({"requestId": request_id, "text": chunk}))
@@ -714,6 +732,11 @@ def _run_gui(
 
             def _done(result_json: str) -> None:
                 self._cancels.pop(request_id, None)
+                # Deliver the tail before the reply so no event is lost or
+                # arrives after the answer (honesty invariant).
+                timer.stop()
+                flush_batch()
+                timer.deleteLater()
                 self.replyReady.emit(
                     json.dumps(
                         {"requestId": request_id, "result": json.loads(result_json)}

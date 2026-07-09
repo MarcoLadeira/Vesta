@@ -4,6 +4,7 @@ import {
   claudeTurnEvents,
   codexTurnEvents,
   emitScenario,
+  emitScenarioBatch,
   finishRequest,
   openApp,
   sendPrompt,
@@ -40,6 +41,30 @@ test("Codex started/completed pairs land as one finished row per item", async ({
   for (let i = 0; i < 3; i++) {
     await expect(commandRows.nth(i)).toHaveClass(/success/);
   }
+});
+
+// #226: the whole turn arrives as ONE activityBatch signal. The batch path
+// must coalesce identically to the per-event path and lose nothing.
+test("a batched turn ingests every event and coalesces the same as per-event", async ({ page }) => {
+  const id = await sendPrompt(page);
+  const events = await emitScenarioBatch(page, id, claudeTurnEvents(id, { chunks: 200 }));
+  await page.locator(".gen-toggle").click();
+  const distinctIds = new Set(events.map((e) => e.id)).size;
+  await expect(page.locator(".timeline .tl-row")).toHaveCount(distinctIds);
+  await expect(page.locator(".timeline .tl-row", { hasText: "Response received" })).toHaveCount(1);
+  // Every raw event is accounted for in the store (nothing dropped by batching).
+  const stored = await page.evaluate(() => window.__opai.state.store.list().length);
+  expect(stored).toBe(distinctIds);
+});
+
+test("a stale batch from a superseded request is dropped whole", async ({ page }) => {
+  const firstId = await sendPrompt(page);
+  await page.locator(".gen-stop").click();
+  await expect(page.locator(".stopped-card")).toBeVisible();
+  await sendPrompt(page, "second task");
+  await emitScenarioBatch(page, firstId, claudeTurnEvents(firstId, { chunks: 20 }));
+  const count = await page.evaluate(() => window.__opai.state.store.list().length);
+  expect(count).toBe(0); // stale batch guarded out wholesale
 });
 
 test("cancel mid-stream flips running evidence to cancelled, never completed", async ({ page }) => {
