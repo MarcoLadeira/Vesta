@@ -33,7 +33,7 @@ const state = {
   focus: "general", format: "normal",
   accounts: [], panel: true, message: null, lastFailedRequestId: null,
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
-  expandedGroups: new Set(),
+  expandedGroups: new Set(), stripColor: "",
 };
 const providerLoginRequests = new Map();
 let doctorRefreshRequestId = null;
@@ -502,6 +502,7 @@ function clearChat() {
 function startNewChat() {
   if (state.busy) stop();
   clearChat();
+  stripHide();
   switchView("chat");
   $("#input").focus();
 }
@@ -577,6 +578,7 @@ function send(retryOf) {
   state.streamedText = "";
   state.startTime = Date.now();
   buildPending(sel);
+  stripReset(sel);
   startTimer(sel);
   setBusy(true);
   bridge.send(JSON.stringify({
@@ -743,6 +745,71 @@ function scheduleTimelineRender() {
   });
 }
 
+/* ---------- status strip (#232) ----------
+   A persistent, calm bar for AMBIENT state — connection, model, live cost,
+   elapsed — fed only by channel:"status" events, tokens, and the receipt. It
+   is never a timeline row (groupRows excludes channel:status). Dot states:
+   idle · connecting · connected · active · error · cancelled. */
+function prettyModel(raw) {
+  let s = String(raw || "").trim().replace(/^account:/, "").replace(/^free:/, "");
+  return (s === "" || s === "auto") ? "Auto" : s;
+}
+function stripSetState(kind) {
+  const strip = $("#statusStrip");
+  strip.className = "status-strip ss-" + kind;
+  const dot = $("#ssDot");
+  // Provider colour on the live/connected dot; semantic CSS colours otherwise.
+  dot.style.background = ((kind === "connected" || kind === "active") && state.stripColor) ? state.stripColor : "";
+}
+function stripReset(sel) {
+  const strip = $("#statusStrip");
+  strip.removeAttribute("hidden");
+  state.stripColor = PROVIDER_COLOR[sel.modelProvider] || "";
+  stripSetState("connecting");
+  $("#ssConn").textContent = "Connecting…";
+  $("#ssModel").textContent = sel.model ? prettyModel(sel.model) : "";
+  $("#ssCost").textContent = "";
+  $("#ssTime").textContent = "00:00";
+}
+function stripHide() { $("#statusStrip").setAttribute("hidden", ""); }
+function stripStreaming() {
+  const strip = $("#statusStrip");
+  if (strip.hasAttribute("hidden")) return;
+  stripSetState("active");
+  const conn = $("#ssConn");
+  if (conn.textContent === "Connecting…") conn.textContent = "Streaming…";
+}
+function stripElapsed(ms) {
+  const strip = $("#statusStrip");
+  if (!strip.hasAttribute("hidden")) $("#ssTime").textContent = OPaiActivity.formatElapsed(ms);
+}
+// Ambient status events refine the strip; they never become timeline rows.
+function applyStatusEvent(event) {
+  const strip = $("#statusStrip");
+  if (strip.hasAttribute("hidden")) return;
+  const id = String(event.id || "");
+  if (id.endsWith(":connect") || /^connected/i.test(event.title || "")) {
+    stripSetState(state.streaming ? "active" : "connected");
+    $("#ssConn").textContent = event.title || "Connected";
+  } else if (id.endsWith(":model") || event.type === "model_selected") {
+    const m = (event.metadata && event.metadata.model) || "";
+    if (m) $("#ssModel").textContent = prettyModel(m);
+  }
+}
+function stripFinalize(status, r) {
+  const strip = $("#statusStrip");
+  if (strip.hasAttribute("hidden")) return;
+  $("#ssTime").textContent = OPaiActivity.formatElapsed(state.startTime ? Date.now() - state.startTime : 0);
+  const rc = (r && r.receipt) || {};
+  const cost = +rc.estimated_actual_usd;
+  if (cost > 0) $("#ssCost").textContent = "$" + cost.toFixed(4) + " spent";
+  else if (+rc.estimated_savings_usd > 0) $("#ssCost").textContent = "$" + (+rc.estimated_savings_usd).toFixed(4) + " saved";
+  else $("#ssCost").textContent = ""; // never a fake $0 for a paid call
+  if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
+  else if (ANSWERED.includes(status)) { stripSetState("connected"); $("#ssConn").textContent = "Done"; }
+  else { stripSetState("error"); $("#ssConn").textContent = "Failed"; }
+}
+
 const ACTIVITY_STATE_BY_TYPE = {
   provider_checking: "authenticating", request_sending: "sending",
   waiting_first_token: "waiting", streaming: "streaming",
@@ -750,6 +817,7 @@ const ACTIVITY_STATE_BY_TYPE = {
 function applyActivityState(event) {
   const next = ACTIVITY_STATE_BY_TYPE[event.type];
   if (next) state.message = OPaiMessageState.transition(state.message, next);
+  if ((event.channel || "feed") === "status") { applyStatusEvent(event); return; }
   updateInspectorLive(event && event.title);
 }
 function onActivity(json) {
@@ -775,7 +843,7 @@ function onToken(json) {
   const d = JSON.parse(json);
   if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale guard
   state.message = OPaiMessageState.transition(state.message, "streaming");
-  if (!state.streaming) { state.streaming = true; updateGenStage(); }
+  if (!state.streaming) { state.streaming = true; updateGenStage(); stripStreaming(); }
   state.streamedText += d.text;
   if (!state.tokenRenderPending) {
     state.tokenRenderPending = true;
@@ -803,6 +871,7 @@ function updateGenStage(sel) {
   const rEl = state.pending.querySelector(".gen-reassure");
   if (stEl) stEl.textContent = sm.stage;
   if (tEl) tEl.textContent = OPaiActivity.formatElapsed(elapsedMs);
+  stripElapsed(elapsedMs);
   if (rEl) {
     rEl.innerHTML = (sm.reassurance ? esc(sm.reassurance) : "") + (sm.suggestFaster ? ` <a class="gen-switch">Switch to a faster model</a>` : "");
     rEl.classList.toggle("warn", sm.severity === "warning");
@@ -1055,6 +1124,7 @@ function renderErrorCard(el, status, r, sel) {
 
 function finalize(status, r) {
   stopTimer();
+  stripFinalize(status, r); // reflect the terminal state before we rebuild the bubble
   const el = state.pending;
   if (!el) return;
   state.pending = null;

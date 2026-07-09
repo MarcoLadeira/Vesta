@@ -74,6 +74,14 @@
       <div class="view-wrap" id="viewWrap">
         <!-- chat -->
         <section class="view active" id="view-chat">
+          <div class="status-strip" id="statusStrip" role="status" aria-live="polite" hidden>
+            <span class="ss-dot" id="ssDot" aria-hidden="true"></span>
+            <span class="ss-conn" id="ssConn">Connecting…</span>
+            <span class="ss-model" id="ssModel"></span>
+            <span class="ss-spacer"></span>
+            <span class="ss-cost" id="ssCost"></span>
+            <span class="ss-time" id="ssTime" aria-hidden="true">00:00</span>
+          </div>
           <div class="scroll" id="chatScroll">
             <div class="thread" id="thread">
               <div class="empty" id="empty">
