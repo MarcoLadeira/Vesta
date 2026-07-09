@@ -28,12 +28,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install OPai and check tools
+      # A per-run venv keeps the gate hermetic: installing `-e .` with the
+      # machine's user Python replaced the developer's real opai install with
+      # an editable pointer into this runner workspace (#260).
+      - name: Install OPai and check tools (isolated venv)
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e . "ruff==0.15.9" bandit
+          python -m venv .venv
+          PY=./.venv/bin/python
+          [ -f ./.venv/Scripts/python.exe ] && PY=./.venv/Scripts/python.exe
+          "$PY" -m pip install --upgrade pip
+          "$PY" -m pip install -e . "ruff==0.15.9" bandit
 
       - name: Run the CI gate
         shell: bash
-        run: python scripts/ci_local.py
+        run: |
+          PY=./.venv/bin/python
+          [ -f ./.venv/Scripts/python.exe ] && PY=./.venv/Scripts/python.exe
+          "$PY" scripts/ci_local.py
