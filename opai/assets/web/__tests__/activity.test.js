@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import OPaiActivity from "../activity.js";
 
-const { shouldApply, stageMessage, formatElapsed, createStore, TAKING_LONGER_S, STILL_WORKING_S } = OPaiActivity;
+const { shouldApply, stageMessage, formatElapsed, createStore, groupRows, worstStatus, TAKING_LONGER_S, STILL_WORKING_S } = OPaiActivity;
 
 describe("shouldApply (stale-response guard)", () => {
   it("applies only when ids match", () => {
@@ -76,5 +76,89 @@ describe("createStore (activity reducer)", () => {
     expect(s.list()[1].status).toBe("cancelled");
     s.clear();
     expect(s.events.length).toBe(0);
+  });
+});
+
+describe("store v2 (#229): batch ingest + request scoping", () => {
+  it("ingestBatch upserts in order and coalesces by id in one pass", () => {
+    const s = createStore();
+    s.ingestBatch([
+      { id: "r:phase", status: "running", title: "Preparing" },
+      { id: "r:stream", status: "running", title: "Streaming" },
+      { id: "r:phase", status: "success", title: "Request sent" },
+    ]);
+    expect(s.events.length).toBe(2);
+    expect(s.list()[0].title).toBe("Request sent");
+    expect(s.list()[1].title).toBe("Streaming");
+  });
+  it("upsert stays O(1)-keyed and equivalent after clear()", () => {
+    const s = createStore();
+    s.upsert({ id: "x", status: "running", title: "a" });
+    s.clear();
+    s.upsert({ id: "x", status: "success", title: "b" });
+    expect(s.events.length).toBe(1);
+    expect(s.list()[0].title).toBe("b");
+  });
+  it("clearRequest removes only that request's events and keeps ids working", () => {
+    const s = createStore();
+    s.ingestBatch([
+      { id: "a:1", requestId: "a", status: "success", title: "old" },
+      { id: "b:1", requestId: "b", status: "running", title: "keep" },
+      { id: "a:2", requestId: "a", status: "success", title: "old2" },
+    ]);
+    s.clearRequest("a");
+    expect(s.list().map((e) => e.id)).toEqual(["b:1"]);
+    s.upsert({ id: "b:1", requestId: "b", status: "success", title: "kept done" });
+    expect(s.events.length).toBe(1);
+    expect(s.list()[0].title).toBe("kept done");
+  });
+});
+
+describe("groupRows (#229): consecutive same-group folding", () => {
+  const ev = (id, over = {}) => ({ id, status: "success", title: "Read file: " + id, ...over });
+  it("folds consecutive events sharing a group into one row with children", () => {
+    const rows = groupRows([
+      ev("t0", { group: "g0" }),
+      ev("t1", { group: "g0" }),
+      ev("t2", { group: "g0" }),
+      ev("c0", { group: "g1", title: "Ran command: pytest" }),
+    ]);
+    expect(rows.map((r) => r.kind)).toEqual(["group", "single"]);
+    expect(rows[0].label).toBe("Read file ×3");
+    expect(rows[0].children.map((c) => c.id)).toEqual(["t0", "t1", "t2"]);
+    expect(rows[1].event.id).toBe("c0"); // single-member group renders plain
+  });
+  it("interleaved groups never merge across the interruption", () => {
+    const rows = groupRows([
+      ev("a1", { group: "gA" }),
+      ev("b1", { group: "gB" }),
+      ev("a2", { group: "gA" }),
+    ]);
+    expect(rows.map((r) => r.kind)).toEqual(["single", "single", "single"]);
+  });
+  it("status aggregation is worst-of and order is preserved", () => {
+    const rows = groupRows([
+      ev("t0", { group: "g0" }),
+      ev("t1", { group: "g0", status: "error" }),
+      ev("t2", { group: "g0", status: "running" }),
+    ]);
+    expect(rows[0].status).toBe("error");
+    expect(worstStatus([{ status: "running" }, { status: "warning" }])).toBe("warning");
+    expect(worstStatus([{ status: "cancelled" }, { status: "success" }])).toBe("cancelled");
+  });
+  it("status-channel events render no row and never split a group", () => {
+    const rows = groupRows([
+      ev("t0", { group: "g0" }),
+      { id: "r:connect", status: "success", title: "Connected", channel: "status" },
+      ev("t1", { group: "g0" }),
+    ]);
+    expect(rows.length).toBe(1);
+    expect(rows[0].kind).toBe("group");
+    expect(rows[0].children.length).toBe(2);
+  });
+  it("v1 events with no group or channel pass through unchanged", () => {
+    const rows = groupRows([ev("plain1"), ev("plain2")]);
+    expect(rows.map((r) => r.kind)).toEqual(["single", "single"]);
+    expect(rows[0].event.id).toBe("plain1");
   });
 });

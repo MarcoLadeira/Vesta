@@ -51,27 +51,103 @@
     return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
   }
 
-  // Minimal activity-event store: add/upsert by id, cancel running, clear.
+  // Activity-event store v2 (#229): O(1) id-keyed upsert, batch ingest for
+  // the bridge's activityBatch signal, and request-scoped clearing. Storage
+  // keeps every raw event — grouping is presentation only (groupRows below).
   function createStore() {
     var events = [];
+    var byId = Object.create(null); // id -> first index holding that id
+    function upsertOne(ev) {
+      var key = String(ev.id);
+      var at = byId[key];
+      if (at !== undefined) { events[at] = ev; return ev; }
+      byId[key] = events.length;
+      events.push(ev);
+      return ev;
+    }
+    function reindex() {
+      byId = Object.create(null);
+      events.forEach(function (ev, i) {
+        var key = String(ev.id);
+        if (byId[key] === undefined) byId[key] = i;
+      });
+    }
     return {
       events: events,
-      add: function (ev) { events.push(ev); return ev; },
-      upsert: function (ev) {
-        for (var i = 0; i < events.length; i++) {
-          if (events[i].id === ev.id) { events[i] = ev; return ev; }
-        }
+      add: function (ev) {
+        var key = String(ev.id);
+        if (byId[key] === undefined) byId[key] = events.length;
         events.push(ev);
         return ev;
+      },
+      upsert: upsertOne,
+      ingestBatch: function (list) {
+        (list || []).forEach(upsertOne);
+      },
+      clearRequest: function (requestId) {
+        for (var i = events.length - 1; i >= 0; i--) {
+          if (events[i].requestId === requestId) events.splice(i, 1);
+        }
+        reindex();
       },
       cancelRunning: function () {
         events.forEach(function (e) {
           if (e.status === "running" || e.status === "pending") e.status = "cancelled";
         });
       },
-      clear: function () { events.length = 0; },
+      clear: function () { events.length = 0; byId = Object.create(null); },
       list: function () { return events.slice(); },
     };
+  }
+
+  // Worst-of status aggregation for grouped rows: a group is only as calm as
+  // its most alarming child.
+  var _SEVERITY = { error: 5, warning: 4, running: 3, pending: 2, cancelled: 1, success: 0 };
+  function worstStatus(list) {
+    var worst = "success";
+    (list || []).forEach(function (ev) {
+      if ((_SEVERITY[ev.status] || 0) > (_SEVERITY[worst] || 0)) worst = ev.status;
+    });
+    return worst;
+  }
+
+  // groupRows (#229): fold CONSECUTIVE feed-channel events sharing a `group`
+  // key into one logical row. Pure presentation — callers keep every raw
+  // event; expanding a group reveals the real children. Status-channel
+  // events never render rows and never split a group (they're invisible
+  // here). A single-member group renders as a plain row.
+  function groupRows(list) {
+    var runs = [];
+    var open = null;
+    (list || []).forEach(function (ev) {
+      var channel = ev.channel || "feed";
+      if (channel !== "feed") return; // status strip events: no timeline row
+      var key = ev.group;
+      if (key && open && open.key === key) {
+        open.children.push(ev);
+        return;
+      }
+      open = null;
+      if (key) {
+        open = { key: key, children: [ev] };
+        runs.push(open);
+      } else {
+        runs.push({ key: null, children: [ev] });
+      }
+    });
+    return runs.map(function (run) {
+      if (!run.key || run.children.length === 1) {
+        return { kind: "single", event: run.children[0] };
+      }
+      var base = String(run.children[0].title || "").split(":")[0].trim();
+      return {
+        kind: "group",
+        key: run.key,
+        status: worstStatus(run.children),
+        label: (base || "Steps") + " ×" + run.children.length,
+        children: run.children.slice(),
+      };
+    });
   }
 
   // The CLI Mirror — the terminal twin of the current GUI selection. GUI/CLI
@@ -94,6 +170,8 @@
     stageMessage: stageMessage,
     formatElapsed: formatElapsed,
     createStore: createStore,
+    groupRows: groupRows,
+    worstStatus: worstStatus,
     shortName: shortName,
     cliMirror: cliMirror,
     TAKING_LONGER_S: TAKING_LONGER_S,
