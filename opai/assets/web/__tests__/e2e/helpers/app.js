@@ -64,6 +64,79 @@ export async function emitToken(page, requestId, text) {
   );
 }
 
+/* ---- Calm Stream scenario builders (#230) ----------------------------------
+   Canned event sequences shaped exactly like the real backend emits since
+   #223-#225: derived stable ids ({rid}:connect / :stream / :tool:{seq}),
+   status-channel mirrors, and per-type tool groups. Each builder returns the
+   emitted events so specs can do accounting assertions. Emission happens in
+   ONE page.evaluate (a synchronous burst), settled with two rAF frames. */
+
+export function claudeTurnEvents(rid, { chunks = 200, reads = 3, commands = 2 } = {}) {
+  const events = [];
+  events.push({
+    id: `${rid}:connect`, type: "provider_request", status: "success",
+    title: "Connected to Claude · claude-opus", requestId: rid, channel: "status",
+  });
+  for (let i = 1; i <= chunks; i++) {
+    events.push({
+      id: `${rid}:stream`, type: "streaming", status: "running",
+      title: "Streaming response", detail: `${i * 12} chars · 00:0${i % 9}`, requestId: rid,
+    });
+  }
+  let seq = 0;
+  for (let i = 0; i < reads; i++, seq++) {
+    events.push({
+      id: `${rid}:tool:${seq}`, type: "file_read", status: "success",
+      title: `Read file: src/f${i}.py`, requestId: rid, group: `${rid}:g0`,
+    });
+  }
+  for (let i = 0; i < commands; i++, seq++) {
+    events.push({
+      id: `${rid}:tool:${seq}`, type: "command_run", status: "success",
+      title: "Ran command: pytest", requestId: rid, group: `${rid}:g1`,
+    });
+  }
+  events.push({
+    id: `${rid}:stream`, type: "streaming", status: "success",
+    title: "Response received", detail: `${chunks * 12} chars`, requestId: rid, durationMs: 1234,
+  });
+  return events;
+}
+
+export function codexTurnEvents(rid, items = 2) {
+  const events = [{
+    id: `${rid}:connect`, type: "provider_request", status: "success",
+    title: "Connected to Codex", requestId: rid, channel: "status",
+  }];
+  for (let i = 0; i < items; i++) {
+    events.push({
+      id: `${rid}:codex:item_${i}`, type: "command_run", status: "running",
+      title: `Ran command: step ${i}`, requestId: rid,
+    });
+    events.push({
+      id: `${rid}:codex:item_${i}`, type: "command_run", status: "success",
+      title: `Ran command: step ${i}`, requestId: rid, durationMs: 40,
+    });
+  }
+  return events;
+}
+
+export async function emitScenario(page, requestId, events) {
+  await page.evaluate(async ({ id, list }) => {
+    for (const event of list) window.__mock.emitActivity(id, event);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }, { id: requestId, list: events });
+  return events;
+}
+
+export async function emitScenarioBatch(page, requestId, events) {
+  await page.evaluate(async ({ id, list }) => {
+    window.__mock.emitActivityBatch(id, list);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }, { id: requestId, list: events });
+  return events;
+}
+
 export async function openNav(page, label) {
   if (label === "Settings") {
     await page.locator("#headerSettings").click();
