@@ -96,6 +96,7 @@ function boot() {
   });
   bridge.replyReady.connect(onReply);
   bridge.activity.connect(onActivity);
+  if (bridge.activityBatch) bridge.activityBatch.connect(onActivityBatch);
   bridge.token.connect(onToken);
   bridge.toolReady.connect(onTool);
   bridge.workspaceChanged.connect((json) => { state.boot = JSON.parse(json); rebootFromState(); toast("Workspace switched"); });
@@ -664,17 +665,33 @@ function scheduleTimelineRender() {
   });
 }
 
+const ACTIVITY_STATE_BY_TYPE = {
+  provider_checking: "authenticating", request_sending: "sending",
+  waiting_first_token: "waiting", streaming: "streaming",
+};
+function applyActivityState(event) {
+  const next = ACTIVITY_STATE_BY_TYPE[event.type];
+  if (next) state.message = OPaiMessageState.transition(state.message, next);
+  updateInspectorLive(event && event.title);
+}
 function onActivity(json) {
   const d = JSON.parse(json);
   if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale guard
   state.store.upsert(d.event);
-  const statusByType = {
-    provider_checking: "authenticating", request_sending: "sending",
-    waiting_first_token: "waiting", streaming: "streaming",
-  };
-  if (statusByType[d.event.type]) state.message = OPaiMessageState.transition(state.message, statusByType[d.event.type]);
+  applyActivityState(d.event);
   scheduleTimelineRender();
-  updateInspectorLive(d.event && d.event.title);
+}
+// Batched activity path (#226): one signal carries an array of events. Ingest
+// them in a single store pass, then render once — the same rAF cadence as the
+// per-event path, but a whole burst costs one bridge crossing and one render.
+function onActivityBatch(json) {
+  const d = JSON.parse(json);
+  if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale guard
+  const events = d.events || [];
+  if (!events.length) return;
+  state.store.ingestBatch(events);
+  events.forEach(applyActivityState);
+  scheduleTimelineRender();
 }
 function onToken(json) {
   const d = JSON.parse(json);

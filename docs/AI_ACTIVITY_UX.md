@@ -122,12 +122,16 @@ Grouping is **presentation, storage is truth**:
 
 ## Transport
 
-Events are delivered over the bridge's `activityBatch` signal as JSON arrays,
-flushed on a ~33 ms timer and force-flushed at request end (reply, error,
-cancel, shutdown) so no event is lost or delayed at the tail. The legacy
-per-event `activity` signal remains behind a compatibility flag until the
-classic GUI retires (#138). Every payload carries the `requestId`; the
-stale-request guard (`should_apply` / `canApply`) applies unchanged.
+Events are delivered over the bridge's `activityBatch` signal as JSON arrays
+(`opai/activity_batch.py` `ActivityBatcher`): worker threads append to a
+lock-guarded buffer, a GUI-thread `QTimer` drains it into one payload every
+~33 ms, and a force-flush at request end (reply/error/cancel) delivers the
+tail so no event is lost or arrives after the answer. A 200-event turn costs
+one signal per frame instead of 200 crossings. The legacy per-event
+`activity` signal stays defined for the classic GUI until it retires (#138);
+the web front-end consumes `activityBatch` and ingests it in one store pass
+(`store.ingestBatch`). Every payload carries the `requestId`; the
+stale-request guard (`should_apply` / `canApply`) drops a stale batch whole.
 
 ## Slow-model UX rules (`stage_message`)
 
