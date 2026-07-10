@@ -98,7 +98,7 @@ def stream_ask(
     events: list[dict[str, Any]] = []
     # One lock so activity lines, streamed text, and heartbeats never interleave.
     out_lock = threading.Lock()
-    state = {"streaming": False, "last_line_open": False}
+    state = {"streaming": False, "last_line_open": False, "stream_line": False}
 
     def _line(text: str) -> None:
         with out_lock:
@@ -112,12 +112,24 @@ def stream_ask(
         if json_out:
             return
         if event.get("channel") == "status":
-            # Status-strip mirrors (connection/model) duplicate what the feed
-            # line already says; CLI presentation for them lands with #227.
+            # Status mirrors (connection/model) belong to the GUI status strip;
+            # on the CLI they duplicate the feed line, so they are not printed.
             return
-        glyph = _GLYPH.get(str(event.get("status")), "•")
+        status = str(event.get("status"))
+        glyph = _GLYPH.get(status, "•")
         title = str(event.get("title") or "")
         detail = str(event.get("detail") or "")
+        if str(event.get("id") or "").endswith(":stream"):
+            # Mirror the GUI's single live stream row (#227): the per-chunk
+            # "Streaming response" updates collapse to one line at the start and
+            # one at completion — the answer text itself already streams to
+            # stdout, so the intermediate char-count lines are pure noise.
+            if status in {"success", "error", "cancelled"}:
+                _line(f"{glyph} {title}" + (f"  ({detail})" if detail else ""))
+            elif not state["stream_line"]:
+                state["stream_line"] = True
+                _line(f"{glyph} {title}")
+            return
         _line(f"{glyph} {title}" + (f"  ({detail})" if detail else ""))
 
     def on_text(chunk: str) -> None:
