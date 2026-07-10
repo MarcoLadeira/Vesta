@@ -914,26 +914,51 @@ function wireActivitySummary(el) {
     else { tl.setAttribute("hidden", ""); btn.textContent = btn.dataset.label; }
   };
 }
+// The measurement badge — honest about where the money number came from
+// (#235). confidence comes from the receipt / cost_telemetry: "actual" =
+// provider-reported dollars, "unknown" = subscription-style $0, else model math.
+function receiptBadge(rc) {
+  const c = String(rc.confidence || "").toLowerCase();
+  if (c === "actual") return { cls: "measured", label: "Measured", title: "Real dollars reported by the provider" };
+  if (c === "unknown") return { cls: "subscription", label: "Subscription", title: "Covered by a subscription — no per-call dollar amount" };
+  return { cls: "estimated", label: "Estimated", title: "Estimated from token math, not a billed amount" };
+}
 function metaFooter(r, sel, durMs) {
-  const bits = [sel.modelLabel || "OPai", OPaiActivity.formatElapsed(durMs)];
   const rc = (r && r.receipt) || {};
-  if (+rc.estimated_actual_usd) bits.push("$" + (+rc.estimated_actual_usd).toFixed(4));
+  const badge = receiptBadge(rc);
+  // Cost/savings line — the SAME honest text the flat footer used, so the
+  // money-truth contract holds: a paid call shows spend and never "saved".
+  const bits = [sel.modelLabel || "OPai", OPaiActivity.formatElapsed(durMs)];
+  if (+rc.estimated_actual_usd) bits.push("$" + (+rc.estimated_actual_usd).toFixed(4) + " spent");
   if (+rc.estimated_savings_usd) bits.push("$" + (+rc.estimated_savings_usd).toFixed(4) + " saved");
   if (rc.paid_call_avoided) bits.push("paid call avoided");
-  return `<div class="footer-note" role="button" tabindex="0" title="Copy this receipt" aria-label="Copy receipt">${esc(bits.join("   ·   "))}</div>`;
+  return `<div class="receipt-card">` +
+    `<div class="footer-note" role="button" tabindex="0" title="Copy this receipt" aria-label="Copy receipt">` +
+      `<span class="rc-badge rc-${badge.cls}" title="${esc(badge.title)}">${esc(badge.label)}</span>` +
+      `<span class="rc-bits">${esc(bits.join("   ·   "))}</span>` +
+    `</div>` +
+    `<button class="rc-ledger" type="button" aria-label="Open the savings ledger">Ledger →</button>` +
+  `</div>`;
 }
 
-// The receipt strip is a claim — let the user take it with them. One click
-// copies a plaintext receipt (task + the same honest numbers shown).
+// The receipt is a claim — let the user take it with them, and open the full
+// ledger. One click on the strip copies a clean plaintext receipt; the Ledger
+// button jumps to the savings dashboard (not a copy).
 function wireReceipt(el, sel) {
+  const card = el.querySelector(".receipt-card");
   const strip = el.querySelector(".footer-note");
   if (!strip) return;
   const copy = () => {
-    copyText(`OPai receipt\nTask: ${(sel && sel.text) || "—"}\n${strip.textContent.trim()}`);
+    const badge = strip.querySelector(".rc-badge");
+    const bits = strip.querySelector(".rc-bits");
+    const line = [badge && badge.textContent.trim(), bits && bits.textContent.trim()].filter(Boolean).join(" · ");
+    copyText(`OPai receipt\nTask: ${(sel && sel.text) || "—"}\n${line || strip.textContent.trim()}`);
     toast("Receipt copied");
   };
   strip.onclick = copy;
   strip.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); copy(); } });
+  const ledger = card && card.querySelector(".rc-ledger");
+  if (ledger) ledger.onclick = (e) => { e.stopPropagation(); switchView("home"); };
 }
 // Defense-in-depth: never trust upstream redaction — scrub secret-shaped text
 // before it can render in the details drawer (BUG-QA-002).
