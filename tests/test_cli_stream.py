@@ -152,6 +152,48 @@ class StreamAskTests(unittest.TestCase):
         self.assertIn("elapsed", joined)  # heartbeat printed while waiting
         self.assertIn("Ctrl+C to stop", joined)
 
+    def test_stream_updates_coalesce_to_start_and_finish(self):
+        # #227: a real session emits many {rid}:stream "Streaming response"
+        # updates (one per chunk). The CLI must collapse them to one start line
+        # and one finish line, not print one per chunk.
+        from opai.activity import derived_id, make_event
+
+        class StreamySessionRunner(FakeStreamingRunner):
+            def stream(self, prompt, **kwargs):
+                on_event = kwargs.get("on_event")
+                sid = derived_id("req-cli", "stream")
+                if on_event:
+                    for i in range(12):
+                        on_event(
+                            make_event(
+                                "streaming",
+                                "running",
+                                "Streaming response",
+                                detail=f"{i * 10} chars",
+                                event_id=sid,
+                            )
+                        )
+                    on_event(
+                        make_event(
+                            "streaming",
+                            "success",
+                            "Response received",
+                            detail="120 chars",
+                            event_id=sid,
+                        )
+                    )
+                on_text = kwargs.get("on_text")
+                if on_text:
+                    on_text("the answer")
+                return {"text": "the answer", "cost": 0.0}
+
+        code, lines = self._run(StreamySessionRunner())
+        self.assertEqual(code, 0)
+        streaming_lines = [ln for ln in lines if "Streaming response" in ln]
+        received_lines = [ln for ln in lines if "Response received" in ln]
+        self.assertEqual(len(streaming_lines), 1)  # one start line, not 12
+        self.assertEqual(len(received_lines), 1)  # one finish line
+
     def test_cancelled_result_maps_to_130(self):
         class InstantCancel(FakeStreamingRunner):
             def stream(self, prompt, **kwargs):
