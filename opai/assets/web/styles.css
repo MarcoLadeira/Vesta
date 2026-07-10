@@ -442,6 +442,33 @@ kbd {
 .footer-note:hover { color: var(--ink); }
 .footer-note:hover::after { content: "  copy"; color: var(--accent); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
 
+/* Savings receipt ledger card (#235): the hero artifact — a measurement badge,
+   the honest cost/savings line (copyable), and a jump to the full ledger. */
+.receipt-card {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px; padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.14);
+}
+.receipt-card .footer-note {
+  border-top: 0; margin-top: 0; padding-top: 0;
+  display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0;
+}
+.rc-badge {
+  font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 7px; border-radius: 999px; flex-shrink: 0; border: 1px solid transparent;
+}
+.rc-badge.rc-measured { color: var(--green); background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.3); }
+.rc-badge.rc-estimated { color: var(--muted); background: rgba(255, 255, 255, 0.05); border-color: var(--border); }
+.rc-badge.rc-subscription { color: var(--blue); background: rgba(108, 193, 232, 0.1); border-color: rgba(108, 193, 232, 0.28); }
+.rc-bits { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-ledger {
+  flex-shrink: 0; background: none; border: 0; cursor: pointer; color: var(--muted);
+  font-size: 11px; font-weight: 600; padding: 4px 6px; border-radius: 6px;
+  transition: color 0.15s var(--ease);
+}
+.rc-ledger:hover { color: var(--accent); }
+.rc-ledger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* Approval card — the safety gate made visible: what, why, blast radius,
    Approve once / Deny. Amber = attention, never scare-red. */
 .approval-card {
