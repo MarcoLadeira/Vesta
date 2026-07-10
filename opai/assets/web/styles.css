@@ -699,6 +699,28 @@ kbd {
 .tl-children[hidden] { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .body.stream { white-space: pre-wrap; word-break: break-word; }
+/* Progressive markdown streaming (#233): once mdToHtml renders block markup the
+   body is no longer raw pre-wrap; a caret marks the live tail. */
+.body.stream.streaming { white-space: normal; }
+.body.stream.streaming::after {
+  content: "▋"; color: var(--accent); margin-left: 1px;
+  animation: caretBlink 1s step-end infinite;
+}
+@keyframes caretBlink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .body.stream.streaming::after { animation: none; }
+}
+/* Code-fence copy button (#233): revealed on hover/focus, top-right of the block. */
+.body pre { position: relative; }
+.code-copy {
+  position: absolute; top: 6px; right: 6px;
+  background: var(--surface); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 6px;
+  font-size: 10.5px; padding: 3px 8px; cursor: pointer;
+  opacity: 0; transition: opacity 0.15s var(--ease), color 0.15s var(--ease);
+}
+pre.has-copy:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
+.code-copy:hover { color: var(--ink); border-color: var(--accent); }
 
 /* Status strip (#232): a persistent, calm bar for ambient state — connection,
    model, live cost, elapsed. Fed only by channel:"status" events + tokens +

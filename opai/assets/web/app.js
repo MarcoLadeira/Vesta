@@ -71,6 +71,39 @@ function mdToHtml(src) {
   return s;
 }
 
+// Progressive, safe markdown for the streaming answer (#233). mdToHtml is
+// escape-first, so rendering partial text is XSS-safe; an unclosed fence or
+// inline marker simply shows literally until it completes, then snaps to
+// formatted — no broken HTML, no flash of injected markup.
+function renderStreamingBody(body, text) {
+  body.classList.add("streaming");
+  body.innerHTML = mdToHtml(text);
+  enhanceCodeBlocks(body);
+}
+// Every code block gets a copy button (#233). Idempotent so it survives the
+// per-frame re-render during streaming and the final render.
+function enhanceCodeBlocks(root) {
+  root.querySelectorAll("pre").forEach((pre) => {
+    if (pre.classList.contains("has-copy")) return;
+    const code = pre.querySelector("code");
+    if (!code) return;
+    pre.classList.add("has-copy");
+    const btn = document.createElement("button");
+    btn.className = "code-copy";
+    btn.type = "button";
+    btn.textContent = "Copy";
+    btn.setAttribute("aria-label", "Copy code");
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyText(code.textContent || "");
+      btn.textContent = "Copied";
+      toast("Code copied");
+      setTimeout(() => { if (btn.isConnected) btn.textContent = "Copy"; }, 1500);
+    });
+    pre.appendChild(btn);
+  });
+}
+
 /* ---------- boot ---------- */
 function boot() {
   bridge.boot((json) => {
@@ -850,7 +883,7 @@ function onToken(json) {
     requestAnimationFrame(() => {
       state.tokenRenderPending = false;
       const body = state.pending && state.pending.querySelector(".body.stream");
-      if (body) { body.textContent = state.streamedText; scrollBottom(); }
+      if (body) { renderStreamingBody(body, state.streamedText); scrollBottom(); }
     });
   }
 }
@@ -1196,6 +1229,7 @@ function finalize(status, r) {
   wireReceipt(el, sel);
   wirePlanCard(el, sel);
   wireDiffReview(el);
+  enhanceCodeBlocks(el);
 }
 
 function diffReviewHtml(review, testsStatus) {
