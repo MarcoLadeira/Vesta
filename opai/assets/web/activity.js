@@ -54,17 +54,22 @@
   // Activity-event store v2 (#229): O(1) id-keyed upsert, batch ingest for
   // the bridge's activityBatch signal, and request-scoped clearing. Storage
   // keeps every raw event — grouping is presentation only (groupRows below).
-  function createStore() {
+  //
+  // Bounded memory (#248): a long Full-Auto run can emit tens of thousands of
+  // events. The store caps its in-memory events and, on overflow, drops the
+  // OLDEST and counts them — the UI shows an honest "N earlier steps hidden"
+  // marker. The append-only ledger remains the complete record; truncation is
+  // always explicit, never silent. The cap is generous by default and
+  // overridable (a global test seam) so realistic turns are never truncated.
+  var DEFAULT_CAP = 2000;
+  var CAP_SLACK = 256; // drop in batches so the cap is amortized O(1), not O(n) per event
+  function createStore(cap) {
+    var CAP = cap
+      || (typeof window !== "undefined" && +window.__OPAI_EVENT_CAP__)
+      || DEFAULT_CAP;
     var events = [];
     var byId = Object.create(null); // id -> first index holding that id
-    function upsertOne(ev) {
-      var key = String(ev.id);
-      var at = byId[key];
-      if (at !== undefined) { events[at] = ev; return ev; }
-      byId[key] = events.length;
-      events.push(ev);
-      return ev;
-    }
+    var truncated = 0; // count of oldest events dropped to honor the cap
     function reindex() {
       byId = Object.create(null);
       events.forEach(function (ev, i) {
@@ -72,12 +77,28 @@
         if (byId[key] === undefined) byId[key] = i;
       });
     }
+    function enforceCap() {
+      if (events.length <= CAP + CAP_SLACK) return;
+      var removed = events.splice(0, events.length - CAP);
+      truncated += removed.length;
+      reindex();
+    }
+    function upsertOne(ev) {
+      var key = String(ev.id);
+      var at = byId[key];
+      if (at !== undefined) { events[at] = ev; return ev; } // in place: never grows
+      byId[key] = events.length;
+      events.push(ev);
+      enforceCap();
+      return ev;
+    }
     return {
       events: events,
       add: function (ev) {
         var key = String(ev.id);
         if (byId[key] === undefined) byId[key] = events.length;
         events.push(ev);
+        enforceCap();
         return ev;
       },
       upsert: upsertOne,
@@ -95,8 +116,9 @@
           if (e.status === "running" || e.status === "pending") e.status = "cancelled";
         });
       },
-      clear: function () { events.length = 0; byId = Object.create(null); },
+      clear: function () { events.length = 0; byId = Object.create(null); truncated = 0; },
       list: function () { return events.slice(); },
+      truncatedCount: function () { return truncated; },
     };
   }
 

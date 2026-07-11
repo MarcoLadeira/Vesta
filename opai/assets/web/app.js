@@ -741,6 +741,24 @@ function renderTimeline() {
     const rows = state.tlNodes.rows;
     const seen = new Set();
     const order = [];
+    // Honest truncation marker (#248): when the store dropped the oldest events
+    // to stay bounded, say so explicitly and point at the complete ledger.
+    const truncated = state.store.truncatedCount ? state.store.truncatedCount() : 0;
+    if (truncated > 0) {
+      const key = "truncation";
+      seen.add(key);
+      const inner = `<span class="tl-ic">⋯</span>` +
+        `<span class="tl-t">${truncated.toLocaleString()} earlier steps hidden</span>` +
+        `<span class="tl-d">full record in the ledger</span>`;
+      let entry = rows.get(key);
+      if (!entry || entry.type !== "single") {
+        const node = document.createElement("div");
+        node.className = "tl-row tl-truncation"; node.innerHTML = inner;
+        entry = { type: "single", node, cls: node.className, inner };
+        rows.set(key, entry);
+      } else if (entry.inner !== inner) { entry.node.innerHTML = inner; entry.inner = inner; }
+      order.push(entry.node);
+    }
     for (const row of grouped) {
       if (row.kind === "single") {
         const key = "s:" + row.event.id;

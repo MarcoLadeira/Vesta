@@ -697,6 +697,9 @@ kbd {
 .tl-caret { width: 10px; text-align: center; font-size: 9px; color: var(--faint); flex-shrink: 0; }
 .tl-children { display: flex; flex-direction: column; gap: 3px; padding-left: 22px; margin-top: 2px; }
 .tl-children[hidden] { display: none; }
+/* Honest truncation marker (#248): oldest events dropped to bound memory. */
+.tl-truncation { opacity: 0.7; font-style: italic; }
+.tl-truncation .tl-ic { color: var(--faint); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .body.stream { white-space: pre-wrap; word-break: break-word; }
 /* Progressive markdown streaming (#233): once mdToHtml renders block markup the
