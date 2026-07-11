@@ -27,6 +27,28 @@ test("a 500-event burst renders in one batched pass with one row per event", asy
   await expect(page.locator(".timeline .tl-row")).toHaveCount(500);
 });
 
+// #247: an explicit wall-clock budget so the O(n^2) rewrite can never creep
+// back in. Budget = 1500 ms to emit AND render a 500-event turn — deliberately
+// generous (real hardware does this in tens of ms) so it catches only
+// order-of-magnitude regressions, never CI-hardware noise. The pre-#228
+// innerHTML-per-event renderer blew past this by 10-100x.
+test("a 500-event turn emits and renders within the wall-clock budget", async ({ page }) => {
+  const id = await sendPrompt(page);
+  const elapsedMs = await page.evaluate(async (id) => {
+    const t0 = performance.now();
+    for (let i = 0; i < 500; i++) {
+      window.__mock.emitActivity(id, {
+        id: "ev" + i, type: "tool_call", status: "success", title: "Step " + i, timestamp: Date.now(),
+      });
+    }
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return performance.now() - t0;
+  }, id);
+  expect(elapsedMs).toBeLessThan(1500);
+  await page.locator(".gen-toggle").click();
+  await expect(page.locator(".timeline .tl-row")).toHaveCount(500);
+});
+
 test("repeated updates to one event id stay a single patched row", async ({ page }) => {
   const id = await sendPrompt(page);
   await page.evaluate(async (id) => {
