@@ -114,6 +114,46 @@ describe("store v2 (#229): batch ingest + request scoping", () => {
   });
 });
 
+describe("store cap (#248): bounded memory with an honest truncation count", () => {
+  it("keeps unbounded stores at zero truncation under the cap", () => {
+    const s = createStore(100);
+    for (let i = 0; i < 50; i++) s.add({ id: "e" + i, status: "success", title: "x" });
+    expect(s.events.length).toBe(50);
+    expect(s.truncatedCount()).toBe(0);
+  });
+  it("drops the oldest and counts them once the cap+slack is exceeded", () => {
+    const s = createStore(100); // slack is 256 -> trims when > 356
+    for (let i = 0; i < 400; i++) s.add({ id: "e" + i, status: "success", title: "x" });
+    expect(s.events.length).toBeLessThanOrEqual(100 + 256);
+    expect(s.truncatedCount()).toBeGreaterThan(0);
+    // Total is conserved: what's kept + what's truncated == everything added.
+    expect(s.events.length + s.truncatedCount()).toBe(400);
+    // The survivors are the NEWEST events (oldest were dropped).
+    expect(s.list()[s.events.length - 1].id).toBe("e399");
+  });
+  it("upsert-in-place never grows the store or truncates", () => {
+    const s = createStore(100);
+    for (let i = 0; i < 5000; i++) s.upsert({ id: "same", status: "running", title: "n=" + i });
+    expect(s.events.length).toBe(1);
+    expect(s.truncatedCount()).toBe(0);
+  });
+  it("clear() resets the truncation count", () => {
+    const s = createStore(100);
+    for (let i = 0; i < 400; i++) s.add({ id: "e" + i, status: "success", title: "x" });
+    s.clear();
+    expect(s.truncatedCount()).toBe(0);
+    expect(s.events.length).toBe(0);
+  });
+  it("byId stays consistent after a cap trim (upsert still finds survivors)", () => {
+    const s = createStore(100);
+    for (let i = 0; i < 400; i++) s.add({ id: "e" + i, status: "running", title: "x" });
+    const survivor = s.list()[s.events.length - 1].id;
+    s.upsert({ id: survivor, status: "success", title: "done" });
+    expect(s.list().filter((e) => e.id === survivor).length).toBe(1);
+    expect(s.list()[s.events.length - 1].status).toBe("success");
+  });
+});
+
 describe("groupRows (#229): consecutive same-group folding", () => {
   const ev = (id, over = {}) => ({ id, status: "success", title: "Read file: " + id, ...over });
   it("folds consecutive events sharing a group into one row with children", () => {
