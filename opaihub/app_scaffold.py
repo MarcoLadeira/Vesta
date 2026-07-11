@@ -164,12 +164,13 @@ Then open http://localhost:8000 — or just open `index.html` in a browser.
 ## Build features with OPai
 
 ```
-opai ask "in app.js, implement <the feature you want>"
+opai build "implement <the feature you want>"
 ```
 
-Each prompt is a small diff routed to the cheapest capable model, so your
-budget buys many iterations. OPai shows every step and hands you a savings
-receipt.
+OPai sends only the relevant files, gets back complete updated files, and
+applies them itself with a backup of anything it overwrites. Each prompt is a
+small diff routed to the cheapest capable model, so your budget buys many
+iterations — and you get a savings receipt.
 
 ## Files
 - `index.html` — page shell
@@ -291,7 +292,7 @@ def scaffold_app(
         target.write_text(text, encoding="utf-8")
         written.append(rel)
 
-    return ScaffoldResult(
+    result = ScaffoldResult(
         name=app_name,
         kind=kind,
         root=str(root),
@@ -302,6 +303,25 @@ def scaffold_app(
         next_steps=[
             f"cd {root}",
             str(spec["preview_cmd"]) + "   # preview it (no install needed)",
-            'opai ask "in app.js, implement <the first feature>"   # cheap targeted diff',
+            'opai build "implement <the first feature>"   # cheap targeted diff',
         ],
     )
+    # The build manifest marks this directory as an OPai Build app — the
+    # customization loop (`opai build`, opaihub/build_loop.py) reads it to
+    # select context and apply edits safely.
+    from opaihub.build_loop import save_app_manifest
+
+    save_app_manifest(
+        root,
+        {
+            "schema": 1,
+            "name": app_name,
+            "kind": kind,
+            "description": desc,
+            "entrypoint": result.entrypoint,
+            "preview_cmd": result.preview_cmd,
+            "files": result.files,
+            "created_by": "opai new",
+        },
+    )
+    return result
