@@ -320,6 +320,44 @@ def gui_main() -> int:
     return main(["gui", *sys.argv[1:]])
 
 
+def cmd_new(args: argparse.Namespace) -> int:
+    """Scaffold a runnable app skeleton from a description — zero tokens (#276).
+
+    The free-boilerplate entry point to OPai Build: get a runnable app, then
+    build features with cheap targeted `opai ask` prompts.
+    """
+    from opaihub.app_scaffold import scaffold_app
+
+    dest = Path(args.into).expanduser().resolve() if args.into else Path.cwd()
+    try:
+        result = scaffold_app(
+            dest,
+            args.description,
+            name=args.name,
+            kind=args.type,
+            force=args.force,
+        )
+    except (ValueError, FileExistsError) as exc:
+        if args.json:
+            print_json({"ok": False, "error": str(exc)})
+        else:
+            print(f"✗ {exc}")
+        return 2
+
+    if args.json:
+        print_json({"ok": True, **result.to_dict()})
+        return 0
+    avoided = result.to_dict()["boilerplate_tokens_avoided"]
+    print(f"✓ Scaffolded {result.kind} app '{result.name}' at {result.root}")
+    print(
+        f"  {len(result.files)} files · ~{avoided} boilerplate tokens written for free"
+    )
+    print("  Next:")
+    for step in result.next_steps:
+        print(f"    {step}")
+    return 0
+
+
 def _doctor_model_check(root: Path, validate: Any) -> dict[str, Any]:
     """Validate the project's default account model against the registry (#170).
 
@@ -1429,6 +1467,30 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("version")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_version)
+
+    p = sub.add_parser(
+        "new",
+        help="Scaffold a runnable app from a description (free boilerplate, then build with opai ask)",
+    )
+    p.add_argument(
+        "description", help='What to build, e.g. "a todo app with dark mode"'
+    )
+    p.add_argument(
+        "--name",
+        default=None,
+        help="App/folder name (default: derived from the description)",
+    )
+    p.add_argument("--type", default="web", help="App kind: web | static")
+    p.add_argument(
+        "--into",
+        default=None,
+        help="Parent directory to create the app in (default: current dir)",
+    )
+    p.add_argument(
+        "--force", action="store_true", help="Overwrite a non-empty target directory"
+    )
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_new)
 
     p = sub.add_parser("install")
     p.add_argument("--project", default=None, help="Project root")
