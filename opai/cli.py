@@ -358,6 +358,61 @@ def cmd_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_build(args: argparse.Namespace) -> int:
+    """One turn of the OPai Build customization loop (#276).
+
+    Sends only the relevant app files, receives complete updated files, and
+    applies them deterministically with backups — the model never gets tool
+    access. Runs through the normal pipeline, so routing, the cost firewall,
+    and the savings receipt all apply.
+    """
+    from opaihub.build_loop import run_build_request
+
+    app_root = Path(args.app).expanduser().resolve() if args.app else Path.cwd()
+    report = run_build_request(
+        app_root,
+        args.request,
+        model=args.model,
+        dry_run=args.dry_run,
+    )
+    if args.json:
+        print_json(report)
+        return 0 if report.get("ok") else 2
+
+    status = str(report.get("status") or "error")
+    if status == "dry_run":
+        context = report["context"]
+        print(
+            f"→ would send {len(context['files'])} file(s) "
+            f"({context['chars_selected']:,} of {context['chars_total']:,} chars"
+            f" · {context['saved_pct']}% trimmed): {', '.join(context['files'])}"
+        )
+        return 0
+    if not report.get("ok"):
+        detail = report.get("error") or report.get("answer") or status
+        print(f"✗ {status}: {str(detail)[:400]}")
+        return 2
+    for item in report.get("applied") or []:
+        print(
+            f"✓ {item['action']} {item['path']} (+{item['added']} −{item['removed']})"
+        )
+    for item in report.get("rejected") or []:
+        print(f"! rejected {item['path']}: {item['reason']}")
+    context = report.get("context") or {}
+    if context:
+        print(
+            f"  context: {len(context.get('files') or [])} file(s), "
+            f"{context.get('saved_pct', 0)}% of the app left out of the prompt"
+        )
+    if report.get("backup_dir"):
+        print(f"  backups: {report['backup_dir']}")
+    receipt = report.get("receipt") or {}
+    if receipt.get("estimated_actual_usd"):
+        print(f"  cost: ${float(receipt['estimated_actual_usd']):.4f}")
+    print(f"  preview: {report.get('preview_cmd')}")
+    return 0
+
+
 def _doctor_model_check(root: Path, validate: Any) -> dict[str, Any]:
     """Validate the project's default account model against the registry (#170).
 
@@ -1470,7 +1525,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "new",
-        help="Scaffold a runnable app from a description (free boilerplate, then build with opai ask)",
+        help="Scaffold a runnable app from a description (free boilerplate, then iterate with opai build)",
     )
     p.add_argument(
         "description", help='What to build, e.g. "a todo app with dark mode"'
@@ -1491,6 +1546,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_new)
+
+    p = sub.add_parser(
+        "build",
+        help="Edit a scaffolded app with one cheap targeted prompt (sends only the relevant files)",
+    )
+    p.add_argument("request", help='What to change, e.g. "make the heading purple"')
+    p.add_argument("--app", default=None, help="App directory (default: current dir)")
+    p.add_argument(
+        "--model", default=None, help="Model id/alias (default: auto routing)"
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what context would be sent; no AI call, no writes",
+    )
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_build)
 
     p = sub.add_parser("install")
     p.add_argument("--project", default=None, help="Project root")
