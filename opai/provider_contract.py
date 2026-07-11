@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from opai.model_registry import display_map as _display_map
+
 
 AUTH_STATUSES = (
     "unknown",
@@ -310,22 +312,11 @@ def normalize_provider_error(
 
 
 # Lookup tables for the simple (non-advanced) picker label.
-_CLAUDE_DISPLAY: dict[str, str] = {
-    "haiku": "Haiku 4.5",
-    "sonnet": "Sonnet 4.6",
-    "opus": "Opus 4.8",
-}
-_CODEX_DISPLAY: dict[str, str] = {
-    "gpt-5.5": "GPT-5.5",
-    "gpt-5.4": "GPT-5.4",
-    "gpt-5.4-mini": "GPT-5.4 Mini",
-    "gpt-5.3-codex-spark": "Spark",
-}
-_COPILOT_DISPLAY: dict[str, str] = {
-    "claude-sonnet-4.6": "Claude Sonnet",
-    "claude-haiku-4.5": "Claude Haiku",
-    "gpt-5.2": "GPT-5.2",
-}
+# Picker display names derive from the single source of truth in
+# opai.model_registry (#170) — kept identical to the previous hardcoded tables.
+_CLAUDE_DISPLAY: dict[str, str] = _display_map("claude")
+_CODEX_DISPLAY: dict[str, str] = _display_map("codex")
+_COPILOT_DISPLAY: dict[str, str] = _display_map("copilot")
 
 
 def provider_display_name(

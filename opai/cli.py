@@ -320,7 +320,29 @@ def gui_main() -> int:
     return main(["gui", *sys.argv[1:]])
 
 
+def _doctor_model_check(root: Path, validate: Any) -> dict[str, Any]:
+    """Validate the project's default account model against the registry (#170).
+
+    A stored default the provider no longer lists is flagged with its safe
+    fallback here, instead of surfacing later as a misleading auth error.
+    """
+    try:
+        from opaihub.gui_preferences import load_gui_preferences
+
+        selected = str(load_gui_preferences(root).get("default_model") or "auto")
+    except Exception:  # noqa: BLE001 - doctor must never crash on a bad prefs file
+        return {"checked": False}
+    parts = selected.split(":")
+    if len(parts) >= 3 and parts[0] == "account":
+        result = validate(parts[1], ":".join(parts[2:]))
+        return {"checked": True, "model": selected, **result}
+    # auto / free / local models are not account-registry ids — nothing to flag.
+    return {"checked": True, "model": selected, "valid": True, "reason": ""}
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
+    from opai.model_registry import catalog as model_catalog
+    from opai.model_registry import validate as validate_model
     from opaihub.local_models import discover_local_models
     from opaihub.loader import registry_items
     from opaihub.validator import validate_all
@@ -350,6 +372,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             for name in ["tools", "agents", "workflows", "mcp_servers", "models"]
         },
         "validation": {"ok": validation.get("ok")},
+        # One true model catalog (#170) so the drift between accounts.py and
+        # provider_contract can never resurface silently. If a project pins a
+        # default model the provider no longer lists, flag it with the safe
+        # fallback instead of failing later as a fake auth error.
+        "model_registry": model_catalog(),
+        "model_check": _doctor_model_check(root, validate_model),
         "local_models": discover_local_models(root),
         "next_steps": [
             "Run opai activate --repair to fix broken or missing client integrations.",
