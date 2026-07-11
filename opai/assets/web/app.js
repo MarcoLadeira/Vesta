@@ -1489,6 +1489,38 @@ function usePrompt(id) {
 }
 
 /* ---------- settings ---------- */
+// Group the flat settings page into logical blocks (a heading/Doctor section
+// plus everything up to the next heading) and show only blocks whose text
+// matches the query. Structure-preserving, so all settings handlers are
+// unaffected (#240).
+function settingsBlocks(page) {
+  const skip = new Set(["settingsToolbar", "settingsSearch", "settingsNoResults"]);
+  const kids = Array.from(page.children).filter((el) =>
+    !el.classList.contains("page-title") &&
+    !el.classList.contains("page-sub") &&
+    !el.classList.contains("settings-toolbar") &&
+    !skip.has(el.id));
+  const blocks = [];
+  let cur = null;
+  for (const el of kids) {
+    const isBoundary = el.classList.contains("set-head") || el.classList.contains("connection-doctor");
+    if (isBoundary || !cur) { cur = []; blocks.push(cur); }
+    cur.push(el);
+  }
+  return blocks;
+}
+function filterSettings(page, query) {
+  const q = String(query || "").trim().toLowerCase();
+  let anyShown = false;
+  for (const block of settingsBlocks(page)) {
+    const text = block.map((el) => el.textContent).join(" ").toLowerCase();
+    const show = !q || text.includes(q);
+    if (show) anyShown = true;
+    block.forEach((el) => { el.style.display = show ? "" : "none"; });
+  }
+  const noResults = page.querySelector("#settingsNoResults");
+  if (noResults) noResults.toggleAttribute("hidden", anyShown || !q);
+}
 function renderSettings() {
   const page = $("#settingsPage"); page.innerHTML = `<div class="page-sub">Loading…</div>`;
   bridge.settingsData((json) => {
@@ -1496,6 +1528,10 @@ function renderSettings() {
     const modeLabels = { ask: "Ask", plan: "Plan", "safe-auto": "Safe Auto", "approve-edits": "Approve Edits", "full-auto": "Full Auto" };
     const row = (k, v) => `<div class="set-row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`;
     let h = `<div class="page-title">Settings</div><div class="page-sub">Project: ${esc(state.boot.workspace.root)}</div>`;
+    // Settings search (#240): a long page becomes findable. Filters whole
+    // sections by text over the existing structure — no restructure, so every
+    // provider/doctor/permission hook is untouched.
+    h += `<div class="settings-toolbar"><input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false"><span class="settings-noresults" id="settingsNoResults" hidden>No settings match your search.</span></div>`;
     // One compact source of provider truth. Production supplies the normalized
     // doctor payload; the account fallback keeps sparse/older payloads safe.
     const doctorItems = Array.isArray(d.connectionDoctor) ? d.connectionDoctor : (d.accounts || []).map((a) => ({
@@ -1579,6 +1615,11 @@ function renderSettings() {
     ["No telemetry — nothing leaves your machine.", "No secrets stored; chat history is redacted, kept per workspace on this machine, and can be cleared from the sidebar.", "Local-first routing; cloud only on confirmation."].forEach((t) => (h += `<div class="cb">• ${esc(t)}</div>`));
     if (d.about && d.about.version) { h += `<div class="set-head">About</div>` + row("Version", d.about.version) + row("Release stage", d.about.release_stage || "—"); }
     page.innerHTML = h;
+    const search = $("#settingsSearch");
+    if (search) {
+      search.oninput = () => filterSettings(page, search.value);
+      search.onkeydown = (e) => { if (e.key === "Escape") { search.value = ""; filterSettings(page, ""); } };
+    }
     const pb = $("#setPanic"); if (pb) pb.onclick = () => { switchView("chat"); bridge.runTool("panic"); };
     const cb = $("#setConnect"); if (cb) cb.onclick = () => { switchView("chat"); bridge.runTool("connect"); };
     const repair = $("#repairCodex"); if (repair) repair.onclick = () => {
