@@ -42,6 +42,25 @@ class NormalizeModelTests(unittest.TestCase):
         )
         self.assertEqual(normalize_model_choice("ollama:llama3"), "ollama:llama3")
 
+    def test_aliases_and_dated_ids_resolve_to_canonical(self):
+        # #170: friendly/dated names resolve instead of failing "model not found".
+        self.assertEqual(
+            normalize_model_choice("claude:claude-opus"), "account:claude:opus"
+        )
+        self.assertEqual(
+            normalize_model_choice("codex:spark"), "account:codex:gpt-5.3-codex-spark"
+        )
+        self.assertEqual(
+            normalize_model_choice("account:claude:opus-4.8"), "account:claude:opus"
+        )
+
+    def test_unknown_account_model_passes_through_unchanged(self):
+        # A model we don't list yet is not blocked — the provider may accept it.
+        self.assertEqual(
+            normalize_model_choice("claude:future-model"),
+            "account:claude:future-model",
+        )
+
 
 class StreamAskTests(unittest.TestCase):
     def _run(self, runner, **kw):

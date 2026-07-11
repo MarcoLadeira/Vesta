@@ -37,17 +37,31 @@ ANSWERED = {"answered", "cache_hit", "answered_by_account", "answered_locally"}
 def normalize_model_choice(raw: str | None) -> str:
     """Map friendly CLI shorthand to pipeline model ids.
 
-    ``auto`` and full ids (``account:claude:opus``, local ids) pass through;
-    ``claude[:alias]`` / ``codex[:model]`` / ``copilot[:model]`` gain the
-    ``account:`` prefix so users don't have to type it.
+    ``auto`` and local ids pass through; ``claude[:alias]`` / ``codex[:model]``
+    / ``copilot[:model]`` gain the ``account:`` prefix. Account model ids and
+    aliases are canonicalized through the registry (#170), so friendly or dated
+    names — ``claude:opus-4.8``, ``codex:spark`` — resolve instead of failing
+    later as a "model not found" that looks like an auth error. Unknown models
+    pass through unchanged (the provider may accept a name we don't list yet).
     """
+    from opai.model_registry import resolve_id
+
     value = (raw or "auto").strip()
     if not value or value == "auto":
         return "auto"
     if value.startswith("account:"):
+        parts = value.split(":", 2)
+        if len(parts) == 3:
+            canonical = resolve_id(parts[1], parts[2])
+            if canonical:
+                return f"account:{parts[1]}:{canonical}"
         return value
-    head = value.split(":", 1)[0].lower()
-    if head in {"claude", "codex", "copilot"}:
+    head, _, rest = value.partition(":")
+    if head.lower() in {"claude", "codex", "copilot"}:
+        if rest:
+            canonical = resolve_id(head.lower(), rest)
+            if canonical:
+                return f"account:{head.lower()}:{canonical}"
         return f"account:{value}"
     return value
 

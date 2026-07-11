@@ -28,6 +28,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from opai.model_registry import models_for as _models_for
+
 from .command_runner import redact
 from .proc import provider_child_env
 from .process_tree import isolated_group_kwargs, terminate_tree
@@ -955,26 +957,21 @@ def disconnect_account(account_id: str, *, home: Path | None = None) -> dict[str
     }
 
 
-# Claude model aliases the `claude` CLI understands, cheapest-capable first.
+# Account model lists derive from the single source of truth in
+# opai.model_registry (#170) — no more parallel tuples drifting against the
+# provider_contract display tables and the CLIs. Shapes are preserved:
+# CLAUDE_MODELS = (id, full); CODEX/COPILOT = (id, full, capability).
 CLAUDE_MODELS: list[tuple[str, str]] = [
-    ("sonnet", "Sonnet 4.6"),
-    ("opus", "Opus 4.8"),
-    ("haiku", "Haiku 4.5"),
+    (spec.id, spec.full) for spec in _models_for("claude")
 ]
 
 CODEX_MODELS: list[tuple[str, str, str]] = [
-    ("gpt-5.5", "GPT-5.5", "best"),
-    ("gpt-5.4", "GPT-5.4", "balanced"),
-    ("gpt-5.4-mini", "GPT-5.4 Mini", "fast"),
-    ("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", "preview"),
+    (spec.id, spec.full, spec.capability) for spec in _models_for("codex")
 ]
 
-# Models the `copilot` CLI exposes via `--model`. Copilot multiplexes Anthropic
-# and OpenAI models behind one subscription; balanced/default first.
+# Copilot multiplexes Anthropic and OpenAI models behind one subscription.
 COPILOT_MODELS: list[tuple[str, str, str]] = [
-    ("claude-sonnet-4.6", "Claude Sonnet 4.6", "balanced"),
-    ("gpt-5.2", "GPT-5.2", "best"),
-    ("claude-haiku-4.5", "Claude Haiku 4.5", "fast"),
+    (spec.id, spec.full, spec.capability) for spec in _models_for("copilot")
 ]
 
 
