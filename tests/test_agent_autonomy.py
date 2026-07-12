@@ -39,6 +39,69 @@ from tests._helpers import FakeAccountRunner, make_repo
 
 
 class AgentPolicyTests(unittest.TestCase):
+    def test_plain_implementation_request_keeps_publication_local(self):
+        policy = resolve_agent_policy("Fix the parser and run the tests.")
+
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("edit_files"))
+        self.assertTrue(policy.allows("commit"))
+        self.assertFalse(policy.allows("push"))
+        self.assertFalse(policy.allows("create_pr"))
+        self.assertFalse(policy.allows("merge_pr"))
+
+    def test_explicit_push_request_allows_publication_without_merge(self):
+        policy = resolve_agent_policy(
+            "Fix the parser, commit it, and push the branch."
+        )
+
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("push"))
+        self.assertTrue(policy.allows("create_pr"))
+        self.assertFalse(policy.allows("merge_pr"))
+
+    def test_explicit_pull_request_allows_publication_without_merge(self):
+        policy = resolve_agent_policy("Fix the parser and open a pull request.")
+
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("push"))
+        self.assertTrue(policy.allows("create_pr"))
+        self.assertFalse(policy.allows("merge_pr"))
+
+    def test_bare_publish_request_does_not_authorize_git_publication(self):
+        policy = resolve_agent_policy("Publish the documentation locally.")
+
+        self.assertFalse(policy.allows("push"))
+        self.assertFalse(policy.allows("create_pr"))
+
+    def test_submit_pull_request_allows_publication_without_merge(self):
+        policy = resolve_agent_policy("Submit a pull request.")
+
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("push"))
+        self.assertTrue(policy.allows("create_pr"))
+        self.assertFalse(policy.allows("merge_pr"))
+
+    def test_local_request_with_publish_prohibition_stays_local(self):
+        policy = resolve_agent_policy(
+            "Fix the parser locally. Do not push or open a pull request."
+        )
+
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("edit_files"))
+        self.assertFalse(policy.allows("push"))
+        self.assertFalse(policy.allows("create_pr"))
+
+    def test_later_publish_prohibition_overrides_earlier_publish_request(self):
+        policy = resolve_agent_policy(
+            "Fix the parser and push the branch. "
+            "Do not push or open a pull request."
+        )
+
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("edit_files"))
+        self.assertFalse(policy.allows("push"))
+        self.assertFalse(policy.allows("create_pr"))
+
     def test_fix_issue_and_make_pr_selects_implement_mode(self):
         policy = resolve_agent_policy("Fix issue #42, run tests, and make a PR.")
 
