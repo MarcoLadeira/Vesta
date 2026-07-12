@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,10 +32,32 @@ class _FakeRunner(LocalRunner):
         return self._answer
 
 
+def _git_repo(root: Path) -> Path:
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
+    (root / "app.py").write_text("value = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "app.py"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=cache-tests@example.invalid",
+            "-c",
+            "user.name=OPai Cache Tests",
+            "commit",
+            "-qm",
+            "initial",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    return root
+
+
 class ResultCacheTests(unittest.TestCase):
     def test_near_duplicate_tasks_share_a_key(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = _git_repo(Path(tmp))
             self.assertEqual(
                 result_cache.cache_key(root, "Summarize  the  DIFF!", "m"),
                 result_cache.cache_key(root, "summarize the diff", "m"),
@@ -42,7 +65,7 @@ class ResultCacheTests(unittest.TestCase):
 
     def test_different_task_is_a_different_key(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = _git_repo(Path(tmp))
             self.assertNotEqual(
                 result_cache.cache_key(root, "fix bug", "m"),
                 result_cache.cache_key(root, "add feature", "m"),
@@ -50,7 +73,7 @@ class ResultCacheTests(unittest.TestCase):
 
     def test_store_and_lookup(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = _git_repo(Path(tmp))
             result_cache.store(root, "fix bug", "m", "the answer")
             hit = result_cache.lookup(root, "fix  BUG", "m")
         self.assertIsNotNone(hit)
@@ -72,7 +95,7 @@ class AskExecutionTests(unittest.TestCase):
 
     def test_second_near_duplicate_is_a_cache_hit(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = _git_repo(Path(tmp))
             runner = _FakeRunner()
             run_ask(root, "summarize the diff", runner=runner)
             second = run_ask(root, "Summarize  the  Diff!", runner=runner)
