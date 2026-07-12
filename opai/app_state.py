@@ -846,6 +846,21 @@ def _ask_account(
             "reason": "Panic mode is on (local-only). Turn panic off to use a paid account.",
         }
 
+    if account_id == "copilot" and allow_edits:
+        return {
+            "status": "capability_mismatch",
+            "provider": "copilot",
+            "capability": "edit_files",
+            "reason": (
+                "OPai cannot safely grant Copilot edit access because its "
+                "non-interactive CLI currently exposes only an all-tools bypass."
+            ),
+            "hint": (
+                "Switch to Ask or Plan, or choose a provider with enforceable "
+                "workspace-scoped edit controls."
+            ),
+        }
+
     from opaihub.accounts import runner_for_account
 
     run = runner if runner is not None else runner_for_account(account_id, model=model)

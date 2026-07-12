@@ -1162,14 +1162,10 @@ class AccountRunner:
             cmd = [self.cli_path, "-s", "--no-ask-user"]
             if self.model:
                 cmd += [f"--model={self.model}"]
-            if selected_mode in {"safe-auto", "full-auto"}:
-                # The only bypass Copilot exposes is all-tools; gate it to edits.
-                cmd += ["--allow-all-tools"]
-            if selected_mode in {"ask", "plan", "approve-edits"}:
-                prompt = (
-                    "Do not modify files or run mutating commands. "
-                    "Return an answer or patch plan only.\n\n" + prompt
-                )
+            prompt = (
+                "Do not modify files or run mutating commands. "
+                "Return an answer or patch plan only.\n\n" + prompt
+            )
             # `-p` consumes the next argument as the prompt, so it must be last.
             cmd += ["-p", prompt]
             return cmd
