@@ -144,6 +144,21 @@
       }, scenario.doctorDelayMs || 0);
     },
     savePref: function (key, value) { window.__mock.savedPrefs.push([key, value]); },
+    // OPai Build (#276): scaffold an app under the workspace, zero tokens.
+    scaffoldApp: function (payload, cb) {
+      var parsed = {};
+      try { parsed = JSON.parse(payload); } catch (_e) { /* keep {} */ }
+      window.__mock.scaffolded.push(parsed);
+      cb(JSON.stringify(scenario.scaffoldResponse || {
+        ok: true, name: "demo-app", kind: "web", root: "/ws/demo-app",
+        files: ["README.md", "app.js", "index.html", "styles.css"],
+        entrypoint: "index.html", preview_cmd: "python -m http.server 8000",
+        boilerplate_tokens_avoided: 1018, next_steps: [],
+      }));
+    },
+    appReceipt: function (cb) {
+      cb(JSON.stringify(scenario.appReceipt || { ok: false, status: "not_an_app" }));
+    },
     pinFullAuto: function (cb) { window.__mock.fullAutoPins++; if (cb) cb(JSON.stringify({ effective_mode: "full-auto", full_auto_pinned: true })); },
     unpinFullAuto: function (cb) { window.__mock.fullAutoUnpins++; if (cb) cb(JSON.stringify({ effective_mode: "safe-auto", full_auto_pinned: false })); },
     grantFreeConsent: function (modelId, cb) {
@@ -190,7 +205,7 @@
     fullAutoPins: 0, fullAutoUnpins: 0,
     windowMoves: 0, windowResizes: [], windowMinimizes: 0,
     windowMaximizes: 0, windowCloses: 0,
-    runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [],
+    runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [], scaffolded: [],
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     emitDiscoveredModels: function () {

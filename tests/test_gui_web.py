@@ -213,5 +213,57 @@ class SettingsPayloadTests(unittest.TestCase):
         json.dumps(payload)
 
 
+class ScaffoldAppPayloadTests(unittest.TestCase):
+    """GUI "New app" contract (#276): the Bridge slot's Qt-free core."""
+
+    def test_scaffolds_under_the_workspace_root(self):
+        from opai.gui_web import scaffold_app_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = scaffold_app_payload(
+                Path(tmp), json.dumps({"description": "a todo app"})
+            )
+            self.assertTrue(payload["ok"], payload)
+            self.assertEqual(payload["name"], "a-todo-app")
+            self.assertTrue((Path(payload["root"]) / "index.html").exists())
+            self.assertGreater(payload["boilerplate_tokens_avoided"], 0)
+            json.dumps(payload)  # serializable for the wire
+
+    def test_empty_description_is_a_clean_error(self):
+        from opai.gui_web import scaffold_app_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = scaffold_app_payload(Path(tmp), json.dumps({"description": ""}))
+            self.assertFalse(payload["ok"])
+            self.assertIn("Describe", payload["error"])
+
+    def test_clobber_and_malformed_json_never_raise(self):
+        from opai.gui_web import scaffold_app_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            taken = Path(tmp) / "taken"
+            taken.mkdir()
+            (taken / "f.txt").write_text("x", encoding="utf-8")
+            payload = scaffold_app_payload(
+                Path(tmp), json.dumps({"description": "taken"})
+            )
+            self.assertFalse(payload["ok"])
+            self.assertIn("exists", payload["error"])
+            self.assertFalse(scaffold_app_payload(Path(tmp), "{not json")["ok"])
+
+    def test_app_receipt_payload_round_trip(self):
+        from opai.gui_web import app_receipt_payload, scaffold_app_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(app_receipt_payload(Path(tmp))["status"], "not_an_app")
+            created = scaffold_app_payload(
+                Path(tmp), json.dumps({"description": "an app"})
+            )
+            receipt = app_receipt_payload(Path(created["root"]))
+            self.assertTrue(receipt["ok"])
+            self.assertEqual(receipt["builds"], 0)
+            self.assertGreater(receipt["tokens_never_sent"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
