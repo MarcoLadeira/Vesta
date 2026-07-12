@@ -347,6 +347,18 @@ def app_receipt_payload(root: Path) -> dict[str, Any]:
     return app_receipt(root)
 
 
+def outcomes_payload(root: Path) -> dict[str, Any]:
+    """Task-outcome metrics for the cockpit (#288).
+
+    Returns exactly what ``opai outcomes`` prints, so the GUI and CLI are
+    provably in parity: cost per completed task and duplicate-call avoidance,
+    reconciled to the authoritative model_call ledger.
+    """
+    from opaihub.ledger import summarize_outcomes
+
+    return summarize_outcomes(root)
+
+
 def settings_payload(root: Path) -> dict[str, Any]:
     """Return the complete, secret-free Settings/Connections payload."""
 
@@ -576,6 +588,11 @@ def _run_gui(
         @QtCore.Slot(result=str)
         def appReceipt(self) -> str:
             return json.dumps(app_receipt_payload(self.root))
+
+        @QtCore.Slot(result=str)
+        def taskOutcomes(self) -> str:
+            # Same summary the CLI prints (#288): GUI/CLI parity by construction.
+            return json.dumps(outcomes_payload(self.root))
 
         @QtCore.Slot(result=str)
         def settingsData(self) -> str:

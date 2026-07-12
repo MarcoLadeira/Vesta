@@ -23,7 +23,13 @@ from .cost_telemetry import (
 from .diff_review import build_diff_review
 from .gui_preferences import load_gui_preferences
 from .intent_router import route_intents, safety_warnings
-from .ledger import record_event, record_route_decision, read_events
+from .ledger import (
+    UNKNOWN as OUTCOME_UNKNOWN,
+    record_event,
+    record_route_decision,
+    record_task_outcome,
+    read_events,
+)
 from .model_intelligence import recommend_model
 from .repo_context import classify_dirty_paths, resolve_repo_context, save_active_repo
 from .task_packet import build_task_packet
@@ -190,6 +196,104 @@ def _record_gui_route(
         selected_mode=mode,
         tool_count=len(tool_trace),
     )
+
+
+def _outcome_category(status: str, *, had_work: bool) -> str | None:
+    """The honest terminal class for a finished turn, or ``None`` when there is
+    nothing to record (#288).
+
+    Only a genuine answer counts as ``completed`` — ``needs_*`` states are
+    awaiting the user, not finished, so counting them would inflate the
+    completed denominator and understate cost per completed task. A cancel with
+    no work done (the classic pre-flight cancel) records nothing at all, matching
+    the ledger-honesty invariant that an untouched turn leaves no trace.
+    """
+    status = str(status or "")
+    if status == "answered":
+        return "completed"
+    if status == "blocked":
+        return "blocked"
+    # capability_mismatch and every needs_* state are awaiting a different model
+    # or configuration, not a finished task. Recording them would inflate the
+    # denominator and break the honesty invariant that an untouched, unspent turn
+    # leaves no ledger trace.
+    if status == "capability_mismatch" or status.startswith("needs_"):
+        return None
+    if status == "cancelled":
+        return "cancelled" if had_work else None
+    return "failed"
+
+
+def build_task_outcome_fields(
+    payload: dict[str, Any],
+    *,
+    completion: str,
+    run_mode: str,
+    source: str = "gui_pipeline",
+) -> dict[str, Any] | None:
+    """Map a finished turn into honest task-outcome kwargs (#288), or ``None``
+    when the turn should not be recorded (pre-work cancel / awaiting input).
+
+    Pure and Qt-free so it is unit-testable without the pipeline. Tokens and
+    dollars come straight from the turn's ``cost_telemetry`` with their honest
+    measurement labels; a paid call that reported no dollar figure stays
+    ``unknown`` rather than a fabricated ``$0``, while a turn with no model call
+    records a true ``0``. Latency and context size are ``unknown`` until the
+    pipeline threads them through — never synthesised.
+    """
+    telemetry = payload.get("cost_telemetry") or {}
+    had_work = bool(telemetry) or bool(payload.get("changed_files"))
+    category = _outcome_category(payload.get("status") or "", had_work=had_work)
+    if category is None:
+        return None
+    fields: dict[str, Any] = {
+        "category": category,
+        "completion_state": completion,
+        "run_mode": run_mode or OUTCOME_UNKNOWN,
+        "source": source,
+        "avoided_duplicate_calls": int(payload.get("duplicate_calls_avoided") or 0),
+        "recovered": bool(payload.get("recovered")),
+        "time_to_first_result_ms": OUTCOME_UNKNOWN,
+        "selected_context_bytes": OUTCOME_UNKNOWN,
+        "selected_context_tokens": OUTCOME_UNKNOWN,
+        "cached_tokens": OUTCOME_UNKNOWN,
+    }
+    if telemetry:
+        # A provider call happened this turn.
+        cost = telemetry.get("cost_usd")
+        has_cost = isinstance(cost, (int, float)) and not isinstance(cost, bool)
+        fields.update(
+            {
+                "model_calls": 1,
+                "total_tokens": int(telemetry.get("total_tokens") or 0),
+                "input_tokens": int(telemetry.get("input_tokens") or 0),
+                "output_tokens": int(telemetry.get("output_tokens") or 0),
+                "tokens_measurement": str(
+                    telemetry.get("tokens_measurement") or "estimated"
+                ),
+                "attributed_cost_usd": float(cost) if has_cost else OUTCOME_UNKNOWN,
+                # Paid call with no dollar figure (e.g. Codex) stays honest-unknown.
+                "cost_measurement": (
+                    str(telemetry.get("cost_measurement") or "estimated")
+                    if has_cost
+                    else OUTCOME_UNKNOWN
+                ),
+            }
+        )
+    else:
+        # No model call — zero tokens and zero spend are facts, not guesses.
+        fields.update(
+            {
+                "model_calls": 0,
+                "total_tokens": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "tokens_measurement": "none",
+                "attributed_cost_usd": 0.0,
+                "cost_measurement": "none",
+            }
+        )
+    return fields
 
 
 def handle_gui_message(
@@ -551,6 +655,15 @@ def handle_gui_message(
                 diff_summary=diff_review.get("summary") or {},
                 recovery_actions=recovery,
             )
+        # One terminal task-outcome per turn (#288), keyed by the turn id so it
+        # is idempotent and reconcilable to the authoritative model_call spend.
+        # A pre-work cancel or awaiting-input turn records nothing (honest no-op).
+        outcome_fields = build_task_outcome_fields(
+            payload, completion=completion, run_mode=selected_mode
+        )
+        if outcome_fields is not None:
+            with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
+                record_task_outcome(root, message, outcome_id=turn_id, **outcome_fields)
         return {
             **payload,
             "agent_policy": policy.to_dict(),
