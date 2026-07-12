@@ -13,6 +13,7 @@ const PROVIDER_COLOR = { claude: "#e0937a", codex: "#6cc1e8", auto: "#98a2b0", l
 
 const PALETTE = [
   { id: "new_chat", label: "New chat", hint: "Ctrl+N" },
+  { id: "new_app", label: "New app (free scaffold)", hint: "" },
   { id: "focus_input", label: "Focus prompt", hint: "Ctrl+L" },
   { id: "prompts", label: "Open prompt library", hint: "Ctrl+P" },
   { id: "inspector", label: "Toggle control panel", hint: "Ctrl+I" },
@@ -538,6 +539,70 @@ function startNewChat() {
   stripHide();
   switchView("chat");
   $("#input").focus();
+}
+
+/* ---------- OPai Build: New app (#276) ----------
+   Describe an app; the runnable skeleton is scaffolded deterministically for
+   zero tokens, then features are built with cheap targeted prompts. */
+function startNewApp() {
+  switchView("chat");
+  const existing = $("#newAppCard");
+  if (existing) { existing.querySelector("input").focus(); return; }
+  const el = appendMsg(
+    roleHeader("OPai Build", "var(--accent)") +
+    `<div class="new-app-card" id="newAppCard" role="group" aria-label="New app">
+       <div class="nac-t">Create a new app — the runnable skeleton is scaffolded for free (0 tokens).</div>
+       <input class="nac-input" type="text" placeholder="e.g. a todo app with dark mode" aria-label="App description">
+       <div class="nac-actions">
+         <button class="btn primary" data-a="create">Create app</button>
+         <button class="btn ghost" data-a="cancel">Cancel</button>
+       </div>
+       <div class="nac-note" aria-live="polite"></div>
+     </div>`, "bot");
+  const card = el.querySelector(".new-app-card");
+  const input = card.querySelector("input");
+  const note = card.querySelector(".nac-note");
+  const create = () => {
+    const description = input.value.trim();
+    if (!description) { note.textContent = "Describe the app you want to create."; return; }
+    if (!bridge.scaffoldApp) { note.textContent = "App scaffolding is unavailable in this build."; return; }
+    card.querySelector('[data-a="create"]').disabled = true;
+    note.textContent = "Scaffolding…";
+    bridge.scaffoldApp(JSON.stringify({ description }), (json) => {
+      let result = {};
+      try { result = JSON.parse(json); } catch (_e) { /* keep {} */ }
+      if (!result.ok) {
+        card.querySelector('[data-a="create"]').disabled = false;
+        note.textContent = result.error || "Could not scaffold the app.";
+        return;
+      }
+      renderNewAppSuccess(el, result);
+    });
+  };
+  card.querySelector('[data-a="create"]').onclick = create;
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); create(); } });
+  card.querySelector('[data-a="cancel"]').onclick = () => el.remove();
+  input.focus();
+  scrollBottom(true);
+}
+
+function renderNewAppSuccess(el, result) {
+  const tokens = Number(result.boilerplate_tokens_avoided || 0).toLocaleString();
+  el.innerHTML = roleHeader("OPai Build", "var(--accent)") +
+    `<div class="new-app-card done" role="group" aria-label="App created">
+       <div class="nac-t">✓ ${esc(result.name)} is ready — ${(result.files || []).length} files scaffolded for free (~${esc(tokens)} tokens never spent).</div>
+       <div class="nac-sub">${esc(result.root)}</div>
+       <div class="nac-actions">
+         <button class="btn primary" data-a="open">Open app workspace</button>
+         <button class="btn ghost" data-a="preview">Copy preview command</button>
+       </div>
+       <div class="nac-note">Open the workspace, then describe features in chat — every edit is a cheap targeted diff.</div>
+     </div>`;
+  el.querySelector('[data-a="open"]').onclick = () => bridge.switchWorkspace(result.root);
+  el.querySelector('[data-a="preview"]').onclick = () => {
+    copyText(`cd ${result.root} && ${result.preview_cmd || "python -m http.server 8000"}`);
+    toast("Preview command copied");
+  };
 }
 function appendMsg(html, cls) {
   $("#empty").style.display = "none";
@@ -1890,6 +1955,7 @@ function runCommand(id) {
   $("#palette").classList.remove("open");
   switch (id) {
     case "new_chat": startNewChat(); break;
+    case "new_app": startNewApp(); break;
     case "focus_input": switchView("chat"); $("#input").focus(); break;
     case "prompts": switchView("prompts"); break;
     case "inspector": togglePanel(); break;
@@ -1965,6 +2031,7 @@ function autoSize() {
 function wire() {
   if (isCompactShell()) $("#sidebarToggle").setAttribute("aria-expanded", "false");
   $("#newChat").onclick = startNewChat;
+  $("#newApp").onclick = startNewApp;
   $("#headerNewChat").onclick = startNewChat;
   $("#footSettings").onclick = () => switchView("settings");
   $("#headerSettings").onclick = () => switchView("settings");

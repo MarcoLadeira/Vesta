@@ -303,6 +303,39 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     }
 
 
+def scaffold_app_payload(root: Path, payload_json: str) -> dict[str, Any]:
+    """Scaffold an app under the workspace root for the GUI "New app" flow
+    (#276). Qt-free so the contract is unit-tested; the Bridge slot is a thin
+    wrapper. Zero tokens: scaffolding is deterministic.
+    """
+    from opaihub.app_scaffold import scaffold_app
+
+    try:
+        payload = json.loads(payload_json or "{}")
+    except ValueError:
+        payload = {}
+    description = str(payload.get("description") or "").strip()
+    if not description:
+        return {"ok": False, "error": "Describe the app you want to create."}
+    try:
+        result = scaffold_app(
+            root,
+            description,
+            name=(str(payload.get("name") or "").strip() or None),
+            kind=str(payload.get("kind") or "web"),
+        )
+    except (ValueError, FileExistsError, OSError) as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, **result.to_dict()}
+
+
+def app_receipt_payload(root: Path) -> dict[str, Any]:
+    """The current workspace's OPai Build receipt, or an honest not-an-app."""
+    from opaihub.build_loop import app_receipt
+
+    return app_receipt(root)
+
+
 def settings_payload(root: Path) -> dict[str, Any]:
     """Return the complete, secret-free Settings/Connections payload."""
 
@@ -489,6 +522,15 @@ def _run_gui(
             from opaihub.diff_review import record_diff_decision
 
             return json.dumps(record_diff_decision(self.root, path, decision))
+
+        @QtCore.Slot(str, result=str)
+        def scaffoldApp(self, payload_json: str) -> str:
+            # Deterministic file writes (~5 small files) — GUI-thread safe.
+            return json.dumps(scaffold_app_payload(self.root, payload_json))
+
+        @QtCore.Slot(result=str)
+        def appReceipt(self) -> str:
+            return json.dumps(app_receipt_payload(self.root))
 
         @QtCore.Slot(result=str)
         def settingsData(self) -> str:

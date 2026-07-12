@@ -135,6 +135,28 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 }
 .new-chat:hover { transform: translateY(-1px); box-shadow: 0 8px 26px var(--accent-glow); filter: brightness(1.05); }
 .new-chat:active { transform: translateY(0) scale(0.99); }
+/* OPai Build entry (#276): quieter sibling of New chat. */
+.new-chat.new-app {
+  margin-top: 8px; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--border); box-shadow: none; font-weight: 600;
+}
+.new-chat.new-app:hover { border-color: var(--accent); box-shadow: none; }
+
+/* New-app create/success cards (#276). */
+.new-app-card {
+  background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 14px 16px; box-shadow: var(--inset-hi);
+}
+.new-app-card .nac-t { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.new-app-card .nac-sub { color: var(--muted); font-size: 12px; margin-top: 6px; font-family: "Cascadia Code", monospace; word-break: break-all; }
+.new-app-card .nac-input {
+  width: 100%; margin-top: 10px; padding: 9px 12px; font: inherit; font-size: 13px;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 8px; outline: none;
+}
+.new-app-card .nac-input:focus { border-color: var(--accent); }
+.new-app-card .nac-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.new-app-card .nac-note { color: var(--muted); font-size: 12px; margin-top: 8px; min-height: 15px; }
 
 .nav { margin-top: 14px; overflow-y: auto; flex: 1; min-height: 0; }
 .nav-group-label { color: var(--faint); font-size: 10px; font-weight: 800; letter-spacing: 0.11em; text-transform: uppercase; padding: 13px 10px 6px; }
