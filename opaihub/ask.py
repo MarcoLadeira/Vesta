@@ -175,7 +175,13 @@ def run_ask(
         except Exception as exc:  # noqa: BLE001 - report any runner failure cleanly
             return {**base, "status": "runner_error", "error": str(exc)}
         if store_answer:
-            result_cache.store(root, task, model_id, answer)
+            result_cache.store(
+                root,
+                task,
+                model_id,
+                answer,
+                expected_key=cache_lookup.key if not allow_edits else None,
+            )
         if record:
             _record(root, task, tier, cache_hit=False)
         return {

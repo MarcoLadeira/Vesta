@@ -193,8 +193,14 @@ def store(
     *,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
     now: datetime | None = None,
+    expected_key: str | None = None,
 ) -> Path | None:
-    """Store one answer atomically when the repository state is cacheable."""
+    """Store one answer atomically when the repository state is cacheable.
+
+    ``expected_key`` lets a caller prove that the repository state did not
+    change between its cache lookup and this write. A changed state is never
+    populated with an answer produced for an earlier state.
+    """
     if ttl_seconds <= 0:
         raise ValueError("ttl_seconds must be positive")
     root = project_root.expanduser().resolve()
@@ -204,6 +210,8 @@ def store(
     created_at = _utc_now(now)
     expires_at = created_at + timedelta(seconds=ttl_seconds)
     key = _key(task, model, assessment)
+    if expected_key is not None and key != expected_key:
+        return None
     path = cache_dir(root) / f"{key}.json"
     payload = {
         "schema_version": RESULT_CACHE_VERSION,

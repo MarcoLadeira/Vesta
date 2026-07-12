@@ -33,6 +33,19 @@ class _FakeRunner(LocalRunner):
         return self._answer
 
 
+class _WorkspaceChangingRunner(_FakeRunner):
+    """Test double that changes tracked content while an answer is in flight."""
+
+    def __init__(self, workspace_file: Path, answer="stale answer"):
+        super().__init__(answer=answer)
+        self._workspace_file = workspace_file
+
+    def complete(self, prompt, *, system=None, timeout=60.0):
+        answer = super().complete(prompt, system=system, timeout=timeout)
+        self._workspace_file.write_text("value = 2\n", encoding="utf-8")
+        return answer
+
+
 def _git_repo(root: Path) -> Path:
     subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
     (root / "app.py").write_text("value = 1\n", encoding="utf-8")
@@ -104,6 +117,31 @@ class AskExecutionTests(unittest.TestCase):
         self.assertEqual(second["source"], "cache")
         self.assertEqual(runner.calls, 1)  # model only ran once
 
+    def test_workspace_change_during_answer_is_not_saved_as_the_new_cache_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _git_repo(Path(tmp))
+            changing_runner = _WorkspaceChangingRunner(root / "app.py")
+            stable_runner = _FakeRunner(answer="fresh answer")
+            with mock.patch("opaihub.ask._build_prompt", return_value="prompt"):
+                first = run_ask(
+                    root,
+                    "summarize the diff",
+                    runner=changing_runner,
+                    selected_model_id="local",
+                )
+                second = run_ask(
+                    root,
+                    "summarize the diff",
+                    runner=stable_runner,
+                    selected_model_id="local",
+                )
+
+        self.assertEqual(first["status"], "answered_locally")
+        self.assertEqual(second["status"], "answered_locally")
+        self.assertEqual(second["answer"], "fresh answer")
+        self.assertEqual(changing_runner.calls, 1)
+        self.assertEqual(stable_runner.calls, 1)
+
     def test_result_cache_records_miss_and_hit_evidence_without_spend(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = _git_repo(Path(tmp))
@@ -120,6 +158,7 @@ class AskExecutionTests(unittest.TestCase):
         self.assertEqual([event["outcome"] for event in cache_events], ["miss", "hit"])
         self.assertFalse(cache_events[0]["avoided_model_call"])
         self.assertTrue(cache_events[1]["avoided_model_call"])
+        self.assertGreaterEqual(cache_events[1]["age_seconds"], 0)
         self.assertEqual(
             [event for event in events if event.get("event_type") == EVENT_MODEL_CALL],
             [],

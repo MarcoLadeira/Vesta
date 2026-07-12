@@ -100,6 +100,48 @@ class ContentAwareFingerprintTests(unittest.TestCase):
         self.assertFalse(assessment.cacheable)
         self.assertEqual(assessment.bypass_reason, "too_many_dirty_files")
 
+    def test_file_size_limit_bypasses_without_hashing_the_large_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_git_repo(Path(tmp), {"app.py": "value = 1\n"})
+            (root / "app.py").write_text("x" * 32, encoding="utf-8")
+            assessment = assess_repo_fingerprint(
+                root,
+                limits=FingerprintLimits(
+                    max_dirty_files=4,
+                    max_file_bytes=16,
+                    max_total_bytes=64,
+                ),
+            )
+
+        self.assertFalse(assessment.cacheable)
+        self.assertEqual(assessment.bypass_reason, "file_too_large")
+
+    def test_total_dirty_byte_limit_bypasses_without_partial_reuse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_git_repo(Path(tmp), {"app.py": "value = 1\n"})
+            (root / "app.py").write_text("x" * 32, encoding="utf-8")
+            assessment = assess_repo_fingerprint(
+                root,
+                limits=FingerprintLimits(
+                    max_dirty_files=4,
+                    max_file_bytes=64,
+                    max_total_bytes=16,
+                ),
+            )
+
+        self.assertFalse(assessment.cacheable)
+        self.assertEqual(assessment.bypass_reason, "dirty_bytes_exceeded")
+
+    def test_unreadable_dirty_input_bypasses_instead_of_reusing_a_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_git_repo(Path(tmp), {"app.py": "value = 1\n"})
+            (root / "app.py").write_text("value = 2\n", encoding="utf-8")
+            with mock.patch.object(Path, "open", side_effect=OSError("denied")):
+                assessment = assess_repo_fingerprint(root)
+
+        self.assertFalse(assessment.cacheable)
+        self.assertEqual(assessment.bypass_reason, "unreadable_file")
+
     def test_ignored_input_bypasses_reuse_instead_of_silently_excluding_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_git_repo(
@@ -178,11 +220,38 @@ class ResultCacheEnvelopeTests(unittest.TestCase):
             corrupt = result_cache.lookup_with_meta(
                 root, "summarize app", "local-test", now=now
             )
+            result_cache.store(
+                root,
+                "summarize app",
+                "local-test",
+                "fresh answer",
+                now=now,
+            )
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": result_cache.RESULT_CACHE_VERSION,
+                        "key": result_cache.cache_key(
+                            root, "summarize app", "local-test"
+                        ),
+                        "model": "local-test",
+                        "created_at": "not-a-time",
+                        "expires_at": "also-not-a-time",
+                        "answer": "fresh answer",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            malformed_time = result_cache.lookup_with_meta(
+                root, "summarize app", "local-test", now=now
+            )
 
         self.assertEqual(incompatible.outcome, "schema_mismatch")
         self.assertIsNone(incompatible.entry)
         self.assertEqual(corrupt.outcome, "corrupt")
         self.assertIsNone(corrupt.entry)
+        self.assertEqual(malformed_time.outcome, "corrupt")
+        self.assertIsNone(malformed_time.entry)
 
     def test_binary_input_bypasses_result_cache_without_creating_an_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
