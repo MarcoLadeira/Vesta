@@ -3,6 +3,9 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -120,6 +123,124 @@ class ResultCacheContentCorrectnessTests(unittest.TestCase):
             reused = result_cache.lookup(root, "summarize app", "local-test")
 
         self.assertIsNone(reused)
+
+
+class ResultCacheEnvelopeTests(unittest.TestCase):
+    def test_entry_expires_at_the_documented_lifetime(self):
+        now = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_git_repo(Path(tmp), {"app.py": "value = 1\n"})
+            result_cache.store(
+                root,
+                "summarize app",
+                "local-test",
+                "fresh answer",
+                now=now,
+            )
+            fresh = result_cache.lookup_with_meta(
+                root,
+                "summarize app",
+                "local-test",
+                now=now + timedelta(seconds=result_cache.DEFAULT_TTL_SECONDS - 1),
+            )
+            expired = result_cache.lookup_with_meta(
+                root,
+                "summarize app",
+                "local-test",
+                now=now + timedelta(seconds=result_cache.DEFAULT_TTL_SECONDS),
+            )
+
+        self.assertEqual(fresh.outcome, "hit")
+        self.assertEqual(fresh.entry["answer"], "fresh answer")
+        self.assertEqual(expired.outcome, "expired")
+        self.assertIsNone(expired.entry)
+
+    def test_schema_incompatible_and_corrupt_entries_are_never_reused(self):
+        now = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_git_repo(Path(tmp), {"app.py": "value = 1\n"})
+            path = result_cache.store(
+                root,
+                "summarize app",
+                "local-test",
+                "fresh answer",
+                now=now,
+            )
+            self.assertIsNotNone(path)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["schema_version"] = result_cache.RESULT_CACHE_VERSION - 1
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            incompatible = result_cache.lookup_with_meta(
+                root, "summarize app", "local-test", now=now
+            )
+            path.write_text("{broken", encoding="utf-8")
+            corrupt = result_cache.lookup_with_meta(
+                root, "summarize app", "local-test", now=now
+            )
+
+        self.assertEqual(incompatible.outcome, "schema_mismatch")
+        self.assertIsNone(incompatible.entry)
+        self.assertEqual(corrupt.outcome, "corrupt")
+        self.assertIsNone(corrupt.entry)
+
+    def test_binary_input_bypasses_result_cache_without_creating_an_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_git_repo(Path(tmp), {"app.py": "value = 1\n"})
+            (root / "payload.bin").write_bytes(b"\x00binary")
+            path = result_cache.store(root, "summarize app", "local-test", "answer")
+            lookup = result_cache.lookup_with_meta(root, "summarize app", "local-test")
+            answers = root / ".opaihub" / "answers"
+
+        self.assertIsNone(path)
+        self.assertEqual(lookup.outcome, "bypass")
+        self.assertEqual(lookup.reason, "binary_file")
+        self.assertFalse(answers.exists())
+
+    def test_atomic_writes_never_expose_partial_entries_to_readers(self):
+        now = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_git_repo(Path(tmp), {"app.py": "value = 1\n"})
+            result_cache.store(root, "summarize app", "local-test", "seed", now=now)
+
+            def write_answer(index: int) -> None:
+                for count in range(12):
+                    result_cache.store(
+                        root,
+                        "summarize app",
+                        "local-test",
+                        f"writer-{index}-{count}",
+                        now=now,
+                    )
+
+            def read_answers() -> list[str]:
+                answers: list[str] = []
+                for _ in range(24):
+                    lookup = result_cache.lookup_with_meta(
+                        root, "summarize app", "local-test", now=now
+                    )
+                    self.assertEqual(lookup.outcome, "hit")
+                    self.assertIsNotNone(lookup.entry)
+                    self.assertEqual(
+                        lookup.entry["schema_version"],
+                        result_cache.RESULT_CACHE_VERSION,
+                    )
+                    answers.append(lookup.entry["answer"])
+                return answers
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [
+                    executor.submit(write_answer, 1),
+                    executor.submit(write_answer, 2),
+                    executor.submit(read_answers),
+                    executor.submit(read_answers),
+                ]
+                results = [future.result() for future in futures]
+
+        observed = [answer for result in results if result for answer in result]
+        self.assertTrue(observed)
+        self.assertTrue(
+            all(answer == "seed" or answer.startswith("writer-") for answer in observed)
+        )
 
     def test_untracked_content_change_cannot_reuse_answer(self):
         with tempfile.TemporaryDirectory() as tmp:
