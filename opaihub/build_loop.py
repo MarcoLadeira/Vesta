@@ -288,6 +288,34 @@ def apply_edits(
     }
 
 
+def rollback_edits(
+    app_root: Path, outcome: dict[str, Any], manifest: dict[str, Any]
+) -> list[str]:
+    """Undo one ``apply_edits`` outcome: restore updates from the backup,
+    delete created files, and put the manifest back. Returns restored paths."""
+    root = Path(app_root).resolve()
+    backup_dir = outcome.get("backup_dir")
+    restored: list[str] = []
+    for item in outcome.get("applied") or []:
+        rel = item["path"]
+        target = root / rel
+        if item["action"] == "created":
+            target.unlink(missing_ok=True)
+            if rel in (manifest.get("files") or []):
+                manifest["files"].remove(rel)
+            restored.append(rel)
+        elif backup_dir:
+            backup_path = Path(backup_dir) / rel
+            if backup_path.exists():
+                target.write_text(
+                    backup_path.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+                restored.append(rel)
+    if restored:
+        save_app_manifest(root, manifest)
+    return restored
+
+
 def run_build_request(
     app_root: Path,
     request: str,
@@ -295,6 +323,7 @@ def run_build_request(
     model: str | None = None,
     account_runner: Any = None,
     dry_run: bool = False,
+    strict: bool = False,
     budget_chars: int = DEFAULT_BUDGET_CHARS,
     on_event: Callable[[dict[str, Any]], None] | None = None,
     on_text: Callable[[str], None] | None = None,
@@ -303,9 +332,12 @@ def run_build_request(
     """One turn of the customization loop against a scaffolded app.
 
     Runs through the same pipeline as chat (routing, cost firewall, receipt),
-    then applies the parsed edits deterministically. Honest statuses: if the
-    model answered without applicable ``file:`` blocks, nothing is touched and
-    ``status`` is ``no_edits`` with the answer preserved.
+    then applies the parsed edits deterministically. Every apply is followed by
+    structural verification (entrypoint wiring, brace balance, JSON parse —
+    the honest "does it still stand" check); with ``strict`` a failed
+    verification rolls the whole edit back from the backups. Honest statuses:
+    a blockless answer touches nothing (``no_edits``), a rolled-back edit says
+    so (``rolled_back``).
     """
     root = Path(app_root).expanduser().resolve()
     manifest = load_app_manifest(root)
@@ -373,10 +405,33 @@ def run_build_request(
             "receipt": result.get("receipt"),
         }
     outcome = apply_edits(root, edits, manifest)
+    verify: dict[str, Any] | None = None
+    status_out = "applied" if outcome["applied"] else "all_edits_rejected"
+    if outcome["applied"]:
+        from opaihub.app_verify import verify_app
+
+        verify = verify_app(
+            root,
+            entrypoint=str(manifest.get("entrypoint") or "") or None,
+            files=[item["path"] for item in outcome["applied"]],
+        )
+        if strict and not verify["ok"]:
+            restored = rollback_edits(root, outcome, manifest)
+            return {
+                "ok": False,
+                "status": "rolled_back",
+                "verify": verify,
+                "rolled_back": restored,
+                "rejected": outcome["rejected"],
+                "backup_dir": outcome["backup_dir"],
+                "context": context_stats,
+                "receipt": result.get("receipt"),
+            }
     return {
         "ok": bool(outcome["applied"]),
-        "status": "applied" if outcome["applied"] else "all_edits_rejected",
+        "status": status_out,
         **outcome,
+        "verify": verify,
         "context": context_stats,
         "receipt": result.get("receipt"),
         "preview_cmd": manifest.get("preview_cmd") or "python -m http.server 8000",
