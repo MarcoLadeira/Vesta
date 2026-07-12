@@ -1,0 +1,192 @@
+name: OPai desktop artifact rehearsal
+
+# Manual only: a release operator explicitly chooses the immutable tag and
+# channel before any hosted macOS/Windows minutes or signing credentials are used.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact annotated v* tag to build
+        required: true
+        type: string
+      release_channel:
+        description: Unsigned alpha rehearsal or signed production release
+        required: true
+        default: unsigned-prealpha
+        type: choice
+        options:
+          - unsigned-prealpha
+          - production
+      allow_unsigned_prealpha:
+        description: Acknowledge that unsigned artifacts are pre-alpha only
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opai-desktop-artifact-${{ inputs.release_tag }}-${{ inputs.release_channel }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Desktop artifact (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_CHANNEL: ${{ inputs.release_channel }}
+      ALLOW_UNSIGNED_PREALPHA: ${{ inputs.allow_unsigned_prealpha }}
+      WINDOWS_PFX_BASE64: ${{ secrets.OPAI_WINDOWS_PFX_BASE64 }}
+      WINDOWS_PFX_PASSWORD: ${{ secrets.OPAI_WINDOWS_PFX_PASSWORD }}
+      APPLE_DEVELOPER_ID: ${{ secrets.OPAI_APPLE_DEVELOPER_ID }}
+      APPLE_SIGNING_CERTIFICATE_BASE64: ${{ secrets.OPAI_APPLE_SIGNING_CERTIFICATE_BASE64 }}
+      APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.OPAI_APPLE_SIGNING_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARY_PROFILE: ${{ secrets.OPAI_APPLE_NOTARY_PROFILE }}
+
+    steps:
+      - name: Reject invalid channel acknowledgement
+        shell: bash
+        run: |
+          case "$RELEASE_TAG" in v*) ;; *) echo "release_tag must begin with v"; exit 2 ;; esac
+          if [ "$RELEASE_CHANNEL" = "unsigned-prealpha" ] && [ "$ALLOW_UNSIGNED_PREALPHA" != "true" ]; then
+            echo "Explicit allow_unsigned_prealpha acknowledgement is required."
+            exit 2
+          fi
+          if [ "$RELEASE_CHANNEL" = "production" ] && [ "$ALLOW_UNSIGNED_PREALPHA" = "true" ]; then
+            echo "A production release cannot opt into unsigned-prealpha mode."
+            exit 2
+          fi
+
+      - name: Check out requested release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+
+      - name: Prove immutable clean annotated tag
+        shell: bash
+        run: |
+          test "$(git cat-file -t "$RELEASE_TAG")" = "tag"
+          test "$(git describe --exact-match --tags HEAD)" = "$RELEASE_TAG"
+          test -z "$(git status --porcelain)"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create pinned isolated build environment
+        shell: bash
+        run: |
+          python -m venv .artifact-build-venv
+          PY=./.artifact-build-venv/bin/python
+          [ -f ./.artifact-build-venv/Scripts/python.exe ] && PY=./.artifact-build-venv/Scripts/python.exe
+          "$PY" -m pip install --upgrade pip
+          "$PY" -m pip install -r requirements/desktop-build.txt -e ".[desktop-gui]"
+          echo "ARTIFACT_PY=$PY" >> "$GITHUB_ENV"
+          echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle" >> "$GITHUB_ENV"
+          echo "VERIFY_LOG=$RUNNER_TEMP/opai-signing-verification.log" >> "$GITHUB_ENV"
+
+      - name: Build unsigned portable bundle from the tag
+        shell: bash
+        run: |
+          "$ARTIFACT_PY" scripts/build_desktop_artifacts.py \
+            --build-python "$ARTIFACT_PY" \
+            --output-dir "$BUNDLE" \
+            --channel unsigned-prealpha
+
+      - name: Sign and verify Windows production bundle
+        if: matrix.os == 'windows-latest' && inputs.release_channel == 'production'
+        shell: pwsh
+        run: |
+          if (-not $env:WINDOWS_PFX_BASE64 -or -not $env:WINDOWS_PFX_PASSWORD) { throw "Windows signing secrets are required for production." }
+          $certificate = Join-Path $env:RUNNER_TEMP "opai-signing.pfx"
+          [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+          $log = @()
+          Get-ChildItem -Path $env:BUNDLE -Recurse -Filter *.exe | ForEach-Object {
+            & signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificate /p $env:WINDOWS_PFX_PASSWORD $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($_.FullName)" }
+            $signature = Get-AuthenticodeSignature -FilePath $_.FullName
+            if ($signature.Status -ne 'Valid') { throw "Authenticode verification failed for $($_.FullName): $($signature.Status)" }
+            $log += $signature
+          }
+          $log | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $env:VERIFY_LOG -Encoding utf8
+
+      - name: Sign, notarize, and verify macOS production bundle
+        if: matrix.os == 'macos-latest' && inputs.release_channel == 'production'
+        shell: bash
+        run: |
+          test -n "$APPLE_DEVELOPER_ID"
+          test -n "$APPLE_SIGNING_CERTIFICATE_BASE64"
+          test -n "$APPLE_SIGNING_CERTIFICATE_PASSWORD"
+          test -n "$APPLE_NOTARY_PROFILE"
+          KEYCHAIN="$RUNNER_TEMP/opai-signing.keychain-db"
+          CERTIFICATE="$RUNNER_TEMP/opai-signing.p12"
+          printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE"
+          security create-keychain -p "" "$KEYCHAIN"
+          security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$APPLE_SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychain -d user -s "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          APP="$BUNDLE/gui/OPai.app"
+          codesign --force --deep --options runtime --sign "$APPLE_DEVELOPER_ID" "$APP"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/opai-notary-input.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/opai-notary-input.zip" --keychain-profile "$APPLE_NOTARY_PROFILE" --wait
+          xcrun stapler staple "$APP"
+          {
+            codesign --verify --deep --strict --verbose=2 "$APP"
+            spctl --assess --type execute --verbose=4 "$APP"
+            xcrun stapler validate "$APP"
+          } 2>&1 | tee "$VERIFY_LOG"
+
+      - name: Finalize production evidence after platform verification
+        if: inputs.release_channel == 'production'
+        shell: bash
+        run: |
+          STATUS=signed
+          TOOL=Authenticode
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            STATUS=signed-and-notarized
+            TOOL=codesign+spctl+notarytool+stapler
+          fi
+          "$ARTIFACT_PY" scripts/finalize_desktop_artifact.py "$BUNDLE" \
+            --verification-log "$VERIFY_LOG" \
+            --tool "$TOOL" \
+            --status "$STATUS"
+
+      - name: Smoke finished native artifact outside checkout
+        shell: bash
+        run: |
+          "$ARTIFACT_PY" scripts/smoke_desktop_artifacts.py "$BUNDLE" --timeout 120
+
+      - name: Archive portable artifact
+        shell: bash
+        run: |
+          ARCHIVE="$RUNNER_TEMP/OPai-${RELEASE_TAG}-${{ matrix.os }}-${RELEASE_CHANNEL}.zip"
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            ditto -c -k --keepParent "$BUNDLE" "$ARCHIVE"
+          else
+            powershell -NoProfile -Command "Compress-Archive -Path '$BUNDLE' -DestinationPath '$ARCHIVE' -Force"
+          fi
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Upload artifact and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-${{ inputs.release_channel }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.BUNDLE }}/SHA256SUMS.txt
+            ${{ env.BUNDLE }}/provenance.json
+            ${{ env.BUNDLE }}/signing-status.json
+            ${{ env.VERIFY_LOG }}
+          if-no-files-found: error
+          retention-days: 30

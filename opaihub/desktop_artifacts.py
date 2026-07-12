@@ -85,7 +85,10 @@ _DEVELOPMENT_OVERRIDE_PATTERN = re.compile(
     r"\b(?:OPAI_HUB_ROOT|LOCAL_MODEL_URL|LOCAL_MODEL_NAME|PYTHONPATH)\s*=",
     flags=re.IGNORECASE,
 )
-_EVIDENCE_FILENAMES = frozenset({CHECKSUMS_NAME, PROVENANCE_NAME, SIGNING_STATUS_NAME})
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+# Checksums cannot contain their own hash, but they must bind every other
+# release-evidence file so a plausible signing/provenance rewrite is detected.
+_EVIDENCE_FILENAMES = frozenset({CHECKSUMS_NAME})
 
 
 class ArtifactReleaseError(RuntimeError):
@@ -489,18 +492,70 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
+def _valid_signing_status(value: object, *, platform: object = None) -> bool:
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != EVIDENCE_SCHEMA_VERSION
+    ):
+        return False
+    status = value.get("status")
+    if status == "unsigned-prealpha":
+        return (
+            value.get("production_ready") is False and value.get("verification") is None
+        )
+    if status not in {"signed", "signed-and-notarized"}:
+        return False
+    verification = value.get("verification")
+    if not isinstance(verification, dict) or verification.get("verified") is not True:
+        return False
+    tool = verification.get("tool")
+    log_sha256 = verification.get("log_sha256")
+    if not isinstance(tool, str) or not tool.strip():
+        return False
+    if not isinstance(log_sha256, str) or _SHA256_PATTERN.fullmatch(log_sha256) is None:
+        return False
+    if not isinstance(platform, str):
+        return False
+    expected_production_ready = status == "signed-and-notarized" or (
+        status == "signed" and platform.casefold() == "windows"
+    )
+    return value.get("production_ready") is expected_production_ready
+
+
 def write_bundle_evidence(
     bundle: Path,
     release: ReleaseRef,
     *,
     platform: str,
     signing_status: str = "unsigned-prealpha",
+    signing_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
     """Write deterministic provenance, checksums, and explicit signing state."""
     root = bundle.expanduser().resolve()
-    entries = _distributable_entries(root)
     if signing_status not in {"unsigned-prealpha", "signed", "signed-and-notarized"}:
         raise ArtifactReleaseError(f"unsupported signing status: {signing_status}")
+    if signing_status != "unsigned-prealpha":
+        if (
+            not isinstance(signing_evidence, dict)
+            or signing_evidence.get("verified") is not True
+        ):
+            raise ArtifactReleaseError(
+                "signed artifact evidence requires an explicit successful verification record"
+            )
+        if (
+            not isinstance(signing_evidence.get("tool"), str)
+            or not signing_evidence["tool"].strip()
+        ):
+            raise ArtifactReleaseError(
+                "signed artifact evidence must name its verification tool"
+            )
+        if (
+            not isinstance(signing_evidence.get("log_sha256"), str)
+            or _SHA256_PATTERN.fullmatch(signing_evidence["log_sha256"]) is None
+        ):
+            raise ArtifactReleaseError(
+                "signed artifact evidence must contain a verification log SHA-256"
+            )
     provenance = root / PROVENANCE_NAME
     checksums = root / CHECKSUMS_NAME
     signing = root / SIGNING_STATUS_NAME
@@ -514,22 +569,27 @@ def write_bundle_evidence(
             "platform": platform,
         },
     )
-    checksums.write_text(
-        "".join(f"{digest}  {relative}\n" for relative, digest in entries.items()),
-        encoding="utf-8",
-    )
     _write_json(
         signing,
         {
             "schema_version": EVIDENCE_SCHEMA_VERSION,
             "status": signing_status,
-            "production_ready": signing_status == "signed-and-notarized",
+            "production_ready": (
+                signing_status == "signed-and-notarized"
+                or (signing_status == "signed" and platform.casefold() == "windows")
+            ),
             "reason": (
                 "Signing and notarisation evidence was not supplied."
                 if signing_status == "unsigned-prealpha"
                 else "External signing evidence must be retained with the release."
             ),
+            "verification": signing_evidence,
         },
+    )
+    entries = _distributable_entries(root)
+    checksums.write_text(
+        "".join(f"{digest}  {relative}\n" for relative, digest in entries.items()),
+        encoding="utf-8",
     )
     return {"provenance": provenance, "checksums": checksums, "signing": signing}
 
@@ -576,7 +636,10 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         or provenance.get("schema_version") != EVIDENCE_SCHEMA_VERSION
     ):
         problems.append("invalid provenance")
-    if signing is None or signing.get("schema_version") != EVIDENCE_SCHEMA_VERSION:
+    provenance_platform = (
+        provenance.get("platform") if isinstance(provenance, dict) else None
+    )
+    if not _valid_signing_status(signing, platform=provenance_platform):
         problems.append("invalid signing status")
     if expected is None:
         problems.append("invalid checksums")

@@ -3,7 +3,10 @@ from __future__ import annotations
 import tempfile
 import unittest
 from dataclasses import replace
+import json
 from pathlib import Path
+
+import yaml
 
 try:
     from opaihub.desktop_artifacts import (
@@ -263,6 +266,163 @@ class DesktopArtifactContractTests(unittest.TestCase):
 
         self.assertTrue((root / "scripts" / "build_desktop_artifacts.py").is_file())
         self.assertTrue((root / "scripts" / "smoke_desktop_artifacts.py").is_file())
+        self.assertTrue((root / "scripts" / "finalize_desktop_artifact.py").is_file())
+
+    def test_signed_status_requires_verified_signing_evidence(self):
+        assert release_ref is not None
+        assert write_bundle_evidence is not None
+        assert ArtifactReleaseError is not None
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            executable = bundle / "cli" / "opai.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"original executable")
+            reference = release_ref(
+                bundle,
+                run_git=_git_with(commit="f" * 40, tag="v0.2.0a2"),
+            )
+
+            with self.assertRaises(ArtifactReleaseError):
+                write_bundle_evidence(
+                    bundle,
+                    reference,
+                    platform="windows",
+                    signing_status="signed",
+                )
+
+    def test_bundle_rejects_tampered_signed_verification_metadata(self):
+        assert release_ref is not None
+        assert verify_bundle is not None
+        assert write_bundle_evidence is not None
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            executable = bundle / "cli" / "opai.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"original executable")
+            reference = release_ref(
+                bundle,
+                run_git=_git_with(commit="1" * 40, tag="v0.2.0a2"),
+            )
+            write_bundle_evidence(
+                bundle,
+                reference,
+                platform="windows",
+                signing_status="signed",
+                signing_evidence={
+                    "verified": True,
+                    "tool": "Authenticode",
+                    "log_sha256": "a" * 64,
+                },
+            )
+            signing_path = bundle / "signing-status.json"
+            signing = json.loads(signing_path.read_text(encoding="utf-8"))
+            signing["verification"]["verified"] = False
+            signing_path.write_text(json.dumps(signing), encoding="utf-8")
+            verified = verify_bundle(bundle)
+
+        self.assertFalse(verified["ok"])
+        self.assertIn("invalid signing status", verified["problems"])
+
+    def test_bundle_rejects_inconsistent_signed_production_readiness(self):
+        assert release_ref is not None
+        assert verify_bundle is not None
+        assert write_bundle_evidence is not None
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-macos"
+            executable = bundle / "cli" / "opai"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"original executable")
+            reference = release_ref(
+                bundle,
+                run_git=_git_with(commit="2" * 40, tag="v0.2.0a2"),
+            )
+            write_bundle_evidence(
+                bundle,
+                reference,
+                platform="macos",
+                signing_status="signed",
+                signing_evidence={
+                    "verified": True,
+                    "tool": "codesign",
+                    "log_sha256": "b" * 64,
+                },
+            )
+            signing_path = bundle / "signing-status.json"
+            signing = json.loads(signing_path.read_text(encoding="utf-8"))
+            signing["production_ready"] = True
+            signing_path.write_text(json.dumps(signing), encoding="utf-8")
+            verified = verify_bundle(bundle)
+
+        self.assertFalse(verified["ok"])
+        self.assertIn("invalid signing status", verified["problems"])
+
+    def test_checksum_covers_well_formed_signed_metadata(self):
+        assert release_ref is not None
+        assert verify_bundle is not None
+        assert write_bundle_evidence is not None
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            executable = bundle / "cli" / "opai.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"original executable")
+            reference = release_ref(
+                bundle,
+                run_git=_git_with(commit="3" * 40, tag="v0.2.0a2"),
+            )
+            write_bundle_evidence(
+                bundle,
+                reference,
+                platform="windows",
+                signing_status="signed",
+                signing_evidence={
+                    "verified": True,
+                    "tool": "Authenticode",
+                    "log_sha256": "c" * 64,
+                },
+            )
+            signing_path = bundle / "signing-status.json"
+            signing = json.loads(signing_path.read_text(encoding="utf-8"))
+            signing["verification"]["tool"] = "Different verifier"
+            signing_path.write_text(json.dumps(signing), encoding="utf-8")
+            verified = verify_bundle(bundle)
+
+        self.assertFalse(verified["ok"])
+        self.assertIn("hash mismatch", verified["problems"])
+
+    def test_artifact_workflow_is_manual_tagged_and_cross_platform(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow_path = root / ".github" / "workflows" / "desktop-artifacts.yml"
+        runbook_path = root / "docs" / "DESKTOP_ARTIFACT_RELEASE.md"
+        self.assertTrue(
+            workflow_path.is_file(), "desktop artifact workflow is required"
+        )
+        self.assertTrue(runbook_path.is_file(), "desktop artifact runbook is required")
+
+        workflow = yaml.load(
+            workflow_path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+        )
+        self.assertEqual(set(workflow["on"]), {"workflow_dispatch"})
+        inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["release_tag"]["required"], "true")
+        self.assertIn("unsigned-prealpha", inputs["release_channel"]["options"])
+        self.assertIn("production", inputs["release_channel"]["options"])
+        matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["os"]
+        self.assertEqual(set(matrix), {"windows-latest", "macos-latest"})
+
+        source = workflow_path.read_text(encoding="utf-8")
+        for requirement in [
+            "git describe --exact-match --tags HEAD",
+            "scripts/build_desktop_artifacts.py",
+            "scripts/smoke_desktop_artifacts.py",
+            "Get-AuthenticodeSignature",
+            "codesign --verify",
+            "xcrun stapler validate",
+            "allow_unsigned_prealpha",
+        ]:
+            self.assertIn(requirement, source)
+        runbook = runbook_path.read_text(encoding="utf-8").casefold()
+        for requirement in ["portable", "upgrade", "uninstall", "rollback", "unsigned"]:
+            self.assertIn(requirement, runbook)
 
 
 if __name__ == "__main__":
