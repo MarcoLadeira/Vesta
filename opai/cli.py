@@ -430,7 +430,50 @@ def cmd_build(args: argparse.Namespace) -> int:
     receipt = report.get("receipt") or {}
     if receipt.get("estimated_actual_usd"):
         print(f"  cost: ${float(receipt['estimated_actual_usd']):.4f}")
+    so_far = report.get("receipt_so_far") or {}
+    if so_far.get("ok"):
+        print(
+            f"  app so far: {so_far['builds']} build(s) · "
+            f"${so_far['spend_usd_actual']:.4f} measured spend · "
+            f"~{so_far['tokens_never_sent']:,} tokens never sent"
+        )
     print(f"  preview: {report.get('preview_cmd')}")
+    return 0
+
+
+def cmd_app_receipt(args: argparse.Namespace) -> int:
+    """The aggregate cost story of one OPai Build app (#276): what was spent,
+    and — the number no one else shows — what was never spent."""
+    from opaihub.build_loop import app_receipt
+
+    app_root = Path(args.app).expanduser().resolve() if args.app else Path.cwd()
+    receipt = app_receipt(app_root)
+    if args.json:
+        print_json(receipt)
+        return 0 if receipt.get("ok") else 2
+    if not receipt.get("ok"):
+        print(f"✗ {receipt.get('error')}")
+        return 2
+    print(f"OPai Build receipt — {receipt['app']} ({receipt['kind']})")
+    print(
+        f"  files: {receipt['files']} · builds: {receipt['builds']} "
+        f"({receipt['applied_builds']} applied, +{receipt['lines_added']} "
+        f"−{receipt['lines_removed']} lines)"
+    )
+    print(
+        f"  boilerplate written free: ~{receipt['boilerplate_tokens_avoided']:,} tokens"
+    )
+    print(
+        f"  context never sent:       ~{receipt['context_tokens_avoided']:,} tokens (slicing)"
+    )
+    print(f"  tokens never spent:       ~{receipt['tokens_never_sent']:,}")
+    print(f"  measured spend:  ${receipt['spend_usd_actual']:.4f}")
+    if receipt["spend_usd_estimated"]:
+        print(
+            f"  estimated spend: ${receipt['spend_usd_estimated']:.4f} (model math, not billed)"
+        )
+    if receipt["savings_usd_estimated"]:
+        print(f"  estimated saved: ${receipt['savings_usd_estimated']:.4f}")
     return 0
 
 
@@ -1589,6 +1632,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_build)
+
+    p = sub.add_parser(
+        "app-receipt",
+        help="The app's aggregate cost story: spend, and the tokens never spent",
+    )
+    p.add_argument("--app", default=None, help="App directory (default: current dir)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_app_receipt)
 
     p = sub.add_parser("install")
     p.add_argument("--project", default=None, help="Project root")

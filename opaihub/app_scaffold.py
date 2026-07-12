@@ -322,6 +322,12 @@ def scaffold_app(
             "preview_cmd": result.preview_cmd,
             "files": result.files,
             "created_by": "opai new",
+            # Persisted so the per-app receipt can always report what the
+            # free scaffold saved, even long after creation (#276).
+            "boilerplate_tokens_avoided": estimate_boilerplate_tokens(
+                result.files, result.root
+            ),
+            "created_at": int(__import__("time").time()),
         },
     )
     return result
