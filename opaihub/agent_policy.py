@@ -53,6 +53,10 @@ _SHIP_SIGNAL = re.compile(
     r"\b(?:merge\s+(?:it|the\s+pr|this\s+pr)|ship\s+(?:it|this)|merge\s+after|merge\s+when)\b",
     re.IGNORECASE,
 )
+_SHIP_PROHIBITION_SIGNAL = re.compile(
+    r"\b(?:do\s+not|don't|never|without|avoid|forbid|must\s+not)\s+(?:merge|ship)\b",
+    re.IGNORECASE,
+)
 _PUBLISH_SIGNAL = re.compile(
     r"\b(?:push|(?:open|create|make|submit)\s+(?:a\s+)?(?:pr|pull\s+request))\b",
     re.IGNORECASE,
@@ -140,6 +144,22 @@ def _last_positive_publish(text: str) -> int:
     return latest
 
 
+def _last_positive_ship(text: str) -> int:
+    """Ignore merge/ship signals that are negated in their current clause."""
+
+    latest = -1
+    for match in _SHIP_SIGNAL.finditer(text):
+        clause = re.split(r"[.;\n]", text[: match.start()])[-1]
+        if re.search(
+            r"\b(?:do\s+not|don't|never|without|avoid|forbid|must\s+not)\b",
+            clause,
+            re.IGNORECASE,
+        ):
+            continue
+        latest = match.start()
+    return latest
+
+
 def _has_positive_danger(text: str) -> bool:
     """Distinguish a destructive request from an explicit safety constraint."""
 
@@ -183,7 +203,9 @@ def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> Agen
             rationale="The request contains a destructive or irreversible action.",
         )
 
-    ship_at = _last_match(_SHIP_SIGNAL, text)
+    ship_at = _last_positive_ship(text)
+    if _last_match(_SHIP_PROHIBITION_SIGNAL, text) >= ship_at:
+        ship_at = -1
     implement_at = _last_positive_write(text)
     publish_at = _last_positive_publish(text)
     read_only_at = _last_match(_READ_ONLY_SIGNAL, text)

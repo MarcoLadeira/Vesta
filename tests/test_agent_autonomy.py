@@ -50,9 +50,7 @@ class AgentPolicyTests(unittest.TestCase):
         self.assertFalse(policy.allows("merge_pr"))
 
     def test_explicit_push_request_allows_publication_without_merge(self):
-        policy = resolve_agent_policy(
-            "Fix the parser, commit it, and push the branch."
-        )
+        policy = resolve_agent_policy("Fix the parser, commit it, and push the branch.")
 
         self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
         self.assertTrue(policy.allows("push"))
@@ -93,14 +91,27 @@ class AgentPolicyTests(unittest.TestCase):
 
     def test_later_publish_prohibition_overrides_earlier_publish_request(self):
         policy = resolve_agent_policy(
-            "Fix the parser and push the branch. "
-            "Do not push or open a pull request."
+            "Fix the parser and push the branch. Do not push or open a pull request."
         )
 
         self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
         self.assertTrue(policy.allows("edit_files"))
         self.assertFalse(policy.allows("push"))
         self.assertFalse(policy.allows("create_pr"))
+
+    def test_ship_prohibitions_override_earlier_and_local_ship_signals(self):
+        for message in [
+            "Do not merge this PR; implement the fix only.",
+            "Fix the parser, merge it after tests pass. But must not merge.",
+            "Never ship this. Implement the fix and run the relevant tests.",
+        ]:
+            policy = resolve_agent_policy(message)
+
+            self.assertEqual(policy.mode, AgentMode.IMPLEMENT, message)
+            self.assertTrue(policy.allows("edit_files"), message)
+            self.assertFalse(policy.allows("push"), message)
+            self.assertFalse(policy.allows("create_pr"), message)
+            self.assertFalse(policy.allows("merge_pr"), message)
 
     def test_fix_issue_and_make_pr_selects_implement_mode(self):
         policy = resolve_agent_policy("Fix issue #42, run tests, and make a PR.")
