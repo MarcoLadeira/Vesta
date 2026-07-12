@@ -919,6 +919,41 @@ def cmd_savings(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_outcomes(args: argparse.Namespace) -> int:
+    """Report task-outcome metrics (#288): cost per completed task and
+    duplicate-call avoidance, reconciled to the authoritative ledger."""
+    from opaihub.ledger import summarize_outcomes
+
+    root = _project(args.project)
+    summary = summarize_outcomes(root)
+    if getattr(args, "json", False) or not getattr(args, "markdown", False):
+        print_json(summary)
+        return 0
+    spend = summary["spend"]
+    cpct = spend["cost_per_completed_task_usd"]
+    cpct_label = f"${cpct:.6f}" if isinstance(cpct, (int, float)) else "unknown"
+    avoided = summary["duplicate_calls_avoided"]
+    lines = [
+        "# OPai task outcomes",
+        "",
+        f"- Outcomes recorded: **{summary['outcome_count']}**",
+        f"- Completed: **{summary['by_category']['completed']}** · "
+        f"failed: {summary['by_category']['failed']} · "
+        f"blocked: {summary['by_category']['blocked']} · "
+        f"cancelled: {summary['by_category']['cancelled']}",
+        f"- Authoritative spend: **${spend['authoritative_estimated_usd']:.6f}**",
+        f"- Cost per completed task: **{cpct_label}**",
+        f"- Duplicate model calls avoided: **{avoided['from_cache_lookups']}** "
+        "(from cache evidence)",
+        f"- Reconciles to ledger spend: "
+        f"**{'yes' if summary['reconciles_to_ledger'] else 'NO'}**",
+        "",
+        f"_{summary['privacy']}_",
+    ]
+    print("\n".join(lines))
+    return 0
+
+
 def cmd_budget(args: argparse.Namespace) -> int:
     from opaihub.budget import budget_gate, budget_status, set_budget
 
@@ -1951,6 +1986,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include day/week/month/agent/repo savings rollups",
     )
     p.set_defaults(func=cmd_savings)
+
+    p = sub.add_parser(
+        "outcomes",
+        help="Task-outcome metrics: cost per completed task and duplicate calls avoided (#288)",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--markdown", action="store_true", help="Render a short human summary"
+    )
+    p.add_argument(
+        "--json", action="store_true", help="Print the full summary as JSON (default)"
+    )
+    p.set_defaults(func=cmd_outcomes)
 
     p = sub.add_parser(
         "budget",
