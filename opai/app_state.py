@@ -679,7 +679,13 @@ def ask(
     if model_choice and model_choice != "auto":
         runner = runner_for_model(model_choice, project_root)
     return run_ask(
-        root, task, runner=runner, record=True, allow_cloud=allow_cloud, cancel=cancel
+        root,
+        task,
+        runner=runner,
+        record=True,
+        allow_cloud=allow_cloud,
+        allow_edits=allow_edits,
+        cancel=cancel,
     )
 
 

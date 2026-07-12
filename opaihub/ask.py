@@ -69,6 +69,7 @@ def run_ask(
     task: str,
     *,
     allow_cloud: bool = False,
+    allow_edits: bool = False,
     runner: LocalRunner | None = None,
     record: bool = True,
     store_answer: bool = True,
@@ -90,22 +91,45 @@ def run_ask(
         "model_id": model_id,
     }
 
-    # 1. Result cache: a near-duplicate in the same repo state is free.
-    cached = result_cache.lookup(root, task, model_id)
-    if cached is not None:
-        if record:
-            _record(root, task, tier, cache_hit=True)
-        return {
-            **base,
-            "status": "cache_hit",
-            "free": True,
-            "source": "cache",
-            "answer": cached.get("answer", ""),
-        }
+    # 1. Result cache: a near-duplicate in the same repo state is free, but a
+    # cache hit cannot prove a requested repository mutation happened.
+    if not allow_edits:
+        cached = result_cache.lookup(root, task, model_id)
+        if cached is not None:
+            if record:
+                _record(root, task, tier, cache_hit=True)
+            return {
+                **base,
+                "status": "cache_hit",
+                "free": True,
+                "source": "cache",
+                "answer": cached.get("answer", ""),
+            }
 
     # 2. Run locally if a loopback/private model is available.
-    active = runner if runner is not None else detect_local_runner(root)
-    if active is not None and active.available():
+    active = runner
+    active_checked = runner is not None
+    if not active_checked:
+        active = detect_local_runner(root)
+    active_available = active is not None and active.available()
+
+    if allow_edits and active_available:
+        return {
+            **base,
+            "status": "capability_mismatch",
+            "capability": "edit_files",
+            "provider": str(getattr(active, "name", "local")),
+            "reason": (
+                "The selected local runner can answer, but OPai has no bounded "
+                "repository-tool adapter for it yet."
+            ),
+            "hint": (
+                "Switch to Ask or Plan, or choose a provider with bounded "
+                "repository tools for edits."
+            ),
+        }
+
+    if active_available:
         if cancel is not None and cancel.is_set():
             return {**base, "status": "cancelled", "answer": ""}
         prompt = _build_prompt(root, task)

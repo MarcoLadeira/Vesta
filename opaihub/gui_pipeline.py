@@ -1088,12 +1088,34 @@ def handle_gui_message(
         cancel=cancel,
         runner=picked_runner,
         selected_model_id=selected_model if picked_runner is not None else None,
+        allow_edits=allow_edits,
     )
     if result.get("status") == "cancelled":
         _phase_close("cancelled", "Stopped by you")
         _emit("cancelled", "cancelled", "Stopped by you")
         return _decorate(
             _cancelled_result(message, tool_trace, selected_model, selected_mode)
+        )
+    if result.get("status") == "capability_mismatch":
+        answer = str(result.get("hint") or result.get("reason") or "")
+        _phase_close("warning", "Local model cannot enforce this edit mode")
+        _emit(
+            "capability_mismatch",
+            "warning",
+            "Choose a tool-capable provider",
+            metadata={"provider": result.get("provider") or "local"},
+        )
+        return _decorate(
+            {
+                "status": "capability_mismatch",
+                "answer": answer,
+                "tool_trace": tool_trace,
+                "receipt": {},
+                "changed_files": [],
+                "warnings": [{"reason": result.get("reason") or answer}],
+                "next_actions": [result.get("hint") or answer],
+                "raw_result": result,
+            }
         )
     status_map = {
         "answered_locally": "answered",

@@ -132,6 +132,40 @@ class ChatPromptFramingTests(unittest.TestCase):
         self.assertEqual(seen["system"], SYSTEM_PROMPT)
         self.assertTrue(seen["prompt"].startswith("User message: hello"))
 
+    def test_prose_only_local_runner_rejects_edit_before_cache_or_model_call(self):
+        from opaihub.ask import run_ask
+
+        class ProseOnlyRunner:
+            name = "ollama"
+            model = "qwen-coder"
+
+            def __init__(self):
+                self.called = False
+
+            def available(self):
+                return True
+
+            def complete(self, prompt, **kwargs):
+                self.called = True
+                return "I changed app.py"
+
+        runner = ProseOnlyRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch("opaihub.ask.result_cache.lookup") as cache_lookup:
+                result = run_ask(
+                    root,
+                    "Fix app.py",
+                    runner=runner,
+                    record=False,
+                    allow_edits=True,
+                )
+
+        self.assertEqual(result["status"], "capability_mismatch")
+        self.assertEqual(result["capability"], "edit_files")
+        self.assertFalse(runner.called)
+        cache_lookup.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Bug: Codex "unknown variant `default`" surfaced as a generic failure.
