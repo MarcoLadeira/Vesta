@@ -7,10 +7,12 @@ import csv
 import io
 import json
 import os
+import shutil
 import subprocess  # nosec B404 - fixed local artifact commands only
 import sys
 import tempfile
 import time
+from functools import partial
 from pathlib import Path
 
 
@@ -21,6 +23,7 @@ if str(ROOT) not in sys.path:
 from opaihub.desktop_artifacts import (  # noqa: E402
     ArtifactReleaseError,
     isolated_artifact_environment,
+    native_platform_signature_problems,
     scan_artifact_text,
     smoke_commands,
     verify_bundle,
@@ -28,11 +31,25 @@ from opaihub.desktop_artifacts import (  # noqa: E402
 from opaihub.proc import no_window_kwargs  # noqa: E402
 
 
+def _system_executable(name: str) -> str:
+    """Resolve a platform command before invoking it from release verification."""
+    if os.name == "nt":
+        system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+        if system_root:
+            candidate = Path(system_root) / "System32" / name
+            if candidate.is_file():
+                return str(candidate.resolve())
+    resolved = shutil.which(name)
+    if resolved:
+        return str(Path(resolved).resolve())
+    raise OSError(f"required system executable is unavailable: {name}")
+
+
 def _webengine_helpers() -> set[str]:
     if os.name == "nt":
         completed = subprocess.run(  # nosec B603 - fixed Windows process query
             [
-                "tasklist",
+                _system_executable("tasklist.exe"),
                 "/FI",
                 "IMAGENAME eq QtWebEngineProcess.exe",
                 "/FO",
@@ -52,7 +69,7 @@ def _webengine_helpers() -> set[str]:
             if len(row) >= 2 and row[0].casefold() == "qtwebengineprocess.exe"
         }
     completed = subprocess.run(  # nosec B603 - fixed POSIX process query
-        ["ps", "-axo", "pid=,comm="],
+        [_system_executable("ps"), "-axo", "pid=,comm="],
         capture_output=True,
         check=False,
         text=True,
@@ -103,13 +120,29 @@ def main() -> int:
     parser.add_argument("bundle", type=Path)
     parser.add_argument("--timeout", type=int, default=90)
     parser.add_argument("--work-dir", type=Path)
+    parser.add_argument(
+        "--windows-signer-thumbprint",
+        help="Expected Authenticode signer thumbprint from trusted release metadata",
+    )
+    parser.add_argument(
+        "--macos-team-id",
+        help="Expected Developer ID Team ID from trusted release metadata",
+    )
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
 
     bundle = args.bundle.expanduser().resolve()
     try:
-        verification = verify_bundle(bundle)
+        signature_verifier = partial(
+            native_platform_signature_problems,
+            windows_signer_thumbprint=args.windows_signer_thumbprint,
+            macos_team_id=args.macos_team_id,
+        )
+        verification = verify_bundle(
+            bundle,
+            signature_verifier=signature_verifier,
+        )
         artifact_findings = scan_artifact_text(bundle)
         if not verification["ok"] or artifact_findings:
             print(

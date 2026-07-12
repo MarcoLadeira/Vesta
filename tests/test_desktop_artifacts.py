@@ -3,8 +3,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 from dataclasses import replace
+from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 import yaml
 
@@ -56,6 +59,41 @@ class DesktopArtifactContractTests(unittest.TestCase):
                 run_git=_git_with(commit="a" * 40, tag="alpha.2"),
             )
 
+    def test_internal_git_uses_the_resolved_absolute_executable(self):
+        from opaihub import desktop_artifacts
+
+        executable = str((Path("C:/tools/git.exe")).resolve())
+        completed = CompletedProcess([], 0, stdout="a" * 40 + "\n", stderr="")
+        with (
+            patch("shutil.which", return_value=executable),
+            patch.object(
+                desktop_artifacts.subprocess, "run", return_value=completed
+            ) as run,
+        ):
+            result = desktop_artifacts._git(Path("C:/repo"), ["rev-parse", "HEAD"])
+
+        self.assertEqual(result, "a" * 40)
+        self.assertEqual(run.call_args.args[0][0], executable)
+
+    def test_artifact_smoke_environment_strips_signing_credentials(self):
+        from opaihub.desktop_artifacts import isolated_artifact_environment
+
+        secret_names = (
+            "WINDOWS_PFX_BASE64",
+            "WINDOWS_PFX_PASSWORD",
+            "APPLE_DEVELOPER_ID",
+            "APPLE_SIGNING_CERTIFICATE_BASE64",
+            "APPLE_SIGNING_CERTIFICATE_PASSWORD",
+            "APPLE_NOTARY_PROFILE",
+        )
+        environment = isolated_artifact_environment(
+            Path("C:/artifact-smoke-home"),
+            base={name: "must-not-reach-artifact" for name in secret_names},
+        )
+
+        for name in secret_names:
+            self.assertNotIn(name, environment)
+
     def test_rehearsal_ref_is_explicitly_labelled_when_untagged(self):
         assert release_ref is not None
         reference = release_ref(
@@ -89,6 +127,70 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertTrue(verified["ok"])
         self.assertFalse(modified["ok"])
         self.assertIn("hash mismatch", modified["problems"])
+
+    def test_build_metadata_is_preserved_and_bound_by_bundle_evidence(self):
+        assert release_ref is not None
+        assert verify_bundle is not None
+        assert write_bundle_evidence is not None
+        build_metadata = {
+            "python": {"implementation": "CPython", "version": "3.13.5"},
+            "dependencies": {"Nuitka": "4.0", "PySide6": "6.11.1"},
+            "lock": {"name": "desktop-build.windows.lock", "sha256": "a" * 64},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            executable = bundle / "cli" / "opai.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"original executable")
+            reference = release_ref(
+                bundle,
+                run_git=_git_with(commit="e" * 40, tag="v0.2.0a2"),
+            )
+            write_bundle_evidence(
+                bundle,
+                reference,
+                platform="windows",
+                build_metadata=build_metadata,
+            )
+            provenance_path = bundle / "provenance.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            recorded_build = json.loads(json.dumps(provenance["build"]))
+            provenance["build"]["python"]["version"] = "tampered"
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            verified = verify_bundle(bundle)
+
+        self.assertEqual(recorded_build, build_metadata)
+        self.assertFalse(verified["ok"])
+        self.assertIn("hash mismatch", verified["problems"])
+
+    def test_finalizer_preserves_build_metadata_from_unsigned_evidence(self):
+        assert release_ref is not None
+        assert write_bundle_evidence is not None
+        root = Path(__file__).resolve().parents[1]
+        script_path = root / "scripts" / "finalize_desktop_artifact.py"
+        spec = spec_from_file_location("opai_artifact_finalizer_test", script_path)
+        assert spec is not None and spec.loader is not None
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        build_metadata = {"lock": {"name": "desktop-build.windows.lock"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            executable = bundle / "cli" / "opai.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"original executable")
+            reference = release_ref(
+                bundle,
+                run_git=_git_with(commit="f" * 40, tag="v0.2.0a2"),
+            )
+            write_bundle_evidence(
+                bundle,
+                reference,
+                platform="windows",
+                build_metadata=build_metadata,
+            )
+            _release, _platform, preserved = module._release_ref_from_bundle(bundle)
+
+        self.assertEqual(preserved, build_metadata)
 
     def test_unsigned_bundle_is_explicitly_prealpha(self):
         assert release_ref is not None
@@ -389,6 +491,128 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertFalse(verified["ok"])
         self.assertIn("hash mismatch", verified["problems"])
 
+    def test_signed_bundle_requires_a_live_platform_signature_verifier(self):
+        assert release_ref is not None
+        assert verify_bundle is not None
+        assert write_bundle_evidence is not None
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            executable = bundle / "cli" / "opai.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"unsigned executable")
+            reference = release_ref(
+                bundle,
+                run_git=_git_with(commit="4" * 40, tag="v0.2.0a2"),
+            )
+            signing_evidence = {
+                "verified": True,
+                "tool": "Authenticode",
+                "log_sha256": "d" * 64,
+            }
+            write_bundle_evidence(
+                bundle,
+                reference,
+                platform="windows",
+                signing_status="signed",
+                signing_evidence=signing_evidence,
+            )
+            unverified = verify_bundle(bundle)
+            verified = verify_bundle(
+                bundle,
+                signature_verifier=lambda _bundle, _platform: [],
+            )
+
+        self.assertFalse(unverified["ok"])
+        self.assertFalse(unverified["production_ready"])
+        self.assertIn(
+            "platform signature verification is required", unverified["problems"]
+        )
+        self.assertTrue(verified["ok"])
+        self.assertTrue(verified["platform_signature_verified"])
+        self.assertFalse(verified["production_ready"])
+        self.assertTrue(verified["outer_release_authentication_required"])
+
+    def test_native_windows_signature_verifier_checks_all_code_files(self):
+        from opaihub import desktop_artifacts
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            targets = (
+                bundle / "gui" / "OPai.exe",
+                bundle / "cli" / "opai.exe",
+                bundle / "cli" / "runtime.dll",
+                bundle / "cli" / "module.pyd",
+            )
+            for target in targets:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"signed test binary")
+            executable = str((Path("C:/tools/powershell.exe")).resolve())
+            completed = CompletedProcess([], 0, stdout="", stderr="")
+            with (
+                patch("opaihub.desktop_artifacts.os.name", "nt"),
+                patch(
+                    "opaihub.desktop_artifacts.shutil.which", return_value=executable
+                ),
+                patch.object(
+                    desktop_artifacts.subprocess, "run", return_value=completed
+                ) as run,
+            ):
+                problems = desktop_artifacts.native_platform_signature_problems(
+                    bundle,
+                    "windows",
+                    windows_signer_thumbprint="A" * 40,
+                )
+
+        self.assertEqual(problems, [])
+        command = run.call_args.args[0]
+        self.assertEqual(command[0], executable)
+        self.assertIn("A" * 40, command)
+        self.assertIn("Thumbprint", command[4])
+        for target in targets:
+            self.assertIn(str(target), command)
+
+    def test_native_windows_signature_verifier_requires_a_pinned_identity(self):
+        from opaihub import desktop_artifacts
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            target = bundle / "cli" / "opai.exe"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"signed test binary")
+            with patch("opaihub.desktop_artifacts.os.name", "nt"):
+                problems = desktop_artifacts.native_platform_signature_problems(
+                    bundle, "windows"
+                )
+
+        self.assertEqual(problems, ["expected Windows signer thumbprint is required"])
+
+    def test_artifact_smoke_uses_the_native_signature_verifier(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "scripts" / "smoke_desktop_artifacts.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("native_platform_signature_problems", source)
+        self.assertIn("partial(", source)
+        self.assertIn("signature_verifier=signature_verifier", source)
+        self.assertIn("--windows-signer-thumbprint", source)
+        self.assertIn("--macos-team-id", source)
+
+    def test_windows_webengine_helper_uses_an_absolute_tasklist_executable(self):
+        root = Path(__file__).resolve().parents[1]
+        script_path = root / "scripts" / "smoke_desktop_artifacts.py"
+        spec = spec_from_file_location("opai_artifact_smoke_test", script_path)
+        assert spec is not None and spec.loader is not None
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        completed = CompletedProcess([], 0, stdout="", stderr="")
+        with patch.object(module.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(module._webengine_helpers(), set())
+
+        command = run.call_args.args[0]
+        self.assertTrue(Path(command[0]).is_absolute())
+        self.assertEqual(Path(command[0]).name.casefold(), "tasklist.exe")
+
     def test_artifact_workflow_is_manual_tagged_and_cross_platform(self):
         root = Path(__file__).resolve().parents[1]
         workflow_path = root / ".github" / "workflows" / "desktop-artifacts.yml"
@@ -406,8 +630,10 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertEqual(inputs["release_tag"]["required"], "true")
         self.assertIn("unsigned-prealpha", inputs["release_channel"]["options"])
         self.assertIn("production", inputs["release_channel"]["options"])
-        matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["os"]
-        self.assertEqual(set(matrix), {"windows-latest", "macos-latest"})
+        matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["include"]
+        self.assertEqual(
+            {entry["os"] for entry in matrix}, {"windows-latest", "macos-latest"}
+        )
 
         source = workflow_path.read_text(encoding="utf-8")
         for requirement in [
@@ -421,8 +647,243 @@ class DesktopArtifactContractTests(unittest.TestCase):
         ]:
             self.assertIn(requirement, source)
         runbook = runbook_path.read_text(encoding="utf-8").casefold()
-        for requirement in ["portable", "upgrade", "uninstall", "rollback", "unsigned"]:
+        for requirement in [
+            "portable",
+            "upgrade",
+            "uninstall",
+            "rollback",
+            "unsigned",
+            "opai-production-signing",
+            "root of trust",
+            "attestation",
+            "gh attestation verify",
+            "signer thumbprint",
+        ]:
             self.assertIn(requirement, runbook)
+
+    def test_production_workflow_scopes_credentials_to_a_protected_sign_job(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow_path = root / ".github" / "workflows" / "desktop-artifacts.yml"
+        workflow = yaml.load(
+            workflow_path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+        )
+        build = workflow["jobs"]["build"]
+        sign = workflow["jobs"].get("sign")
+
+        self.assertIsNotNone(sign, "production signing must use a separate job")
+        assert sign is not None
+        self.assertEqual(sign["needs"], "build")
+        self.assertEqual(sign["environment"]["name"], "opai-production-signing")
+        self.assertEqual(sign["environment"]["deployment"], "false")
+        self.assertIn("inputs.release_channel == 'production'", sign["if"])
+        self.assertIn("github.ref == 'refs/heads/main'", sign["if"])
+        self.assertNotIn("secrets.", str(build.get("env", {})))
+        self.assertIn("WINDOWS_PFX_BASE64", str(sign["steps"]))
+        self.assertIn("APPLE_SIGNING_CERTIFICATE_BASE64", str(sign["steps"]))
+
+    def test_macos_production_workflow_signs_and_verifies_the_cli(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('CLI="$BUNDLE/cli/opai"', source)
+        self.assertIn(
+            '/usr/bin/codesign --force --options runtime --timestamp --keychain "$KEYCHAIN" --sign "$APPLE_DEVELOPER_ID" "$CLI"',
+            source,
+        )
+        self.assertIn('/usr/bin/codesign --verify --strict --verbose=2 "$CLI"', source)
+        self.assertIn(
+            '/usr/sbin/spctl --assess --type execute --verbose=4 "$CLI"', source
+        )
+        self.assertIn(
+            '/usr/bin/base64 -D > "$CERTIFICATE"',
+            source,
+        )
+        self.assertNotIn("/usr/bin/base64 --decode", source)
+
+    def test_production_workflow_cleans_signing_material_before_artifact_smoke(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("finally {", source)
+        self.assertIn(
+            "Remove-Item -LiteralPath $certificate -Force -ErrorAction SilentlyContinue",
+            source,
+        )
+        self.assertIn("trap cleanup EXIT", source)
+        self.assertIn('security delete-keychain "$KEYCHAIN"', source)
+        self.assertIn('rm -f "$CERTIFICATE"', source)
+        self.assertIn('--keychain "$KEYCHAIN"', source)
+        self.assertNotIn('security list-keychain -d user -s "$KEYCHAIN"', source)
+        self.assertLess(
+            source.index("trap cleanup EXIT"),
+            source.index("Smoke signed native artifact outside checkout"),
+        )
+
+    def test_production_workflow_pins_supply_chain_trust_and_attests_archive(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+            encoding="utf-8"
+        )
+        workflow = yaml.load(source, Loader=yaml.BaseLoader)
+        sign = workflow["jobs"]["sign"]
+        attest = workflow["jobs"].get("attest")
+
+        for action in (
+            "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+            "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+            "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+            "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+            "actions/attest@a1948c3f048ba23858d222213b7c278aabede763",
+        ):
+            self.assertIn(f"uses: {action}", source)
+        self.assertNotRegex(source, r"uses:\\s+actions/[^@]+@v\\d")
+        self.assertIn('test "$(git cat-file -t "$RELEASE_TAG")" = "tag"', source)
+        self.assertIn(
+            'git merge-base --is-ancestor "$EXPECTED_COMMIT" "$GITHUB_SHA"', source
+        )
+        self.assertIsNotNone(attest, "attestation must be a separate job")
+        assert attest is not None
+        self.assertEqual(attest["permissions"]["attestations"], "write")
+        self.assertEqual(attest["permissions"]["id-token"], "write")
+        self.assertEqual(sign["steps"][0]["with"]["fetch-depth"], "0")
+        self.assertIn("Attest signed production archive", source)
+
+    def test_production_workflow_treats_release_tags_as_data_not_shell_code(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('[[ "$RELEASE_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+', source)
+        self.assertNotIn(
+            'powershell -NoProfile -Command "Compress-Archive',
+            source,
+        )
+        self.assertIn("Compress-Archive -LiteralPath $env:BUNDLE", source)
+
+    def test_production_workflow_separates_signing_smoke_and_attestation(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = yaml.load(
+            (root / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+                encoding="utf-8"
+            ),
+            Loader=yaml.BaseLoader,
+        )
+        sign = workflow["jobs"]["sign"]
+        smoke = workflow["jobs"].get("smoke")
+        attest = workflow["jobs"].get("attest")
+
+        self.assertEqual(sign["steps"][0]["with"]["persist-credentials"], "false")
+        self.assertNotIn("id-token", sign["permissions"])
+        self.assertNotIn("attestations", sign["permissions"])
+        self.assertIsNotNone(smoke, "artifact smoke must use an unprivileged job")
+        self.assertIsNotNone(attest, "archive attestation must use a separate job")
+        assert smoke is not None
+        assert attest is not None
+        self.assertEqual(smoke["needs"], "sign")
+        self.assertEqual(attest["needs"], ["sign", "smoke"])
+        self.assertNotIn("id-token", smoke.get("permissions", {}))
+        self.assertNotIn("attestations", smoke.get("permissions", {}))
+        self.assertIn("Smoke signed native artifact", str(smoke["steps"]))
+        self.assertNotIn("Smoke signed native artifact", str(sign["steps"]))
+        self.assertIn("Attest signed production archive", str(attest["steps"]))
+        self.assertNotIn("Attest signed production archive", str(sign["steps"]))
+
+    def test_release_runbook_pins_attestation_to_the_release_workflow(self):
+        root = Path(__file__).resolve().parents[1]
+        runbook = (root / "docs" / "DESKTOP_ARTIFACT_RELEASE.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "--signer-workflow MarcoLadeira/OPai/.github/workflows/desktop-artifacts.yml",
+            runbook,
+        )
+        self.assertIn("--source-ref refs/heads/main", runbook)
+        self.assertIn("--deny-self-hosted-runners", runbook)
+
+    def test_production_workflow_provisions_notarization_and_pinned_signer_identity(
+        self,
+    ):
+        root = Path(__file__).resolve().parents[1]
+        workflow = yaml.load(
+            (root / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+                encoding="utf-8"
+            ),
+            Loader=yaml.BaseLoader,
+        )
+        source = str(workflow)
+        sign = workflow["jobs"]["sign"]
+        smoke = workflow["jobs"]["smoke"]
+
+        for requirement in (
+            "APPLE_NOTARY_APPLE_ID",
+            "APPLE_NOTARY_TEAM_ID",
+            "APPLE_NOTARY_APP_SPECIFIC_PASSWORD",
+            "notarytool store-credentials",
+            '[[ "$APPLE_NOTARY_TEAM_ID" == "$APPLE_TEAM_ID" ]]',
+            "EXPECTED_WINDOWS_SIGNER_THUMBPRINT",
+            "SignerCertificate.Thumbprint",
+            "APPLE_TEAM_ID",
+            "TeamIdentifier=$APPLE_TEAM_ID",
+            "opai-publisher-identity.json",
+            '--windows-signer-thumbprint "$WINDOWS_SIGNER_THUMBPRINT"',
+            '--macos-team-id "$MACOS_TEAM_ID"',
+        ):
+            self.assertIn(requirement, source)
+        self.assertIn("PUBLISHER_IDENTITY", sign["env"])
+        self.assertNotIn("EXPECTED_WINDOWS_SIGNER_THUMBPRINT", smoke["env"])
+        self.assertNotIn("EXPECTED_MACOS_TEAM_ID", smoke["env"])
+
+    def test_workflow_uses_hash_locked_native_build_inputs(self):
+        root = Path(__file__).resolve().parents[1]
+        bootstrap_path = root / "requirements" / "desktop-build-bootstrap.lock"
+        lock_path = root / "requirements" / "desktop-build.windows.lock"
+        workflow = (root / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertTrue(
+            bootstrap_path.is_file(), "native build bootstrap lock is required"
+        )
+        bootstrap = bootstrap_path.read_text(encoding="utf-8")
+        for package in ("pip==", "setuptools==", "wheel=="):
+            self.assertIn(package, bootstrap)
+        self.assertIn("--hash=sha256:", bootstrap)
+        self.assertTrue(lock_path.is_file(), "native build lock is required")
+        lock = lock_path.read_text(encoding="utf-8")
+        self.assertIn("pip==", lock)
+        self.assertIn("setuptools==", lock)
+        self.assertIn("--hash=sha256:", lock)
+        self.assertIn("requirements/desktop-build-bootstrap.lock", workflow)
+        matrix = yaml.load(workflow, Loader=yaml.BaseLoader)["jobs"]["build"][
+            "strategy"
+        ]["matrix"]["include"]
+        lockfiles = {entry["os"]: entry["build_lock"] for entry in matrix}
+        self.assertEqual(
+            lockfiles,
+            {
+                "windows-latest": "requirements/desktop-build.windows.lock",
+                "macos-latest": "requirements/desktop-build.macos.lock",
+            },
+        )
+        self.assertIn('test -f "$DESKTOP_BUILD_LOCK"', workflow)
+        self.assertIn("Missing native build lock", workflow)
+        self.assertIn(' -r "$DESKTOP_BUILD_LOCK"', workflow)
+        self.assertIn('--lock-file "$DESKTOP_BUILD_LOCK"', workflow)
+        self.assertNotIn("requirements/desktop-build.lock", workflow)
+        self.assertLess(
+            workflow.index("requirements/desktop-build-bootstrap.lock"),
+            workflow.index(' -r "$DESKTOP_BUILD_LOCK"'),
+        )
+        self.assertIn("--require-hashes", workflow)
+        self.assertIn("--no-build-isolation", workflow)
+        self.assertIn("--no-deps -e .", workflow)
+        self.assertNotIn("pip install --upgrade pip", workflow)
 
 
 if __name__ == "__main__":

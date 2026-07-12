@@ -1,6 +1,14 @@
-# OPai Business Strategy
+# Archived Pre-Free-Launch Business Strategy
 
 Last updated: 2026-06-20
+
+> **Archived on 2026-07-12.** This research and packaging proposal assumes a
+> paid/open-core launch. OPai's alpha is fully free, so this document must not
+> be used to introduce a checkout, entitlement, license, private-access
+> requirement, or paid feature gate. Retain it only as a post-launch hypothesis
+> bank, to revisit after real free-alpha evidence exists.
+>
+> This document must not be used as current launch policy.
 
 OPai should become the AI coding cost firewall: the local-first control plane developers install before they use Claude, Codex, Copilot, Cursor, Cline, OpenHands, Kilo, or future coding agents.
 

@@ -7,6 +7,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +23,9 @@ from opaihub.desktop_artifacts import (  # noqa: E402
 )
 
 
-def _release_ref_from_bundle(bundle: Path) -> tuple[ReleaseRef, str]:
+def _release_ref_from_bundle(
+    bundle: Path,
+) -> tuple[ReleaseRef, str, dict[str, Any] | None]:
     try:
         provenance = json.loads((bundle / PROVENANCE_NAME).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -34,6 +37,7 @@ def _release_ref_from_bundle(bundle: Path) -> tuple[ReleaseRef, str]:
     tag = provenance.get("tag")
     commit = provenance.get("commit")
     platform = provenance.get("platform")
+    build_metadata = provenance.get("build")
     if (
         not isinstance(tag, str)
         or not isinstance(commit, str)
@@ -44,7 +48,9 @@ def _release_ref_from_bundle(bundle: Path) -> tuple[ReleaseRef, str]:
         raise ArtifactReleaseError(
             "an untagged rehearsal artifact cannot become signed release output"
         )
-    return ReleaseRef(tag=tag, commit=commit), platform
+    if build_metadata is not None and not isinstance(build_metadata, dict):
+        raise ArtifactReleaseError("bundle build metadata is invalid")
+    return ReleaseRef(tag=tag, commit=commit), platform, build_metadata
 
 
 def _log_sha256(path: Path, bundle: Path) -> str:
@@ -79,7 +85,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         bundle = args.bundle.expanduser().resolve()
-        release, platform = _release_ref_from_bundle(bundle)
+        release, platform, build_metadata = _release_ref_from_bundle(bundle)
         log_hash = _log_sha256(args.verification_log, bundle)
         paths = write_bundle_evidence(
             bundle,
@@ -91,6 +97,7 @@ def main() -> int:
                 "tool": str(args.tool).strip(),
                 "log_sha256": log_hash,
             },
+            build_metadata=build_metadata,
         )
         print(
             json.dumps(

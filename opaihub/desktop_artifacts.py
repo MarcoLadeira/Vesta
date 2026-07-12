@@ -7,7 +7,9 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess  # nosec B404 - fixed Git executable and arguments only
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,21 +39,19 @@ GUI_QT_MODULES = (
     "WebEngineCore",
     "WebEngineWidgets",
 )
-ARTIFACT_ENVIRONMENT_BLOCKLIST = frozenset(
+ARTIFACT_ENVIRONMENT_ALLOWLIST = frozenset(
     {
-        "GOOGLE_API_KEY",
-        "GROQ_API_KEY",
-        "MISTRAL_API_KEY",
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
-        "OPAI_HUB_ROOT",
-        "LOCAL_MODEL_URL",
-        "LOCAL_MODEL_NAME",
-        "OLLAMA_HOST",
-        "OLLAMA_MODEL",
-        "PYTHONHOME",
-        "PYTHONPATH",
-        "VIRTUAL_ENV",
+        "comspec",
+        "lang",
+        "lc_all",
+        "lc_ctype",
+        "number_of_processors",
+        "os",
+        "pathext",
+        "processor_architecture",
+        "processor_identifier",
+        "systemroot",
+        "windir",
     }
 )
 _TEXT_ARTIFACT_SUFFIXES = frozenset(
@@ -331,14 +331,170 @@ def smoke_commands(
     )
 
 
+def _completed_detail(completed: subprocess.CompletedProcess[str]) -> str:
+    detail = (completed.stderr or completed.stdout or "unknown verifier error").strip()
+    return detail[-1000:]
+
+
+def native_platform_signature_problems(
+    bundle: Path,
+    platform_name: str,
+    *,
+    windows_signer_thumbprint: str | None = None,
+    macos_team_id: str | None = None,
+) -> list[str]:
+    """Verify all shipped native code with the current platform trust store.
+
+    This is intentionally separate from checksum validation: only the operating
+    system can establish whether a signed native artifact still has a valid
+    platform signature after packaging. The expected publisher identity must be
+    supplied out of band; a generic trusted certificate is not sufficient.
+    """
+    root = bundle.expanduser().resolve()
+    platform_key = str(platform_name).casefold()
+    if platform_key == "windows":
+        expected_thumbprint = (
+            re.sub(r"\\s+", "", windows_signer_thumbprint).upper()
+            if isinstance(windows_signer_thumbprint, str)
+            else ""
+        )
+        if _SHA256_PATTERN.fullmatch(expected_thumbprint) is None and not re.fullmatch(
+            r"[0-9A-F]{40}", expected_thumbprint
+        ):
+            return ["expected Windows signer thumbprint is required"]
+        if os.name != "nt":
+            return ["a Windows artifact can only be signature-verified on Windows"]
+        targets = sorted(
+            path
+            for path in root.rglob("*")
+            if path.is_file() and path.suffix.casefold() in {".exe", ".dll", ".pyd"}
+        )
+        if not targets:
+            return ["Windows bundle has no executable code files to verify"]
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        if not powershell:
+            return ["PowerShell is required to verify Windows Authenticode"]
+        script = (
+            "$ErrorActionPreference = 'Stop'; $expected = $args[0]; $invalid = @(); "
+            "foreach ($path in $args[1..($args.Length - 1)]) { "
+            "$signature = Get-AuthenticodeSignature -LiteralPath $path; "
+            "$thumbprint = ($signature.SignerCertificate.Thumbprint -replace '\\s', '').ToUpperInvariant(); "
+            "if ($signature.Status -ne 'Valid' -or $thumbprint -ne $expected) { "
+            '$invalid += "$path=$($signature.Status):$thumbprint" } }; '
+            "if ($invalid.Count -gt 0) { $invalid | Write-Error; exit 1 }"
+        )
+        try:
+            completed = subprocess.run(  # nosec B603 - fixed verifier and bundle paths
+                [
+                    str(Path(powershell).resolve()),
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    script,
+                    expected_thumbprint,
+                    *[str(path) for path in targets],
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=30,
+                **no_window_kwargs(),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return [f"Authenticode verifier could not run: {exc}"]
+        return (
+            []
+            if completed.returncode == 0
+            else [f"Authenticode rejected bundle code: {_completed_detail(completed)}"]
+        )
+    if platform_key not in {"darwin", "macos"}:
+        return [
+            f"unsupported artifact platform for signature verification: {platform_name}"
+        ]
+    if sys.platform != "darwin":
+        return ["a macOS artifact can only be signature-verified on macOS"]
+    expected_team_id = (
+        macos_team_id.strip().upper() if isinstance(macos_team_id, str) else ""
+    )
+    if not re.fullmatch(r"[A-Z0-9]{10}", expected_team_id):
+        return ["expected macOS Team ID is required"]
+    try:
+        cli = _component_executable(root, "cli", "opai")
+    except ArtifactReleaseError as exc:
+        return [str(exc)]
+    app = root / "gui" / "OPai.app"
+    if not app.is_dir():
+        return ["artifact is missing the GUI application bundle"]
+    commands = (
+        (
+            "codesign GUI",
+            ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)],
+            None,
+        ),
+        (
+            "codesign CLI",
+            ["/usr/bin/codesign", "--verify", "--strict", str(cli)],
+            None,
+        ),
+        (
+            "Gatekeeper GUI",
+            ["/usr/sbin/spctl", "--assess", "--type", "execute", str(app)],
+            None,
+        ),
+        (
+            "Gatekeeper CLI",
+            ["/usr/sbin/spctl", "--assess", "--type", "execute", str(cli)],
+            None,
+        ),
+        (
+            "codesign GUI identity",
+            ["/usr/bin/codesign", "-d", "--verbose=4", str(app)],
+            f"TeamIdentifier={expected_team_id}",
+        ),
+        (
+            "codesign CLI identity",
+            ["/usr/bin/codesign", "-d", "--verbose=4", str(cli)],
+            f"TeamIdentifier={expected_team_id}",
+        ),
+        (
+            "notarisation staple",
+            ["/usr/bin/xcrun", "stapler", "validate", str(app)],
+            None,
+        ),
+    )
+    problems: list[str] = []
+    for label, command, expected_output in commands:
+        try:
+            completed = subprocess.run(  # nosec B603 - fixed macOS verifier and bundle paths
+                command,
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            problems.append(f"{label} verifier could not run: {exc}")
+            continue
+        if completed.returncode != 0:
+            problems.append(f"{label} failed: {_completed_detail(completed)}")
+        elif expected_output is not None and expected_output not in (
+            f"{completed.stdout}\n{completed.stderr}"
+        ):
+            problems.append(f"{label} did not match the expected publisher identity")
+    return problems
+
+
 def isolated_artifact_environment(
     home: Path, base: dict[str, str] | None = None
 ) -> dict[str, str]:
     """Build a hostile clean-user environment for native artifact smoke runs."""
     root = home.expanduser().resolve()
-    environment = dict(os.environ if base is None else base)
-    for name in ARTIFACT_ENVIRONMENT_BLOCKLIST:
-        environment.pop(name, None)
+    source = os.environ if base is None else base
+    environment = {
+        name: value
+        for name, value in source.items()
+        if name.casefold() in ARTIFACT_ENVIRONMENT_ALLOWLIST
+    }
     locations = {
         "HOME": root,
         "USERPROFILE": root,
@@ -351,7 +507,14 @@ def isolated_artifact_environment(
     }
     environment.update({name: str(path) for name, path in locations.items()})
     if os.name == "nt":
-        system_root = environment.get("SystemRoot") or environment.get("WINDIR")
+        system_root = next(
+            (
+                value
+                for name, value in environment.items()
+                if name.casefold() in {"systemroot", "windir"}
+            ),
+            None,
+        )
         if system_root:
             environment["PATH"] = os.pathsep.join(
                 [str(Path(system_root) / "System32"), system_root]
@@ -386,9 +549,13 @@ def scan_artifact_text(bundle: Path) -> list[dict[str, str]]:
 
 
 def _git(root: Path, args: list[str]) -> str:
+    git = shutil.which("git")
+    if not git:
+        raise ArtifactReleaseError("Git is required to identify the release commit")
+    git_executable = str(Path(git).resolve())
     try:
         completed = subprocess.run(  # nosec B603 - args are constant internal Git calls
-            ["git", "-C", str(root), *args],
+            [git_executable, "-C", str(root), *args],
             capture_output=True,
             check=False,
             text=True,
@@ -516,10 +683,10 @@ def _valid_signing_status(value: object, *, platform: object = None) -> bool:
         return False
     if not isinstance(platform, str):
         return False
-    expected_production_ready = status == "signed-and-notarized" or (
-        status == "signed" and platform.casefold() == "windows"
-    )
-    return value.get("production_ready") is expected_production_ready
+    # Native signatures bind executable code but not the complete portable
+    # archive. A production claim additionally needs a detached, authenticated
+    # archive attestation, which cannot safely live inside that archive.
+    return value.get("production_ready") is False
 
 
 def write_bundle_evidence(
@@ -529,8 +696,9 @@ def write_bundle_evidence(
     platform: str,
     signing_status: str = "unsigned-prealpha",
     signing_evidence: dict[str, Any] | None = None,
+    build_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
-    """Write deterministic provenance, checksums, and explicit signing state."""
+    """Write provenance, checksums, and explicit non-root-of-trust signing state."""
     root = bundle.expanduser().resolve()
     if signing_status not in {"unsigned-prealpha", "signed", "signed-and-notarized"}:
         raise ArtifactReleaseError(f"unsupported signing status: {signing_status}")
@@ -559,29 +727,45 @@ def write_bundle_evidence(
     provenance = root / PROVENANCE_NAME
     checksums = root / CHECKSUMS_NAME
     signing = root / SIGNING_STATUS_NAME
+    if build_metadata is not None:
+        if not isinstance(build_metadata, dict) or not build_metadata:
+            raise ArtifactReleaseError("build metadata must be a non-empty object")
+        try:
+            normalized_build_metadata = json.loads(
+                json.dumps(build_metadata, sort_keys=True, separators=(",", ":"))
+            )
+        except (TypeError, ValueError) as exc:
+            raise ArtifactReleaseError(
+                "build metadata must be JSON-serializable"
+            ) from exc
+    else:
+        normalized_build_metadata = None
+    provenance_value: dict[str, Any] = {
+        "schema_version": EVIDENCE_SCHEMA_VERSION,
+        "tag": release.tag,
+        "commit": release.commit,
+        "rehearsal": release.rehearsal,
+        "platform": platform,
+    }
+    if normalized_build_metadata is not None:
+        provenance_value["build"] = normalized_build_metadata
     _write_json(
         provenance,
-        {
-            "schema_version": EVIDENCE_SCHEMA_VERSION,
-            "tag": release.tag,
-            "commit": release.commit,
-            "rehearsal": release.rehearsal,
-            "platform": platform,
-        },
+        provenance_value,
     )
     _write_json(
         signing,
         {
             "schema_version": EVIDENCE_SCHEMA_VERSION,
             "status": signing_status,
-            "production_ready": (
-                signing_status == "signed-and-notarized"
-                or (signing_status == "signed" and platform.casefold() == "windows")
-            ),
+            "production_ready": False,
             "reason": (
                 "Signing and notarisation evidence was not supplied."
                 if signing_status == "unsigned-prealpha"
-                else "External signing evidence must be retained with the release."
+                else (
+                    "Native signing evidence is recorded, but a detached authenticated "
+                    "archive attestation is required before public release."
+                )
             ),
             "verification": signing_evidence,
         },
@@ -624,8 +808,18 @@ def _read_checksums(path: Path) -> dict[str, str] | None:
     return entries
 
 
-def verify_bundle(bundle: Path) -> dict[str, Any]:
-    """Verify local evidence and return machine-readable release diagnostics."""
+def verify_bundle(
+    bundle: Path,
+    *,
+    signature_verifier: Callable[[Path, str], list[str]] | None = None,
+) -> dict[str, Any]:
+    """Verify bundle integrity and require native proof for signed claims.
+
+    Checksums catch accidental corruption, but a signer-status file and its
+    in-bundle manifest are not a cryptographic root of trust. A bundle claiming
+    to be signed therefore needs a current platform verifier and a detached,
+    authenticated archive attestation before it can be publicly released.
+    """
     root = bundle.expanduser().resolve()
     problems: list[str] = []
     provenance = _read_json(root / PROVENANCE_NAME)
@@ -639,8 +833,34 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
     provenance_platform = (
         provenance.get("platform") if isinstance(provenance, dict) else None
     )
-    if not _valid_signing_status(signing, platform=provenance_platform):
+    valid_signing_status = _valid_signing_status(signing, platform=provenance_platform)
+    if not valid_signing_status:
         problems.append("invalid signing status")
+    signing_status = signing.get("status") if isinstance(signing, dict) else None
+    platform_signature_verified = False
+    if valid_signing_status and signing_status != "unsigned-prealpha":
+        if signature_verifier is None:
+            problems.append("platform signature verification is required")
+        else:
+            try:
+                signature_problems = signature_verifier(root, str(provenance_platform))
+            except (ArtifactReleaseError, OSError, subprocess.SubprocessError) as exc:
+                problems.append(f"platform signature verification failed: {exc}")
+            else:
+                if not all(
+                    isinstance(problem, str) and problem
+                    for problem in signature_problems
+                ):
+                    problems.append(
+                        "platform signature verifier returned invalid diagnostics"
+                    )
+                elif signature_problems:
+                    problems.extend(
+                        f"platform signature verification failed: {problem}"
+                        for problem in signature_problems
+                    )
+                else:
+                    platform_signature_verified = True
     if expected is None:
         problems.append("invalid checksums")
         actual: dict[str, str] = {}
@@ -659,7 +879,10 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
         "commit": provenance.get("commit") if provenance else None,
         "platform": provenance.get("platform") if provenance else None,
         "rehearsal": bool(provenance.get("rehearsal")) if provenance else None,
-        "signing_status": signing.get("status") if signing else None,
-        "production_ready": bool(signing.get("production_ready")) if signing else False,
+        "signing_status": signing_status,
+        "platform_signature_verified": platform_signature_verified,
+        "production_ready": False,
+        "outer_release_authentication_required": signing_status
+        in {"signed", "signed-and-notarized"},
         "file_count": len(actual),
     }

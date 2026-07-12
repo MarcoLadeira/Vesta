@@ -1,5 +1,6 @@
 """Funnel + positioning guards (business strategy GTM)."""
 
+import re
 import unittest
 from pathlib import Path
 
@@ -17,11 +18,25 @@ class SiteFunnelTests(unittest.TestCase):
         for client in ["Claude", "Codex", "Copilot", "Cursor", "Cline"]:
             self.assertIn(client, self.html)
 
-    def test_private_access_keeps_public_install_urls_off_site(self):
+    def test_free_alpha_has_no_paid_or_private_access_gate(self):
         self.assertNotIn("raw.githubusercontent.com/MarcoLadeira/OPai", self.html)
         self.assertNotIn("install.ps1", self.html)
         self.assertNotIn("install.sh", self.html)
-        self.assertIn("Private install command appears after paid access", self.html)
+        self.assertNotIn('python -m pip install "opai[desktop-gui]"', self.html)
+        self.assertIn("Free public alpha", self.html)
+        self.assertIn(
+            "No checkout, license, invitation, or private-access link", self.html
+        )
+        self.assertIn("There is no public package installation command yet", self.html)
+        self.assertIn("github.com/MarcoLadeira/OPai/releases", self.html)
+        for token in [
+            "PRIVATE_FOUNDING_PRO_CHECKOUT_URL",
+            "PRIVATE_TEAM_PILOT_APPLY_URL",
+            "PRIVATE_BENCHMARK_PROOF_URL",
+            "data-private-link",
+            "data-checkout-provider",
+        ]:
+            self.assertNotIn(token, self.html)
         self.assertIn("opai quickstart", self.html)
         self.assertIn("opai benchmark run --suite max --mode both", self.html)
         self.assertIn(
@@ -43,19 +58,24 @@ class SiteFunnelTests(unittest.TestCase):
         ]:
             self.assertNotIn(tracker, lowered)
 
-    def test_pricing_matches_editions(self):
-        # $12/mo, $99/yr, $19/user — must match hub/editions.yaml.
-        for token in ["$12", "$99", "$19", "$29"]:
-            self.assertIn(token, self.html)
+    def test_free_alpha_has_no_paid_pricing_cards(self):
+        for token in ["$12", "$99", "$19", "$29", "Founding Pro", "Team Pilot"]:
+            self.assertNotIn(token, self.html)
+        self.assertIn("$0", self.html)
+        self.assertIn("Future pricing follows evidence", self.html)
 
-    def test_launch_ctas_match_go_to_market_plan(self):
-        for token in ["Get OPai Access", "Buy Founding Pro", "Apply for Team Pilot"]:
+    def test_launch_ctas_match_free_alpha_contract(self):
+        for token in ["Get OPai Free", "Run the proof loop", "See alpha readiness"]:
             self.assertIn(token, self.html)
-        self.assertIn("Controlled Alpha", self.html)
-        self.assertIn("Founding Pro", self.html)
-        self.assertIn("Team Pilot", self.html)
+        self.assertIn("Free public alpha", self.html)
 
-    def test_paid_access_does_not_use_public_repo_intake(self):
+    def test_footer_uses_the_current_release_identifier(self):
+        pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+        match = re.search(r'^release = "([^"]+)"$', pyproject, re.MULTILINE)
+        self.assertIsNotNone(match)
+        self.assertIn(match.group(1).replace("-", " "), self.html)
+
+    def test_free_alpha_has_no_paid_checkout_or_private_intake(self):
         self.assertNotIn("issues/new", self.html)
         self.assertNotIn("founding-pro-interest.yml", self.html)
         self.assertNotIn("team-pilot.yml", self.html)
@@ -66,12 +86,9 @@ class SiteFunnelTests(unittest.TestCase):
             ".github/ISSUE_TEMPLATE/benchmark-proof.yml",
         ]:
             self.assertFalse((REPO / relative).exists(), relative)
-        for token in [
-            "PRIVATE_FOUNDING_PRO_CHECKOUT_URL",
-            "PRIVATE_TEAM_PILOT_APPLY_URL",
-            "PRIVATE_BENCHMARK_PROOF_URL",
-        ]:
-            self.assertIn(token, self.html)
+        self.assertNotIn("data-checkout", self.html.lower())
+        self.assertNotIn("buy founding", self.html.lower())
+        self.assertNotIn("paid access", self.html.lower())
 
 
 class StrategyAndCommandsTests(unittest.TestCase):
@@ -93,6 +110,55 @@ class StrategyAndCommandsTests(unittest.TestCase):
         readme = (REPO / "README.md").read_text(encoding="utf-8")
         self.assertIn("site/index.html", readme)
         self.assertIn("docs/BUSINESS_STRATEGY.md", readme)
+
+    def test_readme_declares_a_fully_free_alpha(self):
+        readme = (REPO / "README.md").read_text(encoding="utf-8")
+        self.assertIn("fully free", readme.lower())
+        self.assertNotIn("Paid users and Team Pilot customers", readme)
+
+    def test_current_onboarding_does_not_claim_an_archived_release_path(self):
+        for relative in ["README.md", "docs/QUICKSTART.md"]:
+            text = (REPO / relative).read_text(encoding="utf-8")
+            self.assertIn("github.com/MarcoLadeira/OPai/releases", text, relative)
+            self.assertIn("no public", text.lower(), relative)
+            self.assertNotIn(
+                "current verified release path is described in the release notes",
+                text.lower(),
+                relative,
+            )
+
+    def test_public_copy_does_not_advertise_an_unpublished_install_path(self):
+        readme = (REPO / "README.md").read_text(encoding="utf-8")
+        quickstart = (REPO / "docs" / "QUICKSTART.md").read_text(encoding="utf-8")
+        launch_checklist = (REPO / "docs" / "LAUNCH_CHECKLIST.md").read_text(
+            encoding="utf-8"
+        )
+        publishing = (REPO / "docs" / "PUBLISHING.md").read_text(encoding="utf-8")
+        site_readme = (REPO / "site" / "README.md").read_text(encoding="utf-8")
+        site = (REPO / "site" / "index.html").read_text(encoding="utf-8")
+
+        self.assertNotIn("# From PyPI / a published wheel:", readme)
+        self.assertIn("no public desktop artifact", readme.lower())
+        self.assertIn("python -m pip install -e .", quickstart)
+        self.assertIn("after a verified artifact is published", launch_checklist)
+        self.assertIn(
+            "No public package, desktop artifact, or GitHub installation command is available",
+            publishing,
+        )
+        self.assertNotIn("pipx install git+", publishing)
+        self.assertNotIn("free alpha install", site_readme.lower())
+        self.assertNotIn('aria-label="Windows install command"', site)
+        self.assertNotIn('aria-label="macOS and Linux install command"', site)
+
+    def test_paid_launch_strategy_documents_are_explicitly_archived(self):
+        for relative in [
+            "docs/BUSINESS_STRATEGY.md",
+            "docs/COMMERCIAL_ACCESS_AND_IP_PROTECTION.md",
+        ]:
+            text = (REPO / relative).read_text(encoding="utf-8")
+            normalized = " ".join(text.lower().split())
+            self.assertIn("Archived Pre-Free-Launch", text, relative)
+            self.assertIn("must not be used", normalized, relative)
 
 
 if __name__ == "__main__":

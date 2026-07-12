@@ -1,5 +1,10 @@
 # OPai v0.2.0-alpha.1 Release Notes
 
+> **Historical release note.** This document records the earlier alpha.1
+> private-access proposal. It is superseded by the fully free public-alpha
+> strategy and must not be used as current checkout, license, or distribution
+> guidance.
+
 OPai v0.2.0-alpha.1 is the public alpha launch candidate for the AI coding cost
 firewall.
 

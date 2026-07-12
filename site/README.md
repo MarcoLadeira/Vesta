@@ -1,35 +1,28 @@
 # OPai Launch Site
 
-This folder is the static public install funnel for OPai.
+This folder is the static free-public-alpha funnel for OPai.
 
 ## Primary Funnel
 
 ```text
-page visit -> paid/private access -> install OPai -> opai doctor -> opai benchmark max -> opai savings -> private proof/payment/pilot signal
+page visit -> verified release availability -> free install when published -> opai doctor -> local proof loop -> privacy-safe feedback -> evidence-led product learning
 ```
 
 The page has one primary CTA:
 
-- Get OPai Access.
+- Get OPai Free.
 
-It has two revenue CTAs:
+The supporting CTAs are **Run the proof loop** and **See alpha readiness**.
+The public offer language is **Free public alpha**: no checkout, license,
+invitation, or private-link gate. The page intentionally avoids raw GitHub
+installation URLs; free access does not require the project to choose an open-
+source distribution posture. Until a verified artifact exists, it links only to
+the GitHub Releases page and says that there is no public package installation
+command yet.
 
-- Buy Founding Pro.
-- Apply for Team Pilot.
-
-The public offer language is **Controlled Alpha**, not free public source
-distribution. Do not publish raw GitHub install URLs on this page unless OPai is
-intentionally open source.
-
-The revenue buttons must not fall back to GitHub issue forms. Replace these
-private-link placeholders in `index.html` before public hosting:
-
-- `PRIVATE_FOUNDING_PRO_CHECKOUT_URL`
-- `PRIVATE_TEAM_PILOT_APPLY_URL`
-- `PRIVATE_BENCHMARK_PROOF_URL`
-
-Use Lemon Squeezy or Gumroad for checkout, and a private form or private support
-channel for Team Pilot and benchmark proof submissions.
+Use a privacy-safe support channel for optional feedback and benchmark evidence.
+Do not add payment buttons, private-access placeholders, or public issue forms
+as a substitute for a support workflow.
 
 ## Cloudflare Pages
 

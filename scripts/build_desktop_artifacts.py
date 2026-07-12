@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import platform
 import shutil
@@ -108,6 +109,57 @@ def _verify_build_environment(build_python: Path) -> dict[str, str]:
     return versions
 
 
+def _build_metadata(build_python: Path, *, lock_file: Path | None) -> dict[str, object]:
+    """Capture only reproducibility-relevant, non-secret build evidence."""
+    probe = subprocess.run(  # nosec B603 - fixed local interpreter probe only
+        [
+            str(build_python),
+            "-c",
+            (
+                "import importlib.metadata as m, json, platform, sys; "
+                "names = ('Nuitka', 'PySide6', 'PyYAML', 'keyring', 'pip', "
+                "'setuptools', 'wheel'); "
+                "print(json.dumps({'python': {'implementation': "
+                "platform.python_implementation(), 'version': "
+                "platform.python_version(), 'cache_tag': "
+                "sys.implementation.cache_tag}, 'runner': {'system': "
+                "platform.system(), 'release': platform.release(), 'machine': "
+                "platform.machine()}, 'dependencies': {name: m.version(name) "
+                "for name in names}}, sort_keys=True))"
+            ),
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=20,
+        **no_window_kwargs(),
+    )
+    if probe.returncode != 0:
+        raise ArtifactReleaseError("selected build Python cannot report build metadata")
+    try:
+        metadata = json.loads(probe.stdout)
+    except json.JSONDecodeError as exc:
+        raise ArtifactReleaseError(
+            "selected build Python returned invalid build metadata"
+        ) from exc
+    if not isinstance(metadata, dict):
+        raise ArtifactReleaseError(
+            "selected build Python returned invalid build metadata"
+        )
+    if lock_file is not None:
+        try:
+            contents = lock_file.read_bytes()
+        except OSError as exc:
+            raise ArtifactReleaseError(
+                f"native build lock is unreadable: {lock_file}"
+            ) from exc
+        metadata["lock"] = {
+            "name": lock_file.name,
+            "sha256": hashlib.sha256(contents).hexdigest(),
+        }
+    return metadata
+
+
 def _prepare_staging(work: Path, specs: DeploymentSpecs) -> DeploymentSpecs:
     staging = work / "staging"
     staging.mkdir(parents=True, exist_ok=False)
@@ -167,6 +219,10 @@ def main() -> int:
         default=sys.executable,
         help="Python from the isolated PySide6/Nuitka build environment",
     )
+    parser.add_argument(
+        "--lock-file",
+        help="Reviewed hash lock used to install the isolated build environment",
+    )
     parser.add_argument("--allow-untagged", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
@@ -193,6 +249,11 @@ def main() -> int:
                 f"refusing to overwrite non-empty output directory: {destination}"
             )
         build_python = Path(args.build_python).expanduser().resolve()
+        lock_file = (
+            Path(args.lock_file).expanduser().resolve() if args.lock_file else None
+        )
+        if lock_file is not None and not lock_file.is_file():
+            raise ArtifactReleaseError(f"native build lock is missing: {lock_file}")
         deploy_script = _deploy_script(build_python)
         raw_output = Path(tempfile.gettempdir()) / "opai-artifact-dry-run" / "raw"
         specs = deployment_specs(ROOT, raw_output)
@@ -222,6 +283,7 @@ def main() -> int:
             return 0
 
         _verify_build_environment(build_python)
+        build_metadata = _build_metadata(build_python, lock_file=lock_file)
         destination.mkdir(parents=True, exist_ok=False)
         with tempfile.TemporaryDirectory(prefix="opai-artifact-build-") as temporary:
             work = Path(temporary)
@@ -255,6 +317,7 @@ def main() -> int:
             reference,
             platform=platform.system().lower(),
             signing_status="unsigned-prealpha",
+            build_metadata=build_metadata,
         )
         print(
             json.dumps(

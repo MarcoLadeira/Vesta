@@ -13,7 +13,12 @@ OPai 0.2.0 alpha.2 is a local-first AI coding hub that installs into your termin
 
 The goal is simple: make AI-assisted development feel close to "one prompt to build, one prompt to ship" without blindly burning expensive model credits.
 
-## Prove it in 60 seconds
+## After a verified release or contributor install
+
+There is no public package or desktop artifact installation command yet. The
+commands below apply after a verified free artifact is published on
+[GitHub Releases](https://github.com/MarcoLadeira/OPai/releases), or when you
+have installed this source checkout for contributor development.
 
 ```sh
 opai gui                                        # simple desktop chat app: type a task, pick your model, run it local-first
@@ -38,16 +43,14 @@ path while showing every step and the running cost. It renders in Chromium
 local: no telemetry, and nothing leaves your machine unless you confirm a cloud
 call.
 
-### 1. Install the GUI
+### 1. Current GUI availability
 
 The desktop UI needs the optional `desktop-gui` extra (PySide6 + keyring); the
-core CLI does not depend on Qt.
+core CLI does not depend on Qt. There is no public GUI package command until a
+verified release artifact exists. For contributor development from this source
+checkout, install the optional extra explicitly:
 
 ```sh
-# From PyPI / a published wheel:
-python -m pip install "opai[desktop-gui]"
-
-# From a source checkout (this repo):
 python -m pip install -e ".[desktop-gui]"
 ```
 
@@ -57,8 +60,8 @@ Verify it can start without opening a window:
 opai gui --once        # prints the control-center state as JSON, exits 0 if ready
 ```
 
-If you see `{"status": "gui_unavailable", ...}`, install the extra above (that is
-the only requirement).
+If you see `{"status": "gui_unavailable", ...}`, install the contributor extra
+above or wait for the verified public artifact (that is the only requirement).
 
 ### 2. Launch it
 
@@ -152,7 +155,8 @@ opai gui --screenshot out.png --width 1440 --height 900
 ```
 
 **New to OPai?** The one-page install funnel lives in [`site/index.html`](site/index.html).
-Read the [Business Strategy](docs/BUSINESS_STRATEGY.md) for positioning and the
+Read the [archived pre-free-launch business strategy](docs/BUSINESS_STRATEGY.md)
+for historical positioning hypotheses and the
 [free public-alpha policy](hub/docs/PRICING_AND_EDITIONS.md).
 
 See also the [Quickstart](docs/QUICKSTART.md), the grounded
@@ -162,9 +166,9 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [launch checklist](docs/LAUNCH_CHECKLIST.md), the
 [30-day go-to-market plan](docs/GO_TO_MARKET_30_DAY_PLAN.md), the
 [launch revenue runbook](docs/LAUNCH_REVENUE_RUNBOOK.md), the
-[commercial access/IP protection plan](docs/COMMERCIAL_ACCESS_AND_IP_PROTECTION.md), the
+[archived commercial access/IP protection plan](docs/COMMERCIAL_ACCESS_AND_IP_PROTECTION.md), the
 [effectiveness/security audit](docs/EFFECTIVENESS_AND_SECURITY_AUDIT_2026_06_21.md), the
-[alpha release notes](docs/RELEASE_0_2_0_ALPHA_1.md), the
+[archived alpha.1 release notes](docs/RELEASE_0_2_0_ALPHA_1.md), the
 [testing guide](docs/TESTING.md), the [QA report](docs/QA_REPORT.md), and
 [free public-alpha availability policy](hub/docs/PRICING_AND_EDITIONS.md).
 
@@ -214,9 +218,11 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 ## Free Public Alpha
 
 OPai alpha launches fully free. No checkout, license, invitation, or private
-access link is required to use alpha functionality. The current verified release
-path is described in the release notes; source/development installation remains
-available separately for contributors.
+access link is required to use alpha functionality. **No public desktop artifact
+or package installation command is published yet.** When platform release proof
+is complete, the current verified path will be published on
+[GitHub Releases](https://github.com/MarcoLadeira/OPai/releases); source and
+development installation remain available separately for contributors.
 
 After install, restart your terminal and AI clients once, then check:
 

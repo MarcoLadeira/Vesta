@@ -54,8 +54,8 @@ def _load_font(px: int) -> ImageFont.FreeTypeFont:
     font = ImageFont.truetype(str(FONT), px)
     try:  # Nunito is a variable font — pin the heaviest weight for a bold mark.
         font.set_variation_by_axes([900])
-    except Exception:  # noqa: BLE001 - static fallback is fine
-        pass
+    except (AttributeError, OSError, ValueError):
+        return font
     return font
 
 
