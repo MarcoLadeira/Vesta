@@ -1599,7 +1599,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="App/folder name (default: derived from the description)",
     )
-    p.add_argument("--type", default="web", help="App kind: web | static")
+    p.add_argument(
+        "--type",
+        default="auto",
+        help="App kind: auto (infer) | web | static | data",
+    )
     p.add_argument(
         "--into",
         default=None,

@@ -10,7 +10,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from opaihub.app_scaffold import kinds, scaffold_app, slugify
+from opaihub.app_scaffold import infer_kind, kinds, scaffold_app, slugify
+from opaihub.app_verify import verify_app
 
 
 class SlugifyTests(unittest.TestCase):
@@ -81,6 +82,65 @@ class ScaffoldStaticTests(unittest.TestCase):
             self.assertFalse((root / "app.js").exists())
 
 
+class DataTemplateTests(unittest.TestCase):
+    def test_data_kind_writes_a_working_list_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = scaffold_app(Path(tmp), "A todo app", kind="data")
+            root = Path(result.root)
+            self.assertEqual(result.kind, "data")
+            self.assertEqual(
+                sorted(result.files),
+                ["README.md", "app.js", "index.html", "styles.css"],
+            )
+            app_js = (root / "app.js").read_text(encoding="utf-8")
+            # It really is a working CRUD skeleton, not a stub.
+            for fn in ("function addItem", "function deleteItem", "localStorage"):
+                self.assertIn(fn, app_js)
+            # The storage key is namespaced to the app.
+            self.assertIn('"a-todo-app.items"', app_js)
+
+    def test_the_scaffolded_data_app_passes_verification(self):
+        # The strongest guarantee: a fresh data app is structurally sound —
+        # doctype, wired assets, balanced JS/CSS — so `opai build` can verify
+        # against a known-good baseline.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = scaffold_app(Path(tmp), "a grocery list", kind="data")
+            report = verify_app(
+                Path(result.root),
+                entrypoint="index.html",
+                files=["app.js", "styles.css"],
+            )
+            self.assertTrue(report["ok"], report)
+
+
+class InferKindTests(unittest.TestCase):
+    def test_list_apps_infer_the_data_template(self):
+        for desc in (
+            "a todo app",
+            "notes with tags",
+            "an expense tracker",
+            "grocery shopping list",
+            "habit tracker",
+        ):
+            self.assertEqual(infer_kind(desc), "data", desc)
+
+    def test_landing_phrasing_infers_static(self):
+        self.assertEqual(infer_kind("a landing page for my startup"), "static")
+        self.assertEqual(infer_kind("my portfolio"), "static")
+
+    def test_generic_falls_back_to_web(self):
+        self.assertEqual(infer_kind("a drawing canvas"), "web")
+        self.assertEqual(infer_kind(""), "web")
+
+    def test_auto_kind_resolves_via_inference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = scaffold_app(Path(tmp), "a todo app", kind="auto")
+            self.assertEqual(result.kind, "data")
+        with tempfile.TemporaryDirectory() as tmp:
+            result = scaffold_app(Path(tmp), "a photo gallery", kind="auto")
+            self.assertEqual(result.kind, "web")
+
+
 class ScaffoldSafetyTests(unittest.TestCase):
     def test_unknown_kind_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -110,6 +170,7 @@ class ScaffoldSafetyTests(unittest.TestCase):
     def test_known_kinds(self):
         self.assertIn("web", kinds())
         self.assertIn("static", kinds())
+        self.assertIn("data", kinds())
 
 
 class CliNewCommandTests(unittest.TestCase):
