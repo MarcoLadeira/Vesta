@@ -374,6 +374,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         args.request,
         model=args.model,
         dry_run=args.dry_run,
+        strict=args.strict,
     )
     if args.json:
         print_json(report)
@@ -388,6 +389,16 @@ def cmd_build(args: argparse.Namespace) -> int:
             f" · {context['saved_pct']}% trimmed): {', '.join(context['files'])}"
         )
         return 0
+    if status == "rolled_back":
+        verify = report.get("verify") or {}
+        failures = [c for c in verify.get("checks") or [] if not c.get("ok")]
+        print(
+            "✗ verification failed — the edit was rolled back, your app is unchanged:"
+        )
+        for check in failures[:6]:
+            print(f"    {check['path']} · {check['check']}: {check['detail']}")
+        print(f"  (the attempted files remain in {report.get('backup_dir')})")
+        return 2
     if not report.get("ok"):
         detail = report.get("error") or report.get("answer") or status
         print(f"✗ {status}: {str(detail)[:400]}")
@@ -398,6 +409,16 @@ def cmd_build(args: argparse.Namespace) -> int:
         )
     for item in report.get("rejected") or []:
         print(f"! rejected {item['path']}: {item['reason']}")
+    verify = report.get("verify") or {}
+    if verify:
+        if verify.get("ok"):
+            print(f"  verified: {verify['passed']} structural check(s) passed")
+        else:
+            print(f"  ⚠ verification: {verify['failed']} check(s) FAILED:")
+            for check in verify.get("checks") or []:
+                if not check.get("ok"):
+                    print(f"    {check['path']} · {check['check']}: {check['detail']}")
+            print("    (backups kept — rerun with --strict to auto-rollback)")
     context = report.get("context") or {}
     if context:
         print(
@@ -1560,6 +1581,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Show what context would be sent; no AI call, no writes",
+    )
+    p.add_argument(
+        "--strict",
+        action="store_true",
+        help="Roll the edit back automatically if structural verification fails",
     )
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_build)
