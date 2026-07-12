@@ -255,9 +255,33 @@ def cmd_github(args: argparse.Namespace) -> int:
 
 
 def cmd_gui(args: argparse.Namespace) -> int:
+    root = _project(args.project)
+    if getattr(args, "artifact_smoke", False):
+        result_path = str(getattr(args, "result", "") or "").strip()
+        if not result_path:
+            print_json(
+                {
+                    "ok": False,
+                    "status": "artifact_smoke_invalid",
+                    "error": "--artifact-smoke requires --result PATH",
+                }
+            )
+            return 2
+        from opai.gui_web import run_artifact_smoke
+
+        try:
+            result = run_artifact_smoke(
+                root,
+                Path(result_path),
+                timeout_seconds=int(getattr(args, "smoke_timeout", 30)),
+            )
+        except Exception as exc:  # noqa: BLE001 - artifact smoke must surface a typed failure
+            result = {"ok": False, "status": "artifact_smoke_failed", "error": str(exc)}
+        print_json(result)
+        return 0 if result.get("ok") else 1
+
     from opai.gui_desktop import INSTALL_HINT, launch, render_screenshot, run_once
 
-    root = _project(args.project)
     if args.once:
         summary = run_once(root)
         print_json(summary)
@@ -1699,6 +1723,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Render a desktop GUI screenshot for visual QA and exit",
     )
+    p.add_argument("--artifact-smoke", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--result", help=argparse.SUPPRESS)
+    p.add_argument("--smoke-timeout", type=int, default=30, help=argparse.SUPPRESS)
     p.add_argument("--width", type=int, default=1040, help=argparse.SUPPRESS)
     p.add_argument("--height", type=int, default=720, help=argparse.SUPPRESS)
     p.add_argument(

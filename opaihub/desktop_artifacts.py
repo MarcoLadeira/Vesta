@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
+import shlex
 import subprocess  # nosec B404 - fixed Git executable and arguments only
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -34,6 +37,54 @@ GUI_QT_MODULES = (
     "WebEngineCore",
     "WebEngineWidgets",
 )
+ARTIFACT_ENVIRONMENT_BLOCKLIST = frozenset(
+    {
+        "GOOGLE_API_KEY",
+        "GROQ_API_KEY",
+        "MISTRAL_API_KEY",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "OPAI_HUB_ROOT",
+        "LOCAL_MODEL_URL",
+        "LOCAL_MODEL_NAME",
+        "OLLAMA_HOST",
+        "OLLAMA_MODEL",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "VIRTUAL_ENV",
+    }
+)
+_TEXT_ARTIFACT_SUFFIXES = frozenset(
+    {
+        ".cfg",
+        ".conf",
+        ".css",
+        ".html",
+        ".ini",
+        ".js",
+        ".json",
+        ".log",
+        ".md",
+        ".plist",
+        ".py",
+        ".toml",
+        ".txt",
+        ".yaml",
+        ".yml",
+    }
+)
+_SECRET_PATTERN = re.compile(
+    r"(?:\bsk-[A-Za-z0-9_-]{20,}\b|\bghp_[A-Za-z0-9]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b|\bAIza[A-Za-z0-9_-]{20,}\b)",
+    flags=re.IGNORECASE,
+)
+_PRIVATE_URL_PATTERN = re.compile(
+    r"https?://(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|[a-z0-9-]+\.local)(?::\d+)?(?:[/?#]|$)",
+    flags=re.IGNORECASE,
+)
+_DEVELOPMENT_OVERRIDE_PATTERN = re.compile(
+    r"\b(?:OPAI_HUB_ROOT|LOCAL_MODEL_URL|LOCAL_MODEL_NAME|PYTHONPATH)\s*=",
+    flags=re.IGNORECASE,
+)
 _EVIDENCE_FILENAMES = frozenset({CHECKSUMS_NAME, PROVENANCE_NAME, SIGNING_STATUS_NAME})
 
 
@@ -57,6 +108,7 @@ class DeploymentSpec:
     component: str
     tool: str
     name: str
+    project_root: Path
     entrypoint: Path
     output_dir: Path
     qt_modules: tuple[str, ...]
@@ -102,7 +154,7 @@ def _data_file_arg(root: Path, relative: Path) -> str:
         raise ArtifactReleaseError(
             f"required desktop runtime file is missing: {relative}"
         )
-    return f"--include-data-files={source}={relative.as_posix()}"
+    return f"--include-data-files={source.as_posix()}={relative.as_posix()}"
 
 
 def _data_dir_arg(root: Path, relative: Path) -> str:
@@ -111,7 +163,7 @@ def _data_dir_arg(root: Path, relative: Path) -> str:
         raise ArtifactReleaseError(
             f"required desktop runtime directory is missing: {relative}"
         )
-    return f"--include-data-dir={source}={relative.as_posix()}"
+    return f"--include-data-dir={source.as_posix()}={relative.as_posix()}"
 
 
 def deployment_specs(project_root: Path, output_dir: Path) -> DeploymentSpecs:
@@ -147,6 +199,7 @@ def deployment_specs(project_root: Path, output_dir: Path) -> DeploymentSpecs:
             component="gui",
             tool="pyside6-deploy",
             name="OPai",
+            project_root=root,
             entrypoint=gui_entry,
             output_dir=output / "gui",
             qt_modules=GUI_QT_MODULES,
@@ -156,12 +209,177 @@ def deployment_specs(project_root: Path, output_dir: Path) -> DeploymentSpecs:
             component="cli",
             tool="python -m nuitka",
             name="opai",
+            project_root=root,
             entrypoint=cli_entry,
             output_dir=output / "cli",
             qt_modules=(),
             extra_args=cli_args,
         ),
     )
+
+
+def render_pyside_deploy_spec(spec: DeploymentSpec, *, build_python: Path) -> str:
+    """Render a self-contained PySide6 Deploy config for the GUI component."""
+    if spec.tool != "pyside6-deploy":
+        raise ArtifactReleaseError("only the GUI component may use PySide6 Deploy")
+    root = spec.project_root
+    icon = root / "opai" / "assets" / "opai-icon.png"
+    if not icon.is_file():
+        raise ArtifactReleaseError("desktop icon is missing")
+    pins = load_build_pins(root)
+    extra_args = shlex.join(spec.extra_args)
+    return "\n".join(
+        (
+            "[app]",
+            f"title = {spec.name}",
+            f"project_dir = {root.as_posix()}",
+            f"input_file = {spec.entrypoint.as_posix()}",
+            f"exec_directory = {spec.output_dir.as_posix()}",
+            f"icon = {icon.as_posix()}",
+            "",
+            "[python]",
+            f"python_path = {build_python.as_posix()}",
+            f"packages = Nuitka=={pins['Nuitka']}",
+            "",
+            "[qt]",
+            f"modules = {','.join(spec.qt_modules)}",
+            "",
+            "[nuitka]",
+            "mode = standalone",
+            f"extra_args = {extra_args}",
+            "",
+        )
+    )
+
+
+def build_commands(
+    specs: DeploymentSpecs,
+    *,
+    build_python: Path,
+    deploy_script: Path,
+    spec_dir: Path,
+) -> tuple[list[str], list[str]]:
+    """Return exact GUI/CLI build commands without executing or downloading."""
+    nuitka_version = REQUIRED_BUILD_PINS["Nuitka"]
+    gui_spec_path = spec_dir / "gui-pyside6-deploy.spec"
+    gui_command = [
+        str(build_python),
+        str(deploy_script),
+        "--config-file",
+        str(gui_spec_path),
+        "--force",
+        f"--nuitka-version={nuitka_version}",
+    ]
+    cli_command = [
+        str(build_python),
+        "-m",
+        "nuitka",
+        str(specs.cli.entrypoint),
+        "--standalone",
+        "--follow-imports",
+        f"--output-dir={specs.cli.output_dir}",
+        f"--output-filename={specs.cli.name}",
+        *specs.cli.extra_args,
+    ]
+    return (gui_command, cli_command)
+
+
+def _component_executable(bundle: Path, component: str, name: str) -> Path:
+    directory = bundle / component
+    candidates = (
+        directory / f"{name}.exe",
+        directory / name,
+        directory / f"{name}.app" / "Contents" / "MacOS" / name,
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise ArtifactReleaseError(f"artifact is missing the {component} executable")
+
+
+def smoke_commands(
+    bundle: Path, home: Path, result_path: Path
+) -> tuple[list[str], ...]:
+    """Return source-free CLI and real-GUI smoke commands for one bundle."""
+    root = bundle.expanduser().resolve()
+    destination = result_path.expanduser().resolve()
+    try:
+        destination.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        raise ArtifactReleaseError(
+            "artifact smoke results must be written outside the bundle"
+        )
+    cli = _component_executable(root, "cli", "opai")
+    gui = _component_executable(root, "gui", "OPai")
+    fixture = home.expanduser().resolve() / "fixture-project"
+    return (
+        [str(cli), "--help"],
+        [str(cli), "doctor", "--project", str(fixture)],
+        [
+            str(gui),
+            "--artifact-smoke",
+            "--project",
+            str(fixture),
+            "--result",
+            str(destination),
+        ],
+    )
+
+
+def isolated_artifact_environment(
+    home: Path, base: dict[str, str] | None = None
+) -> dict[str, str]:
+    """Build a hostile clean-user environment for native artifact smoke runs."""
+    root = home.expanduser().resolve()
+    environment = dict(os.environ if base is None else base)
+    for name in ARTIFACT_ENVIRONMENT_BLOCKLIST:
+        environment.pop(name, None)
+    locations = {
+        "HOME": root,
+        "USERPROFILE": root,
+        "XDG_CONFIG_HOME": root / ".config",
+        "XDG_DATA_HOME": root / ".local" / "share",
+        "APPDATA": root / "AppData" / "Roaming",
+        "LOCALAPPDATA": root / "AppData" / "Local",
+        "TEMP": root / "Temp",
+        "TMP": root / "Temp",
+    }
+    environment.update({name: str(path) for name, path in locations.items()})
+    if os.name == "nt":
+        system_root = environment.get("SystemRoot") or environment.get("WINDIR")
+        if system_root:
+            environment["PATH"] = os.pathsep.join(
+                [str(Path(system_root) / "System32"), system_root]
+            )
+    else:
+        environment["PATH"] = "/usr/local/bin:/usr/bin:/bin"
+    return environment
+
+
+def scan_artifact_text(bundle: Path) -> list[dict[str, str]]:
+    """Find sensitive-looking text that must not ship in a desktop artifact."""
+    root = bundle.expanduser().resolve()
+    findings: list[dict[str, str]] = []
+    if not root.is_dir():
+        raise ArtifactReleaseError(f"artifact bundle does not exist: {root}")
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in _TEXT_ARTIFACT_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        relative = _relative_path(root, path)
+        for kind, pattern in (
+            ("secret", _SECRET_PATTERN),
+            ("private_url", _PRIVATE_URL_PATTERN),
+            ("development_override", _DEVELOPMENT_OVERRIDE_PATTERN),
+        ):
+            if pattern.search(text):
+                findings.append({"kind": kind, "path": relative})
+    return findings
 
 
 def _git(root: Path, args: list[str]) -> str:

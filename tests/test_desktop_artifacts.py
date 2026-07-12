@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 try:
@@ -150,6 +151,118 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertIn("=opai/assets/opai-mascot.png", joined_gui_args)
         self.assertIn("=opaihub/data", joined_gui_args)
         self.assertNotIn("__tests__", joined_gui_args)
+        self.assertNotIn("\\", joined_gui_args)
+
+    def test_build_and_smoke_commands_are_source_independent_and_explicit(self):
+        from opaihub import desktop_artifacts
+
+        required_helpers = (
+            "build_commands",
+            "render_pyside_deploy_spec",
+            "smoke_commands",
+            "isolated_artifact_environment",
+            "scan_artifact_text",
+        )
+        self.assertTrue(
+            all(hasattr(desktop_artifacts, name) for name in required_helpers),
+            "artifact build and smoke helpers are required",
+        )
+        root = Path(__file__).resolve().parents[1]
+        specs = desktop_artifacts.deployment_specs(root, root / "dist" / "desktop")
+        build_python = Path("C:/artifact-venv/Scripts/python.exe")
+        deploy_script = Path("C:/artifact-venv/Scripts/pyside6-deploy.exe")
+        commands = desktop_artifacts.build_commands(
+            specs,
+            build_python=build_python,
+            deploy_script=deploy_script,
+            spec_dir=Path("C:/artifact-build/specs"),
+        )
+        gui_command, cli_command = commands
+        gui_config = desktop_artifacts.render_pyside_deploy_spec(
+            specs.gui, build_python=build_python
+        )
+        staged_gui_config = desktop_artifacts.render_pyside_deploy_spec(
+            replace(
+                specs.gui,
+                entrypoint=Path("C:/artifact-build/staging/desktop_gui_entry.py"),
+            ),
+            build_python=build_python,
+        )
+
+        self.assertEqual(gui_command[:2], [str(build_python), str(deploy_script)])
+        self.assertIn("--nuitka-version=4.0", gui_command)
+        self.assertEqual(cli_command[:3], [str(build_python), "-m", "nuitka"])
+        self.assertIn("--standalone", cli_command)
+        self.assertNotIn("--assume-yes-for-downloads", cli_command)
+        self.assertIn("[app]", gui_config)
+        self.assertIn("packages = Nuitka==4.0", gui_config)
+        self.assertIn("WebEngineWidgets", gui_config)
+        self.assertIn(f"project_dir = {root.as_posix()}", staged_gui_config)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.0a2-windows-unsigned-prealpha"
+            gui = bundle / "gui" / "OPai.exe"
+            cli = bundle / "cli" / "opai.exe"
+            gui.parent.mkdir(parents=True)
+            cli.parent.mkdir(parents=True)
+            gui.write_bytes(b"gui")
+            cli.write_bytes(b"cli")
+            reference = desktop_artifacts.ReleaseRef("v0.2.0a2", "e" * 40)
+            desktop_artifacts.write_bundle_evidence(
+                bundle, reference, platform="windows"
+            )
+            smoke_result = Path(tmp) / "home" / "smoke-result.json"
+            smoke = desktop_artifacts.smoke_commands(
+                bundle, Path(tmp) / "home", smoke_result
+            )
+            with self.assertRaises(desktop_artifacts.ArtifactReleaseError):
+                desktop_artifacts.smoke_commands(
+                    bundle, Path(tmp) / "home", bundle / "smoke-result.json"
+                )
+            environment = desktop_artifacts.isolated_artifact_environment(
+                Path(tmp) / "home",
+                {"PYTHONPATH": "C:/source", "GOOGLE_API_KEY": "not-for-smoke"},
+            )
+            suspicious = bundle / "cli" / "config.txt"
+            suspicious.write_text(
+                "token=sk-abcdefghijklmnopqrstuvwxyz", encoding="utf-8"
+            )
+            scan = desktop_artifacts.scan_artifact_text(bundle)
+
+        self.assertEqual(smoke[0][0], str(cli))
+        self.assertIn("--artifact-smoke", smoke[-1])
+        self.assertIn(str(smoke_result), smoke[-1])
+        self.assertNotIn("PYTHONPATH", environment)
+        self.assertNotIn("GOOGLE_API_KEY", environment)
+        self.assertTrue(any(item["kind"] == "secret" for item in scan))
+
+    def test_gui_cli_accepts_an_artifact_smoke_result_contract(self):
+        from opai.cli import build_parser
+
+        try:
+            args = build_parser().parse_args(
+                [
+                    "gui",
+                    "--artifact-smoke",
+                    "--project",
+                    "C:/fixture",
+                    "--result",
+                    "C:/smoke/result.json",
+                ]
+            )
+        except SystemExit:
+            args = None
+
+        self.assertIsNotNone(args, "gui artifact-smoke arguments are required")
+        assert args is not None
+        self.assertTrue(args.artifact_smoke)
+        self.assertEqual(args.result, "C:/smoke/result.json")
+
+    def test_build_and_smoke_script_entry_points_exist(self):
+        root = Path(__file__).resolve().parents[1]
+
+        self.assertTrue((root / "scripts" / "build_desktop_artifacts.py").is_file())
+        self.assertTrue((root / "scripts" / "smoke_desktop_artifacts.py").is_file())
 
 
 if __name__ == "__main__":
