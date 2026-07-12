@@ -74,7 +74,10 @@ def _git_bytes(root: Path, args: list[str]) -> bytes | None:
         return None
     if completed.returncode != 0:
         return None
-    return completed.stdout
+    output = completed.stdout
+    if isinstance(output, bytes):
+        return output
+    return str(output).encode("utf-8", errors="replace")
 
 
 def _git_output(root: Path, args: list[str]) -> str | None:

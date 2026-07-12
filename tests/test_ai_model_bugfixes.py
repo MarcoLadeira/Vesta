@@ -152,7 +152,9 @@ class ChatPromptFramingTests(unittest.TestCase):
         runner = ProseOnlyRunner()
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            with mock.patch("opaihub.ask.result_cache.lookup") as cache_lookup:
+            with mock.patch(
+                "opaihub.ask.result_cache.lookup_with_meta"
+            ) as cache_lookup:
                 result = run_ask(
                     root,
                     "Fix app.py",

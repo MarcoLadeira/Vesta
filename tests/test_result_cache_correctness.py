@@ -13,6 +13,7 @@ from opaihub import result_cache
 from opaihub.evidence_cache import (
     DEFAULT_FINGERPRINT_LIMITS,
     FingerprintLimits,
+    RepoFingerprint,
     assess_repo_fingerprint,
 )
 
@@ -252,6 +253,39 @@ class ResultCacheEnvelopeTests(unittest.TestCase):
             reused = result_cache.lookup(root, "summarize app", "local-test")
 
         self.assertIsNone(reused)
+
+
+class RepositoryWorkCacheTests(unittest.TestCase):
+    def test_uncacheable_assessment_never_reuses_gui_repository_work(self):
+        from opaihub.intent_router import _cached_repo_work, clear_repo_work_cache
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            calls = 0
+
+            def compute() -> dict[str, int]:
+                nonlocal calls
+                calls += 1
+                return {"calls": calls}
+
+            unsafe = RepoFingerprint(
+                digest="unsafe",
+                cacheable=False,
+                bypass_reason="binary_file",
+                dirty_file_count=1,
+                dirty_bytes=0,
+            )
+            clear_repo_work_cache()
+            with mock.patch(
+                "opaihub.evidence_cache.assess_repo_fingerprint",
+                return_value=unsafe,
+            ):
+                first = _cached_repo_work(root, "context", compute)
+                second = _cached_repo_work(root, "context", compute)
+            clear_repo_work_cache()
+
+        self.assertEqual(first, {"calls": 1})
+        self.assertEqual(second, {"calls": 2})
 
 
 if __name__ == "__main__":

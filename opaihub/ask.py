@@ -64,6 +64,28 @@ def _record(project_root: Path, task: str, tier: str, *, cache_hit: bool) -> Non
     )
 
 
+def _record_cache_lookup(project_root: Path, task: str, lookup: Any) -> None:
+    from .ledger import record_cache_lookup
+
+    record_cache_lookup(
+        project_root,
+        task,
+        cache_kind="result",
+        outcome=str(lookup.outcome),
+        reason=lookup.reason,
+        age_seconds=lookup.age_seconds,
+        avoided_model_call=lookup.outcome == "hit",
+    )
+
+
+def _cache_metadata(lookup: Any) -> dict[str, Any]:
+    return {
+        "outcome": str(lookup.outcome),
+        "reason": lookup.reason,
+        "age_seconds": lookup.age_seconds,
+    }
+
+
 def run_ask(
     project_root: Path,
     task: str,
@@ -86,7 +108,7 @@ def run_ask(
     local = is_local_tier(tier, cost_model)
 
     base = {
-        "task_hash": result_cache.cache_key(root, task, model_id)[:16],
+        "task_hash": result_cache.task_hash(task, model_id),
         "tier": tier,
         "model_id": model_id,
     }
@@ -94,8 +116,10 @@ def run_ask(
     # 1. Result cache: a near-duplicate in the same repo state is free, but a
     # cache hit cannot prove a requested repository mutation happened.
     if not allow_edits:
-        cached = result_cache.lookup(root, task, model_id)
-        if cached is not None:
+        cache_lookup = result_cache.lookup_with_meta(root, task, model_id)
+        if record:
+            _record_cache_lookup(root, task, cache_lookup)
+        if cache_lookup.entry is not None:
             if record:
                 _record(root, task, tier, cache_hit=True)
             return {
@@ -103,7 +127,8 @@ def run_ask(
                 "status": "cache_hit",
                 "free": True,
                 "source": "cache",
-                "answer": cached.get("answer", ""),
+                "answer": cache_lookup.entry.get("answer", ""),
+                "cache": _cache_metadata(cache_lookup),
             }
 
     # 2. Run locally if a loopback/private model is available.
@@ -161,6 +186,9 @@ def run_ask(
             "runner": active.name,
             "model": active.model,
             "answer": answer,
+            "cache": _cache_metadata(cache_lookup)
+            if not allow_edits
+            else {"outcome": "skipped", "reason": "edit_request", "age_seconds": None},
         }
 
     # 3. Cloud/paid tier is never auto-called.

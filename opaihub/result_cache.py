@@ -13,6 +13,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -108,12 +109,17 @@ def lookup_with_meta(
     path = cache_dir(root) / f"{key}.json"
     if not path.exists():
         return CacheLookup(entry=None, outcome="miss", key=key)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return CacheLookup(entry=None, outcome="miss", key=key)
-    except (OSError, json.JSONDecodeError):
-        return CacheLookup(entry=None, outcome="corrupt", key=key)
+    data: Any | None = None
+    for attempt in range(3):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except FileNotFoundError:
+            return CacheLookup(entry=None, outcome="miss", key=key)
+        except (OSError, json.JSONDecodeError):
+            if attempt == 2:
+                return CacheLookup(entry=None, outcome="corrupt", key=key)
+            time.sleep(0.001)
     if not isinstance(data, dict):
         return CacheLookup(entry=None, outcome="corrupt", key=key)
     if data.get("schema_version") != RESULT_CACHE_VERSION:

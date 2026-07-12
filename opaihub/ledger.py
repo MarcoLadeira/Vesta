@@ -213,6 +213,41 @@ def record_route_decision(
     )
 
 
+def record_cache_lookup(
+    project_root: Path,
+    task: str,
+    *,
+    cache_kind: str,
+    outcome: str,
+    reason: str | None = None,
+    age_seconds: int | None = None,
+    avoided_model_call: bool = False,
+    source: str = "ask",
+) -> dict[str, Any]:
+    """Record privacy-safe cache evidence without affecting spend or savings."""
+    normalized_outcome = str(outcome).strip().lower()
+    if normalized_outcome not in {
+        "hit",
+        "miss",
+        "expired",
+        "schema_mismatch",
+        "corrupt",
+        "bypass",
+    }:
+        raise ValueError(f"unknown cache outcome: {outcome}")
+    fields: dict[str, Any] = {
+        "cache_kind": str(cache_kind).strip().lower(),
+        "outcome": normalized_outcome,
+        "avoided_model_call": bool(avoided_model_call),
+        "source": str(source).strip().lower(),
+    }
+    if reason:
+        fields["reason"] = str(reason).strip().lower()
+    if age_seconds is not None:
+        fields["age_seconds"] = max(0, int(age_seconds))
+    return record_event(project_root, EVENT_CACHE, task=task, **fields)
+
+
 def record_model_call(
     project_root: Path,
     task: str,
