@@ -17,6 +17,23 @@ EVIDENCE_SCHEMA_VERSION = 1
 CHECKSUMS_NAME = "SHA256SUMS.txt"
 PROVENANCE_NAME = "provenance.json"
 SIGNING_STATUS_NAME = "signing-status.json"
+BUILD_REQUIREMENTS_PATH = Path("requirements") / "desktop-build.txt"
+REQUIRED_BUILD_PINS = {"PySide6": "6.11.1", "Nuitka": "4.0"}
+REQUIRED_WEB_ASSETS = (
+    "index.html",
+    "app.js",
+    "styles.css",
+    "activity.js",
+    "message-state.js",
+)
+GUI_QT_MODULES = (
+    "Core",
+    "Gui",
+    "Widgets",
+    "WebChannel",
+    "WebEngineCore",
+    "WebEngineWidgets",
+)
 _EVIDENCE_FILENAMES = frozenset({CHECKSUMS_NAME, PROVENANCE_NAME, SIGNING_STATUS_NAME})
 
 
@@ -31,6 +48,120 @@ class ReleaseRef:
     tag: str
     commit: str
     rehearsal: bool = False
+
+
+@dataclass(frozen=True)
+class DeploymentSpec:
+    """One native component deployment with explicit runtime inclusions."""
+
+    component: str
+    tool: str
+    name: str
+    entrypoint: Path
+    output_dir: Path
+    qt_modules: tuple[str, ...]
+    extra_args: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DeploymentSpecs:
+    """The independently deployable GUI and CLI artifact inputs."""
+
+    gui: DeploymentSpec
+    cli: DeploymentSpec
+
+
+def load_build_pins(project_root: Path) -> dict[str, str]:
+    """Load the exact deployment tool pins required for reproducible rehearsals."""
+    path = project_root.expanduser().resolve() / BUILD_REQUIREMENTS_PATH
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ArtifactReleaseError(f"desktop build pins are missing: {path}") from exc
+    pins: dict[str, str] = {}
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "==" not in line:
+            raise ArtifactReleaseError(f"desktop build pin is not exact: {line}")
+        name, version = (part.strip() for part in line.split("==", 1))
+        if not name or not version or name in pins:
+            raise ArtifactReleaseError(f"invalid desktop build pin: {line}")
+        pins[name] = version
+    if pins != REQUIRED_BUILD_PINS:
+        raise ArtifactReleaseError(
+            "desktop build pins must be exactly PySide6==6.11.1 and Nuitka==4.0"
+        )
+    return pins
+
+
+def _data_file_arg(root: Path, relative: Path) -> str:
+    source = root / relative
+    if not source.is_file():
+        raise ArtifactReleaseError(
+            f"required desktop runtime file is missing: {relative}"
+        )
+    return f"--include-data-files={source}={relative.as_posix()}"
+
+
+def _data_dir_arg(root: Path, relative: Path) -> str:
+    source = root / relative
+    if not source.is_dir():
+        raise ArtifactReleaseError(
+            f"required desktop runtime directory is missing: {relative}"
+        )
+    return f"--include-data-dir={source}={relative.as_posix()}"
+
+
+def deployment_specs(project_root: Path, output_dir: Path) -> DeploymentSpecs:
+    """Return deploy inputs that keep GUI and CLI payloads deliberately separate."""
+    root = project_root.expanduser().resolve()
+    output = output_dir.expanduser().resolve()
+    load_build_pins(root)
+    gui_entry = root / "scripts" / "desktop_gui_entry.py"
+    cli_entry = root / "scripts" / "desktop_cli_entry.py"
+    if not gui_entry.is_file() or not cli_entry.is_file():
+        raise ArtifactReleaseError("desktop artifact entry points are missing")
+    gui_args = [
+        "--include-package=opai",
+        "--include-package=opaihub",
+        "--include-package=opcoding",
+        _data_dir_arg(root, Path("opai") / "assets" / "fonts"),
+        _data_file_arg(root, Path("opai") / "assets" / "opai-icon.png"),
+        _data_file_arg(root, Path("opai") / "assets" / "opai-mascot.png"),
+        _data_dir_arg(root, Path("opaihub") / "data"),
+    ]
+    gui_args.extend(
+        _data_file_arg(root, Path("opai") / "assets" / "web" / asset)
+        for asset in REQUIRED_WEB_ASSETS
+    )
+    cli_args = (
+        "--include-package=opai",
+        "--include-package=opaihub",
+        "--include-package=opcoding",
+        _data_dir_arg(root, Path("opaihub") / "data"),
+    )
+    return DeploymentSpecs(
+        gui=DeploymentSpec(
+            component="gui",
+            tool="pyside6-deploy",
+            name="OPai",
+            entrypoint=gui_entry,
+            output_dir=output / "gui",
+            qt_modules=GUI_QT_MODULES,
+            extra_args=tuple(gui_args),
+        ),
+        cli=DeploymentSpec(
+            component="cli",
+            tool="python -m nuitka",
+            name="opai",
+            entrypoint=cli_entry,
+            output_dir=output / "cli",
+            qt_modules=(),
+            extra_args=cli_args,
+        ),
+    )
 
 
 def _git(root: Path, args: list[str]) -> str:

@@ -105,6 +105,52 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertEqual(verified["signing_status"], "unsigned-prealpha")
         self.assertTrue(verified["ok"])
 
+    def test_deployment_specs_pin_tools_and_include_runtime_assets(self):
+        from opaihub import desktop_artifacts
+
+        root = Path(__file__).resolve().parents[1]
+        self.assertTrue(
+            hasattr(desktop_artifacts, "deployment_specs"),
+            "desktop artifact deployment specs are required",
+        )
+        self.assertTrue(
+            hasattr(desktop_artifacts, "load_build_pins"),
+            "desktop build pins are required",
+        )
+        specs = desktop_artifacts.deployment_specs(root, root / "dist" / "desktop")
+        pins = desktop_artifacts.load_build_pins(root)
+
+        self.assertEqual(specs.gui.name, "OPai")
+        self.assertEqual(specs.cli.name, "opai")
+        self.assertEqual(specs.gui.tool, "pyside6-deploy")
+        self.assertEqual(specs.cli.tool, "python -m nuitka")
+        self.assertEqual(
+            specs.gui.entrypoint, root / "scripts" / "desktop_gui_entry.py"
+        )
+        self.assertEqual(
+            specs.cli.entrypoint, root / "scripts" / "desktop_cli_entry.py"
+        )
+        self.assertTrue(specs.gui.entrypoint.is_file())
+        self.assertTrue(specs.cli.entrypoint.is_file())
+        self.assertEqual(pins["PySide6"], "6.11.1")
+        self.assertEqual(pins["Nuitka"], "4.0")
+        self.assertIn("WebChannel", specs.gui.qt_modules)
+        self.assertIn("WebEngineWidgets", specs.gui.qt_modules)
+        joined_gui_args = "\n".join(specs.gui.extra_args)
+        for asset in [
+            "index.html",
+            "app.js",
+            "styles.css",
+            "activity.js",
+            "message-state.js",
+        ]:
+            self.assertIn(f"=opai/assets/web/{asset}", joined_gui_args)
+        self.assertIn("=opai/assets/fonts", joined_gui_args)
+        self.assertIn("=opai/assets/opai-icon.png", joined_gui_args)
+        self.assertIn("=opai/assets/opai-mascot.png", joined_gui_args)
+        self.assertIn("=opaihub/data", joined_gui_args)
+        self.assertNotIn("__tests__", joined_gui_args)
+
 
 if __name__ == "__main__":
     unittest.main()
