@@ -30,6 +30,7 @@ from typing import Any, Callable
 
 MANIFEST_NAME = ".opai-app.json"
 BACKUP_DIR = ".opai-backups"
+BUILD_LOG_NAME = ".opai-build-log.jsonl"
 DEFAULT_BUDGET_CHARS = 24_000
 MAX_FILE_CHARS = 512_000
 
@@ -217,7 +218,7 @@ def _safe_target(root: Path, rel: str) -> tuple[Path | None, str]:
     if ".." in candidate.parts:
         return None, "path traversal is not allowed"
     first = candidate.parts[0] if candidate.parts else ""
-    if raw == MANIFEST_NAME or first in {BACKUP_DIR, ".git"}:
+    if raw in {MANIFEST_NAME, BUILD_LOG_NAME} or first in {BACKUP_DIR, ".git"}:
         return None, "protected file"
     if candidate.suffix.lower() not in TEXT_EXTENSIONS:
         return None, f"file type '{candidate.suffix}' is not allowed"
@@ -285,6 +286,95 @@ def apply_edits(
         "applied": applied,
         "rejected": rejected,
         "backup_dir": str(backup_root) if backup_root else None,
+    }
+
+
+def record_build_entry(app_root: Path, entry: dict[str, Any]) -> None:
+    """Append one build run to the app's local, append-only build log.
+
+    Lives inside the user's own app (like git history), so the truncated
+    request text is theirs to keep. OPai's global ledger still stores only
+    fingerprints — this log never leaves the app directory.
+    """
+    path = Path(app_root) / BUILD_LOG_NAME
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+def read_build_log(app_root: Path) -> list[dict[str, Any]]:
+    """All build entries, tolerating corrupt lines (never crash a receipt)."""
+    path = Path(app_root) / BUILD_LOG_NAME
+    entries: list[dict[str, Any]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return entries
+    for line in lines:
+        try:
+            data = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            entries.append(data)
+    return entries
+
+
+def app_receipt(app_root: Path) -> dict[str, Any]:
+    """The aggregate, honest cost story of one app (#276).
+
+    Sums the free scaffold boilerplate and every build's context slicing into
+    "tokens never sent", and keeps measured vs estimated spend in separate
+    buckets (the cost-telemetry discipline: never blend real dollars with
+    model math).
+    """
+    root = Path(app_root).expanduser().resolve()
+    manifest = load_app_manifest(root)
+    if manifest is None:
+        return {
+            "ok": False,
+            "status": "not_an_app",
+            "error": f"{root} has no {MANIFEST_NAME}.",
+        }
+    entries = read_build_log(root)
+    spend_actual = spend_estimated = savings_estimated = 0.0
+    context_chars_avoided = 0
+    lines_added = lines_removed = 0
+    applied_builds = 0
+    for entry in entries:
+        confidence = str(entry.get("confidence") or "estimated")
+        spend = float(entry.get("spend_usd") or 0.0)
+        if confidence == "actual":
+            spend_actual += spend
+        else:
+            spend_estimated += spend
+        savings_estimated += float(entry.get("savings_usd") or 0.0)
+        context_chars_avoided += max(
+            0,
+            int(entry.get("chars_total") or 0) - int(entry.get("chars_selected") or 0),
+        )
+        if entry.get("status") == "applied":
+            applied_builds += 1
+            lines_added += int(entry.get("added") or 0)
+            lines_removed += int(entry.get("removed") or 0)
+    boilerplate_tokens = int(manifest.get("boilerplate_tokens_avoided") or 0)
+    context_tokens_avoided = round(context_chars_avoided / 4)
+    return {
+        "ok": True,
+        "app": manifest.get("name"),
+        "kind": manifest.get("kind"),
+        "created_at": manifest.get("created_at"),
+        "files": len(manifest.get("files") or []),
+        "builds": len(entries),
+        "applied_builds": applied_builds,
+        "lines_added": lines_added,
+        "lines_removed": lines_removed,
+        "spend_usd_actual": round(spend_actual, 6),
+        "spend_usd_estimated": round(spend_estimated, 6),
+        "savings_usd_estimated": round(savings_estimated, 6),
+        "boilerplate_tokens_avoided": boilerplate_tokens,
+        "context_tokens_avoided": context_tokens_avoided,
+        "tokens_never_sent": boilerplate_tokens + context_tokens_avoided,
+        "privacy": "This log lives only inside your app directory.",
     }
 
 
@@ -381,6 +471,30 @@ def run_build_request(
     )
     status = str(result.get("status") or "error")
     answer = str(result.get("answer") or "")
+    receipt = result.get("receipt") or {}
+
+    def _log_turn(turn_status: str, applied_items: list[dict[str, Any]]) -> None:
+        # Every model-invoking turn joins the app's local build log so the
+        # per-app receipt can tell the whole cost story (#276).
+        record_build_entry(
+            root,
+            {
+                "schema": 1,
+                "ts": int(time.time()),
+                "request": str(request or "")[:200],
+                "status": turn_status,
+                "files_changed": len(applied_items),
+                "added": sum(int(i.get("added") or 0) for i in applied_items),
+                "removed": sum(int(i.get("removed") or 0) for i in applied_items),
+                "context_files": len(context_stats["files"]),
+                "chars_selected": context_stats["chars_selected"],
+                "chars_total": context_stats["chars_total"],
+                "spend_usd": float(receipt.get("estimated_actual_usd") or 0.0),
+                "savings_usd": float(receipt.get("estimated_savings_usd") or 0.0),
+                "confidence": str(receipt.get("confidence") or "estimated"),
+            },
+        )
+
     answered = status in {
         "answered",
         "cache_hit",
@@ -397,12 +511,13 @@ def run_build_request(
         }
     edits = parse_file_blocks(answer)
     if not edits:
+        _log_turn("no_edits", [])
         return {
             "ok": False,
             "status": "no_edits",
             "answer": answer,
             "context": context_stats,
-            "receipt": result.get("receipt"),
+            "receipt": receipt,
         }
     outcome = apply_edits(root, edits, manifest)
     verify: dict[str, Any] | None = None
@@ -417,6 +532,7 @@ def run_build_request(
         )
         if strict and not verify["ok"]:
             restored = rollback_edits(root, outcome, manifest)
+            _log_turn("rolled_back", [])
             return {
                 "ok": False,
                 "status": "rolled_back",
@@ -425,14 +541,16 @@ def run_build_request(
                 "rejected": outcome["rejected"],
                 "backup_dir": outcome["backup_dir"],
                 "context": context_stats,
-                "receipt": result.get("receipt"),
+                "receipt": receipt,
             }
+    _log_turn(status_out, outcome["applied"])
     return {
         "ok": bool(outcome["applied"]),
         "status": status_out,
         **outcome,
         "verify": verify,
         "context": context_stats,
-        "receipt": result.get("receipt"),
+        "receipt": receipt,
+        "receipt_so_far": app_receipt(root),
         "preview_cmd": manifest.get("preview_cmd") or "python -m http.server 8000",
     }
