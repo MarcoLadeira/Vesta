@@ -1,70 +1,70 @@
-# OPai open-core edition boundaries (issue #38).
-# These are honest config-level boundaries, not billing. There is no license
-# server in pre-alpha; the active edition is self-declared (OPAI_EDITION env or
-# project state). Free always retains meaningful local value, and no paid
-# feature depends on telemetry leaving the machine.
-schema_version: 1
-default_edition: free
+# Free public-alpha availability catalog. This is not a pricing or entitlement
+# surface: implemented capabilities are free, and planned capabilities are
+# unavailable only until they are built safely.
+schema_version: 2
+launch: free-public-alpha
 currency: USD
 editions:
   free:
-    label: Free
+    label: Free Public Alpha
     price: 0
-    price_unit: forever
-    tagline: Local-first AI coding cost firewall for individuals.
-  pro:
-    label: Pro
-    price: 12
-    price_unit: per month
-    tagline: Deeper savings proof, exports, and balanced/team policy profiles.
-  team:
-    label: Team
-    price: 19
-    price_unit: per user / month
-    tagline: Shared policy, governance defaults, and audit exports for teams.
-  enterprise:
-    label: Enterprise
-    price: custom
-    price_unit: contact
-    tagline: Strict governance, signed workflow packs, and security review support.
-# Each feature names the lowest edition that includes it.
+    price_unit: alpha
+    tagline: Every implemented OPai alpha capability is free.
 features:
   - id: local_first_routing
-    min_edition: free
+    availability: implemented
     description: Local-first cost-aware routing and evidence collection.
   - id: usage_ledger
-    min_edition: free
-    description: Local privacy-safe usage ledger.
+    availability: implemented
+    description: Privacy-safe local usage ledger.
   - id: savings_report
-    min_edition: free
-    description: Per-project savings report (opai savings).
-  - id: client_activation
-    min_edition: free
-    description: Activation across Claude, Codex, Copilot, Gemini, Cursor, and Cline.
-  - id: policy_profiles_solo
-    min_edition: free
-    description: solo-cheap and solo-balanced policy profiles.
-  - id: guarded_workflows_core
-    min_edition: free
-    description: Guarded-workflow contract and fail-closed gates.
+    availability: implemented
+    description: Per-project savings report.
   - id: savings_export
-    min_edition: pro
-    description: Export shareable savings reports (markdown/json).
-  - id: policy_profile_team_safe
-    min_edition: pro
-    description: team-safe policy profile with evidence requirements.
-  - id: model_eval_history
-    min_edition: pro
-    description: Retained model-eval scorecard history.
+    availability: implemented
+    description: Export a shareable local savings report.
+  - id: client_activation
+    availability: implemented
+    description: Activation across supported coding assistants.
+  - id: policy_profiles
+    availability: implemented
+    description: Local policy profiles, including team-safe and enterprise-strict modes.
+  - id: guarded_workflows_core
+    availability: implemented
+    description: Guarded-workflow contracts and fail-closed gates.
   - id: shared_policy
-    min_edition: team
-    description: Shared/team policy distribution and seat management.
-  - id: audit_exports
-    min_edition: team
-    description: Guarded-workflow audit and evidence exports.
-  - id: policy_profile_enterprise_strict
-    min_edition: enterprise
-    description: enterprise-strict profile and fail-closed paid blocking.
+    availability: implemented
+    description: Committable team policy distribution.
+  - id: team_report
+    availability: implemented
+    description: Local team governance rollup.
+  - id: audit_logs
+    availability: implemented
+    description: Tamper-evident local audit trail.
+  - id: approved_mcp_profiles
+    availability: implemented
+    description: Approved MCP profile checks.
+  - id: ci_policy_gates
+    availability: implemented
+    description: Fail-closed CI policy checks.
+  - id: evidence_exports
+    availability: implemented
+    description: Signed guarded-workflow evidence packets.
+  - id: signed_evidence
+    availability: implemented
+    description: Locally signed and verifiable proof bundles.
+  - id: model_eval_history
+    availability: planned
+    description: Retained model-evaluation scorecard history.
+  - id: private_registry
+    availability: planned
+    description: Private registry distribution.
+  - id: sso_rbac
+    availability: planned
+    description: Hosted SSO and role-based access control.
+  - id: self_host
+    availability: planned
+    description: Supported private deployment packaging.
   - id: signed_workflow_packs
-    min_edition: enterprise
-    description: Signed internal workflow packs and enterprise audit exports.
+    availability: planned
+    description: Signed internal workflow-pack distribution.

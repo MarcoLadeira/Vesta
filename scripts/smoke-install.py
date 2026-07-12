@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tempfile
 from collections.abc import Mapping
@@ -26,7 +26,9 @@ EXTERNAL_STATE_ENV = {
 
 def run(argv: list[str], cwd: Path, *, env: Mapping[str, str] | None = None) -> None:
     print("+", " ".join(argv))
-    subprocess.run(argv, cwd=str(cwd), check=True, env=env, timeout=120)
+    subprocess.run(  # nosec B603
+        argv, cwd=str(cwd), check=True, env=env, timeout=120
+    )
 
 
 def wheel_build_command(python: Path, root: Path, wheelhouse: Path) -> list[str]:

@@ -443,7 +443,10 @@ def handle_gui_message(
             runtime.transition(
                 RuntimePhase.COMPLETED, message="Read-only task completed"
             )
-        elif status.startswith("needs_") or status == "blocked":
+        elif status.startswith("needs_") or status in {
+            "blocked",
+            "capability_mismatch",
+        }:
             reason = next(
                 (
                     str(item.get("reason") or item)
@@ -531,7 +534,7 @@ def handle_gui_message(
             completion = "answered" if edit_capable else "read_only"
         elif status == "cancelled":
             completion = "cancelled_before_edit" if not changed_files else "cancelled"
-        elif status == "blocked":
+        elif status in {"blocked", "capability_mismatch"}:
             completion = "blocked"
         elif status.startswith("needs_"):
             completion = "read_only"
@@ -756,6 +759,7 @@ def handle_gui_message(
             allow_cloud=allow_cloud,
             allow_edits=allow_edits,
             mode=selected_mode,
+            record_route=False,
             cancel=cancel,
         )
         if result.get("status") == "cancelled":
@@ -951,6 +955,27 @@ def handle_gui_message(
                     answer=result.get("answer") or "",
                 )
             )
+        if result.get("status") == "capability_mismatch":
+            answer = str(result.get("hint") or result.get("reason") or "")
+            _phase_close("warning", "Provider cannot enforce this edit mode")
+            _emit(
+                "capability_mismatch",
+                "warning",
+                "Choose a tool-capable provider",
+                metadata={"provider": provider, "capability": "edit_files"},
+            )
+            return _decorate(
+                {
+                    "status": "capability_mismatch",
+                    "answer": answer,
+                    "tool_trace": tool_trace,
+                    "receipt": {},
+                    "changed_files": [],
+                    "warnings": [{"reason": result.get("reason") or answer}],
+                    "next_actions": [result.get("hint") or answer],
+                    "raw_result": result,
+                }
+            )
         actual = result.get("cost_usd")
         # Savings truth (#76): an account call is a real spend; the receipt
         # records it with zero implied savings and derives its own confidence
@@ -1064,12 +1089,34 @@ def handle_gui_message(
         cancel=cancel,
         runner=picked_runner,
         selected_model_id=selected_model if picked_runner is not None else None,
+        allow_edits=allow_edits,
     )
     if result.get("status") == "cancelled":
         _phase_close("cancelled", "Stopped by you")
         _emit("cancelled", "cancelled", "Stopped by you")
         return _decorate(
             _cancelled_result(message, tool_trace, selected_model, selected_mode)
+        )
+    if result.get("status") == "capability_mismatch":
+        answer = str(result.get("hint") or result.get("reason") or "")
+        _phase_close("warning", "Local model cannot enforce this edit mode")
+        _emit(
+            "capability_mismatch",
+            "warning",
+            "Choose a tool-capable provider",
+            metadata={"provider": result.get("provider") or "local"},
+        )
+        return _decorate(
+            {
+                "status": "capability_mismatch",
+                "answer": answer,
+                "tool_trace": tool_trace,
+                "receipt": {},
+                "changed_files": [],
+                "warnings": [{"reason": result.get("reason") or answer}],
+                "next_actions": [result.get("hint") or answer],
+                "raw_result": result,
+            }
         )
     status_map = {
         "answered_locally": "answered",

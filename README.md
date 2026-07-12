@@ -13,7 +13,12 @@ OPai 0.2.0 alpha.2 is a local-first AI coding hub that installs into your termin
 
 The goal is simple: make AI-assisted development feel close to "one prompt to build, one prompt to ship" without blindly burning expensive model credits.
 
-## Prove it in 60 seconds
+## After a verified release or contributor install
+
+There is no public package or desktop artifact installation command yet. The
+commands below apply after a verified free artifact is published on
+[GitHub Releases](https://github.com/MarcoLadeira/OPai/releases), or when you
+have installed this source checkout for contributor development.
 
 ```sh
 opai gui                                        # simple desktop chat app: type a task, pick your model, run it local-first
@@ -38,16 +43,14 @@ path while showing every step and the running cost. It renders in Chromium
 local: no telemetry, and nothing leaves your machine unless you confirm a cloud
 call.
 
-### 1. Install the GUI
+### 1. Current GUI availability
 
 The desktop UI needs the optional `desktop-gui` extra (PySide6 + keyring); the
-core CLI does not depend on Qt.
+core CLI does not depend on Qt. There is no public GUI package command until a
+verified release artifact exists. For contributor development from this source
+checkout, install the optional extra explicitly:
 
 ```sh
-# From PyPI / a published wheel:
-python -m pip install "opai[desktop-gui]"
-
-# From a source checkout (this repo):
 python -m pip install -e ".[desktop-gui]"
 ```
 
@@ -57,8 +60,8 @@ Verify it can start without opening a window:
 opai gui --once        # prints the control-center state as JSON, exits 0 if ready
 ```
 
-If you see `{"status": "gui_unavailable", ...}`, install the extra above (that is
-the only requirement).
+If you see `{"status": "gui_unavailable", ...}`, install the contributor extra
+above or wait for the verified public artifact (that is the only requirement).
 
 ### 2. Launch it
 
@@ -152,8 +155,9 @@ opai gui --screenshot out.png --width 1440 --height 900
 ```
 
 **New to OPai?** The one-page install funnel lives in [`site/index.html`](site/index.html).
-Read the [Business Strategy](docs/BUSINESS_STRATEGY.md) for positioning and the
-open-core model.
+Read the [archived pre-free-launch business strategy](docs/BUSINESS_STRATEGY.md)
+for historical positioning hypotheses and the
+[free public-alpha policy](hub/docs/PRICING_AND_EDITIONS.md).
 
 See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [before/after proof](docs/PROOF.md), the
@@ -162,11 +166,11 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [launch checklist](docs/LAUNCH_CHECKLIST.md), the
 [30-day go-to-market plan](docs/GO_TO_MARKET_30_DAY_PLAN.md), the
 [launch revenue runbook](docs/LAUNCH_REVENUE_RUNBOOK.md), the
-[commercial access/IP protection plan](docs/COMMERCIAL_ACCESS_AND_IP_PROTECTION.md), the
+[archived commercial access/IP protection plan](docs/COMMERCIAL_ACCESS_AND_IP_PROTECTION.md), the
 [effectiveness/security audit](docs/EFFECTIVENESS_AND_SECURITY_AUDIT_2026_06_21.md), the
-[alpha release notes](docs/RELEASE_0_2_0_ALPHA_1.md), the
+[archived alpha.1 release notes](docs/RELEASE_0_2_0_ALPHA_1.md), the
 [testing guide](docs/TESTING.md), the [QA report](docs/QA_REPORT.md), and
-[editions & pricing](hub/docs/PRICING_AND_EDITIONS.md).
+[free public-alpha availability policy](hub/docs/PRICING_AND_EDITIONS.md).
 
 ### More efficiency & adoption commands
 
@@ -175,7 +179,7 @@ opai context pack --changed   # tiny, redacted context (changed files + adjacent
 opai test --changed           # run only the tests likely to cover your changes
 opai metrics                  # local product metrics: tokens/escalations avoided, cache rate
 opai benchmark report         # latest local OPai Efficiency Score
-opai edition show             # Free / Pro / Team / Team-Governance / Enterprise
+opai edition show             # Free Public Alpha availability (legacy-compatible)
 ```
 
 ### Team & enterprise governance
@@ -211,11 +215,14 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 - Safe command policies for destructive shell commands, Git operations, cloud calls, and secret-bearing logs.
 - A packaged OP AI Hub foundation with tools, agents, workflows, prompts, model routing, MCP config examples, and docs.
 
-## Controlled Alpha Access
+## Free Public Alpha
 
-OPai alpha access is controlled while the product and pricing are being tested.
-Paid users and Team Pilot customers receive a private install command or release
-package after checkout or onboarding.
+OPai alpha launches fully free. No checkout, license, invitation, or private
+access link is required to use alpha functionality. **No public desktop artifact
+or package installation command is published yet.** When platform release proof
+is complete, the current verified path will be published on
+[GitHub Releases](https://github.com/MarcoLadeira/OPai/releases); source and
+development installation remain available separately for contributors.
 
 After install, restart your terminal and AI clients once, then check:
 
@@ -236,8 +243,8 @@ op doctor
 
 If Windows says `op` is not on `PATH` before your shell profile reloads, use `python -m opai doctor`.
 
-Controlled alpha install links may include options for heavier local tools or
-skipping the Superpowers network clone in locked-down environments.
+The free alpha may offer optional local tools or a Superpowers network-clone
+skip for locked-down environments; those choices are never payment gates.
 
 The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project and send canonical one-shot calls through its local cost/safety proxy. Interactive, stdin-driven, structured-output, and unknown advanced forms pass directly to the real CLI with their original arguments, TTY, and exit code. OPai reports those launches as unmeasurable instead of claiming they were captured. The blue one-line `Using OPai` badge is written to stderr so scripted stdout stays clean. Set `OPAI_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
 

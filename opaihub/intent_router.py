@@ -24,10 +24,12 @@ def _cached_repo_work(
     root: Path, kind: str, compute: Callable[[], dict[str, Any]]
 ) -> dict[str, Any]:
     """Return cached tool-row data for ``kind``, recomputing only on repo change."""
-    from .evidence_cache import repo_fingerprint
+    from .evidence_cache import assess_repo_fingerprint
 
-    fingerprint = repo_fingerprint(root)
-    key = (str(root), fingerprint)
+    assessment = assess_repo_fingerprint(root)
+    if not assessment.cacheable:
+        return compute()
+    key = (str(root), assessment.digest)
     with _REPO_WORK_LOCK:
         entry = _REPO_WORK_CACHE.get(key)
         if entry is not None and kind in entry:

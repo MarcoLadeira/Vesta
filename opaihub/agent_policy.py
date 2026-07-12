@@ -29,11 +29,10 @@ _IMPLEMENT = _READ | frozenset(
         "run_tests",
         "create_branch",
         "commit",
-        "push",
-        "create_pr",
     }
 )
-_SHIP = _IMPLEMENT | frozenset({"merge_pr"})
+_PUBLISH = frozenset({"push", "create_pr"})
+_SHIP = _IMPLEMENT | _PUBLISH | frozenset({"merge_pr"})
 
 _CAPABILITIES = {
     AgentMode.EXPLAIN: _READ,
@@ -52,6 +51,14 @@ _DANGEROUS = re.compile(
 )
 _SHIP_SIGNAL = re.compile(
     r"\b(?:merge\s+(?:it|the\s+pr|this\s+pr)|ship\s+(?:it|this)|merge\s+after|merge\s+when)\b",
+    re.IGNORECASE,
+)
+_SHIP_PROHIBITION_SIGNAL = re.compile(
+    r"\b(?:do\s+not|don't|never|without|avoid|forbid|must\s+not)\s+(?:merge|ship)\b",
+    re.IGNORECASE,
+)
+_PUBLISH_SIGNAL = re.compile(
+    r"\b(?:push|(?:open|create|make|submit)\s+(?:a\s+)?(?:pr|pull\s+request))\b",
     re.IGNORECASE,
 )
 _IMPLEMENT_SIGNAL = re.compile(
@@ -120,6 +127,39 @@ def _last_positive_write(text: str) -> int:
     return matches[-1].start() if matches else -1
 
 
+def _last_positive_publish(text: str) -> int:
+    """Ignore publish verbs that are forbidden in their current clause."""
+
+    latest = -1
+    for match in _PUBLISH_SIGNAL.finditer(text):
+        clause = re.split(r"[.;\n]", text[: match.start()])[-1]
+        if re.search(
+            r"\b(?:do\s+not|don't|never|without|avoid|forbid|must\s+not)\b",
+            clause,
+            re.IGNORECASE,
+        ):
+            latest = -1
+            continue
+        latest = match.start()
+    return latest
+
+
+def _last_positive_ship(text: str) -> int:
+    """Ignore merge/ship signals that are negated in their current clause."""
+
+    latest = -1
+    for match in _SHIP_SIGNAL.finditer(text):
+        clause = re.split(r"[.;\n]", text[: match.start()])[-1]
+        if re.search(
+            r"\b(?:do\s+not|don't|never|without|avoid|forbid|must\s+not)\b",
+            clause,
+            re.IGNORECASE,
+        ):
+            continue
+        latest = match.start()
+    return latest
+
+
 def _has_positive_danger(text: str) -> bool:
     """Distinguish a destructive request from an explicit safety constraint."""
 
@@ -163,13 +203,16 @@ def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> Agen
             rationale="The request contains a destructive or irreversible action.",
         )
 
-    ship_at = _last_match(_SHIP_SIGNAL, text)
+    ship_at = _last_positive_ship(text)
+    if _last_match(_SHIP_PROHIBITION_SIGNAL, text) >= ship_at:
+        ship_at = -1
     implement_at = _last_positive_write(text)
+    publish_at = _last_positive_publish(text)
     read_only_at = _last_match(_READ_ONLY_SIGNAL, text)
     review_at = _last_match(_REVIEW_SIGNAL, text)
     explain_at = _last_match(_EXPLAIN_SIGNAL, text)
 
-    latest_write = max(ship_at, implement_at)
+    latest_write = max(ship_at, implement_at, publish_at)
     latest_read_only = max(read_only_at, review_at, explain_at)
     if ship_at >= 0 and ship_at >= read_only_at:
         mode = AgentMode.SHIP
@@ -198,9 +241,12 @@ def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> Agen
             "no_conflicts",
             "checks_acceptable",
         )
+    capabilities = _CAPABILITIES[mode]
+    if mode is AgentMode.IMPLEMENT and publish_at > read_only_at:
+        capabilities = capabilities | _PUBLISH
     return AgentPolicy(
         mode,
-        _CAPABILITIES[mode],
+        capabilities,
         merge_requirements=merge_requirements,
         rationale=(
             "Latest explicit write request controls."

@@ -1,0 +1,582 @@
+name: OPai desktop artifact rehearsal
+
+# Manual only: a release operator explicitly chooses the immutable tag and
+# channel before any hosted macOS/Windows minutes are used. Production uses
+# separate signing, credential-free smoke, and attestation jobs: tagged source
+# may build artifacts without credentials, but only the reviewed main workflow
+# can request signing or create final archive provenance.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact annotated semantic-version tag (for example v0.2.0-alpha.2)
+        required: true
+        type: string
+      release_channel:
+        description: Unsigned alpha rehearsal or signed production release
+        required: true
+        default: unsigned-prealpha
+        type: choice
+        options:
+          - unsigned-prealpha
+          - production
+      allow_unsigned_prealpha:
+        description: Acknowledge that unsigned artifacts are pre-alpha only
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opai-desktop-artifact-${{ inputs.release_tag }}-${{ inputs.release_channel }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Unsigned desktop build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            build_lock: requirements/desktop-build.windows.lock
+          - os: macos-latest
+            build_lock: requirements/desktop-build.macos.lock
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_CHANNEL: ${{ inputs.release_channel }}
+      ALLOW_UNSIGNED_PREALPHA: ${{ inputs.allow_unsigned_prealpha }}
+      BUNDLE: ${{ runner.temp }}/opai-desktop-bundle
+      VERIFY_LOG: ${{ runner.temp }}/opai-unsigned-verification.log
+      DESKTOP_BUILD_LOCK: ${{ matrix.build_lock }}
+
+    steps:
+      - name: Reject invalid channel acknowledgement and untrusted production workflow ref
+        shell: bash
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "release_tag must be a safe semantic-version tag such as v0.2.0-alpha.2."
+            exit 2
+          fi
+          if [ "$RELEASE_CHANNEL" = "unsigned-prealpha" ] && [ "$ALLOW_UNSIGNED_PREALPHA" != "true" ]; then
+            echo "Explicit allow_unsigned_prealpha acknowledgement is required."
+            exit 2
+          fi
+          if [ "$RELEASE_CHANNEL" = "production" ] && [ "$ALLOW_UNSIGNED_PREALPHA" = "true" ]; then
+            echo "A production release cannot opt into unsigned-prealpha mode."
+            exit 2
+          fi
+          if [ "$RELEASE_CHANNEL" = "production" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Production signing may be dispatched only from the protected main workflow ref."
+            exit 2
+          fi
+
+      - name: Check out requested release tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove immutable clean annotated tag
+        shell: bash
+        run: |
+          test "$(git cat-file -t "$RELEASE_TAG")" = "tag"
+          test "$(git describe --exact-match --tags HEAD)" = "$RELEASE_TAG"
+          test -z "$(git status --porcelain)"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Create pinned isolated build environment
+        shell: bash
+        run: |
+          test -f "$DESKTOP_BUILD_LOCK" || {
+            echo "Missing native build lock for ${{ matrix.os }}: $DESKTOP_BUILD_LOCK"
+            echo "Generate and review it on the matching CPython 3.13 platform before release."
+            exit 2
+          }
+          python -m venv .artifact-build-venv
+          PY=./.artifact-build-venv/bin/python
+          [ -f ./.artifact-build-venv/Scripts/python.exe ] && PY=./.artifact-build-venv/Scripts/python.exe
+          # The lock includes pip/setuptools/wheel as well as the native build
+          # inputs. Keep isolation disabled so no unpinned build backend is
+          # resolved while installing the (sdist-only) Nuitka release.
+          "$PY" -m pip install --disable-pip-version-check --require-hashes --no-deps -r requirements/desktop-build-bootstrap.lock
+          "$PY" -m pip install --disable-pip-version-check --require-hashes --no-build-isolation -r "$DESKTOP_BUILD_LOCK"
+          "$PY" -m pip install --no-deps -e . --disable-pip-version-check --no-build-isolation
+          "$PY" -m pip check
+          echo "ARTIFACT_PY=$PY" >> "$GITHUB_ENV"
+
+      - name: Build unsigned portable bundle from the tag
+        shell: bash
+        run: |
+          "$ARTIFACT_PY" scripts/build_desktop_artifacts.py \
+            --build-python "$ARTIFACT_PY" \
+            --lock-file "$DESKTOP_BUILD_LOCK" \
+            --output-dir "$BUNDLE" \
+            --channel unsigned-prealpha
+
+      - name: Record unsigned alpha verification state
+        if: inputs.release_channel == 'unsigned-prealpha'
+        shell: bash
+        run: |
+          printf '%s\n' "unsigned-prealpha: no signing credentials were requested or supplied" > "$VERIFY_LOG"
+
+      - name: Smoke unsigned native artifact outside checkout
+        if: inputs.release_channel == 'unsigned-prealpha'
+        shell: bash
+        run: |
+          "$ARTIFACT_PY" scripts/smoke_desktop_artifacts.py "$BUNDLE" --timeout 120
+
+      - name: Archive unsigned macOS portable artifact
+        if: inputs.release_channel == 'unsigned-prealpha' && matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          ARCHIVE="$RUNNER_TEMP/OPai-${RELEASE_TAG}-macos-latest-unsigned-prealpha.zip"
+          /usr/bin/ditto -c -k --keepParent "$BUNDLE" "$ARCHIVE"
+          printf 'ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Archive unsigned Windows portable artifact
+        if: inputs.release_channel == 'unsigned-prealpha' && matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP ("OPai-{0}-windows-latest-unsigned-prealpha.zip" -f $env:RELEASE_TAG)
+          Compress-Archive -LiteralPath $env:BUNDLE -DestinationPath $archive -Force
+          "ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload unsigned alpha artifact and evidence
+        if: inputs.release_channel == 'unsigned-prealpha'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-unsigned-prealpha
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.BUNDLE }}/SHA256SUMS.txt
+            ${{ env.BUNDLE }}/provenance.json
+            ${{ env.BUNDLE }}/signing-status.json
+            ${{ env.VERIFY_LOG }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload production signing input
+        if: inputs.release_channel == 'production'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-input
+          path: ${{ env.BUNDLE }}
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    name: Protected production signing (${{ matrix.os }})
+    needs: build
+    if: ${{ inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
+    environment:
+      name: opai-production-signing
+      deployment: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      BUNDLE: ${{ runner.temp }}/opai-desktop-bundle
+      VERIFY_LOG: ${{ runner.temp }}/opai-signing-verification.log
+      PUBLISHER_IDENTITY: ${{ runner.temp }}/opai-publisher-identity.json
+      EXPECTED_WINDOWS_SIGNER_THUMBPRINT: ${{ vars.OPAI_WINDOWS_SIGNER_THUMBPRINT }}
+      EXPECTED_MACOS_TEAM_ID: ${{ vars.OPAI_MACOS_TEAM_ID }}
+
+    steps:
+      - name: Check out trusted release tooling from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up trusted Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Download unsigned production signing input
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-input
+          path: ${{ env.BUNDLE }}
+
+      - name: Independently bind input provenance to the requested immutable tag
+        shell: bash
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "release_tag must be a safe semantic-version tag."
+            exit 2
+          fi
+          git fetch --tags --force origin "$RELEASE_TAG"
+          test "$(git cat-file -t "$RELEASE_TAG")" = "tag"
+          EXPECTED_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
+          git merge-base --is-ancestor "$EXPECTED_COMMIT" "$GITHUB_SHA"
+          python - "$BUNDLE/provenance.json" "$RELEASE_TAG" "$EXPECTED_COMMIT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path, expected_tag, expected_commit = map(str, sys.argv[1:])
+          value = json.loads(Path(path).read_text(encoding="utf-8"))
+          if value.get("tag") != expected_tag or value.get("commit") != expected_commit:
+              raise SystemExit("production signing input provenance does not match the requested tag")
+          PY
+
+      - name: Sign and verify Windows production bundle
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.OPAI_WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.OPAI_WINDOWS_PFX_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_PFX_BASE64 -or -not $env:WINDOWS_PFX_PASSWORD) { throw "Windows signing secrets are required for production." }
+          $expectedThumbprint = ($env:EXPECTED_WINDOWS_SIGNER_THUMBPRINT -replace '\s', '').ToUpperInvariant()
+          if ($expectedThumbprint -notmatch '^[0-9A-F]{40}$') { throw "A protected Windows signer thumbprint is required for production." }
+          $signTool = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin\x64\signtool.exe"
+          if (-not (Test-Path -LiteralPath $signTool -PathType Leaf)) { throw "Trusted signtool.exe was not found at $signTool" }
+          $certificate = Join-Path $env:RUNNER_TEMP "opai-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+            $log = @()
+            Get-ChildItem -Path $env:BUNDLE -Recurse -File | Where-Object { $_.Extension -in ".exe", ".dll", ".pyd" } | ForEach-Object {
+              & $signTool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificate /p $env:WINDOWS_PFX_PASSWORD $_.FullName
+              if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($_.FullName)" }
+              $signature = Get-AuthenticodeSignature -FilePath $_.FullName
+              if ($signature.Status -ne 'Valid') { throw "Authenticode verification failed for $($_.FullName): $($signature.Status)" }
+              $thumbprint = ($signature.SignerCertificate.Thumbprint -replace '\s', '').ToUpperInvariant()
+              if ($thumbprint -ne $expectedThumbprint) { throw "Authenticode publisher did not match the protected signer thumbprint for $($_.FullName)" }
+              $log += $signature
+            }
+            if ($log.Count -eq 0) { throw "No Windows executable code files were signed." }
+            $log | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $env:VERIFY_LOG -Encoding utf8
+          }
+          finally {
+            Remove-Item -LiteralPath $certificate -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Sign, notarize, and verify macOS production bundle
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID: ${{ secrets.OPAI_APPLE_DEVELOPER_ID }}
+          APPLE_SIGNING_CERTIFICATE_BASE64: ${{ secrets.OPAI_APPLE_SIGNING_CERTIFICATE_BASE64 }}
+          APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.OPAI_APPLE_SIGNING_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_APPLE_ID: ${{ secrets.OPAI_APPLE_NOTARY_APPLE_ID }}
+          APPLE_NOTARY_TEAM_ID: ${{ secrets.OPAI_APPLE_NOTARY_TEAM_ID }}
+          APPLE_NOTARY_APP_SPECIFIC_PASSWORD: ${{ secrets.OPAI_APPLE_NOTARY_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ vars.OPAI_MACOS_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$APPLE_DEVELOPER_ID"
+          test -n "$APPLE_SIGNING_CERTIFICATE_BASE64"
+          test -n "$APPLE_SIGNING_CERTIFICATE_PASSWORD"
+          test -n "$APPLE_NOTARY_APPLE_ID"
+          test -n "$APPLE_NOTARY_TEAM_ID"
+          test -n "$APPLE_NOTARY_APP_SPECIFIC_PASSWORD"
+          [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
+          [[ "$APPLE_NOTARY_TEAM_ID" == "$APPLE_TEAM_ID" ]]
+          KEYCHAIN="$RUNNER_TEMP/opai-signing.keychain-db"
+          CERTIFICATE="$RUNNER_TEMP/opai-signing.p12"
+          KEYCHAIN_PASSWORD="$(/usr/bin/uuidgen)"
+          NOTARY_PROFILE="opai-notary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() {
+            /usr/bin/security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
+            /bin/rm -f "$CERTIFICATE"
+          }
+          trap cleanup EXIT
+          printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | /usr/bin/base64 -D > "$CERTIFICATE"
+          /usr/bin/security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          /usr/bin/security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          /usr/bin/security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          /usr/bin/security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$APPLE_SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          /usr/bin/xcrun notarytool store-credentials "$NOTARY_PROFILE" --apple-id "$APPLE_NOTARY_APPLE_ID" --team-id "$APPLE_NOTARY_TEAM_ID" --password "$APPLE_NOTARY_APP_SPECIFIC_PASSWORD" --keychain "$KEYCHAIN"
+          APP="$BUNDLE/gui/OPai.app"
+          CLI="$BUNDLE/cli/opai"
+          test -d "$APP"
+          test -f "$CLI"
+          /usr/bin/codesign --force --deep --options runtime --timestamp --keychain "$KEYCHAIN" --sign "$APPLE_DEVELOPER_ID" "$APP"
+          /usr/bin/codesign --force --options runtime --timestamp --keychain "$KEYCHAIN" --sign "$APPLE_DEVELOPER_ID" "$CLI"
+          /usr/bin/ditto -c -k --keepParent "$BUNDLE" "$RUNNER_TEMP/opai-notary-input.zip"
+          /usr/bin/xcrun notarytool submit "$RUNNER_TEMP/opai-notary-input.zip" --keychain-profile "$NOTARY_PROFILE" --keychain "$KEYCHAIN" --wait
+          /usr/bin/xcrun stapler staple "$APP"
+          {
+            /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
+            /usr/bin/codesign --verify --strict --verbose=2 "$CLI"
+            /usr/sbin/spctl --assess --type execute --verbose=4 "$APP"
+            /usr/sbin/spctl --assess --type execute --verbose=4 "$CLI"
+            /usr/bin/codesign -d --verbose=4 "$APP" 2>&1 | /usr/bin/grep -F "TeamIdentifier=$APPLE_TEAM_ID"
+            /usr/bin/codesign -d --verbose=4 "$CLI" 2>&1 | /usr/bin/grep -F "TeamIdentifier=$APPLE_TEAM_ID"
+            /usr/bin/xcrun stapler validate "$APP"
+          } 2>&1 | /usr/bin/tee "$VERIFY_LOG"
+
+      - name: Finalize production evidence after platform verification
+        shell: bash
+        run: |
+          STATUS=signed
+          TOOL=Authenticode
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            STATUS=signed-and-notarized
+            TOOL=codesign+spctl+notarytool+stapler
+          fi
+          python scripts/finalize_desktop_artifact.py "$BUNDLE" \
+            --verification-log "$VERIFY_LOG" \
+            --tool "$TOOL" \
+            --status "$STATUS"
+
+      - name: Record validated publisher identity for credential-free smoke
+        shell: bash
+        run: |
+          python - "$PUBLISHER_IDENTITY" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          output = Path(sys.argv[1])
+          runner_os = os.environ["RUNNER_OS"]
+          if runner_os == "Windows":
+              thumbprint = re.sub(
+                  r"\s+", "", os.environ["EXPECTED_WINDOWS_SIGNER_THUMBPRINT"]
+              ).upper()
+              if not re.fullmatch(r"[0-9A-F]{40}", thumbprint):
+                  raise SystemExit("validated Windows signer thumbprint is missing")
+              value = {
+                  "platform": "windows",
+                  "windows_signer_thumbprint": thumbprint,
+              }
+          elif runner_os == "macOS":
+              team_id = os.environ["EXPECTED_MACOS_TEAM_ID"].upper()
+              if not re.fullmatch(r"[A-Z0-9]{10}", team_id):
+                  raise SystemExit("validated macOS Team ID is missing")
+              value = {"macos_team_id": team_id, "platform": "macos"}
+          else:
+              raise SystemExit(f"unsupported signing runner: {runner_os}")
+          output.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Archive signed macOS portable artifact before any artifact execution
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          ARCHIVE="$RUNNER_TEMP/OPai-${RELEASE_TAG}-macos-latest-production.zip"
+          /usr/bin/ditto -c -k --keepParent "$BUNDLE" "$ARCHIVE"
+          printf 'ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Archive signed Windows portable artifact before any artifact execution
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP ("OPai-{0}-windows-latest-production.zip" -f $env:RELEASE_TAG)
+          Compress-Archive -LiteralPath $env:BUNDLE -DestinationPath $archive -Force
+          "ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload immutable signed production output
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-signed
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.BUNDLE }}
+            ${{ env.VERIFY_LOG }}
+            ${{ env.PUBLISHER_IDENTITY }}
+          if-no-files-found: error
+          retention-days: 1
+
+  smoke:
+    name: Credential-free signed artifact smoke (${{ matrix.os }})
+    needs: sign
+    if: ${{ inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SIGNED_OUTPUT: ${{ runner.temp }}/opai-signed-output
+      SMOKE_REPORT: ${{ runner.temp }}/opai-smoke-report.json
+
+    steps:
+      - name: Check out trusted smoke tooling from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up trusted Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Download immutable signed production output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-signed
+          path: ${{ env.SIGNED_OUTPUT }}
+
+      - name: Locate signed portable bundle outside the checkout
+        shell: bash
+        run: |
+          CHECKSUMS="$(find "$SIGNED_OUTPUT" -type f -name SHA256SUMS.txt -print -quit)"
+          PUBLISHER_IDENTITY="$(find "$SIGNED_OUTPUT" -type f -name opai-publisher-identity.json -print -quit)"
+          test -n "$CHECKSUMS"
+          test -n "$PUBLISHER_IDENTITY"
+          BUNDLE="$(dirname "$CHECKSUMS")"
+          test -f "$BUNDLE/provenance.json"
+          test -f "$BUNDLE/signing-status.json"
+          printf 'BUNDLE=%s\n' "$BUNDLE" >> "$GITHUB_ENV"
+          printf 'PUBLISHER_IDENTITY=%s\n' "$PUBLISHER_IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Read validated publisher identity from signed output
+        shell: bash
+        run: |
+          python - "$PUBLISHER_IDENTITY" "${{ matrix.os }}" "$GITHUB_ENV" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          identity_path, matrix_os, environment_path = map(str, sys.argv[1:])
+          value = json.loads(Path(identity_path).read_text(encoding="utf-8"))
+          if matrix_os == "windows-latest":
+              thumbprint = str(value.get("windows_signer_thumbprint", "")).upper()
+              if value.get("platform") != "windows" or not re.fullmatch(
+                  r"[0-9A-F]{40}", thumbprint
+              ):
+                  raise SystemExit("signed output has no valid Windows signer identity")
+              line = f"WINDOWS_SIGNER_THUMBPRINT={thumbprint}\n"
+          elif matrix_os == "macos-latest":
+              team_id = str(value.get("macos_team_id", "")).upper()
+              if value.get("platform") != "macos" or not re.fullmatch(
+                  r"[A-Z0-9]{10}", team_id
+              ):
+                  raise SystemExit("signed output has no valid macOS Team ID")
+              line = f"MACOS_TEAM_ID={team_id}\n"
+          else:
+              raise SystemExit(f"unsupported smoke runner: {matrix_os}")
+          with Path(environment_path).open("a", encoding="utf-8") as environment:
+              environment.write(line)
+          PY
+
+      - name: Smoke signed native artifact outside checkout without release credentials
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            python scripts/smoke_desktop_artifacts.py "$BUNDLE" --timeout 120 \
+              --windows-signer-thumbprint "$WINDOWS_SIGNER_THUMBPRINT" | tee "$SMOKE_REPORT"
+          else
+            python scripts/smoke_desktop_artifacts.py "$BUNDLE" --timeout 120 \
+              --macos-team-id "$MACOS_TEAM_ID" | tee "$SMOKE_REPORT"
+          fi
+
+      - name: Upload credential-free smoke report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-smoke
+          path: ${{ env.SMOKE_REPORT }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  attest:
+    name: Attest immutable signed production archive (${{ matrix.os }})
+    needs: [sign, smoke]
+    if: ${{ inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
+    environment:
+      name: opai-production-signing
+      deployment: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SIGNED_OUTPUT: ${{ runner.temp }}/opai-signed-output
+      SMOKE_OUTPUT: ${{ runner.temp }}/opai-smoke-output
+
+    steps:
+      - name: Download immutable signed production output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-signed
+          path: ${{ env.SIGNED_OUTPUT }}
+
+      - name: Download credential-free smoke report
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-smoke
+          path: ${{ env.SMOKE_OUTPUT }}
+
+      - name: Locate immutable archive and collect release evidence
+        shell: bash
+        run: |
+          ARCHIVE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-${{ matrix.os }}-production.zip"
+          CHECKSUMS="$(find "$SIGNED_OUTPUT" -type f -name SHA256SUMS.txt -print -quit)"
+          SIGNING_LOG="$(find "$SIGNED_OUTPUT" -type f -name opai-signing-verification.log -print -quit)"
+          PUBLISHER_IDENTITY="$(find "$SIGNED_OUTPUT" -type f -name opai-publisher-identity.json -print -quit)"
+          SMOKE_REPORT="$(find "$SMOKE_OUTPUT" -type f -name opai-smoke-report.json -print -quit)"
+          test -f "$ARCHIVE"
+          test -n "$CHECKSUMS"
+          test -n "$SIGNING_LOG"
+          test -n "$PUBLISHER_IDENTITY"
+          test -n "$SMOKE_REPORT"
+          BUNDLE="$(dirname "$CHECKSUMS")"
+          EVIDENCE="$RUNNER_TEMP/opai-release-evidence"
+          mkdir -p "$EVIDENCE"
+          cp "$ARCHIVE" "$EVIDENCE/"
+          cp "$BUNDLE/SHA256SUMS.txt" "$EVIDENCE/"
+          cp "$BUNDLE/provenance.json" "$EVIDENCE/"
+          cp "$BUNDLE/signing-status.json" "$EVIDENCE/"
+          cp "$SIGNING_LOG" "$EVIDENCE/"
+          cp "$PUBLISHER_IDENTITY" "$EVIDENCE/"
+          cp "$SMOKE_REPORT" "$EVIDENCE/"
+          printf 'ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
+          printf 'RELEASE_EVIDENCE=%s\n' "$EVIDENCE" >> "$GITHUB_ENV"
+
+      - name: Attest signed production archive
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: ${{ env.ARCHIVE }}
+
+      - name: Upload production artifact and evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production
+          path: ${{ env.RELEASE_EVIDENCE }}
+          if-no-files-found: error
+          retention-days: 30

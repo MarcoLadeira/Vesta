@@ -90,12 +90,15 @@ avoided, is the audit intact?":
 opai team report
 ```
 
-## Where this sits in the editions ladder
+## Free Public Alpha coverage
 
-| Capability | Edition |
-| --- | --- |
-| Shared team policy, team report, private registries | **Team** ($19/user/mo) |
-| Audit logs, approved MCP profiles, CI policy gates, evidence exports | **Team Governance** ($29/user/mo) |
-| Signed evidence, SSO/RBAC, self-host, signed registries | **Enterprise** (custom) |
+The governance controls implemented in OPai alpha are free: shared local team
+policy, team reports, audit logs, approved MCP checks, CI policy gates, and
+evidence exports. They have no checkout, licence, or tier requirement.
 
-See [PRICING_AND_EDITIONS.md](PRICING_AND_EDITIONS.md).
+Hosted identity, supported private deployment packaging, and private registry
+distribution remain planned implementation work. They are not paid alpha
+tiers.
+
+See [PRICING_AND_EDITIONS.md](PRICING_AND_EDITIONS.md) for the current free
+launch boundary.

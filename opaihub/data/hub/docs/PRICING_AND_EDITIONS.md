@@ -1,72 +1,39 @@
-# OPai Editions & Pricing
+# OPai Free Public Alpha
 
-OPai is **open-core**: the local-first trust layer is free forever, and paid
-editions add deeper savings proof, governance, and team controls. This document
-defines the Free / Pro / Team / Enterprise boundaries (issue #38).
+OPai launches as a **Free Public Alpha**. Every implemented capability in this
+release is available for `$0`: there is no checkout, licence, invitation,
+payment link, or feature gate.
 
-> **Honesty note (alpha).** There is no license server or billing in OPai
-> today. The active edition is *self-declared* via `OPAI_EDITION` or
-> `opai edition set <name>`. These boundaries are codified in
-> [`hub/editions.yaml`](../editions.yaml) so the product surface is real and
-> testable, but enforcement and checkout are deliberately future work. **No paid
-> feature requires telemetry; nothing leaves your machine by default.**
+This stable path replaces the earlier pre-launch pricing proposal so existing
+links remain useful. Future pricing is post-launch product discovery, not an
+alpha requirement. Any future paid offering needs a separate, explicit product
+decision; it cannot be activated by a configuration value or hidden behind an
+alpha workflow.
 
-## Tiers
+## Included in the free alpha
 
-| Edition | Price | Who it's for |
-| --- | --- | --- |
-| **Free** | $0 forever | Individual developers who want a local-first AI coding cost firewall. |
-| **Pro** | ~$12 / month ($99/yr) | Solo devs who want exportable savings proof and advanced policy. |
-| **Team** | ~$19 / user / month | Teams needing shared policy, pooled budgets, team reports, and private registries. |
-| **Team Governance** | ~$29 / user / month | Security-aware teams needing audit logs, approved MCP profiles, CI gates, and evidence exports. |
-| **Enterprise** | Custom (from ~$24k/yr) | Orgs needing SSO/RBAC, self-host, signed evidence/registries, and security review. |
+- Local-first routing, context/evidence collection, and a privacy-safe local
+  usage ledger.
+- Savings reports and local Markdown exports with `opai savings --export`.
+- Client activation, policy profiles, guarded workflows, audit evidence, and
+  the implemented team/governance controls already present in this repository.
+- Local proof bundles and signatures where the relevant command is available.
 
-> The revenue ladder mirrors the [business strategy](../../docs/BUSINESS_STRATEGY.md):
-> Free/Pro earn distribution and proof; **Team Governance and Enterprise are the
-> real revenue pools** because uncontrolled AI coding creates audit, spend, and
-> compliance risk. See [GOVERNANCE.md](GOVERNANCE.md) for the working controls.
+Cloud providers remain opt-in and may charge according to their own terms.
+That is a provider cost decision, not OPai access pricing.
 
-## What's included
+## Availability, not entitlement
 
-### Free — meaningful local value, no asterisks
-- Local-first cost-aware routing and evidence collection (`opai route`).
-- Privacy-safe local **usage ledger** and per-project **savings report**
-  (`opai savings`).
-- Activation across **Claude, Codex, Copilot, Gemini, Cursor, and Cline**
-  (`opai activate`, `opai doctor`).
-- `solo-cheap` and `solo-balanced` **policy profiles**.
-- Guarded-workflow contract with fail-closed gates.
+`opai edition show` remains as a compatibility diagnostic. It reports the
+single Free Public Alpha launch state and distinguishes implemented work from
+planned work. The legacy selection subcommand is a harmless no-op: it cannot
+unlock, lock, or persist access.
 
-### Pro (~$12/mo) — prove and share the savings
-- Export shareable savings reports: `opai savings --export report.md`.
-- `team-safe` policy profile (evidence required on cloud/destructive actions).
-- Retained model-eval scorecard history.
+If a capability is listed as planned, OPai reports that it has not yet been
+implemented safely. It never asks the user to upgrade or choose a paid tier.
 
-### Team (~$19/user/mo) — govern a group
-- Shared/team policy distribution and seat management.
-- Guarded-workflow **audit and evidence exports**.
+## Future work
 
-### Enterprise (custom) — strict governance
-- `enterprise-strict` policy profile (paid models fail closed without override).
-- Signed internal workflow packs and enterprise audit exports.
-
-## Why the paid tiers are legitimate
-
-Each paid feature maps to **measurable savings or governance**, never to
-artificial throttling of core value:
-
-- Pro is tied to *proving and exporting* the savings the firewall already
-  produces.
-- Team/Enterprise are tied to *governance* — shared policy, audit trails, and
-  fail-closed controls — which only matter at team scale.
-
-## Using editions today
-
-```sh
-opai edition show            # current edition, included + locked features
-opai edition set pro         # self-declare an edition for this project
-OPAI_EDITION=team opai ...    # or declare via environment
-```
-
-When a feature is above the active edition, OPai surfaces an upgrade hint rather
-than silently failing — see `opai savings --export` for an example.
+Hosted identity, supported private deployment packaging, private registry
+distribution, and retained model-evaluation history are planned work. They are
+not paid alpha tiers and are not promised as released functionality.

@@ -85,6 +85,7 @@ class LedgerTests(unittest.TestCase):
             root = Path(tmp)
             record_route_decision(root, "show git status", model_tier="L0")
             record_route_decision(root, "fix failing tests", model_tier="L1")
+            record_route_decision(root, "compare free API route", model_tier="L2")
             record_model_call(
                 root,
                 "confirmed cloud call",
@@ -94,12 +95,21 @@ class LedgerTests(unittest.TestCase):
                 confirmed=True,
             )
             summary = summarize_ledger(root)
+            expected_spend = sum(
+                event.get("estimated_actual_usd", 0.0)
+                for event in read_events(root)
+                if event.get("event_type") == "model_call"
+            )
 
-        self.assertEqual(summary["route_count"], 2)
+        self.assertEqual(summary["route_count"], 3)
         self.assertEqual(summary["model_call_count"], 1)
         self.assertEqual(summary["cloud_calls_avoided"], 2)
-        self.assertEqual(summary["routes_by_tier"], {"L0": 1, "L1": 1})
+        self.assertEqual(summary["routes_by_tier"], {"L0": 1, "L1": 1, "L2": 1})
         self.assertGreater(summary["estimated_savings_usd"], 0.0)
+        self.assertGreater(summary["route_estimated_actual_usd"], 0.0)
+        self.assertAlmostEqual(
+            summary["estimated_actual_spend_usd"], expected_spend, places=6
+        )
         self.assertGreater(summary["estimated_actual_spend_usd"], 0.0)
 
     def test_empty_ledger_is_safe(self):

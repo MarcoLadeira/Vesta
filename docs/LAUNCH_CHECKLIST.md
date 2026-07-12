@@ -14,12 +14,13 @@ Reddit, and short-form video.
 
 - [ ] README leads with the cost-firewall positioning.
 - [ ] `site/index.html` is deployed or ready to deploy from Cloudflare Pages.
-- [ ] Cloudflare Web Analytics token replaces the site placeholder.
-- [ ] Founding Pro checkout link replaces `PRIVATE_FOUNDING_PRO_CHECKOUT_URL`.
-- [ ] Team Pilot private form replaces `PRIVATE_TEAM_PILOT_APPLY_URL`.
-- [ ] Private benchmark proof form replaces `PRIVATE_BENCHMARK_PROOF_URL`.
-- [ ] Public site does not link paid users to GitHub issue forms.
-- [ ] Source distribution decision is made: private repo/package or intentional open source.
+- [ ] The public site and release notes say the alpha is fully free.
+- [ ] No public surface requires a checkout, license, invitation, or private
+      access link to install or use alpha functionality.
+- [ ] Free access and source-distribution posture are documented separately:
+      a distribution decision must not become a payment/access gate.
+- [ ] Cloudflare Web Analytics remains optional and does not collect product
+      prompts, source, credentials, or private paths.
 - [ ] [Quickstart](QUICKSTART.md) reproduces in under 60 seconds.
 - [ ] [Before/after proof](PROOF.md) numbers reproduce from the listed commands.
 - [ ] [Effectiveness/security audit](EFFECTIVENESS_AND_SECURITY_AUDIT_2026_06_21.md)
@@ -28,8 +29,8 @@ Reddit, and short-form video.
 - [ ] `python -m unittest discover -s tests` is green.
 - [ ] `opai benchmark run --suite max --mode both` is green.
 - [ ] `opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks` passes.
-- [ ] [Editions & pricing](../hub/docs/PRICING_AND_EDITIONS.md) are clear and
-      honest (no fake billing).
+- [ ] [Product identity](PRODUCT_IDENTITY.md) and the release notes explain
+      that future pricing is post-launch discovery, not an alpha feature gate.
 - [ ] Every public claim maps to a shipped command (no vaporware).
 
 ## GitHub
@@ -61,7 +62,9 @@ Reddit, and short-form video.
 ## Short-form video (60–90s script)
 
 1. Hook (0–10s): "Your AI coding assistant bills you for `git status`. Here's the firewall."
-2. Install (10–25s): one command, then `opai doctor` → six clients active.
+2. Install (10–25s, after a verified artifact is published): show the exact
+   published command, then `opai doctor` → six clients active. Until then, use
+   the release-availability page rather than implying an install command.
 3. Route (25–45s): `opai route "fix the failing test"` → cheapest safe tier, read-only.
 4. Proof (45–70s): `opai savings --markdown` → dollars saved, cloud calls avoided.
 5. Trust (70–90s): `opai guard action "git push"` → denied (fail closed); privacy line.
@@ -69,7 +72,8 @@ Reddit, and short-form video.
 ## Post-launch
 
 - [ ] Collect first-user savings tables (with permission) as case studies.
-- [ ] Collect opt-in benchmark proof reports through the private proof form.
-- [ ] Review Founding Pro checkout conversions weekly.
-- [ ] Review Team Pilot applications weekly.
+- [ ] Collect opt-in benchmark proof reports through a privacy-safe support
+      channel with no purchase requirement.
+- [ ] Review install success, completed-task evidence, recovery friction, and
+      support themes before making any pricing decision.
 - [ ] Track which clients users activate most (locally reported, opt-in only).

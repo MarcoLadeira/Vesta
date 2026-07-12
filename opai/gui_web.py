@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import tempfile
 import threading
 import uuid
 from pathlib import Path
@@ -411,11 +413,44 @@ def _brand() -> dict[str, str]:
     return boot_brand()
 
 
+def _write_artifact_smoke_result(path: Path, payload: dict[str, Any]) -> None:
+    """Atomically persist an artifact-only GUI smoke result for its parent runner."""
+    destination = path.expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            json.dump(payload, handle, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def _run_gui(
     project_root: Path,
     *,
     initial_task: str | None = None,
+    artifact_smoke_result: Path | None = None,
+    artifact_smoke_timeout_seconds: int = 30,
 ):
+    if artifact_smoke_result is not None and artifact_smoke_timeout_seconds <= 0:
+        raise ValueError("artifact smoke timeout must be positive")
     if not web_available():
         raise RuntimeError("QtWebEngine is not available")
     from PySide6 import QtCore, QtGui, QtWidgets
@@ -1094,6 +1129,74 @@ def _run_gui(
         )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window()
+    smoke_outcome: dict[str, Any] | None = None
+    if artifact_smoke_result is not None:
+        result_path = artifact_smoke_result.expanduser().resolve()
+        poll_timer = QtCore.QTimer(window)
+        poll_timer.setInterval(150)
+
+        def finish_artifact_smoke(payload: dict[str, Any]) -> None:
+            nonlocal smoke_outcome
+            if smoke_outcome is not None:
+                return
+            smoke_outcome = payload
+            poll_timer.stop()
+            try:
+                _write_artifact_smoke_result(result_path, payload)
+            except OSError as exc:
+                smoke_outcome = {
+                    "ok": False,
+                    "status": "result_write_failed",
+                    "error": str(exc),
+                }
+            QtCore.QTimer.singleShot(0, window.close)
+
+        def inspect_artifact_page(value: Any) -> None:
+            try:
+                page = json.loads(value) if isinstance(value, str) else {}
+            except json.JSONDecodeError:
+                page = {}
+            if not isinstance(page, dict):
+                page = {}
+            if (
+                page.get("documentReady")
+                and page.get("app")
+                and page.get("bridgeBooted")
+            ):
+                finish_artifact_smoke(
+                    {
+                        "ok": True,
+                        "status": "ready",
+                        "document_ready": True,
+                        "app_element": True,
+                        "bridge_booted": True,
+                    }
+                )
+
+        def poll_artifact_page() -> None:
+            window.view.page().runJavaScript(
+                "JSON.stringify({"
+                "documentReady: document.readyState === 'complete',"
+                "app: Boolean(document.getElementById('app')),"
+                "bridgeBooted: Boolean(window.__opai && window.__opai.state && "
+                "window.__opai.state.boot)"
+                "})",
+                inspect_artifact_page,
+            )
+
+        def artifact_page_loaded(loaded: bool) -> None:
+            if not loaded:
+                finish_artifact_smoke({"ok": False, "status": "page_load_failed"})
+                return
+            poll_timer.start()
+            poll_artifact_page()
+
+        poll_timer.timeout.connect(poll_artifact_page)
+        window.view.loadFinished.connect(artifact_page_loaded)
+        QtCore.QTimer.singleShot(
+            artifact_smoke_timeout_seconds * 1000,
+            lambda: finish_artifact_smoke({"ok": False, "status": "timeout"}),
+        )
     # Window/taskbar/Alt-Tab icon + Windows taskbar grouping, set before show so
     # the app never presents as a generic Python window (#148).
     from opai.gui_identity import apply_window_identity
@@ -1101,9 +1204,27 @@ def _run_gui(
     apply_window_identity(app, window)
     window.show()
     app.exec()
+    if artifact_smoke_result is not None:
+        if smoke_outcome is None:
+            finish_artifact_smoke({"ok": False, "status": "closed_before_ready"})
+        return smoke_outcome
     return 0
 
 
 def launch(project_root: Path, task: str | None = None) -> int:
     """Open the web-rendered desktop window (blocks until closed)."""
     return int(_run_gui(project_root, initial_task=task) or 0)
+
+
+def run_artifact_smoke(
+    project_root: Path, result_path: Path, *, timeout_seconds: int = 30
+) -> dict[str, Any]:
+    """Launch and close a real QtWebEngine/bridge artifact smoke window."""
+    outcome = _run_gui(
+        project_root,
+        artifact_smoke_result=result_path,
+        artifact_smoke_timeout_seconds=timeout_seconds,
+    )
+    if not isinstance(outcome, dict):
+        raise RuntimeError("artifact smoke did not produce an outcome")
+    return outcome

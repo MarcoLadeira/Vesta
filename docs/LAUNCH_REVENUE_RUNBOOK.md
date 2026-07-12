@@ -1,4 +1,9 @@
-# OPai Launch Revenue Runbook
+# Archived Pre-Free-Launch Revenue Runbook
+
+> **Archived on 2026-07-12.** OPai's alpha launches fully free. This document
+> records an earlier pricing experiment only; it must not be used to create
+> checkout links, access gates, licenses, or paid launch copy. Future pricing
+> is evidence-led post-launch discovery.
 
 This runbook keeps the first revenue loop simple: use no-code payments, route
 buyers into human onboarding, and do not build licensing before launch.

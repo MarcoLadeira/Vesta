@@ -1,6 +1,7 @@
 """Issue #40: positioning is consistent and every documented command exists."""
 
 import io
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -71,6 +72,28 @@ class DocumentedCommandsExistTests(unittest.TestCase):
             code = main(["--project", str(REPO), "savings"])
         self.assertEqual(code, 0)
         self.assertIn("opai-savings", buffer.getvalue())
+
+    def test_savings_export_is_available_in_the_default_free_alpha(self):
+        from opai.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "savings.md"
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = main(
+                    [
+                        "--project",
+                        str(root),
+                        "savings",
+                        "--export",
+                        str(target),
+                    ]
+                )
+
+            self.assertEqual(code, 0)
+            self.assertTrue(target.exists())
+            self.assertIn("# OPai Savings Report", target.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

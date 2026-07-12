@@ -1,0 +1,9 @@
+# Direct inputs for the native-desktop build lock. The workflow installs the
+# generated .lock file with hashes and without build isolation.
+pip==26.1.2
+setuptools==83.0.0
+wheel==0.47.0
+PyYAML==6.0.3
+PySide6==6.11.1
+Nuitka==4.0
+keyring==25.7.0

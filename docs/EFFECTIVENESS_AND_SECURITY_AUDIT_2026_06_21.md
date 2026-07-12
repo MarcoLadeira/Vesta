@@ -4,6 +4,11 @@ Date: 2026-06-21
 
 Branch: `codex/private-launch-access`
 
+> **Historical record — superseded for launch planning.** This audit describes
+> a pre-free-launch private/paid distribution proposal. OPai's public alpha
+> launches fully free; do not use its checkout, private-access, or source-
+> restriction recommendations as current release instructions.
+
 ## Executive Result
 
 OPai is effective on its local max benchmark, but it is **not ready to host as a

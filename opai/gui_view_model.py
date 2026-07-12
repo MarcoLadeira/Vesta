@@ -175,6 +175,12 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         if capture_rate == 100
         else "warning"
     )
+    benchmark = state["benchmark_proof"]
+    benchmark_value = (
+        f"{_num(benchmark.get('effectiveness_index'))} index"
+        if benchmark.get("has_run") and benchmark.get("effectiveness_index") is not None
+        else "Run local max"
+    )
 
     topbar = {
         "brand": "OPai",
@@ -241,7 +247,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
             },
             {
                 "label": "Benchmark proof",
-                "value": "50x / 16 calls",
+                "value": benchmark_value,
                 "severity": "success",
             },
             {
@@ -426,7 +432,6 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         ],
     }
 
-    benchmark = state["benchmark_proof"]
     benchmark_section = {
         "id": "benchmark",
         "label": "Benchmark",
@@ -480,7 +485,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "label": "Proof Bundle",
         "icon": "package-check",
         "title": "Proof Bundle",
-        "subtitle": "Private signed evidence for buyers and team pilots.",
+        "subtitle": "Local signed evidence for alpha users and teams.",
         "kpis": [
             {
                 "label": "Available",

@@ -75,13 +75,18 @@ class EvidenceCacheTests(unittest.TestCase):
             )
         self.assertFalse(meta["cache_hit"])
 
-    def test_non_git_project_uses_marker_fingerprint(self):
+    def test_non_git_project_bypasses_reuse_without_writing_a_cache_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "package.json").write_text("{}", encoding="utf-8")
             _e1, m1 = collect_evidence_cached(root, "fix bug", write=True)
             _e2, m2 = collect_evidence_cached(root, "fix bug", write=True)
-        self.assertTrue(m2["cache_hit"])
+            cache_root = root / ".opaihub" / "cache" / "evidence"
+        self.assertFalse(m1["cache_hit"])
+        self.assertFalse(m2["cache_hit"])
+        self.assertTrue(m2["cache_bypassed"])
+        self.assertEqual(m2["cache_bypass_reason"], "no_git_repository")
+        self.assertFalse(cache_root.exists())
 
 
 class RouterCacheIntegrationTests(unittest.TestCase):

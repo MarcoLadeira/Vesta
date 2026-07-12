@@ -1,10 +1,9 @@
-"""Proof bundles and team pilot trust reports (#54).
+"""Local signed proof bundles for Free Public Alpha users and teams.
 
-Founders and budget owners pay when OPai *proves* savings and safety in a form
-they can trust. A proof bundle assembles the benchmark report, savings rollup,
-policy check, audit checkpoint, signed-evidence summary, and a redaction summary
-into one private, signable artifact - without ever storing or exposing raw
-prompts. Verification re-checks the signature and the embedded artifact hashes.
+A proof bundle assembles benchmark evidence, savings rollups, policy checks,
+audit checkpoints, signatures, and a redaction summary into one local,
+verifiable artifact without storing or exposing raw prompts. Verification
+re-checks the signature and embedded artifact hashes.
 """
 
 from __future__ import annotations
@@ -50,7 +49,7 @@ def build_proof_bundle(
     sign: bool = True,
     allow_benchmark_run: bool = True,
 ) -> dict[str, Any]:
-    """Assemble a private, optionally signed proof bundle. Read-only by default."""
+    """Assemble a local, optionally signed proof bundle. Read-only by default."""
     root = project_root.expanduser().resolve()
 
     ledger = summarize_ledger(root)

@@ -31,6 +31,24 @@ class BudgetConfigTests(unittest.TestCase):
         self.assertGreater(status["spent"]["today_usd"], 0.0)
         self.assertLess(status["remaining"]["today_usd"], 1.0)
 
+    def test_route_comparison_estimate_is_not_spend(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_route_decision(root, "route", model_tier="L2")
+            before_call = budget_status(root)
+            record_model_call(
+                root,
+                "call",
+                model_tier="L2",
+                provider_type="free_api",
+                tokens=100,
+                confirmed=True,
+            )
+            after_call = budget_status(root)
+
+        self.assertEqual(before_call["spent"]["today_usd"], 0.0)
+        self.assertGreater(after_call["spent"]["today_usd"], 0.0)
+
 
 class BudgetGateTests(unittest.TestCase):
     def test_local_route_is_allowed(self):

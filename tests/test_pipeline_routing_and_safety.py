@@ -184,6 +184,29 @@ class SelectedLocalModelTests(unittest.TestCase):
             )
         self.assertEqual(res["status"], "needs_model")
 
+    def test_local_edit_capability_mismatch_is_not_answered_or_receipted(self):
+        mismatch = {
+            "status": "capability_mismatch",
+            "capability": "edit_files",
+            "reason": "The selected local runner cannot edit files safely.",
+            "hint": "Choose a provider with bounded repository tools.",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch("opaihub.ask.run_ask", return_value=mismatch) as run:
+                result = handle_gui_message(
+                    root,
+                    "Fix app.py",
+                    model_id="ollama:qwen-coder",
+                    mode="safe-auto",
+                )
+
+        self.assertEqual(result["status"], "capability_mismatch")
+        self.assertEqual(result["receipt"], {})
+        self.assertEqual(result["changed_files"], [])
+        self.assertEqual(result["workflow"]["phase"], "blocked")
+        self.assertTrue(run.call_args.kwargs["allow_edits"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -213,6 +213,41 @@ def record_route_decision(
     )
 
 
+def record_cache_lookup(
+    project_root: Path,
+    task: str,
+    *,
+    cache_kind: str,
+    outcome: str,
+    reason: str | None = None,
+    age_seconds: int | None = None,
+    avoided_model_call: bool = False,
+    source: str = "ask",
+) -> dict[str, Any]:
+    """Record privacy-safe cache evidence without affecting spend or savings."""
+    normalized_outcome = str(outcome).strip().lower()
+    if normalized_outcome not in {
+        "hit",
+        "miss",
+        "expired",
+        "schema_mismatch",
+        "corrupt",
+        "bypass",
+    }:
+        raise ValueError(f"unknown cache outcome: {outcome}")
+    fields: dict[str, Any] = {
+        "cache_kind": str(cache_kind).strip().lower(),
+        "outcome": normalized_outcome,
+        "avoided_model_call": bool(avoided_model_call),
+        "source": str(source).strip().lower(),
+    }
+    if reason:
+        fields["reason"] = str(reason).strip().lower()
+    if age_seconds is not None:
+        fields["age_seconds"] = max(0, int(age_seconds))
+    return record_event(project_root, EVENT_CACHE, task=task, **fields)
+
+
 def record_model_call(
     project_root: Path,
     task: str,
@@ -383,11 +418,8 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         "local_routes": local_routes,
         "cloud_calls_avoided": cloud_calls_avoided,
         "estimated_baseline_usd": _sum(routes, "estimated_baseline_usd"),
-        "estimated_actual_spend_usd": round(
-            _sum(routes, "estimated_actual_usd")
-            + _sum(model_calls, "estimated_actual_usd"),
-            6,
-        ),
+        "route_estimated_actual_usd": _sum(routes, "estimated_actual_usd"),
+        "estimated_actual_spend_usd": _sum(model_calls, "estimated_actual_usd"),
         "estimated_savings_usd": _sum(routes, "estimated_savings_usd"),
         "context_chars_saved": int(_sum(routes, "context_chars_saved")),
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),

@@ -1,4 +1,12 @@
-# OPai Commercial Access And IP Protection
+# Archived Pre-Free-Launch Commercial Access And IP Protection
+
+> **Archived on 2026-07-12.** This proposal assumes paid/private distribution.
+> OPai's alpha is fully free, so it must not be used to create checkout links,
+> licenses, invitations, private-access requirements, or paid feature gates.
+> Retain it only as a post-launch distribution and IP hypothesis, after free-
+> alpha evidence establishes whether any of those choices are warranted.
+>
+> This document must not be used as current launch policy.
 
 OPai cannot be protected by payments alone if the full source remains publicly
 available. A public repository is useful for trust and adoption, but it also

@@ -1,6 +1,11 @@
-# OPai 30-Day Go-To-Market Plan
+# Archived Pre-Free-Launch 30-Day Go-To-Market Plan
 
 Last updated: 2026-06-20
+
+> **Archived on 2026-07-12.** This plan assumes a controlled paid/private
+> launch and is no longer current. OPai's alpha is fully free; use the current
+> launch checklist and product identity instead. Retain this file only as a
+> record of hypotheses to revisit after real free-alpha usage.
 
 Goal: get OPai online, get real users, start revenue conversations, and learn
 whether the cost-firewall positioning converts.

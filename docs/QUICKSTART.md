@@ -1,15 +1,23 @@
 # OPai Quickstart
 
-OPai is the AI coding cost firewall. This is the shortest path from controlled
-alpha access to proof.
+OPai is the AI coding cost firewall. The alpha launches fully free: there is no
+checkout, license, invitation, or private-access requirement for alpha
+functionality.
 
-## 1. Install from your private access link
+## 1. Check public release availability
 
-Founding Pro buyers and Team Pilot customers receive a private install command
-or release package after checkout or onboarding. Do not publish raw source
-install URLs on the public launch page while OPai is in controlled alpha.
+There is **no public package or desktop artifact installation command yet**.
+When the platform release proof is complete, use only the current verified path
+published on [GitHub Releases](https://github.com/MarcoLadeira/OPai/releases).
+Until then, a source contributor can install the checkout they already have;
+never treat a payment or private checkout link as an installation prerequisite:
 
-Then restart your terminal once. If `op` is not yet on `PATH`, use
+```sh
+python -m pip install -e .
+```
+
+After either a verified release install or the contributor install above,
+restart your terminal once. If `op` is not yet on `PATH`, use
 `python -m opai ...` for any command below.
 
 ## 2. Confirm activation across your AI clients
@@ -75,7 +83,6 @@ opai guard action "git push"     # fail-closed: denied without --confirm
 | `opai policy show\|set` | Cost/safety policy profile |
 | `opai models eval` | Offline routing scorecard |
 | `opai guard list\|check\|action` | Guarded-workflow contract |
-| `opai edition show` | Open-core edition + features |
 | `opai slim --clean` | Strip generated context bloat |
 | `opai update` / `opai uninstall` | Update or cleanly remove OPai |
 

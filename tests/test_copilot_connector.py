@@ -31,6 +31,7 @@ from opaihub.accounts import (
     list_connected_accounts,
     runner_for_account,
 )
+from opaihub.gui_pipeline import handle_gui_message
 from opaihub.ledger import EVENT_MODEL_CALL, read_events
 from opaihub.proxy import SUPPORTED_AGENTS, proxy_run
 
@@ -197,17 +198,17 @@ class CopilotBuildCommandTests(unittest.TestCase):
         self.assertIn("Do not modify files", cmd[-1])
         self.assertIn("refactor the parser", cmd[-1])
 
-    def test_safe_auto_mode_allows_all_tools(self):
+    def test_safe_auto_command_never_enables_unbounded_tools(self):
         runner = _copilot_runner()
         cmd = runner.build_command("ship it", mode="safe-auto")
-        self.assertIn("--allow-all-tools", cmd)
-        # Edit modes must NOT prepend the read-only guard.
-        self.assertNotIn("Do not modify files", cmd[-1])
+        self.assertNotIn("--allow-all-tools", cmd)
+        self.assertIn("Do not modify files", cmd[-1])
 
-    def test_full_auto_mode_allows_all_tools(self):
+    def test_full_auto_command_never_enables_unbounded_tools(self):
         runner = _copilot_runner()
         cmd = runner.build_command("build a feature", mode="full-auto")
-        self.assertIn("--allow-all-tools", cmd)
+        self.assertNotIn("--allow-all-tools", cmd)
+        self.assertIn("Do not modify files", cmd[-1])
 
     def test_model_flag_is_passed_through(self):
         runner = _copilot_runner(model="claude-sonnet-4.6")
@@ -380,6 +381,42 @@ class CopilotAppStateAskTests(unittest.TestCase):
         self.assertEqual(result["status"], "answered_by_account")
         self.assertEqual(result["provider"], "copilot")
         self.assertEqual(len(fake.calls), 1)
+
+    def test_copilot_edit_request_fails_before_runner_launch(self):
+        from opai import app_state as A
+
+        fake = FakeAccountRunner(account_id="copilot", text="should not run")
+        result = A.ask(
+            self.root,
+            "Fix app.py",
+            "account:copilot:gpt-5.2",
+            allow_edits=True,
+            mode="safe-auto",
+            account_runner=fake,
+        )
+
+        self.assertEqual(result["status"], "capability_mismatch")
+        self.assertEqual(result["provider"], "copilot")
+        self.assertEqual(result["capability"], "edit_files")
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(read_events(self.root), [])
+
+    def test_gui_copilot_edit_mismatch_is_blocked_without_receipt_or_spend(self):
+        fake = FakeAccountRunner(account_id="copilot", text="should not run")
+        result = handle_gui_message(
+            self.root,
+            "Fix app.py",
+            model_id="account:copilot:gpt-5.2",
+            mode="safe-auto",
+            account_runner=fake,
+        )
+
+        self.assertEqual(result["status"], "capability_mismatch")
+        self.assertEqual(result["receipt"], {})
+        self.assertEqual(result["changed_files"], [])
+        self.assertEqual(result["workflow"]["phase"], "blocked")
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(read_events(self.root), [])
 
 
 if __name__ == "__main__":

@@ -18,11 +18,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-# 50x is the approved, capped public reduction figure for the local suite.
-CONTEXT_REDUCTION_CLAIM = "50x"
+# Benchmark proof is local and must be reproduced before publishing a result.
+CONTEXT_REDUCTION_CLAIM = "local max"
 BENCHMARK_CLAIM = (
-    "OPai reduced context by 50x and avoided 16 paid calls on the "
-    "16-task local benchmark suite."
+    "Local max benchmark proof is available after you run the reproducible "
+    "benchmark suite."
 )
 BENCHMARK_CAVEAT = (
     "Local OPai benchmark suite result. Not an official SWE-bench, "
@@ -626,6 +626,7 @@ def ask(
     *,
     allow_cloud: bool = False,
     allow_edits: bool = False,
+    record_route: bool = True,
     account_runner: Any = None,
     mode: str | None = None,
     on_event: Any = None,
@@ -669,6 +670,7 @@ def ask(
             allow_cloud=allow_cloud,
             allow_edits=allow_edits,
             mode=mode,
+            record_route=record_route,
             cancel=cancel,
         )
 
@@ -679,7 +681,13 @@ def ask(
     if model_choice and model_choice != "auto":
         runner = runner_for_model(model_choice, project_root)
     return run_ask(
-        root, task, runner=runner, record=True, allow_cloud=allow_cloud, cancel=cancel
+        root,
+        task,
+        runner=runner,
+        record=True,
+        allow_cloud=allow_cloud,
+        allow_edits=allow_edits,
+        cancel=cancel,
     )
 
 
@@ -691,6 +699,7 @@ def _ask_free_model(
     allow_cloud: bool = False,
     allow_edits: bool = False,
     mode: str | None = None,
+    record_route: bool = True,
     cancel: Any = None,
 ) -> dict[str, Any]:
     """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
@@ -745,7 +754,7 @@ def _ask_free_model(
         selected_model_id=model_id,
         allow_edits=allow_edits,
         mode=mode or ("safe-auto" if allow_edits else "ask"),
-        record=True,
+        record=record_route,
         cancel=cancel,
     )
     if result.get("status") == "runner_error":
@@ -844,6 +853,21 @@ def _ask_account(
             "status": "blocked_panic",
             "provider": account_id,
             "reason": "Panic mode is on (local-only). Turn panic off to use a paid account.",
+        }
+
+    if account_id == "copilot" and allow_edits:
+        return {
+            "status": "capability_mismatch",
+            "provider": "copilot",
+            "capability": "edit_files",
+            "reason": (
+                "OPai cannot safely grant Copilot edit access because its "
+                "non-interactive CLI currently exposes only an all-tools bypass."
+            ),
+            "hint": (
+                "Switch to Ask or Plan, or choose a provider with enforceable "
+                "workspace-scoped edit controls."
+            ),
         }
 
     from opaihub.accounts import runner_for_account
