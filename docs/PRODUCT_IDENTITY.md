@@ -38,5 +38,12 @@ dollar accounted.**
 ## Long-term category vision
 
 Own "cost-aware" the way Linear owns "fast": when a developer wonders *"what is
-my AI actually doing and what is it costing me?"* — the answer is OPai. The
-revenue rail (issues #95–#97) charges for the cockpit, never for dishonesty.
+my AI actually doing and what is it costing me?"* — the answer is OPai.
+
+## Launch and future pricing
+
+OPai launches fully free. The alpha optimizes for trust, successful tasks, and
+measured cost reduction rather than artificial feature gates. Pricing will be
+introduced gradually only after real usage identifies future capabilities that
+create durable paid value; core safety and honest accounting will never be paid
+upgrades.

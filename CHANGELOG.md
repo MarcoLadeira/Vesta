@@ -37,6 +37,10 @@ and privacy-preserving by default; nothing new phones home.
 - Added signed, verifiable savings receipts: `opai receipt verify <file>` reports
   `VERIFIED` / `CONTENT_VERIFIED` / `TAMPERED` from a portable content hash plus
   an HMAC signature.
+- Safe Auto now fails closed when a native provider cannot enforce granular
+  edit permissions; OPai never enables Copilot's unbounded all-tools bypass.
+- Push and pull-request authority now requires an explicit current request and
+  is no longer implied by an ordinary implementation task.
 
 ### Reliability
 
@@ -56,6 +60,11 @@ and privacy-preserving by default; nothing new phones home.
 - Capture claims are now honest — sessions are reported as measurable,
   pass-through, or unmeasured rather than implying every task is routed.
 - Cut per-message context and ledger overhead on the send path.
+- Route comparisons and model spend are now separate ledger concepts: one
+  provider call creates one spend event, and budgets never add route estimates
+  to actual spend.
+- Local runners without bounded repository tools return an actionable
+  capability mismatch for edit requests instead of a false success.
 
 ### Autonomy
 
