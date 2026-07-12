@@ -158,6 +158,31 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 .new-app-card .nac-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .new-app-card .nac-note { color: var(--muted); font-size: 12px; margin-top: 8px; min-height: 15px; }
 
+/* Build mode (#276): composer toggle + result card. */
+.build-pill {
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px;
+}
+.build-pill[hidden] { display: none; }
+.build-pill.on { color: var(--accent-ink); background: var(--brand-gradient); border-color: transparent; }
+.build-card {
+  background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 14px 16px; box-shadow: var(--inset-hi);
+}
+.build-card.error { background: rgba(242, 118, 138, 0.06); border-color: rgba(242, 118, 138, 0.28); }
+.build-card .bres-t { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.bres-verify { font-size: 11.5px; font-weight: 600; margin-left: 6px; }
+.bres-verify.ok { color: var(--green); }
+.bres-verify.warn { color: var(--amber); }
+.bres-files { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; }
+.bres-file code, .build-card code { font-family: "Cascadia Code", monospace; color: var(--ink); }
+.bres-act { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--border); color: var(--muted); }
+.bres-act.created { color: var(--green); border-color: rgba(52, 211, 153, 0.3); }
+.bres-act.updated { color: var(--blue); border-color: rgba(108, 193, 232, 0.3); }
+.bres-diff { color: var(--faint); font-variant-numeric: tabular-nums; }
+.bres-note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
 .nav { margin-top: 14px; overflow-y: auto; flex: 1; min-height: 0; }
 .nav-group-label { color: var(--faint); font-size: 10px; font-weight: 800; letter-spacing: 0.11em; text-transform: uppercase; padding: 13px 10px 6px; }
 .nav-item {
