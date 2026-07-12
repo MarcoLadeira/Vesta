@@ -126,10 +126,12 @@ function boot() {
     renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
     renderStatus(b.status); renderAccount(); applyPanel();
     renderEmptyChips();
+    syncBuildMode();
     switchView("chat");
     if (b.initialTask) { $("#input").value = b.initialTask; }
   });
   bridge.replyReady.connect(onReply);
+  if (bridge.buildReady) bridge.buildReady.connect(onBuildReply);
   bridge.activity.connect(onActivity);
   if (bridge.activityBatch) bridge.activityBatch.connect(onActivityBatch);
   bridge.token.connect(onToken);
@@ -163,7 +165,43 @@ function rebootFromState() {
   state.accounts = b.accounts || [];
   renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
   renderStatus(b.status); renderAccount(); renderEmptyChips();
+  syncBuildMode();
   clearChat(); switchView("chat");
+}
+
+/* OPai Build in the cockpit (#276): when the workspace is a scaffolded app,
+   offer Build mode — a chat message becomes a cheap, verified targeted edit. */
+function syncBuildMode() {
+  const ws = (state.boot && state.boot.workspace) || {};
+  const wasRoot = state.buildAppRoot;
+  state.buildApp = !!ws.build_app;
+  state.buildAppRoot = state.buildApp ? (ws.root || "") : null;
+  // Default to Build mode when entering a build app; leaving one turns it off.
+  // A user toggle within the same app is respected (root unchanged).
+  if (!state.buildApp) state.buildMode = false;
+  else if (state.buildAppRoot !== wasRoot) state.buildMode = true;
+  const toggle = $("#buildToggle");
+  if (toggle) {
+    toggle.toggleAttribute("hidden", !state.buildApp);
+    toggle.setAttribute("aria-pressed", String(state.buildMode));
+    toggle.classList.toggle("on", state.buildMode);
+    toggle.title = state.buildMode
+      ? `Build mode: chat edits ${ws.build_app_name || "this app"} with cheap, verified diffs`
+      : "Chat mode: ask normally";
+  }
+  updateSendLabel();
+}
+function updateSendLabel() {
+  const btn = $("#send");
+  if (btn && !state.busy) btn.textContent = (state.buildMode && state.buildApp) ? "Build" : "Send";
+}
+function submitComposer() {
+  const text = $("#input").value.trim();
+  if (state.buildMode && state.buildApp && text && !text.startsWith("/")) {
+    sendBuild(text);
+    return;
+  }
+  send();
 }
 
 /* ---------- sidebar: simple by default ---------- */
@@ -603,6 +641,99 @@ function renderNewAppSuccess(el, result) {
     copyText(`cd ${result.root} && ${result.preview_cmd || "python -m http.server 8000"}`);
     toast("Preview command copied");
   };
+}
+
+/* Build mode turn (#276): a chat message edits the workspace app with one
+   cheap, verified targeted diff. Reuses the whole activity/timeline/status
+   machinery — same request lifecycle as send() — but calls bridge.build and
+   renders a build result card instead of a chat answer. */
+function sendBuild(text) {
+  if (state.busy) return;
+  text = (text || $("#input").value).trim();
+  if (!text) return;
+  $("#input").value = ""; autoSize();
+  appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
+  const sel = {
+    text, model: state.model.id, modelKind: state.model.kind,
+    modelLabel: state.model.label, modelProvider: state.model.provider, build: true,
+  };
+  state.lastSend = sel;
+  const requestId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "r" + Date.now() + Math.random();
+  state.currentRequest = requestId;
+  state.message = OPaiMessageState.beginRequest(requestId, {});
+  state.message = OPaiMessageState.transition(state.message, "preparing");
+  state.store = OPaiActivity.createStore();
+  state.streaming = false; state.streamedText = "";
+  state.startTime = Date.now();
+  buildPending(sel);
+  stripReset(sel);
+  startTimer(sel);
+  setBusy(true);
+  bridge.build(JSON.stringify({ requestId, text, model: sel.model, strict: false }));
+}
+
+function onBuildReply(json) {
+  const d = JSON.parse(json);
+  if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale reply ignored
+  const r = d.result || {};
+  state.message = OPaiMessageState.transition(state.message, r.ok ? "answered" : "failed");
+  state.currentRequest = null;
+  setBusy(false);
+  finalizeBuild(r);
+  refreshStatus(); refreshInspector();
+}
+
+function finalizeBuild(r) {
+  stopTimer();
+  const kind = r.ok ? "answered" : (r.status === "rolled_back" ? "cancelled" : "error");
+  stripFinalize(kind, r);
+  const el = state.pending;
+  if (!el) return;
+  state.pending = null;
+  const sel = state.lastSend || {};
+  const durMs = Date.now() - state.startTime;
+  el.innerHTML = roleHeader("OPai Build", "var(--accent)") + activitySummaryHtml() +
+    buildResultHtml(r) + (r.receipt ? metaFooter({ receipt: r.receipt }, sel, durMs) : "");
+  wireActivitySummary(el);
+  wireReceipt(el, sel);
+  const previewBtn = el.querySelector('[data-a="preview"]');
+  if (previewBtn) previewBtn.onclick = () => {
+    copyText(r.preview_cmd || "python -m http.server 8000");
+    toast("Preview command copied");
+  };
+}
+
+function buildResultHtml(r) {
+  const status = String(r.status || "error");
+  if (status === "applied") {
+    const files = (r.applied || []).map((f) =>
+      `<li class="bres-file"><span class="bres-act ${esc(f.action)}">${esc(f.action)}</span> ` +
+      `<code>${esc(f.path)}</code> <span class="bres-diff">+${f.added} −${f.removed}</span></li>`).join("");
+    const v = r.verify || {};
+    const verify = v.ok
+      ? `<span class="bres-verify ok">✓ verified (${v.passed} checks)</span>`
+      : (v.failed ? `<span class="bres-verify warn">⚠ ${v.failed} check(s) failed</span>` : "");
+    const ctx = r.context || {};
+    const saved = ctx.saved_pct ? `<div class="bres-note">${ctx.saved_pct}% of the app left out of the prompt — that's the saving.</div>` : "";
+    return `<div class="build-card" role="group" aria-label="Build result">` +
+      `<div class="bres-t">✓ Applied ${(r.applied || []).length} change(s) ${verify}</div>` +
+      `<ul class="bres-files">${files}</ul>${saved}` +
+      `<div class="nac-actions"><button class="btn ghost" data-a="preview">Copy preview command</button></div>` +
+      `</div>`;
+  }
+  if (status === "rolled_back") {
+    const checks = ((r.verify || {}).checks || []).filter((c) => !c.ok).slice(0, 5)
+      .map((c) => `<li><code>${esc(c.path)}</code> · ${esc(c.check)}: ${esc(c.detail)}</li>`).join("");
+    return `<div class="build-card error" role="group" aria-label="Build rolled back">` +
+      `<div class="bres-t">✗ Verification failed — the edit was rolled back. Your app is unchanged.</div>` +
+      `<ul class="bres-files">${checks}</ul></div>`;
+  }
+  if (status === "no_edits") {
+    return `<div class="build-card" role="group" aria-label="No changes"><div class="bres-t">No file changes were needed.</div>` +
+      `<div class="body">${mdToHtml(String(r.answer || ""))}</div></div>`;
+  }
+  const msg = (r.error && (r.error.userMessage || r.error)) || r.answer || status;
+  return `<div class="build-card error" role="group" aria-label="Build failed"><div class="bres-t">✗ ${esc(String(msg)).slice(0, 400)}</div></div>`;
 }
 function appendMsg(html, cls) {
   $("#empty").style.display = "none";
@@ -1480,7 +1611,7 @@ function setBusy(on) {
   state.busy = on;
   document.body.classList.toggle("ai-working", on);
   const s = $("#send");
-  s.textContent = on ? "Stop" : "Send";
+  s.textContent = on ? "Stop" : ((state.buildMode && state.buildApp) ? "Build" : "Send");
   s.classList.toggle("stop", on);
   s.setAttribute("aria-label", on ? "Stop generation" : "Send prompt");
   updateInspectorLive(on ? "Preparing request…" : null);
@@ -2037,7 +2168,9 @@ function wire() {
   $("#headerSettings").onclick = () => switchView("settings");
   $("#sidebarToggle").onclick = toggleSidebar;
   $("#sidebarBackdrop").onclick = closeMobileSidebar;
-  $("#send").onclick = () => (state.busy ? stop() : send());
+  $("#send").onclick = () => (state.busy ? stop() : submitComposer());
+  const buildToggle = $("#buildToggle");
+  if (buildToggle) buildToggle.onclick = () => { state.buildMode = !state.buildMode; syncBuildMode(); };
   $("#panelToggle").onclick = togglePanel;
   $("#wsSwitch").onclick = (e) => { e.stopPropagation(); toggleWsMenu(); };
   $("#wsMenu").addEventListener("click", (e) => e.stopPropagation());
@@ -2046,7 +2179,7 @@ function wire() {
   $("#input").addEventListener("input", autoSize);
   $("#input").addEventListener("keydown", (e) => {
     // Enter sends; while a request is active it is ignored (no duplicate/queue).
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!state.busy) send(); }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!state.busy) submitComposer(); }
   });
   $("#promptSearch").addEventListener("input", loadPrompts);
   $("#promptCat").addEventListener("change", loadPrompts);

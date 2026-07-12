@@ -132,6 +132,9 @@ def _workspace(root: Path) -> dict[str, Any]:
         ws = A.workspace_summary(context.path)
     except Exception:  # noqa: BLE001
         ws = {"name": root.name, "branch": "", "file_count": 0}
+    from opaihub.build_loop import load_app_manifest
+
+    build_manifest = load_app_manifest(context.path)
     return {
         "label": workspace_label(root),
         "name": ws["name"],
@@ -141,6 +144,12 @@ def _workspace(root: Path) -> dict[str, Any]:
         "dirty": bool(context.dirty_paths),
         "dirty_paths": list(context.dirty_paths),
         "file_count": ws.get("file_count", 0),
+        # OPai Build (#276): when the workspace is a scaffolded app, the GUI
+        # offers Build mode — chat edits it with cheap, verified targeted diffs.
+        "build_app": build_manifest is not None,
+        "build_app_name": (build_manifest or {}).get("name")
+        if build_manifest
+        else None,
         "recents": [
             {"path": p, "label": workspace_label(p)}
             for p in load_recent_workspaces()
@@ -437,6 +446,7 @@ def _run_gui(
 
     class Bridge(QtCore.QObject):
         replyReady = QtCore.Signal(str)
+        buildReady = QtCore.Signal(str)
         activity = QtCore.Signal(str)
         activityBatch = QtCore.Signal(str)
         token = QtCore.Signal(str)
@@ -780,6 +790,80 @@ def _run_gui(
                 flush_batch()
                 timer.deleteLater()
                 self.replyReady.emit(
+                    json.dumps(
+                        {"requestId": request_id, "result": json.loads(result_json)}
+                    )
+                )
+
+            worker.done.connect(_done)
+            worker.finished.connect(
+                lambda w=worker: self._workers.remove(w) if w in self._workers else None
+            )
+            self._workers.append(worker)
+            worker.start()
+
+        @QtCore.Slot(str)
+        def build(self, payload_json: str) -> None:
+            """One OPai Build turn from the GUI (#276): a chat message becomes a
+            cheap, verified, targeted edit of the workspace app.
+
+            Mirrors ``send`` exactly — same Worker thread, same batched activity
+            path, same cancel plumbing — but runs the build loop instead of a
+            plain chat turn, so the applied files, structural verification, and
+            savings receipt all come back to the cockpit.
+            """
+            try:
+                payload = json.loads(payload_json)
+            except ValueError:
+                payload = {}
+            request = str(payload.get("text", "")).strip()
+            if not request:
+                return
+            request_id = str(payload.get("requestId") or uuid.uuid4().hex[:12])
+            model_id = payload.get("model") or None
+            strict = bool(payload.get("strict", False))
+            cancel = threading.Event()
+            self._cancels[request_id] = cancel
+
+            batcher = ActivityBatcher(request_id)
+
+            def flush_batch() -> None:
+                out = batcher.flush()
+                if out is not None:
+                    self.activityBatch.emit(out)
+
+            timer = QtCore.QTimer(self)
+            timer.setInterval(FLUSH_INTERVAL_MS)
+            timer.timeout.connect(flush_batch)
+            timer.start()
+
+            def emit_event(event: dict[str, Any]) -> None:
+                batcher.append(event)
+
+            def emit_text(chunk: str) -> None:
+                self.token.emit(json.dumps({"requestId": request_id, "text": chunk}))
+
+            def job() -> dict[str, Any]:
+                from opaihub.build_loop import run_build_request
+
+                return run_build_request(
+                    self.root,
+                    request,
+                    model=model_id,
+                    strict=strict,
+                    on_event=emit_event,
+                    on_text=emit_text,
+                    cancel=cancel,
+                )
+
+            worker = Worker(job)
+
+            def _done(result_json: str) -> None:
+                self._cancels.pop(request_id, None)
+                timer.stop()
+                flush_batch()
+                timer.deleteLater()
+                self.buildReady.emit(
                     json.dumps(
                         {"requestId": request_id, "result": json.loads(result_json)}
                     )

@@ -264,6 +264,27 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
             self.assertEqual(receipt["builds"], 0)
             self.assertGreater(receipt["tokens_never_sent"], 0)
 
+    def test_boot_flags_a_scaffolded_app_for_build_mode(self):
+        # #276: the workspace payload tells the GUI to offer Build mode.
+        from _helpers import make_repo
+
+        from opai.gui_web import boot_payload, scaffold_app_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plain_dir = Path(tmp) / "plain"
+            plain_dir.mkdir()
+            plain = make_repo(plain_dir)
+            self.assertFalse(boot_payload(plain)["workspace"]["build_app"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            created = scaffold_app_payload(
+                Path(tmp), json.dumps({"description": "a todo app"})
+            )
+            root = make_repo(Path(created["root"]))
+            ws = boot_payload(root)["workspace"]
+            self.assertTrue(ws["build_app"])
+            self.assertEqual(ws["build_app_name"], created["name"])
+
 
 if __name__ == "__main__":
     unittest.main()

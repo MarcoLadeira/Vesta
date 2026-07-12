@@ -80,7 +80,7 @@
     else cb(JSON.stringify(value));
   }
   var bridge = {
-    replyReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
+    replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
     statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
@@ -166,6 +166,22 @@
       if (cb) cb(JSON.stringify({ ok: true, freeConsent: window.__mock.freeConsentGrants.slice() }));
     },
     send: function (p) { var m = window.__mock; m.lastRequest = JSON.parse(p); m.sendCount++; },
+    build: function (p) {
+      var m = window.__mock;
+      m.lastBuild = JSON.parse(p);
+      m.buildCount++;
+      var result = scenario.buildResult || {
+        ok: true, status: "applied",
+        applied: [{ path: "styles.css", action: "updated", added: 2, removed: 1 }],
+        rejected: [], verify: { ok: true, passed: 3, failed: 0 },
+        context: { files: ["styles.css"], saved_pct: 60 },
+        receipt: { estimated_actual_usd: 0.0021, confidence: "actual" },
+        preview_cmd: "python -m http.server 8000",
+      };
+      setTimeout(function () {
+        bridge.buildReady.emit(JSON.stringify({ requestId: m.lastBuild.requestId, result: result }));
+      }, scenario.buildDelayMs || 0);
+    },
     cancel: function (id) { var m = window.__mock; m.cancelCount++; m.cancelled.push(id); },
     runTool: function (name) {
       window.__mock.runTools.push(name);
@@ -198,7 +214,7 @@
   window.qt = { webChannelTransport: {} };
   window.QWebChannel = function (transport, cb) { cb({ objects: { bridge: bridge } }); };
   window.__mock = {
-    bridge: bridge, lastRequest: null, sendCount: 0, cancelCount: 0, cancelled: [],
+    bridge: bridge, lastRequest: null, sendCount: 0, lastBuild: null, buildCount: 0, cancelCount: 0, cancelled: [],
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
     clearedRecents: 0,
     copiedTexts: [],
