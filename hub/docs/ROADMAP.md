@@ -1,5 +1,11 @@
 # OPai Roadmap
 
+## Free Public Alpha
+
+Every implemented OPai alpha capability is free. The roadmap distinguishes
+work that is available now from work that still needs safe implementation; it
+does not define paid access tiers or self-declared entitlements.
+
 ## Milestone: Cost-Control Control Plane (in progress)
 
 Foundations delivered toward "OPai is the AI coding cost firewall":
@@ -12,8 +18,8 @@ Foundations delivered toward "OPai is the AI coding cost firewall":
 - **#37 Routing & policy** — `solo-cheap`/`solo-balanced`/`team-safe`/
   `enterprise-strict` profiles, cloud/paid gating, loopback validation, and an
   offline model-eval harness (`opai models eval`).
-- **#38 Open-core editions** — Free/Pro/Team/Enterprise boundaries, feature
-  flags, and pricing docs (`opai edition`).
+- **#38 Free-alpha availability** — commercial edition gates removed; `opai
+  edition` remains a compatibility availability diagnostic.
 - **#39 Guarded workflows** — shared contract, fail-closed action gates, path
   locks, evidence packets, and reusable templates (`opai guard`).
 - **#40 Market proof** — cost-firewall positioning, grounded before/after proof,

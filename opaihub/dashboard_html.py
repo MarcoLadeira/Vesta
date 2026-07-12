@@ -122,7 +122,7 @@ def build_dashboard_html(project_root: Path) -> Path:
       </div>
       <div class="panel">
         <h2>Proof Bundle</h2>
-        <p>Private signed bundle for pilots and buyers.</p>
+        <p>Local signed bundle for alpha users and teams.</p>
         <p><code>opai proof bundle --markdown</code></p>
       </div>
       <div class="panel">
@@ -132,7 +132,7 @@ def build_dashboard_html(project_root: Path) -> Path:
       </div>
       <div class="panel">
         <h2>Launch Readiness</h2>
-        <p>Controlled alpha: replace private checkout/form/analytics placeholders before hosting.</p>
+        <p>Free public alpha: verify benchmark evidence and optional analytics before hosting.</p>
         <p><code>npx wrangler pages deploy site --project-name opai --branch main</code></p>
       </div>
     </section>

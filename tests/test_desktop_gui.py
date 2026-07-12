@@ -43,7 +43,8 @@ class AppStateReadTests(unittest.TestCase):
         # No routed tasks -> honest zero state.
         self.assertIsNotNone(o["savings"]["zero_state"])
         self.assertIn("opai route", o["savings"]["zero_state"])
-        self.assertIn("50x", o["benchmark_claim"])
+        self.assertIn("Local max benchmark proof", o["benchmark_claim"])
+        self.assertNotIn("50x", o["benchmark_claim"])
 
     def test_agent_readiness_has_five_clients(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -125,14 +126,14 @@ class AppStateReadTests(unittest.TestCase):
 
 
 class LaunchReadinessTests(unittest.TestCase):
-    def test_detects_placeholders_as_blockers(self):
+    def test_detects_legacy_access_placeholders_without_requiring_paid_links(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
             site = root / "site"
             site.mkdir()
             (site / "index.html").write_text(
-                "<a href='PRIVATE_FOUNDING_PRO_CHECKOUT_URL'>buy</a>"
+                "<a href='PRIVATE_FOUNDING_PRO_CHECKOUT_URL'>legacy</a>"
                 "REPLACE_WITH_CLOUDFLARE_WEB_ANALYTICS_TOKEN"
                 "PRIVATE_TEAM_PILOT_APPLY_URL PRIVATE_BENCHMARK_PROOF_URL",
                 encoding="utf-8",
@@ -140,9 +141,11 @@ class LaunchReadinessTests(unittest.TestCase):
             lr = build_launch_readiness(root)
         self.assertFalse(lr["ready"])
         names = {c["name"]: c for c in lr["checks"]}
-        self.assertFalse(names["placeholder_replacement"]["ok"])
-        self.assertFalse(names["lemon_links"]["ok"])
-        self.assertIn("50x", lr["launch_claim"])
+        self.assertFalse(names["legacy_access_placeholders"]["ok"])
+        self.assertNotIn("lemon_links", names)
+        self.assertNotIn("tally_links", names)
+        self.assertIsNone(names["web_analytics_token"]["ok"])
+        self.assertIn("local max benchmark proof", lr["launch_claim"].lower())
 
     def test_clean_site_passes_leakage_and_placeholders(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -156,7 +159,7 @@ class LaunchReadinessTests(unittest.TestCase):
             lr = build_launch_readiness(root)
         names = {c["name"]: c for c in lr["checks"]}
         self.assertTrue(names["site_leakage"]["ok"])
-        self.assertTrue(names["placeholder_replacement"]["ok"])
+        self.assertTrue(names["legacy_access_placeholders"]["ok"])
 
 
 class SafetyAndActionTests(unittest.TestCase):
@@ -331,6 +334,15 @@ class PremiumGuiContractTests(unittest.TestCase):
             }:
                 self.assertTrue(action.get("requires_confirmation"), action)
                 self.assertTrue(action.get("confirmation"), action)
+        proof = next(section for section in vm["sections"] if section["id"] == "proof")
+        self.assertEqual(
+            proof["subtitle"], "Local signed evidence for alpha users and teams."
+        )
+        home = next(section for section in vm["sections"] if section["id"] == "home")
+        benchmark_kpi = next(
+            kpi for kpi in home["kpis"] if kpi["label"] == "Benchmark proof"
+        )
+        self.assertEqual(benchmark_kpi["value"], "Run local max")
 
     def test_view_model_does_not_expose_raw_prompts_or_secrets(self):
         from opai.gui_view_model import build_view_model

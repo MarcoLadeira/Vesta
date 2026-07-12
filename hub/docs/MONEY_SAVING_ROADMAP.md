@@ -46,13 +46,14 @@ opai context pack --changed      # tiny redacted pack of changed files + adjacen
 and Copilot; `opai activate --repair` fixes stale paths. Reproducible
 baseline-vs-OPai demos: [CLIENT_DEMOS.md](CLIENT_DEMOS.md).
 
-## #53 Private Paid Distribution
+## #53 Free Public Alpha Distribution
 
-Controlled alpha: the public site never leaks raw install URLs; paid users get a
-private install command/package after checkout. See
-[COMMERCIAL_ACCESS_AND_IP_PROTECTION.md](../../docs/COMMERCIAL_ACCESS_AND_IP_PROTECTION.md).
+The public alpha has no checkout, licence, invitation, or private-access gate.
+Publish only verified release paths and keep source/development installation
+guidance separate from end-user artifact guidance. See the
+[Free Public Alpha policy](PRICING_AND_EDITIONS.md).
 
-## #54 Proof Bundles and Team Pilot Reports
+## #54 Proof Bundles for Alpha Users and Teams
 
 ```sh
 opai proof bundle --out proof.json   # benchmark + savings + policy + audit + signed evidence
@@ -61,7 +62,7 @@ opai proof verify proof.json         # re-checks signature + artifacts; fails cl
 ```
 
 No raw prompts; the bundle reports governed agents, risk blocks, and policy
-exceptions for a budget owner.
+exceptions for a user or team.
 
 ## #55 External Benchmark Validation
 

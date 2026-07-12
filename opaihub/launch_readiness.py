@@ -1,9 +1,8 @@
-"""Local launch-readiness checks for the OPai control center (GUI section 8).
+"""Local launch-readiness checks for the OPai Free Public Alpha.
 
-Tells the founder what still blocks a controlled-alpha public launch without
-ever leaking source or making a network call. Everything is read from local
-files (the static site, docs) and environment variables. No telemetry, no
-uploads, no cloud calls.
+Tells the founder what still blocks a public launch without making a network
+call. Everything is read from local files and environment variables. No
+telemetry, uploads, cloud calls, or paid-access assumptions are introduced.
 """
 
 from __future__ import annotations
@@ -14,25 +13,23 @@ from typing import Any
 
 # The exact, approved public claim. Must stay limited to the local benchmark.
 LAUNCH_CLAIM = (
-    "OPai reduced context by 50x and avoided 16 paid calls on the "
-    "16-task local benchmark suite."
+    "Local max benchmark proof: publish only results reproduced with "
+    "`opai benchmark run --suite max --mode both`."
 )
 LAUNCH_CAVEAT = (
     "Local OPai benchmark suite result. Not an official SWE-bench, "
     "Terminal-Bench, Aider, or third-party leaderboard result."
 )
 
-# Placeholders that must be replaced before a real public launch.
-_PLACEHOLDERS = [
+# Legacy checkout/private-access placeholders must be removed, never replaced.
+_LEGACY_ACCESS_PLACEHOLDERS = [
     "PRIVATE_FOUNDING_PRO_CHECKOUT_URL",
     "PRIVATE_TEAM_PILOT_APPLY_URL",
     "PRIVATE_BENCHMARK_PROOF_URL",
-    "REPLACE_WITH_CLOUDFLARE_WEB_ANALYTICS_TOKEN",
 ]
-# Strings that would leak private/raw access on the public controlled-alpha site.
+# Strings that would expose an unsafe raw-install route on the public site.
 _LEAKAGE_MARKERS = [
     "raw.githubusercontent.com/MarcoLadeira/OPai",
-    "issues/new",
 ]
 
 
@@ -77,77 +74,55 @@ def build_launch_readiness(project_root: Path) -> dict[str, Any]:
         )
     )
 
-    # Web Analytics token replaced.
+    # Analytics is optional and must not become an access or release gate.
     wa_done = site_present and "REPLACE_WITH_CLOUDFLARE_WEB_ANALYTICS_TOKEN" not in site
     checks.append(
-        _check(
-            "web_analytics_token",
-            wa_done,
-            "Cloudflare Web Analytics token configured."
-            if wa_done
-            else "Web Analytics token placeholder still present in site/index.html.",
-            "Replace REPLACE_WITH_CLOUDFLARE_WEB_ANALYTICS_TOKEN in site/index.html.",
-        )
+        {
+            "name": "web_analytics_token",
+            "ok": None,
+            "detail": (
+                "Cloudflare Web Analytics token configured (optional)."
+                if wa_done
+                else "Cloudflare Web Analytics token placeholder remains (optional)."
+            ),
+        }
     )
 
-    # Lemon Squeezy + Tally checkout/apply links replaced.
-    lemon_done = site_present and "PRIVATE_FOUNDING_PRO_CHECKOUT_URL" not in site
+    # Legacy access placeholders are blockers because free alpha must not
+    # accidentally route users into a stale checkout or private-access path.
+    remaining = [
+        token for token in _LEGACY_ACCESS_PLACEHOLDERS if site_present and token in site
+    ]
     checks.append(
         _check(
-            "lemon_links",
-            lemon_done,
-            "Lemon Squeezy checkout link configured."
-            if lemon_done
-            else "Founding Pro checkout placeholder still present.",
-            "Replace PRIVATE_FOUNDING_PRO_CHECKOUT_URL with a Lemon Squeezy link.",
-        )
-    )
-    tally_done = site_present and not (
-        "PRIVATE_TEAM_PILOT_APPLY_URL" in site or "PRIVATE_BENCHMARK_PROOF_URL" in site
-    )
-    checks.append(
-        _check(
-            "tally_links",
-            tally_done,
-            "Team Pilot / benchmark-proof apply links configured."
-            if tally_done
-            else "Tally apply/proof placeholders still present.",
-            "Replace PRIVATE_TEAM_PILOT_APPLY_URL and PRIVATE_BENCHMARK_PROOF_URL with Tally links.",
-        )
-    )
-
-    # All placeholders replaced.
-    remaining = [token for token in _PLACEHOLDERS if site_present and token in site]
-    checks.append(
-        _check(
-            "placeholder_replacement",
+            "legacy_access_placeholders",
             not remaining,
-            "All launch placeholders replaced."
+            "No legacy checkout or private-access placeholders remain."
             if not remaining
-            else f"{len(remaining)} placeholder(s) remain: {', '.join(remaining)}.",
-            "Replace the remaining placeholders in site/index.html.",
+            else f"{len(remaining)} legacy access placeholder(s) remain: {', '.join(remaining)}.",
+            "Remove legacy private-access placeholders; do not replace them with payment links.",
         )
     )
 
-    # Site leakage checks (no raw install URLs / public issue intake during alpha).
+    # Site leakage checks (no raw install URL that bypasses the release path).
     leaks = [marker for marker in _LEAKAGE_MARKERS if marker in site]
     checks.append(
         _check(
             "site_leakage",
             not leaks,
-            "No raw-install or public-intake leakage on the site."
+            "No raw-install leakage on the site."
             if not leaks
             else f"Site leaks: {', '.join(leaks)}.",
-            "Remove raw GitHub install URLs and public issue intake from site/index.html.",
+            "Remove raw GitHub install URLs from site/index.html.",
         )
     )
 
-    # Repo privacy is a manual decision during controlled alpha.
+    # Distribution is a manual decision, never an access gate.
     checks.append(
         {
             "name": "repo_privacy",
             "ok": None,
-            "detail": "Manual decision: keep source private during controlled alpha.",
+            "detail": "Manual distribution decision; Free Public Alpha has no access gate.",
         }
     )
 

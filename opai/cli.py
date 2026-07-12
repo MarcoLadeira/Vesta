@@ -829,18 +829,10 @@ def cmd_savings(args: argparse.Namespace) -> int:
     report = build_savings_report(root)
     export_path = getattr(args, "export", None)
     if export_path:
-        from opaihub.editions import require_feature
-
-        gate = require_feature(root, "savings_export")
-        if not gate["available"]:
-            print_json({"status": "upgrade_required", **gate})
-            return 3
         target = Path(export_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_savings_markdown(report), encoding="utf-8")
-        print_json(
-            {"status": "exported", "path": str(target), "edition": gate["edition"]}
-        )
+        print_json({"status": "exported", "path": str(target), "edition": "free"})
         return 0
     if getattr(args, "rollups", False):
         from opaihub.ledger import rollup_ledger
@@ -1228,12 +1220,8 @@ def cmd_edition(args: argparse.Namespace) -> int:
         return 0
     if args.edition_command == "set":
         result = set_edition(root, args.edition_name)
-        if result.get("status") == "updated":
-            from opaihub.audit import EDITION_CHANGE, record_audit_event
-
-            record_audit_event(root, EDITION_CHANGE, edition=args.edition_name)
         print_json(result)
-        return 0 if result.get("status") == "updated" else 2
+        return 0 if result.get("status") == "free_alpha" else 2
     return 0
 
 
@@ -1962,7 +1950,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "proof",
-        help="Private, signed proof bundles for customers and team pilots",
+        help="Local, signed proof bundles for alpha users and teams",
     )
     proof_sub = p.add_subparsers(dest="proof_command", required=True)
     pb = proof_sub.add_parser(
@@ -2172,7 +2160,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "edition",
-        help="Show or set the OPai open-core edition (Free/Pro/Team/Team-Governance/Enterprise)",
+        help="Show free public-alpha availability; legacy selection is a no-op",
     )
     edition_sub = p.add_subparsers(dest="edition_command", required=True)
     ed = edition_sub.add_parser("show")
@@ -2181,7 +2169,7 @@ def build_parser() -> argparse.ArgumentParser:
     ed = edition_sub.add_parser("set")
     ed.add_argument(
         "edition_name",
-        choices=["free", "pro", "team", "team-governance", "enterprise"],
+        help="Legacy value to ignore; every implemented alpha capability is free",
     )
     ed.add_argument("--project", default=None, help="Project root")
     ed.set_defaults(func=cmd_edition)

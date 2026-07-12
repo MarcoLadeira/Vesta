@@ -210,6 +210,8 @@ class DashboardVisibilityTests(unittest.TestCase):
             self.assertIn(label, html)
         self.assertIn("No real routed tasks recorded yet", html)
         self.assertNotIn("issues/new", html)
+        self.assertIn("Free public alpha", html)
+        self.assertNotIn("private checkout", html.lower())
 
     def test_dashboard_serve_root_opens_control_center(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -18,11 +18,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-# 50x is the approved, capped public reduction figure for the local suite.
-CONTEXT_REDUCTION_CLAIM = "50x"
+# Benchmark proof is local and must be reproduced before publishing a result.
+CONTEXT_REDUCTION_CLAIM = "local max"
 BENCHMARK_CLAIM = (
-    "OPai reduced context by 50x and avoided 16 paid calls on the "
-    "16-task local benchmark suite."
+    "Local max benchmark proof is available after you run the reproducible "
+    "benchmark suite."
 )
 BENCHMARK_CAVEAT = (
     "Local OPai benchmark suite result. Not an official SWE-bench, "

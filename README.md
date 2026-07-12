@@ -153,7 +153,7 @@ opai gui --screenshot out.png --width 1440 --height 900
 
 **New to OPai?** The one-page install funnel lives in [`site/index.html`](site/index.html).
 Read the [Business Strategy](docs/BUSINESS_STRATEGY.md) for positioning and the
-open-core model.
+[free public-alpha policy](hub/docs/PRICING_AND_EDITIONS.md).
 
 See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [before/after proof](docs/PROOF.md), the
@@ -166,7 +166,7 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [effectiveness/security audit](docs/EFFECTIVENESS_AND_SECURITY_AUDIT_2026_06_21.md), the
 [alpha release notes](docs/RELEASE_0_2_0_ALPHA_1.md), the
 [testing guide](docs/TESTING.md), the [QA report](docs/QA_REPORT.md), and
-[editions & pricing](hub/docs/PRICING_AND_EDITIONS.md).
+[free public-alpha availability policy](hub/docs/PRICING_AND_EDITIONS.md).
 
 ### More efficiency & adoption commands
 
@@ -175,7 +175,7 @@ opai context pack --changed   # tiny, redacted context (changed files + adjacent
 opai test --changed           # run only the tests likely to cover your changes
 opai metrics                  # local product metrics: tokens/escalations avoided, cache rate
 opai benchmark report         # latest local OPai Efficiency Score
-opai edition show             # Free / Pro / Team / Team-Governance / Enterprise
+opai edition show             # Free Public Alpha availability (legacy-compatible)
 ```
 
 ### Team & enterprise governance
@@ -211,11 +211,12 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 - Safe command policies for destructive shell commands, Git operations, cloud calls, and secret-bearing logs.
 - A packaged OP AI Hub foundation with tools, agents, workflows, prompts, model routing, MCP config examples, and docs.
 
-## Controlled Alpha Access
+## Free Public Alpha
 
-OPai alpha access is controlled while the product and pricing are being tested.
-Paid users and Team Pilot customers receive a private install command or release
-package after checkout or onboarding.
+OPai alpha launches fully free. No checkout, license, invitation, or private
+access link is required to use alpha functionality. The current verified release
+path is described in the release notes; source/development installation remains
+available separately for contributors.
 
 After install, restart your terminal and AI clients once, then check:
 
@@ -236,8 +237,8 @@ op doctor
 
 If Windows says `op` is not on `PATH` before your shell profile reloads, use `python -m opai doctor`.
 
-Controlled alpha install links may include options for heavier local tools or
-skipping the Superpowers network clone in locked-down environments.
+The free alpha may offer optional local tools or a Superpowers network-clone
+skip for locked-down environments; those choices are never payment gates.
 
 The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project and send canonical one-shot calls through its local cost/safety proxy. Interactive, stdin-driven, structured-output, and unknown advanced forms pass directly to the real CLI with their original arguments, TTY, and exit code. OPai reports those launches as unmeasurable instead of claiming they were captured. The blue one-line `Using OPai` badge is written to stderr so scripted stdout stays clean. Set `OPAI_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
 
