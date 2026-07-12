@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .cost_model import is_local_tier, load_cost_model
-from .ledger import EVENT_MODEL_CALL, EVENT_ROUTE, read_events
+from .ledger import EVENT_MODEL_CALL, read_events
 from .policy import evaluate_action, resolve_policy
 from .state import state_dir
 
@@ -79,7 +79,7 @@ def _spent(project_root: Path, *, period: str) -> float:
     month = today[:7]
     total = 0.0
     for event in read_events(project_root):
-        if event.get("event_type") not in {EVENT_ROUTE, EVENT_MODEL_CALL}:
+        if event.get("event_type") != EVENT_MODEL_CALL:
             continue
         created = str(event.get("created_at", ""))
         if period == "day" and not created.startswith(today):

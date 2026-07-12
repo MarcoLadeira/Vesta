@@ -506,6 +506,7 @@ class AskFreeModelTests(unittest.TestCase):
             run_explicit.call_args.kwargs["selected_model_id"],
             "free:gemini:gemini-3.1-flash-lite",
         )
+        self.assertTrue(run_explicit.call_args.kwargs["record"])
 
     def test_editable_explicit_free_model_bypasses_auto_route_and_cache(self):
         from opai.app_state import ask
@@ -598,6 +599,7 @@ class AskFreeModelTests(unittest.TestCase):
         self.assertEqual(result["status"], "answered")
         self.assertEqual(result["answer"], "Free-tier answer")
         self.assertTrue(ask_mock.call_args.kwargs["allow_cloud"])
+        self.assertFalse(ask_mock.call_args.kwargs["record_route"])
 
     def test_gui_pipeline_passes_edit_authority_to_free_implementation(self):
         from opaihub.gui_pipeline import handle_gui_message

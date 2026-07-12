@@ -759,6 +759,7 @@ def handle_gui_message(
             allow_cloud=allow_cloud,
             allow_edits=allow_edits,
             mode=selected_mode,
+            record_route=False,
             cancel=cancel,
         )
         if result.get("status") == "cancelled":

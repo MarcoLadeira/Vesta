@@ -383,11 +383,8 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         "local_routes": local_routes,
         "cloud_calls_avoided": cloud_calls_avoided,
         "estimated_baseline_usd": _sum(routes, "estimated_baseline_usd"),
-        "estimated_actual_spend_usd": round(
-            _sum(routes, "estimated_actual_usd")
-            + _sum(model_calls, "estimated_actual_usd"),
-            6,
-        ),
+        "route_estimated_actual_usd": _sum(routes, "estimated_actual_usd"),
+        "estimated_actual_spend_usd": _sum(model_calls, "estimated_actual_usd"),
         "estimated_savings_usd": _sum(routes, "estimated_savings_usd"),
         "context_chars_saved": int(_sum(routes, "context_chars_saved")),
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),

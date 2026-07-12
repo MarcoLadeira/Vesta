@@ -626,6 +626,7 @@ def ask(
     *,
     allow_cloud: bool = False,
     allow_edits: bool = False,
+    record_route: bool = True,
     account_runner: Any = None,
     mode: str | None = None,
     on_event: Any = None,
@@ -669,6 +670,7 @@ def ask(
             allow_cloud=allow_cloud,
             allow_edits=allow_edits,
             mode=mode,
+            record_route=record_route,
             cancel=cancel,
         )
 
@@ -697,6 +699,7 @@ def _ask_free_model(
     allow_cloud: bool = False,
     allow_edits: bool = False,
     mode: str | None = None,
+    record_route: bool = True,
     cancel: Any = None,
 ) -> dict[str, Any]:
     """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
@@ -751,7 +754,7 @@ def _ask_free_model(
         selected_model_id=model_id,
         allow_edits=allow_edits,
         mode=mode or ("safe-auto" if allow_edits else "ask"),
-        record=True,
+        record=record_route,
         cancel=cancel,
     )
     if result.get("status") == "runner_error":

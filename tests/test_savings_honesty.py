@@ -646,6 +646,49 @@ class RecordAfterOutcomeTests(unittest.TestCase):
         self.assertEqual(len(routes), 1)
         self.assertEqual(routes[0]["model_tier"], "L2")
 
+    def test_gui_free_call_records_one_route_and_one_spend_event(self):
+        class FakeFreeRunner:
+            name = "free-api"
+            model = "gemini-3.1-flash-lite"
+            last_usage = {
+                "tokens": 120,
+                "input_tokens": 80,
+                "output_tokens": 40,
+                "measurement": "provider",
+            }
+
+            def available(self):
+                return True
+
+            def complete(self, prompt, **kwargs):
+                return "Free answer"
+
+        selected = "free:gemini:gemini-3.1-flash-lite"
+        with mock.patch(
+            "opaihub.local_runner.runner_for_model", return_value=FakeFreeRunner()
+        ):
+            result = handle_gui_message(
+                self.root,
+                "Explain the parser",
+                model_id=selected,
+                mode="ask",
+                allow_cloud=True,
+            )
+
+        events = read_events(self.root)
+        routes = [event for event in events if event.get("event_type") == EVENT_ROUTE]
+        calls = [
+            event for event in events if event.get("event_type") == EVENT_MODEL_CALL
+        ]
+        self.assertEqual(result["status"], "answered")
+        self.assertEqual(len(routes), 1)
+        self.assertEqual(len(calls), 1)
+        self.assertAlmostEqual(
+            budget_status(self.root)["spent"]["today_usd"],
+            calls[0]["estimated_actual_usd"],
+            places=6,
+        )
+
     def test_failed_account_call_records_no_receipt_or_spend(self):
         fake = FakeAccountRunner(raises=RuntimeError("CLI exploded"))
         result = handle_gui_message(
