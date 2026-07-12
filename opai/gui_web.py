@@ -322,7 +322,7 @@ def scaffold_app_payload(root: Path, payload_json: str) -> dict[str, Any]:
             root,
             description,
             name=(str(payload.get("name") or "").strip() or None),
-            kind=str(payload.get("kind") or "web"),
+            kind=str(payload.get("kind") or "auto"),
         )
     except (ValueError, FileExistsError, OSError) as exc:
         return {"ok": False, "error": str(exc)}
