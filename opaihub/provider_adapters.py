@@ -177,6 +177,37 @@ class ProviderAdapter:
             return ProviderCapabilities(True, True, True, False, False)
         return ProviderCapabilities(False, False, False, False, True)
 
+    @property
+    def profile(self) -> Any:
+        """The rich capability + requirements record for this provider (#168).
+
+        Distinct from ``capabilities`` (the narrow execution abilities used to
+        build the tool set): ``profile`` is the picker/settings/doctor truth —
+        chat / code execution / repo editing / streaming / tool calling plus what
+        the provider requires and whether it can be cancelled.
+        """
+        from .provider_capabilities import provider_profile
+
+        return provider_profile(self.provider_id)
+
+    def health(self, status: dict[str, Any] | None = None) -> Any:
+        """Canonical :class:`ProviderHealth` for this provider (#168).
+
+        Pure over a status/connection dict so callers control whether any probe
+        ran — no hidden network or CLI calls here. With no status, health is
+        honestly ``unknown`` rather than an assumed-healthy default.
+        """
+        from .provider_capabilities import ProviderHealth, canonical_health
+
+        if not status:
+            return ProviderHealth.UNKNOWN
+        return canonical_health(
+            auth_status=status.get("authStatus") or status.get("auth_status"),
+            cli_installed=status.get("cliInstalled", status.get("cli_present")),
+            error_code=status.get("lastErrorCode") or status.get("error_code"),
+            kind=status.get("kind", self.kind),
+        )
+
     def probe(self, *, home: Path | None = None, force: bool = False) -> dict[str, Any]:
         """Run only local/presence diagnostics; never send a model prompt."""
 
