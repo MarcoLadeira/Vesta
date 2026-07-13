@@ -376,6 +376,7 @@ def settings_payload(root: Path) -> dict[str, Any]:
     models = _models(root, discover_local=False)
     from opaihub.accounts import codex_config_issue, provider_connection_doctor
     from opaihub.credentials import credential_statuses
+    from opaihub.provider_capabilities import all_provider_profiles
     from opaihub.usage import build_usage_snapshots
 
     credentials = credential_statuses()
@@ -406,6 +407,8 @@ def settings_payload(root: Path) -> dict[str, Any]:
             include_history=True,
         ),
         "codexConfig": codex_config_issue(),
+        # One capability truth for the picker, settings, doctor, and router (#168).
+        "providerProfiles": all_provider_profiles(),
         "about": {
             "version": overview.get("version"),
             "release_stage": overview.get("release_stage"),

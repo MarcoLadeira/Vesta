@@ -733,7 +733,26 @@ def provider_connection_doctor(
                 "loginSupported": False,
             }
         )
+    # Fold every entry onto the one capability + health truth (#168) without
+    # disturbing the existing per-surface `health`/`authStatus` strings.
+    _annotate_provider_capabilities(entries)
     return entries
+
+
+def _annotate_provider_capabilities(entries: list[dict[str, Any]]) -> None:
+    """Attach the canonical health state and capability profile to each doctor
+    entry so the picker, settings, and router all read one truth (#168)."""
+    from .provider_capabilities import health_from_connection, provider_profile
+
+    for entry in entries:
+        entry["healthState"] = health_from_connection(entry).value
+        try:
+            entry["capabilities"] = provider_profile(
+                str(entry.get("providerId") or "")
+            ).to_dict()
+        except ValueError:
+            # github (the git/PR connector) isn't an AI provider — no profile.
+            entry["capabilities"] = None
 
 
 def interactive_provider_login(
