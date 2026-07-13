@@ -212,6 +212,24 @@ class SettingsPayloadTests(unittest.TestCase):
         self.assertNotIn("cli_path", json.dumps(payload["connectionDoctor"]))
         json.dumps(payload)
 
+    def test_settings_exposes_one_capability_truth(self):
+        # #168: the picker/settings/doctor read one provider capability table,
+        # and every doctor entry carries the canonical health state.
+        from opaihub.provider_capabilities import ProviderHealth, all_provider_profiles
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            with mock.patch(
+                "opaihub.accounts._account_cli_version",
+                side_effect=AssertionError("synchronous CLI version lookup"),
+            ):
+                payload = settings_payload(root)
+
+        self.assertEqual(payload["providerProfiles"], all_provider_profiles())
+        valid = {h.value for h in ProviderHealth}
+        for entry in payload["connectionDoctor"]:
+            self.assertIn(entry["healthState"], valid)
+
 
 class ScaffoldAppPayloadTests(unittest.TestCase):
     """GUI "New app" contract (#276): the Bridge slot's Qt-free core."""
