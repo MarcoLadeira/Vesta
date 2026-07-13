@@ -839,14 +839,69 @@ def _ask_account(
     on_event: Any = None,
     on_text: Any = None,
     cancel: Any = None,
+    _fallback_used: bool = False,
 ) -> dict[str, Any]:
     """Run a task through a connected paid-account CLI, with firewall gating.
 
     When ``on_event``/``on_text``/``cancel`` are supplied and the runner exposes
     ``stream()``, the call streams live activity and is cancellable; otherwise it
     uses the blocking ``complete()`` path (unchanged).
+
+    ``_fallback_used`` is internal: on a ``MODEL_UNAVAILABLE`` error OPai retries
+    once with the provider's safe default model (#318), and this guard stops the
+    retry from recursing.
     """
     root = project_root.expanduser().resolve()
+
+    def _fail(error: dict[str, Any]) -> dict[str, Any]:
+        """Return an honest failure — but first, recover once from a rejected
+        model by retrying with the provider's safe default (#318)."""
+        failed = {
+            "status": "failed",
+            "provider": account_id,
+            "answer": error["userMessage"],
+            "error": error,
+        }
+        if _fallback_used or str(error.get("code") or "") != "MODEL_UNAVAILABLE":
+            return failed
+        from opai.model_registry import default_model, models_for, resolve_id
+
+        failed_id = resolve_id(account_id, model) if model else None
+        default = default_model(account_id)
+        fallback_id = default.id if default is not None else None
+        if fallback_id and fallback_id == failed_id:
+            # The default itself was rejected — try any other listed model.
+            fallback_id = next(
+                (s.id for s in models_for(account_id) if s.id != failed_id), None
+            )
+        if not fallback_id or fallback_id == failed_id:
+            return failed
+        recovered = _ask_account(
+            root,
+            task,
+            account_id,
+            model=fallback_id,
+            allow_edits=allow_edits,
+            runner=None,  # build a fresh runner for the fallback model
+            mode=mode,
+            on_event=on_event,
+            on_text=on_text,
+            cancel=cancel,
+            _fallback_used=True,
+        )
+        if recovered.get("status") == "failed":
+            return failed  # the fallback also failed — surface the original error
+        note = f"(The selected model was unavailable; ran {fallback_id} instead.)"
+        recovered["model_fallback"] = {
+            "from": model or "",
+            "to": fallback_id,
+            "reason": "MODEL_UNAVAILABLE",
+        }
+        recovered["answer"] = (
+            str(recovered.get("answer") or "").rstrip() + "\n\n" + note
+        ).strip()
+        return recovered
+
     # Cost firewall: panic mode means local-only, so block paid account calls.
     if cost_firewall(root).get("panic"):
         return {
@@ -908,12 +963,7 @@ def _ask_account(
 
         error = normalize_provider_error(account_id, str(exc), model=model)
         _invalidate_stale_auth_cache(account_id, error)
-        return {
-            "status": "failed",
-            "provider": account_id,
-            "answer": error["userMessage"],
-            "error": error,
-        }
+        return _fail(error)
 
     # User stopped it mid-flight: return the partial cleanly (not an error).
     if isinstance(result, dict) and result.get("cancelled"):
@@ -939,12 +989,7 @@ def _ask_account(
             )
         )
         _invalidate_stale_auth_cache(account_id, error)
-        return {
-            "status": "failed",
-            "provider": account_id,
-            "answer": error["userMessage"],
-            "error": error,
-        }
+        return _fail(error)
 
     # A long agentic run that hit the time limit: stop cleanly, guide the user.
     if isinstance(result, dict) and result.get("timed_out"):
