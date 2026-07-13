@@ -60,7 +60,8 @@ class ProfileTruthTests(unittest.TestCase):
             self.assertFalse(profile.requires_oauth)
             self.assertFalse(profile.requires_cli)
             self.assertFalse(profile.streaming)
-            self.assertFalse(profile.tool_calling)
+            # They use the OpenAI-compatible tool loop, incl. git_push/open_pr.
+            self.assertTrue(profile.tool_calling)
             # OPai drives edits through its own bounded tools.
             self.assertTrue(profile.repo_editing)
 

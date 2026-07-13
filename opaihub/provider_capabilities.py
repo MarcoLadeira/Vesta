@@ -176,8 +176,10 @@ def _account_profile(provider_id: str, *, repo_editing: bool) -> ProviderProfile
 
 
 def _free_profile(provider_id: str) -> ProviderProfile:
-    """Free public-API models (gemini/groq/mistral): OPai drives edits via its own
-    bounded tools, so no native tool-calling and no streaming; needs an API key."""
+    """Free public-API models (gemini/groq/mistral): OPai drives edits through the
+    OpenAI-compatible tool loop (``complete_with_tools``), so they DO use native
+    tool-calling — including the git_push/open_pr tools. No OPai-side streaming
+    yet; needs an API key."""
     return ProviderProfile(
         provider_id=provider_id,
         kind="free",
@@ -185,7 +187,7 @@ def _free_profile(provider_id: str) -> ProviderProfile:
         code_execution=True,
         repo_editing=True,
         streaming=False,
-        tool_calling=False,
+        tool_calling=True,
         requires_api_key=True,
         requires_oauth=False,
         requires_cli=False,
