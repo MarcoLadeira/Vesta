@@ -350,3 +350,94 @@ def create_pull_request(
         "ok": False,
         "error": redact(f"GitHub PR creation failed (HTTP {status_code}) {message}"),
     }
+
+
+def _read_context(
+    project_root: Path,
+) -> tuple[tuple[str, str] | None, dict[str, Any] | None]:
+    """Resolve (token, slug) for a read-only GitHub call, or an honest error.
+
+    Reads require a connected token but NOT push consent — they are not outward
+    mutations, so a user who connected a token can read PR/issue state.
+    """
+    token, _source = stored_github_token()
+    if not token:
+        return None, {
+            "ok": False,
+            "error": "No GitHub token. Connect with: opai github connect",
+        }
+    slug = repo_slug(project_root)
+    if not slug:
+        return None, {
+            "ok": False,
+            "error": "The origin remote is not a GitHub repository",
+        }
+    return (token, slug), None
+
+
+def pull_request_status(
+    project_root: Path, number: int, *, http: HttpFn = _default_http
+) -> dict[str, Any]:
+    """Read a pull request's state and CI check summary (read-only, token-gated)."""
+    context, error = _read_context(project_root)
+    if error:
+        return error
+    token, slug = context
+    code, pr = http("GET", f"{API_ROOT}/repos/{slug}/pulls/{int(number)}", token, None)
+    if code != 200 or not isinstance(pr, dict):
+        return {"ok": False, "error": f"Could not read PR #{number} (HTTP {code})"}
+    checks: dict[str, Any] = {"total": 0, "success": 0, "failed": 0, "pending": 0}
+    sha = str((pr.get("head") or {}).get("sha") or "")
+    if sha:
+        c_code, runs = http(
+            "GET", f"{API_ROOT}/repos/{slug}/commits/{sha}/check-runs", token, None
+        )
+        if c_code == 200 and isinstance(runs, dict):
+            for run in runs.get("check_runs") or []:
+                checks["total"] += 1
+                conclusion = str(run.get("conclusion") or "").lower()
+                if run.get("status") != "completed":
+                    checks["pending"] += 1
+                elif conclusion in {"success", "neutral", "skipped"}:
+                    checks["success"] += 1
+                else:
+                    checks["failed"] += 1
+    return {
+        "ok": True,
+        "number": pr.get("number"),
+        "state": str(pr.get("state") or "unknown"),
+        "merged": bool(pr.get("merged")),
+        "mergeable_state": str(pr.get("mergeable_state") or "unknown"),
+        "title": redact(str(pr.get("title") or ""))[:256],
+        "url": str(pr.get("html_url") or ""),
+        "checks": checks,
+    }
+
+
+def get_issue(
+    project_root: Path, number: int, *, http: HttpFn = _default_http
+) -> dict[str, Any]:
+    """Read a single issue's title, state, labels, and body (read-only, token-gated)."""
+    context, error = _read_context(project_root)
+    if error:
+        return error
+    token, slug = context
+    code, issue = http(
+        "GET", f"{API_ROOT}/repos/{slug}/issues/{int(number)}", token, None
+    )
+    if code != 200 or not isinstance(issue, dict):
+        return {"ok": False, "error": f"Could not read issue #{number} (HTTP {code})"}
+    labels = [
+        str(label.get("name"))
+        for label in (issue.get("labels") or [])
+        if isinstance(label, dict) and label.get("name")
+    ]
+    return {
+        "ok": True,
+        "number": issue.get("number"),
+        "state": str(issue.get("state") or "unknown"),
+        "title": redact(str(issue.get("title") or ""))[:256],
+        "body": redact(str(issue.get("body") or ""))[:5000],
+        "labels": labels,
+        "url": str(issue.get("html_url") or ""),
+    }
