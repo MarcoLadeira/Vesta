@@ -231,6 +231,61 @@ class ReadToolTests(unittest.TestCase):
         self.assertNotIn("sk-abcdef1234567890abcd", result["body"])
 
 
+class WriteToolTests(unittest.TestCase):
+    """Comment / request-review are outward: need a token AND push consent (#300)."""
+
+    def setUp(self):
+        _FakeStore.saved = {"github": "ghp_test"}
+        self._home = contextlib.ExitStack()
+        self._home.enter_context(isolated_home())
+        self._home.enter_context(mock.patch.object(gc, "CredentialStore", _FakeStore))
+        self._home.enter_context(
+            mock.patch.dict("os.environ", {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        )
+        self._home.enter_context(mock.patch.object(gc, "repo_slug", return_value="o/r"))
+        gc.set_push_allowed(True)
+        self.addCleanup(self._home.close)
+
+    def test_comment_posts_and_redacts_body(self):
+        seen = {}
+
+        def http(method, url, token, payload):
+            seen["url"] = url
+            seen["body"] = payload["body"]
+            return 201, {"html_url": "https://github.com/o/r/issues/5#c1", "id": 1}
+
+        result = gc.add_comment(
+            Path("."), 5, "see token=sk-abcdef1234567890abcd", http=http
+        )
+        self.assertTrue(result["ok"], result)
+        self.assertIn("/issues/5/comments", seen["url"])
+        self.assertNotIn("sk-abcdef1234567890abcd", seen["body"])
+
+    def test_comment_blocked_without_consent(self):
+        gc.set_push_allowed(False)
+        result = gc.add_comment(Path("."), 5, "hi", http=_http_ok())
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "consent_off")
+
+    def test_request_reviewers_sends_logins(self):
+        seen = {}
+
+        def http(method, url, token, payload):
+            seen["url"] = url
+            seen["reviewers"] = payload["reviewers"]
+            return 201, {}
+
+        result = gc.request_reviewers(Path("."), 7, ["alice", "", "bob"], http=http)
+        self.assertTrue(result["ok"], result)
+        self.assertIn("/pulls/7/requested_reviewers", seen["url"])
+        self.assertEqual(seen["reviewers"], ["alice", "bob"])
+
+    def test_request_reviewers_requires_a_login(self):
+        result = gc.request_reviewers(Path("."), 7, [], http=_http_ok())
+        self.assertFalse(result["ok"])
+        self.assertIn("reviewer", result["error"].lower())
+
+
 class SlugTests(unittest.TestCase):
     def _slug_for(self, url: str) -> str:
         completed = mock.Mock(stdout=url + "\n", returncode=0)

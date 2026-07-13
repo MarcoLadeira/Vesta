@@ -210,6 +210,51 @@ class GithubReadToolTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error_code"], "TOOL_NOT_ALLOWED")
 
+    def test_write_tools_need_consent_and_route_to_the_connector(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            # Consent off -> outward GitHub write tools are not even offered.
+            no_consent = available_tool_names(
+                root, allow_edits=True, allow_github_write=False
+            )
+            self.assertNotIn("github_comment", no_consent)
+
+            executor = RepositoryToolExecutor(
+                root, allow_edits=False, allow_github_write=True
+            )
+            self.assertIn(
+                "github_comment", {s["function"]["name"] for s in executor.schemas()}
+            )
+            with mock.patch(
+                "opaihub.github_connector.add_comment",
+                return_value={"ok": True, "url": "https://github.com/o/r/issues/5#c1"},
+            ) as fake:
+                result = executor.invoke(
+                    "github_comment", {"number": 5, "body": "looks good"}
+                )
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(fake.call_args.args[1], 5)
+
+    def test_request_review_routes_and_validates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = RepositoryToolExecutor(
+                root, allow_edits=False, allow_github_write=True
+            )
+            empty = executor.invoke(
+                "github_request_review", {"number": 7, "reviewers": []}
+            )
+            self.assertEqual(empty["error_code"], "INVALID_TOOL_ARGUMENTS")
+            with mock.patch(
+                "opaihub.github_connector.request_reviewers",
+                return_value={"ok": True, "requested": ["alice"]},
+            ) as fake:
+                ok = executor.invoke(
+                    "github_request_review", {"number": 7, "reviewers": ["alice"]}
+                )
+            self.assertTrue(ok["ok"], ok)
+            self.assertEqual(fake.call_args.args[2], ["alice"])
+
 
 class SchemaAndContractTests(unittest.TestCase):
     def test_schema_names_follow_permissions(self):
