@@ -1779,6 +1779,28 @@ function renderSettings() {
         (credential.source === "keychain" ? `<button class="btn ghost" data-delete-provider="${esc(provider)}">Remove</button>` : "") + `</div></div>`;
     });
     h += `<div class="set-note">Keys are stored only in the operating-system credential store. Environment variables override keychain values.</div>`;
+    // GitHub connect + push consent (#300): the only in-GUI path to let agents
+    // push branches and open pull requests. The user pastes their own token.
+    if (d.github) {
+      const gh = d.github, ghConnected = !!gh.connected, ghReady = !!gh.ready_for_push;
+      h += `<div class="set-head">GitHub · pushes &amp; pull requests</div>`;
+      h += `<div class="provider-key-card github-card" data-github-card>`;
+      h += `<div class="provider-key-head"><span>GitHub${gh.login ? " · " + esc(gh.login) : ""}</span>` +
+        `<span class="provider-key-status" data-github-status>${ghConnected ? (ghReady ? "Connected · ready to push &amp; open PRs" : "Connected · pushes off") : "Not connected"}</span></div>`;
+      if (!ghConnected) {
+        h += `<div class="provider-key-form"><input type="password" autocomplete="off" spellcheck="false" aria-label="GitHub personal access token" placeholder="Paste a GitHub token (PAT)" data-github-token>` +
+          `<button class="btn" data-github-connect>Connect GitHub</button></div>`;
+        h += `<div class="set-note">Create a token at github.com/settings/tokens with <b>repo</b> scope (classic) or Contents + Pull requests read/write (fine-grained). Stored only in your OS keychain — never shown again.</div>`;
+      } else {
+        h += `<div class="provider-key-form">` +
+          `<button class="btn ${gh.allow_push ? "primary" : ""}" data-github-allowpush="${gh.allow_push ? "off" : "on"}">${gh.allow_push ? "Disable pushes &amp; PRs" : "Enable pushes &amp; PRs"}</button>` +
+          `<button class="btn ghost" data-github-disconnect>Disconnect</button></div>`;
+        h += ghReady
+          ? `<div class="set-note">Agents can now push branches and open pull requests on your GitHub repos.</div>`
+          : `<div class="set-note" data-github-hint>${esc(gh.hint || "Enable pushes above to let agents open PRs.")}</div>`;
+      }
+      h += `</div>`;
+    }
     h += `<div class="set-head">Model usage limits</div>`;
     const modelsById = Object.fromEntries((d.models || []).map((model) => [model.id, model]));
     const fmtUsage = (value) => Number(value || 0).toLocaleString();
@@ -1853,6 +1875,34 @@ function renderSettings() {
     page.querySelectorAll("[data-delete-provider]").forEach((button) => {
       button.onclick = () => bridge.deleteProviderKey(button.dataset.deleteProvider, () => renderSettings());
     });
+    // GitHub connect / consent / disconnect wiring (#300).
+    const ghConnect = page.querySelector("[data-github-connect]");
+    if (ghConnect) ghConnect.onclick = () => {
+      const input = page.querySelector("[data-github-token]");
+      const statusEl = page.querySelector("[data-github-status]");
+      const token = ((input && input.value) || "").trim();
+      if (!token) { if (statusEl) statusEl.textContent = "Paste a token first"; return; }
+      if (!bridge.githubConnect) { if (statusEl) statusEl.textContent = "GitHub connect is unavailable in this build."; return; }
+      ghConnect.disabled = true; if (statusEl) statusEl.textContent = "Verifying token…";
+      bridge.githubConnect(token, (json2) => {
+        if (input) input.value = "";
+        const result = JSON.parse(json2);
+        if (result.connected) { toast("GitHub connected as " + (result.login || "user")); renderSettings(); }
+        else { if (statusEl) statusEl.textContent = result.error || "Connection failed"; ghConnect.disabled = false; }
+      });
+    };
+    const ghToggle = page.querySelector("[data-github-allowpush]");
+    if (ghToggle && bridge.githubSetPush) ghToggle.onclick = () => {
+      ghToggle.disabled = true;
+      bridge.githubSetPush(ghToggle.dataset.githubAllowpush, (json2) => {
+        const result = JSON.parse(json2);
+        toast(result.allow_push ? (result.ready ? "Pushes & PRs enabled" : "Consent on — a token is still needed") : "Pushes disabled");
+        renderSettings();
+      });
+    };
+    const ghDisconnect = page.querySelector("[data-github-disconnect]");
+    if (ghDisconnect && bridge.githubDisconnect) ghDisconnect.onclick = () =>
+      bridge.githubDisconnect(() => { toast("GitHub disconnected"); renderSettings(); });
     page.querySelectorAll("[data-test-provider]").forEach((button) => {
       button.onclick = () => {
         const card = button.closest(".provider-key-card"), status = card.querySelector(".provider-key-status");

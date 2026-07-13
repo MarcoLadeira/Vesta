@@ -359,6 +359,47 @@ def outcomes_payload(root: Path) -> dict[str, Any]:
     return summarize_outcomes(root)
 
 
+def github_status_payload() -> dict[str, Any]:
+    """Local-only GitHub connection + push readiness for the Settings UI (#300)."""
+    from opaihub.github_connector import github_status
+
+    return github_status()
+
+
+def github_connect_payload(token: str, *, http: Any = None) -> dict[str, Any]:
+    """Validate and store a user-supplied GitHub PAT, then report readiness.
+
+    The token value never appears in the result (the connector guarantees this);
+    the GUI only ever receives the connection verdict. ``http`` is injectable so
+    tests never touch the network.
+    """
+    from opaihub.github_connector import connect_github, github_readiness
+
+    result = connect_github(token) if http is None else connect_github(token, http=http)
+    result.pop("token", None)  # defensive: never echo a secret to the page
+    if result.get("connected"):
+        # Fold in the push-readiness truth so the UI can update in one round-trip.
+        readiness = github_readiness()
+        result["ready_for_push"] = readiness["ready"]
+        result["readiness_reason"] = readiness["reason"]
+        result["next_step"] = readiness["next_step"]
+    return result
+
+
+def github_set_push_payload(enabled: bool) -> dict[str, Any]:
+    """Toggle the persisted allow-push consent and report honest readiness (#300)."""
+    from opaihub.github_connector import set_push_allowed
+
+    return set_push_allowed(bool(enabled))
+
+
+def github_disconnect_payload() -> dict[str, Any]:
+    """Remove the stored GitHub token and revoke push consent (#300)."""
+    from opaihub.github_connector import disconnect_github
+
+    return disconnect_github()
+
+
 def settings_payload(root: Path) -> dict[str, Any]:
     """Return the complete, secret-free Settings/Connections payload."""
 
@@ -376,6 +417,7 @@ def settings_payload(root: Path) -> dict[str, Any]:
     models = _models(root, discover_local=False)
     from opaihub.accounts import codex_config_issue, provider_connection_doctor
     from opaihub.credentials import credential_statuses
+    from opaihub.github_connector import github_status
     from opaihub.provider_capabilities import all_provider_profiles
     from opaihub.usage import build_usage_snapshots
 
@@ -409,6 +451,8 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "codexConfig": codex_config_issue(),
         # One capability truth for the picker, settings, doctor, and router (#168).
         "providerProfiles": all_provider_profiles(),
+        # GitHub connection + push readiness for the Settings connect flow (#300).
+        "github": github_status(),
         "about": {
             "version": overview.get("version"),
             "release_stage": overview.get("release_stage"),
@@ -600,6 +644,25 @@ def _run_gui(
         @QtCore.Slot(result=str)
         def settingsData(self) -> str:
             return json.dumps(settings_payload(self.root))
+
+        @QtCore.Slot(result=str)
+        def githubStatus(self) -> str:
+            return json.dumps(github_status_payload())
+
+        @QtCore.Slot(str, result=str)
+        def githubConnect(self, token: str) -> str:
+            # The user pastes their own PAT; it is validated and stored in the
+            # keychain and never echoed back to the page (#300).
+            return json.dumps(github_connect_payload(token))
+
+        @QtCore.Slot(str, result=str)
+        def githubSetPush(self, state: str) -> str:
+            enabled = str(state or "").strip().lower() in {"on", "true", "1", "yes"}
+            return json.dumps(github_set_push_payload(enabled))
+
+        @QtCore.Slot(result=str)
+        def githubDisconnect(self) -> str:
+            return json.dumps(github_disconnect_payload())
 
         @QtCore.Slot(str, str, result=str)
         def saveProviderKey(self, provider: str, secret: str) -> str:
