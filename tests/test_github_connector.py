@@ -161,6 +161,76 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn("token", result["error"].lower())
 
 
+class ReadToolTests(unittest.TestCase):
+    """Read-only PR/issue calls need a token but NOT push consent (#300)."""
+
+    def setUp(self):
+        _FakeStore.saved = {"github": "ghp_test"}
+        self._home = contextlib.ExitStack()
+        self._home.enter_context(isolated_home())
+        self._home.enter_context(mock.patch.object(gc, "CredentialStore", _FakeStore))
+        self._home.enter_context(
+            mock.patch.dict("os.environ", {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        )
+        self._home.enter_context(mock.patch.object(gc, "repo_slug", return_value="o/r"))
+        self.addCleanup(self._home.close)
+
+    def test_pr_status_summarizes_checks(self):
+        def http(method, url, token, payload):
+            if url.endswith("/pulls/7"):
+                return 200, {
+                    "number": 7,
+                    "state": "open",
+                    "merged": False,
+                    "mergeable_state": "clean",
+                    "title": "Add x",
+                    "html_url": "https://github.com/o/r/pull/7",
+                    "head": {"sha": "abc123"},
+                }
+            if url.endswith("/commits/abc123/check-runs"):
+                return 200, {
+                    "check_runs": [
+                        {"status": "completed", "conclusion": "success"},
+                        {"status": "completed", "conclusion": "failure"},
+                        {"status": "in_progress"},
+                    ]
+                }
+            return 404, {}
+
+        result = gc.pull_request_status(Path("."), 7, http=http)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["state"], "open")
+        self.assertEqual(
+            result["checks"],
+            {"total": 3, "success": 1, "failed": 1, "pending": 1},
+        )
+
+    def test_pr_status_requires_a_token(self):
+        _FakeStore.saved = {}
+        result = gc.pull_request_status(Path("."), 7, http=_http_ok())
+        self.assertFalse(result["ok"])
+        self.assertIn("token", result["error"].lower())
+
+    def test_get_issue_reads_fields_and_redacts(self):
+        def http(method, url, token, payload):
+            return 200, {
+                "number": 5,
+                "state": "open",
+                "title": "Fix the widget",
+                "body": "reproduce with token=sk-abcdef1234567890abcd",
+                "labels": [{"name": "bug"}, {"name": "p1"}],
+                "html_url": "https://github.com/o/r/issues/5",
+            }
+
+        result = gc.get_issue(Path("."), 5, http=http)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["title"], "Fix the widget")
+        self.assertEqual(result["labels"], ["bug", "p1"])
+        # A secret pasted into an issue body must be redacted before it reaches
+        # the model.
+        self.assertNotIn("sk-abcdef1234567890abcd", result["body"])
+
+
 class SlugTests(unittest.TestCase):
     def _slug_for(self, url: str) -> str:
         completed = mock.Mock(stdout=url + "\n", returncode=0)

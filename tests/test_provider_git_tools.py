@@ -157,6 +157,60 @@ class GitToolTests(unittest.TestCase):
             self.assertEqual(fake.call_args.kwargs["head"], "feat/pr")
 
 
+class GithubReadToolTests(unittest.TestCase):
+    """Read-only GitHub tools appear with a token and route to the connector."""
+
+    def test_read_tools_appear_with_a_token_even_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            with_token = available_tool_names(
+                root, allow_edits=False, allow_github_read=True
+            )
+            without = available_tool_names(
+                root, allow_edits=False, allow_github_read=False
+            )
+        self.assertIn("github_pr_status", with_token)
+        self.assertIn("github_get_issue", with_token)
+        # No token -> no GitHub read tools, even though other read tools remain.
+        self.assertNotIn("github_pr_status", without)
+        self.assertIn("git_status", without)
+
+    def test_pr_status_tool_routes_to_the_connector(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = RepositoryToolExecutor(
+                root, allow_edits=False, allow_github_read=True
+            )
+            with mock.patch(
+                "opaihub.github_connector.pull_request_status",
+                return_value={"ok": True, "number": 7, "state": "open", "checks": {}},
+            ) as fake:
+                result = executor.invoke("github_pr_status", {"number": 7})
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["data"]["state"], "open")
+        self.assertEqual(fake.call_args.args[1], 7)
+
+    def test_read_tool_rejects_a_bad_number(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = RepositoryToolExecutor(
+                root, allow_edits=False, allow_github_read=True
+            )
+            result = executor.invoke("github_get_issue", {"number": "abc"})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_code"], "INVALID_TOOL_ARGUMENTS")
+
+    def test_read_tool_blocked_without_a_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = RepositoryToolExecutor(
+                root, allow_edits=True, allow_github_read=False
+            )
+            result = executor.invoke("github_pr_status", {"number": 1})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_code"], "TOOL_NOT_ALLOWED")
+
+
 class SchemaAndContractTests(unittest.TestCase):
     def test_schema_names_follow_permissions(self):
         with tempfile.TemporaryDirectory() as tmp:

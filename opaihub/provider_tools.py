@@ -25,6 +25,9 @@ WRITE_TOOLS = (
 # Outward-facing tools: available only with a connected GitHub account AND the
 # persisted `opai github allow-push on` consent (see github_connector).
 GIT_OPS_TOOLS = ("git_push", "open_pr")
+# Read-only GitHub context: available with a connected token but NO push consent
+# (reading PR/CI status or an issue is not an outward mutation).
+GITHUB_READ_TOOLS = ("github_pr_status", "github_get_issue")
 MAX_TOOL_CALLS = 12
 MAX_PATCH_CHARS = 120_000
 MAX_WRITE_CHARS = 200_000
@@ -125,6 +128,7 @@ def available_tool_names(
     *,
     allow_edits: bool,
     allow_git_ops: bool | None = None,
+    allow_github_read: bool | None = None,
 ) -> tuple[str, ...]:
     """The exact tool vocabulary a provider loop gets for this repository.
 
@@ -132,7 +136,10 @@ def available_tool_names(
     it can literally call, not abstract capability nouns.
     """
     executor = RepositoryToolExecutor(
-        repo_root, allow_edits=allow_edits, allow_git_ops=allow_git_ops
+        repo_root,
+        allow_edits=allow_edits,
+        allow_git_ops=allow_git_ops,
+        allow_github_read=allow_github_read,
     )
     return tuple(schema["function"]["name"] for schema in executor.schemas())
 
@@ -148,6 +155,7 @@ class RepositoryToolExecutor:
         aci: AgentComputerInterface | None = None,
         max_patch_chars: int = MAX_PATCH_CHARS,
         allow_git_ops: bool | None = None,
+        allow_github_read: bool | None = None,
         git_run: Any = None,
     ) -> None:
         self.repo_root = repo_root.expanduser().resolve()
@@ -160,6 +168,7 @@ class RepositoryToolExecutor:
         # Paths this run created/changed; git_commit stages exactly these by
         # default so a commit can never sweep up unrelated user work.
         self.written_paths: list[str] = []
+        _token_connected: bool | None = None
         if allow_git_ops is None:
             # Push/PR need edits enabled, a connected GitHub token, AND the
             # persisted `opai github allow-push on` consent — all three.
@@ -168,10 +177,24 @@ class RepositoryToolExecutor:
                 try:
                     from .github_connector import push_allowed, stored_github_token
 
-                    allow_git_ops = push_allowed() and bool(stored_github_token()[0])
+                    _token_connected = bool(stored_github_token()[0])
+                    allow_git_ops = push_allowed() and _token_connected
                 except Exception:  # noqa: BLE001 - consent lookup must fail closed
                     allow_git_ops = False
         self.allow_git_ops = bool(allow_git_ops) and self.allow_edits
+        # Read-only GitHub context (PR/CI status, issues) needs only a connected
+        # token — no push consent, since reading is not an outward mutation.
+        if allow_github_read is None:
+            if _token_connected is not None:
+                allow_github_read = _token_connected
+            else:
+                try:
+                    from .github_connector import stored_github_token
+
+                    allow_github_read = bool(stored_github_token()[0])
+                except Exception:  # noqa: BLE001 - fail closed
+                    allow_github_read = False
+        self.allow_github_read = bool(allow_github_read)
 
     def _test_commands(self) -> dict[str, list[str]]:
         commands: dict[str, list[str]] = {}
@@ -230,6 +253,24 @@ class RepositoryToolExecutor:
                 {},
             ),
         ]
+        if self.allow_github_read:
+            schemas.append(
+                _schema(
+                    "github_pr_status",
+                    "Read a GitHub pull request's state, merge status, and CI "
+                    "check summary by number.",
+                    {"number": {"type": "integer", "minimum": 1}},
+                    required=("number",),
+                )
+            )
+            schemas.append(
+                _schema(
+                    "github_get_issue",
+                    "Read a GitHub issue's title, state, labels, and body by number.",
+                    {"number": {"type": "integer", "minimum": 1}},
+                    required=("number",),
+                )
+            )
         if not self.allow_edits:
             return schemas
         schemas.append(
@@ -530,6 +571,27 @@ class RepositoryToolExecutor:
             message=f"Opened PR {result.get('url', '')}",
         ).to_dict()
 
+    def _github_read(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Read-only GitHub context (PR/CI status or an issue) via the connector."""
+        raw_number = arguments.get("number")
+        try:
+            number = int(raw_number)
+        except (TypeError, ValueError):
+            return _error("INVALID_TOOL_ARGUMENTS", "A positive number is required")
+        if number < 1:
+            return _error("INVALID_TOOL_ARGUMENTS", "A positive number is required")
+        from .github_connector import get_issue, pull_request_status
+
+        reader = pull_request_status if name == "github_pr_status" else get_issue
+        result = reader(self.repo_root, number)
+        if not result.get("ok"):
+            return _error(
+                "GITHUB_READ_FAILED", str(result.get("error") or "read failed")
+            )
+        data = {key: value for key, value in result.items() if key != "ok"}
+        kind = "PR" if name == "github_pr_status" else "issue"
+        return Observation(name, True, data, message=f"Read {kind} #{number}").to_dict()
+
     def invoke(
         self,
         name: str,
@@ -540,6 +602,8 @@ class RepositoryToolExecutor:
         if cancel is not None and cancel.is_set():
             return _error("CANCELLED", "Provider tool call was cancelled")
         allowed = set(READ_TOOLS)
+        if self.allow_github_read:
+            allowed.update(GITHUB_READ_TOOLS)
         if self.allow_edits:
             allowed.update(WRITE_TOOLS)
         if self.allow_git_ops:
@@ -613,6 +677,10 @@ class RepositoryToolExecutor:
             return self._git_push(arguments)
         if name == "open_pr":
             return self._open_pr(arguments)
+        if name == "github_pr_status":
+            return self._github_read("github_pr_status", arguments)
+        if name == "github_get_issue":
+            return self._github_read("github_get_issue", arguments)
         command_id = arguments.get("command_id")
         if not isinstance(command_id, str) or command_id not in self.test_commands:
             return _error(
