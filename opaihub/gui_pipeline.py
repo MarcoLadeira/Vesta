@@ -874,6 +874,7 @@ def handle_gui_message(
             mode=selected_mode,
             record_route=False,
             cancel=cancel,
+            on_text=on_text,
         )
         if result.get("status") == "cancelled":
             _phase_close("cancelled", "Stopped by you")
@@ -929,7 +930,9 @@ def handle_gui_message(
         if status == "answered":
             _phase_close("success", "Request sent")
             _emit("completed", "success", "OPai completed")
-            if on_text and answer:
+            # The runner already streamed tokens to on_text (#154); only emit the
+            # whole answer here when it did NOT stream (blocking path).
+            if on_text and answer and not result.get("streamed"):
                 on_text(answer)
         elif status != "needs_free_confirmation":
             _phase_close("error", "Free-tier API request failed")
@@ -1294,7 +1297,8 @@ def handle_gui_message(
         )
         _phase_close("success", "Answered locally")
         _emit("completed", "success", "OPai completed")
-        if on_text and answer:
+        # Skip the one-shot emit when the runner already streamed tokens (#154).
+        if on_text and answer and not result.get("streamed"):
             on_text(answer)
     else:
         _phase_close("error", "OPai could not complete locally")

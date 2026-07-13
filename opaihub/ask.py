@@ -86,6 +86,33 @@ def _cache_metadata(lookup: Any) -> dict[str, Any]:
     }
 
 
+def _complete_streaming(
+    runner: Any, text: str, *, cancel: Any, on_text: Any
+) -> tuple[str, bool]:
+    """Call ``runner.complete``, streaming via ``on_text`` when the runner
+    supports it (#154). Returns ``(answer, streamed)``; ``streamed`` means
+    ``on_text`` already received the whole answer, so the caller must not
+    re-emit it. Runners without ``on_text``/``cancel`` degrade gracefully."""
+    if on_text is not None:
+        try:
+            return (
+                runner.complete(
+                    text, system=SYSTEM_PROMPT, cancel=cancel, on_text=on_text
+                ),
+                True,
+            )
+        except TypeError as exc:
+            if "on_text" not in str(exc):
+                raise
+            # Runner has no on_text — fall through to the non-streaming path.
+    try:
+        return runner.complete(text, system=SYSTEM_PROMPT, cancel=cancel), False
+    except TypeError as exc:
+        if "cancel" not in str(exc):
+            raise
+        return runner.complete(text, system=SYSTEM_PROMPT), False
+
+
 def run_ask(
     project_root: Path,
     task: str,
@@ -97,6 +124,7 @@ def run_ask(
     store_answer: bool = True,
     selected_model_id: str | None = None,
     cancel: Any = None,
+    on_text: Any = None,
 ) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     recommendation = recommend_model(root, task)
@@ -158,18 +186,14 @@ def run_ask(
         if cancel is not None and cancel.is_set():
             return {**base, "status": "cancelled", "answer": ""}
         prompt = _build_prompt(root, task)
+        streamed = False
         try:
-            try:
-                # True mid-flight cancel (#107): the runner closes its HTTP
-                # connection when the cancel Event fires.
-                answer = active.complete(prompt, system=SYSTEM_PROMPT, cancel=cancel)
-            except TypeError as exc:
-                if "cancel" not in str(exc):
-                    raise
-                # Runner without cancel support (e.g. a test fake): run
-                # blocking; Stop still works via the stale-response guard.
-                # Real local and free-tier (#152) runners are cancellable.
-                answer = active.complete(prompt, system=SYSTEM_PROMPT)
+            # True mid-flight cancel (#107) and live token streaming (#154): the
+            # runner owns emission (deltas, or one blocking emit) and closes its
+            # HTTP connection when the cancel Event fires.
+            answer, streamed = _complete_streaming(
+                active, prompt, cancel=cancel, on_text=on_text
+            )
         except LocalRunCancelled:
             return {**base, "status": "cancelled", "answer": ""}
         except Exception as exc:  # noqa: BLE001 - report any runner failure cleanly
@@ -192,6 +216,7 @@ def run_ask(
             "runner": active.name,
             "model": active.model,
             "answer": answer,
+            "streamed": streamed,
             "cache": _cache_metadata(cache_lookup)
             if not allow_edits
             else {"outcome": "skipped", "reason": "edit_request", "age_seconds": None},
@@ -224,6 +249,7 @@ def run_explicit_model(
     mode: str = "ask",
     record: bool = True,
     cancel: Any = None,
+    on_text: Any = None,
 ) -> dict[str, Any]:
     """Run an explicitly selected model without Auto routing or prose caching."""
 
@@ -257,13 +283,11 @@ def run_explicit_model(
             tool_trace = list(completed.get("tool_trace") or [])
             stopped_reason = str(completed.get("stopped_reason") or "")
             last_error = str(completed.get("last_error") or "")
+            streamed = False
         else:
-            try:
-                answer = runner.complete(task, system=SYSTEM_PROMPT, cancel=cancel)
-            except TypeError as exc:
-                if "cancel" not in str(exc):
-                    raise
-                answer = runner.complete(task, system=SYSTEM_PROMPT)
+            answer, streamed = _complete_streaming(
+                runner, task, cancel=cancel, on_text=on_text
+            )
             tool_trace = []
             stopped_reason = ""
             last_error = ""
@@ -283,6 +307,9 @@ def run_explicit_model(
         "mode": mode,
         "answer": answer,
         "tool_trace": tool_trace,
+        # The runner already streamed the answer to on_text (#154); the caller
+        # must not re-emit it as one block.
+        "streamed": streamed,
         # Typed terminal for a run the tool loop could not finish (#311): empty
         # on a clean completion, else "tool_budget_exhausted"/"repeated_failure".
         # Callers can detect a stuck run without a new status to special-case.

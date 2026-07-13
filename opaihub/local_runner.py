@@ -177,6 +177,77 @@ def _http_json_cancellable(
     return _decode_http_json(box["raw"], box.get("headers") or {})
 
 
+def _stream_chat(
+    url: str,
+    *,
+    payload: dict[str, Any],
+    timeout: float,
+    cancel: threading.Event | None,
+    extra_headers: dict[str, str] | None,
+    on_delta: Any,
+) -> tuple[str, dict[str, Any]]:
+    """POST an OpenAI-compatible chat completion with ``stream: true`` and invoke
+    ``on_delta(text)`` for each content token as it arrives (#154).
+
+    Returns ``(full_text, usage)``. Cancellation closes the socket between SSE
+    lines and raises :class:`LocalRunCancelled`. Any transport/HTTP error raises
+    so the caller can fall back to the blocking path — OPai never fakes progress.
+    """
+    parsed = urllib.parse.urlsplit(url)
+    conn_cls = (
+        http.client.HTTPSConnection
+        if parsed.scheme == "https"
+        else http.client.HTTPConnection
+    )
+    conn = conn_cls(parsed.hostname or "127.0.0.1", parsed.port, timeout=timeout)
+    body = json.dumps({**payload, "stream": True}).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        **(extra_headers or {}),
+    }
+    path = (parsed.path or "/") + (("?" + parsed.query) if parsed.query else "")
+    chunks: list[str] = []
+    usage: dict[str, Any] = {}
+    try:
+        conn.request("POST", path, body=body, headers=headers)
+        response = conn.getresponse()
+        if int(getattr(response, "status", 0)) >= 400:
+            raise RuntimeError(f"streaming request failed (HTTP {response.status})")
+        while True:
+            if cancel is not None and cancel.is_set():
+                with contextlib.suppress(Exception):
+                    sock = getattr(conn, "sock", None)
+                    if sock is not None:
+                        sock.shutdown(socket.SHUT_RDWR)
+                raise LocalRunCancelled()
+            line = response.readline()
+            if not line:
+                break
+            line = line.strip()
+            if not line or not line.startswith(b"data:"):
+                continue
+            data = line[len(b"data:") :].strip()
+            if data == b"[DONE]":
+                break
+            try:
+                obj = json.loads(data)
+            except ValueError:
+                continue
+            choice = (obj.get("choices") or [{}])[0]
+            delta = str((choice.get("delta") or {}).get("content") or "")
+            if delta:
+                chunks.append(delta)
+                with contextlib.suppress(Exception):  # a rendering hiccup never
+                    on_delta(delta)  # breaks the stream
+            if isinstance(obj.get("usage"), dict):
+                usage = obj["usage"]
+    finally:
+        with contextlib.suppress(Exception):
+            conn.close()
+    return "".join(chunks), usage
+
+
 class LocalRunner:
     """Base interface. Subclasses talk to a specific local server shape."""
 
@@ -251,6 +322,35 @@ class OpenAICompatibleRunner(LocalRunner):
             return False
         return isinstance(models, dict)
 
+    def _auth_headers(self) -> dict[str, str]:
+        """No auth for a local endpoint; FreeAPIRunner adds a bearer token."""
+        return {}
+
+    def _stream_answer(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        timeout: float,
+        cancel: threading.Event | None,
+        on_text: Any,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Stream tokens to ``on_text`` (#154). Returns (text, usage) on success,
+        or None so the caller falls back to the blocking path — never faked."""
+        try:
+            text, usage = _stream_chat(
+                f"{self.base_url}/chat/completions",
+                payload={"model": self.model, "messages": messages},
+                timeout=timeout,
+                cancel=cancel,
+                extra_headers=self._auth_headers(),
+                on_delta=on_text,
+            )
+        except LocalRunCancelled:
+            raise
+        except Exception:  # noqa: BLE001 - any streaming failure falls back
+            return None
+        return (text, usage) if text.strip() else None
+
     def complete(
         self,
         prompt: str,
@@ -258,20 +358,32 @@ class OpenAICompatibleRunner(LocalRunner):
         system: str | None = None,
         timeout: float = 60.0,
         cancel: threading.Event | None = None,
+        on_text: Any = None,
     ) -> str:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
+        if on_text is not None:
+            streamed = self._stream_answer(
+                messages, timeout=timeout, cancel=cancel, on_text=on_text
+            )
+            if streamed is not None:
+                return streamed[0].strip()
         result = _http_json_cancellable(
             f"{self.base_url}/chat/completions",
             method="POST",
             payload={"model": self.model, "messages": messages, "stream": False},
             timeout=timeout,
             cancel=cancel,
+            extra_headers=self._auth_headers(),
         )
         choices = result.get("choices") or [{}]
-        return str((choices[0].get("message") or {}).get("content", "")).strip()
+        text = str((choices[0].get("message") or {}).get("content", "")).strip()
+        if on_text is not None and text:  # blocking fallback still owns the emit
+            with contextlib.suppress(Exception):
+                on_text(text)
+        return text
 
 
 class FreeAPIRunner(OpenAICompatibleRunner):
@@ -363,18 +475,38 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         system: str | None = None,
         timeout: float = 60.0,
         cancel: threading.Event | None = None,
+        on_text: Any = None,
     ) -> str:
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
+        # Stream tokens live when a sink is given (#154), else the blocking path.
+        if on_text is not None:
+            streamed = self._stream_answer(
+                messages, timeout=timeout, cancel=cancel, on_text=on_text
+            )
+            if streamed is not None:
+                text, usage = streamed
+                if usage:
+                    self.last_usage = {
+                        "input_tokens": int(usage.get("prompt_tokens", 0) or 0),
+                        "output_tokens": int(usage.get("completion_tokens", 0) or 0),
+                        "tokens": int(usage.get("total_tokens", 0) or 0),
+                        "measurement": "provider" if usage else "estimated",
+                    }
+                return text.strip()
         # Cancellation truth (#152): route the auth'd request through the
         # cancellable transport so Stop aborts the network call itself, not
         # just the result renderer. LocalRunCancelled propagates to run_ask.
         result = self._chat(messages, timeout=timeout, cancel=cancel)
         self.last_usage = self._usage(result)
         choices = result.get("choices") or [{}]
-        return str((choices[0].get("message") or {}).get("content", "")).strip()
+        text = str((choices[0].get("message") or {}).get("content", "")).strip()
+        if on_text is not None and text:  # blocking fallback still owns the emit
+            with contextlib.suppress(Exception):
+                on_text(text)
+        return text
 
     def complete_with_tools(
         self,
