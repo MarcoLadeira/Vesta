@@ -92,6 +92,75 @@ class ConnectTests(unittest.TestCase):
         self.assertEqual((token, source), ("env_tok", "env"))
 
 
+class ReadinessTests(unittest.TestCase):
+    """Consent alone is inert: pushes need a connected token AND consent, and the
+    user must be told the *actual* missing piece (the reported bug)."""
+
+    def setUp(self):
+        _FakeStore.saved = {}
+        self._home = contextlib.ExitStack()
+        self._home.enter_context(isolated_home())
+        self._home.enter_context(mock.patch.object(gc, "CredentialStore", _FakeStore))
+        # No ambient token from the developer's own shell.
+        self._home.enter_context(
+            mock.patch.dict("os.environ", {"GITHUB_TOKEN": "", "GH_TOKEN": ""})
+        )
+        self.addCleanup(self._home.close)
+
+    def test_consent_on_without_token_is_not_ready_and_names_the_token(self):
+        gc.set_push_allowed(True)
+        readiness = gc.github_readiness()
+        self.assertFalse(readiness["ready"])
+        self.assertEqual(readiness["reason"], "no_token")
+        self.assertIn("token", readiness["next_step"].lower())
+        # And it must NOT tell the user to just re-run allow-push.
+        self.assertIn("connect", readiness["next_step"].lower())
+
+    def test_allow_push_on_result_is_honest_without_a_token(self):
+        result = gc.set_push_allowed(True)
+        self.assertTrue(result["allow_push"])
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["reason"], "no_token")
+
+    def test_token_without_consent_names_consent(self):
+        _FakeStore.saved = {"github": "ghp_test"}
+        gc.set_push_allowed(False)
+        readiness = gc.github_readiness()
+        self.assertFalse(readiness["ready"])
+        self.assertEqual(readiness["reason"], "consent_off")
+        self.assertIn("allow-push", readiness["next_step"])
+
+    def test_token_and_consent_is_ready(self):
+        _FakeStore.saved = {"github": "ghp_test"}
+        gc.set_push_allowed(True)
+        readiness = gc.github_readiness()
+        self.assertTrue(readiness["ready"])
+        self.assertEqual(readiness["reason"], "ready")
+        self.assertEqual(readiness["next_step"], "")
+
+    def test_nothing_configured_names_both(self):
+        readiness = gc.github_readiness()
+        self.assertEqual(readiness["reason"], "no_token_and_consent_off")
+
+    def test_status_exposes_ready_for_push(self):
+        _FakeStore.saved = {"github": "ghp_test"}
+        gc.set_push_allowed(True)
+        status = gc.github_status()
+        self.assertTrue(status["ready_for_push"])
+        self.assertEqual(status["readiness_reason"], "ready")
+
+    def test_pr_without_token_blames_the_token_not_consent(self):
+        # The user's exact scenario: consent on, no token.
+        gc.set_push_allowed(True)
+        with mock.patch.object(gc, "repo_slug", return_value="o/r"):
+            result = gc.create_pull_request(
+                Path("."), title="T", body="", head="b", http=_http_ok()
+            )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "no_token")
+        self.assertIn("token", result["error"].lower())
+
+
 class SlugTests(unittest.TestCase):
     def _slug_for(self, url: str) -> str:
         completed = mock.Mock(stdout=url + "\n", returncode=0)

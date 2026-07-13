@@ -182,8 +182,11 @@ class SchemaAndContractTests(unittest.TestCase):
         self.assertIn("Callable tools this turn:", contract)
         self.assertIn("write_file", contract)
         self.assertIn("do not claim edits are not permitted", contract)
-        # Push disabled -> the model is told how the user can enable it.
+        # Push disabled -> the model is told the BOTH gates (token + consent),
+        # not just to re-run allow-push, and pointed at `opai github status`.
         self.assertIn("allow-push on", contract)
+        self.assertIn("opai github connect", contract)
+        self.assertIn("opai github status", contract)
 
     def test_contract_announces_pr_ability_when_enabled(self):
         policy = resolve_agent_policy("Implement the new sync feature and open a PR")

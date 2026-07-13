@@ -242,11 +242,19 @@ def cmd_github(args: argparse.Namespace) -> int:
     if command == "allow-push":
         enabled = str(getattr(args, "state", "") or "").lower() == "on"
         result = set_push_allowed(enabled)
-        result["note"] = (
-            "Runs may now push branches and open PRs on your GitHub repos."
-            if enabled
-            else "Pushes and PR creation are disabled again."
-        )
+        if not enabled:
+            result["note"] = "Pushes and PR creation are disabled again."
+        elif result.get("ready"):
+            result["note"] = (
+                "Runs may now push branches and open PRs on your GitHub repos."
+            )
+        else:
+            # Consent is on but the run still can't push — say exactly why so the
+            # user isn't told to re-run the command they just ran.
+            result["note"] = (
+                "Consent enabled, but pushes/PRs are NOT yet possible: "
+                + str(result.get("next_step") or "")
+            )
         print_json(result)
         return 0
     status = github_status()
