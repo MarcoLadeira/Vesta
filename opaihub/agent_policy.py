@@ -287,6 +287,13 @@ def build_capability_contract(
                 "your authorization to edit — do not claim edits are not "
                 "permitted while they are listed."
             )
+        if "run_command" in tool_names:
+            lines.append(
+                "- Run builds, linters, formatters, generators, or inspection "
+                "commands with run_command (one command per call, no shell "
+                "operators). Network access, package installs, and privileged or "
+                "destructive commands are refused — ask the user to run those."
+            )
         if "git_commit" in tool_names:
             lines.append(
                 "- Commit your changes with git_commit (it stages only files "
