@@ -28,6 +28,9 @@ GIT_OPS_TOOLS = ("git_push", "open_pr")
 # Read-only GitHub context: available with a connected token but NO push consent
 # (reading PR/CI status or an issue is not an outward mutation).
 GITHUB_READ_TOOLS = ("github_pr_status", "github_get_issue")
+# Outward GitHub writes (comment, request review): need a token AND push consent,
+# like git_push/open_pr, but not local edit permission.
+GITHUB_WRITE_TOOLS = ("github_comment", "github_request_review")
 MAX_TOOL_CALLS = 12
 MAX_PATCH_CHARS = 120_000
 MAX_WRITE_CHARS = 200_000
@@ -129,6 +132,7 @@ def available_tool_names(
     allow_edits: bool,
     allow_git_ops: bool | None = None,
     allow_github_read: bool | None = None,
+    allow_github_write: bool | None = None,
 ) -> tuple[str, ...]:
     """The exact tool vocabulary a provider loop gets for this repository.
 
@@ -140,6 +144,7 @@ def available_tool_names(
         allow_edits=allow_edits,
         allow_git_ops=allow_git_ops,
         allow_github_read=allow_github_read,
+        allow_github_write=allow_github_write,
     )
     return tuple(schema["function"]["name"] for schema in executor.schemas())
 
@@ -156,6 +161,7 @@ class RepositoryToolExecutor:
         max_patch_chars: int = MAX_PATCH_CHARS,
         allow_git_ops: bool | None = None,
         allow_github_read: bool | None = None,
+        allow_github_write: bool | None = None,
         git_run: Any = None,
     ) -> None:
         self.repo_root = repo_root.expanduser().resolve()
@@ -195,6 +201,22 @@ class RepositoryToolExecutor:
                 except Exception:  # noqa: BLE001 - fail closed
                     allow_github_read = False
         self.allow_github_read = bool(allow_github_read)
+        # Outward GitHub writes (comment, request review) need a token AND the
+        # persisted push consent — the same outward-action gate as push/PR, but
+        # not local edit permission (you can comment without editing files).
+        if allow_github_write is None:
+            try:
+                from .github_connector import push_allowed, stored_github_token
+
+                connected = (
+                    _token_connected
+                    if _token_connected is not None
+                    else bool(stored_github_token()[0])
+                )
+                allow_github_write = connected and push_allowed()
+            except Exception:  # noqa: BLE001 - consent lookup must fail closed
+                allow_github_write = False
+        self.allow_github_write = bool(allow_github_write)
 
     def _test_commands(self) -> dict[str, list[str]]:
         commands: dict[str, list[str]] = {}
@@ -269,6 +291,29 @@ class RepositoryToolExecutor:
                     "Read a GitHub issue's title, state, labels, and body by number.",
                     {"number": {"type": "integer", "minimum": 1}},
                     required=("number",),
+                )
+            )
+        if self.allow_github_write:
+            schemas.append(
+                _schema(
+                    "github_comment",
+                    "Post a comment on a GitHub issue or pull request by number.",
+                    {
+                        "number": {"type": "integer", "minimum": 1},
+                        "body": {"type": "string"},
+                    },
+                    required=("number", "body"),
+                )
+            )
+            schemas.append(
+                _schema(
+                    "github_request_review",
+                    "Request one or more reviewers on a pull request by number.",
+                    {
+                        "number": {"type": "integer", "minimum": 1},
+                        "reviewers": {"type": "array", "items": {"type": "string"}},
+                    },
+                    required=("number", "reviewers"),
                 )
             )
         if not self.allow_edits:
@@ -592,6 +637,53 @@ class RepositoryToolExecutor:
         kind = "PR" if name == "github_pr_status" else "issue"
         return Observation(name, True, data, message=f"Read {kind} #{number}").to_dict()
 
+    def _github_number(self, arguments: dict[str, Any]) -> int | None:
+        try:
+            number = int(arguments.get("number"))
+        except (TypeError, ValueError):
+            return None
+        return number if number >= 1 else None
+
+    def _github_comment(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        number = self._github_number(arguments)
+        if number is None:
+            return _error("INVALID_TOOL_ARGUMENTS", "A positive number is required")
+        body = str(arguments.get("body") or "").strip()
+        if not body:
+            return _error("INVALID_TOOL_ARGUMENTS", "A comment body is required")
+        from .github_connector import add_comment
+
+        result = add_comment(self.repo_root, number, body)
+        if not result.get("ok"):
+            return _error("GITHUB_WRITE_FAILED", str(result.get("error") or "failed"))
+        return Observation(
+            "github_comment",
+            True,
+            {"url": result.get("url", "")},
+            message=f"Commented on #{number}",
+        ).to_dict()
+
+    def _github_request_review(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        number = self._github_number(arguments)
+        if number is None:
+            return _error("INVALID_TOOL_ARGUMENTS", "A positive number is required")
+        raw = arguments.get("reviewers")
+        reviewers = [str(item).strip() for item in raw] if isinstance(raw, list) else []
+        reviewers = [item for item in reviewers if item]
+        if not reviewers:
+            return _error("INVALID_TOOL_ARGUMENTS", "At least one reviewer is required")
+        from .github_connector import request_reviewers
+
+        result = request_reviewers(self.repo_root, number, reviewers)
+        if not result.get("ok"):
+            return _error("GITHUB_WRITE_FAILED", str(result.get("error") or "failed"))
+        return Observation(
+            "github_request_review",
+            True,
+            {"requested": result.get("requested", [])},
+            message=f"Requested review on #{number}",
+        ).to_dict()
+
     def invoke(
         self,
         name: str,
@@ -604,6 +696,8 @@ class RepositoryToolExecutor:
         allowed = set(READ_TOOLS)
         if self.allow_github_read:
             allowed.update(GITHUB_READ_TOOLS)
+        if self.allow_github_write:
+            allowed.update(GITHUB_WRITE_TOOLS)
         if self.allow_edits:
             allowed.update(WRITE_TOOLS)
         if self.allow_git_ops:
@@ -681,6 +775,10 @@ class RepositoryToolExecutor:
             return self._github_read("github_pr_status", arguments)
         if name == "github_get_issue":
             return self._github_read("github_get_issue", arguments)
+        if name == "github_comment":
+            return self._github_comment(arguments)
+        if name == "github_request_review":
+            return self._github_request_review(arguments)
         command_id = arguments.get("command_id")
         if not isinstance(command_id, str) or command_id not in self.test_commands:
             return _error(

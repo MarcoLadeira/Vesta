@@ -441,3 +441,79 @@ def get_issue(
         "labels": labels,
         "url": str(issue.get("html_url") or ""),
     }
+
+
+def add_comment(
+    project_root: Path, number: int, body: str, *, http: HttpFn = _default_http
+) -> dict[str, Any]:
+    """Comment on an issue or PR. Outward action: needs token AND push consent.
+
+    GitHub's issue-comments endpoint serves pull requests too, so this one call
+    comments on either. The body is redacted before it leaves the machine.
+    """
+    readiness = github_readiness()
+    if not readiness["ready"]:
+        return {
+            "ok": False,
+            "error": readiness["next_step"],
+            "reason": readiness["reason"],
+        }
+    token, _source = stored_github_token()
+    slug = repo_slug(project_root)
+    if not slug:
+        return {"ok": False, "error": "The origin remote is not a GitHub repository"}
+    clean = redact(str(body or "").strip())[:60_000]
+    if not clean:
+        return {"ok": False, "error": "A comment body is required"}
+    code, response = http(
+        "POST",
+        f"{API_ROOT}/repos/{slug}/issues/{int(number)}/comments",
+        token,
+        {"body": clean},
+    )
+    if code in (200, 201) and isinstance(response, dict):
+        return {
+            "ok": True,
+            "url": str(response.get("html_url") or ""),
+            "id": response.get("id"),
+        }
+    return {"ok": False, "error": redact(f"Comment failed (HTTP {code})")}
+
+
+def request_reviewers(
+    project_root: Path,
+    number: int,
+    reviewers: list[str],
+    *,
+    http: HttpFn = _default_http,
+) -> dict[str, Any]:
+    """Request reviewers on a PR. Outward action: needs token AND push consent."""
+    readiness = github_readiness()
+    if not readiness["ready"]:
+        return {
+            "ok": False,
+            "error": readiness["next_step"],
+            "reason": readiness["reason"],
+        }
+    token, _source = stored_github_token()
+    slug = repo_slug(project_root)
+    if not slug:
+        return {"ok": False, "error": "The origin remote is not a GitHub repository"}
+    names = [str(name).strip() for name in (reviewers or []) if str(name).strip()][:15]
+    if not names:
+        return {"ok": False, "error": "At least one reviewer login is required"}
+    code, response = http(
+        "POST",
+        f"{API_ROOT}/repos/{slug}/pulls/{int(number)}/requested_reviewers",
+        token,
+        {"reviewers": names},
+    )
+    if code in (200, 201):
+        return {"ok": True, "requested": names}
+    message = ""
+    if isinstance(response, dict):
+        message = str(response.get("message") or "")
+    return {
+        "ok": False,
+        "error": redact(f"Requesting reviewers failed (HTTP {code}) {message}".strip()),
+    }

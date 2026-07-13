@@ -22,11 +22,14 @@ class RepositoryToolExecutorTests(unittest.TestCase):
     def test_read_only_executor_does_not_expose_or_run_write_tools(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            # Pin GitHub read tools off so the set is deterministic regardless of
-            # an ambient token (e.g. CI's GITHUB_TOKEN); this test is about write
-            # tools, which are gated by allow_edits, not a token.
+            # Pin GitHub read/write tools off so the set is deterministic
+            # regardless of an ambient token/consent (e.g. CI's GITHUB_TOKEN);
+            # this test is about local write tools, gated by allow_edits.
             executor = RepositoryToolExecutor(
-                root, allow_edits=False, allow_github_read=False
+                root,
+                allow_edits=False,
+                allow_github_read=False,
+                allow_github_write=False,
             )
 
             names = [item["function"]["name"] for item in executor.schemas()]
