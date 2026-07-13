@@ -672,6 +672,7 @@ def ask(
             mode=mode,
             record_route=record_route,
             cancel=cancel,
+            on_text=on_text,
         )
 
     from opaihub.ask import run_ask
@@ -688,6 +689,9 @@ def ask(
         allow_cloud=allow_cloud,
         allow_edits=allow_edits,
         cancel=cancel,
+        # Live token streaming for local/free chat (#154); edits use the tool
+        # loop, which doesn't stream prose.
+        on_text=None if allow_edits else on_text,
     )
 
 
@@ -701,6 +705,7 @@ def _ask_free_model(
     mode: str | None = None,
     record_route: bool = True,
     cancel: Any = None,
+    on_text: Any = None,
 ) -> dict[str, Any]:
     """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
 
@@ -756,6 +761,7 @@ def _ask_free_model(
         mode=mode or ("safe-auto" if allow_edits else "ask"),
         record=record_route,
         cancel=cancel,
+        on_text=None if allow_edits else on_text,
     )
     if result.get("status") == "runner_error":
         from opai.provider_contract import normalize_provider_error
