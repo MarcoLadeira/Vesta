@@ -43,6 +43,17 @@ class ModelSpec:
 # previous accounts.py tuples so the picker does not visibly change).
 _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
     "claude": (
+        # Claude 5 family is the current default; Sonnet 4.6 stays reachable by
+        # its canonical id/alias so existing selections never break (#307).
+        ModelSpec(
+            "sonnet-5",
+            "Sonnet 5",
+            "Sonnet 5",
+            "balanced",
+            ("claude-sonnet-5", "sonnet5"),
+        ),
+        ModelSpec("opus", "Opus 4.8", "Opus 4.8", "best", ("claude-opus", "opus-4.8")),
+        ModelSpec("fable", "Fable 5", "Fable 5", "fast", ("claude-fable-5", "fable-5")),
         ModelSpec(
             "sonnet",
             "Sonnet 4.6",
@@ -50,12 +61,12 @@ _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
             "balanced",
             ("claude-sonnet", "sonnet-4.6"),
         ),
-        ModelSpec("opus", "Opus 4.8", "Opus 4.8", "best", ("claude-opus", "opus-4.8")),
         ModelSpec(
             "haiku", "Haiku 4.5", "Haiku 4.5", "fast", ("claude-haiku", "haiku-4.5")
         ),
     ),
     "codex": (
+        ModelSpec("gpt-5.6", "GPT-5.6", "GPT-5.6", "best"),
         ModelSpec("gpt-5.5", "GPT-5.5", "GPT-5.5", "best"),
         ModelSpec("gpt-5.4", "GPT-5.4", "GPT-5.4", "balanced"),
         ModelSpec(
