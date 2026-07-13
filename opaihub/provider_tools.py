@@ -19,6 +19,7 @@ WRITE_TOOLS = (
     "apply_patch",
     "write_file",
     "run_tests",
+    "run_command",
     "git_create_branch",
     "git_commit",
 )
@@ -374,6 +375,21 @@ class RepositoryToolExecutor:
                     required=("command_id",),
                 )
             )
+        schemas.append(
+            _schema(
+                "run_command",
+                "Run a single shell command in the repository (build, lint, "
+                "format, generate, inspect). One command per call — no shell "
+                "operators (| & ; > `). Network access, package installs, "
+                "privilege escalation, and destructive/secret commands are "
+                "refused; ask the user to run those.",
+                {
+                    "command": {"type": "string"},
+                    "purpose": {"type": "string"},
+                },
+                required=("command",),
+            )
+        )
         if self.allow_git_ops:
             schemas.append(
                 _schema(
@@ -637,6 +653,30 @@ class RepositoryToolExecutor:
         kind = "PR" if name == "github_pr_status" else "issue"
         return Observation(name, True, data, message=f"Read {kind} #{number}").to_dict()
 
+    def _run_command(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Run one safe, bounded shell command in the workspace (#310).
+
+        Layered defence: the command runs as argv WITHOUT a shell, confined to
+        the repo root by the ACI; ``classify_run_command`` refuses destructive,
+        network, privilege, install, and secret-reading commands before anything
+        spawns. Output is redacted and capped by the ACI.
+        """
+        from .command_runner import split_command
+        from .safety_gates import classify_run_command
+
+        raw = str(arguments.get("command") or "").strip()
+        if not raw:
+            return _error("INVALID_TOOL_ARGUMENTS", "A command is required")
+        try:
+            argv = split_command(raw)
+        except ValueError:
+            return _error("INVALID_TOOL_ARGUMENTS", "Command could not be parsed")
+        allowed, reason = classify_run_command(raw, argv)
+        if not allowed:
+            return _error("COMMAND_BLOCKED", reason)
+        purpose = str(arguments.get("purpose") or "run_command")[:200]
+        return self.aci.run_command(argv, purpose=purpose).to_dict()
+
     def _github_number(self, arguments: dict[str, Any]) -> int | None:
         try:
             number = int(arguments.get("number"))
@@ -779,6 +819,8 @@ class RepositoryToolExecutor:
             return self._github_comment(arguments)
         if name == "github_request_review":
             return self._github_request_review(arguments)
+        if name == "run_command":
+            return self._run_command(arguments)
         command_id = arguments.get("command_id")
         if not isinstance(command_id, str) or command_id not in self.test_commands:
             return _error(
