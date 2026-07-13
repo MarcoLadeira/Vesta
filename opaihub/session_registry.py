@@ -1,0 +1,201 @@
+"""A single-flight registry of active provider/tool sessions (#169).
+
+OPai already has good per-call process hygiene (CREATE_NO_WINDOW, cancel Events
+that kill CLIs, a bounded shutdown drain). What was missing is a *global* view:
+which sessions are running right now, a guarantee that a retry never runs two
+processes for the same request, and a sweep for child PIDs orphaned by a crash.
+
+This module is that view. It is deliberately dependency-free and thread-safe so
+the runner layer can own one registry and every surface (GUI "active sessions"
+indicator, CLI, cancellation) reads the same truth. Process termination and
+liveness are injected, so the whole thing is hermetically testable.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+from dataclasses import dataclass
+from typing import Any, Callable
+
+
+# Session states. Only ``running`` sessions are "active"; the rest are terminal.
+RUNNING = "running"
+SUPERSEDED = "superseded"  # a newer request with the same id replaced this one
+DONE = "done"
+FAILED = "failed"
+CANCELLED = "cancelled"
+_TERMINAL = {SUPERSEDED, DONE, FAILED, CANCELLED}
+
+
+@dataclass
+class Session:
+    """One live (or just-finished) provider/tool run, keyed by request id."""
+
+    request_id: str
+    provider: str
+    started_at: float
+    state: str = RUNNING
+    pid: int | None = None
+    cancel: Any = None  # a threading.Event, or anything with .set()
+    finished_at: float | None = None
+
+    @property
+    def active(self) -> bool:
+        return self.state == RUNNING
+
+    def to_dict(self, *, now: float | None = None) -> dict[str, Any]:
+        clock = time.monotonic() if now is None else now
+        end = self.finished_at if self.finished_at is not None else clock
+        return {
+            "request_id": self.request_id,
+            "provider": self.provider,
+            "state": self.state,
+            "pid": self.pid,
+            "elapsed_ms": max(0, int((end - self.started_at) * 1000)),
+        }
+
+
+class SessionRegistry:
+    """Thread-safe, single-flight registry of active sessions."""
+
+    def __init__(self, *, now: Callable[[], float] = time.monotonic) -> None:
+        self._now = now
+        self._lock = threading.RLock()
+        self._sessions: dict[str, Session] = {}
+
+    def start(
+        self,
+        request_id: str,
+        provider: str,
+        *,
+        cancel: Any = None,
+        pid: int | None = None,
+    ) -> Session:
+        """Register a new running session for ``request_id``.
+
+        Single-flight (#169): if a session for the same id is already running —
+        a retry — its cancel Event is fired and it is marked ``superseded`` so
+        two processes never run for one request. Returns the new session.
+        """
+        rid = str(request_id)
+        with self._lock:
+            previous = self._sessions.get(rid)
+            if previous is not None and previous.active:
+                self._signal_cancel(previous)
+                previous.state = SUPERSEDED
+                previous.finished_at = self._now()
+            session = Session(
+                request_id=rid,
+                provider=str(provider or "unknown"),
+                started_at=self._now(),
+                cancel=cancel,
+                pid=pid,
+            )
+            self._sessions[rid] = session
+            return session
+
+    def finish(self, request_id: str, *, state: str = DONE) -> None:
+        """Mark a session terminal. A superseded session stays superseded (a late
+        finish from the cancelled predecessor must not overwrite the truth)."""
+        rid = str(request_id)
+        end_state = state if state in _TERMINAL else DONE
+        with self._lock:
+            session = self._sessions.get(rid)
+            if session is None or not session.active:
+                return
+            session.state = end_state
+            session.finished_at = self._now()
+
+    def cancel(self, request_id: str) -> bool:
+        """Fire a running session's cancel Event and mark it cancelled. Returns
+        True if a running session was found."""
+        rid = str(request_id)
+        with self._lock:
+            session = self._sessions.get(rid)
+            if session is None or not session.active:
+                return False
+            self._signal_cancel(session)
+            session.state = CANCELLED
+            session.finished_at = self._now()
+            return True
+
+    def get(self, request_id: str) -> Session | None:
+        with self._lock:
+            return self._sessions.get(str(request_id))
+
+    def active(self) -> list[Session]:
+        with self._lock:
+            return [s for s in self._sessions.values() if s.active]
+
+    def active_count(self) -> int:
+        with self._lock:
+            return sum(1 for s in self._sessions.values() if s.active)
+
+    def active_pids(self) -> list[int]:
+        with self._lock:
+            return [s.pid for s in self._sessions.values() if s.active and s.pid]
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        """Serializable list of active sessions, newest first — for the GUI."""
+        now = self._now()
+        with self._lock:
+            running = [s for s in self._sessions.values() if s.active]
+        running.sort(key=lambda s: s.started_at, reverse=True)
+        return [s.to_dict(now=now) for s in running]
+
+    def prune(self, *, max_terminal: int = 200) -> None:
+        """Drop old terminal sessions so the map can't grow unbounded."""
+        with self._lock:
+            terminal = [
+                (s.finished_at or 0.0, rid)
+                for rid, s in self._sessions.items()
+                if not s.active
+            ]
+            if len(terminal) <= max_terminal:
+                return
+            terminal.sort()
+            for _, rid in terminal[: len(terminal) - max_terminal]:
+                self._sessions.pop(rid, None)
+
+    @staticmethod
+    def _signal_cancel(session: Session) -> None:
+        setter = getattr(session.cancel, "set", None)
+        if callable(setter):
+            try:
+                setter()
+            except Exception:  # noqa: BLE001 - a cancel signal must never raise
+                pass
+
+
+def sweep_orphans(
+    pids: list[int],
+    *,
+    is_alive: Callable[[int], bool],
+    kill: Callable[[int], None],
+) -> list[int]:
+    """Terminate leftover child PIDs from a previous crash (#169).
+
+    Pure and injectable: given PIDs recorded before OPai exited, kill the ones
+    still alive (a clean shutdown would have cleared them) and return the list of
+    PIDs actually terminated. A kill that fails is skipped, never raised.
+    """
+    terminated: list[int] = []
+    for pid in pids:
+        try:
+            if int(pid) <= 0 or not is_alive(int(pid)):
+                continue
+            kill(int(pid))
+            terminated.append(int(pid))
+        except Exception:  # noqa: BLE001 - orphan cleanup is best-effort
+            continue
+    return terminated
+
+
+# One process-wide registry the runner boundary and GUI read (#169).
+_SHARED = SessionRegistry()
+
+
+def registry() -> SessionRegistry:
+    """The shared active-session registry."""
+    return _SHARED
