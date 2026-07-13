@@ -117,6 +117,27 @@ class BootPayloadTests(unittest.TestCase):
         self.assertTrue(ins["privacy"])
         self.assertIn("pct", ins["budget"])
 
+    def test_inspector_surfaces_github_push_readiness_only_when_editing(self):
+        # #300: an edit-capable run shows GitHub push readiness up front; a
+        # read-only Ask run doesn't clutter the panel with it.
+        from opai.gui_web import _github_row_value, _inspector
+
+        self.assertEqual(_github_row_value({"ready": True}), "Ready to push & open PRs")
+        self.assertIn(
+            "token", _github_row_value({"ready": False, "reason": "no_token"})
+        )
+        self.assertIn(
+            "Enable", _github_row_value({"ready": False, "reason": "consent_off"})
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            edit_labels = {
+                r["label"] for r in _inspector(root, {"mode": "safe-auto"})["rows"]
+            }
+            ask_labels = {r["label"] for r in _inspector(root, {"mode": "ask"})["rows"]}
+        self.assertIn("GitHub", edit_labels)
+        self.assertNotIn("GitHub", ask_labels)
+
     def test_workspace_has_root_and_recents_list(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
