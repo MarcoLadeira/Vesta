@@ -52,16 +52,18 @@ class ResolveAndDisplayTests(unittest.TestCase):
         self.assertEqual(
             reg.display_map("claude"),
             {
-                "sonnet-5": "Sonnet 5",
-                "opus": "Opus 4.8",
-                "fable": "Fable 5",
                 "sonnet": "Sonnet 4.6",
+                "opus": "Opus 4.8",
+                "claude-sonnet-5": "Sonnet 5",
                 "haiku": "Haiku 4.5",
+                "claude-fable-5": "Fable 5",
             },
         )
-        # The current lineup is reachable, including its API ids (#307).
-        self.assertEqual(reg.resolve_id("claude", "claude-fable-5"), "fable")
-        self.assertEqual(reg.resolve_id("claude", "claude-sonnet-5"), "sonnet-5")
+        # Canonical ids are the CLI-accepted full ids; short forms are aliases
+        # that resolve to them (#307 fix — "sonnet-5" was not a valid CLI id).
+        self.assertEqual(reg.resolve_id("claude", "sonnet-5"), "claude-sonnet-5")
+        self.assertEqual(reg.resolve_id("claude", "fable"), "claude-fable-5")
+        self.assertEqual(reg.resolve_id("claude", "claude-sonnet-5"), "claude-sonnet-5")
         self.assertEqual(reg.resolve_id("codex", "gpt-5.6"), "gpt-5.6")
         self.assertEqual(reg.display_map("codex")["gpt-5.3-codex-spark"], "Spark")
         self.assertEqual(
@@ -85,7 +87,7 @@ class ValidationTests(unittest.TestCase):
         result = reg.validate("claude", "gpt-4-turbo")
         self.assertFalse(result["valid"])
         self.assertIsNone(result["canonical"])
-        self.assertEqual(result["fallback"], "sonnet-5")  # balanced default
+        self.assertEqual(result["fallback"], "sonnet")  # balanced default
         self.assertIn("no longer lists", result["reason"])
 
     def test_unknown_provider_is_invalid(self):
@@ -95,8 +97,9 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("Unknown provider", result["reason"])
 
     def test_default_model_prefers_balanced(self):
-        # Claude 5 family is the current balanced default (#307).
-        self.assertEqual(reg.default_model("claude").id, "sonnet-5")
+        # Proven Sonnet 4.6 is the balanced default; the Claude 5 family is
+        # opt-in so an unavailable new model never breaks the default (#307).
+        self.assertEqual(reg.default_model("claude").id, "sonnet")
         self.assertEqual(reg.default_model("codex").id, "gpt-5.4")
         self.assertEqual(reg.default_model("copilot").id, "claude-sonnet-4.6")
 
@@ -179,7 +182,7 @@ class DoctorWiringTests(unittest.TestCase):
             result = _doctor_model_check(_FAKE_ROOT, reg.validate)
         self.assertTrue(result["checked"])
         self.assertFalse(result["valid"])
-        self.assertEqual(result["fallback"], "sonnet-5")
+        self.assertEqual(result["fallback"], "sonnet")
 
     def test_model_check_skips_non_account_models(self):
         from unittest import mock
