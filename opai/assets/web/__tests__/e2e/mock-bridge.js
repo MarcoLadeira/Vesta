@@ -75,6 +75,14 @@
   var dashboards = merge(defaultDashboards, scenario.dashboards || {});
   var promptData = scenario.prompts || [];
   var settings = scenario.settings || { prefs: {}, firewall: {}, permissions: [], accounts: [], about: {} };
+  // GitHub connect/consent state (#300): stateful so connect/toggle change what
+  // subsequent settingsData / githubStatus report — the real flow.
+  var githubState = scenario.github || {
+    connected: false, allow_push: false, ready_for_push: false,
+    readiness_reason: "no_token_and_consent_off", login: "", token_source: "",
+    hint: "Connect a token, then enable pushes.",
+  };
+  settings.github = githubState;
   function respond(cb, value, delay) {
     if (delay) setTimeout(function () { cb(JSON.stringify(value)); }, delay);
     else cb(JSON.stringify(value));
@@ -106,6 +114,32 @@
     deleteProviderKey: function (provider, cb) {
       window.__mock.deletedProviderKeys.push(provider);
       cb(JSON.stringify({ provider: provider, configured: false, source: null, keychainAvailable: true }));
+    },
+    githubStatus: function (cb) { cb(JSON.stringify(githubState)); },
+    githubConnect: function (token, cb) {
+      window.__mock.githubConnects.push(token);
+      var res = scenario.githubConnectResponse;
+      if (res && res.connected === false) { cb(JSON.stringify(res)); return; }
+      githubState.connected = true;
+      githubState.login = (res && res.login) || "octocat";
+      githubState.ready_for_push = !!githubState.allow_push;
+      githubState.readiness_reason = githubState.allow_push ? "ready" : "consent_off";
+      githubState.hint = githubState.allow_push ? "" : "A token is connected. Enable pushes/PRs.";
+      cb(JSON.stringify({ connected: true, login: githubState.login, ready_for_push: githubState.ready_for_push, readiness_reason: githubState.readiness_reason }));
+    },
+    githubSetPush: function (state, cb) {
+      var on = String(state) === "on";
+      window.__mock.githubPushToggles.push(on);
+      githubState.allow_push = on;
+      githubState.ready_for_push = on && githubState.connected;
+      githubState.readiness_reason = githubState.ready_for_push ? "ready" : (githubState.connected ? "consent_off" : "no_token");
+      cb(JSON.stringify({ allow_push: on, connected: githubState.connected, ready: githubState.ready_for_push, reason: githubState.readiness_reason, next_step: "" }));
+    },
+    githubDisconnect: function (cb) {
+      window.__mock.githubDisconnects++;
+      githubState.connected = false; githubState.allow_push = false; githubState.ready_for_push = false;
+      githubState.login = ""; githubState.readiness_reason = "no_token_and_consent_off";
+      cb(JSON.stringify({ disconnected: true }));
     },
     testProvider: function (provider, cb) {
       window.__mock.providerTests.push(provider);
@@ -224,6 +258,7 @@
     runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [], scaffolded: [],
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
+    githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },
