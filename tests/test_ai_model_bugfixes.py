@@ -22,6 +22,42 @@ from opaihub import proc
 
 
 # ---------------------------------------------------------------------------
+# Bug (#307): a new-model short id ("sonnet-5") was passed straight to the CLI,
+# which rejected it as "model not found". The runner must resolve aliases to the
+# provider's canonical, CLI-accepted id.
+# ---------------------------------------------------------------------------
+class AccountModelResolutionTests(unittest.TestCase):
+    def test_alias_resolves_to_the_cli_accepted_canonical_id(self):
+        from opaihub.accounts import AccountRunner
+
+        # The stale short id self-heals to the full API id the CLI accepts.
+        self.assertEqual(
+            AccountRunner("claude", "claude", model="sonnet-5").model,
+            "claude-sonnet-5",
+        )
+        self.assertEqual(
+            AccountRunner("claude", "claude", model="fable").model, "claude-fable-5"
+        )
+
+    def test_canonical_and_unknown_ids_pass_through(self):
+        from opaihub.accounts import AccountRunner
+
+        self.assertEqual(AccountRunner("claude", "claude", model="opus").model, "opus")
+        # An id the registry doesn't know is left as-is (the CLI decides).
+        self.assertEqual(
+            AccountRunner("claude", "claude", model="custom-x").model, "custom-x"
+        )
+        self.assertEqual(AccountRunner("claude", "claude").model, "")
+
+    def test_the_default_claude_model_is_the_proven_sonnet(self):
+        from opai import model_registry as reg
+
+        # Guards the #307 regression: the default must be a CLI-accepted id, not
+        # an unverified new model that breaks the out-of-box experience.
+        self.assertEqual(reg.default_model("claude").id, "sonnet")
+
+
+# ---------------------------------------------------------------------------
 # Bug: tons of terminals flash on every message (missing CREATE_NO_WINDOW).
 # ---------------------------------------------------------------------------
 class NoWindowKwargsTests(unittest.TestCase):

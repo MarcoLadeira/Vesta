@@ -43,17 +43,11 @@ class ModelSpec:
 # previous accounts.py tuples so the picker does not visibly change).
 _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
     "claude": (
-        # Claude 5 family is the current default; Sonnet 4.6 stays reachable by
-        # its canonical id/alias so existing selections never break (#307).
-        ModelSpec(
-            "sonnet-5",
-            "Sonnet 5",
-            "Sonnet 5",
-            "balanced",
-            ("claude-sonnet-5", "sonnet5"),
-        ),
-        ModelSpec("opus", "Opus 4.8", "Opus 4.8", "best", ("claude-opus", "opus-4.8")),
-        ModelSpec("fable", "Fable 5", "Fable 5", "fast", ("claude-fable-5", "fable-5")),
+        # Canonical ids are what the Claude CLI receives via ``--model``. Proven
+        # Sonnet 4.6 stays the balanced default; the Claude 5 family uses the
+        # FULL API ids the CLI accepts (short forms like "sonnet-5" are NOT valid
+        # CLI aliases — that regressed real runs, #307), reachable via alias.
+        # New models are opt-in, so an unavailable one never breaks the default.
         ModelSpec(
             "sonnet",
             "Sonnet 4.6",
@@ -62,7 +56,28 @@ _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
             ("claude-sonnet", "sonnet-4.6"),
         ),
         ModelSpec(
-            "haiku", "Haiku 4.5", "Haiku 4.5", "fast", ("claude-haiku", "haiku-4.5")
+            "opus",
+            "Opus 4.8",
+            "Opus 4.8",
+            "best",
+            ("claude-opus", "opus-4.8", "claude-opus-4-8"),
+        ),
+        ModelSpec(
+            "claude-sonnet-5",
+            "Sonnet 5",
+            "Claude Sonnet 5",
+            "best",
+            ("sonnet-5", "sonnet5"),
+        ),
+        ModelSpec(
+            "haiku",
+            "Haiku 4.5",
+            "Haiku 4.5",
+            "fast",
+            ("claude-haiku", "haiku-4.5", "claude-haiku-4-5"),
+        ),
+        ModelSpec(
+            "claude-fable-5", "Fable 5", "Claude Fable 5", "fast", ("fable", "fable-5")
         ),
     ),
     "codex": (

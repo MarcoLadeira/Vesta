@@ -1106,7 +1106,13 @@ class AccountRunner:
         self.account_id = account_id
         self.name = account_id
         self.cli_path = cli_path
-        self.model = model or ""
+        # Resolve aliases/dated ids to the provider's canonical model id so the
+        # CLI always receives a value it accepts — e.g. a stale "sonnet-5"
+        # selection becomes "claude-sonnet-5" instead of failing "model not
+        # found" (#307). Unknown ids pass through untouched.
+        from opai.model_registry import resolve_id
+
+        self.model = resolve_id(account_id, model) or (model or "")
 
     def available(self) -> bool:
         return bool(self.cli_path) and Path(self.cli_path).exists()
