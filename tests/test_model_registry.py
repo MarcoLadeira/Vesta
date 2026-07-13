@@ -51,8 +51,18 @@ class ResolveAndDisplayTests(unittest.TestCase):
     def test_display_map_matches_picker_labels(self):
         self.assertEqual(
             reg.display_map("claude"),
-            {"sonnet": "Sonnet 4.6", "opus": "Opus 4.8", "haiku": "Haiku 4.5"},
+            {
+                "sonnet-5": "Sonnet 5",
+                "opus": "Opus 4.8",
+                "fable": "Fable 5",
+                "sonnet": "Sonnet 4.6",
+                "haiku": "Haiku 4.5",
+            },
         )
+        # The current lineup is reachable, including its API ids (#307).
+        self.assertEqual(reg.resolve_id("claude", "claude-fable-5"), "fable")
+        self.assertEqual(reg.resolve_id("claude", "claude-sonnet-5"), "sonnet-5")
+        self.assertEqual(reg.resolve_id("codex", "gpt-5.6"), "gpt-5.6")
         self.assertEqual(reg.display_map("codex")["gpt-5.3-codex-spark"], "Spark")
         self.assertEqual(
             reg.display_map("copilot")["claude-sonnet-4.6"], "Claude Sonnet"
@@ -75,7 +85,7 @@ class ValidationTests(unittest.TestCase):
         result = reg.validate("claude", "gpt-4-turbo")
         self.assertFalse(result["valid"])
         self.assertIsNone(result["canonical"])
-        self.assertEqual(result["fallback"], "sonnet")  # balanced default
+        self.assertEqual(result["fallback"], "sonnet-5")  # balanced default
         self.assertIn("no longer lists", result["reason"])
 
     def test_unknown_provider_is_invalid(self):
@@ -85,7 +95,8 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("Unknown provider", result["reason"])
 
     def test_default_model_prefers_balanced(self):
-        self.assertEqual(reg.default_model("claude").id, "sonnet")
+        # Claude 5 family is the current balanced default (#307).
+        self.assertEqual(reg.default_model("claude").id, "sonnet-5")
         self.assertEqual(reg.default_model("codex").id, "gpt-5.4")
         self.assertEqual(reg.default_model("copilot").id, "claude-sonnet-4.6")
 
@@ -168,7 +179,7 @@ class DoctorWiringTests(unittest.TestCase):
             result = _doctor_model_check(_FAKE_ROOT, reg.validate)
         self.assertTrue(result["checked"])
         self.assertFalse(result["valid"])
-        self.assertEqual(result["fallback"], "sonnet")
+        self.assertEqual(result["fallback"], "sonnet-5")
 
     def test_model_check_skips_non_account_models(self):
         from unittest import mock
