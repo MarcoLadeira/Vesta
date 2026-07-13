@@ -333,6 +333,13 @@ def handle_gui_message(
     turn_id = new_id()
     _phase_id = derived_id(turn_id, "phase")
     _phase_state = {"open": False, "etype": "request_prepare"}
+    # Track this turn in the single-flight registry (#169): a retry with the same
+    # id cancels its predecessor, and the GUI can show what's running. Never let
+    # registry bookkeeping affect the turn.
+    with contextlib.suppress(Exception):  # noqa: BLE001
+        from .session_registry import registry
+
+        registry().start(turn_id, "pipeline", cancel=cancel)
 
     def _phase(etype: str, status: str, title: str, **kw: Any) -> None:
         _phase_state["open"] = status == "running"
@@ -664,6 +671,20 @@ def handle_gui_message(
         if outcome_fields is not None:
             with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
                 record_task_outcome(root, message, outcome_id=turn_id, **outcome_fields)
+        # Close the registry session for this turn (#169) with an honest state.
+        with contextlib.suppress(Exception):  # noqa: BLE001
+            from .session_registry import CANCELLED, DONE, FAILED, registry
+
+            registry().finish(
+                turn_id,
+                state=(
+                    DONE
+                    if status == "answered"
+                    else CANCELLED
+                    if status == "cancelled"
+                    else FAILED
+                ),
+            )
         return {
             **payload,
             "agent_policy": policy.to_dict(),
