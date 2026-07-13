@@ -421,14 +421,103 @@ class FreeAPIRunnerTests(unittest.TestCase):
             with mock.patch(
                 "opaihub.local_runner._http_json_cancellable", return_value=response
             ):
-                with self.assertRaisesRegex(RuntimeError, "tool-call limit"):
-                    runner.complete_with_tools(
-                        "Read app.py",
-                        project_root=root,
-                        allow_edits=True,
-                        max_tool_calls=1,
-                    )
+                # #311: the budget is enforced by stopping cleanly with an honest
+                # terminal — not by raising or by running a partial batch.
+                result = runner.complete_with_tools(
+                    "Read app.py",
+                    project_root=root,
+                    allow_edits=True,
+                    max_tool_calls=1,
+                )
+            self.assertEqual(result["stopped_reason"], "tool_budget_exhausted")
+            self.assertEqual(result["tool_trace"], [])
+            self.assertIn("budget", result["text"].lower())
+            # No partial, half-applied turn ran.
             self.assertEqual((root / "app.py").read_text(), "value = 1\n")
+
+    def test_loop_stops_after_repeated_identical_failures(self):
+        # #311: a model that keeps making the same failing call is not making
+        # progress — the loop stops with an honest terminal instead of thrashing.
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+        failing = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "c1",
+                                "function": {
+                                    "name": "apply_patch",
+                                    "arguments": '{"patch":"not a real patch"}',
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch(
+                "opaihub.local_runner._http_json_cancellable", return_value=failing
+            ):
+                result = runner.complete_with_tools(
+                    "Fix it", project_root=root, allow_edits=True
+                )
+        self.assertEqual(result["stopped_reason"], "repeated_failure")
+        self.assertTrue(result["last_error"])
+        # Stopped at the repeat threshold, not after burning the whole budget.
+        self.assertEqual(len(result["tool_trace"]), 3)
+        self.assertTrue(all(not item["ok"] for item in result["tool_trace"]))
+
+    def test_loop_self_corrects_after_a_tool_error(self):
+        # #311: a failed tool call is fed back; a correct follow-up completes the
+        # task and the run ends cleanly (no stopped_reason).
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+
+        def _call(cid, name, arguments):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": cid,
+                                    "function": {"name": name, "arguments": arguments},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        responses = [
+            _call("miss", "read_file", '{"path":"does-not-exist.py"}'),  # fails
+            _call(
+                "fix", "apply_patch", '{"patch":' + json.dumps(PATCH_ONE_TO_TWO) + "}"
+            ),  # the correction succeeds
+            {"choices": [{"message": {"content": "Fixed the value."}}]},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch(
+                "opaihub.local_runner._http_json_cancellable", side_effect=responses
+            ):
+                result = runner.complete_with_tools(
+                    "Set value to two.", project_root=root, allow_edits=True
+                )
+            self.assertEqual(result["stopped_reason"], "")
+            self.assertEqual(result["text"], "Fixed the value.")
+            trace = result["tool_trace"]
+            self.assertFalse(trace[0]["ok"])  # first attempt failed
+            self.assertTrue(trace[1]["ok"])  # correction applied
+            self.assertEqual((root / "app.py").read_text(), "value = 2\n")
 
 
 class AskFreeModelTests(unittest.TestCase):

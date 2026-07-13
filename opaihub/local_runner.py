@@ -403,9 +403,44 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         quota = None
         limit = max(1, int(max_tool_calls or MAX_TOOL_CALLS))
         tool_calls_used = 0
+        # Multi-step reliability (#311): the loop feeds every tool observation
+        # (including errors) back to the model so it can self-correct, but it
+        # never spins forever. It stops gracefully — with an honest
+        # ``stopped_reason`` — when the budget is exhausted or the model keeps
+        # repeating the *same* failing action, instead of raising or fabricating
+        # a success.
+        max_repeats = 3
+        last_text = ""
+        last_error = ""
+        repeated_failures: dict[str, int] = {}
+
+        def _finish(reason: str) -> dict[str, Any]:
+            self.last_usage = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "tokens": input_tokens + output_tokens,
+                "measurement": "provider" if measured else "estimated",
+                "quota_snapshot": quota,
+            }
+            text = last_text
+            if not text:
+                text = {
+                    "tool_budget_exhausted": "Stopped: reached the tool-call budget before finishing the task.",
+                    "repeated_failure": "Stopped: the same action kept failing and could not be recovered.",
+                    "malformed_tool_calls": "Stopped: the provider returned malformed tool calls.",
+                }.get(reason, "")
+            return {
+                "text": text,
+                "tool_trace": trace,
+                "stopped_reason": reason,
+                "last_error": last_error,
+            }
+
         while True:
             if cancel is not None and cancel.is_set():
                 raise LocalRunCancelled("Provider tool loop cancelled")
+            if tool_calls_used >= limit:
+                return _finish("tool_budget_exhausted")
             result = self._chat(
                 messages,
                 tools=executor.schemas(),
@@ -418,23 +453,18 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             measured = measured or usage["measurement"] == "provider"
             quota = usage.get("quota_snapshot") or quota
             message = (result.get("choices") or [{}])[0].get("message") or {}
+            content = str(message.get("content") or "").strip()
+            if content:
+                last_text = content
             calls = message.get("tool_calls") or []
             if not isinstance(calls, list):
-                raise RuntimeError("Provider returned malformed tool calls")
+                return _finish("malformed_tool_calls")
             if not calls:
-                self.last_usage = {
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "tokens": input_tokens + output_tokens,
-                    "measurement": "provider" if measured else "estimated",
-                    "quota_snapshot": quota,
-                }
-                return {
-                    "text": str(message.get("content") or "").strip(),
-                    "tool_trace": trace,
-                }
+                return _finish("")  # the model is done — an honest completion
             if len(calls) > limit - tool_calls_used:
-                raise RuntimeError("Provider tool-call limit reached")
+                # The next batch won't fit the budget — stop cleanly rather than
+                # running a partial, half-applied turn.
+                return _finish("tool_budget_exhausted")
             messages.append(
                 {
                     "role": "assistant",
@@ -447,12 +477,14 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                 function = call.get("function") if isinstance(call, dict) else {}
                 name = str((function or {}).get("name") or "unknown")
                 call_id = str(call.get("id") or "") if isinstance(call, dict) else ""
+                ok = bool(observation.get("ok"))
+                error_code = str(observation.get("error_code") or "")
                 trace.append(
                     {
                         "tool": name,
                         "call_id": call_id,
-                        "ok": bool(observation.get("ok")),
-                        "error_code": str(observation.get("error_code") or ""),
+                        "ok": ok,
+                        "error_code": error_code,
                         "message": str(observation.get("message") or ""),
                         "duration_ms": int(observation.get("duration_ms") or 0),
                     }
@@ -464,7 +496,19 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                         "content": json.dumps(observation, sort_keys=True),
                     }
                 )
+                # Anti-thrash: an identical call that fails again and again is
+                # not progress. Track consecutive failures per (tool, arguments).
+                signature = name + "|" + str((function or {}).get("arguments") or "")
+                if ok:
+                    repeated_failures.pop(signature, None)
+                else:
+                    last_error = error_code or str(observation.get("message") or "")
+                    repeated_failures[signature] = (
+                        repeated_failures.get(signature, 0) + 1
+                    )
             tool_calls_used += len(calls)
+            if any(count >= max_repeats for count in repeated_failures.values()):
+                return _finish("repeated_failure")
 
 
 def _candidate_runners() -> list[tuple[str, LocalRunner]]:

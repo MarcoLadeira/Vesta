@@ -255,6 +255,8 @@ def run_explicit_model(
             )
             answer = str(completed.get("text") or "")
             tool_trace = list(completed.get("tool_trace") or [])
+            stopped_reason = str(completed.get("stopped_reason") or "")
+            last_error = str(completed.get("last_error") or "")
         else:
             try:
                 answer = runner.complete(task, system=SYSTEM_PROMPT, cancel=cancel)
@@ -263,6 +265,8 @@ def run_explicit_model(
                     raise
                 answer = runner.complete(task, system=SYSTEM_PROMPT)
             tool_trace = []
+            stopped_reason = ""
+            last_error = ""
     except LocalRunCancelled:
         return {**base, "status": "cancelled", "answer": ""}
     except Exception as exc:  # noqa: BLE001 - normalize provider failures upstream
@@ -279,6 +283,11 @@ def run_explicit_model(
         "mode": mode,
         "answer": answer,
         "tool_trace": tool_trace,
+        # Typed terminal for a run the tool loop could not finish (#311): empty
+        # on a clean completion, else "tool_budget_exhausted"/"repeated_failure".
+        # Callers can detect a stuck run without a new status to special-case.
+        "stopped_reason": stopped_reason,
+        "last_error": last_error,
     }
 
 
