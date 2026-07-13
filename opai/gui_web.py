@@ -160,6 +160,17 @@ def _workspace(root: Path) -> dict[str, Any]:
     }
 
 
+def _github_row_value(readiness: dict[str, Any]) -> str:
+    """A concise, honest push-readiness line for the inspector (#300)."""
+    if readiness.get("ready"):
+        return "Ready to push & open PRs"
+    return {
+        "no_token": "Connect a token in Settings",
+        "consent_off": "Enable pushes in Settings",
+        "no_token_and_consent_off": "Connect a token in Settings",
+    }.get(str(readiness.get("reason") or ""), "Not ready to push")
+
+
 def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
     from opaihub.workflow_state import load_workflow_state
 
@@ -197,21 +208,29 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
         run_mode, safe_auto=(prefs or {}).get("safe_auto")
     )
     workflow = load_workflow_state(root)
-    data.setdefault("rows", []).extend(
-        [
-            {"label": "Agent mode", "value": workflow.mode.title()},
-            {"label": "Workflow", "value": workflow.phase.replace("_", " ").title()},
-            {
-                "label": "Tests",
-                "value": workflow.tests_status.replace("_", " ").title(),
-            },
-            {
-                "label": "PR / merge",
-                "value": workflow.pr_url
-                or workflow.merge_status.replace("_", " ").title(),
-            },
-        ]
+    rows_to_add: list[dict[str, Any]] = [
+        {"label": "Agent mode", "value": workflow.mode.title()},
+        {"label": "Workflow", "value": workflow.phase.replace("_", " ").title()},
+        {"label": "Tests", "value": workflow.tests_status.replace("_", " ").title()},
+    ]
+    # Push readiness matters only when this run could actually push (#300): in an
+    # edit-capable mode, tell the user up front whether a PR is even possible.
+    if run_mode in {"safe-auto", "full-auto"}:
+        try:
+            from opaihub.github_connector import github_readiness
+
+            rows_to_add.append(
+                {"label": "GitHub", "value": _github_row_value(github_readiness())}
+            )
+        except Exception:  # noqa: BLE001 - readiness must never break the inspector
+            pass
+    rows_to_add.append(
+        {
+            "label": "PR / merge",
+            "value": workflow.pr_url or workflow.merge_status.replace("_", " ").title(),
+        }
     )
+    data.setdefault("rows", []).extend(rows_to_add)
     if workflow.blocker:
         data["rows"].append({"label": "Blocker", "value": workflow.blocker})
     review_summary = workflow.diff_review.get("summary", {})
