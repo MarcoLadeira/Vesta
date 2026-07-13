@@ -301,8 +301,10 @@ def build_capability_contract(
         elif "git_commit" in tool_names:
             lines.append(
                 "- Pushing and PRs are disabled this turn. If asked to push or "
-                "open a PR, commit locally and tell the user to enable them "
-                "with: opai github allow-push on"
+                "open a PR, commit locally and tell the user to run "
+                "`opai github status` to see what's missing — pushes need BOTH a "
+                "connected token (opai github connect) AND consent (opai github "
+                "allow-push on). Do not tell them to only re-run allow-push."
             )
     if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
         lines.append(

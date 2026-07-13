@@ -179,31 +179,85 @@ def disconnect_github() -> dict[str, Any]:
 
 
 def set_push_allowed(allowed: bool) -> dict[str, Any]:
-    """Persist the explicit consent that lets runs push and open PRs."""
+    """Persist the explicit consent that lets runs push and open PRs.
+
+    Consent alone is inert: pushes and PRs also need a connected token. The
+    result reports whether the combination is actually ``ready`` and, if not,
+    names the missing piece — so ``allow-push on`` never claims a capability the
+    run cannot deliver.
+    """
     config = _load_config()
     config["allow_push"] = bool(allowed)
     _save_config(config)
-    return {"allow_push": bool(allowed)}
+    readiness = github_readiness()
+    return {
+        "allow_push": bool(allowed),
+        "connected": readiness["connected"],
+        "ready": readiness["ready"],
+        "reason": readiness["reason"],
+        "next_step": readiness["next_step"],
+    }
 
 
 def push_allowed() -> bool:
     return bool(_load_config().get("allow_push"))
 
 
+def github_readiness() -> dict[str, Any]:
+    """Whether runs can actually push and open PRs, and what's missing if not.
+
+    Two independent gates must both be satisfied: a **connected token** and the
+    persisted **allow-push consent**. Every surface (CLI, agent instructions,
+    GUI) reads this one truth so the reason a PR can't be opened is always
+    specific and actionable — never a bare "allow-push on" when consent is
+    already on and the real gap is a missing token.
+    """
+    token, source = stored_github_token()
+    connected = bool(token)
+    allow = bool(_load_config().get("allow_push"))
+    ready = connected and allow
+    if ready:
+        reason, next_step = "ready", ""
+    elif not connected and not allow:
+        reason = "no_token_and_consent_off"
+        next_step = (
+            "Connect a token (opai github connect --token <PAT>, or set "
+            "GITHUB_TOKEN), then run: opai github allow-push on"
+        )
+    elif not connected:
+        reason = "no_token"
+        next_step = (
+            "Consent is on, but no GitHub token is connected. Connect one: "
+            "opai github connect --token <PAT> (or set GITHUB_TOKEN)."
+        )
+    else:
+        reason = "consent_off"
+        next_step = "A token is connected. Enable pushes/PRs: opai github allow-push on"
+    return {
+        "connected": connected,
+        "token_source": source,
+        "allow_push": allow,
+        "ready": ready,
+        "reason": reason,
+        "next_step": next_step,
+    }
+
+
 def github_status() -> dict[str, Any]:
-    """Local-only status: token presence, source, cached login, consent."""
+    """Local-only status: token presence, source, cached login, consent, and
+    whether runs are actually ready to push/open PRs."""
     token, source = stored_github_token()
     config = _load_config()
+    readiness = github_readiness()
     return {
         "connected": bool(token),
         "token_source": source,
         "login": str(config.get("login") or ""),
         "allow_push": bool(config.get("allow_push")),
-        "hint": (
-            ""
-            if token
-            else "Connect with: opai github connect --token <PAT> (or set GITHUB_TOKEN)"
-        ),
+        "ready_for_push": readiness["ready"],
+        "readiness_reason": readiness["reason"],
+        "hint": readiness["next_step"]
+        or "GitHub is connected and pushes/PRs are enabled.",
     }
 
 
@@ -252,17 +306,15 @@ def create_pull_request(
     http: HttpFn = _default_http,
 ) -> dict[str, Any]:
     """Open a PR on the origin GitHub repository. Requires token + consent."""
-    if not push_allowed():
+    readiness = github_readiness()
+    if not readiness["ready"]:
+        # Name the actual missing gate (token vs consent), not just consent.
         return {
             "ok": False,
-            "error": "Push/PR consent is off. Enable with: opai github allow-push on",
+            "error": readiness["next_step"],
+            "reason": readiness["reason"],
         }
     token, _source = stored_github_token()
-    if not token:
-        return {
-            "ok": False,
-            "error": "No GitHub token. Connect with: opai github connect",
-        }
     slug = repo_slug(project_root)
     if not slug:
         return {"ok": False, "error": "The origin remote is not a GitHub repository"}
