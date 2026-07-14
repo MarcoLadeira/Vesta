@@ -1,16 +1,16 @@
 /*
- * OPai settings surface (#236) — extracted from app.js.
+ * OPai settings surface (#217) — extracted from app.js in #236.
  *
  * A section registry drives both the left navigation rail and the rendered
- * content, so adding a settings section is a registry entry here, not an edit
- * to app.js. Every section keeps the exact markup (class names, ids, data-
- * attributes) the existing e2e specs and event wiring depend on — this issue
- * is a behavior-preserving extraction; the per-section redesigns land in
- * #237-#241.
+ * pages, so adding a settings page is a registry entry here, not an edit to
+ * app.js. Section markup (class names, ids, data-attributes) is what the
+ * settings e2e specs and event wiring depend on.
  *
- * Layout is a single scrollable content column with a jump rail beside it (not
- * one-pane-at-a-time), so the settings search (#240) keeps filtering across all
- * sections at once and deep links (`#settings/<id>`) scroll to a section.
+ * Layout is Claude-style paned navigation (owner direction): the rail is real
+ * page navigation — one cleanly labelled page visible at a time. Search (#240)
+ * stays global: typing switches into a cross-page results mode where every page
+ * shows only its matching blocks under its page label; clearing the query
+ * returns to the active page. Deep links (`#settings/<id>`) open that page.
  *
  * UMD: a plain <script> in the browser (sets window.OPaiSettings) and a CommonJS
  * module under Vitest (el() is unit-tested with an injected document).
@@ -111,7 +111,7 @@
       return value ? new Date(Number(value)).toLocaleString() : "Never checked";
     };
     var h =
-      '<section class="connection-doctor" id="set-sec-providers" role="region" aria-label="Connection Doctor"><div class="set-head">Connection Doctor</div><div class="set-note">Accounts and API provider health in one place. Credential values and files are never read or displayed.</div><div class="doctor-grid">';
+      '<section class="connection-doctor" role="region" aria-label="Connection Doctor"><div class="set-head">Connection Doctor</div><div class="set-note">Accounts and API provider health in one place. Credential values and files are never read or displayed.</div><div class="doctor-grid">';
     doctorItems.forEach(function (item) {
       var id = item.providerId || "provider";
       var isAccount = item.kind === "account";
@@ -313,7 +313,7 @@
     var fmtUsage = function (value) {
       return Number(value || 0).toLocaleString();
     };
-    var h = '<div class="set-head" id="set-sec-models">Model usage limits</div>';
+    var h = '<div class="set-head">Model usage limits</div>';
     (d.usage || []).forEach(function (usage) {
       var model = modelsById[usage.modelId] || { label: usage.modelId };
       var bounded = usage.limit != null;
@@ -367,7 +367,7 @@
 
   function firewallHtml(d, ctx) {
     var esc = ctx.esc;
-    var h = '<div class="set-head" id="set-sec-firewall">Cost firewall</div>';
+    var h = '<div class="set-head">Cost firewall</div>';
     h += row(esc, "Profile", d.firewall.profile || "—");
     h += row(esc, "Panic mode", d.firewall.panic ? "ON (local-only)" : "off");
     h += row(esc, "Spent today", "$" + (+d.firewall.spent_today || 0).toFixed(2));
@@ -382,7 +382,7 @@
   function permissionsHtml(d, ctx) {
     var esc = ctx.esc;
     var h =
-      '<div class="set-head" id="set-sec-permissions">Tool permissions · ' +
+      '<div class="set-head">Tool permissions · ' +
       esc(MODE_LABELS[d.prefs.default_mode] || d.prefs.default_mode) +
       "</div>";
     (d.permissions || []).forEach(function (p) {
@@ -400,7 +400,7 @@
 
   function privacyHtml(d, ctx) {
     var esc = ctx.esc;
-    var h = '<div class="set-head" id="set-sec-privacy">Privacy</div>';
+    var h = '<div class="set-head">Privacy</div>';
     [
       "No telemetry — nothing leaves your machine.",
       "Raw build prompts are never logged; saved chat is redacted, kept per workspace on this machine, and can be cleared from the sidebar.",
@@ -415,7 +415,7 @@
     var esc = ctx.esc;
     if (!(d.about && d.about.version)) return "";
     return (
-      '<div class="set-head" id="set-sec-about">About</div>' +
+      '<div class="set-head">About</div>' +
       row(esc, "Version", d.about.version) +
       row(esc, "Release stage", d.about.release_stage || "—")
     );
@@ -461,18 +461,14 @@
     { id: "about", title: "About", icon: "ℹ️", keywords: "about version release", render: aboutHtml },
   ];
 
-  // ---- search (moved from app.js, scoped to the content column) ---------- //
-  function settingsBlocks(content) {
-    var kids = Array.prototype.filter.call(content.children, function (el) {
-      return (
-        !el.classList.contains("page-title") &&
-        !el.classList.contains("page-sub") &&
-        !el.classList.contains("settings-toolbar")
-      );
-    });
+  // ---- search + paned pages ---------------------------------------------- //
+  // Group a pane's children into logical blocks: a boundary (.set-head or the
+  // Connection Doctor card) plus everything up to the next boundary. Search
+  // shows/hides whole blocks, so a matching row keeps its heading (#240).
+  function settingsBlocks(pane) {
     var blocks = [];
     var cur = null;
-    kids.forEach(function (el) {
+    Array.prototype.forEach.call(pane.children, function (el) {
       var isBoundary =
         el.classList.contains("set-head") || el.classList.contains("connection-doctor");
       if (isBoundary || !cur) {
@@ -484,71 +480,47 @@
     return blocks;
   }
 
-  function filterSettings(scope, query, railItems) {
-    var q = String(query || "").trim().toLowerCase();
-    var anyShown = false;
-    settingsBlocks(scope).forEach(function (block) {
-      var text = block
-        .map(function (el) {
-          return el.textContent;
-        })
-        .join(" ")
-        .toLowerCase();
-      var show = !q || text.indexOf(q) >= 0;
-      if (show) anyShown = true;
-      block.forEach(function (el) {
-        el.style.display = show ? "" : "none";
-      });
-    });
-    var doc = _doc();
-    var noResults = doc.getElementById("settingsNoResults");
-    if (noResults) noResults.toggleAttribute("hidden", anyShown || !q);
-    // Dim rail entries whose section has no visible content (cosmetic only).
-    (railItems || []).forEach(function (link) {
-      var target = doc.getElementById("set-sec-" + link.dataset.railTarget);
-      var visible = !q || (target && _sectionMatches(target, q));
-      link.toggleAttribute("data-dim", !visible);
-    });
-  }
-
-  function _sectionMatches(boundaryEl, q) {
-    // A section matches if its boundary block or any following sibling up to the
-    // next boundary contains the query. Mirrors settingsBlocks grouping.
-    var el = boundaryEl;
-    var text = "";
-    do {
-      text += " " + (el.textContent || "");
-      el = el.nextElementSibling;
-    } while (
-      el &&
-      !el.classList.contains("set-head") &&
-      !el.classList.contains("connection-doctor")
-    );
-    return text.toLowerCase().indexOf(q) >= 0;
-  }
-
   // ---- orchestration ----------------------------------------------------- //
+  // Claude-style paned settings: the rail on the left is real page navigation —
+  // one cleanly labelled page visible at a time. Search stays global (#240):
+  // typing switches the layout into a cross-page results mode where every page
+  // shows only its matching blocks (each under its page label), and clearing
+  // the query returns to the active page.
   function render(page, ctx) {
     var d = ctx.d || {};
     var esc = ctx.esc;
-    var contentHtml =
-      '<div class="page-title">Settings</div><div class="page-sub">Project: ' +
-      esc((ctx.state.boot.workspace && ctx.state.boot.workspace.root) || "") +
-      "</div>";
-    contentHtml +=
-      '<div class="settings-toolbar"><input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false"><span class="settings-noresults" id="settingsNoResults" hidden>No settings match your search.</span></div>';
     var present = sections.filter(function (section) {
       var html = section.render(d, ctx);
       section._html = html;
       return !!html;
     });
-    present.forEach(function (section) {
-      contentHtml += section._html;
-    });
 
-    // Rail beside a single scrollable content column.
+    var header =
+      '<div class="page-title">Settings</div><div class="page-sub">Project: ' +
+      esc((ctx.state.boot.workspace && ctx.state.boot.workspace.root) || "") +
+      "</div>" +
+      '<div class="settings-toolbar"><input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false"><span class="settings-noresults" id="settingsNoResults" hidden>No settings match your search.</span></div>';
+
+    var panesHtml = present
+      .map(function (section) {
+        return (
+          '<section class="settings-pane" id="set-sec-' +
+          esc(section.id) +
+          '" data-pane="' +
+          esc(section.id) +
+          '" data-pane-title="' +
+          esc(section.title) +
+          '" role="region" aria-label="' +
+          esc(section.title) +
+          '">' +
+          section._html +
+          "</section>"
+        );
+      })
+      .join("");
+
     var rail =
-      '<nav class="settings-rail" aria-label="Settings sections">' +
+      '<nav class="settings-rail" aria-label="Settings pages">' +
       present
         .map(function (section) {
           return (
@@ -563,64 +535,110 @@
         })
         .join("") +
       "</nav>";
+
     page.innerHTML =
       '<div class="settings-layout">' +
       rail +
       '<div class="settings-content" id="settingsContent">' +
-      contentHtml +
+      header +
+      panesHtml +
       "</div></div>";
 
+    var layout = page.querySelector(".settings-layout");
     var content = page.querySelector("#settingsContent");
+    var panes = Array.prototype.slice.call(content.querySelectorAll(".settings-pane"));
     var railItems = Array.prototype.slice.call(
       page.querySelectorAll(".settings-rail-item")
     );
     wire(content, ctx);
 
-    // Rail navigation: scroll the section into view and record the deep link.
+    function activate(id, updateHash) {
+      panes.forEach(function (pane) {
+        pane.classList.toggle("active", pane.dataset.pane === id);
+      });
+      railItems.forEach(function (link) {
+        var on = link.dataset.railTarget === id;
+        link.classList.toggle("active", on);
+        if (on) link.setAttribute("aria-current", "page");
+        else link.removeAttribute("aria-current");
+      });
+      if (updateHash === false) return;
+      try {
+        global.history &&
+          global.history.replaceState &&
+          global.history.replaceState(null, "", "#settings/" + id);
+      } catch (_e) {
+        /* hash routing is best-effort */
+      }
+    }
+
+    function applySearch(query) {
+      var q = String(query || "").trim().toLowerCase();
+      var searching = q !== "";
+      layout.classList.toggle("searching", searching);
+      var anyShown = false;
+      panes.forEach(function (pane) {
+        var paneShown = false;
+        settingsBlocks(pane).forEach(function (block) {
+          var text = block
+            .map(function (el) {
+              return el.textContent;
+            })
+            .join(" ")
+            .toLowerCase();
+          var show = !searching || text.indexOf(q) >= 0;
+          if (show) paneShown = true;
+          block.forEach(function (el) {
+            el.style.display = show ? "" : "none";
+          });
+        });
+        pane.classList.toggle("no-match", searching && !paneShown);
+        if (paneShown) anyShown = true;
+      });
+      var noResults = content.querySelector("#settingsNoResults");
+      if (noResults) noResults.toggleAttribute("hidden", anyShown || !searching);
+      railItems.forEach(function (link) {
+        var pane = content.querySelector('[data-pane="' + link.dataset.railTarget + '"]');
+        link.toggleAttribute(
+          "data-dim",
+          searching && !!pane && pane.classList.contains("no-match")
+        );
+      });
+    }
+
+    var search = content.querySelector("#settingsSearch");
     railItems.forEach(function (link) {
       link.onclick = function () {
-        var target = content.querySelector("#set-sec-" + link.dataset.railTarget);
-        if (target && target.scrollIntoView) {
-          target.scrollIntoView({ block: "start", behavior: "smooth" });
+        if (search && search.value) {
+          search.value = "";
+          applySearch("");
         }
-        railItems.forEach(function (other) {
-          other.classList.toggle("active", other === link);
-        });
-        try {
-          global.history &&
-            global.history.replaceState &&
-            global.history.replaceState(null, "", "#settings/" + link.dataset.railTarget);
-        } catch (_e) {
-          /* hash routing is best-effort */
-        }
+        activate(link.dataset.railTarget);
       };
     });
-    if (railItems[0]) railItems[0].classList.add("active");
 
-    // Search: filters across all sections (unchanged behavior, #240).
-    var search = content.querySelector("#settingsSearch");
     if (search) {
       search.oninput = function () {
-        filterSettings(content, search.value, railItems);
+        applySearch(search.value);
       };
       search.onkeydown = function (e) {
         if (e.key === "Escape") {
           search.value = "";
-          filterSettings(content, "", railItems);
+          applySearch("");
         }
       };
     }
 
-    // Deep link: #settings/<id> scrolls to the section on open.
+    // Deep link (#settings/<id>) opens that page; otherwise the first page.
     var hash = (global.location && global.location.hash) || "";
     var match = /^#settings\/([\w-]+)$/.exec(hash);
-    if (match) {
-      var deep = content.querySelector("#set-sec-" + match[1]);
-      if (deep && deep.scrollIntoView) deep.scrollIntoView({ block: "start" });
-      railItems.forEach(function (link) {
-        link.classList.toggle("active", link.dataset.railTarget === match[1]);
-      });
-    }
+    var initial =
+      match && content.querySelector('[data-pane="' + match[1] + '"]')
+        ? match[1]
+        : present.length
+          ? present[0].id
+          : "";
+    if (initial) activate(initial, false);
 
     if (ctx.startDoctorRefresh) ctx.startDoctorRefresh();
   }

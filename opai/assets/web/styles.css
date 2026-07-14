@@ -932,10 +932,30 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .prompt-card .use { align-self: flex-end; }
 
 /* ---------- settings ---------- */
-/* Settings layout (#236): a jump rail beside a single scrollable content
-   column. One column keeps search filtering across all sections at once; the
-   rail scrolls to a section and drives deep links (#settings/<id>). */
+/* Settings layout (#217): Claude-style paned pages. The rail is real page
+   navigation — one labelled page visible at a time. Search flips the layout
+   into a cross-page results mode (every page shows only matching blocks, each
+   under its page label); clearing returns to the active page. */
 .settings-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 26px; align-items: start; }
+.settings-pane { display: none; }
+.settings-pane.active { display: block; animation: paneIn 0.16s ease; }
+@keyframes paneIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .settings-pane.active { animation: none; } }
+.settings-layout.searching .settings-pane { display: block; animation: none; }
+.settings-layout.searching .settings-pane.no-match { display: none; }
+/* In search mode each matching page announces itself, so cross-page results
+   read cleanly. Pseudo-content is presentation only (excluded from innerText). */
+.settings-layout.searching .settings-pane::before {
+  content: attr(data-pane-title);
+  display: block;
+  margin: 22px 0 2px;
+  font-size: 11.5px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.settings-layout.searching .settings-pane:first-of-type::before { margin-top: 6px; }
 .settings-rail { position: sticky; top: 10px; display: flex; flex-direction: column; gap: 2px; }
 .settings-rail-item {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;

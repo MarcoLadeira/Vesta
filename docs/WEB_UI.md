@@ -33,20 +33,27 @@ opai gui  ─▶  cmd_gui (cli.py)
 - **Fallback** — `opai gui --classic` (or any machine without QtWebEngine) uses
   the classic Qt window in `gui_desktop.py`, which stays fully tested.
 
-### Settings surface (`settings.js`, #236)
+### Settings surface (`settings.js`, #217)
 
 The settings page is a **section registry**, not one long function. Each entry
 in `window.OPaiSettings.sections` is
 `{ id, title, icon, keywords, render(d, ctx) }`; `OPaiSettings.render(page, ctx)`
-lays out a **jump rail** beside a single scrollable content column, wires the
-sections, runs the search (#240), and honours `#settings/<id>` deep links.
-Adding a settings section is a registry entry here — no `app.js` edit. `app.js`
-keeps only the async data fetch and hands the registry a `ctx` bundle of shared
-dependencies (`bridge`, `esc`, `toast`, `switchView`, `updateDoctorCard`, …).
-The `el(tag, attrs, children)` helper builds DOM without routing dynamic values
-through `innerHTML` (text → `textContent`), and is unit-tested in
-`__tests__/settings.test.js`. Single-column layout is deliberate: search filters
-across every section at once.
+lays out **Claude-style paned pages**: the left rail is real page navigation —
+one cleanly labelled page visible at a time (`.settings-pane.active`), with
+`aria-current="page"` on the active rail item and `#settings/<id>` deep links
+that open a page directly. Hidden pages stay in the DOM (wiring stays simple),
+so on-screen test assertions must use innerText semantics
+(`toContainText(..., { useInnerText: true })`), not textContent.
+
+Search (#240) stays global: typing flips the layout into a cross-page results
+mode (`.settings-layout.searching`) where every page shows only matching
+blocks, each labelled with its page title; clearing the query returns to the
+page the user was on. Adding a settings page is a registry entry here — no
+`app.js` edit. `app.js` keeps only the async data fetch and hands the registry
+a `ctx` bundle of shared dependencies (`bridge`, `esc`, `toast`, `switchView`,
+`updateDoctorCard`, …). The `el(tag, attrs, children)` helper builds DOM without
+routing dynamic values through `innerHTML` (text → `textContent`), and is
+unit-tested in `__tests__/settings.test.js`.
 
 ## Bridge API (Python → JS)
 
