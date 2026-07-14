@@ -32,7 +32,9 @@ test("startup requires an explicit resume choice before restoring safe messages"
   await expect(page.locator("#input")).toBeEnabled();
   await expect(page.locator(".msg.user")).toContainText("Continue the index work");
   await expect(page.locator(".msg.bot .body")).toContainText("Focused tests are green");
-  await expect(page.locator("#thread img")).toHaveCount(0);
+  // The restored message must not mint an <img> from its text (XSS guard). Scope
+  // to message bodies so the legitimate empty-state brand mascot doesn't count.
+  await expect(page.locator(".msg .body img")).toHaveCount(0);
   await expect(page.locator("#thread")).toContainText("Checkpoint cp-313");
   await expect(page.locator("#thread")).toContainText("Run the full suite");
   expect(await page.evaluate(() => window.__mock.resumedSessions)).toBe(1);
