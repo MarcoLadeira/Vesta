@@ -90,12 +90,36 @@
   }
   var bridge = {
     replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
+    dashboardReady: Sig(), settingsReady: Sig(), toolApplied: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
     statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
     dashboard: function (id, cb) {
       var error = scenario.dashboardErrors && scenario.dashboardErrors[id];
       respond(cb, error ? { error: error } : (dashboards[id] || {}), scenario.dashboardDelayMs);
+    },
+    // #146: async data path — the production bridge computes these on a worker
+    // thread and delivers via signals; the mock mirrors that timing contract.
+    requestDashboard: function (id, requestId) {
+      window.__mock.dashboardRequests.push({ sectionId: id, requestId: requestId });
+      var error = scenario.dashboardErrors && scenario.dashboardErrors[id];
+      var data = error ? { error: error } : (dashboards[id] || {});
+      setTimeout(function () {
+        bridge.dashboardReady.emit(JSON.stringify({ requestId: requestId, sectionId: id, data: data }));
+      }, scenario.dashboardDelayMs || 0);
+    },
+    requestSettings: function (requestId) {
+      window.__mock.settingsRequests.push(requestId);
+      setTimeout(function () {
+        bridge.settingsReady.emit(JSON.stringify({ requestId: requestId, data: settings }));
+      }, scenario.settingsDelayMs || 0);
+    },
+    applyToolAsync: function (name, requestId) {
+      window.__mock.appliedTools.push(name);
+      var response = (scenario.applyToolResponses && scenario.applyToolResponses[name]) || { text: "Applied safely." };
+      setTimeout(function () {
+        bridge.toolApplied.emit(JSON.stringify({ requestId: requestId, data: response }));
+      }, scenario.applyToolDelayMs || 0);
     },
     prompts: function (q, c, cb) {
       var query = String(q || "").toLowerCase().trim();
@@ -282,6 +306,7 @@
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
+    dashboardRequests: [], settingsRequests: [],
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },

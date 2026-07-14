@@ -145,6 +145,16 @@ function boot() {
   });
   if (bridge.providerLoginReady) bridge.providerLoginReady.connect(onProviderLoginReady);
   if (bridge.connectionDoctorReady) bridge.connectionDoctorReady.connect(onConnectionDoctorReady);
+  // #146: async data delivery — heavy payloads computed off the GUI thread.
+  if (bridge.dashboardReady) bridge.dashboardReady.connect(onDashboardReady);
+  if (bridge.settingsReady) bridge.settingsReady.connect(onSettingsReady);
+  if (bridge.toolApplied) bridge.toolApplied.connect((json) => {
+    let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
+    const pending = (state.pendingToolApplies || {})[d.requestId];
+    if (!pending) return;
+    delete state.pendingToolApplies[d.requestId];
+    pending(JSON.stringify(d.data || {}));
+  });
   if (bridge.discoverModels) setTimeout(() => bridge.discoverModels(), 0);
 }
 
@@ -1777,7 +1787,7 @@ function setBusy(on) {
 /* ---------- dashboards ---------- */
 function renderDashboard(section) {
   const page = $("#dashPage"); page.innerHTML = `<div class="page-sub">Loading…</div>`;
-  bridge.dashboard(section, (json) => {
+  const paint = (json) => {
     const s = JSON.parse(json);
     if (s.error) { page.innerHTML = `<div class="page-sub">Couldn't load: ${esc(s.error)}</div>`; return; }
     let h = `<div class="page-title">${esc(s.title || section)}</div>`;
@@ -1802,7 +1812,21 @@ function renderDashboard(section) {
     }
     page.innerHTML = h;
     $$("#dashPage .btn").forEach((b) => (b.onclick = () => runAction(b.dataset.aid, b.dataset.cmd)));
-  });
+  };
+  // #146: prefer the async path — the heavy repo/ledger walk happens on a
+  // worker thread and arrives via dashboardReady; stale responses are dropped.
+  if (bridge.requestDashboard && bridge.dashboardReady) {
+    state.dashRequest = `dash-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    state.dashPaint = paint;
+    bridge.requestDashboard(section, state.dashRequest);
+  } else {
+    bridge.dashboard(section, paint);
+  }
+}
+function onDashboardReady(json) {
+  let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (!state.dashPaint || d.requestId !== state.dashRequest) return; // stale
+  state.dashPaint(JSON.stringify(d.data || {}));
 }
 function runAction(aid, cmd) {
   if (aid === "panic_toggle") { switchView("chat"); bridge.runTool("panic"); return; }
@@ -1876,7 +1900,7 @@ function filterSettings(page, query) {
 }
 function renderSettings() {
   const page = $("#settingsPage"); page.innerHTML = `<div class="page-sub">Loading…</div>`;
-  bridge.settingsData((json) => {
+  const paint = (json) => {
     const d = JSON.parse(json);
     const modeLabels = { ask: "Ask", plan: "Plan", "safe-auto": "Safe Auto", "approve-edits": "Approve Edits", "full-auto": "Full Auto" };
     const row = (k, v) => `<div class="set-row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`;
@@ -2162,7 +2186,21 @@ function renderSettings() {
       doctorRefreshRequestId = `doctor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       bridge.refreshConnectionDoctor(doctorRefreshRequestId);
     }
-  });
+  };
+  // #146: prefer the async path — doctor/credential/usage aggregation happens
+  // on a worker thread and arrives via settingsReady; stale responses dropped.
+  if (bridge.requestSettings && bridge.settingsReady) {
+    state.settingsRequest = `settings-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    state.settingsPaint = paint;
+    bridge.requestSettings(state.settingsRequest);
+  } else {
+    bridge.settingsData(paint);
+  }
+}
+function onSettingsReady(json) {
+  let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (!state.settingsPaint || d.requestId !== state.settingsRequest) return; // stale
+  state.settingsPaint(JSON.stringify(d.data || {}));
 }
 
 /* ---------- tools ---------- */
@@ -2262,11 +2300,21 @@ function renderApprovalCard(r) {
   };
   el.querySelector('[data-ap="approve"]').onclick = () => {
     done("Approved — applying…", "approved");
-    bridge.applyTool(r.apply, (j2) => {
+    const finish = (j2) => {
       const a = JSON.parse(j2);
       appendCard(r.title, a.text);
       refreshStatus(); refreshInspector();
-    });
+    };
+    // #146: run the repair/panic subprocess on a worker thread; the window
+    // stays responsive and the result arrives via toolApplied.
+    if (bridge.applyToolAsync && bridge.toolApplied) {
+      const rid = `tool-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      state.pendingToolApplies = state.pendingToolApplies || {};
+      state.pendingToolApplies[rid] = finish;
+      bridge.applyToolAsync(r.apply, rid);
+    } else {
+      bridge.applyTool(r.apply, finish);
+    }
   };
   el.querySelector('[data-ap="deny"]').onclick = () => {
     done("Denied — nothing was changed.", "denied");

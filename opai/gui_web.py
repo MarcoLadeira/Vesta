@@ -647,6 +647,30 @@ def app_receipt_payload(root: Path) -> dict[str, Any]:
     return app_receipt(root)
 
 
+def dashboard_section_payload(root: Path, section_id: str) -> dict[str, Any]:
+    """One dashboard section's view model — the heavy repo/ledger walk (#146).
+
+    Qt-free so both the legacy synchronous slot and the async worker path share
+    one source of truth (and the tests can exercise it without Chromium).
+    """
+    try:
+        vm = build_view_model(root)
+        section = next((s for s in vm["sections"] if s.get("id") == section_id), None)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
+    return section or {"error": "not found"}
+
+
+def apply_tool_payload(root: Path, name: str) -> dict[str, Any]:
+    """Run a confirmed mutating tool (repair/panic) — subprocess work (#146)."""
+    result = A.run_tool(root, name)
+    apply = result.get("apply")
+    if apply:
+        applied = A.apply_tool(root, apply)
+        return {"text": applied.get("text", "done")}
+    return {"text": "Nothing to apply."}
+
+
 def outcomes_payload(root: Path) -> dict[str, Any]:
     """Task-outcome metrics for the cockpit (#288).
 
@@ -849,6 +873,10 @@ def _run_gui(
         modelsChanged = QtCore.Signal(str)
         providerLoginReady = QtCore.Signal(str)
         connectionDoctorReady = QtCore.Signal(str)
+        # Async data delivery (#146): heavy payloads leave the GUI thread.
+        dashboardReady = QtCore.Signal(str)
+        settingsReady = QtCore.Signal(str)
+        toolApplied = QtCore.Signal(str)
 
         def __init__(self, window) -> None:
             super().__init__()
@@ -911,14 +939,58 @@ def _run_gui(
 
         @QtCore.Slot(str, result=str)
         def dashboard(self, section_id: str) -> str:
-            try:
-                vm = build_view_model(self.root)
-                section = next(
-                    (s for s in vm["sections"] if s.get("id") == section_id), None
-                )
-            except Exception as exc:  # noqa: BLE001
-                return json.dumps({"error": str(exc)})
-            return json.dumps(section or {"error": "not found"})
+            # Legacy synchronous path; requestDashboard is the responsive one.
+            return json.dumps(dashboard_section_payload(self.root, section_id))
+
+        def _spawn_data_worker(
+            self, fn, signal, request_id: str, extra: dict[str, Any] | None = None
+        ) -> None:
+            """Compute a payload on a worker thread and deliver it via ``signal``
+            as ``{requestId, ...extra, data}`` — the GUI thread never does repo
+            walks, ledger reads, or subprocess runs for data views (#146). The
+            front-end drops stale responses by requestId."""
+
+            def compute() -> dict[str, Any]:
+                try:
+                    data = fn()
+                except Exception as exc:  # noqa: BLE001
+                    data = {"error": str(exc)}
+                return {
+                    "requestId": str(request_id or ""),
+                    **(extra or {}),
+                    "data": data,
+                }
+
+            worker = Worker(compute)
+            worker.done.connect(signal.emit)
+            self._workers.append(worker)
+            worker.start()
+
+        @QtCore.Slot(str, str)
+        def requestDashboard(self, section_id: str, request_id: str) -> None:
+            root, section = self.root, str(section_id or "")
+            self._spawn_data_worker(
+                lambda: dashboard_section_payload(root, section),
+                self.dashboardReady,
+                request_id,
+                extra={"sectionId": section},
+            )
+
+        @QtCore.Slot(str)
+        def requestSettings(self, request_id: str) -> None:
+            root = self.root
+            self._spawn_data_worker(
+                lambda: settings_payload(root), self.settingsReady, request_id
+            )
+
+        @QtCore.Slot(str, str)
+        def applyToolAsync(self, name: str, request_id: str) -> None:
+            root, tool = self.root, str(name or "")
+            self._spawn_data_worker(
+                lambda: apply_tool_payload(root, tool),
+                self.toolApplied,
+                request_id,
+            )
 
         @QtCore.Slot(str, str, result=str)
         def prompts(self, query: str, category: str) -> str:
@@ -1403,12 +1475,8 @@ def _run_gui(
 
         @QtCore.Slot(str, result=str)
         def applyTool(self, name: str) -> str:
-            result = A.run_tool(self.root, name)
-            apply = result.get("apply")
-            if apply:
-                applied = A.apply_tool(self.root, apply)
-                return json.dumps({"text": applied.get("text", "done")})
-            return json.dumps({"text": "Nothing to apply."})
+            # Legacy synchronous path; applyToolAsync is the responsive one.
+            return json.dumps(apply_tool_payload(self.root, name))
 
         @QtCore.Slot()
         def openWorkspace(self) -> None:
