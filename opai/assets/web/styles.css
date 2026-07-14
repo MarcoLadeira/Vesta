@@ -414,7 +414,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   display: grid; place-items: center;
   filter: drop-shadow(0 6px 28px var(--accent-glow));
   margin-bottom: 20px; position: relative;
-  animation: markFloat 5s ease-in-out infinite;
 }
 .empty-mark img {
   width: 100%;
@@ -427,7 +426,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   border: 1px solid rgba(52, 211, 153, 0.22);
   animation: markRing 3.2s var(--ease) infinite;
 }
-@keyframes markFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 @keyframes markRing { 0% { opacity: 0.9; transform: scale(0.92); } 70%, 100% { opacity: 0; transform: scale(1.14); } }
 .empty-eyebrow {
   color: var(--faint); font-size: 11px; font-weight: 750; letter-spacing: 0.14em;
