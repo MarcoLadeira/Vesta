@@ -925,6 +925,31 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .prompt-card .use { align-self: flex-end; }
 
 /* ---------- settings ---------- */
+/* Settings layout (#236): a jump rail beside a single scrollable content
+   column. One column keeps search filtering across all sections at once; the
+   rail scrolls to a section and drives deep links (#settings/<id>). */
+.settings-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 26px; align-items: start; }
+.settings-rail { position: sticky; top: 10px; display: flex; flex-direction: column; gap: 2px; }
+.settings-rail-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 8px 10px; border: 0; border-radius: 9px; background: transparent;
+  color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 650; cursor: pointer;
+  transition: background var(--fast, 0.15s) ease, color var(--fast, 0.15s) ease;
+}
+.settings-rail-item:hover { background: var(--panel-2, rgba(127,127,127,0.08)); color: var(--ink); }
+.settings-rail-item.active { background: var(--panel-2, rgba(127,127,127,0.10)); color: var(--ink); }
+.settings-rail-item.active .settings-rail-icon { filter: none; opacity: 1; }
+.settings-rail-item[data-dim] { opacity: 0.4; }
+.settings-rail-icon { font-size: 14px; opacity: 0.85; }
+.settings-rail-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-content { min-width: 0; }
+@media (max-width: 720px) {
+  .settings-layout { grid-template-columns: 1fr; gap: 0; }
+  .settings-rail { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .settings-rail-label { display: none; }
+  .settings-rail-item { width: auto; padding: 8px 12px; }
+  .settings-rail-icon { font-size: 16px; }
+}
 /* Settings search (#240): a sticky finder over the long settings page. */
 .settings-toolbar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0 12px; margin-bottom: 4px; }
 #settingsSearch {
