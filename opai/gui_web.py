@@ -54,6 +54,36 @@ from opai.gui_workspace import (
 WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
 
 
+class _SessionPersistenceEpoch:
+    """Serialize session clears with late worker persistence callbacks."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._value = 0
+
+    def capture(self) -> int:
+        with self._lock:
+            return self._value
+
+    def run_if_current(self, token: int, action: Any) -> bool:
+        with self._lock:
+            if token != self._value:
+                return False
+            action()
+            return True
+
+    def invalidate_on_success(self, action: Any) -> dict[str, Any]:
+        with self._lock:
+            result = action()
+            if result.get("ok"):
+                self._value += 1
+            return result
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._value += 1
+
+
 def web_available() -> bool:
     """True when QtWebEngine is importable (it ships with PySide6 here).
 
@@ -164,10 +194,11 @@ def _github_row_value(readiness: dict[str, Any]) -> str:
     """A concise, honest push-readiness line for the inspector (#300)."""
     if readiness.get("ready"):
         return "Ready to push & open PRs"
+    connect_message = "Connect a token in Settings"
     return {
-        "no_token": "Connect a token in Settings",
+        "no_token": connect_message,
         "consent_off": "Enable pushes in Settings",
-        "no_token_and_consent_off": "Connect a token in Settings",
+        "no_token_and_consent_off": connect_message,
     }.get(str(readiness.get("reason") or ""), "Not ready to push")
 
 
@@ -223,7 +254,7 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
                 {"label": "GitHub", "value": _github_row_value(github_readiness())}
             )
         except Exception:  # noqa: BLE001 - readiness must never break the inspector
-            pass
+            rows_to_add.append({"label": "GitHub", "value": "Readiness unavailable"})
     rows_to_add.append(
         {
             "label": "PR / merge",
@@ -248,6 +279,81 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
     if workflow.next_actions:
         data["rows"].append({"label": "Next action", "value": workflow.next_actions[0]})
     return data
+
+
+def _resume_payload(root: Path) -> dict[str, Any]:
+    """Build a whitelisted crash-safe resume offer for one workspace."""
+
+    from opai.gui_recents import load_thread
+    from opaihub.checkpoints import list_run_checkpoints
+    from opaihub.workflow_state import load_workflow_state
+
+    # Boot is deliberately read-only. A pending checkpoint can still belong to
+    # another live OPai window or CLI run; without an owner lease, process death
+    # cannot be inferred safely. Preserve it verbatim and let the user make the
+    # explicit resume/start-fresh choice.
+    thread = load_thread(root)
+    if not thread:
+        return {
+            "available": False,
+            "requires_choice": False,
+            "thread": {},
+            "workflow": {},
+            "checkpoint": {},
+        }
+
+    workflow = load_workflow_state(root)
+    task_id = str(thread.get("task_id") or workflow.task_id or "")
+    linked_ids = {
+        value
+        for value in (
+            str(thread.get("checkpoint_id") or ""),
+            workflow.checkpoint_id,
+        )
+        if value
+    }
+    checkpoints = [
+        checkpoint
+        for checkpoint in list_run_checkpoints(root)
+        if (task_id and checkpoint.task_id == task_id)
+        or checkpoint.checkpoint_id in linked_ids
+    ]
+    by_id = {item.checkpoint_id: item for item in checkpoints}
+    thread_checkpoint_id = str(thread.get("checkpoint_id") or "")
+    if str(thread.get("state") or "") in {"running", "interrupted"}:
+        # begin_thread_turn is persisted before the pipeline creates its new
+        # checkpoint. If the process dies in that window, the thread still
+        # links the prior completed turn while workflow state links the newer
+        # pending run. Prefer that newer execution evidence without mutating it.
+        preferred_ids = (workflow.checkpoint_id, thread_checkpoint_id)
+    else:
+        preferred_ids = (thread_checkpoint_id, workflow.checkpoint_id)
+    checkpoint = next(
+        (by_id[item] for item in preferred_ids if item and item in by_id),
+        checkpoints[-1] if checkpoints else None,
+    )
+    checkpoint_payload = (
+        {
+            "id": checkpoint.checkpoint_id,
+            "completion_state": checkpoint.completion_state,
+            "mode": checkpoint.mode,
+            "model": checkpoint.model,
+            "changed_files": list(checkpoint.result_changed_files),
+            "changed_during_run": list(checkpoint.changed_during_run),
+            "recovery_actions": list(checkpoint.recovery_actions),
+            "created_at": checkpoint.created_at,
+            "finalized_at": checkpoint.finalized_at,
+        }
+        if checkpoint is not None
+        else {}
+    )
+    return {
+        "available": True,
+        "requires_choice": True,
+        "thread": thread,
+        "workflow": workflow.to_dict(),
+        "checkpoint": checkpoint_payload,
+    }
 
 
 def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, Any]:
@@ -295,6 +401,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     return {
         "workspace": _workspace(root),
         "workflow": workflow.to_dict(),
+        "resume": _resume_payload(root),
         "models": models["models"],
         "selectedModel": sel_model.get("id", "auto"),
         "modes": [{"id": item, "label": mode_labels.get(item, item)} for item in MODES],
@@ -331,6 +438,180 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             for tool in A.TOOLS
         ],
     }
+
+
+def start_fresh_payload(root: Path) -> dict[str, Any]:
+    """Explicitly forget the active chat/workflow, preserving audit evidence."""
+
+    from opai.gui_recents import clear_thread
+    from opaihub.workflow_state import clear_workflow_state
+
+    resolved = root.expanduser().resolve()
+    try:
+        # Keep the thread until last: if either deletion fails, boot can still
+        # offer the saved conversation instead of presenting a false empty UI.
+        clear_workflow_state(resolved)
+        clear_thread(resolved)
+    except (OSError, RuntimeError, ValueError):
+        return _clear_failure_payload(resolved, target="saved session")
+    payload = boot_payload(resolved)
+    payload["ok"] = True
+    return payload
+
+
+def _clear_failure_payload(root: Path, *, target: str) -> dict[str, Any]:
+    try:
+        payload = boot_payload(root)
+    except (OSError, RuntimeError, ValueError):
+        # The frontend retains its current resume card when no replacement
+        # payload is available (for example, an unsafe state-dir symlink).
+        payload = {}
+    payload["ok"] = False
+    payload["error"] = {
+        "code": "SESSION_CLEAR_FAILED",
+        "title": "Saved work was not cleared",
+        "userMessage": f"OPai could not clear the {target}.",
+        "recoveryActions": [
+            "Close other OPai windows using this workspace and try again.",
+            "Check that the workspace files are writable.",
+        ],
+    }
+    return payload
+
+
+def clear_history_payload(root: Path) -> dict[str, Any]:
+    """Clear recents and resumable state only when every deletion succeeds."""
+
+    from opai.gui_recents import clear_recents, clear_thread
+    from opaihub.build_loop import scrub_build_log_requests
+    from opaihub.workflow_state import clear_workflow_state
+
+    resolved = root.expanduser().resolve()
+    try:
+        # Scrub legacy raw Build prompts before deleting session pointers. If
+        # any step fails, the thread remains so the UI cannot claim success.
+        scrub_build_log_requests(resolved)
+        # Thread deletion remains last so a partial failure still leaves an
+        # honest resume offer on the next boot.
+        clear_recents(resolved)
+        clear_workflow_state(resolved)
+        clear_thread(resolved)
+    except (OSError, RuntimeError, ValueError):
+        return _clear_failure_payload(resolved, target="saved history")
+    payload = boot_payload(resolved)
+    payload["ok"] = True
+    return payload
+
+
+def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> None:
+    """Best-effort durability must never prevent the actual user request."""
+
+    from opai.gui_recents import begin_thread_turn
+
+    try:
+        begin_thread_turn(root, request_id=request_id, text=text, mode=mode)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _persist_turn_result(
+    root: Path,
+    request_id: str,
+    result: dict[str, Any],
+    *,
+    mode: str,
+    build: bool = False,
+) -> None:
+    """Persist the user-visible outcome, excluding provider/tool internals."""
+
+    from opai.gui_recents import finish_thread_turn
+
+    status = str(result.get("status") or "failed")
+    if build:
+        applied = [
+            str(item.get("path") or "")
+            for item in result.get("applied") or []
+            if isinstance(item, dict) and item.get("path")
+        ]
+        if status == "applied":
+            answer = "Applied and verified " + str(len(applied)) + " change(s)."
+            if applied:
+                answer += " " + ", ".join(applied[:20])
+        elif status == "verification_failed":
+            answer = (
+                f"Verification failed after applying {len(applied)} change(s); "
+                "the changes were preserved for review or rollback."
+            )
+            if applied:
+                answer += " " + ", ".join(applied[:20])
+        elif status == "rolled_back":
+            answer = "Verification failed; the edit was rolled back."
+        elif status in {"partial_rollback", "rollback_failed"}:
+            remaining = [
+                str(path)
+                for path in result.get("remaining_changed_files") or []
+                if str(path).strip()
+            ]
+            applied = remaining
+            answer = "Verification failed; automatic rollback was incomplete."
+            if remaining:
+                answer += " Still changed: " + ", ".join(remaining[:20])
+        elif status == "no_edits":
+            answer = str(result.get("answer") or "No file changes were needed.")
+        else:
+            error = result.get("error")
+            answer = (
+                str(error.get("userMessage") or error.get("title") or "")
+                if isinstance(error, dict)
+                else str(error or "")
+            ) or str(result.get("answer") or status)
+        changed_files: Any = applied
+    else:
+        error = result.get("error")
+        answer = str(result.get("answer") or "")
+        if not answer and isinstance(error, dict):
+            answer = str(error.get("userMessage") or error.get("title") or "")
+        answer = answer or status
+        changed_files = result.get("changed_files") or ()
+
+    workflow = (
+        result.get("workflow") if isinstance(result.get("workflow"), dict) else {}
+    )
+    plan_payload = result.get("plan") if isinstance(result.get("plan"), dict) else {}
+    plan_steps = plan_payload.get("steps") or workflow.get("plan_steps") or ()
+    plan = [
+        {"step": str(step), "status": "pending"}
+        for step in plan_steps
+        if str(step).strip()
+    ]
+    thread_status = (
+        "complete"
+        if status
+        in {
+            "answered",
+            "cache_hit",
+            "answered_by_account",
+            "answered_by_free_api",
+            "answered_locally",
+            "applied",
+            "no_edits",
+        }
+        else ("cancelled" if status == "cancelled" else "failed")
+    )
+    try:
+        finish_thread_turn(
+            root,
+            request_id=request_id,
+            answer=answer,
+            status=thread_status,
+            task_id=str(workflow.get("task_id") or request_id),
+            mode=str(workflow.get("mode") or mode),
+            checkpoint_id=str(result.get("checkpoint_id") or ""),
+            plan=plan,
+            changed_files=changed_files,
+        )
+    except (OSError, TypeError, ValueError):
+        pass
 
 
 def scaffold_app_payload(root: Path, payload_json: str) -> dict[str, Any]:
@@ -575,6 +856,8 @@ def _run_gui(
             self.root = root
             self._workers: list[Any] = []
             self._cancels: dict[str, threading.Event] = {}
+            self._resume_context_active = False
+            self._session_epoch = _SessionPersistenceEpoch()
 
         def shutdown(self) -> dict[str, int]:
             """Stop everything before the window dies (#140).
@@ -593,6 +876,16 @@ def _run_gui(
         @QtCore.Slot(result=str)
         def boot(self) -> str:
             return json.dumps(boot_payload(self.root, initial_task=initial_task))
+
+        @QtCore.Slot(result=str)
+        def resumeSession(self) -> str:
+            """Activate persisted context for this window after explicit consent."""
+
+            from opai.gui_recents import resume_execution_context
+
+            context = resume_execution_context(self.root)
+            self._resume_context_active = bool(context)
+            return json.dumps({"activated": self._resume_context_active})
 
         @QtCore.Slot(str, result=str)
         def inspector(self, sel_json: str) -> str:
@@ -870,8 +1163,18 @@ def _run_gui(
             request_id = str(payload.get("requestId") or uuid.uuid4().hex[:12])
             model_id = payload.get("model", "auto")
             mode = payload.get("mode", "safe-auto")
+            turn_root = self.root
+            turn_epoch = self._session_epoch.capture()
+            from opai.gui_recents import resume_execution_context
+
+            resume_context = (
+                resume_execution_context(turn_root)
+                if self._resume_context_active
+                else {}
+            )
             cancel = threading.Event()
             self._cancels[request_id] = cancel
+            _persist_turn_start(turn_root, request_id, text, str(mode))
 
             # Activity batching (#226): worker threads append events to a
             # lock-guarded buffer; a GUI-thread QTimer drains it into ONE
@@ -902,7 +1205,7 @@ def _run_gui(
 
             def job() -> dict[str, Any]:
                 return handle_gui_message(
-                    self.root,
+                    turn_root,
                     text,
                     model_id=model_id,
                     mode=mode,
@@ -915,6 +1218,7 @@ def _run_gui(
                     cancel=cancel,
                     allow_cloud=bool(payload.get("allowCloud", False)),
                     allow_limit=bool(payload.get("allowLimit", False)),
+                    resume_context=resume_context,
                 )
 
             worker = Worker(job)
@@ -926,10 +1230,19 @@ def _run_gui(
                 timer.stop()
                 flush_batch()
                 timer.deleteLater()
+                result = json.loads(result_json)
+                self._session_epoch.run_if_current(
+                    turn_epoch,
+                    lambda: _persist_turn_result(
+                        turn_root,
+                        request_id,
+                        result,
+                        mode=str(mode),
+                        build=False,
+                    ),
+                )
                 self.replyReady.emit(
-                    json.dumps(
-                        {"requestId": request_id, "result": json.loads(result_json)}
-                    )
+                    json.dumps({"requestId": request_id, "result": result})
                 )
 
             worker.done.connect(_done)
@@ -959,8 +1272,18 @@ def _run_gui(
             request_id = str(payload.get("requestId") or uuid.uuid4().hex[:12])
             model_id = payload.get("model") or None
             strict = bool(payload.get("strict", False))
+            turn_root = self.root
+            turn_epoch = self._session_epoch.capture()
+            from opai.gui_recents import resume_execution_context
+
+            resume_context = (
+                resume_execution_context(turn_root)
+                if self._resume_context_active
+                else {}
+            )
             cancel = threading.Event()
             self._cancels[request_id] = cancel
+            _persist_turn_start(turn_root, request_id, request, "build")
 
             batcher = ActivityBatcher(request_id)
 
@@ -984,13 +1307,14 @@ def _run_gui(
                 from opaihub.build_loop import run_build_request
 
                 return run_build_request(
-                    self.root,
+                    turn_root,
                     request,
                     model=model_id,
                     strict=strict,
                     on_event=emit_event,
                     on_text=emit_text,
                     cancel=cancel,
+                    resume_context=resume_context,
                 )
 
             worker = Worker(job)
@@ -1000,10 +1324,19 @@ def _run_gui(
                 timer.stop()
                 flush_batch()
                 timer.deleteLater()
+                result = json.loads(result_json)
+                self._session_epoch.run_if_current(
+                    turn_epoch,
+                    lambda: _persist_turn_result(
+                        turn_root,
+                        request_id,
+                        result,
+                        mode="build",
+                        build=True,
+                    ),
+                )
                 self.buildReady.emit(
-                    json.dumps(
-                        {"requestId": request_id, "result": json.loads(result_json)}
-                    )
+                    json.dumps({"requestId": request_id, "result": result})
                 )
 
             worker.done.connect(_done)
@@ -1120,14 +1453,28 @@ def _run_gui(
 
         @QtCore.Slot(result=str)
         def clearRecents(self) -> str:
-            from opai.gui_recents import clear_recents
+            result = self._session_epoch.invalidate_on_success(
+                lambda: clear_history_payload(self.root)
+            )
+            if result.get("ok"):
+                self._resume_context_active = False
+            return json.dumps(result)
 
-            return json.dumps(clear_recents(self.root))
+        @QtCore.Slot(result=str)
+        def clearSession(self) -> str:
+            result = self._session_epoch.invalidate_on_success(
+                lambda: start_fresh_payload(self.root)
+            )
+            if result.get("ok"):
+                self._resume_context_active = False
+            return json.dumps(result)
 
         def _switch(self, path: str) -> None:
             from opaihub.repo_context import active_repo_context
 
             self.root = active_repo_context(Path(path)).path
+            self._resume_context_active = False
+            self._session_epoch.invalidate()
             add_recent_workspace(self.root)
             self.window.setWindowTitle(f"OPai · {self.root.name}")
             self.workspaceChanged.emit(json.dumps(boot_payload(self.root)))

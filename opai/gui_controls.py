@@ -281,7 +281,7 @@ def privacy_badges(*, model_kind: str | None, connected: bool) -> list[dict[str,
     """
     badges: list[dict[str, str]] = [
         {"label": "No telemetry", "tone": "safe"},
-        {"label": "No secrets stored", "tone": "safe"},
+        {"label": "Raw build prompts not logged", "tone": "safe"},
     ]
     if model_kind == "local":
         badges.insert(0, {"label": "Local only · private", "tone": "safe"})

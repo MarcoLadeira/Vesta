@@ -47,6 +47,7 @@
     status: { on: true, line: "OPai · Ask · $0.00 today · $0.00 saved" },
     inspector: { rows: [], budget: { pct: 0, text: "$0.00 today" }, permissions: [], privacy: [] },
     defaultView: "chat", initialTask: "", tools: [],
+    resume: { available: false, requires_choice: false, thread: {}, workflow: {}, checkpoint: {} },
   };
   var scenario = window.__OPAI_TEST_SCENARIO__ || {};
   var boot = merge(defaultBoot, scenario.boot || {});
@@ -241,7 +242,29 @@
     closeWindow: function () { window.__mock.windowCloses++; },
     recents: function (cb) { cb(JSON.stringify(boot.recents)); },
     saveRecent: function (t) { window.__mock.savedRecents.push(t); },
-    clearRecents: function (cb) { window.__mock.clearedRecents++; if (cb) cb("[]"); },
+    clearRecents: function (cb) {
+      window.__mock.clearedRecents++;
+      if (scenario.clearRecentsResult) {
+        if (cb) cb(JSON.stringify(scenario.clearRecentsResult));
+        return;
+      }
+      boot.recents = [];
+      boot.resume = { available: false, requires_choice: false, thread: {}, workflow: {}, checkpoint: {} };
+      if (cb) cb(JSON.stringify(Object.assign({}, boot, { ok: true })));
+    },
+    resumeSession: function (cb) {
+      window.__mock.resumedSessions++;
+      if (cb) cb(JSON.stringify({ activated: true }));
+    },
+    clearSession: function (cb) {
+      window.__mock.clearedSessions++;
+      if (scenario.clearSessionResult) {
+        if (cb) cb(JSON.stringify(scenario.clearSessionResult));
+        return;
+      }
+      boot.resume = { available: false, requires_choice: false, thread: {}, workflow: {}, checkpoint: {} };
+      if (cb) cb(JSON.stringify(Object.assign({}, boot, { ok: true })));
+    },
     copyText: function (t) { window.__mock.copiedTexts.push(t); },
     openExternal: function (url) { window.__mock.externalUrls.push(url); },
   };
@@ -250,7 +273,7 @@
   window.__mock = {
     bridge: bridge, lastRequest: null, sendCount: 0, lastBuild: null, buildCount: 0, cancelCount: 0, cancelled: [],
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
-    clearedRecents: 0,
+    clearedRecents: 0, resumedSessions: 0, clearedSessions: 0,
     copiedTexts: [],
     fullAutoPins: 0, fullAutoUnpins: 0,
     windowMoves: 0, windowResizes: [], windowMinimizes: 0,
