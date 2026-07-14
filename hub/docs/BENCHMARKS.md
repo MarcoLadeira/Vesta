@@ -28,6 +28,41 @@ Record a redacted benchmark event to the governance audit trail:
 opai benchmark run --suite local --mode both --audit
 ```
 
+## Real-pipeline coding parity
+
+OPaiBench also ships a versioned, hermetic coding-task suite. It copies four
+small repositories into temporary directories and sends each task through the
+real OPai build pipeline, then verifies the resulting Git diff, expected source
+content, run checkpoint, and local unit tests. The suite covers a bug fix, a
+feature, a refactor, and a test addition.
+
+```sh
+opai hub opaibench parity
+opai hub opaibench parity --task bugfix --no-write
+opai hub opaibench parity --format markdown
+```
+
+The default runner is an in-process scripted provider. It makes no network,
+cloud-model, package-manager, or paid CLI calls, and reports its actual cost as
+`$0.00`. This validates OPai's context/edit/checkpoint/test contract; it does
+not measure model intelligence. JSON, Markdown, and HTML evidence is written to
+`.opaihub/benchmarks/opaibench/parity/` unless `--no-write` is supplied.
+
+Paid-system comparisons are never launched by this command. To compare results,
+capture another system separately, copy
+`opaihub/data/hub/benchmarks/parity/baseline.example.json`, enter the observed
+completion, edit, test, step, and cost values, then import that offline file:
+
+```sh
+opai hub opaibench parity \
+  --baseline path/to/baseline.json \
+  --format markdown
+```
+
+The baseline must target the same fixture-suite version and declare an
+`offline_manual` or `offline_import` measurement. Missing evidence renders as
+`N/A`; OPai does not invent comparison values.
+
 ## Local suite
 
 The MVP suite compares normal AI use against OPai-routed use across:

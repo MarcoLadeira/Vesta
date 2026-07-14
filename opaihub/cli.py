@@ -380,7 +380,10 @@ def cmd_opaibench(args: argparse.Namespace) -> int:
     from .opaibench import (
         build_opaibench_dashboard,
         read_opaibench_history,
+        render_parity_html,
+        render_parity_markdown,
         run_opaibench,
+        run_parity_benchmark,
     )
 
     root = _project(args.project)
@@ -392,6 +395,24 @@ def cmd_opaibench(args: argparse.Namespace) -> int:
         print_json({"path": str(build_opaibench_dashboard(root)), "format": "html"})
     elif args.opaibench_command == "history":
         print_json(read_opaibench_history(root, limit=args.limit))
+    elif args.opaibench_command == "parity":
+        try:
+            report = run_parity_benchmark(
+                root,
+                baseline_path=Path(args.baseline) if args.baseline else None,
+                write=not args.no_write,
+                task_ids=tuple(args.task or ()) or None,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            print_json({"status": "error", "message": str(exc)})
+            return 2
+        if args.format == "markdown":
+            print(render_parity_markdown(report), end="")
+        elif args.format == "html":
+            print(render_parity_html(report), end="")
+        else:
+            print_json(report)
+        return 0 if report["totals"]["passed"] == report["totals"]["total"] else 1
     return 0
 
 
@@ -680,6 +701,14 @@ def build_parser() -> argparse.ArgumentParser:
     ob.set_defaults(func=cmd_opaibench)
     ob = opaibench_sub.add_parser("history")
     ob.add_argument("--limit", type=int, default=10)
+    ob.set_defaults(func=cmd_opaibench)
+    ob = opaibench_sub.add_parser(
+        "parity", help="Run real coding fixtures through the offline OPai pipeline"
+    )
+    ob.add_argument("--baseline", help="Versioned offline baseline JSON")
+    ob.add_argument("--task", action="append", help="Run one task id (repeatable)")
+    ob.add_argument("--format", choices=["json", "markdown", "html"], default="json")
+    ob.add_argument("--no-write", action="store_true")
     ob.set_defaults(func=cmd_opaibench)
 
     p = sub.add_parser("analytics")

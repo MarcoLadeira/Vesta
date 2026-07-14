@@ -1,0 +1,6 @@
+{
+  "name": "parity-bugfix",
+  "description": "Bug-fix fixture",
+  "entrypoint": "",
+  "files": ["calculator.py", "test_calculator.py"]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "parity-test-add",
+  "description": "Test-add fixture",
+  "entrypoint": "",
+  "files": ["validator.py"]
+}
