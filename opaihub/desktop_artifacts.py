@@ -30,6 +30,7 @@ REQUIRED_WEB_ASSETS = (
     "styles.css",
     "activity.js",
     "message-state.js",
+    "settings.js",
 )
 GUI_QT_MODULES = (
     "Core",

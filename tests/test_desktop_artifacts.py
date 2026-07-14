@@ -249,6 +249,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             "styles.css",
             "activity.js",
             "message-state.js",
+            "settings.js",
         ]:
             self.assertIn(f"=opai/assets/web/{asset}", joined_gui_args)
         self.assertIn("=opai/assets/fonts", joined_gui_args)

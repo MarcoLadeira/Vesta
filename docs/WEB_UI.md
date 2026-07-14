@@ -24,10 +24,29 @@ opai gui  ─▶  cmd_gui (cli.py)
   `gui_controls`). One source of truth for both surfaces. The front-end never
   computes anything sensitive — it renders JSON the bridge hands it.
 - **`opai/assets/web/`** — hand-built front-end: `index.html`, `styles.css`,
-  `app.js`. Inter is loaded via `@font-face` from `../fonts/Inter-Variable.ttf`
-  with `-webkit-font-smoothing: antialiased`.
+  `app.js`, plus focused modules loaded as plain `<script>`s before `app.js`
+  (`activity.js`, `message-state.js`, `settings.js`). Inter is loaded via
+  `@font-face` from `../fonts/Inter-Variable.ttf` with
+  `-webkit-font-smoothing: antialiased`. New JS modules must be added to
+  `REQUIRED_WEB_ASSETS` in `opaihub/desktop_artifacts.py` (and the smoke check)
+  so they ship in the packaged desktop app.
 - **Fallback** — `opai gui --classic` (or any machine without QtWebEngine) uses
   the classic Qt window in `gui_desktop.py`, which stays fully tested.
+
+### Settings surface (`settings.js`, #236)
+
+The settings page is a **section registry**, not one long function. Each entry
+in `window.OPaiSettings.sections` is
+`{ id, title, icon, keywords, render(d, ctx) }`; `OPaiSettings.render(page, ctx)`
+lays out a **jump rail** beside a single scrollable content column, wires the
+sections, runs the search (#240), and honours `#settings/<id>` deep links.
+Adding a settings section is a registry entry here — no `app.js` edit. `app.js`
+keeps only the async data fetch and hands the registry a `ctx` bundle of shared
+dependencies (`bridge`, `esc`, `toast`, `switchView`, `updateDoctorCard`, …).
+The `el(tag, attrs, children)` helper builds DOM without routing dynamic values
+through `innerHTML` (text → `textContent`), and is unit-tested in
+`__tests__/settings.test.js`. Single-column layout is deliberate: search filters
+across every section at once.
 
 ## Bridge API (Python → JS)
 

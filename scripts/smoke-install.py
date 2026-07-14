@@ -173,7 +173,7 @@ def main() -> int:
             "from opai.gui_web import WEB_DIR\n"
             "import sys\n"
             "required = ['index.html', 'app.js', 'styles.css', 'activity.js',"
-            " 'message-state.js']\n"
+            " 'message-state.js', 'settings.js']\n"
             "missing = [n for n in required if not (WEB_DIR / n).is_file()]\n"
             "if missing:\n"
             "    sys.exit('wheel is missing web GUI assets: ' + ', '.join(missing))\n"
