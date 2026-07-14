@@ -1,0 +1,59 @@
+import { test, expect } from "@playwright/test";
+
+import { openApp, openNav } from "./helpers/app.js";
+
+
+// Appearance settings (#241): density and reduced motion apply to the document
+// root instantly, persist through savePref, and are re-applied at boot.
+
+const openAppearance = async (page) => {
+  await openNav(page, "Settings");
+  await page.locator('.settings-rail-item[data-rail-target="appearance"]').click();
+};
+
+test("the Appearance page renders honest defaults", async ({ page }) => {
+  await openApp(page);
+  await openAppearance(page);
+  const density = page.locator('[data-appearance-key="density"]');
+  const motion = page.locator('[data-appearance-key="reduced_motion"]');
+  await expect(density.locator("button.active")).toHaveText("Comfortable");
+  await expect(motion.locator("button.active")).toHaveText("System");
+  // No half-shipped light theme: dark is stated as the only complete theme.
+  await expect(page.locator("#settingsPage")).toContainText("Dark (default)", { useInnerText: true });
+});
+
+test("compact density applies to the root instantly and persists the pref", async ({ page }) => {
+  await openApp(page);
+  await openAppearance(page);
+  await page.locator('[data-appearance-key="density"] button[data-value="compact"]').click();
+  expect(await page.evaluate(() => document.documentElement.classList.contains("density-compact"))).toBe(true);
+  expect(await page.evaluate(() => window.__mock.savedPrefs)).toContainEqual(["density", "compact"]);
+  await page.locator('[data-appearance-key="density"] button[data-value="comfortable"]').click();
+  expect(await page.evaluate(() => document.documentElement.classList.contains("density-compact"))).toBe(false);
+});
+
+test("reduced-motion override works in all three states", async ({ page }) => {
+  await openApp(page);
+  await openAppearance(page);
+  const motionButton = (value) => page.locator(`[data-appearance-key="reduced_motion"] button[data-value="${value}"]`);
+
+  await motionButton("on").click();
+  expect(await page.evaluate(() => document.documentElement.dataset.motion)).toBe("on");
+  // The override force-disables animations: the active pane's entry animation
+  // computes to (effectively) zero duration.
+  const duration = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".settings-pane.active")).animationDuration));
+  expect(duration).toBeLessThan(0.001);
+  expect(await page.evaluate(() => window.__mock.savedPrefs)).toContainEqual(["reduced_motion", "on"]);
+
+  await motionButton("off").click();
+  expect(await page.evaluate(() => document.documentElement.dataset.motion)).toBe("off");
+
+  await motionButton("system").click();
+  expect(await page.evaluate(() => document.documentElement.dataset.motion)).toBeUndefined();
+});
+
+test("persisted appearance is applied at boot, before settings ever opens", async ({ page }) => {
+  await openApp(page, { boot: { prefs: { density: "compact", reducedMotion: "on" } } });
+  expect(await page.evaluate(() => document.documentElement.classList.contains("density-compact"))).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.dataset.motion)).toBe("on");
+});

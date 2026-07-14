@@ -411,6 +411,60 @@
     return h;
   }
 
+  function appearanceHtml(d, ctx) {
+    var esc = ctx.esc;
+    var prefs = d.prefs || {};
+    var density = prefs.density === "compact" ? "compact" : "comfortable";
+    var motion =
+      prefs.reduced_motion === "on" || prefs.reduced_motion === "off"
+        ? prefs.reduced_motion
+        : "system";
+    var seg = function (key, current, options) {
+      return (
+        '<div class="seg" role="group" data-appearance-key="' +
+        esc(key) +
+        '">' +
+        options
+          .map(function (option) {
+            var active = option.id === current;
+            return (
+              '<button type="button" data-value="' +
+              esc(option.id) +
+              '" aria-pressed="' +
+              (active ? "true" : "false") +
+              '"' +
+              (active ? ' class="active"' : "") +
+              ">" +
+              esc(option.label) +
+              "</button>"
+            );
+          })
+          .join("") +
+        "</div>"
+      );
+    };
+    var h = '<div class="set-head">Appearance</div>';
+    h += '<div class="set-note">Applied instantly and saved for this workspace.</div>';
+    h +=
+      '<div class="appearance-row"><div class="appearance-label"><span class="k">Density</span><span class="hint">Compact tightens spacing across the cockpit.</span></div>' +
+      seg("density", density, [
+        { id: "comfortable", label: "Comfortable" },
+        { id: "compact", label: "Compact" },
+      ]) +
+      "</div>";
+    h +=
+      '<div class="appearance-row"><div class="appearance-label"><span class="k">Reduced motion</span><span class="hint">System follows your OS setting. On disables animations everywhere; Off keeps them on.</span></div>' +
+      seg("reduced_motion", motion, [
+        { id: "system", label: "System" },
+        { id: "on", label: "On" },
+        { id: "off", label: "Off" },
+      ]) +
+      "</div>";
+    h +=
+      '<div class="appearance-row"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Dark is the only complete theme; a light theme is not shipped yet.</span></div><span class="v">Dark (default)</span></div>';
+    return h;
+  }
+
   function aboutHtml(d, ctx) {
     var esc = ctx.esc;
     if (!(d.about && d.about.version)) return "";
@@ -457,6 +511,13 @@
       icon: "🔒",
       keywords: "privacy data telemetry redacted local",
       render: privacyHtml,
+    },
+    {
+      id: "appearance",
+      title: "Appearance",
+      icon: "🎨",
+      keywords: "theme density motion animation compact reduced dark",
+      render: appearanceHtml,
     },
     { id: "about", title: "About", icon: "ℹ️", keywords: "about version release", render: aboutHtml },
   ];
@@ -917,6 +978,30 @@
           }
         );
       };
+    });
+    // Appearance (#241): persist via savePref and apply to the root instantly.
+    page.querySelectorAll("[data-appearance-key]").forEach(function (segment) {
+      var key = segment.dataset.appearanceKey;
+      segment.querySelectorAll("button").forEach(function (button) {
+        button.onclick = function () {
+          segment.querySelectorAll("button").forEach(function (other) {
+            other.classList.toggle("active", other === button);
+            other.setAttribute("aria-pressed", other === button ? "true" : "false");
+          });
+          bridge.savePref(key, button.dataset.value);
+          if (!ctx.applyAppearance) return;
+          var current = {};
+          page.querySelectorAll("[data-appearance-key]").forEach(function (other) {
+            var active = other.querySelector("button.active");
+            var name =
+              other.dataset.appearanceKey === "reduced_motion"
+                ? "reducedMotion"
+                : other.dataset.appearanceKey;
+            current[name] = active ? active.dataset.value : "";
+          });
+          ctx.applyAppearance(current);
+        };
+      });
     });
   }
 

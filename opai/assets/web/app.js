@@ -107,6 +107,18 @@ function enhanceCodeBlocks(root) {
 }
 
 /* ---------- boot ---------- */
+// Appearance (#241): density scales spacing via a root class; reduced motion
+// overrides the OS media query via a root attribute ("system" removes the
+// attribute so the media query governs). Applied at boot and live on change.
+function applyAppearance(prefs) {
+  const p = prefs || {};
+  const root = document.documentElement;
+  root.classList.toggle("density-compact", (p.density || "comfortable") === "compact");
+  const motion = p.reducedMotion === "on" || p.reducedMotion === "off" ? p.reducedMotion : "system";
+  if (motion === "system") delete root.dataset.motion;
+  else root.dataset.motion = motion;
+}
+
 function boot() {
   bridge.boot((json) => {
     state.boot = JSON.parse(json);
@@ -119,6 +131,7 @@ function boot() {
     // click the card never appears again for that provider (persisted per
     // workspace by grantFreeConsent). Fresh install → empty Set.
     state.freeConsent = new Set(b.prefs.freeConsent || []);
+    applyAppearance(b.prefs); // #241: density + reduced-motion on the root, live
     const m = (b.models || []).find((x) => x.id === b.selectedModel) || b.models[0];
     if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
     const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || b.modes[0];
@@ -1890,6 +1903,7 @@ function settingsCtx(d) {
     d, bridge, state, esc, toast, inlineConfirm, switchView,
     refresh: renderSettings, updateDoctorCard, providerName,
     startGuidedProviderLogin, connectionHealthLabel, renderComposerSelects,
+    applyAppearance,
     startDoctorRefresh() {
       if (bridge.refreshConnectionDoctor) {
         doctorRefreshRequestId = `doctor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
