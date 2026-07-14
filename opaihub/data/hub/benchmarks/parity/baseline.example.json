@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "suite_version": "2026.07.1",
+  "system": "Claude Code",
+  "measurement": "offline_manual",
+  "captured_at": null,
+  "tasks": {
+    "bugfix": {"completion": null, "edits_correct": null, "tests_passed": null, "steps": null, "cost_usd": null},
+    "feature": {"completion": null, "edits_correct": null, "tests_passed": null, "steps": null, "cost_usd": null},
+    "refactor": {"completion": null, "edits_correct": null, "tests_passed": null, "steps": null, "cost_usd": null},
+    "test-add": {"completion": null, "edits_correct": null, "tests_passed": null, "steps": null, "cost_usd": null}
+  }
+}

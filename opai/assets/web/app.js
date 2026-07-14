@@ -35,6 +35,7 @@ const state = {
   accounts: [], panel: true, message: null, lastFailedRequestId: null,
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   expandedGroups: new Set(), stripColor: "",
+  resumePending: false,
 };
 const providerLoginRequests = new Map();
 let doctorRefreshRequestId = null;
@@ -129,6 +130,7 @@ function boot() {
     syncBuildMode();
     switchView("chat");
     if (b.initialTask) { $("#input").value = b.initialTask; }
+    renderResumeChoice();
   });
   bridge.replyReady.connect(onReply);
   if (bridge.buildReady) bridge.buildReady.connect(onBuildReply);
@@ -166,7 +168,7 @@ function rebootFromState() {
   renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
   renderStatus(b.status); renderAccount(); renderEmptyChips();
   syncBuildMode();
-  clearChat(); switchView("chat");
+  clearChat(); switchView("chat"); renderResumeChoice();
 }
 
 /* OPai Build in the cockpit (#276): when the workspace is a scaffolded app,
@@ -196,6 +198,7 @@ function updateSendLabel() {
   if (btn && !state.busy) btn.textContent = (state.buildMode && state.buildApp) ? "Build" : "Send";
 }
 function submitComposer() {
+  if (state.resumePending) return;
   const text = $("#input").value.trim();
   if (state.buildMode && state.buildApp && text && !text.startsWith("/")) {
     sendBuild(text);
@@ -275,9 +278,23 @@ function renderRecents() {
   clear.textContent = "Clear history";
   clear.title = "Delete this workspace's stored chat history";
   clear.onclick = () => {
-    if (bridge.clearRecents) bridge.clearRecents(() => {});
-    state.boot.recents = [];
-    renderRecents();
+    if (!bridge || !bridge.clearRecents) {
+      showSessionClearFailure(clearFailure("Saved history could not be cleared."));
+      return;
+    }
+    bridge.clearRecents((raw) => {
+      const response = parseClearResponse(raw);
+      if (!Array.isArray(response) && response.ok === false) {
+        showSessionClearFailure(response);
+        return;
+      }
+      state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
+      state.boot.resume = (!Array.isArray(response) && response.resume)
+        ? response.resume : { available: false, requires_choice: false };
+      setResumeGate(false);
+      clearChat();
+      renderRecents();
+    });
   };
   rec.appendChild(clear);
 }
@@ -571,12 +588,132 @@ function clearChat() {
   t.querySelectorAll(".msg").forEach((m) => m.remove());
   $("#empty").style.display = "";
 }
+function setResumeGate(on) {
+  state.resumePending = !!on;
+  const input = $("#input"), sendButton = $("#send"), buildToggle = $("#buildToggle");
+  if (input) input.disabled = !!on;
+  if (sendButton) sendButton.disabled = !!on;
+  if (buildToggle) buildToggle.disabled = !!on;
+}
+function clearFailure(message) {
+  return {
+    ok: false,
+    error: {
+      code: "SESSION_CLEAR_FAILED",
+      userMessage: message,
+      recoveryActions: ["Try again after closing other OPai windows for this workspace."],
+    },
+  };
+}
+function parseClearResponse(raw) {
+  try { return JSON.parse(raw || "{}"); }
+  catch (_e) { return clearFailure("OPai could not confirm that the saved work was cleared."); }
+}
+function showSessionClearFailure(response) {
+  if (response && response.resume) state.boot.resume = response.resume;
+  const error = (response && response.error) || {};
+  const action = (error.recoveryActions || [])[0] || "Try again.";
+  const message = `${error.userMessage || "Saved work could not be cleared."} ${action}`;
+  const card = document.querySelector(".resume-card");
+  let alert = card && card.querySelector("[data-clear-error]");
+  if (card && !alert) {
+    alert = document.createElement("div");
+    alert.className = "rc-error";
+    alert.setAttribute("role", "alert");
+    alert.setAttribute("data-clear-error", "");
+    card.appendChild(alert);
+  }
+  if (alert) {
+    alert.textContent = message;
+    setResumeGate(true);
+  } else {
+    appendMsg(
+      roleHeader("OPai", "var(--red)") + `<div class="body" role="alert">${esc(message)}</div>`,
+      "bot",
+    );
+    setResumeGate(false);
+  }
+}
+function resumeSummaryHtml(resume) {
+  const flow = resume.workflow || {}, checkpoint = resume.checkpoint || {};
+  const plan = ((resume.thread || {}).plan || []).map((item) => item.step).filter(Boolean);
+  const steps = plan.length ? plan : (flow.plan_steps || []);
+  const changed = (resume.thread && resume.thread.changed_files) || [];
+  const recovery = checkpoint.recovery_actions || [];
+  return `<div class="resume-summary" role="status">
+    <div class="rs-title">Work restored</div>
+    ${checkpoint.id ? `<div class="rs-row">Checkpoint ${esc(checkpoint.id)} · ${esc(checkpoint.completion_state || "saved")}</div>` : ""}
+    ${flow.message ? `<div class="rs-row">${esc(flow.message)}</div>` : ""}
+    ${steps.length ? `<div class="rs-label">Plan</div><ul>${steps.map((step) => `<li>${esc(step)}</li>`).join("")}</ul>` : ""}
+    ${changed.length ? `<div class="rs-row">Changed files: ${esc(changed.join(", "))}</div>` : ""}
+    ${recovery.length ? `<div class="rs-row">Next: ${esc(recovery[0])}</div>` : ""}
+  </div>`;
+}
+function restoreSession(resume) {
+  clearChat();
+  for (const message of ((resume.thread || {}).messages || [])) {
+    if (message.role === "user") {
+      appendMsg(`<div class="bubble">${esc(message.text || "")}</div>`, "user");
+    } else if (message.role === "assistant") {
+      const el = appendMsg(
+        roleHeader("OPai", "var(--accent)") + `<div class="body">${mdToHtml(message.text || "")}</div>`,
+        "bot",
+      );
+      enhanceCodeBlocks(el);
+    }
+  }
+  appendMsg(resumeSummaryHtml(resume), "bot resume-restored");
+  if (state.boot.resume) state.boot.resume.requires_choice = false;
+  setResumeGate(false);
+  $("#input").focus();
+}
+function activateResumeSession(resume) {
+  setResumeGate(true);
+  if (!bridge || !bridge.resumeSession) return;
+  bridge.resumeSession((raw) => {
+    let activated = false;
+    try { activated = !!JSON.parse(raw || "{}").activated; } catch (_e) { activated = false; }
+    if (activated) restoreSession(resume);
+  });
+}
+function startFreshSession() {
+  const done = (raw) => {
+    const response = parseClearResponse(raw);
+    if (!response || response.ok === false) {
+      showSessionClearFailure(response || clearFailure("Saved work could not be cleared."));
+      return;
+    }
+    state.boot = response;
+    if (state.boot.resume) state.boot.resume = { available: false, requires_choice: false };
+    clearChat(); stripHide(); setResumeGate(false); switchView("chat");
+    $("#input").focus();
+  };
+  setResumeGate(true);
+  if (bridge && bridge.clearSession) bridge.clearSession(done);
+  else showSessionClearFailure(clearFailure("Saved work could not be cleared."));
+}
+function renderResumeChoice() {
+  const resume = (state.boot && state.boot.resume) || {};
+  if (!resume.available || !resume.requires_choice) { setResumeGate(false); return; }
+  setResumeGate(true);
+  const count = ((resume.thread || {}).messages || []).length;
+  const phase = (resume.workflow || {}).phase || "saved";
+  const el = appendMsg(
+    `<div class="resume-card" role="group" aria-label="Resume previous work">
+       <div class="rc-badge">Saved locally</div>
+       <div class="rc-title">Resume your previous work?</div>
+       <div class="rc-body">${count} saved message${count === 1 ? "" : "s"} · ${esc(String(phase).replaceAll("_", " "))}. Nothing is restored until you choose.</div>
+       <div class="rc-actions">
+         <button class="btn primary" data-resume="resume">Resume work</button>
+         <button class="btn ghost" data-resume="fresh">Start fresh</button>
+       </div>
+     </div>`, "bot resume-choice");
+  el.querySelector('[data-resume="resume"]').onclick = () => activateResumeSession(resume);
+  el.querySelector('[data-resume="fresh"]').onclick = startFreshSession;
+}
 function startNewChat() {
   if (state.busy) stop();
-  clearChat();
-  stripHide();
-  switchView("chat");
-  $("#input").focus();
+  startFreshSession();
 }
 
 /* ---------- OPai Build: New app (#276) ----------
@@ -725,8 +862,28 @@ function buildResultHtml(r) {
     const checks = ((r.verify || {}).checks || []).filter((c) => !c.ok).slice(0, 5)
       .map((c) => `<li><code>${esc(c.path)}</code> · ${esc(c.check)}: ${esc(c.detail)}</li>`).join("");
     return `<div class="build-card error" role="group" aria-label="Build rolled back">` +
-      `<div class="bres-t">✗ Verification failed — the edit was rolled back. Your app is unchanged.</div>` +
+      `<div class="bres-t">✗ Verification failed — the edit was rolled back. The files changed by this build were restored.</div>` +
       `<ul class="bres-files">${checks}</ul></div>`;
+  }
+  if (status === "partial_rollback" || status === "rollback_failed") {
+    const files = (r.remaining_changed_files || []).map((path) =>
+      `<li><code>${esc(path)}</code></li>`).join("");
+    const restored = (r.rolled_back || []).length;
+    const detail = status === "partial_rollback"
+      ? `${restored} file(s) restored; the following files are still changed:`
+      : "No changed files could be restored automatically:";
+    return `<div class="build-card error" role="group" aria-label="Build rollback incomplete">` +
+      `<div class="bres-t">✗ Verification failed. Automatic rollback was incomplete.</div>` +
+      `<div class="body">${esc(detail)}</div><ul class="bres-files">${files}</ul>` +
+      `<div class="bres-note">Review the remaining file changes and the saved backup before continuing.</div></div>`;
+  }
+  if (status === "verification_failed") {
+    const checks = ((r.verify || {}).checks || []).filter((c) => !c.ok).slice(0, 5)
+      .map((c) => `<li><code>${esc(c.path || "app")}</code> · ${esc(c.check)}: ${esc(c.detail)}</li>`).join("");
+    const files = (r.applied || []).map((f) => `<li><code>${esc(f.path)}</code></li>`).join("");
+    return `<div class="build-card error" role="group" aria-label="Build verification failed">` +
+      `<div class="bres-t">✗ Changes were applied, but verification failed. They were preserved for review or rollback.</div>` +
+      `<ul class="bres-files">${checks || files}</ul></div>`;
   }
   if (status === "no_edits") {
     return `<div class="build-card" role="group" aria-label="No changes"><div class="bres-t">No file changes were needed.</div>` +
@@ -1830,7 +1987,7 @@ function renderSettings() {
     h += `<div class="set-head">Tool permissions · ${esc(modeLabels[d.prefs.default_mode] || d.prefs.default_mode)}</div>`;
     (d.permissions || []).forEach((p) => (h += `<div class="perm"><span class="k">${esc(p.label)}</span><span class="s ${p.state}">${esc(p.state)}</span></div>`));
     h += `<div class="set-head">Privacy</div>`;
-    ["No telemetry — nothing leaves your machine.", "No secrets stored; chat history is redacted, kept per workspace on this machine, and can be cleared from the sidebar.", "Local-first routing; cloud only on confirmation."].forEach((t) => (h += `<div class="cb">• ${esc(t)}</div>`));
+    ["No telemetry — nothing leaves your machine.", "Raw build prompts are never logged; saved chat is redacted, kept per workspace on this machine, and can be cleared from the sidebar.", "Local-first routing; cloud only on confirmation."].forEach((t) => (h += `<div class="cb">• ${esc(t)}</div>`));
     if (d.about && d.about.version) { h += `<div class="set-head">About</div>` + row("Version", d.about.version) + row("Release stage", d.about.release_stage || "—"); }
     page.innerHTML = h;
     const search = $("#settingsSearch");

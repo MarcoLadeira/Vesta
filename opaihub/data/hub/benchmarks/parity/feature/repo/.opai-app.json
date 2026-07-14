@@ -1,0 +1,6 @@
+{
+  "name": "parity-feature",
+  "description": "Feature fixture",
+  "entrypoint": "",
+  "files": ["slugify.py", "test_slugify.py"]
+}

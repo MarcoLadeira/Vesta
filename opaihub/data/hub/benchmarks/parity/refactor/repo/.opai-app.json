@@ -1,0 +1,6 @@
+{
+  "name": "parity-refactor",
+  "description": "Refactor fixture",
+  "entrypoint": "",
+  "files": ["orders.py", "test_orders.py"]
+}

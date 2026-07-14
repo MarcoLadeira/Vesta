@@ -56,7 +56,7 @@ test("an applied build renders a result card with files, verify, and savings", a
   await expect(page.locator(".footer-note")).toContainText("$0.0021");
 });
 
-test("a rolled-back build says the app is unchanged and lists why", async ({ page }) => {
+test("a complete rollback says this build's changed files were restored", async ({ page }) => {
   await openApp(page, {
     boot: BUILD_WS.boot,
     buildResult: {
@@ -68,8 +68,54 @@ test("a rolled-back build says the app is unchanged and lists why", async ({ pag
   await page.locator("#send").click();
   const card = page.getByRole("group", { name: "Build rolled back" });
   await expect(card).toContainText("rolled back");
-  await expect(card).toContainText("app is unchanged");
+  await expect(card).toContainText("files changed by this build were restored");
   await expect(card).toContainText("2 unclosed");
+});
+
+test("an incomplete rollback names the files still changed", async ({ page }) => {
+  await openApp(page, {
+    boot: BUILD_WS.boot,
+    buildResult: {
+      ok: false,
+      status: "partial_rollback",
+      rolled_back: ["app.js"],
+      remaining_changed_files: ["extra.js"],
+      applied: [{ path: "extra.js", action: "created", added: 2, removed: 0 }],
+      backup_dir: "/ws/todo/.opai-backups/run",
+      verify: { ok: false, failed: 1, checks: [] },
+    },
+  });
+  await page.fill("#input", "break two files");
+  await page.locator("#send").click();
+
+  const card = page.getByRole("group", { name: "Build rollback incomplete" });
+  await expect(card).toContainText("Automatic rollback was incomplete");
+  await expect(card).toContainText("extra.js");
+  await expect(card).toContainText("Review the remaining file");
+  await expect(card).not.toContainText("app is unchanged");
+});
+
+test("a preserved edit with failed verification is never presented as verified", async ({ page }) => {
+  await openApp(page, {
+    boot: BUILD_WS.boot,
+    buildResult: {
+      ok: false,
+      status: "verification_failed",
+      applied: [{ path: "app.js", action: "updated", added: 2, removed: 1 }],
+      verify: {
+        ok: false,
+        failed: 1,
+        checks: [{ path: "app.js", check: "balance", ok: false, detail: "2 unclosed '{'" }],
+      },
+    },
+  });
+  await page.fill("#input", "keep the broken edit for review");
+  await page.locator("#send").click();
+
+  const card = page.getByRole("group", { name: "Build verification failed" });
+  await expect(card).toContainText("verification failed");
+  await expect(card).toContainText("preserved for review or rollback");
+  await expect(card).not.toContainText("✓ verified");
 });
 
 test("Build mode with a slash command still runs the local tool, not a build", async ({ page }) => {

@@ -7,9 +7,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from _helpers import make_repo
 
+from opai import gui_recents, gui_web
 from opaihub.app_scaffold import scaffold_app
 from opaihub.app_verify import scan_balance, verify_app
 from opaihub.build_loop import (
@@ -18,6 +20,7 @@ from opaihub.build_loop import (
     rollback_edits,
     run_build_request,
 )
+from opaihub.checkpoints import load_run_checkpoint
 
 
 class ScanBalanceTests(unittest.TestCase):
@@ -212,10 +215,33 @@ class StrictBuildTests(unittest.TestCase):
             # The app is exactly as it was.
             self.assertEqual((root / "app.js").read_text(encoding="utf-8"), original)
 
+    def test_incomplete_strict_rollback_keeps_changed_file_evidence(self):
+        answer = "```file:app.js\nfunction f() { if (x) { doThing(\n```"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._app(tmp)
+            with mock.patch("opaihub.build_loop.rollback_edits", return_value=[]):
+                report = run_build_request(
+                    root,
+                    "break it",
+                    model="claude:opus",
+                    account_runner=_CannedRunner(answer),
+                    strict=True,
+                )
+            checkpoint = load_run_checkpoint(root, report["checkpoint_id"])
+
+            self.assertFalse(report["ok"])
+            self.assertEqual(report["status"], "rollback_failed")
+            self.assertFalse(report["rollback_complete"])
+            self.assertEqual(report["remaining_changed_files"], ["app.js"])
+            self.assertEqual([item["path"] for item in report["applied"]], ["app.js"])
+            self.assertEqual(checkpoint.completion_state, "failed")
+            self.assertEqual(checkpoint.result_changed_files, ("app.js",))
+
     def test_truncated_edit_is_kept_but_flagged_without_strict(self):
         answer = "```file:app.js\nfunction f() { if (x) { doThing(\n```"
         with tempfile.TemporaryDirectory() as tmp:
             root = self._app(tmp)
+            gui_web._persist_turn_start(root, "verify-failed", "break it", "build")
             report = run_build_request(
                 root,
                 "break it",
@@ -223,10 +249,28 @@ class StrictBuildTests(unittest.TestCase):
                 account_runner=_CannedRunner(answer),
                 strict=False,
             )
-            self.assertTrue(report["ok"])  # applied, but honestly flagged
-            self.assertEqual(report["status"], "applied")
+            gui_web._persist_turn_result(
+                root,
+                "verify-failed",
+                report,
+                mode="build",
+                build=True,
+            )
+            checkpoint = load_run_checkpoint(root, report["checkpoint_id"])
+            thread = gui_recents.load_thread(root)
+
+            self.assertFalse(report["ok"])
+            self.assertEqual(report["status"], "verification_failed")
             self.assertFalse(report["verify"]["ok"])
             self.assertIsNotNone(report["backup_dir"])  # recovery stays possible
+            self.assertTrue(
+                (root / "app.js").read_text(encoding="utf-8").startswith("function f()")
+            )
+            self.assertEqual(checkpoint.completion_state, "failed")
+            self.assertEqual(checkpoint.result_changed_files, ("app.js",))
+            self.assertEqual(thread["messages"][-1]["status"], "failed")
+            self.assertIn("changes were preserved", thread["messages"][-1]["text"])
+            self.assertNotIn("Applied and verified", thread["messages"][-1]["text"])
 
 
 if __name__ == "__main__":

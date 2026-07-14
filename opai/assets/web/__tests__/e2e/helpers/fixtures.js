@@ -280,7 +280,7 @@ export function fullScenario(overrides = {}) {
         privacy: [
           { label: "Local-first · cloud on confirm", tone: "info" },
           { label: "No telemetry", tone: "safe" },
-          { label: "No secrets stored", tone: "safe" },
+          { label: "Raw build prompts not logged", tone: "safe" },
         ],
       },
     },

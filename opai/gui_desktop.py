@@ -1171,8 +1171,8 @@ def _run_gui(
             box.addWidget(self._settings_head("Privacy"))
             for text in (
                 "No telemetry — nothing leaves your machine.",
-                "No secrets stored; chat history is redacted, kept per "
-                "workspace on this machine, and can be cleared.",
+                "Raw build prompts are never logged; saved chat is redacted, "
+                "kept per workspace on this machine, and can be cleared.",
                 "Local-first routing; cloud only on confirmation.",
             ):
                 box.addWidget(self._lbl("• " + text, name="CardBody"))

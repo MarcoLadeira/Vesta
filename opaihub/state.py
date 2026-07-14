@@ -13,7 +13,15 @@ def now_iso() -> str:
 
 
 def state_dir(project_root: Path) -> Path:
-    return project_root.resolve() / ".opaihub"
+    root = project_root.expanduser().resolve()
+    path = root / ".opaihub"
+    if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+        raise OSError(f"unsafe OPai state directory link: {path}")
+    try:
+        path.resolve(strict=False).relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise OSError(f"unsafe OPai state directory outside project: {path}") from exc
+    return path
 
 
 def state_path(project_root: Path) -> Path:

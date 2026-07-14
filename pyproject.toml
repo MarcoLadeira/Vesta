@@ -47,7 +47,11 @@ opai = [
     "assets/web/*.js",
     "assets/web/*.css",
 ]
-opaihub = ["data/hub/**/*"]
+opaihub = [
+    "data/hub/**/*",
+    # Wildcards do not match dotfiles; parity fixtures require these manifests.
+    "data/hub/benchmarks/parity/*/repo/.opai-app.json",
+]
 
 [tool.opai]
 brand = "OPai"
