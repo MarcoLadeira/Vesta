@@ -956,6 +956,17 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
   color: var(--muted);
 }
 .settings-layout.searching .settings-pane:first-of-type::before { margin-top: 6px; }
+/* Providers page health summary (#237): one honest sentence, always current. */
+.doctor-summary {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 15px; margin: 2px 0 6px;
+  border: 1px solid var(--border); border-radius: var(--r-md, 10px);
+  background: var(--glass); box-shadow: var(--inset-hi);
+  font-size: 13.5px; font-weight: 680; color: var(--ink);
+}
+.doctor-summary-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.doctor-summary.ok .doctor-summary-dot { background: var(--green); box-shadow: 0 0 9px rgba(52, 211, 153, 0.55); }
+.doctor-summary.warn .doctor-summary-dot { background: var(--red); box-shadow: 0 0 9px rgba(242, 118, 138, 0.55); }
 /* Appearance (#241): segmented choices, applied instantly. */
 .appearance-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .appearance-label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }

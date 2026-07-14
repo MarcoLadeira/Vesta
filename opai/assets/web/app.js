@@ -1437,6 +1437,21 @@ function updateDoctorCard(provider, result) {
   if (status) status.textContent = signedIn ? "connected" : (result.authStatus || result.status || "needs attention").replaceAll("_", " ");
   if (health) { health.textContent = connectionHealthLabel(healthValue); health.className = `doctor-health ${healthValue}`; }
   if (diagnostic) diagnostic.textContent = (result.connection && result.connection.safeDiagnostic) || result.safeDiagnostic || result.message || diagnostic.textContent;
+  refreshDoctorSummary();
+}
+
+// #237: keep the Providers page's one-line health summary true after live
+// checks change a card. Wording comes from the same helper the render uses.
+function refreshDoctorSummary() {
+  const summary = document.querySelector("[data-doctor-summary]");
+  if (!summary || !window.OPaiSettings) return;
+  const healths = Array.from(document.querySelectorAll(".doctor-card [data-doctor-health]"))
+    .map((el) => el.className.split(/\s+/)[1] || "");
+  const next = window.OPaiSettings.doctorSummary(healths);
+  summary.classList.toggle("ok", next.attention === 0);
+  summary.classList.toggle("warn", next.attention > 0);
+  const text = summary.querySelector(".doctor-summary-text");
+  if (text) text.textContent = next.text;
 }
 
 function startGuidedProviderLogin(provider, { button = null, retryPayload = null, retryRequestId = null } = {}) {

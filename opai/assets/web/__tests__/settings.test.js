@@ -101,6 +101,24 @@ describe("el() DOM builder (#236)", () => {
   });
 });
 
+describe("doctorSummary (#237)", () => {
+  it("reports all-good when every connection is verified or merely detected", () => {
+    const s = OPaiSettings.doctorSummary(["verified", "verified", "detected"]);
+    expect(s.attention).toBe(0);
+    expect(s.text).toBe("All 3 connections look good");
+  });
+
+  it("counts failed, degraded, missing-CLI, and unconfigured as attention", () => {
+    const s = OPaiSettings.doctorSummary(["verified", "failed", "not_installed", "not_configured", "degraded"]);
+    expect(s.attention).toBe(4);
+    expect(s.text).toBe("4 of 5 connections need attention");
+  });
+
+  it("is honest about an empty provider list", () => {
+    expect(OPaiSettings.doctorSummary([]).text).toBe("No providers detected yet");
+  });
+});
+
 describe("section registry (#236)", () => {
   it("exposes the target taxonomy in order", () => {
     expect(OPaiSettings.sections.map((s) => s.id)).toEqual([
