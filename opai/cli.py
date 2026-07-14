@@ -931,6 +931,51 @@ def cmd_savings(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_resume(args: argparse.Namespace) -> int:
+    """Show the workspace's resumable session — CLI parity with the GUI (#313).
+
+    Reads the same crash-safe resume offer the GUI boot builds (thread store +
+    workflow state + checkpoint linkage), read-only: inspecting a pending
+    session never mutates it.
+    """
+    from opai.gui_web import _resume_payload
+
+    root = _project(args.project)
+    payload = _resume_payload(root)
+    if getattr(args, "json", False) or not getattr(args, "markdown", False):
+        print_json(payload)
+        return 0
+    if not payload.get("available"):
+        print("No resumable session in this workspace.")
+        return 0
+    thread = payload.get("thread") or {}
+    workflow = payload.get("workflow") or {}
+    checkpoint = payload.get("checkpoint") or {}
+    messages = thread.get("messages") or []
+    last_user = next(
+        (m.get("text", "") for m in reversed(messages) if m.get("role") == "user"),
+        "",
+    )
+    lines = [
+        "# Resumable session",
+        "",
+        f"- Messages: **{len(messages)}** · thread state: "
+        f"{thread.get('state', 'unknown')}",
+        f"- Last task: {last_user[:120] or '(none)'}",
+        f"- Workflow: {workflow.get('phase', 'idle')} — {workflow.get('message', '')}",
+    ]
+    if checkpoint:
+        lines.append(
+            f"- Checkpoint: {checkpoint.get('id', '')} "
+            f"({checkpoint.get('completion_state', 'unknown')}, "
+            f"{len(checkpoint.get('changed_files') or [])} changed file(s))"
+        )
+    lines.append("")
+    lines.append("Open this workspace in the OPai GUI to resume or start fresh.")
+    print("\n".join(lines))
+    return 0
+
+
 def cmd_outcomes(args: argparse.Namespace) -> int:
     """Report task-outcome metrics (#288): cost per completed task and
     duplicate-call avoidance, reconciled to the authoritative ledger."""
@@ -2011,6 +2056,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Print the full summary as JSON (default)"
     )
     p.set_defaults(func=cmd_outcomes)
+
+    p = sub.add_parser(
+        "resume",
+        help="Show this workspace's resumable session (read-only; GUI parity, #313)",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--markdown", action="store_true", help="Render a short human summary"
+    )
+    p.add_argument(
+        "--json", action="store_true", help="Print the full payload as JSON (default)"
+    )
+    p.set_defaults(func=cmd_resume)
 
     p = sub.add_parser(
         "budget",
