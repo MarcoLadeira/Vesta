@@ -1300,6 +1300,33 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
         target = Path(args.out) if args.out else None
         print_json(export_promptfoo_config(root, out=target, suite=args.suite))
         return 0
+    if args.benchmark_command == "parity":
+        # Daily-driver parity proof (#309/#314): the same offline fixture run the
+        # op-hub tool exposes, surfaced on the primary CLI so users can actually
+        # run it. Delegates to the one implementation — no duplicated harness.
+        from opaihub.opaibench import (
+            render_parity_html,
+            render_parity_markdown,
+            run_parity_benchmark,
+        )
+
+        try:
+            report = run_parity_benchmark(
+                root,
+                baseline_path=Path(args.baseline) if args.baseline else None,
+                write=not args.no_write,
+                task_ids=tuple(args.task or ()) or None,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            print_json({"status": "error", "message": str(exc)})
+            return 2
+        if args.format == "markdown":
+            print(render_parity_markdown(report), end="")
+        elif args.format == "html":
+            print(render_parity_html(report), end="")
+        else:
+            print_json(report)
+        return 0 if report["totals"]["passed"] == report["totals"]["total"] else 1
     return 0
 
 
@@ -2215,6 +2242,25 @@ def build_parser() -> argparse.ArgumentParser:
     br.add_argument("--harness", default="promptfoo", choices=["promptfoo"])
     br.add_argument("--suite", default="local", choices=["local", "max"])
     br.add_argument("--out", metavar="PATH")
+    br.set_defaults(func=cmd_benchmark)
+    br = benchmark_sub.add_parser(
+        "parity",
+        help="Daily-driver parity: run real coding fixtures through the offline "
+        "OPai pipeline and score vs an imported baseline (#309/#314)",
+    )
+    br.add_argument("--project", default=None, help="Project root")
+    br.add_argument(
+        "--format", default="markdown", choices=["markdown", "json", "html"]
+    )
+    br.add_argument(
+        "--baseline", help="Versioned offline baseline JSON to score against"
+    )
+    br.add_argument(
+        "--task", action="append", help="Run only this fixture task id (repeatable)"
+    )
+    br.add_argument(
+        "--no-write", action="store_true", help="Do not persist the report to the hub"
+    )
     br.set_defaults(func=cmd_benchmark)
 
     p = sub.add_parser(

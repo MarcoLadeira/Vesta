@@ -470,6 +470,53 @@ class ParityCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output.getvalue())["totals"]["passed"], 1)
 
+    def test_primary_opai_cli_exposes_parity_with_same_result(self):
+        # The daily-driver proof (#309/#314) must be reachable from the primary
+        # `opai` CLI, not only the secondary op-hub tool. Same fixtures, same
+        # report shape, same exit-code contract — parity by delegation.
+        from opai.cli import main as opai_main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = opai_main(
+                    [
+                        "benchmark",
+                        "parity",
+                        "--project",
+                        tmp,
+                        "--task",
+                        "refactor",
+                        "--format",
+                        "json",
+                        "--no-write",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["kind"], "opaibench_parity")
+        self.assertEqual(report["totals"]["passed"], 1)
+
+    def test_primary_opai_cli_parity_markdown_is_default(self):
+        from opai.cli import main as opai_main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = opai_main(
+                    [
+                        "benchmark",
+                        "parity",
+                        "--project",
+                        tmp,
+                        "--task",
+                        "bugfix",
+                        "--no-write",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        self.assertIn("OPaiBench parity", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
