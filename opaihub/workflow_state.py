@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
+import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import BinaryIO, Iterator
 
 from .command_runner import redact
 from .state import state_dir
@@ -60,6 +64,77 @@ def _workflow_lock(path: Path) -> threading.RLock:
     key = str(path)
     with _WORKFLOW_LOCKS_GUARD:
         return _WORKFLOW_LOCKS.setdefault(key, threading.RLock())
+
+
+def _try_process_lock(handle: BinaryIO) -> bool:
+    """Try to lock the first byte using the host OS' advisory lock."""
+
+    handle.seek(0)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _unlock_process_file(handle: BinaryIO) -> None:
+    handle.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _process_workflow_lock(
+    root: Path,
+    target: Path,
+    *,
+    timeout_seconds: float = 60.0,
+) -> Iterator[None]:
+    """Serialize workflow.json across processes and survive crashes (#313).
+
+    Two OPai windows write workflow state on every turn. Without this, a
+    Windows ``replace()`` while another process holds the file open raises
+    ``PermissionError`` and fails the turn, and a reader can transiently
+    observe a missing file as silent empty state. The advisory lock releases
+    automatically when a crashed holder's handle closes.
+    """
+
+    lock_path = target.with_name(f"{target.name}.lock")
+    _validate_workflow_target(root, lock_path)
+    handle = lock_path.open("a+b")
+    acquired = False
+    try:
+        _validate_workflow_target(root, lock_path)
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        while not (acquired := _try_process_lock(handle)):
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"timed out waiting for workflow lock: {target}")
+            time.sleep(0.01)
+        _validate_workflow_target(root, target)
+        yield
+    finally:
+        try:
+            if acquired:
+                _unlock_process_file(handle)
+        finally:
+            handle.close()
 
 
 def _clean_text(value: object, *, limit: int, default: str = "") -> str:
@@ -191,27 +266,54 @@ def save_workflow_state(project_root: Path, state: WorkflowState) -> Path:
         _validate_workflow_target(root, target)
         target.parent.mkdir(parents=True, exist_ok=True)
         _validate_workflow_target(root, target)
-        temporary = target.with_name(f"{target.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            temporary.write_text(
-                json.dumps(data, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            temporary.replace(target)
-        finally:
+        with _process_workflow_lock(root, target):
+            temporary = target.with_name(f"{target.name}.{uuid.uuid4().hex}.tmp")
             try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
+                with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+                    handle.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                _replace_with_retry(temporary, target)
+            finally:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
     return target
+
+
+def _replace_with_retry(temporary: Path, target: Path, *, attempts: int = 20) -> None:
+    """Atomic replace that tolerates transient Windows sharing denials.
+
+    The advisory lock excludes OPai's own readers/writers, but an antivirus or
+    search indexer can briefly hold the freshly written temp file open, making
+    ``os.replace`` raise ``PermissionError``. Retry briefly for that external
+    case only; a persistent denial still raises.
+    """
+    for attempt in range(max(1, attempts)):
+        try:
+            temporary.replace(target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.01 * (attempt + 1))
 
 
 def load_workflow_state(project_root: Path) -> WorkflowState:
     root, target = _workflow_state_target(project_root)
     with _workflow_lock(target):
         _validate_workflow_target(root, target)
+        if not target.parent.is_dir():
+            # No state directory yet: nothing to read and nothing to lock.
+            return WorkflowState()
         try:
-            data = json.loads(target.read_text(encoding="utf-8"))
+            # Reads share the writers' cross-process lock so a Windows
+            # ``replace()`` never races an open reader handle (PermissionError)
+            # and a reader never observes the transient missing-file window as
+            # silent empty state (#313).
+            with _process_workflow_lock(root, target):
+                data = json.loads(target.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return WorkflowState()
     if not isinstance(data, dict):

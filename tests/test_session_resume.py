@@ -980,5 +980,42 @@ class BootResumeContractTests(_ThreadAPI):
         self.assertEqual(resume["checkpoint"]["recovery_actions"], [])
 
 
+class CliResumeParityTests(_ThreadAPI):
+    """`opai resume` reports exactly what the GUI boot offers (#313 parity)."""
+
+    def _run_cli(self, root: Path, *flags: str):
+        import contextlib as _ctx
+        import io
+
+        from opai.cli import main
+
+        out = io.StringIO()
+        with _ctx.redirect_stdout(out):
+            code = main(["resume", "--project", str(root), *flags])
+        return code, out.getvalue()
+
+    def test_cli_json_equals_gui_boot_resume_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self._save(root)
+            code, out = self._run_cli(root, "--json")
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(out), gui_web._resume_payload(root))
+            # Reading via the CLI is read-only: the offer is still available.
+            self.assertTrue(gui_web._resume_payload(root)["available"])
+
+    def test_cli_markdown_renders_available_and_empty_states(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            code, out = self._run_cli(root, "--markdown")
+            self.assertEqual(code, 0)
+            self.assertIn("No resumable session", out)
+            self._save(root)
+            code, out = self._run_cli(root, "--markdown")
+            self.assertEqual(code, 0)
+            self.assertIn("Resumable session", out)
+            self.assertIn("continue yesterday's implementation", out)
+
+
 if __name__ == "__main__":
     unittest.main()

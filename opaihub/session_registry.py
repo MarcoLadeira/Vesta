@@ -164,7 +164,7 @@ class SessionRegistry:
         if callable(setter):
             try:
                 setter()
-            except Exception:  # noqa: BLE001 - a cancel signal must never raise
+            except Exception:  # noqa: BLE001  # nosec B110 - a cancel signal must never raise
                 pass
 
 
@@ -187,7 +187,7 @@ def sweep_orphans(
                 continue
             kill(int(pid))
             terminated.append(int(pid))
-        except Exception:  # noqa: BLE001 - orphan cleanup is best-effort
+        except Exception:  # noqa: BLE001  # nosec B112 - orphan cleanup is best-effort
             continue
     return terminated
 
