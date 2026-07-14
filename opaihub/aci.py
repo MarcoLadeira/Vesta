@@ -143,12 +143,20 @@ class AgentComputerInterface:
         from .semantic_index import LocalSemanticIndex, MODEL_ID
 
         started = time.monotonic()
-        index = LocalSemanticIndex(self.repo_root)
         try:
-            if not index.path.is_file():
+            index = LocalSemanticIndex(self.repo_root)
+            if index.status().get("state") != "ready":
                 index.build()
             matches = index.search(query, limit=limit, max_chars=max_chars)
-        except (OSError, RuntimeError, ValueError) as exc:
+        except (
+            OSError,
+            RuntimeError,
+            ValueError,
+            TypeError,
+            IndexError,
+            KeyError,
+            OverflowError,
+        ) as exc:
             return Observation(
                 "semantic_search",
                 False,

@@ -19,7 +19,9 @@ SECRET_PATTERNS = [
     ),
     re.compile(r"(?i)(authorization:\s*bearer\s+)([A-Za-z0-9_\-./+=]{16,})"),
     re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    # OpenAI project keys (sk-proj-*) and Anthropic keys (sk-ant-api03-*)
+    # contain internal hyphens/underscores, unlike legacy sk-* keys.
+    re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----"),
 ]
 

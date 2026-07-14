@@ -84,11 +84,13 @@ class BuildLogTests(unittest.TestCase):
 class RunBuildLogsTests(unittest.TestCase):
     def test_an_applied_build_is_logged_with_spend_and_context(self):
         answer = "```file:app.js\nconsole.log('x');\n```"
+        secret = "sk-" + "proj-" + ("A1_" * 18)
+        request = f"log a line with {secret}"
         with tempfile.TemporaryDirectory() as tmp:
             root = _scaffold(tmp)
             report = run_build_request(
                 root,
-                "log a line",
+                request,
                 model="claude:opus",
                 account_runner=_CannedRunner(answer),
             )
@@ -99,10 +101,47 @@ class RunBuildLogsTests(unittest.TestCase):
             self.assertEqual(entry["status"], "applied")
             self.assertEqual(entry["files_changed"], 1)
             self.assertGreater(entry["chars_total"], 0)
-            self.assertEqual(entry["request"], "log a line")
+            self.assertNotIn("request", entry)
+            self.assertEqual(len(entry["request_fingerprint"]), 16)
+            self.assertEqual(entry["request_chars"], len(request))
+            raw_log = (root / BUILD_LOG_NAME).read_text(encoding="utf-8")
+            self.assertNotIn(secret, raw_log)
+            self.assertNotIn("log a line", raw_log)
             # The report carries the running total for the CLI one-liner.
             self.assertTrue(report["receipt_so_far"]["ok"])
             self.assertEqual(report["receipt_so_far"]["builds"], 1)
+
+    def test_clear_history_scrubs_legacy_raw_build_requests_without_losing_receipt(
+        self,
+    ):
+        from opai.gui_web import clear_history_payload
+
+        secret = "sk-" + "ant-api03-" + ("B2_" * 18)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _scaffold(tmp)
+            (root / BUILD_LOG_NAME).write_text(
+                json.dumps(
+                    {
+                        "schema": 1,
+                        "status": "applied",
+                        "request": f"legacy prompt {secret}",
+                        "files_changed": 1,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = clear_history_payload(root)
+            raw_log = (root / BUILD_LOG_NAME).read_text(encoding="utf-8")
+            entries = read_build_log(root)
+
+            self.assertTrue(result["ok"])
+            self.assertNotIn(secret, raw_log)
+            self.assertNotIn("legacy prompt", raw_log)
+            self.assertNotIn("request", entries[0])
+            self.assertEqual(len(entries[0]["request_fingerprint"]), 16)
+            self.assertEqual(app_receipt(root)["builds"], 1)
 
     def test_no_edits_and_dry_run_logging_are_honest(self):
         with tempfile.TemporaryDirectory() as tmp:

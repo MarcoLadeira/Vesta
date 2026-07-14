@@ -424,12 +424,16 @@ def cmd_build(args: argparse.Namespace) -> int:
     if status == "rolled_back":
         verify = report.get("verify") or {}
         failures = [c for c in verify.get("checks") or [] if not c.get("ok")]
-        print(
-            "✗ verification failed — the edit was rolled back, your app is unchanged:"
-        )
+        print("✗ verification failed — all files changed by this build were restored:")
         for check in failures[:6]:
             print(f"    {check['path']} · {check['check']}: {check['detail']}")
         print(f"  (the attempted files remain in {report.get('backup_dir')})")
+        return 2
+    if status in {"partial_rollback", "rollback_failed"}:
+        print("✗ verification failed — automatic rollback was incomplete")
+        for path in report.get("remaining_changed_files") or []:
+            print(f"    still changed: {path}")
+        print(f"  review the remaining changes and backup: {report.get('backup_dir')}")
         return 2
     if not report.get("ok"):
         detail = report.get("error") or report.get("answer") or status
