@@ -148,6 +148,7 @@ function boot() {
   // #146: async data delivery — heavy payloads computed off the GUI thread.
   if (bridge.dashboardReady) bridge.dashboardReady.connect(onDashboardReady);
   if (bridge.settingsReady) bridge.settingsReady.connect(onSettingsReady);
+  if (bridge.statusReady) bridge.statusReady.connect(onStatusReady);
   if (bridge.toolApplied) bridge.toolApplied.connect((json) => {
     let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
     const pending = (state.pendingToolApplies || {})[d.requestId];
@@ -471,7 +472,22 @@ function selPayload() {
   };
 }
 function refreshInspector() { bridge.inspector(JSON.stringify(selPayload()), (json) => renderInspector(JSON.parse(json))); }
-function refreshStatus() { bridge.statusLine(JSON.stringify(selPayload()), (json) => renderStatus(JSON.parse(json))); }
+function refreshStatus() {
+  // #146: prefer the async path — the (cached) overview read runs on a worker
+  // thread so the one post-turn recompute never stalls the window. Only the
+  // latest request's result is applied (coalescing rapid refreshes).
+  if (bridge.requestStatus && bridge.statusReady) {
+    state.statusRequest = `status-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    bridge.requestStatus(JSON.stringify(selPayload()), state.statusRequest);
+  } else {
+    bridge.statusLine(JSON.stringify(selPayload()), (json) => renderStatus(JSON.parse(json)));
+  }
+}
+function onStatusReady(json) {
+  let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (d.requestId !== state.statusRequest) return; // stale — a newer refresh won
+  renderStatus(d.data || {});
+}
 
 function renderInspector(data) {
   data = data || state.boot.inspector;

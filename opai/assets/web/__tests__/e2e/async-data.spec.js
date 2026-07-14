@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, openNav } from "./helpers/app.js";
+import { openApp, openNav, sendPrompt, finishRequest } from "./helpers/app.js";
 
 
 // #146: heavy data payloads (dashboard sections, settings aggregation, tool
@@ -42,4 +42,19 @@ test("settings renders through the async request/ready path", async ({ page }) =
   const requests = await page.evaluate(() => window.__mock.settingsRequests);
   expect(requests.length).toBeGreaterThan(0);
   await expect(page.locator("#settingsPage")).toContainText("Connection Doctor");
+});
+
+test("status refresh after a turn uses the async request/ready path", async ({ page }) => {
+  await openApp(page);
+  // A completed turn refreshes the persistent status line; it must go through
+  // the worker-backed path (the post-turn overview recompute is the freeze the
+  // cache+async fix targets), not a synchronous GUI-thread read.
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, { status: "answered_by_account", answer: "done" });
+  await expect
+    .poll(() => page.evaluate(() => window.__mock.statusRequests.length))
+    .toBeGreaterThan(0);
+  const requests = await page.evaluate(() => window.__mock.statusRequests);
+  expect(requests[requests.length - 1]).toContain("status-");
+  await expect(page.locator("#statusLine")).not.toBeEmpty();
 });
