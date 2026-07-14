@@ -78,6 +78,22 @@
     );
   }
 
+  // One honest sentence for the top of the Providers page (#237). Shared by
+  // the render path and app.js's live updater so the wording can never drift.
+  function doctorSummary(healths) {
+    var attention = healths.filter(function (health) {
+      return (
+        ["failed", "degraded", "not_installed", "not_configured"].indexOf(health) >= 0
+      );
+    }).length;
+    var text = !healths.length
+      ? "No providers detected yet"
+      : attention === 0
+        ? "All " + healths.length + " connections look good"
+        : attention + " of " + healths.length + " connections need attention";
+    return { attention: attention, text: text };
+  }
+
   function providersHtml(d, ctx) {
     var esc = ctx.esc;
     var connectionHealthLabel = ctx.connectionHealthLabel;
@@ -110,7 +126,19 @@
     var checkedLabel = function (value) {
       return value ? new Date(Number(value)).toLocaleString() : "Never checked";
     };
+    // Status-first (#237): the page opens with one honest health sentence.
+    var summary = doctorSummary(
+      doctorItems.map(function (item) {
+        return item.health;
+      })
+    );
     var h =
+      '<div class="doctor-summary ' +
+      (summary.attention ? "warn" : "ok") +
+      '" data-doctor-summary role="status"><span class="doctor-summary-dot" aria-hidden="true"></span><span class="doctor-summary-text">' +
+      esc(summary.text) +
+      "</span></div>";
+    h +=
       '<section class="connection-doctor" role="region" aria-label="Connection Doctor"><div class="set-head">Connection Doctor</div><div class="set-note">Accounts and API provider health in one place. Credential values and files are never read or displayed.</div><div class="doctor-grid">';
     doctorItems.forEach(function (item) {
       var id = item.providerId || "provider";
@@ -1005,7 +1033,13 @@
     });
   }
 
-  var api = { el: el, sections: sections, render: render, MODE_LABELS: MODE_LABELS };
+  var api = {
+    el: el,
+    sections: sections,
+    render: render,
+    doctorSummary: doctorSummary,
+    MODE_LABELS: MODE_LABELS,
+  };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   global.OPaiSettings = api;
 })(typeof window !== "undefined" ? window : this);

@@ -18,6 +18,21 @@ test("settings renders defaults, firewall, accounts, privacy, and version", asyn
   await expect(settings).toContainText("0.2.0a1");
 });
 
+test("the Providers page opens with an honest health summary that tracks live checks", async ({ page }) => {
+  // Default fixtures: three connected accounts -> all good.
+  await openApp(page, {
+    providerTestResponses: { claude: { provider: "claude", authStatus: "expired", safeDiagnostic: "Sign-in expired." } },
+  });
+  await openNav(page, "Settings");
+  const summary = page.locator("[data-doctor-summary]");
+  await expect(summary).toContainText("All 3 connections look good");
+  await expect(summary).toHaveClass(/ok/);
+  // A live check that fails flips the summary without a re-render.
+  await page.locator('[data-test-account="claude"]').click();
+  await expect(summary).toContainText("1 of 3 connections need attention");
+  await expect(summary).toHaveClass(/warn/);
+});
+
 test("test connection on a connected account reports the live truth, not the cached label", async ({ page }) => {
   // Reproduces the reported bug: OPai's on-disk "connected" state can be stale
   // (an OAuth session that died since detection). Clicking Test connection
