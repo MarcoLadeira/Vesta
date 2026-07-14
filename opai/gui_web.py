@@ -24,6 +24,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,67 @@ def resolve_openable(root: Path, target: str) -> Path | None:
 
 
 # --------------------------------------------------------------------------- #
+# Overview cache: the status hot path must not rescan an unchanged repo (#146)
+# --------------------------------------------------------------------------- #
+# statusLine() runs after every message and calls overview(), which rebuilds the
+# cockpit (integration walk + local-model discovery), re-summarizes the audit
+# log, and re-reads the ledger. On a long-lived ledger that is a per-message
+# freeze. We memoize the whole composition on a cheap state-file fingerprint:
+# unchanged state serves the cache (coalescing repeated refreshes), a real
+# ledger/audit/budget change recomputes exactly once (the ledger's own mtime is
+# the signal a completed turn changed things), and a short TTL ceiling self-heals
+# against inputs we don't fingerprint.
+_OVERVIEW_CACHE: dict[str, tuple[tuple, float, dict[str, Any]]] = {}
+_OVERVIEW_CACHE_LOCK = threading.Lock()
+_OVERVIEW_TTL_S = 2.0
+
+
+def _state_fingerprint(root: Path) -> tuple:
+    """(path, size, mtime_ns) for the files overview() actually reads.
+
+    Cheap: three stat() calls, no directory walk. A missing file contributes a
+    stable sentinel so its later creation still changes the fingerprint.
+    """
+    from opaihub.audit import audit_path
+    from opaihub.budget import budget_path
+    from opaihub.ledger import ledger_path
+
+    parts: list[tuple] = []
+    for path in (ledger_path(root), audit_path(root), budget_path(root)):
+        try:
+            stat = path.stat()
+            parts.append((str(path), int(stat.st_size), int(stat.st_mtime_ns)))
+        except OSError:
+            parts.append((str(path), -1, -1))
+    return tuple(parts)
+
+
+def cached_overview(
+    root: Path, *, now: Any = None, ttl: float = _OVERVIEW_TTL_S
+) -> dict[str, Any]:
+    """``app_state.overview(root)`` memoized on the state-file fingerprint (#146)."""
+    clock = (now or time.monotonic)()
+    key = str(root)
+    fingerprint = _state_fingerprint(root)
+    with _OVERVIEW_CACHE_LOCK:
+        cached = _OVERVIEW_CACHE.get(key)
+        if cached is not None:
+            cached_fp, cached_at, value = cached
+            if ttl > 0 and cached_fp == fingerprint and (clock - cached_at) < ttl:
+                return value
+    value = A.overview(root)  # heavy: cockpit + audit + ledger
+    with _OVERVIEW_CACHE_LOCK:
+        _OVERVIEW_CACHE[key] = (fingerprint, clock, value)
+    return value
+
+
+def clear_overview_cache() -> None:
+    """Drop every memoized overview (test isolation / explicit refresh)."""
+    with _OVERVIEW_CACHE_LOCK:
+        _OVERVIEW_CACHE.clear()
+
+
+# --------------------------------------------------------------------------- #
 # Bridge payload builders (pure-ish; reuse the Qt-free data layer)
 # --------------------------------------------------------------------------- #
 def _models(root: Path, *, discover_local: bool = True) -> dict[str, Any]:
@@ -140,7 +202,7 @@ def _models(root: Path, *, discover_local: bool = True) -> dict[str, Any]:
 
 def _status(root: Path, model_label: str, mode_label: str) -> dict[str, Any]:
     try:
-        o = A.overview(root)
+        o = cached_overview(root)  # #146: no full-ledger re-read per message
         ins = A.inspector_state(root, mode="safe-auto")
         spent = ins["budget"]["spent_today"]
         saved = o["savings"]["estimated_savings_usd"]
@@ -877,6 +939,7 @@ def _run_gui(
         dashboardReady = QtCore.Signal(str)
         settingsReady = QtCore.Signal(str)
         toolApplied = QtCore.Signal(str)
+        statusReady = QtCore.Signal(str)
 
         def __init__(self, window) -> None:
             super().__init__()
@@ -981,6 +1044,24 @@ def _run_gui(
             root = self.root
             self._spawn_data_worker(
                 lambda: settings_payload(root), self.settingsReady, request_id
+            )
+
+        @QtCore.Slot(str, str)
+        def requestStatus(self, sel_json: str, request_id: str) -> None:
+            try:
+                sel = json.loads(sel_json)
+            except ValueError:
+                sel = {}
+            root = self.root
+            model_label = sel.get("model_label", "Auto")
+            mode_label = sel.get("mode_label", "Safe Auto")
+            # #146: statusLine runs after every message; keep the (now cached)
+            # overview read off the GUI thread so the one post-turn recompute
+            # never stalls the window. Stale refreshes are dropped by requestId.
+            self._spawn_data_worker(
+                lambda: _status(root, model_label, mode_label),
+                self.statusReady,
+                request_id,
             )
 
         @QtCore.Slot(str, str)

@@ -90,10 +90,16 @@
   }
   var bridge = {
     replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
-    dashboardReady: Sig(), settingsReady: Sig(), toolApplied: Sig(),
+    dashboardReady: Sig(), settingsReady: Sig(), toolApplied: Sig(), statusReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
     statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
+    requestStatus: function (sel, requestId) {
+      window.__mock.statusRequests.push(requestId);
+      setTimeout(function () {
+        bridge.statusReady.emit(JSON.stringify({ requestId: requestId, data: boot.status }));
+      }, scenario.statusDelayMs || 0);
+    },
     dashboard: function (id, cb) {
       var error = scenario.dashboardErrors && scenario.dashboardErrors[id];
       respond(cb, error ? { error: error } : (dashboards[id] || {}), scenario.dashboardDelayMs);
@@ -306,7 +312,7 @@
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
-    dashboardRequests: [], settingsRequests: [],
+    dashboardRequests: [], settingsRequests: [], statusRequests: [],
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },
