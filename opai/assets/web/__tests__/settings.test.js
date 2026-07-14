@@ -109,6 +109,7 @@ describe("section registry (#236)", () => {
       "firewall",
       "permissions",
       "privacy",
+      "appearance",
       "about",
     ]);
   });

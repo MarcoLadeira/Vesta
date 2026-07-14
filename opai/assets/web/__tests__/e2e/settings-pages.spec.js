@@ -23,6 +23,7 @@ test("the rail lists every page and Providers & Connections is the default", asy
     "Cost Firewall",
     "Permissions & Safety",
     "Privacy & Data",
+    "Appearance",
     "About",
   ]);
   await expect(railItem(page, "providers")).toHaveAttribute("aria-current", "page");

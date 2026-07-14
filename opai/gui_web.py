@@ -479,6 +479,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             "focus": focus,
             "format": fmt,
             "showPanel": bool(prefs.get("show_control_panel", True)),
+            # Appearance (#241): applied to the document root at boot.
+            "density": str(prefs.get("density") or "comfortable"),
+            "reducedMotion": str(prefs.get("reduced_motion") or "system"),
             # Full Auto pin state (#137) so the UI can show danger styling and
             # an unpin action, and never silently present unpinned Full Auto.
             "fullAutoPinned": autonomy.full_auto_pinned,
@@ -1272,6 +1275,8 @@ def _run_gui(
                 "default_task_mode",
                 "default_output_format",
                 "show_control_panel",
+                "density",
+                "reduced_motion",
             }
             if key not in allowed:
                 return

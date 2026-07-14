@@ -325,5 +325,44 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
             self.assertEqual(ws["build_app_name"], created["name"])
 
 
+class AppearancePreferenceTests(unittest.TestCase):
+    """Appearance prefs (#241): persisted, sanitized, and surfaced at boot."""
+
+    def test_appearance_prefs_round_trip_and_reach_boot(self):
+        from opaihub.gui_preferences import save_gui_preferences
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            saved = save_gui_preferences(
+                root, {"density": "compact", "reduced_motion": "on"}
+            )
+            self.assertEqual(saved["density"], "compact")
+            self.assertEqual(saved["reduced_motion"], "on")
+            prefs = boot_payload(root)["prefs"]
+            self.assertEqual(prefs["density"], "compact")
+            self.assertEqual(prefs["reducedMotion"], "on")
+
+    def test_invalid_appearance_values_sanitize_to_defaults(self):
+        from opaihub.gui_preferences import save_gui_preferences
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            saved = save_gui_preferences(
+                root, {"density": "microscopic", "reduced_motion": "sometimes"}
+            )
+            self.assertEqual(saved["density"], "comfortable")
+            self.assertEqual(saved["reduced_motion"], "system")
+            prefs = boot_payload(root)["prefs"]
+            self.assertEqual(prefs["density"], "comfortable")
+            self.assertEqual(prefs["reducedMotion"], "system")
+
+    def test_defaults_present_without_any_saved_preferences(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            prefs = boot_payload(root)["prefs"]
+        self.assertEqual(prefs["density"], "comfortable")
+        self.assertEqual(prefs["reducedMotion"], "system")
+
+
 if __name__ == "__main__":
     unittest.main()

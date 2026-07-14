@@ -25,6 +25,11 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     # users get a clean chat; power users toggle it (Ctrl+I / header pill).
     "show_control_panel": False,
     "auto_tools": True,
+    # Appearance (#241): density scales spacing; reduced_motion overrides the
+    # OS media query ("system" defers to it, "on" force-disables animations,
+    # "off" force-enables them). Applied live by the GUI, no restart.
+    "density": "comfortable",
+    "reduced_motion": "system",
     "usage_limits": {},
     # Free-model ids the user has already consented to send to. One-time
     # confirmation per free provider is enough; asking on every message is a
@@ -63,6 +68,8 @@ _ALLOWED_KEYS = {
     "default_output_format",
     "show_control_panel",
     "auto_tools",
+    "density",
+    "reduced_motion",
     "usage_limits",
     "free_consent",
     "safe_auto",
@@ -85,6 +92,10 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
         clean["default_mode"] = DEFAULT_MODE
     if not isinstance(clean.get("default_model"), str) or not clean["default_model"]:
         clean["default_model"] = "auto"
+    if clean.get("density") not in {"comfortable", "compact"}:
+        clean["density"] = "comfortable"
+    if clean.get("reduced_motion") not in {"system", "on", "off"}:
+        clean["reduced_motion"] = "system"
     safe = clean.get("safe_auto")
     if not isinstance(safe, dict):
         clean["safe_auto"] = DEFAULT_PREFERENCES["safe_auto"]
