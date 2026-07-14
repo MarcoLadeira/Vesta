@@ -14,7 +14,8 @@ test("settings shows loading until connection data arrives", async ({ page }) =>
   await openApp(page, { settingsDelayMs: 250 });
   await openNav(page, "Settings");
   await expect(page.locator("#settingsPage")).toHaveText("Loading…");
-  await expect(page.locator("#settingsPage")).toContainText("Cost firewall");
+  // Paned settings (#217): the default page is Providers & Connections.
+  await expect(page.locator("#settingsPage")).toContainText("Connection Doctor");
 });
 
 test("Prompt Library transitions from loading boundary to templates", async ({ page }) => {
