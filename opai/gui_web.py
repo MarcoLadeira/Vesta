@@ -792,9 +792,16 @@ def github_disconnect_payload() -> dict[str, Any]:
 def settings_payload(root: Path) -> dict[str, Any]:
     """Return the complete, secret-free Settings/Connections payload."""
 
-    from opaihub.gui_preferences import load_gui_preferences
+    from opaihub.gui_preferences import MODES, load_gui_preferences
 
     prefs = load_gui_preferences(root)
+    mode_labels = {
+        "ask": "Ask",
+        "plan": "Plan",
+        "safe-auto": "Safe Auto",
+        "approve-edits": "Approve Edits",
+        "full-auto": "Full Auto",
+    }
     try:
         firewall = A.cost_firewall(root)
     except Exception:  # noqa: BLE001
@@ -829,6 +836,31 @@ def settings_payload(root: Path) -> dict[str, Any]:
             str(prefs.get("default_mode") or "safe-auto"),
             safe_auto=prefs.get("safe_auto"),
         ),
+        # Per-mode comparison (#239): what each run mode allows, derived from the
+        # same permission rules — not re-invented copy. Highlighted against the
+        # active mode in the Permissions & Safety page.
+        "modePermissions": [
+            {
+                "id": mode_id,
+                "label": mode_labels.get(mode_id, mode_id),
+                "summary": permission_summary(mode_id),
+                "active": mode_id == str(prefs.get("default_mode") or "safe-auto"),
+            }
+            for mode_id in MODES
+        ],
+        # Privacy stance (#239): the honest, factual data posture — sourced from
+        # the ledger/audit modules, stated plainly, not marketing copy.
+        "privacy": {
+            "prompts_stored": False,
+            "statements": [
+                "No telemetry — nothing leaves your machine.",
+                "Raw prompts are never stored; the local ledger keeps one-way "
+                "task hashes and counts only.",
+                "Saved chat is redacted and kept per workspace on this machine; "
+                "clear it any time below or from the sidebar.",
+                "Local-first routing; a cloud model is used only after you confirm it.",
+            ],
+        },
         "accounts": models["accounts"],
         "connections": models["connections"],
         "models": models["models"],

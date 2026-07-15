@@ -522,33 +522,60 @@
 
   function permissionsHtml(d, ctx) {
     var esc = ctx.esc;
+    var activeMode = MODE_LABELS[d.prefs.default_mode] || d.prefs.default_mode;
     var h =
-      '<div class="set-head">Tool permissions · ' +
-      esc(MODE_LABELS[d.prefs.default_mode] || d.prefs.default_mode) +
-      "</div>";
+      '<div class="set-head">Tool permissions · ' + esc(activeMode) + "</div>";
+    h +=
+      '<div class="set-note">What OPai may do this turn under your current run mode. Allow = does it without asking; Ask = pauses for your OK; Blocked = refused.</div>';
     (d.permissions || []).forEach(function (p) {
       h +=
         '<div class="perm"><span class="k">' +
         esc(p.label) +
+        (p.note ? '<span class="perm-note">' + esc(p.note) + "</span>" : "") +
         '</span><span class="s ' +
         p.state +
         '">' +
         esc(p.state) +
         "</span></div>";
     });
+    // Per-mode comparison (#239): how the five run modes differ, derived from
+    // the same permission rules (not re-invented). The active mode is marked.
+    if ((d.modePermissions || []).length) {
+      h += '<div class="set-head">Run modes</div>';
+      h +=
+        '<div class="set-note">Switch modes from the composer. Full Auto acts without asking and must be pinned there with an acknowledgement.</div>';
+      d.modePermissions.forEach(function (mode) {
+        h +=
+          '<div class="mode-row' +
+          (mode.active ? " active" : "") +
+          '"><span class="k">' +
+          esc(mode.label) +
+          (mode.active ? ' <span class="mode-active">current</span>' : "") +
+          '</span><span class="mode-summary">' +
+          esc(mode.summary) +
+          "</span></div>";
+      });
+    }
     return h;
   }
 
   function privacyHtml(d, ctx) {
     var esc = ctx.esc;
-    var h = '<div class="set-head">Privacy</div>';
-    [
+    var privacy = d.privacy || {};
+    var statements = privacy.statements || [
       "No telemetry — nothing leaves your machine.",
-      "Raw build prompts are never logged; saved chat is redacted, kept per workspace on this machine, and can be cleared from the sidebar.",
+      "Raw prompts are never stored; the local ledger keeps one-way task hashes and counts only.",
       "Local-first routing; cloud only on confirmation.",
-    ].forEach(function (t) {
+    ];
+    var h = '<div class="set-head">Privacy &amp; data</div>';
+    statements.forEach(function (t) {
       h += '<div class="cb">• ' + esc(t) + "</div>";
     });
+    h += '<div class="set-head">Saved chat &amp; recents</div>';
+    h +=
+      '<div class="set-note">Saved chat is stored redacted on this machine, per workspace. Clearing it is immediate and cannot be undone.</div>';
+    h +=
+      '<div class="actions"><button class="btn danger" id="settingsClearRecents">Clear saved chat &amp; recents</button></div>';
     return h;
   }
 
@@ -1123,6 +1150,38 @@
         );
       };
     });
+    // Clear saved chat & recents (#239): a destructive action, gated by the
+    // same styled inline confirm the rest of the app uses — never a bare click.
+    var clearBtn = q("#settingsClearRecents");
+    if (clearBtn)
+      clearBtn.onclick = function () {
+        if (!bridge.clearRecents) {
+          toast("Clearing saved chat is unavailable in this build.");
+          return;
+        }
+        var host = clearBtn.closest(".actions") || clearBtn.parentElement;
+        clearBtn.disabled = true;
+        ctx
+          .inlineConfirm(host, {
+            title: "Clear saved chat & recents?",
+            body: "This permanently removes this workspace's saved chat and recent-task list from your machine. It cannot be undone.",
+            confirmLabel: "Clear now",
+            danger: true,
+          })
+          .then(function (ok) {
+            clearBtn.disabled = false;
+            if (!ok) return;
+            bridge.clearRecents(function (json2) {
+              var result = {};
+              try {
+                result = JSON.parse(json2);
+              } catch (_e) {
+                /* keep {} */
+              }
+              toast(result.ok ? "Saved chat cleared." : result.error || "Could not clear saved chat.");
+            });
+          });
+      };
     // Editable defaults (#238): persist and reflect in the composer instantly.
     page.querySelectorAll("[data-default-pref]").forEach(function (select) {
       select.onchange = function () {
