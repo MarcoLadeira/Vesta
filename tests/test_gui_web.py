@@ -325,6 +325,22 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
             self.assertEqual(ws["build_app_name"], created["name"])
 
 
+class FirewallSettingsPayloadTests(unittest.TestCase):
+    """Budgets in settings (#238): straight from budget_status, no duplicates."""
+
+    def test_firewall_block_carries_caps_spend_and_remaining(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            firewall = settings_payload(root)["firewall"]
+        for key in ("caps", "spent_month", "remaining", "local_first"):
+            self.assertIn(key, firewall)
+        self.assertEqual(
+            set(firewall["caps"]),
+            {"daily_usd_limit", "monthly_usd_limit", "per_task_hard_limit_usd"},
+        )
+        self.assertIn("today_usd", firewall["remaining"])
+
+
 class AppearancePreferenceTests(unittest.TestCase):
     """Appearance prefs (#241): persisted, sanitized, and surfaced at boot."""
 

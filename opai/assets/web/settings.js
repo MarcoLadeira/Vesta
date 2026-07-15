@@ -333,7 +333,8 @@
     return h;
   }
 
-  function modelsHtml(d, ctx) {
+  // Usage-limit cards (shared markup; lives on the Cost Firewall page, #238).
+  function usageCardsHtml(d, ctx) {
     var esc = ctx.esc;
     var modelsById = Object.fromEntries((d.models || []).map(function (m) {
       return [m.id, m];
@@ -341,7 +342,7 @@
     var fmtUsage = function (value) {
       return Number(value || 0).toLocaleString();
     };
-    var h = '<div class="set-head">Model usage limits</div>';
+    var h = "";
     (d.usage || []).forEach(function (usage) {
       var model = modelsById[usage.modelId] || { label: usage.modelId };
       var bounded = usage.limit != null;
@@ -382,27 +383,125 @@
         esc(usage.metric || "tokens") +
         '" data-window="' +
         esc(usage.window || "month") +
-        '">Save limit</button></div></div>';
+        '">Save limit</button><span class="usage-error" data-usage-error hidden></span></div></div>';
     });
-    h += '<div class="set-head">Defaults</div>';
-    h += row(esc, "Default model", d.prefs.default_model || "auto");
-    h += row(esc, "Default run mode", MODE_LABELS[d.prefs.default_mode] || d.prefs.default_mode);
-    h += row(esc, "Task focus", ctx.state.focus);
-    h += row(esc, "Output format", ctx.state.format);
-    h += '<div class="set-note">Change model and run mode from the composer; task focus and output format live in the Inspector. All persist automatically.</div>';
+    return h;
+  }
+
+  function modelsHtml(d, ctx) {
+    var esc = ctx.esc;
+    var prefs = d.prefs || {};
+    var boot = (ctx.state && ctx.state.boot) || {};
+    // Editable defaults (#238): persisted through the same savePref slot the
+    // composer uses, and reflected there instantly via ctx.applyDefaults.
+    var selectRow = function (label, key, options, selected, hint) {
+      if (!options.length) return "";
+      return (
+        '<div class="default-row"><div class="default-label"><span class="k">' +
+        esc(label) +
+        "</span>" +
+        (hint ? '<span class="hint">' + esc(hint) + "</span>" : "") +
+        '</div><select data-default-pref="' +
+        esc(key) +
+        '" aria-label="' +
+        esc(label) +
+        '">' +
+        options
+          .map(function (option) {
+            return (
+              '<option value="' +
+              esc(option.id) +
+              '"' +
+              (option.id === selected ? " selected" : "") +
+              ">" +
+              esc(option.label) +
+              "</option>"
+            );
+          })
+          .join("") +
+        "</select></div>"
+      );
+    };
+    // Offer exactly what the composer offers (boot.models), so the Default
+    // model picker and the composer selector can never disagree (#238).
+    var modelSource = boot.models && boot.models.length ? boot.models : d.models;
+    var modelOptions = (modelSource || []).map(function (m) {
+      return { id: m.id, label: m.label || m.id };
+    });
+    if (
+      !modelOptions.some(function (m) {
+        return m.id === "auto";
+      })
+    ) {
+      modelOptions.unshift({ id: "auto", label: "OPai · Auto mode" });
+    }
+    // Full Auto is deliberately absent: it can only be pinned from the
+    // composer with an explicit acknowledgement (#137); a bare savePref for it
+    // is downgraded server-side.
+    var modeOptions = ["ask", "plan", "safe-auto", "approve-edits"].map(function (id) {
+      return { id: id, label: MODE_LABELS[id] };
+    });
+    var focusOptions = (boot.taskModes || []).map(function (m) {
+      return { id: m.id, label: m.label };
+    });
+    var formatOptions = (boot.outputFormats || []).map(function (m) {
+      return { id: m.id, label: m.label };
+    });
+    var h = '<div class="set-head">Defaults</div>';
+    h += selectRow("Default model", "default_model", modelOptions, prefs.default_model || "auto");
+    h += selectRow(
+      "Default run mode",
+      "default_mode",
+      modeOptions,
+      MODE_LABELS[prefs.default_mode] ? prefs.default_mode : "safe-auto",
+      "Full Auto can only be pinned from the composer, with an explicit acknowledgement."
+    );
+    h += selectRow("Task focus", "default_task_mode", focusOptions, ctx.state.focus);
+    h += selectRow("Output format", "default_output_format", formatOptions, ctx.state.format);
+    h += '<div class="set-note">Changes apply to the composer immediately and persist for this workspace.</div>';
+    h += '<div class="set-head">Local-first routing</div>';
+    var order = d.firewall && d.firewall.local_first;
+    if (order) {
+      h += '<div class="set-row"><span class="k">Route order</span><span class="v">' + esc(order) + "</span></div>";
+    }
+    h += '<div class="cb">• Every task tries free tiers first: deterministic tools, the local cache, then a local model.</div>';
+    h += '<div class="cb">• Cloud models are considered only when those tiers cannot do the job; the cloud gate can require a confirmation for every paid call.</div>';
+    h += '<div class="cb">• Run <span class="mono">opai why</span> on a task to see exactly why a route was chosen; every decision is in the local ledger.</div>';
     return h;
   }
 
   function firewallHtml(d, ctx) {
     var esc = ctx.esc;
+    var firewall = d.firewall || {};
+    var caps = firewall.caps || {};
+    var remaining = firewall.remaining || {};
+    var money = function (value) {
+      return value == null ? null : "$" + (+value).toFixed(2);
+    };
+    var capRow = function (label, cap, left) {
+      var value = money(cap) || "No cap set";
+      if (money(cap) && left != null) value += " · " + money(left) + " left";
+      return row(esc, label, value);
+    };
     var h = '<div class="set-head">Cost firewall</div>';
-    h += row(esc, "Profile", d.firewall.profile || "—");
-    h += row(esc, "Panic mode", d.firewall.panic ? "ON (local-only)" : "off");
-    h += row(esc, "Spent today", "$" + (+d.firewall.spent_today || 0).toFixed(2));
-    h += row(esc, "Cloud gate", d.firewall.cloud_gate ? "confirm" : "open");
+    h += row(esc, "Profile", firewall.profile || "—");
+    h += row(esc, "Spent today", money(firewall.spent_today || 0));
+    h += row(esc, "Spent this month", money(firewall.spent_month || 0));
+    h += '<div class="set-head">Budgets</div>';
+    h += capRow("Daily cap", caps.daily_usd_limit, remaining.today_usd);
+    h += capRow("Monthly cap", caps.monthly_usd_limit, remaining.month_usd);
+    h += capRow("Per-task cap", caps.per_task_hard_limit_usd, null);
+    h += '<div class="set-note">Spend is estimated locally from the usage ledger; nothing is transmitted.</div>';
+    h += '<div class="set-head">Model usage limits</div>';
+    h += usageCardsHtml(d, ctx);
+    h += '<div class="set-head">Safety switches</div>';
+    h += row(esc, "Panic mode", firewall.panic ? "ON (local-only)" : "off");
+    h += '<div class="cb">• Panic mode refuses every cloud call and forces local-only routing until you disable it.</div>';
+    h += row(esc, "Cloud gate", firewall.cloud_gate ? "confirm" : "open");
+    h += '<div class="cb">• Confirm asks before each paid cloud call; open sends without a per-call confirmation.</div>';
     h +=
       '<div class="actions"><button class="btn" id="setPanic">' +
-      (d.firewall.panic ? "Disable panic" : "Enable panic") +
+      (firewall.panic ? "Disable panic" : "Enable panic") +
       "</button></div>";
     return h;
   }
@@ -508,46 +607,40 @@
     {
       id: "providers",
       title: "Providers & Connections",
-      icon: "🔌",
       keywords: "provider account api key github connection doctor sign in credential codex",
       render: providersHtml,
     },
     {
       id: "models",
       title: "Models & Routing",
-      icon: "🧭",
       keywords: "model usage limit default routing focus format",
       render: modelsHtml,
     },
     {
       id: "firewall",
       title: "Cost Firewall",
-      icon: "🛡️",
       keywords: "cost firewall panic budget spend cloud gate profile",
       render: firewallHtml,
     },
     {
       id: "permissions",
       title: "Permissions & Safety",
-      icon: "✅",
       keywords: "permission tool safety mode approve",
       render: permissionsHtml,
     },
     {
       id: "privacy",
       title: "Privacy & Data",
-      icon: "🔒",
       keywords: "privacy data telemetry redacted local",
       render: privacyHtml,
     },
     {
       id: "appearance",
       title: "Appearance",
-      icon: "🎨",
       keywords: "theme density motion animation compact reduced dark",
       render: appearanceHtml,
     },
-    { id: "about", title: "About", icon: "ℹ️", keywords: "about version release", render: aboutHtml },
+    { id: "about", title: "About", keywords: "about version release", render: aboutHtml },
   ];
 
   // ---- search + paned pages ---------------------------------------------- //
@@ -615,9 +708,7 @@
           return (
             '<button class="settings-rail-item" type="button" data-rail-target="' +
             esc(section.id) +
-            '"><span class="settings-rail-icon" aria-hidden="true">' +
-            esc(section.icon || "•") +
-            '</span><span class="settings-rail-label">' +
+            '"><span class="settings-rail-label">' +
             esc(section.title) +
             "</span></button>"
           );
@@ -992,9 +1083,20 @@
     });
     page.querySelectorAll("[data-save-limit]").forEach(function (button) {
       button.onclick = function () {
-        var input = button.closest(".usage-limit-form").querySelector("input");
+        var form = button.closest(".usage-limit-form");
+        var input = form.querySelector("input");
+        var error = form.querySelector("[data-usage-error]");
         var value = input.value.trim();
-        if (!value || +value <= 0) return;
+        // Client-side validation (#238): a limit must be a whole number above
+        // zero. Invalid input gets an inline error, and nothing is saved.
+        if (!value || !/^\d+$/.test(value) || +value <= 0) {
+          if (error) {
+            error.textContent = "Enter a whole number above zero.";
+            error.hidden = false;
+          }
+          return;
+        }
+        if (error) error.hidden = true;
         bridge.saveUsageLimit(
           button.dataset.saveLimit,
           button.dataset.metric,
@@ -1005,6 +1107,13 @@
             toast(result.ok ? "Usage limit saved" : result.error || "Could not save limit");
           }
         );
+      };
+    });
+    // Editable defaults (#238): persist and reflect in the composer instantly.
+    page.querySelectorAll("[data-default-pref]").forEach(function (select) {
+      select.onchange = function () {
+        bridge.savePref(select.dataset.defaultPref, select.value);
+        if (ctx.applyDefaults) ctx.applyDefaults(select.dataset.defaultPref, select.value);
       };
     });
     // Appearance (#241): persist via savePref and apply to the root instantly.

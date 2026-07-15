@@ -174,7 +174,8 @@ test("settings shows an accessible usage bar and saves a soft limit", async ({ p
     },
   });
   await openNav(page, "Settings");
-  await page.locator('.settings-rail-item[data-rail-target="models"]').click();
+  // Usage limits live on the Cost Firewall page (#238).
+  await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
   const card = page.locator(`[data-model-id="${modelId}"]`);
   await expect(card).toContainText("2,500 / 5,000 tokens");
   await expect(card.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");

@@ -232,7 +232,12 @@ export const PROMPTS = [
 
 export const SETTINGS = {
   prefs: { default_model: "auto", default_mode: "safe-auto" },
-  firewall: { profile: "solo-balanced", panic: false, spent_today: 0.42, cloud_gate: true },
+  firewall: {
+    profile: "solo-balanced", panic: false, spent_today: 0.42, cloud_gate: true,
+    caps: { daily_usd_limit: 2, monthly_usd_limit: null, per_task_hard_limit_usd: 0.5 },
+    spent_month: 3.1, remaining: { today_usd: 1.58, month_usd: null },
+    local_first: "deterministic tools -> cache -> local model -> confirmed cloud",
+  },
   permissions: [
     { label: "Read files", state: "allow" },
     { label: "Edit files", state: "ask" },
@@ -267,6 +272,15 @@ export function fullScenario(overrides = {}) {
         { id: "full-auto", label: "Full Auto" },
       ],
       prefs: { model: "auto", mode: "safe-auto", focus: "general", format: "normal", showPanel: true },
+      taskModes: [
+        { id: "general", label: "General" },
+        { id: "coding", label: "Coding" },
+        { id: "writing", label: "Writing" },
+      ],
+      outputFormats: [
+        { id: "normal", label: "Normal" },
+        { id: "concise", label: "Concise" },
+      ],
       accounts: CONNECTED_ACCOUNTS,
       status: { on: true, line: "Auto · Safe Auto · $0.42 today · $12.34 saved" },
       inspector: {
