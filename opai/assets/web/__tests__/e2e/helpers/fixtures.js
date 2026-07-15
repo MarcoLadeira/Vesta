@@ -239,10 +239,26 @@ export const SETTINGS = {
     local_first: "deterministic tools -> cache -> local model -> confirmed cloud",
   },
   permissions: [
-    { label: "Read files", state: "allow" },
-    { label: "Edit files", state: "ask" },
+    { label: "Read files", state: "allow", note: "Anywhere in the repo" },
+    { label: "Edit files", state: "ask", note: "Pauses for your OK" },
     { label: "Network / web", state: "block" },
   ],
+  modePermissions: [
+    { id: "ask", label: "Ask", summary: "1 allowed · 0 ask · 6 blocked", active: false },
+    { id: "plan", label: "Plan", summary: "1 allowed · 0 ask · 6 blocked", active: false },
+    { id: "safe-auto", label: "Safe Auto", summary: "3 allowed · 3 ask · 1 blocked", active: true },
+    { id: "approve-edits", label: "Approve Edits", summary: "2 allowed · 4 ask · 1 blocked", active: false },
+    { id: "full-auto", label: "Full Auto", summary: "6 allowed · 0 ask · 1 blocked", active: false },
+  ],
+  privacy: {
+    prompts_stored: false,
+    statements: [
+      "No telemetry — nothing leaves your machine.",
+      "Raw prompts are never stored; the local ledger keeps one-way task hashes and counts only.",
+      "Saved chat is redacted and kept per workspace on this machine; clear it any time below or from the sidebar.",
+      "Local-first routing; a cloud model is used only after you confirm it.",
+    ],
+  },
   accounts: CONNECTED_ACCOUNTS,
   about: { version: "0.2.0a1", release_stage: "alpha.1" },
 };

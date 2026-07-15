@@ -341,6 +341,33 @@ class FirewallSettingsPayloadTests(unittest.TestCase):
         self.assertIn("today_usd", firewall["remaining"])
 
 
+class PermissionsPrivacyPayloadTests(unittest.TestCase):
+    """Permissions & Privacy pages (#239) are backed by real, derived data."""
+
+    def test_mode_permissions_cover_every_mode_and_mark_the_active_one(self):
+        from opaihub.gui_preferences import MODES
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            payload = settings_payload(root)
+        modes = payload["modePermissions"]
+        self.assertEqual([m["id"] for m in modes], list(MODES))
+        for mode in modes:
+            # Summary is derived from permissions_for, not invented copy.
+            self.assertRegex(mode["summary"], r"\d+ allowed · \d+ ask · \d+ blocked")
+        active = [m for m in modes if m["active"]]
+        self.assertEqual(len(active), 1)
+
+    def test_privacy_stance_is_factual_and_states_no_prompt_storage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            privacy = settings_payload(root)["privacy"]
+        self.assertFalse(privacy["prompts_stored"])
+        joined = " ".join(privacy["statements"]).lower()
+        self.assertIn("never stored", joined)
+        self.assertIn("no telemetry", joined)
+
+
 class AppearancePreferenceTests(unittest.TestCase):
     """Appearance prefs (#241): persisted, sanitized, and surfaced at boot."""
 

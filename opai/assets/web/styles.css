@@ -917,6 +917,8 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .btn:hover { background: var(--elevated); border-color: var(--border-strong); transform: translateY(-1px); }
 .btn:active { transform: translateY(0) scale(0.99); }
 .btn.primary { background: var(--brand-gradient); color: var(--accent-ink); border: 0; box-shadow: 0 3px 14px var(--accent-glow); }
+.btn.danger { color: var(--red); border-color: rgba(242, 118, 138, 0.4); background: rgba(242, 118, 138, 0.08); box-shadow: none; }
+.btn.danger:hover { background: rgba(242, 118, 138, 0.14); border-color: rgba(242, 118, 138, 0.55); }
 
 /* ---------- prompt library ---------- */
 .lib-controls { display: flex; gap: 10px; margin: 18px 0 14px; }
@@ -939,7 +941,8 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .settings-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 26px; align-items: start; }
 .settings-pane { display: none; }
 .settings-pane.active { display: block; animation: paneIn 0.16s ease; }
-@keyframes paneIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* Opacity-only so the fade never shifts an element's box mid-interaction. */
+@keyframes paneIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { :root:not([data-motion="off"]) .settings-pane.active { animation: none; } }
 .settings-layout.searching .settings-pane { display: block; animation: none; }
 .settings-layout.searching .settings-pane.no-match { display: none; }
@@ -956,6 +959,14 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
   color: var(--muted);
 }
 .settings-layout.searching .settings-pane:first-of-type::before { margin-top: 6px; }
+/* Permissions & Safety (#239): per-capability notes + run-mode comparison. */
+.perm-note { display: block; color: var(--muted); font-size: 11.5px; font-weight: 500; margin-top: 2px; }
+.mode-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.mode-row.active { border-left: 2px solid var(--green); padding-left: 10px; margin-left: -12px; }
+.mode-row .k { color: var(--ink); font-weight: 650; }
+.mode-active { color: var(--green); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 6px; }
+.mode-summary { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
 /* Editable defaults (#238): label + inline select, matching the settings grid. */
 .default-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .default-label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
