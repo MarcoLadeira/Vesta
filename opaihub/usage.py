@@ -61,6 +61,13 @@ def build_usage_snapshots(
             event for event in matched if _inside_window(event, soft_window, now)
         ]
         used_tokens = int(sum(_number(event.get("tokens")) for event in window_events))
+        # #334: model calls in-window. A tool-loop task is many calls, so this
+        # is what makes a large token total legible (older events without the
+        # field count as the one call they represent).
+        model_calls = int(
+            sum(int(_number(event.get("model_calls")) or 1) for event in window_events)
+        )
+        task_count = len(window_events)
         latest_quota = next(
             (
                 event.get("quota_snapshot")
@@ -110,6 +117,9 @@ def build_usage_snapshots(
                 "confidence": confidence,
                 "updatedAt": updated,
                 "requiresConfirmation": requires_confirmation,
+                # #334: how the token total was actually produced.
+                "modelCalls": model_calls,
+                "taskCount": task_count,
             }
         )
     return snapshots

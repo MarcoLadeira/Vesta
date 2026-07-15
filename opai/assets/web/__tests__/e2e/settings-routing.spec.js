@@ -75,3 +75,20 @@ test("an invalid usage limit shows an inline error and saves nothing", async ({ 
   await expect(card.locator("[data-usage-error]")).toContainText("whole number above zero");
   expect(await page.evaluate(() => window.__mock.savedUsageLimits)).toEqual([]);
 });
+
+test("a large token total is made legible by the model-call count (#334)", async ({ page }) => {
+  const modelId = "free:gemini:gemini-3.1-flash-lite";
+  await openApp(page, {
+    settings: {
+      prefs: { default_model: "auto", default_mode: "safe-auto" },
+      firewall: {}, permissions: [], accounts: [], about: {}, credentials: [],
+      models: [{ id: modelId, label: "Gemini 3.1 Flash-Lite", provider: "gemini", kind: "free" }],
+      usage: [{ modelId, provider: "gemini", source: "opai", metric: "tokens", used: 700000, limit: null, window: "month", confidence: "measured", modelCalls: 87, taskCount: 5 }],
+    },
+  });
+  await openNav(page, "Settings");
+  await railItem(page, "firewall").click();
+  const card = page.locator(`[data-model-id="${modelId}"]`);
+  // The alarming 700k is now explained: it came from 87 calls across 5 tasks.
+  await expect(card).toContainText("87 model calls across 5 tasks", seen);
+});
