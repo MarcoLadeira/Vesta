@@ -371,6 +371,20 @@
         esc(usage.window || "month") +
         " · " +
         esc(usage.confidence || "unknown") +
+        // #334: make a large token total legible — one task is often many
+        // provider calls (a tool loop re-sends context each step).
+        (usage.modelCalls
+          ? " · " +
+            fmtUsage(usage.modelCalls) +
+            " model call" +
+            (usage.modelCalls === 1 ? "" : "s") +
+            (usage.taskCount
+              ? " across " +
+                fmtUsage(usage.taskCount) +
+                " task" +
+                (usage.taskCount === 1 ? "" : "s")
+              : "")
+          : "") +
         "</div>" +
         '<div class="usage-limit-form"><input type="number" min="1" step="1" aria-label="Soft ' +
         esc(String(usage.metric || "tokens").replace(/s$/, "")) +

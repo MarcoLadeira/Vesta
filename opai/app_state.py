@@ -796,6 +796,9 @@ def _ask_free_model(
                 provider_id=(spec or {}).get("provider"),
                 measurement=str(usage.get("measurement") or "estimated"),
                 quota_snapshot=usage.get("quota_snapshot"),
+                # #334: a multi-step tool run is many provider calls; record the
+                # count so the summed token figure reads honestly.
+                model_calls=int(usage.get("model_calls") or 1),
             )
         result["changed_files"] = (
             sorted(set(_changed_files(project_root)) - before) if allow_edits else []

@@ -368,6 +368,7 @@ def record_model_call(
     output_tokens: int | None = None,
     measurement: str = "estimated",
     quota_snapshot: dict[str, Any] | None = None,
+    model_calls: int = 1,
 ) -> dict[str, Any]:
     """Record an actual model call (cloud or local) and its estimated cost.
 
@@ -391,6 +392,9 @@ def record_model_call(
         metadata["input_tokens"] = int(input_tokens)
     if output_tokens is not None:
         metadata["output_tokens"] = int(output_tokens)
+    # How many provider calls this one task made (#334): a multi-step tool loop
+    # is many calls, so the token total only reads honestly next to this count.
+    metadata["model_calls"] = max(1, int(model_calls or 1))
     if quota_snapshot:
         metadata["quota_snapshot"] = dict(quota_snapshot)
     return record_event(

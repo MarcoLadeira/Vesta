@@ -531,6 +531,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         trace: list[dict[str, Any]] = []
         input_tokens = 0
         output_tokens = 0
+        model_calls = 0
         measured = False
         quota = None
         limit = max(1, int(max_tool_calls or MAX_TOOL_CALLS))
@@ -551,6 +552,12 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "tokens": input_tokens + output_tokens,
+                # How many model calls this one task actually made (#334). A tool
+                # loop re-sends the growing context every step, so the summed
+                # token figure is only honest next to the call count — one task
+                # can be dozens of calls, which is why "5 uses" can be 700k
+                # tokens without anything being wrong.
+                "model_calls": model_calls,
                 "measurement": "provider" if measured else "estimated",
                 "quota_snapshot": quota,
             }
@@ -579,6 +586,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                 timeout=timeout,
                 cancel=cancel,
             )
+            model_calls += 1
             usage = self._usage(result)
             input_tokens += int(usage["input_tokens"])
             output_tokens += int(usage["output_tokens"])
