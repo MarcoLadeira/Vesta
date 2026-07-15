@@ -818,6 +818,12 @@ def settings_payload(root: Path) -> dict[str, Any]:
             "panic": firewall.get("panic"),
             "spent_today": (firewall.get("spent") or {}).get("today_usd", 0),
             "cloud_gate": bool(firewall.get("require_confirmation_for_cloud")),
+            # Budgets (#238): caps and remaining straight from budget_status —
+            # the ledger-backed single source of truth, no derived duplicates.
+            "caps": firewall.get("caps") or {},
+            "spent_month": (firewall.get("spent") or {}).get("month_usd", 0),
+            "remaining": firewall.get("remaining") or {},
+            "local_first": firewall.get("local_first") or "",
         },
         "permissions": permissions_for(
             str(prefs.get("default_mode") or "safe-auto"),

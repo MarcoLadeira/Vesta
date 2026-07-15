@@ -119,6 +119,24 @@ function applyAppearance(prefs) {
   else root.dataset.motion = motion;
 }
 
+// #238: a default changed on the settings Models page must show in the composer
+// and inspector immediately (the pref is already persisted by settings.js).
+function applyDefaults(key, value) {
+  if (key === "default_model") {
+    const m = (state.boot.models || []).find((x) => x.id === value);
+    if (m) { state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider }; setProviderDot(); }
+    renderComposerSelects();
+  } else if (key === "default_mode") {
+    const md = (state.boot.modes || []).find((x) => x.id === value);
+    if (md) state.mode = md;
+    renderComposerSelects();
+  } else if (key === "default_task_mode") {
+    state.focus = value; renderInspector();
+  } else if (key === "default_output_format") {
+    state.format = value; renderInspector();
+  }
+}
+
 function boot() {
   bridge.boot((json) => {
     state.boot = JSON.parse(json);
@@ -1440,6 +1458,23 @@ function updateDoctorCard(provider, result) {
   refreshDoctorSummary();
 }
 
+// #238: a default changed in Settings shows up in the composer immediately —
+// same state, same renderers the composer's own selects use.
+function applyDefaults(key, value) {
+  if (key === "default_model") {
+    const m = (state.boot.models || []).find((x) => x.id === value);
+    if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
+  } else if (key === "default_mode") {
+    const md = (state.boot.modes || []).find((x) => x.id === value);
+    if (md) state.mode = md;
+  } else if (key === "default_task_mode") {
+    state.focus = value;
+  } else if (key === "default_output_format") {
+    state.format = value;
+  }
+  renderComposerSelects(); refreshInspector(); refreshStatus();
+}
+
 // #237: keep the Providers page's one-line health summary true after live
 // checks change a card. Wording comes from the same helper the render uses.
 function refreshDoctorSummary() {
@@ -1918,7 +1953,7 @@ function settingsCtx(d) {
     d, bridge, state, esc, toast, inlineConfirm, switchView,
     refresh: renderSettings, updateDoctorCard, providerName,
     startGuidedProviderLogin, connectionHealthLabel, renderComposerSelects,
-    applyAppearance,
+    applyAppearance, applyDefaults,
     startDoctorRefresh() {
       if (bridge.refreshConnectionDoctor) {
         doctorRefreshRequestId = `doctor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
