@@ -36,4 +36,7 @@ def test_explicit_collection_still_allows_embedded_benchmark_fixture() -> None:
 
     collected = collect_pytest(fixture)
 
-    assert f"{fixture}::CalculatorTests::test_adds_positive_and_negative_values" in collected
+    assert (
+        f"{fixture}::CalculatorTests::test_adds_positive_and_negative_values"
+        in collected
+    )

@@ -14,9 +14,7 @@ from typing import BinaryIO, Iterator
 _LOCK_RETRY_SECONDS = 0.01
 _REPLACE_ATTEMPTS = 20
 _DIRECTORY_OPEN_FLAGS: int | None = (
-    None
-    if os.name == "nt"
-    else os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    None if os.name == "nt" else os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
 )
 _PATH_LOCKS: dict[str, threading.RLock] = {}
 _PATH_LOCKS_GUARD = threading.Lock()

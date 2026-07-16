@@ -218,7 +218,9 @@ def test_atomic_write_text_uses_unique_sibling_temps_and_cleans_them(
     atomic_io.atomic_write_text(target, "first")
     atomic_io.atomic_write_text(target, "caf\N{LATIN SMALL LETTER E WITH ACUTE}")
 
-    assert target.read_text(encoding="utf-8") == "caf\N{LATIN SMALL LETTER E WITH ACUTE}"
+    assert (
+        target.read_text(encoding="utf-8") == "caf\N{LATIN SMALL LETTER E WITH ACUTE}"
+    )
     assert len(sources) == 2
     assert sources[0] != sources[1]
     assert all(source.parent == target.parent for source in sources)
