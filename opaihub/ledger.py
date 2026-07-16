@@ -3,11 +3,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator, Mapping
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .cost_model import (
     estimate_route_savings,
@@ -16,7 +19,9 @@ from .cost_model import (
     load_cost_model,
     tier_cost,
 )
+from .model_identity import canonical_usage_model_id, model_provider
 from .state import state_dir
+from .usage_report import ProviderTurnUsage
 
 
 # Event types recorded in the local usage ledger.
@@ -26,6 +31,10 @@ EVENT_CONTEXT_COMPACT = "context_compaction"
 EVENT_CACHE = "cache_lookup"
 EVENT_CAPTURE_SESSION = "capture_session"
 EVENT_TASK_OUTCOME = "task_outcome"
+EVENT_MODEL_CALL_STARTED = "model_call_started"
+EVENT_USAGE_BASELINE_RESET = "usage_baseline_reset"
+EVENT_USAGE_ADVISORY_NOTICE = "usage_advisory_notice"
+MODEL_CALL_SCHEMA_VERSION = 2
 
 KNOWN_EVENT_TYPES = {
     EVENT_ROUTE,
@@ -34,6 +43,9 @@ KNOWN_EVENT_TYPES = {
     EVENT_CACHE,
     EVENT_CAPTURE_SESSION,
     EVENT_TASK_OUTCOME,
+    EVENT_MODEL_CALL_STARTED,
+    EVENT_USAGE_BASELINE_RESET,
+    EVENT_USAGE_ADVISORY_NOTICE,
 }
 
 # Task-outcome record (#288): the versioned shape that connects one user request
@@ -62,6 +74,7 @@ CAPTURE_RATE_DEFINITION = {
 }
 
 _LEDGER_LOCK = threading.RLock()
+_LEDGER_HEAD_SCHEMA_VERSION = 1
 
 
 def _now_iso() -> str:
@@ -70,6 +83,315 @@ def _now_iso() -> str:
 
 def ledger_path(project_root: Path) -> Path:
     return state_dir(project_root) / "ledger" / "usage.jsonl"
+
+
+def ledger_head_path(project_root: Path) -> Path:
+    return state_dir(project_root) / "ledger" / "ledger.head.json"
+
+
+def _empty_ledger_head() -> dict[str, Any]:
+    return {
+        "schema_version": _LEDGER_HEAD_SCHEMA_VERSION,
+        "last_sequence": 0,
+        "ledger_offset": 0,
+        "last_event_hash": "",
+        "model_epochs": {},
+        "active_calls": {},
+        "finalized_calls": {},
+        "advisory_notice_keys": {},
+    }
+
+
+def _valid_ledger_head(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("schema_version") != _LEDGER_HEAD_SCHEMA_VERSION:
+        return False
+    sequence = value.get("last_sequence")
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+        return False
+    offset = value.get("ledger_offset")
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return False
+    if not isinstance(value.get("last_event_hash"), str):
+        return False
+    return all(
+        isinstance(value.get(key), dict)
+        for key in (
+            "model_epochs",
+            "active_calls",
+            "finalized_calls",
+            "advisory_notice_keys",
+        )
+    )
+
+
+def _event_sequence(event: Mapping[str, Any]) -> int | None:
+    value = event.get("ledger_sequence")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
+def _apply_event_to_head(head: dict[str, Any], event: dict[str, Any]) -> None:
+    sequence = _event_sequence(event)
+    if sequence is None:
+        return
+    head["last_sequence"] = max(int(head.get("last_sequence") or 0), sequence)
+    event_type = event.get("event_type")
+    if event_type == EVENT_MODEL_CALL_STARTED:
+        call_id = str(event.get("call_id") or "")
+        if not call_id or call_id in head["finalized_calls"]:
+            return
+        head["active_calls"].setdefault(call_id, event)
+        canonical = str(event.get("canonical_model_id") or "")
+        if canonical:
+            head["model_epochs"].setdefault(
+                canonical,
+                {
+                    "usage_epoch": int(event.get("usage_epoch") or 0),
+                    "baseline_reset_at": None,
+                },
+            )
+        return
+    if event_type == EVENT_MODEL_CALL:
+        call_id = str(event.get("call_id") or "")
+        if not call_id or call_id in head["finalized_calls"]:
+            return
+        started = head["active_calls"].pop(call_id, None)
+        if isinstance(started, dict):
+            head["finalized_calls"][call_id] = {
+                "start": started,
+                "final": event,
+            }
+        return
+    if event_type == EVENT_USAGE_BASELINE_RESET:
+        canonical = str(event.get("canonical_model_id") or "")
+        if canonical:
+            head["model_epochs"][canonical] = {
+                "usage_epoch": int(event.get("usage_epoch") or 0),
+                "baseline_reset_at": event.get("created_at"),
+            }
+        return
+    if event_type == EVENT_USAGE_ADVISORY_NOTICE:
+        notice_key = str(event.get("notice_key") or "")
+        if notice_key:
+            head["advisory_notice_keys"][notice_key] = sequence
+
+
+def _persist_ledger_head(project_root: Path, head: dict[str, Any]) -> None:
+    atomic_write_text(
+        ledger_head_path(project_root),
+        json.dumps(head, indent=2, sort_keys=True, allow_nan=False) + "\n",
+    )
+
+
+def _line_digest(raw: bytes) -> str:
+    return hashlib.sha256(raw.rstrip(b"\r\n")).hexdigest()
+
+
+def _scan_sequenced_events(
+    path: Path,
+    *,
+    start_offset: int,
+) -> tuple[list[tuple[dict[str, Any], str]], int]:
+    if not path.exists():
+        return [], 0
+    size = path.stat().st_size
+    if start_offset < 0 or start_offset > size:
+        raise ValueError("ledger offset is outside the JSONL file")
+    records: list[tuple[dict[str, Any], str]] = []
+    with path.open("rb") as handle:
+        handle.seek(start_offset)
+        while raw := handle.readline():
+            try:
+                value = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if isinstance(value, dict) and _event_sequence(value) is not None:
+                records.append((value, _line_digest(raw)))
+        end_offset = handle.tell()
+    return records, end_offset
+
+
+def _last_sequenced_before(path: Path, offset: int) -> tuple[int, str]:
+    if offset <= 0 or not path.exists():
+        return 0, ""
+    position = min(offset, path.stat().st_size)
+    remainder = b""
+    with path.open("rb") as handle:
+        while position > 0:
+            amount = min(64 * 1024, position)
+            position -= amount
+            handle.seek(position)
+            data = handle.read(amount) + remainder
+            lines = data.split(b"\n")
+            if position:
+                remainder = lines[0]
+                candidates = lines[1:]
+            else:
+                remainder = b""
+                candidates = lines
+            for raw in reversed(candidates):
+                if not raw.strip():
+                    continue
+                try:
+                    value = json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if isinstance(value, dict):
+                    sequence = _event_sequence(value)
+                    if sequence is not None:
+                        return sequence, _line_digest(raw)
+    return 0, ""
+
+
+def _rebuild_ledger_head(path: Path) -> dict[str, Any]:
+    records, end_offset = _scan_sequenced_events(path, start_offset=0)
+    head = _empty_ledger_head()
+    for event, _digest in sorted(
+        records,
+        key=lambda item: int(item[0]["ledger_sequence"]),
+    ):
+        _apply_event_to_head(head, event)
+    head["ledger_offset"] = end_offset
+    if records:
+        _event, digest = max(
+            records,
+            key=lambda item: int(item[0]["ledger_sequence"]),
+        )
+        head["last_event_hash"] = digest
+    return head
+
+
+def _recover_ledger_head(project_root: Path) -> dict[str, Any]:
+    ledger = ledger_path(project_root)
+    path = ledger_head_path(project_root)
+    loaded: Any = None
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            loaded = None
+
+    dirty = False
+    if _valid_ledger_head(loaded):
+        head = loaded
+        offset = int(head["ledger_offset"])
+        size = ledger.stat().st_size if ledger.exists() else 0
+        prefix_sequence, prefix_hash = _last_sequenced_before(ledger, offset)
+        if (
+            offset > size
+            or prefix_sequence != int(head["last_sequence"])
+            or prefix_hash != str(head["last_event_hash"])
+        ):
+            head = _rebuild_ledger_head(ledger)
+            dirty = True
+        else:
+            tail, end_offset = _scan_sequenced_events(
+                ledger,
+                start_offset=offset,
+            )
+            last = int(head["last_sequence"])
+            if any(int(event["ledger_sequence"]) <= last for event, _digest in tail):
+                head = _rebuild_ledger_head(ledger)
+                dirty = True
+            else:
+                for event, digest in sorted(
+                    tail,
+                    key=lambda item: int(item[0]["ledger_sequence"]),
+                ):
+                    _apply_event_to_head(head, event)
+                    head["last_event_hash"] = digest
+                dirty = bool(tail) or end_offset != offset
+                head["ledger_offset"] = end_offset
+    else:
+        head = _rebuild_ledger_head(ledger)
+        dirty = True
+    if dirty:
+        _persist_ledger_head(project_root, head)
+    return head
+
+
+@contextmanager
+def _ledger_transaction(
+    project_root: Path,
+) -> Iterator[tuple[Path, Path, dict[str, Any]]]:
+    root = project_root.expanduser().resolve()
+    path = ledger_path(root)
+    with _LEDGER_LOCK:
+        with interprocess_transaction(path):
+            yield root, path, _recover_ledger_head(root)
+
+
+def _privacy_safe_value(value: Any, *, depth: int = 0) -> Any:
+    if depth >= 8:
+        return "[truncated]"
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, Mapping):
+        return {
+            redact(str(key))[:120]: _privacy_safe_value(item, depth=depth + 1)
+            for key, item in list(value.items())[:100]
+        }
+    if isinstance(value, (list, tuple)):
+        return [_privacy_safe_value(item, depth=depth + 1) for item in value[:100]]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return redact(str(value))[:500]
+
+
+def _build_event(
+    event_type: str,
+    *,
+    task: str,
+    store_summary: bool,
+    fields: Mapping[str, Any],
+) -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "created_at": _now_iso(),
+        "event_type": event_type,
+        "task_hash": task_fingerprint(task),
+    }
+    summary = _safe_summary(task, store_summary)
+    if summary is not None:
+        event["task_summary_redacted"] = summary
+    for key, value in fields.items():
+        event[str(key)] = _privacy_safe_value(value)
+    return event
+
+
+def _append_event_line(path: Path, event: dict[str, Any]) -> tuple[int, str]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = (json.dumps(event, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
+    with path.open("a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell():
+            handle.seek(-1, os.SEEK_END)
+            if handle.read(1) not in {b"\n", b"\r"}:
+                handle.seek(0, os.SEEK_END)
+                handle.write(b"\n")
+        handle.seek(0, os.SEEK_END)
+        handle.write(line)
+        handle.flush()
+        os.fsync(handle.fileno())
+        end_offset = handle.tell()
+    return end_offset, _line_digest(line)
+
+
+def _append_and_commit(
+    project_root: Path,
+    path: Path,
+    head: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    event["ledger_sequence"] = int(head.get("last_sequence") or 0) + 1
+    end_offset, digest = _append_event_line(path, event)
+    _apply_event_to_head(head, event)
+    head["ledger_offset"] = end_offset
+    head["last_event_hash"] = digest
+    _persist_ledger_head(project_root, head)
+    return event
 
 
 def task_fingerprint(task: str) -> str:
@@ -98,25 +420,14 @@ def record_event(
     (plus an optional redacted summary when ``store_summary`` is explicitly
     enabled). Nothing leaves the machine.
     """
-    root = project_root.expanduser().resolve()
-    event: dict[str, Any] = {
-        "created_at": _now_iso(),
-        "event_type": event_type,
-        "task_hash": task_fingerprint(task),
-    }
-    summary = _safe_summary(task, store_summary)
-    if summary is not None:
-        event["task_summary_redacted"] = summary
-    # Redact any string field defensively before persisting.
-    for key, value in fields.items():
-        event[key] = redact(value) if isinstance(value, str) else value
-
-    path = ledger_path(root)
-    with _LEDGER_LOCK:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, sort_keys=True) + "\n")
-    return event
+    with _ledger_transaction(project_root) as (root, path, head):
+        event = _build_event(
+            event_type,
+            task=task,
+            store_summary=store_summary,
+            fields=fields,
+        )
+        return _append_and_commit(root, path, head, event)
 
 
 def record_capture_session(
@@ -352,6 +663,195 @@ def record_cache_lookup(
     return record_event(project_root, EVENT_CACHE, task=task, **fields)
 
 
+def _required_identifier(value: Any, name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(f"{name} is required")
+    return normalized
+
+
+def _validate_existing_start(
+    started: Mapping[str, Any],
+    *,
+    run_id: str,
+    turn_index: int,
+    canonical_model_id: str,
+    provider_id: str,
+) -> None:
+    identity = (
+        str(started.get("run_id") or ""),
+        started.get("turn_index"),
+        str(started.get("canonical_model_id") or ""),
+        str(started.get("provider_id") or ""),
+    )
+    expected = (run_id, turn_index, canonical_model_id, provider_id)
+    if identity != expected:
+        raise ValueError("call_id already belongs to a different provider turn")
+
+
+def record_model_call_started(
+    project_root: Path,
+    task: str,
+    *,
+    call_id: str,
+    run_id: str,
+    turn_index: int,
+    model_id: str,
+    provider_id: str,
+    model_tier: str,
+    provider_type: str,
+    confirmed: bool,
+) -> dict[str, Any]:
+    """Append one idempotent pre-dispatch provider-turn record."""
+
+    stable_call_id = _required_identifier(call_id, "call_id")
+    stable_run_id = _required_identifier(run_id, "run_id")
+    raw_model_id = _required_identifier(model_id, "model_id")
+    provider = _required_identifier(provider_id, "provider_id").lower()
+    if (
+        isinstance(turn_index, bool)
+        or not isinstance(turn_index, int)
+        or turn_index < 1
+    ):
+        raise ValueError("turn_index must be a positive integer")
+    canonical = canonical_usage_model_id(raw_model_id)
+
+    with _ledger_transaction(project_root) as (root, path, head):
+        finalized = head["finalized_calls"].get(stable_call_id)
+        if isinstance(finalized, dict) and isinstance(finalized.get("start"), dict):
+            started = finalized["start"]
+            _validate_existing_start(
+                started,
+                run_id=stable_run_id,
+                turn_index=turn_index,
+                canonical_model_id=canonical,
+                provider_id=provider,
+            )
+            return started
+        active = head["active_calls"].get(stable_call_id)
+        if isinstance(active, dict):
+            _validate_existing_start(
+                active,
+                run_id=stable_run_id,
+                turn_index=turn_index,
+                canonical_model_id=canonical,
+                provider_id=provider,
+            )
+            return active
+
+        epoch_state = head["model_epochs"].get(canonical) or {}
+        usage_epoch = int(epoch_state.get("usage_epoch") or 0)
+        event = _build_event(
+            EVENT_MODEL_CALL_STARTED,
+            task=task,
+            store_summary=False,
+            fields={
+                "schema_version": MODEL_CALL_SCHEMA_VERSION,
+                "call_id": stable_call_id,
+                "run_id": stable_run_id,
+                "turn_index": turn_index,
+                "model_id": raw_model_id,
+                "canonical_model_id": canonical,
+                "provider_id": provider,
+                "model_tier": str(model_tier or "").strip().upper(),
+                "provider_type": str(provider_type or "").strip().lower(),
+                "confirmed": bool(confirmed),
+                "usage_epoch": usage_epoch,
+                "is_local_route": is_local_tier(
+                    model_tier,
+                    load_cost_model(root),
+                ),
+            },
+        )
+        return _append_and_commit(root, path, head, event)
+
+
+def record_model_call_finalized(
+    project_root: Path,
+    task: str,
+    *,
+    call_id: str,
+    usage: ProviderTurnUsage,
+) -> dict[str, Any]:
+    """Append one matching provider response without inventing missing usage."""
+
+    stable_call_id = _required_identifier(call_id, "call_id")
+    if not isinstance(usage, ProviderTurnUsage):
+        raise TypeError("usage must be a ProviderTurnUsage")
+    with _ledger_transaction(project_root) as (root, path, head):
+        finalized = head["finalized_calls"].get(stable_call_id)
+        if isinstance(finalized, dict) and isinstance(finalized.get("final"), dict):
+            return finalized["final"]
+        started = head["active_calls"].get(stable_call_id)
+        if not isinstance(started, dict):
+            raise ValueError(f"unknown call_id: {stable_call_id}")
+        if usage.turn_index != started.get("turn_index"):
+            raise ValueError("usage turn_index does not match the started call")
+
+        fields: dict[str, Any] = {
+            "schema_version": MODEL_CALL_SCHEMA_VERSION,
+            "call_id": stable_call_id,
+            "run_id": started["run_id"],
+            "turn_index": started["turn_index"],
+            "model_id": started["model_id"],
+            "canonical_model_id": started["canonical_model_id"],
+            "provider_id": started["provider_id"],
+            "model_tier": started["model_tier"],
+            "provider_type": started["provider_type"],
+            "confirmed": started["confirmed"],
+            "is_local_route": started["is_local_route"],
+            "usage_epoch": started["usage_epoch"],
+            "model_calls": 1,
+            "tokens": usage.total_tokens.value,
+            "measurement": usage.total_tokens.provenance,
+            "input_tokens": usage.input_tokens.value,
+            "input_tokens_provenance": usage.input_tokens.provenance,
+            "output_tokens": usage.output_tokens.value,
+            "output_tokens_provenance": usage.output_tokens.provenance,
+            "total_tokens": usage.total_tokens.value,
+            "total_tokens_provenance": usage.total_tokens.provenance,
+            "cached_input_tokens": usage.cached_input_tokens.value,
+            "cached_input_tokens_provenance": usage.cached_input_tokens.provenance,
+            "reasoning_tokens": usage.reasoning_tokens.value,
+            "reasoning_tokens_provenance": usage.reasoning_tokens.provenance,
+            "cost_usd": usage.cost_usd.value,
+            "cost_usd_provenance": usage.cost_usd.provenance,
+            "estimated_actual_usd": usage.cost_usd.value,
+            "provider_quota": usage.to_dict()["providerQuota"],
+        }
+        event = _build_event(
+            EVENT_MODEL_CALL,
+            task=task,
+            store_summary=False,
+            fields=fields,
+        )
+        return _append_and_commit(root, path, head, event)
+
+
+def reset_usage_baseline(project_root: Path, model_id: str) -> dict[str, Any]:
+    """Advance one model's visible usage epoch without deleting audit history."""
+
+    raw_model_id = _required_identifier(model_id, "model_id")
+    canonical = canonical_usage_model_id(raw_model_id)
+    with _ledger_transaction(project_root) as (root, path, head):
+        prior = head["model_epochs"].get(canonical) or {}
+        previous_epoch = int(prior.get("usage_epoch") or 0)
+        event = _build_event(
+            EVENT_USAGE_BASELINE_RESET,
+            task="",
+            store_summary=False,
+            fields={
+                "schema_version": MODEL_CALL_SCHEMA_VERSION,
+                "model_id": raw_model_id,
+                "canonical_model_id": canonical,
+                "provider_id": model_provider(canonical),
+                "previous_usage_epoch": previous_epoch,
+                "usage_epoch": previous_epoch + 1,
+            },
+        )
+        return _append_and_commit(root, path, head, event)
+
+
 def record_model_call(
     project_root: Path,
     task: str,
@@ -383,9 +883,13 @@ def record_model_call(
         if real_cost_usd is not None
         else tier_cost(model_tier, tokens, cost_model)
     )
-    metadata: dict[str, Any] = {"measurement": str(measurement or "estimated")}
+    metadata: dict[str, Any] = {
+        "schema_version": 1,
+        "measurement": str(measurement or "estimated"),
+    }
     if model_id:
         metadata["model_id"] = str(model_id)
+        metadata["canonical_model_id"] = canonical_usage_model_id(str(model_id))
     if provider_id:
         metadata["provider_id"] = str(provider_id)
     if input_tokens is not None:
