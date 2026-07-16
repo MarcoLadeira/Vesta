@@ -63,3 +63,4 @@ phase = "legacy-compatible"
 
 [tool.pytest.ini_options]
 filterwarnings = ["error::pytest.PytestCollectionWarning"]
+testpaths = ["tests"]
