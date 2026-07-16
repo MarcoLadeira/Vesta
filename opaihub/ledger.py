@@ -76,10 +76,16 @@ CAPTURE_RATE_DEFINITION = {
 
 _LEDGER_LOCK = threading.RLock()
 _LEDGER_HEAD_SCHEMA_VERSION = 1
+_USAGE_INDEX_SCHEMA_VERSION = 1
 _MAX_LEDGER_STRING_CHARS = 4_096
+_MAX_LEDGER_IDENTIFIER_CHARS = 4_096
 _MAX_ADVISORY_HEAD_KEYS = 2_048
 _HEAD_MAPPING_KEYS = ("model_epochs", "active_calls", "advisory_notice_keys")
-_HEAD_STATE_KEYS = (*_HEAD_MAPPING_KEYS, "last_call_sequence")
+_HEAD_STATE_KEYS = (
+    *_HEAD_MAPPING_KEYS,
+    "last_call_sequence",
+    "call_index_count",
+)
 
 
 def _now_iso() -> str:
@@ -114,6 +120,7 @@ def _empty_ledger_head() -> dict[str, Any]:
         "schema_version": _LEDGER_HEAD_SCHEMA_VERSION,
         "last_sequence": 0,
         "last_call_sequence": 0,
+        "call_index_count": 0,
         "ledger_offset": 0,
         "last_event_hash": "",
         "model_epochs": {},
@@ -138,6 +145,14 @@ def _valid_ledger_head(value: Any) -> bool:
         or not isinstance(call_sequence, int)
         or call_sequence < 0
         or call_sequence > sequence
+    ):
+        return False
+    call_index_count = value.get("call_index_count")
+    if (
+        isinstance(call_index_count, bool)
+        or not isinstance(call_index_count, int)
+        or call_index_count < 0
+        or call_index_count > call_sequence
     ):
         return False
     offset = value.get("ledger_offset")
@@ -177,6 +192,7 @@ def _apply_event_to_head(head: dict[str, Any], event: dict[str, Any]) -> None:
         call_id = str(event.get("call_id") or "")
         if not call_id:
             return
+        head["call_index_count"] = int(head.get("call_index_count") or 0) + 1
         head["active_calls"].setdefault(call_id, event)
         canonical = str(event.get("canonical_model_id") or "")
         if canonical:
@@ -241,15 +257,22 @@ def _scan_sequenced_events(
     with path.open("rb") as handle:
         handle.seek(start_offset)
         while raw := handle.readline():
-            if not raw.endswith(b"\n"):
-                break
-            end_offset = handle.tell()
+            terminated = raw.endswith(b"\n")
             try:
                 value = json.loads(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
-                continue
+                if terminated:
+                    end_offset = handle.tell()
+                    continue
+                break
+            end_offset = handle.tell()
             if isinstance(value, dict) and _event_sequence(value) is not None:
                 records.append((value, _line_digest(raw)))
+            if not terminated:
+                # A complete JSON value at EOF is a durable record even when a
+                # crash happened before its newline was written. The next
+                # append supplies the separator without reusing its sequence.
+                break
     return records, end_offset
 
 
@@ -327,6 +350,32 @@ def _open_usage_index(project_root: Path) -> sqlite3.Connection:
             "CREATE TABLE IF NOT EXISTS calls "
             "(call_id TEXT PRIMARY KEY, start_json TEXT NOT NULL, final_json TEXT)"
         )
+        connection.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS calls_index_insert
+            AFTER INSERT ON calls
+            BEGIN
+                INSERT INTO metadata(key, value) VALUES ('call_count', 1)
+                ON CONFLICT(key) DO UPDATE SET value = value + 1;
+                INSERT INTO metadata(key, value) VALUES ('index_dirty', 1)
+                ON CONFLICT(key) DO UPDATE SET value = 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS calls_index_update
+            AFTER UPDATE ON calls
+            BEGIN
+                INSERT INTO metadata(key, value) VALUES ('index_dirty', 1)
+                ON CONFLICT(key) DO UPDATE SET value = 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS calls_index_delete
+            AFTER DELETE ON calls
+            BEGIN
+                INSERT INTO metadata(key, value) VALUES ('call_count', 0)
+                ON CONFLICT(key) DO UPDATE SET value = MAX(0, value - 1);
+                INSERT INTO metadata(key, value) VALUES ('index_dirty', 1)
+                ON CONFLICT(key) DO UPDATE SET value = 1;
+            END;
+            """
+        )
     except BaseException:
         connection.close()
         raise
@@ -372,24 +421,52 @@ def _write_usage_index_events(
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (int(target_sequence),),
             )
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('call_count', 0) "
+                "ON CONFLICT(key) DO NOTHING"
+            )
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('schema_version', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (_USAGE_INDEX_SCHEMA_VERSION,),
+            )
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('index_dirty', 0) "
+                "ON CONFLICT(key) DO UPDATE SET value=0"
+            )
     finally:
         connection.close()
 
 
-def _index_sequence(project_root: Path) -> int | None:
+def _index_status(project_root: Path) -> tuple[int | None, int | None, bool]:
     if not ledger_index_path(project_root).exists():
-        return None
+        return None, None, False
     try:
         connection = _open_usage_index(project_root)
         try:
-            row = connection.execute(
-                "SELECT value FROM metadata WHERE key='last_call_sequence'"
-            ).fetchone()
+            rows = dict(
+                connection.execute(
+                    "SELECT key, value FROM metadata WHERE key IN "
+                    "('schema_version', 'last_call_sequence', "
+                    "'call_count', 'index_dirty')"
+                ).fetchall()
+            )
         finally:
             connection.close()
-    except sqlite3.DatabaseError:
-        return None
-    return int(row[0]) if row is not None else None
+    except (OSError, sqlite3.DatabaseError, TypeError, ValueError):
+        return None, None, True
+    try:
+        schema_version = int(rows.get("schema_version", -1))
+        sequence = int(rows["last_call_sequence"])
+        call_count = int(rows["call_count"])
+        dirty = bool(int(rows.get("index_dirty", 1)))
+    except (KeyError, TypeError, ValueError):
+        return None, None, True
+    return (
+        sequence,
+        call_count,
+        dirty or schema_version != _USAGE_INDEX_SCHEMA_VERSION,
+    )
 
 
 def _remove_usage_index(project_root: Path) -> None:
@@ -417,19 +494,35 @@ def _rebuild_usage_index(project_root: Path) -> None:
         if event.get("event_type") in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}
     ]
     if not events:
-        _remove_usage_index(project_root)
+        try:
+            _remove_usage_index(project_root)
+        except PermissionError:
+            _write_usage_index_events(
+                project_root,
+                (),
+                replace=True,
+                target_sequence=0,
+            )
         return
     sequence = max(
         (int(event["ledger_sequence"]) for event in events),
         default=0,
     )
-    _remove_usage_index(project_root)
-    _write_usage_index_events(
-        project_root,
-        events,
-        replace=True,
-        target_sequence=sequence,
-    )
+    try:
+        _write_usage_index_events(
+            project_root,
+            events,
+            replace=True,
+            target_sequence=sequence,
+        )
+    except sqlite3.DatabaseError:
+        _remove_usage_index(project_root)
+        _write_usage_index_events(
+            project_root,
+            events,
+            replace=True,
+            target_sequence=sequence,
+        )
 
 
 def _update_usage_index(project_root: Path, events: Iterable[dict[str, Any]]) -> None:
@@ -533,9 +626,15 @@ def _recover_ledger_head(project_root: Path) -> dict[str, Any]:
         dirty = True
     if recovered_tail:
         _update_usage_index(project_root, recovered_tail)
-    indexed_sequence = _index_sequence(project_root)
+    indexed_sequence, indexed_count, index_dirty = _index_status(project_root)
     expected_sequence = int(head["last_call_sequence"])
-    if (indexed_sequence if indexed_sequence is not None else 0) != expected_sequence:
+    expected_count = int(head["call_index_count"])
+    if (
+        index_dirty
+        or (indexed_sequence if indexed_sequence is not None else 0)
+        != expected_sequence
+        or (indexed_count if indexed_count is not None else 0) != expected_count
+    ):
         _rebuild_usage_index(project_root)
     if dirty:
         _persist_ledger_head(project_root, head)
@@ -897,6 +996,12 @@ def _required_identifier(value: Any, name: str) -> str:
     normalized = str(value or "").strip()
     if not normalized:
         raise ValueError(f"{name} is required")
+    if len(normalized) > _MAX_LEDGER_IDENTIFIER_CHARS:
+        raise ValueError(
+            f"{name} must be at most {_MAX_LEDGER_IDENTIFIER_CHARS} characters"
+        )
+    if redact(normalized) != normalized:
+        raise ValueError(f"{name} must not contain secret-like content")
     return normalized
 
 

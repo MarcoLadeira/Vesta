@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -175,6 +176,25 @@ def test_head_offset_inside_a_record_cannot_duplicate_a_sequence(
     lines = ledger_path(tmp_path).read_bytes().splitlines(keepends=True)
     head_after_one["ledger_offset"] = len(lines[0]) + max(1, len(lines[1]) // 2)
     atomic_write_text(ledger_head_path(tmp_path), json.dumps(head_after_one))
+
+    third = record_event(tmp_path, "route_decision", task="three")
+
+    assert third["ledger_sequence"] == 3
+    assert [event["ledger_sequence"] for event in read_events(tmp_path)] == [1, 2, 3]
+
+
+def test_complete_json_tail_without_newline_cannot_duplicate_a_sequence(
+    tmp_path: Path,
+) -> None:
+    record_event(tmp_path, "route_decision", task="one")
+    torn_tail = {
+        "created_at": "2030-01-01T00:00:00+00:00",
+        "event_type": "route_decision",
+        "ledger_sequence": 2,
+        "task_hash": "crash-tail",
+    }
+    with ledger_path(tmp_path).open("ab") as handle:
+        handle.write(json.dumps(torn_tail, sort_keys=True).encode("utf-8"))
 
     third = record_event(tmp_path, "route_decision", task="three")
 
@@ -383,6 +403,58 @@ def test_completed_call_index_is_rebuildable_and_keeps_head_bounded(
 
     assert repeated["total_tokens"] == 120
     assert len(read_events(tmp_path)) == 80
+
+
+def test_logically_damaged_call_index_rebuilds_before_idempotency_lookup(
+    tmp_path: Path,
+) -> None:
+    started = _start(tmp_path)
+    finalized = record_model_call_finalized(
+        tmp_path,
+        "task",
+        call_id="run-1:1",
+        usage=_turn(),
+    )
+    with sqlite3.connect(ledger.ledger_index_path(tmp_path)) as connection:
+        connection.execute("DELETE FROM calls WHERE call_id = ?", ("run-1:1",))
+
+    assert _start(tmp_path) == started
+    assert (
+        record_model_call_finalized(
+            tmp_path,
+            "retry",
+            call_id="run-1:1",
+            usage=_turn(total=999),
+        )
+        == finalized
+    )
+    assert len(read_events(tmp_path)) == 2
+
+
+def test_oversized_call_id_is_rejected_before_lookup_or_persistence(
+    tmp_path: Path,
+) -> None:
+    call_id = f"{'r' * 4_095}:1"
+
+    with pytest.raises(ValueError, match="call_id must be at most 4096 characters"):
+        _start(tmp_path, call_id=call_id)
+
+    assert not ledger_path(tmp_path).exists()
+    assert not ledger.ledger_index_path(tmp_path).exists()
+
+
+def test_secret_like_call_id_is_rejected_instead_of_redacted_into_a_collision(
+    tmp_path: Path,
+) -> None:
+    call_id = f"sk-{'a' * 24}:1"
+
+    with pytest.raises(
+        ValueError, match="call_id must not contain secret-like content"
+    ):
+        _start(tmp_path, call_id=call_id)
+
+    assert not ledger_path(tmp_path).exists()
+    assert not ledger.ledger_index_path(tmp_path).exists()
 
 
 def test_persisted_nested_strings_are_bounded(tmp_path: Path) -> None:
