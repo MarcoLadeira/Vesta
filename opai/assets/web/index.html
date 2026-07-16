@@ -16,7 +16,7 @@
     <header class="app-header" id="appHeader">
       <div class="header-leading">
         <button class="topbar-icon sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar" aria-expanded="true" title="Toggle sidebar">
-          <span class="menu-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+          <img class="tb-icon" src="icons/toggle-sidebar.png" alt="" aria-hidden="true" />
         </button>
         <div class="header-brand" aria-label="OPai">
           <span class="header-logo"><img src="../opai-icon.png" alt="OPai" /></span>
@@ -45,15 +45,15 @@
           <span class="action-icon" aria-hidden="true">+</span><span class="action-label">New chat</span>
         </button>
         <button class="topbar-icon" id="headerSettings" aria-label="Settings" title="Settings">
-          <span class="settings-glyph" aria-hidden="true">⚙</span>
+          <img class="tb-icon" src="icons/settings.png" alt="" aria-hidden="true" />
         </button>
         <button class="topbar-icon inspector-toggle on" id="panelToggle" aria-label="Inspector" aria-pressed="true" title="Inspector">
-          <span class="panel-glyph" aria-hidden="true"></span>
+          <img class="tb-icon" src="icons/inspector.png" alt="" aria-hidden="true" />
         </button>
         <div class="window-controls" id="windowControls" aria-label="Window controls">
-          <button class="window-control" id="windowMinimize" aria-label="Minimize" title="Minimize"><span aria-hidden="true">−</span></button>
-          <button class="window-control" id="windowMaximize" aria-label="Maximize or restore" title="Maximize or restore"><span aria-hidden="true">□</span></button>
-          <button class="window-control close" id="windowClose" aria-label="Close" title="Close"><span aria-hidden="true">×</span></button>
+          <button class="window-control" id="windowMinimize" aria-label="Minimize" title="Minimize"><img class="wc-icon" src="icons/minimize.png" alt="" aria-hidden="true" /></button>
+          <button class="window-control" id="windowMaximize" aria-label="Maximize or restore" title="Maximize or restore"><img class="wc-icon" src="icons/maximize.png" alt="" aria-hidden="true" /></button>
+          <button class="window-control close" id="windowClose" aria-label="Close" title="Close"><img class="wc-icon" src="icons/close.png" alt="" aria-hidden="true" /></button>
         </div>
       </div>
     </header>
@@ -64,7 +64,7 @@
       <button class="new-chat new-app" id="newApp"><span>✦</span> New app</button>
       <nav class="nav" id="nav"></nav>
       <div class="side-foot">
-        <button class="foot-settings" id="footSettings" aria-label="Settings">⚙ <span>Settings</span></button>
+        <button class="foot-settings" id="footSettings" aria-label="Settings"><img class="foot-icon" src="icons/settings.png" alt="" aria-hidden="true" /> <span>Settings</span></button>
         <div class="acct" id="acct"></div>
         <div class="priv-foot">Local only · no telemetry</div>
       </div>

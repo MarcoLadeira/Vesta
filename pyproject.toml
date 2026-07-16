@@ -46,6 +46,7 @@ opai = [
     "assets/web/*.html",
     "assets/web/*.js",
     "assets/web/*.css",
+    "assets/web/icons/*.png",
 ]
 opaihub = [
     "data/hub/**/*",

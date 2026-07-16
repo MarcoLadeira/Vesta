@@ -185,6 +185,7 @@ def deployment_specs(project_root: Path, output_dir: Path) -> DeploymentSpecs:
         "--include-package=opaihub",
         "--include-package=opcoding",
         _data_dir_arg(root, Path("opai") / "assets" / "fonts"),
+        _data_dir_arg(root, Path("opai") / "assets" / "web" / "icons"),
         _data_file_arg(root, Path("opai") / "assets" / "opai-icon.png"),
         _data_file_arg(root, Path("opai") / "assets" / "opai-mascot.png"),
         _data_dir_arg(root, Path("opaihub") / "data"),
