@@ -187,11 +187,17 @@ function boot() {
     switchView("chat");
     if (b.initialTask) { $("#input").value = b.initialTask; }
     renderResumeChoice();
+    // #246: the inspector payload is deferred at boot; fetch it now only if the
+    // panel is actually visible. When hidden (the default), togglePanel loads it
+    // on first open — so cold boot skips the work entirely.
+    if (state.panel) refreshInspector();
     // First-run onboarding (#250): shown once on a fresh profile, never after a
     // resume offer is pending (that takes precedence).
     if (window.OPaiOnboarding && !(b.resume && b.resume.requires_choice)) {
       window.OPaiOnboarding.maybeStart(onboardingCtx());
     }
+    // #246: signal cold-start-to-interactive to the (opt-in) startup trace.
+    if (bridge.markInteractive) { try { bridge.markInteractive(); } catch (_e) { /* trace is best-effort */ } }
   });
   bridge.replyReady.connect(onReply);
   if (bridge.buildReady) bridge.buildReady.connect(onBuildReply);
@@ -557,7 +563,9 @@ function onStatusReady(json) {
 }
 
 function renderInspector(data) {
-  data = data || state.boot.inspector;
+  // #246: the inspector payload is deferred at boot (null) and fetched on demand
+  // when the panel is shown, so render an empty shell until it arrives.
+  data = data || state.boot.inspector || {};
   const ins = $("#inspector");
   const focusOpts = (state.boot.taskModes || []).map((m) => `<option value="${m.id}"${m.id === state.focus ? " selected" : ""}>${esc(m.label)}</option>`).join("");
   const fmtOpts = (state.boot.outputFormats || []).map((f) => `<option value="${f.id}"${f.id === state.format ? " selected" : ""}>${esc(f.label)}</option>`).join("");
@@ -2174,6 +2182,9 @@ function runCommand(id) {
 }
 function togglePanel() {
   state.panel = !state.panel; applyPanel();
+  // #246: the inspector is deferred at boot; load it the first time the panel
+  // is opened (and refresh each open, matching pre-defer behaviour).
+  if (state.panel) refreshInspector();
   bridge.savePref("show_control_panel", state.panel ? "true" : "false");
 }
 function applyPanel() {

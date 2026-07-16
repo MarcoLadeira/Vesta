@@ -688,6 +688,23 @@ class GuiAutonomySurfaceTests(unittest.TestCase):
                 ),
             )
             payload = boot_payload(root)
+            # Inspector is deferred at boot (#246); fetch it via the same path
+            # the panel uses to assert the workflow rows are surfaced.
+            from opai.gui_web import _inspector
+
+            inspector = _inspector(
+                root,
+                {
+                    "model_label": "Auto",
+                    "model_advanced_label": "Auto",
+                    "model_kind": "auto",
+                    "mode": "safe-auto",
+                    "mode_label": "Safe Auto",
+                    "focus": "general",
+                    "format": "normal",
+                    "accounts": [],
+                },
+            )
 
         workspace = payload["workspace"]
         self.assertEqual(workspace["remote"], "https://github.com/acme/gui.git")
@@ -697,7 +714,7 @@ class GuiAutonomySurfaceTests(unittest.TestCase):
         self.assertEqual(payload["workflow"]["pr_url"], "https://github.test/pr/9")
         self.assertEqual(payload["workflow"]["merge_status"], "pending_checks")
         self.assertEqual(payload["workflow"]["blockers"], ["one check pending"])
-        labels = {row["label"] for row in payload["inspector"]["rows"]}
+        labels = {row["label"] for row in inspector["rows"]}
         self.assertIn("Agent mode", labels)
         self.assertIn("Workflow", labels)
 
