@@ -138,7 +138,7 @@ def test_eight_process_start_reset_finalize_race_loses_no_events(
     head = json.loads(ledger_head_path(root).read_text(encoding="utf-8"))
     assert head["last_sequence"] == 20
     assert head["active_calls"] == {}
-    assert len(head["finalized_calls"]) == 8
+    assert "finalized_calls" not in head
 
 
 def test_cross_process_retries_of_one_call_are_idempotent(tmp_path: Path) -> None:

@@ -99,6 +99,13 @@ def test_warm_append_replays_only_the_tail_not_the_full_ledger(
     assert _head(tmp_path)["ledger_offset"] == ledger_path(tmp_path).stat().st_size
 
 
+def test_non_call_events_do_not_create_or_sync_the_call_index(tmp_path: Path) -> None:
+    record_event(tmp_path, "route_decision", task="one")
+    record_event(tmp_path, "cache_lookup", task="two")
+
+    assert not ledger.ledger_index_path(tmp_path).exists()
+
+
 def test_legacy_unsequenced_events_remain_readable(tmp_path: Path) -> None:
     path = ledger_path(tmp_path)
     path.parent.mkdir(parents=True)
@@ -130,8 +137,49 @@ def test_stale_corrupt_and_ahead_heads_recover_from_the_jsonl_tail(
     ahead["last_sequence"] = 999
     atomic_write_text(ledger_head_path(tmp_path), json.dumps(ahead))
     assert record_event(tmp_path, "route_decision", task="five")["ledger_sequence"] == 5
-    assert [event["ledger_sequence"] for event in read_events(tmp_path)] == [1, 2, 3, 4, 5]
+    assert [event["ledger_sequence"] for event in read_events(tmp_path)] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+    ]
     assert _head(tmp_path)["last_sequence"] == 5
+
+
+def test_valid_looking_head_state_corruption_rebuilds_active_calls(
+    tmp_path: Path,
+) -> None:
+    _start(tmp_path)
+    damaged = _head(tmp_path)
+    damaged["active_calls"] = {}
+    atomic_write_text(ledger_head_path(tmp_path), json.dumps(damaged))
+
+    finalized = record_model_call_finalized(
+        tmp_path, "task", call_id="run-1:1", usage=_turn()
+    )
+
+    assert finalized["ledger_sequence"] == 2
+    assert [event["event_type"] for event in read_events(tmp_path)] == [
+        EVENT_MODEL_CALL_STARTED,
+        EVENT_MODEL_CALL,
+    ]
+
+
+def test_head_offset_inside_a_record_cannot_duplicate_a_sequence(
+    tmp_path: Path,
+) -> None:
+    record_event(tmp_path, "route_decision", task="one")
+    head_after_one = _head(tmp_path)
+    record_event(tmp_path, "route_decision", task="two")
+    lines = ledger_path(tmp_path).read_bytes().splitlines(keepends=True)
+    head_after_one["ledger_offset"] = len(lines[0]) + max(1, len(lines[1]) // 2)
+    atomic_write_text(ledger_head_path(tmp_path), json.dumps(head_after_one))
+
+    third = record_event(tmp_path, "route_decision", task="three")
+
+    assert third["ledger_sequence"] == 3
+    assert [event["ledger_sequence"] for event in read_events(tmp_path)] == [1, 2, 3]
 
 
 def test_start_and_finalize_are_idempotent(tmp_path: Path) -> None:
@@ -155,8 +203,7 @@ def test_start_and_finalize_are_idempotent(tmp_path: Path) -> None:
     assert finalized["total_tokens"] == 120
     head = _head(tmp_path)
     assert head["active_calls"] == {}
-    assert head["finalized_calls"]["run-1:1"]["start"] == started
-    assert head["finalized_calls"]["run-1:1"]["final"] == finalized
+    assert "finalized_calls" not in head
 
 
 def test_repeated_start_with_conflicting_identity_fails_closed(tmp_path: Path) -> None:
@@ -172,7 +219,7 @@ def test_process_death_leaves_an_explicit_unresolved_start(tmp_path: Path) -> No
     started = _start(tmp_path)
 
     assert _head(tmp_path)["active_calls"] == {"run-1:1": started}
-    assert _head(tmp_path)["finalized_calls"] == {}
+    assert "finalized_calls" not in _head(tmp_path)
 
 
 def test_reset_during_inflight_call_does_not_readd_old_usage(tmp_path: Path) -> None:
@@ -304,3 +351,50 @@ def test_start_retry_after_head_failure_does_not_duplicate_dispatch_record(
     assert recovered["ledger_sequence"] == 1
     assert len(read_events(tmp_path)) == 1
     assert _head(tmp_path)["active_calls"]["run-1:1"] == recovered
+
+
+def test_completed_call_index_is_rebuildable_and_keeps_head_bounded(
+    tmp_path: Path,
+) -> None:
+    for index in range(1, 41):
+        call_id = f"run-{index}:{index}"
+        _start(tmp_path, call_id=call_id)
+        record_model_call_finalized(
+            tmp_path,
+            "task",
+            call_id=call_id,
+            usage=_turn(index=index),
+        )
+
+    head = _head(tmp_path)
+    assert head["active_calls"] == {}
+    assert "finalized_calls" not in head
+    assert ledger_head_path(tmp_path).stat().st_size < 32_000
+    index_path = ledger.ledger_index_path(tmp_path)
+    assert index_path.exists()
+
+    index_path.unlink()
+    repeated = record_model_call_finalized(
+        tmp_path,
+        "retry",
+        call_id="run-40:40",
+        usage=_turn(index=40, total=999),
+    )
+
+    assert repeated["total_tokens"] == 120
+    assert len(read_events(tmp_path)) == 80
+
+
+def test_persisted_nested_strings_are_bounded(tmp_path: Path) -> None:
+    _start(tmp_path)
+    usage = ProviderTurnUsage.from_provider(
+        turn_index=1,
+        total=1,
+        provider_quota={"remaining": "x" * 50_000},
+    )
+
+    event = record_model_call_finalized(
+        tmp_path, "task", call_id="run-1:1", usage=usage
+    )
+
+    assert 0 < len(event["provider_quota"]["remaining"]) <= 4_096

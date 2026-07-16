@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import os
+import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -75,6 +76,10 @@ CAPTURE_RATE_DEFINITION = {
 
 _LEDGER_LOCK = threading.RLock()
 _LEDGER_HEAD_SCHEMA_VERSION = 1
+_MAX_LEDGER_STRING_CHARS = 4_096
+_MAX_ADVISORY_HEAD_KEYS = 2_048
+_HEAD_MAPPING_KEYS = ("model_epochs", "active_calls", "advisory_notice_keys")
+_HEAD_STATE_KEYS = (*_HEAD_MAPPING_KEYS, "last_call_sequence")
 
 
 def _now_iso() -> str:
@@ -89,17 +94,34 @@ def ledger_head_path(project_root: Path) -> Path:
     return state_dir(project_root) / "ledger" / "ledger.head.json"
 
 
+def ledger_index_path(project_root: Path) -> Path:
+    return state_dir(project_root) / "ledger" / "usage.index.sqlite3"
+
+
+def _head_state_hash(head: Mapping[str, Any]) -> str:
+    state = {key: head.get(key, {}) for key in _HEAD_STATE_KEYS}
+    encoded = json.dumps(
+        state,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _empty_ledger_head() -> dict[str, Any]:
-    return {
+    head = {
         "schema_version": _LEDGER_HEAD_SCHEMA_VERSION,
         "last_sequence": 0,
+        "last_call_sequence": 0,
         "ledger_offset": 0,
         "last_event_hash": "",
         "model_epochs": {},
         "active_calls": {},
-        "finalized_calls": {},
         "advisory_notice_keys": {},
     }
+    head["state_hash"] = _head_state_hash(head)
+    return head
 
 
 def _valid_ledger_head(value: Any) -> bool:
@@ -110,20 +132,27 @@ def _valid_ledger_head(value: Any) -> bool:
     sequence = value.get("last_sequence")
     if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
         return False
+    call_sequence = value.get("last_call_sequence")
+    if (
+        isinstance(call_sequence, bool)
+        or not isinstance(call_sequence, int)
+        or call_sequence < 0
+        or call_sequence > sequence
+    ):
+        return False
     offset = value.get("ledger_offset")
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         return False
     if not isinstance(value.get("last_event_hash"), str):
         return False
-    return all(
-        isinstance(value.get(key), dict)
-        for key in (
-            "model_epochs",
-            "active_calls",
-            "finalized_calls",
-            "advisory_notice_keys",
-        )
-    )
+    if not isinstance(value.get("state_hash"), str):
+        return False
+    if not all(isinstance(value.get(key), dict) for key in _HEAD_MAPPING_KEYS):
+        return False
+    try:
+        return value["state_hash"] == _head_state_hash(value)
+    except (TypeError, ValueError):
+        return False
 
 
 def _event_sequence(event: Mapping[str, Any]) -> int | None:
@@ -139,9 +168,14 @@ def _apply_event_to_head(head: dict[str, Any], event: dict[str, Any]) -> None:
         return
     head["last_sequence"] = max(int(head.get("last_sequence") or 0), sequence)
     event_type = event.get("event_type")
+    if event_type in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}:
+        head["last_call_sequence"] = max(
+            int(head.get("last_call_sequence") or 0),
+            sequence,
+        )
     if event_type == EVENT_MODEL_CALL_STARTED:
         call_id = str(event.get("call_id") or "")
-        if not call_id or call_id in head["finalized_calls"]:
+        if not call_id:
             return
         head["active_calls"].setdefault(call_id, event)
         canonical = str(event.get("canonical_model_id") or "")
@@ -156,14 +190,9 @@ def _apply_event_to_head(head: dict[str, Any], event: dict[str, Any]) -> None:
         return
     if event_type == EVENT_MODEL_CALL:
         call_id = str(event.get("call_id") or "")
-        if not call_id or call_id in head["finalized_calls"]:
+        if not call_id:
             return
-        started = head["active_calls"].pop(call_id, None)
-        if isinstance(started, dict):
-            head["finalized_calls"][call_id] = {
-                "start": started,
-                "final": event,
-            }
+        head["active_calls"].pop(call_id, None)
         return
     if event_type == EVENT_USAGE_BASELINE_RESET:
         canonical = str(event.get("canonical_model_id") or "")
@@ -177,9 +206,16 @@ def _apply_event_to_head(head: dict[str, Any], event: dict[str, Any]) -> None:
         notice_key = str(event.get("notice_key") or "")
         if notice_key:
             head["advisory_notice_keys"][notice_key] = sequence
+            while len(head["advisory_notice_keys"]) > _MAX_ADVISORY_HEAD_KEYS:
+                oldest = min(
+                    head["advisory_notice_keys"],
+                    key=lambda key: int(head["advisory_notice_keys"][key]),
+                )
+                del head["advisory_notice_keys"][oldest]
 
 
 def _persist_ledger_head(project_root: Path, head: dict[str, Any]) -> None:
+    head["state_hash"] = _head_state_hash(head)
     atomic_write_text(
         ledger_head_path(project_root),
         json.dumps(head, indent=2, sort_keys=True, allow_nan=False) + "\n",
@@ -201,17 +237,30 @@ def _scan_sequenced_events(
     if start_offset < 0 or start_offset > size:
         raise ValueError("ledger offset is outside the JSONL file")
     records: list[tuple[dict[str, Any], str]] = []
+    end_offset = start_offset
     with path.open("rb") as handle:
         handle.seek(start_offset)
         while raw := handle.readline():
+            if not raw.endswith(b"\n"):
+                break
+            end_offset = handle.tell()
             try:
                 value = json.loads(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
             if isinstance(value, dict) and _event_sequence(value) is not None:
                 records.append((value, _line_digest(raw)))
-        end_offset = handle.tell()
     return records, end_offset
+
+
+def _is_record_boundary(path: Path, offset: int) -> bool:
+    if offset == 0:
+        return True
+    if not path.exists() or offset < 0 or offset > path.stat().st_size:
+        return False
+    with path.open("rb") as handle:
+        handle.seek(offset - 1)
+        return handle.read(1) == b"\n"
 
 
 def _last_sequenced_before(path: Path, offset: int) -> tuple[int, str]:
@@ -264,6 +313,177 @@ def _rebuild_ledger_head(path: Path) -> dict[str, Any]:
     return head
 
 
+def _open_usage_index(project_root: Path) -> sqlite3.Connection:
+    path = ledger_index_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=5.0)
+    try:
+        connection.execute("PRAGMA synchronous=FULL")
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS metadata "
+            "(key TEXT PRIMARY KEY, value INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS calls "
+            "(call_id TEXT PRIMARY KEY, start_json TEXT NOT NULL, final_json TEXT)"
+        )
+    except BaseException:
+        connection.close()
+        raise
+    return connection
+
+
+def _write_usage_index_events(
+    project_root: Path,
+    events: Iterable[dict[str, Any]],
+    *,
+    replace: bool,
+    target_sequence: int,
+) -> None:
+    connection = _open_usage_index(project_root)
+    try:
+        with connection:
+            if replace:
+                connection.execute("DELETE FROM calls")
+                connection.execute("DELETE FROM metadata")
+            for event in events:
+                call_id = str(event.get("call_id") or "")
+                if event.get("event_type") == EVENT_MODEL_CALL_STARTED and call_id:
+                    connection.execute(
+                        "INSERT INTO calls(call_id, start_json, final_json) "
+                        "VALUES (?, ?, NULL) "
+                        "ON CONFLICT(call_id) DO UPDATE SET start_json=excluded.start_json",
+                        (call_id, json.dumps(event, sort_keys=True, allow_nan=False)),
+                    )
+                elif event.get("event_type") == EVENT_MODEL_CALL and call_id:
+                    encoded = json.dumps(event, sort_keys=True, allow_nan=False)
+                    updated = connection.execute(
+                        "UPDATE calls SET final_json=? WHERE call_id=?",
+                        (encoded, call_id),
+                    )
+                    if updated.rowcount == 0:
+                        connection.execute(
+                            "INSERT INTO calls(call_id, start_json, final_json) "
+                            "VALUES (?, '{}', ?)",
+                            (call_id, encoded),
+                        )
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('last_call_sequence', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (int(target_sequence),),
+            )
+    finally:
+        connection.close()
+
+
+def _index_sequence(project_root: Path) -> int | None:
+    if not ledger_index_path(project_root).exists():
+        return None
+    try:
+        connection = _open_usage_index(project_root)
+        try:
+            row = connection.execute(
+                "SELECT value FROM metadata WHERE key='last_call_sequence'"
+            ).fetchone()
+        finally:
+            connection.close()
+    except sqlite3.DatabaseError:
+        return None
+    return int(row[0]) if row is not None else None
+
+
+def _remove_usage_index(project_root: Path) -> None:
+    path = ledger_index_path(project_root)
+    for candidate in (
+        path,
+        Path(f"{path}-journal"),
+        Path(f"{path}-wal"),
+        Path(f"{path}-shm"),
+    ):
+        candidate.unlink(missing_ok=True)
+
+
+def _rebuild_usage_index(project_root: Path) -> None:
+    records, _offset = _scan_sequenced_events(
+        ledger_path(project_root),
+        start_offset=0,
+    )
+    events = [
+        event
+        for event, _digest in sorted(
+            records,
+            key=lambda item: int(item[0]["ledger_sequence"]),
+        )
+        if event.get("event_type") in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}
+    ]
+    if not events:
+        _remove_usage_index(project_root)
+        return
+    sequence = max(
+        (int(event["ledger_sequence"]) for event in events),
+        default=0,
+    )
+    _remove_usage_index(project_root)
+    _write_usage_index_events(
+        project_root,
+        events,
+        replace=True,
+        target_sequence=sequence,
+    )
+
+
+def _update_usage_index(project_root: Path, events: Iterable[dict[str, Any]]) -> None:
+    values = tuple(
+        event
+        for event in events
+        if event.get("event_type") in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}
+    )
+    if not values:
+        return
+    target = max(int(event["ledger_sequence"]) for event in values)
+    try:
+        _write_usage_index_events(
+            project_root,
+            values,
+            replace=False,
+            target_sequence=target,
+        )
+    except sqlite3.DatabaseError:
+        _rebuild_usage_index(project_root)
+
+
+def _load_indexed_call(
+    project_root: Path,
+    call_id: str,
+) -> dict[str, dict[str, Any] | None] | None:
+    def load() -> dict[str, dict[str, Any] | None] | None:
+        connection = _open_usage_index(project_root)
+        try:
+            row = connection.execute(
+                "SELECT start_json, final_json FROM calls WHERE call_id=?",
+                (call_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            return None
+        try:
+            start = json.loads(row[0])
+            final = json.loads(row[1]) if row[1] is not None else None
+        except (TypeError, json.JSONDecodeError) as error:
+            raise sqlite3.DatabaseError("invalid call index JSON") from error
+        return {
+            "start": start if isinstance(start, dict) and start else None,
+            "final": final if isinstance(final, dict) else None,
+        }
+
+    try:
+        return load()
+    except sqlite3.DatabaseError:
+        _rebuild_usage_index(project_root)
+        return load()
+
+
 def _recover_ledger_head(project_root: Path) -> dict[str, Any]:
     ledger = ledger_path(project_root)
     path = ledger_head_path(project_root)
@@ -275,6 +495,7 @@ def _recover_ledger_head(project_root: Path) -> dict[str, Any]:
             loaded = None
 
     dirty = False
+    recovered_tail: list[dict[str, Any]] = []
     if _valid_ledger_head(loaded):
         head = loaded
         offset = int(head["ledger_offset"])
@@ -282,6 +503,7 @@ def _recover_ledger_head(project_root: Path) -> dict[str, Any]:
         prefix_sequence, prefix_hash = _last_sequenced_before(ledger, offset)
         if (
             offset > size
+            or not _is_record_boundary(ledger, offset)
             or prefix_sequence != int(head["last_sequence"])
             or prefix_hash != str(head["last_event_hash"])
         ):
@@ -303,11 +525,18 @@ def _recover_ledger_head(project_root: Path) -> dict[str, Any]:
                 ):
                     _apply_event_to_head(head, event)
                     head["last_event_hash"] = digest
+                    recovered_tail.append(event)
                 dirty = bool(tail) or end_offset != offset
                 head["ledger_offset"] = end_offset
     else:
         head = _rebuild_ledger_head(ledger)
         dirty = True
+    if recovered_tail:
+        _update_usage_index(project_root, recovered_tail)
+    indexed_sequence = _index_sequence(project_root)
+    expected_sequence = int(head["last_call_sequence"])
+    if (indexed_sequence if indexed_sequence is not None else 0) != expected_sequence:
+        _rebuild_usage_index(project_root)
     if dirty:
         _persist_ledger_head(project_root, head)
     return head
@@ -328,7 +557,7 @@ def _privacy_safe_value(value: Any, *, depth: int = 0) -> Any:
     if depth >= 8:
         return "[truncated]"
     if isinstance(value, str):
-        return redact(value)
+        return redact(value)[:_MAX_LEDGER_STRING_CHARS]
     if isinstance(value, Mapping):
         return {
             redact(str(key))[:120]: _privacy_safe_value(item, depth=depth + 1)
@@ -390,6 +619,7 @@ def _append_and_commit(
     _apply_event_to_head(head, event)
     head["ledger_offset"] = end_offset
     head["last_event_hash"] = digest
+    _update_usage_index(project_root, (event,))
     _persist_ledger_head(project_root, head)
     return event
 
@@ -717,9 +947,9 @@ def record_model_call_started(
     canonical = canonical_usage_model_id(raw_model_id)
 
     with _ledger_transaction(project_root) as (root, path, head):
-        finalized = head["finalized_calls"].get(stable_call_id)
-        if isinstance(finalized, dict) and isinstance(finalized.get("start"), dict):
-            started = finalized["start"]
+        indexed = _load_indexed_call(root, stable_call_id)
+        if indexed is not None and isinstance(indexed.get("start"), dict):
+            started = indexed["start"]
             _validate_existing_start(
                 started,
                 run_id=stable_run_id,
@@ -779,10 +1009,12 @@ def record_model_call_finalized(
     if not isinstance(usage, ProviderTurnUsage):
         raise TypeError("usage must be a ProviderTurnUsage")
     with _ledger_transaction(project_root) as (root, path, head):
-        finalized = head["finalized_calls"].get(stable_call_id)
-        if isinstance(finalized, dict) and isinstance(finalized.get("final"), dict):
-            return finalized["final"]
+        indexed = _load_indexed_call(root, stable_call_id)
+        if indexed is not None and isinstance(indexed.get("final"), dict):
+            return indexed["final"]
         started = head["active_calls"].get(stable_call_id)
+        if not isinstance(started, dict) and indexed is not None:
+            started = indexed.get("start")
         if not isinstance(started, dict):
             raise ValueError(f"unknown call_id: {stable_call_id}")
         if usage.turn_index != started.get("turn_index"):
