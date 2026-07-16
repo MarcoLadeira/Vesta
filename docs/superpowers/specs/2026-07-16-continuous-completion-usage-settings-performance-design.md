@@ -1,7 +1,7 @@
 # Continuous Completion, Honest Usage, and Responsive Settings Design
 
 - **Date:** 2026-07-16
-- **Status:** Approved by the product owner on 2026-07-16
+- **Status:** Written specification approved by the product owner on 2026-07-16
 - **Repository:** `MarcoLadeira/OPai`
 - **Target branch:** `codex/alpha-reliability`
 
