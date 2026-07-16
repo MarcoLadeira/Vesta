@@ -30,7 +30,11 @@ def _freeze(value: Any) -> Any:
         )
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
-    return value
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise TypeError("provider quota values must be JSON-compatible")
 
 
 def _thaw(value: Any) -> Any:

@@ -165,3 +165,12 @@ def test_checkpoint_is_deeply_immutable_and_serializes_as_plain_data() -> None:
     }
     with pytest.raises(TypeError):
         result.checkpoint["new"] = "value"  # type: ignore[index]
+
+
+@pytest.mark.parametrize("mutable", [{"value"}, bytearray(b"value")])
+def test_checkpoint_rejects_non_json_mutable_leaves(mutable: object) -> None:
+    with pytest.raises(TypeError, match="JSON-compatible"):
+        CompletionResult(
+            state=CompletionState.STUCK_NO_PROGRESS,
+            checkpoint={"unsafe": mutable},
+        )

@@ -105,6 +105,16 @@ def test_usage_contract_is_immutable() -> None:
         usage.provider_quota["x"] = 1  # type: ignore[index]
 
 
+@pytest.mark.parametrize("mutable", [{"value"}, bytearray(b"value")])
+def test_provider_quota_rejects_non_json_mutable_leaves(mutable: object) -> None:
+    with pytest.raises(TypeError, match="JSON-compatible"):
+        ProviderTurnUsage.from_provider(
+            turn_index=1,
+            total=1,
+            provider_quota={"unsafe": mutable},
+        )
+
+
 def test_token_and_cost_metrics_reject_each_others_provenance_domains() -> None:
     with pytest.raises(ValueError, match="token provenance"):
         ProviderTurnUsage(
