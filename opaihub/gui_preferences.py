@@ -30,6 +30,9 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     # "off" force-enables them). Applied live by the GUI, no restart.
     "density": "comfortable",
     "reduced_motion": "system",
+    # First-run onboarding (#250): the three-step tour shows once on a fresh
+    # profile and never again after it is completed or skipped.
+    "onboarding_seen": False,
     "usage_limits": {},
     # Free-model ids the user has already consented to send to. One-time
     # confirmation per free provider is enough; asking on every message is a
@@ -70,6 +73,7 @@ _ALLOWED_KEYS = {
     "auto_tools",
     "density",
     "reduced_motion",
+    "onboarding_seen",
     "usage_limits",
     "free_consent",
     "safe_auto",
@@ -96,6 +100,7 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
         clean["density"] = "comfortable"
     if clean.get("reduced_motion") not in {"system", "on", "off"}:
         clean["reduced_motion"] = "system"
+    clean["onboarding_seen"] = bool(clean.get("onboarding_seen"))
     safe = clean.get("safe_auto")
     if not isinstance(safe, dict):
         clean["safe_auto"] = DEFAULT_PREFERENCES["safe_auto"]

@@ -482,6 +482,8 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             # Appearance (#241): applied to the document root at boot.
             "density": str(prefs.get("density") or "comfortable"),
             "reducedMotion": str(prefs.get("reduced_motion") or "system"),
+            # First-run onboarding (#250): show the tour until it is seen.
+            "onboardingSeen": bool(prefs.get("onboarding_seen", False)),
             # Full Auto pin state (#137) so the UI can show danger styling and
             # an unpin action, and never silently present unpinned Full Auto.
             "fullAutoPinned": autonomy.full_auto_pinned,
@@ -1315,6 +1317,7 @@ def _run_gui(
                 "show_control_panel",
                 "density",
                 "reduced_motion",
+                "onboarding_seen",
             }
             if key not in allowed:
                 return

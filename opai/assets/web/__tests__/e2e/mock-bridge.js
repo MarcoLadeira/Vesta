@@ -42,7 +42,7 @@
     selectedModel: "account:claude:opus",
     modes: [{ id: "ask", label: "Ask" }, { id: "safe-auto", label: "Safe Auto" }],
     navGroups: [{ group: "Control", items: [{ id: "home", label: "Home" }, { id: "agents", label: "Agents" }] }], taskModes: [{ id: "general", label: "General" }], outputFormats: [{ id: "normal", label: "Normal" }],
-    prefs: { model: "account:claude:opus", mode: "ask", focus: "general", format: "normal", showPanel: true },
+    prefs: { model: "account:claude:opus", mode: "ask", focus: "general", format: "normal", showPanel: true, onboardingSeen: true },
     accounts: [{ id: "claude", label: "Claude", connected: true }],
     status: { on: true, line: "OPai · Ask · $0.00 today · $0.00 saved" },
     inspector: { rows: [], budget: { pct: 0, text: "$0.00 today" }, permissions: [], privacy: [] },

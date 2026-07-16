@@ -137,6 +137,31 @@ function applyDefaults(key, value) {
   }
 }
 
+// Shared dependencies the onboarding tour (#250) needs — it reuses the real
+// bridge paths (settings navigation, the model default, the normal send) so it
+// can never bypass a gate or drift from the rest of the app.
+function onboardingCtx() {
+  return {
+    boot: state.boot,
+    esc,
+    bridge,
+    currentModel: () => state.model.id,
+    pickModel: (id) => { bridge.savePref("default_model", id); applyDefaults("default_model", id); },
+    openProviders: () => { switchView("settings"); }, // Providers is the default settings page
+    sendPrompt: (text) => {
+      switchView("chat");
+      const input = $("#input");
+      input.value = text;
+      if (typeof autoSize === "function") autoSize();
+      send();
+    },
+    markSeen: () => {
+      bridge.savePref("onboarding_seen", "true");
+      if (state.boot && state.boot.prefs) state.boot.prefs.onboardingSeen = true;
+    },
+  };
+}
+
 function boot() {
   bridge.boot((json) => {
     state.boot = JSON.parse(json);
@@ -162,6 +187,11 @@ function boot() {
     switchView("chat");
     if (b.initialTask) { $("#input").value = b.initialTask; }
     renderResumeChoice();
+    // First-run onboarding (#250): shown once on a fresh profile, never after a
+    // resume offer is pending (that takes precedence).
+    if (window.OPaiOnboarding && !(b.resume && b.resume.requires_choice)) {
+      window.OPaiOnboarding.maybeStart(onboardingCtx());
+    }
   });
   bridge.replyReady.connect(onReply);
   if (bridge.buildReady) bridge.buildReady.connect(onBuildReply);
@@ -1954,6 +1984,7 @@ function settingsCtx(d) {
     refresh: renderSettings, updateDoctorCard, providerName,
     startGuidedProviderLogin, connectionHealthLabel, renderComposerSelects,
     applyAppearance, applyDefaults,
+    replayTour: () => { if (window.OPaiOnboarding) window.OPaiOnboarding.replay(onboardingCtx()); },
     startDoctorRefresh() {
       if (bridge.refreshConnectionDoctor) {
         doctorRefreshRequestId = `doctor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
