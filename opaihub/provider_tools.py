@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess  # nosec B404 - fixed git argv, never a shell
 import sys
@@ -28,11 +29,9 @@ WRITE_TOOLS = (
 GIT_OPS_TOOLS = ("git_push", "open_pr")
 # Read-only GitHub context: available with a connected token but NO push consent
 # (reading PR/CI status or an issue is not an outward mutation).
-GITHUB_READ_TOOLS = (
-    "github_pr_status",
-    "github_get_issue",
-    "github_search_issues",
-)
+GITHUB_AUTHENTICATED_READ_TOOLS = ("github_pr_status", "github_get_issue")
+GITHUB_PUBLIC_READ_TOOLS = ("github_search_issues",)
+GITHUB_READ_TOOLS = GITHUB_AUTHENTICATED_READ_TOOLS + GITHUB_PUBLIC_READ_TOOLS
 # Outward GitHub writes (comment, request review): need a token AND push consent,
 # like git_push/open_pr, but not local edit permission.
 GITHUB_WRITE_TOOLS = ("github_comment", "github_request_review")
@@ -137,7 +136,7 @@ def available_tool_names(
     allow_edits: bool,
     allow_git_ops: bool | None = None,
     allow_github_read: bool | None = None,
-    allow_github_public_read: bool = False,
+    allow_github_public_read: bool | None = None,
     allow_github_write: bool | None = None,
 ) -> tuple[str, ...]:
     """The exact tool vocabulary a provider loop gets for this repository.
@@ -168,7 +167,7 @@ class RepositoryToolExecutor:
         max_patch_chars: int = MAX_PATCH_CHARS,
         allow_git_ops: bool | None = None,
         allow_github_read: bool | None = None,
-        allow_github_public_read: bool = False,
+        allow_github_public_read: bool | None = None,
         allow_github_write: bool | None = None,
         git_run: Any = None,
     ) -> None:
@@ -182,6 +181,7 @@ class RepositoryToolExecutor:
         # Paths this run created/changed; git_commit stages exactly these by
         # default so a commit can never sweep up unrelated user work.
         self.written_paths: list[str] = []
+        automatic_github_read = allow_github_read is None
         _token_connected: bool | None = None
         if allow_git_ops is None:
             # Push/PR need edits enabled, a connected GitHub token, AND the
@@ -198,7 +198,6 @@ class RepositoryToolExecutor:
         self.allow_git_ops = bool(allow_git_ops) and self.allow_edits
         # Read-only GitHub context (PR/CI status, issues) needs only a connected
         # token — no push consent, since reading is not an outward mutation.
-        self.allow_github_public_read = bool(allow_github_public_read)
         if allow_github_read is None:
             if _token_connected is not None:
                 allow_github_read = _token_connected
@@ -209,8 +208,20 @@ class RepositoryToolExecutor:
                     allow_github_read = bool(stored_github_token()[0])
                 except Exception:  # noqa: BLE001 - fail closed
                     allow_github_read = False
-            allow_github_read = bool(allow_github_read) or self.allow_github_public_read
-        self.allow_github_read = bool(allow_github_read)
+        self.allow_github_authenticated_read = bool(allow_github_read)
+        if allow_github_public_read is None:
+            allow_github_public_read = False
+            if automatic_github_read:
+                try:
+                    from .github_connector import public_read_allowed
+
+                    allow_github_public_read = public_read_allowed()
+                except Exception:  # noqa: BLE001 - consent lookup must fail closed
+                    allow_github_public_read = False
+        self.allow_github_public_read = bool(allow_github_public_read)
+        self.allow_github_read = (
+            self.allow_github_authenticated_read or self.allow_github_public_read
+        )
         # Outward GitHub writes (comment, request review) need a token AND the
         # persisted push consent — the same outward-action gate as push/PR, but
         # not local edit permission (you can comment without editing files).
@@ -285,7 +296,7 @@ class RepositoryToolExecutor:
                 {},
             ),
         ]
-        if self.allow_github_read:
+        if self.allow_github_authenticated_read:
             schemas.append(
                 _schema(
                     "github_pr_status",
@@ -303,6 +314,7 @@ class RepositoryToolExecutor:
                     required=("number",),
                 )
             )
+        if self.allow_github_read:
             schemas.append(
                 _schema(
                     "github_search_issues",
@@ -744,7 +756,10 @@ class RepositoryToolExecutor:
         tools. Normalization fails closed before the ACI sees an argv.
         """
         from .command_runner import split_command
-        from .safety_gates import normalize_autonomous_command
+        from .safety_gates import (
+            normalize_autonomous_command,
+            resolve_trusted_git_executable,
+        )
 
         raw = str(arguments.get("command") or "").strip()
         if not raw:
@@ -760,8 +775,39 @@ class RepositoryToolExecutor:
                 "Only bounded local Git reads are allowed. Use dedicated build, "
                 "test, and consent-aware GitHub tools for other operations.",
             )
+        git_executable = resolve_trusted_git_executable(self.repo_root)
+        if git_executable is None:
+            return _error(
+                "COMMAND_BLOCKED",
+                "No trusted Git executable was found outside the active repository.",
+            )
+        command = list(normalized.argv[1:])
+        if command and command[0] == "--no-pager":
+            command.pop(0)
+        hardened_argv = [
+            git_executable,
+            "-c",
+            "core.fsmonitor=false",
+            "--no-pager",
+            *command,
+        ]
+        git_environment = {
+            "GIT_ATTR_NOSYSTEM": "1",
+            "GIT_CONFIG_COUNT": "0",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GCM_INTERACTIVE": "Never",
+        }
         purpose = str(arguments.get("purpose") or "run_command")[:200]
-        return self.aci.run_command(list(normalized.argv), purpose=purpose).to_dict()
+        return self.aci.run_command(
+            hardened_argv,
+            purpose=purpose,
+            environment=git_environment,
+        ).to_dict()
 
     def _github_number(self, arguments: dict[str, Any]) -> int | None:
         try:
@@ -820,8 +866,10 @@ class RepositoryToolExecutor:
         if cancel is not None and cancel.is_set():
             return _error("CANCELLED", "Provider tool call was cancelled")
         allowed = set(READ_TOOLS)
+        if self.allow_github_authenticated_read:
+            allowed.update(GITHUB_AUTHENTICATED_READ_TOOLS)
         if self.allow_github_read:
-            allowed.update(GITHUB_READ_TOOLS)
+            allowed.update(GITHUB_PUBLIC_READ_TOOLS)
         if self.allow_github_write:
             allowed.update(GITHUB_WRITE_TOOLS)
         if self.allow_edits:

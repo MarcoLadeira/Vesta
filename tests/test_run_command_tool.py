@@ -7,10 +7,15 @@ secret-reading commands before anything spawns. All hermetic.
 
 from __future__ import annotations
 
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from opaihub import safety_gates
+from opaihub.aci import AgentComputerInterface, Observation
 from opaihub.command_runner import split_command
 from opaihub.provider_tools import RepositoryToolExecutor, available_tool_names
 from opaihub.safety_gates import (
@@ -165,11 +170,65 @@ class ClassifierBlockTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertFalse(_classify(command)[0])
 
+    def test_helper_triggering_and_unknown_options_are_blocked(self):
+        for command in (
+            "git log --show-signature -1",
+            "git log --format=%G? -1",
+            "git show --show-signature HEAD",
+            "git show --pretty=format:%GK HEAD",
+            "git status --help",
+            "git status -h",
+            "git diff --unknown-future-option",
+            "git rev-parse --parseopt",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(_classify(command)[0])
+
+    def test_trusted_git_resolution_skips_repository_local_executables(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            trusted = base / "trusted-bin"
+            repo.mkdir()
+            trusted.mkdir()
+            executable = "git.exe" if os.name == "nt" else "git"
+            (repo / executable).write_bytes(b"repo controlled")
+            trusted_git = trusted / executable
+            trusted_git.write_bytes(b"trusted path entry")
+            if os.name != "nt":
+                trusted_git.chmod(0o755)
+
+            resolved = safety_gates.resolve_trusted_git_executable(
+                repo,
+                path_value=os.pathsep.join((str(repo), str(trusted))),
+            )
+
+        self.assertEqual(resolved, str(trusted_git.resolve()))
+
     def test_empty_is_refused(self):
         self.assertFalse(classify_run_command("", [])[0])
 
 
 class RunCommandToolTests(unittest.TestCase):
+    def test_aci_merges_explicit_hardening_environment(self):
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured.update(kwargs)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            aci = AgentComputerInterface(Path(tmp), run=fake_run)
+            result = aci.run_command(
+                ["git", "status"],
+                purpose="test",
+                environment={"GIT_NO_LAZY_FETCH": "1"},
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(captured["env"]["GIT_NO_LAZY_FETCH"], "1")
+        self.assertIn("PATH", {name.upper() for name in captured["env"]})
+
     def test_tool_requires_edit_permission(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
@@ -213,6 +272,45 @@ class RunCommandToolTests(unittest.TestCase):
                 self.assertEqual(result["error_code"], "COMMAND_BLOCKED", command)
 
         self.assertEqual(aci.calls, [])
+
+    def test_safe_command_executes_trusted_git_with_hardened_environment(self):
+        class RecordingACI:
+            def __init__(self):
+                self.calls = []
+
+            def run_command(self, argv, *, purpose, environment=None):
+                self.calls.append((argv, purpose, environment))
+                return Observation(
+                    "command",
+                    True,
+                    {"returncode": 0, "stdout": "", "stderr": ""},
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            aci = RecordingACI()
+            executor = RepositoryToolExecutor(root, allow_edits=True, aci=aci)
+            trusted_git = str((root.parent / "trusted" / "git.exe").resolve())
+            with mock.patch.object(
+                safety_gates,
+                "resolve_trusted_git_executable",
+                return_value=trusted_git,
+            ):
+                result = executor.invoke(
+                    "run_command", {"command": "git status --short"}
+                )
+
+        self.assertTrue(result["ok"], result)
+        argv, purpose, environment = aci.calls[0]
+        self.assertEqual(argv[0], trusted_git)
+        self.assertIn(
+            ["-c", "core.fsmonitor=false"],
+            [argv[i : i + 2] for i in range(len(argv) - 1)],
+        )
+        self.assertIn("--no-pager", argv)
+        self.assertEqual(purpose, "run_command")
+        self.assertEqual(environment["GIT_NO_LAZY_FETCH"], "1")
+        self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
 
     def test_blocks_a_dangerous_command_before_running(self):
         with tempfile.TemporaryDirectory() as tmp:

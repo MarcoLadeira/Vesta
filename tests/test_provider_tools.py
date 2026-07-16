@@ -88,13 +88,18 @@ class RepositoryToolExecutorTests(unittest.TestCase):
     def test_explicit_public_read_consent_can_enable_issue_search_without_a_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
-            with mock.patch(
-                "opaihub.github_connector.stored_github_token", return_value=("", "")
+            with (
+                mock.patch(
+                    "opaihub.github_connector.stored_github_token",
+                    return_value=("", ""),
+                ),
+                mock.patch(
+                    "opaihub.github_connector.public_read_allowed", return_value=True
+                ),
             ):
                 executor = RepositoryToolExecutor(
                     root,
                     allow_edits=False,
-                    allow_github_public_read=True,
                     allow_github_write=False,
                 )
             names = [item["function"]["name"] for item in executor.schemas()]
@@ -109,6 +114,8 @@ class RepositoryToolExecutorTests(unittest.TestCase):
                 result = executor.invoke("github_search_issues", {})
 
         self.assertIn("github_search_issues", names)
+        self.assertNotIn("github_pr_status", names)
+        self.assertNotIn("github_get_issue", names)
         self.assertTrue(result["ok"], result)
         self.assertTrue(search.call_args.kwargs["allow_public"])
 

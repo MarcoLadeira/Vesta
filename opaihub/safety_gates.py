@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 from dataclasses import asdict, dataclass
-from pathlib import PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Iterable, Sequence
 
 _SECRET = re.compile(
@@ -48,9 +50,250 @@ def is_destructive_command(command: Iterable[str]) -> bool:
 
 _SHELL_OPERATORS = re.compile(r"[|&;<>`\n\r]|\$\(|\$\{|>>|<<")
 _LOCAL_GIT_READS = frozenset({"status", "diff", "log", "show", "rev-parse"})
-_EXECUTING_GIT_OPTIONS = frozenset(
-    {"--ext-diff", "--textconv", "--output", "--no-index"}
-)
+_SAFE_GIT_EXACT_OPTIONS: dict[str, frozenset[str]] = {
+    "status": frozenset(
+        {
+            "--short",
+            "-s",
+            "--branch",
+            "-b",
+            "-sb",
+            "--show-stash",
+            "--porcelain",
+            "--long",
+            "--verbose",
+            "-v",
+            "--ignored",
+            "--no-column",
+            "--ahead-behind",
+            "--no-ahead-behind",
+            "--renames",
+            "--no-renames",
+            "-z",
+        }
+    ),
+    "diff": frozenset(
+        {
+            "--cached",
+            "--staged",
+            "--patch",
+            "-p",
+            "-u",
+            "--no-patch",
+            "-s",
+            "--raw",
+            "--patch-with-raw",
+            "--patch-with-stat",
+            "--stat",
+            "--numstat",
+            "--shortstat",
+            "--dirstat",
+            "--summary",
+            "--compact-summary",
+            "--name-only",
+            "--name-status",
+            "--check",
+            "--full-index",
+            "--binary",
+            "--no-color",
+            "--minimal",
+            "--patience",
+            "--histogram",
+            "--word-diff",
+            "--ignore-space-at-eol",
+            "--ignore-space-change",
+            "--ignore-all-space",
+            "--ignore-blank-lines",
+            "--ignore-cr-at-eol",
+            "-b",
+            "-w",
+            "--no-renames",
+            "--relative",
+            "--submodule",
+            "--exit-code",
+            "--quiet",
+            "--merge-base",
+            "--no-ext-diff",
+            "--no-textconv",
+        }
+    ),
+    "log": frozenset(
+        {
+            "--oneline",
+            "--patch",
+            "-p",
+            "-u",
+            "--no-patch",
+            "-s",
+            "--raw",
+            "--stat",
+            "--numstat",
+            "--shortstat",
+            "--summary",
+            "--name-only",
+            "--name-status",
+            "--abbrev-commit",
+            "--no-abbrev-commit",
+            "--full-diff",
+            "--graph",
+            "--all",
+            "--branches",
+            "--tags",
+            "--remotes",
+            "--first-parent",
+            "--merges",
+            "--no-merges",
+            "--reverse",
+            "--topo-order",
+            "--date-order",
+            "--author-date-order",
+            "--boundary",
+            "--left-right",
+            "--cherry-mark",
+            "--cherry-pick",
+            "--ancestry-path",
+            "--simplify-merges",
+            "--full-history",
+            "--sparse",
+            "--simplify-by-decoration",
+            "--regexp-ignore-case",
+            "-i",
+            "--extended-regexp",
+            "-E",
+            "--fixed-strings",
+            "-F",
+            "--perl-regexp",
+            "-P",
+            "--remove-empty",
+            "--follow",
+            "--no-decorate",
+            "--decorate",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+        }
+    ),
+    "show": frozenset(
+        {
+            "--oneline",
+            "--patch",
+            "-p",
+            "-u",
+            "--no-patch",
+            "-s",
+            "--raw",
+            "--stat",
+            "--numstat",
+            "--shortstat",
+            "--summary",
+            "--name-only",
+            "--name-status",
+            "--abbrev-commit",
+            "--no-abbrev-commit",
+            "--decorate",
+            "--no-decorate",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+        }
+    ),
+    "rev-parse": frozenset(
+        {
+            "--verify",
+            "--quiet",
+            "-q",
+            "--symbolic",
+            "--symbolic-full-name",
+            "--abbrev-ref",
+            "--show-toplevel",
+            "--show-prefix",
+            "--show-cdup",
+            "--show-superproject-working-tree",
+            "--git-dir",
+            "--absolute-git-dir",
+            "--is-inside-git-dir",
+            "--is-inside-work-tree",
+            "--is-bare-repository",
+            "--show-object-format",
+            "--local-env-vars",
+            "--sq",
+            "--sq-quote",
+            "--revs-only",
+            "--no-revs",
+            "--flags",
+            "--no-flags",
+            "--end-of-options",
+        }
+    ),
+}
+_SAFE_GIT_OPTION_PREFIXES: dict[str, tuple[str, ...]] = {
+    "status": (
+        "--porcelain=",
+        "--untracked-files=",
+        "--ignored=",
+        "--ignore-submodules=",
+        "--column=",
+        "--find-renames=",
+    ),
+    "diff": (
+        "--stat=",
+        "--dirstat=",
+        "--abbrev=",
+        "--unified=",
+        "--inter-hunk-context=",
+        "--diff-algorithm=",
+        "--anchored=",
+        "--word-diff=",
+        "--word-diff-regex=",
+        "--color-words=",
+        "--ignore-matching-lines=",
+        "--find-renames=",
+        "--find-copies=",
+        "--diff-filter=",
+        "--relative=",
+        "--submodule=",
+        "--src-prefix=",
+        "--dst-prefix=",
+        "--line-prefix=",
+    ),
+    "log": (
+        "--max-count=",
+        "--format=",
+        "--pretty=",
+        "--abbrev=",
+        "--decorate=",
+        "--branches=",
+        "--tags=",
+        "--remotes=",
+        "--since=",
+        "--after=",
+        "--until=",
+        "--before=",
+        "--author=",
+        "--committer=",
+        "--grep=",
+        "--date=",
+        "--diff-filter=",
+    ),
+    "show": (
+        "--format=",
+        "--pretty=",
+        "--abbrev=",
+        "--decorate=",
+        "--date=",
+        "--diff-filter=",
+    ),
+    "rev-parse": (
+        "--short=",
+        "--abbrev-ref=",
+        "--path-format=",
+        "--git-path=",
+        "--resolve-git-dir=",
+        "--default=",
+    ),
+}
+_SAFE_LOG_COUNT = re.compile(r"^-(?:n)?\d+$")
+_SAFE_DIFF_SHORT_OPTION = re.compile(r"^-(?:U\d+|M\d*%?|C\d*%?)$")
 
 
 @dataclass(frozen=True)
@@ -62,6 +305,57 @@ class NormalizedCommand:
     argv: tuple[str, ...]
 
 
+def resolve_trusted_git_executable(
+    repo_root: Path,
+    *,
+    path_value: str | None = None,
+) -> str | None:
+    """Resolve Git from absolute PATH entries, never from the active repository.
+
+    This intentionally does not use ``shutil.which``: Windows executable search
+    may consult the current directory before PATH. Symlinks are resolved and
+    repository-contained or world-writable POSIX candidates are rejected.
+    """
+
+    repository = Path(repo_root).expanduser().resolve(strict=False)
+    search_path = os.environ.get("PATH", "") if path_value is None else path_value
+    names = ("git.exe",) if os.name == "nt" else ("git",)
+    for entry in str(search_path or "").split(os.pathsep):
+        raw_entry = entry.strip().strip('"')
+        if not raw_entry:
+            continue
+        directory = Path(os.path.expandvars(raw_entry)).expanduser()
+        if not directory.is_absolute():
+            continue
+        try:
+            resolved_directory = directory.resolve(strict=True)
+        except OSError:
+            continue
+        if os.name != "nt":
+            try:
+                if resolved_directory.stat().st_mode & stat.S_IWOTH:
+                    continue
+            except OSError:
+                continue
+        for name in names:
+            try:
+                candidate = (resolved_directory / name).resolve(strict=True)
+            except OSError:
+                continue
+            try:
+                candidate.relative_to(repository)
+            except ValueError:
+                pass
+            else:
+                continue
+            if not candidate.is_file():
+                continue
+            if os.name != "nt" and not os.access(candidate, os.X_OK):
+                continue
+            return str(candidate)
+    return None
+
+
 def _is_executable_path(token: str) -> bool:
     return (
         "/" in token
@@ -71,14 +365,38 @@ def _is_executable_path(token: str) -> bool:
     )
 
 
-def _has_executing_git_option(arguments: Sequence[str]) -> bool:
-    for argument in arguments:
-        option = str(argument).lower()
-        if option in _EXECUTING_GIT_OPTIONS:
-            return True
-        if any(option.startswith(prefix + "=") for prefix in _EXECUTING_GIT_OPTIONS):
-            return True
-    return False
+def _git_arguments_are_allowlisted(subcommand: str, arguments: Sequence[str]) -> bool:
+    exact = _SAFE_GIT_EXACT_OPTIONS[subcommand]
+    prefixes = _SAFE_GIT_OPTION_PREFIXES.get(subcommand, ())
+    after_separator = False
+    for raw_argument in arguments:
+        argument = str(raw_argument)
+        if after_separator:
+            continue
+        if argument == "--" or (
+            subcommand == "rev-parse" and argument == "--end-of-options"
+        ):
+            after_separator = True
+            continue
+        if not argument.startswith("-") or argument == "-":
+            continue
+        if (
+            subcommand in {"log", "show"}
+            and argument.startswith(("--format=", "--pretty="))
+            and "%G" in argument
+        ):
+            # Pretty-format GPG placeholders invoke the configured verifier.
+            return False
+        if argument in exact or any(argument.startswith(prefix) for prefix in prefixes):
+            continue
+        if subcommand == "log" and _SAFE_LOG_COUNT.fullmatch(argument):
+            continue
+        if subcommand == "diff" and _SAFE_DIFF_SHORT_OPTION.fullmatch(argument):
+            continue
+        if subcommand == "status" and re.fullmatch(r"-u(?:no|normal|all)?", argument):
+            continue
+        return False
+    return True
 
 
 def normalize_autonomous_command(
@@ -119,7 +437,7 @@ def normalize_autonomous_command(
             return None
         canonical.append("--show-current")
     elif subcommand in _LOCAL_GIT_READS:
-        if _has_executing_git_option(arguments):
+        if not _git_arguments_are_allowlisted(subcommand, arguments):
             return None
         if subcommand in {"diff", "log", "show"}:
             canonical.extend(("--no-ext-diff", "--no-textconv"))

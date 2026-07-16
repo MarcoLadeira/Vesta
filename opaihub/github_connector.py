@@ -20,7 +20,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess  # nosec B404 - fixed git argv, never a shell
 from pathlib import Path
 from typing import Any, Callable
@@ -29,6 +28,7 @@ from urllib.parse import urlencode
 from .command_runner import redact
 from .credentials import CredentialStore, CredentialStoreUnavailable
 from .proc import no_window_kwargs
+from .safety_gates import resolve_trusted_git_executable
 
 API_ROOT = "https://api.github.com"
 PROVIDER = "github"
@@ -144,6 +144,7 @@ def connect_github(token: str, *, http: HttpFn = _default_http) -> dict[str, Any
     config = _load_config()
     config["login"] = login
     config.setdefault("allow_push", False)
+    config.setdefault("allow_public_read", False)
     _save_config(config)
     return {
         "connected": True,
@@ -167,6 +168,7 @@ def disconnect_github() -> dict[str, Any]:
     config = _load_config()
     config.pop("login", None)
     config["allow_push"] = False
+    config["allow_public_read"] = False
     _save_config(config)
     env_token = any(os.environ.get(name) for name in _TOKEN_ENV_VARS)
     return {
@@ -204,6 +206,26 @@ def set_push_allowed(allowed: bool) -> dict[str, Any]:
 
 def push_allowed() -> bool:
     return bool(_load_config().get("allow_push"))
+
+
+def set_public_read_allowed(allowed: bool) -> dict[str, Any]:
+    """Persist explicit consent for anonymous reads from a public GitHub origin."""
+
+    config = _load_config()
+    config["allow_public_read"] = bool(allowed)
+    _save_config(config)
+    return {
+        "allow_public_read": bool(allowed),
+        "note": (
+            "Anonymous issue search is enabled for the active public GitHub origin."
+            if allowed
+            else "Anonymous GitHub reads are disabled."
+        ),
+    }
+
+
+def public_read_allowed() -> bool:
+    return bool(_load_config().get("allow_public_read"))
 
 
 def github_readiness() -> dict[str, Any]:
@@ -257,6 +279,7 @@ def github_status() -> dict[str, Any]:
         "token_source": source,
         "login": str(config.get("login") or ""),
         "allow_push": bool(config.get("allow_push")),
+        "allow_public_read": bool(config.get("allow_public_read")),
         "ready_for_push": readiness["ready"],
         "readiness_reason": readiness["reason"],
         "hint": readiness["next_step"]
@@ -274,7 +297,7 @@ _SLUG_PATTERNS = (
 
 def repo_slug(project_root: Path) -> str:
     """``owner/repo`` from the origin remote, or ``""`` when not GitHub."""
-    git_exe = shutil.which("git")
+    git_exe = resolve_trusted_git_executable(project_root)
     if not git_exe:
         return ""
     try:

@@ -82,10 +82,23 @@ class ConnectTests(unittest.TestCase):
     def test_disconnect_removes_token_and_revokes_consent(self):
         gc.connect_github("ghp_test", http=_http_ok())
         gc.set_push_allowed(True)
+        gc.set_public_read_allowed(True)
         result = gc.disconnect_github()
         self.assertTrue(result["disconnected"])
         self.assertFalse(gc.push_allowed())
+        self.assertFalse(gc.public_read_allowed())
         self.assertFalse(gc.github_status()["connected"])
+
+    def test_public_read_consent_is_persisted_and_reported(self):
+        enabled = gc.set_public_read_allowed(True)
+
+        self.assertTrue(enabled["allow_public_read"])
+        self.assertTrue(gc.public_read_allowed())
+        self.assertTrue(gc.github_status()["allow_public_read"])
+
+        disabled = gc.set_public_read_allowed(False)
+        self.assertFalse(disabled["allow_public_read"])
+        self.assertFalse(gc.public_read_allowed())
 
     def test_env_token_wins_over_keychain(self):
         with mock.patch.dict("os.environ", {"GITHUB_TOKEN": "env_tok"}):
@@ -390,7 +403,14 @@ class WriteToolTests(unittest.TestCase):
 class SlugTests(unittest.TestCase):
     def _slug_for(self, url: str) -> str:
         completed = mock.Mock(stdout=url + "\n", returncode=0)
-        with mock.patch.object(gc.subprocess, "run", return_value=completed):
+        with (
+            mock.patch.object(gc.subprocess, "run", return_value=completed),
+            mock.patch.object(
+                gc,
+                "resolve_trusted_git_executable",
+                return_value=str(Path("C:/trusted/git.exe")),
+            ),
+        ):
             return gc.repo_slug(Path("."))
 
     def test_https_url(self):

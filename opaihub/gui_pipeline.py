@@ -534,9 +534,14 @@ def handle_gui_message(
         "create_files was not permitted" — no tool by that name existed.
         """
         try:
+            from .github_connector import public_read_allowed
             from .provider_tools import available_tool_names
 
-            tool_names = available_tool_names(root, allow_edits=allow_edits)
+            tool_names = available_tool_names(
+                root,
+                allow_edits=allow_edits,
+                allow_github_public_read=public_read_allowed(),
+            )
         except Exception:  # noqa: BLE001 - contract fallback, never block a turn
             return provider_message
         return (
