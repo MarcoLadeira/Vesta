@@ -1,0 +1,72 @@
+name: Release preflight (dry-run)
+
+# Reproducible RC readiness (#32). Runs the deterministic release preflight in
+# dry-run mode — no tag, upload, publish, or notify can happen here — and
+# archives sanitized preflight + rollback evidence so every candidate has an
+# auditable record. Manual dispatch plus release branches; never on every push
+# (this private repo's Actions minutes are capped).
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "release/**"
+      - "rc/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opai-release-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: RC preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags + full history so version/tag/changelog checks are honest
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install OPai editable
+        run: python -m pip install -e .
+
+      - name: RC preflight (dry-run) + sanitized evidence
+        run: |
+          python -m opai release preflight --format markdown --out preflight-evidence.json
+        # Non-zero exit on any blocker fails the job — the same contract as CI.
+
+      - name: Prove dry-run isolation
+        if: always()
+        run: python -m opai release dry-run-proof > dry-run-proof.json
+
+      - name: Rollback plan evidence
+        if: always()
+        shell: bash
+        run: |
+          # Real releases stage the previous tested manifest at this path; when
+          # present, archive the (read-only) rollback plan alongside preflight
+          # evidence so every candidate proves it can roll back.
+          if [ -f release/previous-manifest.json ]; then
+            python -m opai release rollback \
+              --previous-manifest release/previous-manifest.json > rollback-plan.json
+          else
+            echo '{"note":"no previous-manifest staged; rollback plan skipped"}' > rollback-plan.json
+          fi
+
+      - name: Upload preflight + rollback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-preflight-evidence
+          path: |
+            preflight-evidence.json
+            dry-run-proof.json
+            rollback-plan.json
+          if-no-files-found: warn

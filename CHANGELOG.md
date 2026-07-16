@@ -5,6 +5,17 @@
 A security, reliability, and desktop-polish patch. Every change is local-first
 and privacy-preserving by default; nothing new phones home.
 
+### Release engineering
+
+- Added a reproducible **release-candidate preflight** (`opai release preflight`):
+  one deterministic readiness verdict over a clean tree, version/tag/changelog/
+  license consistency, the test gate, required docs, and artifact checksums +
+  signing — exit 0 only when the release is ready. A **dry-run** path proves
+  publishing is disabled and the network is blocked (`opai release
+  dry-run-proof`), and **rollback** restores the previous tested release without
+  touching user state (`opai release rollback`). Sanitized preflight/rollback
+  evidence is archived by a dedicated CI workflow. See `docs/RELEASE.md`.
+
 ### Desktop app
 
 - Added a windowed `opai-gui` launcher (`[project.gui_scripts]`): on Windows a

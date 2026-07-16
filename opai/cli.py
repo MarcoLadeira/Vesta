@@ -931,6 +931,90 @@ def cmd_savings(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_release(args: argparse.Namespace) -> int:
+    """Reproducible release-candidate preflight, dry-run, and rollback (#32).
+
+    ``opai release preflight`` assembles every release check into one
+    deterministic readiness verdict from a clean checkout and exits non-zero
+    when anything blocks. ``opai release rollback`` prints (or, with --execute,
+    performs) the steps to restore the previous tested artifact without touching
+    user state.
+    """
+    from opaihub import release_preflight as rp
+
+    root = _project(args.project)
+    command = getattr(args, "release_command", None)
+
+    if command == "preflight":
+        ctx = rp.ReleaseContext(
+            root=root,
+            dry_run=not getattr(args, "execute", False),
+            run_tests=getattr(args, "run_tests", False),
+            artifacts_manifest=(
+                Path(args.artifacts) if getattr(args, "artifacts", None) else None
+            ),
+        )
+        readiness = rp.run_preflight(ctx)
+        if getattr(args, "out", None):
+            Path(args.out).write_text(
+                json.dumps(rp.sanitized_evidence(readiness), indent=2, sort_keys=True)
+                + "\n",
+                encoding="utf-8",
+            )
+        if getattr(args, "format", "markdown") == "json":
+            print(rp.render_report_json(readiness))
+        else:
+            print(rp.render_report_markdown(readiness), end="")
+        return 0 if readiness.ready else 1
+
+    if command == "dry-run-proof":
+        ctx = rp.ReleaseContext(root=root, dry_run=True)
+        proof = rp.prove_dry_run_isolation(ctx)
+        print_json(proof)
+        return 0 if proof["isolated"] else 1
+
+    if command == "rollback":
+        try:
+            manifest = json.loads(
+                Path(args.previous_manifest).read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as exc:
+            print_json({"status": "error", "message": str(exc)})
+            return 2
+        version_now, _ = rp.resolve_version(rp.ReleaseContext(root=root))
+        plan = rp.rollback_plan(
+            from_version=version_now or "current",
+            to_version=str(args.to or manifest.get("version") or "previous"),
+            previous_manifest=manifest,
+        )
+        if not getattr(args, "execute", False):
+            print_json({"dry_run": True, "plan": plan})
+            return 0
+        if not args.release_root or not args.pointer:
+            print_json(
+                {
+                    "status": "error",
+                    "message": "--execute requires --release-root and --pointer",
+                }
+            )
+            return 2
+        try:
+            result = rp.perform_rollback(
+                release_root=Path(args.release_root),
+                previous_manifest=Path(args.previous_manifest),
+                pointer_file=Path(args.pointer),
+                user_state_dirs=[Path(p) for p in (args.protect or [])],
+            )
+        except rp.ReleaseError as exc:
+            print_json({"status": "error", "message": str(exc)})
+            return 2
+        print_json({"dry_run": False, "plan": plan, "result": result})
+        return 0
+
+    print_json({"status": "error", "message": "unknown release command"})
+    return 2
+
+
 def cmd_resume(args: argparse.Namespace) -> int:
     """Show the workspace's resumable session — CLI parity with the GUI (#313).
 
@@ -2083,6 +2167,63 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Print the full summary as JSON (default)"
     )
     p.set_defaults(func=cmd_outcomes)
+
+    p = sub.add_parser(
+        "release",
+        help="Release-candidate preflight, dry-run isolation proof, and rollback (#32)",
+    )
+    release_sub = p.add_subparsers(dest="release_command", required=True)
+    rp_pre = release_sub.add_parser(
+        "preflight", help="Assemble every release check into one readiness verdict"
+    )
+    rp_pre.add_argument("--project", default=None, help="Project root")
+    rp_pre.add_argument(
+        "--run-tests",
+        action="store_true",
+        help="Include the local test gate (scripts/ci_local.py --fast)",
+    )
+    rp_pre.add_argument(
+        "--artifacts", metavar="MANIFEST", help="Artifact manifest JSON to verify"
+    )
+    rp_pre.add_argument(
+        "--execute",
+        action="store_true",
+        help="Treat this as a real release run (default is dry-run: publish disabled)",
+    )
+    rp_pre.add_argument("--format", default="markdown", choices=["markdown", "json"])
+    rp_pre.add_argument("--out", metavar="PATH", help="Write sanitized evidence JSON")
+    rp_pre.set_defaults(func=cmd_release)
+    rp_proof = release_sub.add_parser(
+        "dry-run-proof",
+        help="Prove a dry-run has no side effects: publish disabled + network blocked",
+    )
+    rp_proof.add_argument("--project", default=None, help="Project root")
+    rp_proof.set_defaults(func=cmd_release)
+    rp_rb = release_sub.add_parser(
+        "rollback", help="Plan (or --execute) a rollback to the previous tested release"
+    )
+    rp_rb.add_argument("--project", default=None, help="Project root")
+    rp_rb.add_argument(
+        "--previous-manifest",
+        required=True,
+        metavar="MANIFEST",
+        help="Manifest of the previous tested release",
+    )
+    rp_rb.add_argument("--to", metavar="VERSION", help="Version to roll back to")
+    rp_rb.add_argument(
+        "--execute",
+        action="store_true",
+        help="Perform the rollback (default: print the plan only)",
+    )
+    rp_rb.add_argument("--release-root", metavar="DIR", help="Installed release root")
+    rp_rb.add_argument("--pointer", metavar="FILE", help="Active-release pointer file")
+    rp_rb.add_argument(
+        "--protect",
+        action="append",
+        metavar="DIR",
+        help="User-state dir rollback must never touch (repeatable)",
+    )
+    rp_rb.set_defaults(func=cmd_release)
 
     p = sub.add_parser(
         "resume",
