@@ -33,7 +33,6 @@
 - Create: `opaihub/atomic_io.py`
 - Create: `tests/test_atomic_io.py`
 - Create: `tests/test_pytest_discovery.py`
-- Modify: `.gitignore`
 - Modify: `pyproject.toml`
 
 **Interfaces:**
@@ -77,9 +76,6 @@
   testpaths = ["tests"]
   ```
 
-  Add `/.superpowers/` to `.gitignore` so the required subagent-development
-  progress ledger remains durable local scratch and never enters a release.
-
 - [ ] **Step 4: Verify focused and explicit fixture collection**
 
   ```powershell
@@ -92,7 +88,7 @@
 - [ ] **Step 5: Commit**
 
   ```powershell
-  git add .gitignore pyproject.toml opaihub/atomic_io.py tests/test_atomic_io.py tests/test_pytest_discovery.py
+  git add pyproject.toml opaihub/atomic_io.py tests/test_atomic_io.py tests/test_pytest_discovery.py
   git commit -m "test: make state IO and discovery deterministic"
   ```
 
