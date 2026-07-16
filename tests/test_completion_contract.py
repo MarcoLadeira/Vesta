@@ -36,7 +36,7 @@ def test_explicit_completion_states_round_trip(state: CompletionState) -> None:
     [
         ({"status": "answered"}, CompletionState.COMPLETED),
         ({"status": "answered_by_account"}, CompletionState.COMPLETED),
-        ({"status": "fail_open"}, CompletionState.COMPLETED),
+        ({"status": "fail_open"}, CompletionState.FAILED),
         ({"status": "cache_hit"}, CompletionState.COMPLETED),
         ({"status": "cancelled"}, CompletionState.CANCELLED),
         ({"status": "needs_user_input"}, CompletionState.NEEDS_USER_INPUT),
@@ -131,3 +131,37 @@ def test_completion_result_is_immutable_and_serializes_enum_values() -> None:
 def test_provider_blocked_result_requires_a_typed_reason() -> None:
     with pytest.raises(ValueError, match="blocked_reason"):
         CompletionResult(state=CompletionState.PROVIDER_BLOCKED)
+
+
+def test_blocked_reason_is_forbidden_on_non_blocked_results() -> None:
+    with pytest.raises(ValueError, match="only valid"):
+        CompletionResult(
+            state=CompletionState.COMPLETED,
+            blocked_reason=ProviderBlockedReason.QUOTA,
+        )
+
+
+@pytest.mark.parametrize("version", [True, 1.9, 0, -1])
+def test_completion_schema_version_must_be_a_positive_integer(version: object) -> None:
+    with pytest.raises(ValueError, match="schema_version"):
+        CompletionResult(
+            state=CompletionState.COMPLETED,
+            schema_version=version,  # type: ignore[arg-type]
+        )
+
+
+def test_checkpoint_is_deeply_immutable_and_serializes_as_plain_data() -> None:
+    source = {"subgoals": ["first"], "nested": {"turn": 2}}
+    result = CompletionResult(
+        state=CompletionState.STUCK_NO_PROGRESS,
+        checkpoint=source,
+    )
+    source["subgoals"].append("mutated")
+    source["nested"]["turn"] = 99
+
+    assert result.to_dict()["checkpoint"] == {
+        "subgoals": ["first"],
+        "nested": {"turn": 2},
+    }
+    with pytest.raises(TypeError):
+        result.checkpoint["new"] = "value"  # type: ignore[index]

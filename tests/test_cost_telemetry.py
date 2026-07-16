@@ -93,6 +93,32 @@ class NormalizationTests(unittest.TestCase):
         self.assertIsNone(telemetry.output_tokens)
         self.assertEqual(telemetry.total_tokens, 42)
 
+    def test_usage_report_quota_drops_arbitrary_secret_bearing_fields(self):
+        secret = "sk-abcdefghijklmnopqrstuvwxyz"
+        report = UsageReport(
+            schema_version=1,
+            run_id="run-1",
+            model_id="free:gemini:flash",
+            provider_id="gemini",
+            turns=(
+                ProviderTurnUsage.from_provider(
+                    turn_index=1,
+                    total=42,
+                    provider_quota={
+                        "remaining": 9,
+                        "authorization": f"Bearer {secret}",
+                        "x-ratelimit-note": secret,
+                    },
+                ),
+            ),
+        )
+
+        telemetry = usage_report_to_cost_telemetry(report)
+
+        self.assertEqual(telemetry.quota["remaining"], "9")
+        self.assertNotIn("authorization", telemetry.quota)
+        self.assertNotIn(secret, str(telemetry.quota))
+
     def test_claude_reported_dollars_are_actual(self):
         telemetry = normalize_account_result(
             "claude", {"cost_usd": 0.0421}, model="account:claude:sonnet"

@@ -105,6 +105,21 @@ def test_usage_contract_is_immutable() -> None:
         usage.provider_quota["x"] = 1  # type: ignore[index]
 
 
+def test_token_and_cost_metrics_reject_each_others_provenance_domains() -> None:
+    with pytest.raises(ValueError, match="token provenance"):
+        ProviderTurnUsage(
+            turn_index=1,
+            total_tokens=UsageValue(10, "actual"),
+        )
+    with pytest.raises(ValueError, match="cost provenance"):
+        ProviderTurnUsage.from_provider(
+            turn_index=1,
+            total=10,
+            cost_usd=0.01,
+            cost_provenance="provider",
+        )
+
+
 def test_report_aggregate_preserves_mixed_precision_and_coverage() -> None:
     provider = ProviderTurnUsage.from_provider(
         turn_index=1, total=120, input_tokens=80, output_tokens=20
@@ -190,6 +205,38 @@ def test_aggregate_combines_reports_without_losing_turns_or_metadata() -> None:
     assert combined.summary()["totalTokens"]["value"] == 30
     assert combined.compaction_count == 2
     assert combined.compacted_observation_tokens == 300
+
+
+def test_aggregate_deduplicates_identical_turns_instead_of_double_counting() -> None:
+    turn = ProviderTurnUsage.from_provider(
+        turn_index=1,
+        total=10,
+        cost_usd=0.5,
+        cost_provenance="actual",
+    )
+    first = _report(turn)
+    repeated = _report(turn)
+
+    combined = UsageReport.aggregate((first, repeated))
+
+    assert len(combined.turns) == 1
+    assert combined.summary()["totalTokens"]["value"] == 10
+    assert combined.summary()["costUsd"]["value"] == 0.5
+
+
+def test_duplicate_turn_index_with_conflicting_usage_is_rejected() -> None:
+    first = _report(ProviderTurnUsage.from_provider(turn_index=1, total=10))
+    conflicting = _report(ProviderTurnUsage.from_provider(turn_index=1, total=11))
+
+    with pytest.raises(ValueError, match="conflicting usage for turn 1"):
+        UsageReport.aggregate((first, conflicting))
+
+
+def test_direct_report_rejects_duplicate_turn_indexes() -> None:
+    turn = ProviderTurnUsage.from_provider(turn_index=1, total=10)
+
+    with pytest.raises(ValueError, match="turn indexes must be unique"):
+        _report(turn, turn)
 
 
 def test_aggregate_rejects_different_runs_or_models() -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Mapping
 
 
@@ -43,7 +44,6 @@ _ANSWERED_STATUSES = {
     "cache_hit",
     "done",
     "completed",
-    "fail_open",
 }
 _CANCELLED_STATUSES = {"cancelled", "canceled", "user_cancelled", "aborted"}
 _USER_INPUT_STATUSES = {"needs_user_input", "needs_input", "question"}
@@ -82,6 +82,24 @@ _STUCK_REASONS = _STUCK_STATUSES | {
 
 def _normalized(value: Any) -> str:
     return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {str(key): _freeze(item) for key, item in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
 
 
 def _state_for_stop_reason(reason: str) -> CompletionState:
@@ -197,10 +215,23 @@ class CompletionResult:
             and self.blocked_reason is None
         ):
             raise ValueError("provider_blocked completion requires blocked_reason")
+        if (
+            self.state is not CompletionState.PROVIDER_BLOCKED
+            and self.blocked_reason is not None
+        ):
+            raise ValueError("blocked_reason is only valid for provider_blocked")
         if self.state is CompletionState.COMPLETED and self.stopped_reason:
             raise ValueError("completed result cannot carry a stopped_reason")
-        if int(self.schema_version) < 1:
-            raise ValueError("schema_version must be positive")
+        if (
+            isinstance(self.schema_version, bool)
+            or not isinstance(self.schema_version, int)
+            or self.schema_version < 1
+        ):
+            raise ValueError("schema_version must be a positive integer")
+        if self.checkpoint is not None:
+            if not isinstance(self.checkpoint, Mapping):
+                raise TypeError("checkpoint must be a mapping or None")
+            object.__setattr__(self, "checkpoint", _freeze(self.checkpoint))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -214,8 +245,6 @@ class CompletionResult:
             ),
             "recovery_action": self.recovery_action,
             "error": self.error,
-            "checkpoint": dict(self.checkpoint)
-            if self.checkpoint is not None
-            else None,
+            "checkpoint": _thaw(self.checkpoint),
             "status": legacy_status_for_completion(self.state),
         }

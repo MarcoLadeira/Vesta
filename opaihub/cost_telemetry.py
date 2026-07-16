@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from .command_runner import redact
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger
 
@@ -32,6 +33,22 @@ _QUOTA_HEADER_PREFIXES = (
     "x-quota-",
     "retry-after",
 )
+_QUOTA_FIELD_NAMES = {
+    "limit",
+    "observed_at",
+    "remaining",
+    "requests_remaining",
+    "reset",
+    "reset_at",
+    "resetat",
+    "retry_after",
+    "retryafter",
+    "stale",
+    "status",
+    "tokens_remaining",
+    "used",
+    "window",
+}
 
 
 @dataclass(frozen=True)
@@ -66,6 +83,18 @@ def quota_from_headers(headers: Mapping[str, Any] | None) -> dict[str, str]:
         if name.startswith(_QUOTA_HEADER_PREFIXES):
             quota[name] = str(value)[:64]
     return quota
+
+
+def _quota_from_report(quota: Mapping[str, Any] | None) -> dict[str, str]:
+    """Allow only bounded quota metadata and redact even allowlisted values."""
+
+    safe: dict[str, str] = {}
+    for key, value in (quota or {}).items():
+        name = str(key).lower().strip()
+        if not (name in _QUOTA_FIELD_NAMES or name.startswith(_QUOTA_HEADER_PREFIXES)):
+            continue
+        safe[name] = redact(str(value))[:64]
+    return safe
 
 
 def normalize_account_result(
@@ -170,10 +199,7 @@ def usage_report_to_cost_telemetry(report: Any) -> CostTelemetry:
     output_usage = summary["outputTokens"]
     total_usage = summary["totalTokens"]
     cost_usage = summary["costUsd"]
-    quota = {
-        str(key): str(value)[:64]
-        for key, value in (report.latest_provider_quota or {}).items()
-    }
+    quota = _quota_from_report(report.latest_provider_quota)
     return CostTelemetry(
         provider=report.provider_id.strip().lower(),
         model=report.model_id,

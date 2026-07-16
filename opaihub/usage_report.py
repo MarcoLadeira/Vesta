@@ -19,6 +19,8 @@ UsageProvenance = Literal[
     "provider", "derived", "estimated", "mixed", "actual", "unknown"
 ]
 _PROVENANCE = {"provider", "derived", "estimated", "mixed", "actual", "unknown"}
+_TOKEN_PROVENANCE = {"provider", "derived", "estimated", "mixed", "unknown"}
+_COST_PROVENANCE = {"actual", "derived", "estimated", "mixed", "unknown"}
 
 
 def _freeze(value: Any) -> Any:
@@ -95,8 +97,12 @@ class ProviderTurnUsage:
                 raise TypeError(f"{name} must be a UsageValue")
             if measurement.value is not None and not isinstance(measurement.value, int):
                 raise TypeError(f"{name} must contain an integer token count")
+            if measurement.provenance not in _TOKEN_PROVENANCE:
+                raise ValueError(f"invalid token provenance for {name}")
         if not isinstance(self.cost_usd, UsageValue):
             raise TypeError("cost_usd must be a UsageValue")
+        if self.cost_usd.provenance not in _COST_PROVENANCE:
+            raise ValueError("invalid cost provenance")
         if self.provider_quota is not None:
             if not isinstance(self.provider_quota, Mapping):
                 raise TypeError("provider_quota must be a mapping or None")
@@ -199,6 +205,9 @@ class UsageReport:
             object.__setattr__(self, "turns", tuple(self.turns))
         if not all(isinstance(turn, ProviderTurnUsage) for turn in self.turns):
             raise TypeError("turns must contain ProviderTurnUsage values")
+        indexes = [turn.turn_index for turn in self.turns]
+        if len(set(indexes)) != len(indexes):
+            raise ValueError("turn indexes must be unique within a usage report")
         for name in ("peak_input_tokens", "compacted_observation_tokens"):
             value = getattr(self, name)
             if value is not None and (
@@ -250,7 +259,12 @@ class UsageReport:
 
     @classmethod
     def aggregate(cls, reports: Iterable[UsageReport]) -> UsageReport:
-        values = tuple(reports)
+        received = tuple(reports)
+        values = tuple(
+            report
+            for index, report in enumerate(received)
+            if report not in received[:index]
+        )
         if not values:
             raise ValueError("at least one usage report is required")
         first = values[0]
@@ -272,12 +286,19 @@ class UsageReport:
             for report in values
             if report.peak_input_tokens is not None
         ]
+        turns_by_index: dict[int, ProviderTurnUsage] = {}
+        for report in values:
+            for turn in report.turns:
+                previous = turns_by_index.get(turn.turn_index)
+                if previous is not None and previous != turn:
+                    raise ValueError(f"conflicting usage for turn {turn.turn_index}")
+                turns_by_index[turn.turn_index] = turn
         return cls(
             schema_version=max(report.schema_version for report in values),
             run_id=first.run_id,
             model_id=first.model_id,
             provider_id=first.provider_id,
-            turns=tuple(turn for report in values for turn in report.turns),
+            turns=tuple(turns_by_index[index] for index in sorted(turns_by_index)),
             peak_input_tokens=max(peaks) if peaks else None,
             compaction_count=sum(report.compaction_count for report in values),
             compacted_observation_tokens=sum(compacted) if compacted else None,
