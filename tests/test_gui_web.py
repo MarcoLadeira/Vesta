@@ -106,10 +106,27 @@ class BootPayloadTests(unittest.TestCase):
         for m in payload["models"]:
             self.assertIn("badge", m)
 
-    def test_inspector_is_complete(self):
+    def test_inspector_is_deferred_at_boot_but_complete_on_demand(self):
+        # Startup deferral (#246): boot no longer computes the inspector; the
+        # inspector() slot serves the same complete payload when the panel opens.
+        from opai.gui_web import _inspector
+
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
-            ins = self._boot(root)["inspector"]
+            self.assertIsNone(self._boot(root)["inspector"])
+            ins = _inspector(
+                root,
+                {
+                    "model_label": "Auto",
+                    "model_advanced_label": "Auto",
+                    "model_kind": "auto",
+                    "mode": "safe-auto",
+                    "mode_label": "Safe Auto",
+                    "focus": "general",
+                    "format": "normal",
+                    "accounts": [],
+                },
+            )
         labels = {r["label"] for r in ins["rows"]}
         for needed in ("Model", "Run mode", "Workspace", "Permissions"):
             self.assertIn(needed, labels)

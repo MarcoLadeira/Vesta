@@ -19,6 +19,7 @@ of truth for both surfaces.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -53,6 +54,13 @@ from opai.gui_workspace import (
 )
 
 WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
+
+# Startup instrumentation (#246). t0 is import time — the closest proxy to GUI
+# process start. Off unless OPAI_STARTUP_TRACE is set, in which case boot marks
+# its stages and the front-end flushes an "interactive" mark after first paint.
+from opaihub.startup_trace import StartupTrace, trace_enabled, trace_path  # noqa: E402
+
+_STARTUP = StartupTrace(enabled=trace_enabled())
 
 
 class _SessionPersistenceEpoch:
@@ -425,6 +433,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
 
     from opaihub.autonomy import resolve_startup_mode
 
+    _STARTUP.mark("boot:start")
     root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
     # Central autonomy decision (#137): boot into the effective mode, which is
@@ -433,7 +442,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     mode = autonomy.effective_mode
     focus = str(prefs.get("default_task_mode") or DEFAULT_TASK_MODE)
     fmt = str(prefs.get("default_output_format") or DEFAULT_OUTPUT_FORMAT)
+    _STARTUP.mark("boot:prefs")
     models = _models(root, discover_local=False)
+    _STARTUP.mark("boot:models")
     mode_labels = {
         "ask": "Ask",
         "plan": "Plan",
@@ -460,7 +471,8 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "accounts": models["accounts"],
     }
     workflow = load_workflow_state(root)
-    return {
+    _STARTUP.mark("boot:workflow")
+    payload = {
         "workspace": _workspace(root),
         "workflow": workflow.to_dict(),
         "resume": _resume_payload(root),
@@ -495,7 +507,12 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "accounts": models["accounts"],
         "connections": models["connections"],
         "status": _status(root, sel["model_label"], sel["mode_label"]),
-        "inspector": _inspector(root, sel),
+        # Startup deferral (#246): the session inspector is non-critical — the
+        # panel is hidden by default (show_control_panel) — and it re-reads the
+        # budget/permissions/workflow every boot. Defer it: the front-end fetches
+        # it via the inspector() slot when the panel is actually shown, so cold
+        # boot skips this work for the common first-run case.
+        "inspector": None,
         "defaultView": DEFAULT_VIEW,
         "initialTask": initial_task or "",
         "recents": _recents(root),
@@ -505,6 +522,8 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             for tool in A.TOOLS
         ],
     }
+    _STARTUP.mark("boot:done")
+    return payload
 
 
 def start_fresh_payload(root: Path) -> dict[str, Any]:
@@ -1010,6 +1029,18 @@ def _run_gui(
         @QtCore.Slot(result=str)
         def boot(self) -> str:
             return json.dumps(boot_payload(self.root, initial_task=initial_task))
+
+        @QtCore.Slot()
+        def markInteractive(self) -> None:
+            # Startup instrumentation (#246): the front-end calls this once, after
+            # the chat view has first painted. Records the cold-start-to-
+            # interactive span and flushes the trace — only when explicitly
+            # enabled, and only to the local state dir.
+            if not _STARTUP.enabled:
+                return
+            _STARTUP.mark("interactive")
+            with contextlib.suppress(Exception):
+                _STARTUP.write(trace_path(self.root))
 
         @QtCore.Slot(result=str)
         def resumeSession(self) -> str:

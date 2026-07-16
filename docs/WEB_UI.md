@@ -71,6 +71,28 @@ unit-tested in `__tests__/settings.test.js`.
 | `openWorkspace()` / `switchWorkspace(path)` | signal `workspaceChanged` | switch project |
 | `openExternal(url)` | — | open http(s) links in the system browser |
 
+## Startup budget & instrumentation (#246)
+
+Cold start (process start → the chat view interactive) has a **budget of
+≤ 1.5 s** on a warm profile. The dominant cost is the single `boot_payload`
+call, so that is where the budget is spent and measured.
+
+**Instrumentation** (`opaihub/startup_trace.py`) is **off by default** and
+**never leaves the machine**. Set `OPAI_STARTUP_TRACE=1` to record the major
+init stages (`boot:start → boot:prefs → boot:models → boot:workflow →
+boot:done → interactive`); the trace is appended as JSONL to
+`<workspace>/.opaihub/gui/startup-trace.jsonl`. Disabled, every mark is a no-op
+and no file is written.
+
+**Deferral (measured win):** the session **inspector payload is deferred** —
+`boot_payload` returns `inspector: null` instead of computing budget/
+permissions/workflow eagerly, because the inspector panel is hidden by default
+(`show_control_panel`). The front-end fetches it via the `inspector()` slot only
+when the panel is shown (at boot if visible, else on first open), so cold boot
+skips it. Measured on a fixture repo: `boot_payload` **~688 ms → ~556 ms
+(−132 ms, −19%)** with the inspector deferred; no behaviour change (the same
+data renders whenever the panel is opened).
+
 ## Safety properties kept
 
 - **No secrets in the page.** The bridge only sends already-redacted view-model
