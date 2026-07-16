@@ -13,7 +13,10 @@ from pathlib import Path
 
 from opaihub.command_runner import split_command
 from opaihub.provider_tools import RepositoryToolExecutor, available_tool_names
-from opaihub.safety_gates import classify_run_command
+from opaihub.safety_gates import (
+    classify_run_command,
+    normalize_autonomous_command,
+)
 
 from tests._helpers import make_repo
 
@@ -23,21 +26,35 @@ def _classify(raw: str) -> tuple[bool, str]:
 
 
 class ClassifierAllowTests(unittest.TestCase):
-    def test_ordinary_dev_commands_are_allowed(self):
+    def test_only_bounded_local_git_reads_are_allowed(self):
         for cmd in (
-            "npm run build",
-            "ruff check .",
-            "python -m pytest tests/test_x.py",
             "git status --short",
-            "ls -la",
-            "cat README.md",
-            "node scripts/gen.js",
-            "make lint",
-            "chmod +x scripts/run.sh",
-            "go build ./...",
+            "git diff -- README.md",
+            "git log -5 --oneline",
+            "git show HEAD:README.md",
+            "git rev-parse --verify HEAD",
+            "git branch --show-current",
+            "GiT.ExE --no-pager STATUS --short",
         ):
             allowed, reason = _classify(cmd)
             self.assertTrue(allowed, f"{cmd!r} should be allowed: {reason}")
+
+    def test_normalizer_returns_canonical_argv(self):
+        raw = "GiT.ExE --no-pager STATUS --short"
+        normalized = normalize_autonomous_command(raw, split_command(raw))
+
+        self.assertIsNotNone(normalized)
+        self.assertEqual(normalized.executable, "git")
+        self.assertEqual(normalized.subcommand, "status")
+        self.assertEqual(normalized.argv, ("git", "--no-pager", "status", "--short"))
+
+    def test_diff_family_disables_repository_configured_helpers(self):
+        for raw in ("git diff --stat", "git log -p -2", "git show HEAD"):
+            normalized = normalize_autonomous_command(raw, split_command(raw))
+
+            self.assertIsNotNone(normalized, raw)
+            self.assertIn("--no-ext-diff", normalized.argv, raw)
+            self.assertIn("--no-textconv", normalized.argv, raw)
 
 
 class ClassifierBlockTests(unittest.TestCase):
@@ -107,6 +124,47 @@ class ClassifierBlockTests(unittest.TestCase):
         ):
             self.assertFalse(_classify(cmd)[0], cmd)
 
+    def test_every_non_allowlisted_command_is_refused(self):
+        for cmd in (
+            "npm run build",
+            "ruff check .",
+            "python -m pytest tests/test_x.py",
+            "ls -la",
+            "cat README.md",
+            "node scripts/gen.js",
+            "make lint",
+            "git --version",
+            "git branch -a",
+        ):
+            self.assertFalse(_classify(cmd)[0], cmd)
+
+    def test_autonomous_command_bypasses_are_blocked(self):
+        commands = (
+            "git.exe push",
+            "GH.EXE pr create",
+            "git -c alias.x=push x",
+            "git -C .. fetch",
+            "git ls-remote origin",
+            "git remote update",
+            "git submodule update --init",
+            "git lfs pull",
+            "cmd /c git push",
+            "powershell -Command git push",
+            "pwsh -Command git push",
+            "python -m malicious_push_module",
+            '"C:\\Program Files\\Git\\bin\\git.exe" status',
+            "C:\\Git\\git.exe status",
+            "./git status",
+            "curl https://github.com/o/r",
+            "git diff --no-index ../private-a ../private-b",
+            "git diff --ext-diff",
+            "git log --textconv -p",
+            "git show --output=leak.txt HEAD",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertFalse(_classify(command)[0])
+
     def test_empty_is_refused(self):
         self.assertFalse(classify_run_command("", [])[0])
 
@@ -123,10 +181,38 @@ class RunCommandToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             executor = RepositoryToolExecutor(root, allow_edits=True)
-            result = executor.invoke("run_command", {"command": "git --version"})
+            result = executor.invoke("run_command", {"command": "git status --short"})
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["data"]["returncode"], 0)
-        self.assertIn("git version", result["data"]["stdout"])
+
+    def test_bypass_matrix_is_blocked_before_aci_execution(self):
+        class RecordingACI:
+            def __init__(self):
+                self.calls = []
+
+            def run_command(self, argv, *, purpose):
+                self.calls.append((argv, purpose))
+                raise AssertionError("blocked command reached the executor")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            aci = RecordingACI()
+            executor = RepositoryToolExecutor(root, allow_edits=True, aci=aci)
+            commands = (
+                "git.exe push",
+                "GH.EXE pr create",
+                "git -c alias.x=push x",
+                "git -C .. fetch",
+                "git ls-remote origin",
+                "cmd /c git push",
+                "powershell -Command git push",
+                "python -m malicious_push_module",
+            )
+            for command in commands:
+                result = executor.invoke("run_command", {"command": command})
+                self.assertEqual(result["error_code"], "COMMAND_BLOCKED", command)
+
+        self.assertEqual(aci.calls, [])
 
     def test_blocks_a_dangerous_command_before_running(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Iterable, Sequence
 
 _SECRET = re.compile(
@@ -37,145 +37,101 @@ def is_destructive_command(command: Iterable[str]) -> bool:
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
 
 
-# --- run_command safety classifier (#310) -------------------------------------
+# --- Autonomous command capability gate --------------------------------------
 #
-# The agent's general command tool runs argv WITHOUT a shell, so pipes,
-# redirects, chaining, and substitution never execute. On top of that no-shell
-# guarantee and the cwd confinement the executor enforces, this classifier is a
-# defence-in-depth denylist: it refuses commands that reach the network, install
-# packages, escalate privilege, read secrets, or damage the machine — the model
-# is told to ask the user to run those. Everything else (build, lint, format,
-# test, generate, inspect) runs bounded and redacted.
+# ``run_command`` is intentionally much narrower than a shell. Builds and tests
+# have dedicated, fixed-command tools; GitHub/network work has consent-aware
+# connector tools. This gate therefore accepts only a small set of local Git
+# reads and returns canonical argv for execution. A denylist is insufficient:
+# executable aliases, wrappers, Git aliases and new subcommands otherwise create
+# bypasses whenever one spelling is missed.
 
-# Shell control characters. Present ⇒ the model tried to chain/redirect/pipe;
-# we refuse rather than silently running a neutered single command.
 _SHELL_OPERATORS = re.compile(r"[|&;<>`\n\r]|\$\(|\$\{|>>|<<")
-
-# First-token commands that are never run from the tool (basename, lower-cased).
-_DENIED_COMMANDS = frozenset(
-    {
-        # privilege escalation
-        "sudo",
-        "su",
-        "doas",
-        "runas",
-        # network fetch / remote code
-        "curl",
-        "wget",
-        "nc",
-        "ncat",
-        "netcat",
-        "telnet",
-        "ssh",
-        "scp",
-        "sftp",
-        "rsync",
-        "ftp",
-        "npx",
-        "bunx",
-        "pnpx",
-        # disk / device / system
-        "dd",
-        "mkfs",
-        "fdisk",
-        "parted",
-        "mount",
-        "umount",
-        "shutdown",
-        "reboot",
-        "halt",
-        "poweroff",
-        "init",
-        "systemctl",
-        "service",
-        "crontab",
-        "at",
-        "chown",
-        "chgrp",
-        # process nukes
-        "kill",
-        "pkill",
-        "killall",
-    }
+_LOCAL_GIT_READS = frozenset({"status", "diff", "log", "show", "rev-parse"})
+_EXECUTING_GIT_OPTIONS = frozenset(
+    {"--ext-diff", "--textconv", "--output", "--no-index"}
 )
 
-# Package managers whose install/add subcommand hits the network and can run
-# arbitrary install scripts. (name, subcommand) pairs.
-_NETWORK_INSTALL = {
-    ("npm", "install"),
-    ("npm", "i"),
-    ("npm", "add"),
-    ("npm", "ci"),
-    ("pnpm", "install"),
-    ("pnpm", "add"),
-    ("yarn", "install"),
-    ("yarn", "add"),
-    ("bun", "install"),
-    ("bun", "add"),
-    ("pip", "install"),
-    ("pip3", "install"),
-    ("gem", "install"),
-    ("cargo", "install"),
-    ("go", "install"),
-    ("go", "get"),
-    ("apt", "install"),
-    ("apt-get", "install"),
-    ("brew", "install"),
-    ("choco", "install"),
-    ("dnf", "install"),
-    ("yum", "install"),
-    ("poetry", "add"),
-    ("uv", "add"),
-    ("uv", "pip"),
-}
 
-# Commands that read file contents — refused when the target looks like a secret.
-_READ_COMMANDS = frozenset(
-    {"cat", "type", "less", "more", "head", "tail", "strings", "xxd", "od", "nl", "bat"}
-)
-_SECRET_ARG = re.compile(
-    r"(?:^|[\\/])(?:\.env(?:\.[\w.-]+)?|.*\.pem|.*\.key|id_[rd]sa[\w.]*|"
-    r"credentials(?:\.\w+)?|secrets?\.\w+|\.npmrc|\.netrc|\.pgpass)$",
-    re.IGNORECASE,
-)
-# Command wrappers that launch another command — they would sidestep the
-# argv[0] checks below (`env FOO=x curl ...`, `xargs rm`, `timeout 5 ssh ...`),
-# so they are refused outright rather than reasoned about.
-_COMMAND_WRAPPERS = frozenset(
-    {
-        "env",
-        "xargs",
-        "nice",
-        "ionice",
-        "nohup",
-        "setsid",
-        "timeout",
-        "stdbuf",
-        "watch",
-        "chroot",
-        "unbuffer",
-        "script",
-        "time",
-        "eval",
-        "exec",
-    }
-)
-# Bare environment dumps can exfiltrate secrets.
-_ENV_DUMP = frozenset({"printenv", "set"})
+@dataclass(frozen=True)
+class NormalizedCommand:
+    """A canonical local-read command that is safe to hand to the ACI."""
+
+    executable: str
+    subcommand: str
+    argv: tuple[str, ...]
 
 
-def _basename(token: str) -> str:
-    return PurePosixPath(str(token).replace("\\", "/")).name.lower()
+def _is_executable_path(token: str) -> bool:
+    return (
+        "/" in token
+        or "\\" in token
+        or PurePosixPath(token).is_absolute()
+        or PureWindowsPath(token).is_absolute()
+    )
+
+
+def _has_executing_git_option(arguments: Sequence[str]) -> bool:
+    for argument in arguments:
+        option = str(argument).lower()
+        if option in _EXECUTING_GIT_OPTIONS:
+            return True
+        if any(option.startswith(prefix + "=") for prefix in _EXECUTING_GIT_OPTIONS):
+            return True
+    return False
+
+
+def normalize_autonomous_command(
+    raw: str,
+    argv: Sequence[str],
+) -> NormalizedCommand | None:
+    """Return canonical argv for the explicit local Git-read allowlist.
+
+    The executable itself must be a bare ``git``/``git.exe`` basename. Only
+    ``--no-pager`` may precede the first effective subcommand. Git options that
+    can execute helpers or write output files are rejected as an extra guard
+    against repository-controlled configuration.
+    """
+
+    if not argv or _SHELL_OPERATORS.search(str(raw or "")):
+        return None
+    executable_token = str(argv[0]).strip()
+    if not executable_token or _is_executable_path(executable_token):
+        return None
+    executable = executable_token.lower()
+    if executable.endswith(".exe"):
+        executable = executable[:-4]
+    if executable != "git":
+        return None
+
+    arguments = [str(item) for item in argv[1:]]
+    canonical: list[str] = ["git"]
+    if arguments and arguments[0].lower() == "--no-pager":
+        canonical.append("--no-pager")
+        arguments.pop(0)
+    if not arguments:
+        return None
+
+    subcommand = arguments.pop(0).lower()
+    canonical.append(subcommand)
+    if subcommand == "branch":
+        if tuple(argument.lower() for argument in arguments) != ("--show-current",):
+            return None
+        canonical.append("--show-current")
+    elif subcommand in _LOCAL_GIT_READS:
+        if _has_executing_git_option(arguments):
+            return None
+        if subcommand in {"diff", "log", "show"}:
+            canonical.extend(("--no-ext-diff", "--no-textconv"))
+        canonical.extend(arguments)
+    else:
+        return None
+    return NormalizedCommand(executable, subcommand, tuple(canonical))
 
 
 def classify_run_command(raw: str, argv: Sequence[str]) -> tuple[bool, str]:
-    """Decide whether the agent's ``run_command`` may run ``argv``.
+    """Backwards-compatible classifier for the canonical capability gate."""
 
-    Returns ``(allowed, reason)``. ``allowed`` is False for any command that is
-    empty, uses shell operators, is destructive, or falls in the denylist above;
-    ``reason`` is a short, model-readable explanation. Fails closed: anything the
-    classifier cannot parse is refused.
-    """
     if not argv:
         return False, "No command was given."
     if _SHELL_OPERATORS.search(str(raw or "")):
@@ -183,37 +139,13 @@ def classify_run_command(raw: str, argv: Sequence[str]) -> tuple[bool, str]:
             "Shell operators (| & ; > < `` $()) are not supported. Run one "
             "command per call; chain steps as separate run_command calls."
         )
-    if is_destructive_command(argv):
-        return False, (
-            "This is a destructive command. Ask the user to run it themselves."
-        )
-    first = _basename(argv[0])
-    if first in _COMMAND_WRAPPERS:
-        return False, (
-            f"`{first}` wraps another command and is not allowed. Run the target "
-            "command directly."
-        )
-    if first in _DENIED_COMMANDS:
-        return False, (
-            f"`{first}` (network/privilege/system access) is not allowed from "
-            "run_command. Ask the user to run it themselves."
-        )
-    second = _basename(argv[1]) if len(argv) > 1 else ""
-    if (first, second) in _NETWORK_INSTALL:
-        return False, (
-            f"`{first} {second}` reaches the network and runs install scripts. "
-            "Ask the user to install dependencies themselves."
-        )
-    if first == "chmod" and any(
-        token in {"777", "-r", "-rf", "a+w", "o+w", "+w"}
-        for token in (str(a).lower() for a in argv[1:])
-    ):
-        return False, "World-writable or recursive chmod is not allowed."
-    if first in _READ_COMMANDS and any(_SECRET_ARG.search(str(a)) for a in argv[1:]):
-        return False, "Reading credential/secret files is not allowed."
-    if first in _ENV_DUMP and len(argv) == 1:
-        return False, "Dumping the environment can leak secrets and is not allowed."
-    return True, ""
+    if normalize_autonomous_command(raw, argv) is not None:
+        return True, ""
+    return False, (
+        "Only bounded local Git reads are allowed: status, diff, log, show, "
+        "rev-parse, or exactly branch --show-current (optional --no-pager). "
+        "Use dedicated test/build and consent-aware GitHub tools for other work."
+    )
 
 
 def _normal(value: str) -> PurePosixPath:

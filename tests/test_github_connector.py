@@ -10,6 +10,7 @@ import contextlib
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 from opaihub import github_connector as gc
 
@@ -229,6 +230,106 @@ class ReadToolTests(unittest.TestCase):
         # A secret pasted into an issue body must be redacted before it reaches
         # the model.
         self.assertNotIn("sk-abcdef1234567890abcd", result["body"])
+
+    def test_issue_search_is_origin_scoped_encoded_paginated_and_excludes_prs(self):
+        calls = []
+
+        def http(method, url, token, payload):
+            calls.append((method, url, token, payload))
+            page = int(parse_qs(urlsplit(url).query)["page"][0])
+            if page == 1:
+                return 200, {
+                    "items": [
+                        {
+                            "number": 6,
+                            "title": "A pull request",
+                            "pull_request": {"url": "https://api.github.test/pulls/6"},
+                        },
+                        {
+                            "number": 7,
+                            "title": "Fix token=sk-abcdefghijklmnopqrst",
+                            "body": "x" * 5000,
+                            "labels": [{"name": "bug"}],
+                            "state": "open",
+                            "html_url": "https://github.com/o/r/issues/7",
+                        },
+                    ]
+                }
+            return 200, {
+                "items": [
+                    {
+                        "number": 9,
+                        "title": "Second issue",
+                        "body": "bounded",
+                        "labels": [{"name": "good first issue"}],
+                        "state": "open",
+                        "html_url": "https://github.com/o/r/issues/9",
+                    }
+                ]
+            }
+
+        result = gc.search_issues(
+            Path("."),
+            query='good first issue repo:attacker/other "escape"',
+            state="open",
+            labels=("good first issue", "bug/security"),
+            limit=2,
+            http=http,
+        )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual([item["number"] for item in result["issues"]], [7, 9])
+        self.assertEqual(result["content_trust"], "untrusted_quoted_data")
+        self.assertNotIn("pull_request", str(result["issues"]))
+        self.assertNotIn("sk-abcdefghijklmnopqrst", result["issues"][0]["title"])
+        self.assertLessEqual(len(result["issues"][0]["excerpt"]), 1000)
+        self.assertEqual(len(calls), 2)
+        for method, url, token, payload in calls:
+            self.assertEqual((method, token, payload), ("GET", "ghp_test", None))
+            parsed = parse_qs(urlsplit(url).query)
+            query = parsed["q"][0]
+            self.assertIn("repo:o/r", query)
+            self.assertIn("is:issue", query)
+            self.assertIn('label:"good first issue"', query)
+            self.assertTrue(
+                query.endswith('"good first issue repo:attacker/other escape"'), query
+            )
+            self.assertNotIn(
+                "repo:attacker/other",
+                query[: -len('"good first issue repo:attacker/other escape"')],
+            )
+            self.assertLessEqual(int(parsed["per_page"][0]), 30)
+
+    def test_issue_search_requires_token_or_explicit_public_read_consent(self):
+        _FakeStore.saved = {}
+        calls = []
+
+        def http(method, url, token, payload):
+            calls.append((method, url, token, payload))
+            return 200, {"items": []}
+
+        blocked = gc.search_issues(Path("."), http=http)
+        public = gc.search_issues(Path("."), http=http, allow_public=True)
+
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(blocked["reason"], "consent_required")
+        self.assertTrue(public["ok"], public)
+        self.assertEqual(calls[0][2], "")
+
+    def test_issue_search_returns_typed_origin_auth_and_rate_limit_failures(self):
+        with mock.patch.object(gc, "repo_slug", return_value=""):
+            wrong_origin = gc.search_issues(Path("."), http=_http_ok())
+        unauthorized = gc.search_issues(
+            Path("."), http=lambda m, u, t, p: (401, {"message": "Bad credentials"})
+        )
+        limited = gc.search_issues(
+            Path("."),
+            http=lambda m, u, t, p: (403, {"message": "API rate limit exceeded"}),
+        )
+
+        self.assertEqual(wrong_origin["reason"], "not_github")
+        self.assertEqual(unauthorized["reason"], "auth")
+        self.assertEqual(limited["reason"], "rate_limit")
 
 
 class WriteToolTests(unittest.TestCase):

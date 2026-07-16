@@ -24,6 +24,7 @@ import shutil
 import subprocess  # nosec B404 - fixed git argv, never a shell
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlencode
 
 from .command_runner import redact
 from .credentials import CredentialStore, CredentialStoreUnavailable
@@ -53,16 +54,18 @@ def _default_http(
     if not url.startswith(API_ROOT + "/"):
         raise ValueError("Refusing to contact a non-GitHub API host")
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "OPai",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(  # noqa: S310 - fixed https host
         url,
         data=data,
         method=method,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "OPai",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+        headers=headers,
     )
     try:
         # nosec B310 - scheme and host are pinned to https://api.github.com by
@@ -373,6 +376,132 @@ def _read_context(
             "error": "The origin remote is not a GitHub repository",
         }
     return (token, slug), None
+
+
+def _issue_search_error(reason: str, message: str) -> dict[str, Any]:
+    return {"ok": False, "reason": reason, "error": redact(message)[:500]}
+
+
+def _literal_search_term(value: str, *, limit: int) -> str:
+    """Quote user text so GitHub search qualifiers cannot change repository scope."""
+
+    cleaned = " ".join(str(value or "").replace("\\", " ").replace('"', " ").split())
+    return cleaned[:limit]
+
+
+def search_issues(
+    project_root: Path,
+    *,
+    query: str = "",
+    state: str = "open",
+    labels: tuple[str, ...] = (),
+    limit: int = 20,
+    http: HttpFn = _default_http,
+    allow_public: bool = False,
+) -> dict[str, Any]:
+    """Search bounded issues on the active GitHub origin.
+
+    User query text is quoted as a literal and response text is returned as
+    bounded, redacted, explicitly untrusted data. A token authorizes reads;
+    anonymous public access is possible only when the caller separately records
+    consent and passes ``allow_public=True``.
+    """
+
+    slug = repo_slug(project_root)
+    if not slug:
+        return _issue_search_error(
+            "not_github", "The active origin is not a GitHub repository"
+        )
+    token, _source = stored_github_token()
+    if not token and not allow_public:
+        return _issue_search_error(
+            "consent_required",
+            "Connect GitHub or approve public repository reads before searching issues",
+        )
+
+    normalized_state = str(state or "open").strip().lower()
+    if normalized_state not in {"open", "closed", "all"}:
+        return _issue_search_error("invalid_request", "Invalid GitHub issue state")
+    try:
+        requested = max(1, min(50, int(limit)))
+    except (TypeError, ValueError):
+        return _issue_search_error("invalid_request", "Invalid GitHub issue limit")
+
+    terms = [f"repo:{slug}", "is:issue"]
+    if normalized_state != "all":
+        terms.append(f"state:{normalized_state}")
+    for raw_label in tuple(labels)[:10]:
+        label = _literal_search_term(str(raw_label), limit=64)
+        if label:
+            terms.append(f'label:"{label}"')
+    literal_query = _literal_search_term(query, limit=500)
+    if literal_query:
+        terms.append(f'"{literal_query}"')
+    search_query = " ".join(terms)
+
+    issues: list[dict[str, Any]] = []
+    seen_numbers: set[int] = set()
+    for page in (1, 2):
+        page_size = min(30, requested)
+        url = f"{API_ROOT}/search/issues?{urlencode({'q': search_query, 'per_page': page_size, 'page': page})}"
+        status_code, response = http("GET", url, token, None)
+        message = (
+            str(response.get("message") or "") if isinstance(response, dict) else ""
+        )
+        if status_code == 429 or (
+            status_code == 403 and "rate limit" in message.lower()
+        ):
+            return _issue_search_error(
+                "rate_limit", "GitHub issue search is rate limited; retry later"
+            )
+        if status_code in {401, 403}:
+            return _issue_search_error(
+                "auth", "GitHub authentication does not permit issue search"
+            )
+        if status_code != 200:
+            return _issue_search_error(
+                "github_error", f"GitHub issue search failed (HTTP {status_code})"
+            )
+        raw_items = response.get("items") if isinstance(response, dict) else response
+        if not isinstance(raw_items, list):
+            return _issue_search_error(
+                "github_error", "GitHub issue search returned an invalid response"
+            )
+        for item in raw_items:
+            if not isinstance(item, dict) or "pull_request" in item:
+                continue
+            try:
+                number = int(item.get("number"))
+            except (TypeError, ValueError):
+                continue
+            if number < 1 or number in seen_numbers:
+                continue
+            seen_numbers.add(number)
+            item_labels = [
+                redact(str(label.get("name") or ""))[:64]
+                for label in (item.get("labels") or [])[:10]
+                if isinstance(label, dict) and label.get("name")
+            ]
+            issues.append(
+                {
+                    "number": number,
+                    "title": redact(str(item.get("title") or ""))[:256],
+                    "labels": item_labels,
+                    "url": f"https://github.com/{slug}/issues/{number}",
+                    "state": str(item.get("state") or "unknown")[:16],
+                    "excerpt": redact(str(item.get("body") or ""))[:1000],
+                }
+            )
+            if len(issues) >= requested:
+                break
+        if len(issues) >= requested or len(raw_items) < page_size:
+            break
+    return {
+        "ok": True,
+        "issues": issues,
+        "content_trust": "untrusted_quoted_data",
+        "origin": slug,
+    }
 
 
 def pull_request_status(
