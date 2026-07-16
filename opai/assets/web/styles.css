@@ -219,14 +219,16 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 .nav-group-toggle:hover { color: var(--muted); }
 .nav-group-toggle .ngt-chev { font-size: 10px; }
 /* Brand button graphics (#icons) for the Insights toggle and Recents header.
-   PNGs are cropped tight to the button (no transparent padding), so we size by
-   height and let width follow the ~3.9:1 aspect — a compact, left-aligned pill
-   that reads as a section header rather than a full-width block. */
-.nav-img { display: block; height: 30px; width: auto; max-width: 100%; object-fit: contain; object-position: left center; }
-.nav-group-branded { padding: 10px 10px 4px; }
-.nav-group-branded .nav-img { max-width: calc(100% - 18px); }
-.recents-label { padding: 12px 10px 2px; }
-.recents-label .nav-img { height: 26px; }
+   PNGs are cropped tight to the button (no transparent padding), so width auto
+   makes the img box hug the pill exactly (no letterbox gap). The branded toggle
+   packs the chevron right after the pill (flex-start, not space-between) so
+   there is no dead space between them. */
+.nav-img { display: block; height: 36px; width: auto; max-width: 100%; object-fit: contain; object-position: left center; }
+.nav-group-branded { padding: 12px 10px 4px; justify-content: flex-start; gap: 8px; }
+.nav-group-branded .nav-img { max-width: calc(100% - 22px); }
+.nav-group-branded .ngt-chev { color: var(--faint); }
+.recents-label { padding: 14px 10px 4px; }
+.recents-label .nav-img { height: 32px; }
 .nav-group-body { animation: viewIn 0.18s var(--ease); }
 
 /* Settings pinned in the sidebar footer — always findable, never noisy. */
