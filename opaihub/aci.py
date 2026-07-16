@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import subprocess  # nosec B404 - argv-only injected process boundary
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from .command_runner import redact
 from .proc import no_window_kwargs
@@ -354,6 +355,7 @@ class AgentComputerInterface:
         *,
         purpose: str,
         input_text: str | None = None,
+        environment: Mapping[str, str] | None = None,
     ) -> Observation:
         argv = [str(item) for item in command]
         if not argv:
@@ -381,6 +383,12 @@ class AgentComputerInterface:
         }
         if input_text is not None:
             kwargs["input"] = input_text
+        if environment:
+            child_environment = os.environ.copy()
+            child_environment.update(
+                {str(name): str(value) for name, value in environment.items()}
+            )
+            kwargs["env"] = child_environment
         try:
             completed = self._run(argv, **kwargs)
         except subprocess.TimeoutExpired:

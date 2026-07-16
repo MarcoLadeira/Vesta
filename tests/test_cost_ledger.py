@@ -9,13 +9,17 @@ from opai.cli import main as opai_main
 from opaihub.analytics import build_analytics_summary
 from opaihub.cost_model import estimate_route_savings, estimate_tokens, load_cost_model
 from opaihub.ledger import (
+    MODEL_CALL_SCHEMA_VERSION,
     ledger_path,
     read_events,
     record_model_call,
+    record_model_call_finalized,
+    record_model_call_started,
     record_route_decision,
     summarize_ledger,
     task_fingerprint,
 )
+from opaihub.usage_report import ProviderTurnUsage
 from opaihub.savings import build_savings_report, render_savings_markdown
 
 
@@ -42,6 +46,55 @@ class CostModelTests(unittest.TestCase):
 
 
 class LedgerTests(unittest.TestCase):
+    def test_legacy_writer_remains_schema_one_and_sequenced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            event = record_model_call(
+                Path(tmp),
+                "legacy-compatible",
+                model_tier="L2",
+                provider_type="free_api",
+                tokens=10,
+                confirmed=True,
+                model_id="account:claude:opus-4.8",
+            )
+
+        self.assertEqual(event["schema_version"], 1)
+        self.assertEqual(event["ledger_sequence"], 1)
+        self.assertEqual(event["model_id"], "account:claude:opus-4.8")
+        self.assertEqual(event["canonical_model_id"], "account:claude:opus")
+
+    def test_v2_provider_turn_is_counted_once_with_reported_cost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_model_call_started(
+                root,
+                "task",
+                call_id="run:1",
+                run_id="run",
+                turn_index=1,
+                model_id="account:claude:opus",
+                provider_id="claude",
+                model_tier="L3",
+                provider_type="account",
+                confirmed=True,
+            )
+            event = record_model_call_finalized(
+                root,
+                "task",
+                call_id="run:1",
+                usage=ProviderTurnUsage.from_provider(
+                    turn_index=1,
+                    total=120,
+                    cost_usd=0.25,
+                    cost_provenance="actual",
+                ),
+            )
+            summary = summarize_ledger(root)
+
+        self.assertEqual(event["schema_version"], MODEL_CALL_SCHEMA_VERSION)
+        self.assertEqual(summary["model_call_count"], 1)
+        self.assertEqual(summary["estimated_actual_spend_usd"], 0.25)
+
     def test_route_event_records_savings_without_storing_raw_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

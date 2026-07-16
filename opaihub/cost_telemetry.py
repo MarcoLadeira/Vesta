@@ -18,11 +18,12 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from .command_runner import redact
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger
 
-COST_MEASUREMENTS = {"actual", "derived", "estimated"}
-TOKEN_MEASUREMENTS = {"provider", "estimated"}
+COST_MEASUREMENTS = {"actual", "derived", "estimated", "mixed", "unknown"}
+TOKEN_MEASUREMENTS = {"provider", "derived", "estimated", "mixed", "unknown"}
 
 # Rate-limit/quota headers worth keeping, lowercased. Values are short
 # numeric/date strings; anything else a provider sends is dropped.
@@ -32,15 +33,31 @@ _QUOTA_HEADER_PREFIXES = (
     "x-quota-",
     "retry-after",
 )
+_QUOTA_FIELD_NAMES = {
+    "limit",
+    "observed_at",
+    "remaining",
+    "requests_remaining",
+    "reset",
+    "reset_at",
+    "resetat",
+    "retry_after",
+    "retryafter",
+    "stale",
+    "status",
+    "tokens_remaining",
+    "used",
+    "window",
+}
 
 
 @dataclass(frozen=True)
 class CostTelemetry:
     provider: str
     model: str = ""
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_tokens: int = 0
+    input_tokens: int | None = 0
+    output_tokens: int | None = 0
+    total_tokens: int | None = 0
     cost_usd: float | None = None
     cost_measurement: str = "estimated"
     tokens_measurement: str = "estimated"
@@ -66,6 +83,18 @@ def quota_from_headers(headers: Mapping[str, Any] | None) -> dict[str, str]:
         if name.startswith(_QUOTA_HEADER_PREFIXES):
             quota[name] = str(value)[:64]
     return quota
+
+
+def _quota_from_report(quota: Mapping[str, Any] | None) -> dict[str, str]:
+    """Allow only bounded quota metadata and redact even allowlisted values."""
+
+    safe: dict[str, str] = {}
+    for key, value in (quota or {}).items():
+        name = str(key).lower().strip()
+        if not (name in _QUOTA_FIELD_NAMES or name.startswith(_QUOTA_HEADER_PREFIXES)):
+            continue
+        safe[name] = redact(str(value))[:64]
+    return safe
 
 
 def normalize_account_result(
@@ -153,6 +182,38 @@ def estimated_telemetry(
     )
 
 
+def usage_report_to_cost_telemetry(report: Any) -> CostTelemetry:
+    """Adapt the canonical usage report without re-estimating its values.
+
+    This is the sole compatibility boundary between provider-turn accounting
+    and the older workflow telemetry shape.  Token and dollar provenance are
+    intentionally selected independently.
+    """
+
+    from .usage_report import UsageReport
+
+    if not isinstance(report, UsageReport):
+        raise TypeError("report must be a UsageReport")
+    summary = report.summary()
+    input_usage = summary["inputTokens"]
+    output_usage = summary["outputTokens"]
+    total_usage = summary["totalTokens"]
+    cost_usage = summary["costUsd"]
+    quota = _quota_from_report(report.latest_provider_quota)
+    return CostTelemetry(
+        provider=report.provider_id.strip().lower(),
+        model=report.model_id,
+        input_tokens=input_usage["value"],
+        output_tokens=output_usage["value"],
+        total_tokens=total_usage["value"],
+        cost_usd=cost_usage["value"],
+        cost_measurement=str(cost_usage["provenance"]),
+        tokens_measurement=str(total_usage["provenance"]),
+        quota=quota,
+        source="usage_report",
+    )
+
+
 def record_workflow_cost(
     project_root: Path,
     task_id: str,
@@ -200,7 +261,12 @@ def summarize_cost_telemetry(
     figure is never silently mixed with a guess.
     """
 
-    totals = {"actual_usd": 0.0, "derived_usd": 0.0, "estimated_usd": 0.0}
+    totals = {
+        "actual_usd": 0.0,
+        "derived_usd": 0.0,
+        "estimated_usd": 0.0,
+        "mixed_usd": 0.0,
+    }
     tokens = 0
     by_provider: dict[str, dict[str, Any]] = {}
     events = read_cost_events(project_root, limit=limit)
@@ -215,6 +281,7 @@ def summarize_cost_telemetry(
                 "actual_usd": 0.0,
                 "derived_usd": 0.0,
                 "estimated_usd": 0.0,
+                "mixed_usd": 0.0,
                 "tokens": 0,
                 "calls": 0,
                 "last_quota": {},
@@ -226,7 +293,7 @@ def summarize_cost_telemetry(
         tokens += call_tokens
         if isinstance(cost, (int, float)) and not isinstance(cost, bool):
             key = f"{measurement}_usd" if measurement in COST_MEASUREMENTS else None
-            if key:
+            if key and key in totals:
                 totals[key] = round(totals[key] + float(cost), 6)
                 entry[key] = round(entry[key] + float(cost), 6)
         quota = data.get("quota")

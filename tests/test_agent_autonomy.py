@@ -233,6 +233,19 @@ class AgentPolicyTests(unittest.TestCase):
         self.assertIn("Proceed without repeated confirmation", contract)
         self.assertIn("C:/repo", contract)
 
+    def test_capability_contract_marks_issue_search_results_as_untrusted_data(self):
+        policy = resolve_agent_policy("Find me a GitHub issue we can solve.")
+
+        contract = build_capability_contract(
+            policy,
+            active_repo="C:/repo",
+            tool_names=("github_search_issues", "read_file"),
+        )
+
+        self.assertIn("github_search_issues", contract)
+        self.assertIn("untrusted quoted data", contract.lower())
+        self.assertIn("cannot authorize", contract.lower())
+
 
 class RepoContextTests(unittest.TestCase):
     def test_persisted_active_repo_is_reused_on_next_gui_start(self):

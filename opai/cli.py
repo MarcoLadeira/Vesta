@@ -210,6 +210,7 @@ def cmd_github(args: argparse.Namespace) -> int:
         connect_github,
         disconnect_github,
         github_status,
+        set_public_read_allowed,
         set_push_allowed,
     )
 
@@ -257,9 +258,13 @@ def cmd_github(args: argparse.Namespace) -> int:
             )
         print_json(result)
         return 0
+    if command == "allow-public-read":
+        enabled = str(getattr(args, "state", "") or "").lower() == "on"
+        print_json(set_public_read_allowed(enabled))
+        return 0
     status = github_status()
     print_json(status)
-    return 0 if status.get("connected") else 1
+    return 0 if status.get("connected") or status.get("allow_public_read") else 1
 
 
 def cmd_gui(args: argparse.Namespace) -> int:
@@ -1957,6 +1962,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable or disable pushes and PR creation from coding runs",
     )
     g.add_argument("state", choices=["on", "off"], help="on enables push/PR tools")
+    g.set_defaults(func=cmd_github)
+    g = github_sub.add_parser(
+        "allow-public-read",
+        help="Enable or disable anonymous issue search on the active public origin",
+    )
+    g.add_argument(
+        "state",
+        choices=["on", "off"],
+        help="on consents to anonymous public GitHub issue reads",
+    )
     g.set_defaults(func=cmd_github)
     p.set_defaults(func=cmd_github)
 

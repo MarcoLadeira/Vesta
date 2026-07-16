@@ -3,11 +3,15 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator, Mapping
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .cost_model import (
     estimate_route_savings,
@@ -16,7 +20,9 @@ from .cost_model import (
     load_cost_model,
     tier_cost,
 )
+from .model_identity import canonical_usage_model_id, model_provider
 from .state import state_dir
+from .usage_report import ProviderTurnUsage
 
 
 # Event types recorded in the local usage ledger.
@@ -26,6 +32,10 @@ EVENT_CONTEXT_COMPACT = "context_compaction"
 EVENT_CACHE = "cache_lookup"
 EVENT_CAPTURE_SESSION = "capture_session"
 EVENT_TASK_OUTCOME = "task_outcome"
+EVENT_MODEL_CALL_STARTED = "model_call_started"
+EVENT_USAGE_BASELINE_RESET = "usage_baseline_reset"
+EVENT_USAGE_ADVISORY_NOTICE = "usage_advisory_notice"
+MODEL_CALL_SCHEMA_VERSION = 2
 
 KNOWN_EVENT_TYPES = {
     EVENT_ROUTE,
@@ -34,6 +44,9 @@ KNOWN_EVENT_TYPES = {
     EVENT_CACHE,
     EVENT_CAPTURE_SESSION,
     EVENT_TASK_OUTCOME,
+    EVENT_MODEL_CALL_STARTED,
+    EVENT_USAGE_BASELINE_RESET,
+    EVENT_USAGE_ADVISORY_NOTICE,
 }
 
 # Task-outcome record (#288): the versioned shape that connects one user request
@@ -62,6 +75,17 @@ CAPTURE_RATE_DEFINITION = {
 }
 
 _LEDGER_LOCK = threading.RLock()
+_LEDGER_HEAD_SCHEMA_VERSION = 1
+_USAGE_INDEX_SCHEMA_VERSION = 1
+_MAX_LEDGER_STRING_CHARS = 4_096
+_MAX_LEDGER_IDENTIFIER_CHARS = 4_096
+_MAX_ADVISORY_HEAD_KEYS = 2_048
+_HEAD_MAPPING_KEYS = ("model_epochs", "active_calls", "advisory_notice_keys")
+_HEAD_STATE_KEYS = (
+    *_HEAD_MAPPING_KEYS,
+    "last_call_sequence",
+    "call_index_count",
+)
 
 
 def _now_iso() -> str:
@@ -70,6 +94,633 @@ def _now_iso() -> str:
 
 def ledger_path(project_root: Path) -> Path:
     return state_dir(project_root) / "ledger" / "usage.jsonl"
+
+
+def ledger_head_path(project_root: Path) -> Path:
+    return state_dir(project_root) / "ledger" / "ledger.head.json"
+
+
+def ledger_index_path(project_root: Path) -> Path:
+    return state_dir(project_root) / "ledger" / "usage.index.sqlite3"
+
+
+def _head_state_hash(head: Mapping[str, Any]) -> str:
+    state = {key: head.get(key, {}) for key in _HEAD_STATE_KEYS}
+    encoded = json.dumps(
+        state,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _empty_ledger_head() -> dict[str, Any]:
+    head = {
+        "schema_version": _LEDGER_HEAD_SCHEMA_VERSION,
+        "last_sequence": 0,
+        "last_call_sequence": 0,
+        "call_index_count": 0,
+        "ledger_offset": 0,
+        "last_event_hash": "",
+        "model_epochs": {},
+        "active_calls": {},
+        "advisory_notice_keys": {},
+    }
+    head["state_hash"] = _head_state_hash(head)
+    return head
+
+
+def _valid_ledger_head(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("schema_version") != _LEDGER_HEAD_SCHEMA_VERSION:
+        return False
+    sequence = value.get("last_sequence")
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+        return False
+    call_sequence = value.get("last_call_sequence")
+    if (
+        isinstance(call_sequence, bool)
+        or not isinstance(call_sequence, int)
+        or call_sequence < 0
+        or call_sequence > sequence
+    ):
+        return False
+    call_index_count = value.get("call_index_count")
+    if (
+        isinstance(call_index_count, bool)
+        or not isinstance(call_index_count, int)
+        or call_index_count < 0
+        or call_index_count > call_sequence
+    ):
+        return False
+    offset = value.get("ledger_offset")
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return False
+    if not isinstance(value.get("last_event_hash"), str):
+        return False
+    if not isinstance(value.get("state_hash"), str):
+        return False
+    if not all(isinstance(value.get(key), dict) for key in _HEAD_MAPPING_KEYS):
+        return False
+    try:
+        return value["state_hash"] == _head_state_hash(value)
+    except (TypeError, ValueError):
+        return False
+
+
+def _event_sequence(event: Mapping[str, Any]) -> int | None:
+    value = event.get("ledger_sequence")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
+def _apply_event_to_head(head: dict[str, Any], event: dict[str, Any]) -> None:
+    sequence = _event_sequence(event)
+    if sequence is None:
+        return
+    head["last_sequence"] = max(int(head.get("last_sequence") or 0), sequence)
+    event_type = event.get("event_type")
+    if event_type in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}:
+        head["last_call_sequence"] = max(
+            int(head.get("last_call_sequence") or 0),
+            sequence,
+        )
+    if event_type == EVENT_MODEL_CALL_STARTED:
+        call_id = str(event.get("call_id") or "")
+        if not call_id:
+            return
+        head["call_index_count"] = int(head.get("call_index_count") or 0) + 1
+        head["active_calls"].setdefault(call_id, event)
+        canonical = str(event.get("canonical_model_id") or "")
+        if canonical:
+            head["model_epochs"].setdefault(
+                canonical,
+                {
+                    "usage_epoch": int(event.get("usage_epoch") or 0),
+                    "baseline_reset_at": None,
+                },
+            )
+        return
+    if event_type == EVENT_MODEL_CALL:
+        call_id = str(event.get("call_id") or "")
+        if not call_id:
+            return
+        head["active_calls"].pop(call_id, None)
+        return
+    if event_type == EVENT_USAGE_BASELINE_RESET:
+        canonical = str(event.get("canonical_model_id") or "")
+        if canonical:
+            head["model_epochs"][canonical] = {
+                "usage_epoch": int(event.get("usage_epoch") or 0),
+                "baseline_reset_at": event.get("created_at"),
+            }
+        return
+    if event_type == EVENT_USAGE_ADVISORY_NOTICE:
+        notice_key = str(event.get("notice_key") or "")
+        if notice_key:
+            head["advisory_notice_keys"][notice_key] = sequence
+            while len(head["advisory_notice_keys"]) > _MAX_ADVISORY_HEAD_KEYS:
+                oldest = min(
+                    head["advisory_notice_keys"],
+                    key=lambda key: int(head["advisory_notice_keys"][key]),
+                )
+                del head["advisory_notice_keys"][oldest]
+
+
+def _persist_ledger_head(project_root: Path, head: dict[str, Any]) -> None:
+    head["state_hash"] = _head_state_hash(head)
+    atomic_write_text(
+        ledger_head_path(project_root),
+        json.dumps(head, indent=2, sort_keys=True, allow_nan=False) + "\n",
+    )
+
+
+def _line_digest(raw: bytes) -> str:
+    return hashlib.sha256(raw.rstrip(b"\r\n")).hexdigest()
+
+
+def _scan_sequenced_events(
+    path: Path,
+    *,
+    start_offset: int,
+) -> tuple[list[tuple[dict[str, Any], str]], int]:
+    if not path.exists():
+        return [], 0
+    size = path.stat().st_size
+    if start_offset < 0 or start_offset > size:
+        raise ValueError("ledger offset is outside the JSONL file")
+    records: list[tuple[dict[str, Any], str]] = []
+    end_offset = start_offset
+    with path.open("rb") as handle:
+        handle.seek(start_offset)
+        while raw := handle.readline():
+            terminated = raw.endswith(b"\n")
+            try:
+                value = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                if terminated:
+                    end_offset = handle.tell()
+                    continue
+                break
+            end_offset = handle.tell()
+            if isinstance(value, dict) and _event_sequence(value) is not None:
+                records.append((value, _line_digest(raw)))
+            if not terminated:
+                # A complete JSON value at EOF is a durable record even when a
+                # crash happened before its newline was written. The next
+                # append supplies the separator without reusing its sequence.
+                break
+    return records, end_offset
+
+
+def _is_record_boundary(path: Path, offset: int) -> bool:
+    if offset == 0:
+        return True
+    if not path.exists() or offset < 0 or offset > path.stat().st_size:
+        return False
+    with path.open("rb") as handle:
+        handle.seek(offset - 1)
+        return handle.read(1) == b"\n"
+
+
+def _last_sequenced_before(path: Path, offset: int) -> tuple[int, str]:
+    if offset <= 0 or not path.exists():
+        return 0, ""
+    position = min(offset, path.stat().st_size)
+    remainder = b""
+    with path.open("rb") as handle:
+        while position > 0:
+            amount = min(64 * 1024, position)
+            position -= amount
+            handle.seek(position)
+            data = handle.read(amount) + remainder
+            lines = data.split(b"\n")
+            if position:
+                remainder = lines[0]
+                candidates = lines[1:]
+            else:
+                remainder = b""
+                candidates = lines
+            for raw in reversed(candidates):
+                if not raw.strip():
+                    continue
+                try:
+                    value = json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if isinstance(value, dict):
+                    sequence = _event_sequence(value)
+                    if sequence is not None:
+                        return sequence, _line_digest(raw)
+    return 0, ""
+
+
+def _rebuild_ledger_head(path: Path) -> dict[str, Any]:
+    records, end_offset = _scan_sequenced_events(path, start_offset=0)
+    head = _empty_ledger_head()
+    for event, _digest in sorted(
+        records,
+        key=lambda item: int(item[0]["ledger_sequence"]),
+    ):
+        _apply_event_to_head(head, event)
+    head["ledger_offset"] = end_offset
+    if records:
+        _event, digest = max(
+            records,
+            key=lambda item: int(item[0]["ledger_sequence"]),
+        )
+        head["last_event_hash"] = digest
+    return head
+
+
+def _open_usage_index(project_root: Path) -> sqlite3.Connection:
+    path = ledger_index_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=5.0)
+    try:
+        connection.execute("PRAGMA synchronous=FULL")
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS metadata "
+            "(key TEXT PRIMARY KEY, value INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS calls "
+            "(call_id TEXT PRIMARY KEY, start_json TEXT NOT NULL, final_json TEXT)"
+        )
+        connection.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS calls_index_insert
+            AFTER INSERT ON calls
+            BEGIN
+                INSERT INTO metadata(key, value) VALUES ('call_count', 1)
+                ON CONFLICT(key) DO UPDATE SET value = value + 1;
+                INSERT INTO metadata(key, value) VALUES ('index_dirty', 1)
+                ON CONFLICT(key) DO UPDATE SET value = 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS calls_index_update
+            AFTER UPDATE ON calls
+            BEGIN
+                INSERT INTO metadata(key, value) VALUES ('index_dirty', 1)
+                ON CONFLICT(key) DO UPDATE SET value = 1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS calls_index_delete
+            AFTER DELETE ON calls
+            BEGIN
+                INSERT INTO metadata(key, value) VALUES ('call_count', 0)
+                ON CONFLICT(key) DO UPDATE SET value = MAX(0, value - 1);
+                INSERT INTO metadata(key, value) VALUES ('index_dirty', 1)
+                ON CONFLICT(key) DO UPDATE SET value = 1;
+            END;
+            """
+        )
+    except BaseException:
+        connection.close()
+        raise
+    return connection
+
+
+def _write_usage_index_events(
+    project_root: Path,
+    events: Iterable[dict[str, Any]],
+    *,
+    replace: bool,
+    target_sequence: int,
+) -> None:
+    connection = _open_usage_index(project_root)
+    try:
+        with connection:
+            if replace:
+                connection.execute("DELETE FROM calls")
+                connection.execute("DELETE FROM metadata")
+            for event in events:
+                call_id = str(event.get("call_id") or "")
+                if event.get("event_type") == EVENT_MODEL_CALL_STARTED and call_id:
+                    connection.execute(
+                        "INSERT INTO calls(call_id, start_json, final_json) "
+                        "VALUES (?, ?, NULL) "
+                        "ON CONFLICT(call_id) DO UPDATE SET start_json=excluded.start_json",
+                        (call_id, json.dumps(event, sort_keys=True, allow_nan=False)),
+                    )
+                elif event.get("event_type") == EVENT_MODEL_CALL and call_id:
+                    encoded = json.dumps(event, sort_keys=True, allow_nan=False)
+                    updated = connection.execute(
+                        "UPDATE calls SET final_json=? WHERE call_id=?",
+                        (encoded, call_id),
+                    )
+                    if updated.rowcount == 0:
+                        connection.execute(
+                            "INSERT INTO calls(call_id, start_json, final_json) "
+                            "VALUES (?, '{}', ?)",
+                            (call_id, encoded),
+                        )
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('last_call_sequence', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (int(target_sequence),),
+            )
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('call_count', 0) "
+                "ON CONFLICT(key) DO NOTHING"
+            )
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('schema_version', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (_USAGE_INDEX_SCHEMA_VERSION,),
+            )
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES ('index_dirty', 0) "
+                "ON CONFLICT(key) DO UPDATE SET value=0"
+            )
+    finally:
+        connection.close()
+
+
+def _index_status(project_root: Path) -> tuple[int | None, int | None, bool]:
+    if not ledger_index_path(project_root).exists():
+        return None, None, False
+    try:
+        connection = _open_usage_index(project_root)
+        try:
+            rows = dict(
+                connection.execute(
+                    "SELECT key, value FROM metadata WHERE key IN "
+                    "('schema_version', 'last_call_sequence', "
+                    "'call_count', 'index_dirty')"
+                ).fetchall()
+            )
+        finally:
+            connection.close()
+    except (OSError, sqlite3.DatabaseError, TypeError, ValueError):
+        return None, None, True
+    try:
+        schema_version = int(rows.get("schema_version", -1))
+        sequence = int(rows["last_call_sequence"])
+        call_count = int(rows["call_count"])
+        dirty = bool(int(rows.get("index_dirty", 1)))
+    except (KeyError, TypeError, ValueError):
+        return None, None, True
+    return (
+        sequence,
+        call_count,
+        dirty or schema_version != _USAGE_INDEX_SCHEMA_VERSION,
+    )
+
+
+def _remove_usage_index(project_root: Path) -> None:
+    path = ledger_index_path(project_root)
+    for candidate in (
+        path,
+        Path(f"{path}-journal"),
+        Path(f"{path}-wal"),
+        Path(f"{path}-shm"),
+    ):
+        candidate.unlink(missing_ok=True)
+
+
+def _rebuild_usage_index(project_root: Path) -> None:
+    records, _offset = _scan_sequenced_events(
+        ledger_path(project_root),
+        start_offset=0,
+    )
+    events = [
+        event
+        for event, _digest in sorted(
+            records,
+            key=lambda item: int(item[0]["ledger_sequence"]),
+        )
+        if event.get("event_type") in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}
+    ]
+    if not events:
+        try:
+            _remove_usage_index(project_root)
+        except PermissionError:
+            _write_usage_index_events(
+                project_root,
+                (),
+                replace=True,
+                target_sequence=0,
+            )
+        return
+    sequence = max(
+        (int(event["ledger_sequence"]) for event in events),
+        default=0,
+    )
+    try:
+        _write_usage_index_events(
+            project_root,
+            events,
+            replace=True,
+            target_sequence=sequence,
+        )
+    except sqlite3.DatabaseError:
+        _remove_usage_index(project_root)
+        _write_usage_index_events(
+            project_root,
+            events,
+            replace=True,
+            target_sequence=sequence,
+        )
+
+
+def _update_usage_index(project_root: Path, events: Iterable[dict[str, Any]]) -> None:
+    values = tuple(
+        event
+        for event in events
+        if event.get("event_type") in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}
+    )
+    if not values:
+        return
+    target = max(int(event["ledger_sequence"]) for event in values)
+    try:
+        _write_usage_index_events(
+            project_root,
+            values,
+            replace=False,
+            target_sequence=target,
+        )
+    except sqlite3.DatabaseError:
+        _rebuild_usage_index(project_root)
+
+
+def _load_indexed_call(
+    project_root: Path,
+    call_id: str,
+) -> dict[str, dict[str, Any] | None] | None:
+    def load() -> dict[str, dict[str, Any] | None] | None:
+        connection = _open_usage_index(project_root)
+        try:
+            row = connection.execute(
+                "SELECT start_json, final_json FROM calls WHERE call_id=?",
+                (call_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            return None
+        try:
+            start = json.loads(row[0])
+            final = json.loads(row[1]) if row[1] is not None else None
+        except (TypeError, json.JSONDecodeError) as error:
+            raise sqlite3.DatabaseError("invalid call index JSON") from error
+        return {
+            "start": start if isinstance(start, dict) and start else None,
+            "final": final if isinstance(final, dict) else None,
+        }
+
+    try:
+        return load()
+    except sqlite3.DatabaseError:
+        _rebuild_usage_index(project_root)
+        return load()
+
+
+def _recover_ledger_head(project_root: Path) -> dict[str, Any]:
+    ledger = ledger_path(project_root)
+    path = ledger_head_path(project_root)
+    loaded: Any = None
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            loaded = None
+
+    dirty = False
+    recovered_tail: list[dict[str, Any]] = []
+    if _valid_ledger_head(loaded):
+        head = loaded
+        offset = int(head["ledger_offset"])
+        size = ledger.stat().st_size if ledger.exists() else 0
+        prefix_sequence, prefix_hash = _last_sequenced_before(ledger, offset)
+        if (
+            offset > size
+            or not _is_record_boundary(ledger, offset)
+            or prefix_sequence != int(head["last_sequence"])
+            or prefix_hash != str(head["last_event_hash"])
+        ):
+            head = _rebuild_ledger_head(ledger)
+            dirty = True
+        else:
+            tail, end_offset = _scan_sequenced_events(
+                ledger,
+                start_offset=offset,
+            )
+            last = int(head["last_sequence"])
+            if any(int(event["ledger_sequence"]) <= last for event, _digest in tail):
+                head = _rebuild_ledger_head(ledger)
+                dirty = True
+            else:
+                for event, digest in sorted(
+                    tail,
+                    key=lambda item: int(item[0]["ledger_sequence"]),
+                ):
+                    _apply_event_to_head(head, event)
+                    head["last_event_hash"] = digest
+                    recovered_tail.append(event)
+                dirty = bool(tail) or end_offset != offset
+                head["ledger_offset"] = end_offset
+    else:
+        head = _rebuild_ledger_head(ledger)
+        dirty = True
+    if recovered_tail:
+        _update_usage_index(project_root, recovered_tail)
+    indexed_sequence, indexed_count, index_dirty = _index_status(project_root)
+    expected_sequence = int(head["last_call_sequence"])
+    expected_count = int(head["call_index_count"])
+    if (
+        index_dirty
+        or (indexed_sequence if indexed_sequence is not None else 0)
+        != expected_sequence
+        or (indexed_count if indexed_count is not None else 0) != expected_count
+    ):
+        _rebuild_usage_index(project_root)
+    if dirty:
+        _persist_ledger_head(project_root, head)
+    return head
+
+
+@contextmanager
+def _ledger_transaction(
+    project_root: Path,
+) -> Iterator[tuple[Path, Path, dict[str, Any]]]:
+    root = project_root.expanduser().resolve()
+    path = ledger_path(root)
+    with _LEDGER_LOCK:
+        with interprocess_transaction(path):
+            yield root, path, _recover_ledger_head(root)
+
+
+def _privacy_safe_value(value: Any, *, depth: int = 0) -> Any:
+    if depth >= 8:
+        return "[truncated]"
+    if isinstance(value, str):
+        return redact(value)[:_MAX_LEDGER_STRING_CHARS]
+    if isinstance(value, Mapping):
+        return {
+            redact(str(key))[:120]: _privacy_safe_value(item, depth=depth + 1)
+            for key, item in list(value.items())[:100]
+        }
+    if isinstance(value, (list, tuple)):
+        return [_privacy_safe_value(item, depth=depth + 1) for item in value[:100]]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return redact(str(value))[:500]
+
+
+def _build_event(
+    event_type: str,
+    *,
+    task: str,
+    store_summary: bool,
+    fields: Mapping[str, Any],
+) -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "created_at": _now_iso(),
+        "event_type": event_type,
+        "task_hash": task_fingerprint(task),
+    }
+    summary = _safe_summary(task, store_summary)
+    if summary is not None:
+        event["task_summary_redacted"] = summary
+    for key, value in fields.items():
+        event[str(key)] = _privacy_safe_value(value)
+    return event
+
+
+def _append_event_line(path: Path, event: dict[str, Any]) -> tuple[int, str]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = (json.dumps(event, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
+    with path.open("a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell():
+            handle.seek(-1, os.SEEK_END)
+            if handle.read(1) not in {b"\n", b"\r"}:
+                handle.seek(0, os.SEEK_END)
+                handle.write(b"\n")
+        handle.seek(0, os.SEEK_END)
+        handle.write(line)
+        handle.flush()
+        os.fsync(handle.fileno())
+        end_offset = handle.tell()
+    return end_offset, _line_digest(line)
+
+
+def _append_and_commit(
+    project_root: Path,
+    path: Path,
+    head: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    event["ledger_sequence"] = int(head.get("last_sequence") or 0) + 1
+    end_offset, digest = _append_event_line(path, event)
+    _apply_event_to_head(head, event)
+    head["ledger_offset"] = end_offset
+    head["last_event_hash"] = digest
+    _update_usage_index(project_root, (event,))
+    _persist_ledger_head(project_root, head)
+    return event
 
 
 def task_fingerprint(task: str) -> str:
@@ -98,25 +749,14 @@ def record_event(
     (plus an optional redacted summary when ``store_summary`` is explicitly
     enabled). Nothing leaves the machine.
     """
-    root = project_root.expanduser().resolve()
-    event: dict[str, Any] = {
-        "created_at": _now_iso(),
-        "event_type": event_type,
-        "task_hash": task_fingerprint(task),
-    }
-    summary = _safe_summary(task, store_summary)
-    if summary is not None:
-        event["task_summary_redacted"] = summary
-    # Redact any string field defensively before persisting.
-    for key, value in fields.items():
-        event[key] = redact(value) if isinstance(value, str) else value
-
-    path = ledger_path(root)
-    with _LEDGER_LOCK:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, sort_keys=True) + "\n")
-    return event
+    with _ledger_transaction(project_root) as (root, path, head):
+        event = _build_event(
+            event_type,
+            task=task,
+            store_summary=store_summary,
+            fields=fields,
+        )
+        return _append_and_commit(root, path, head, event)
 
 
 def record_capture_session(
@@ -352,6 +992,203 @@ def record_cache_lookup(
     return record_event(project_root, EVENT_CACHE, task=task, **fields)
 
 
+def _required_identifier(value: Any, name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(f"{name} is required")
+    if len(normalized) > _MAX_LEDGER_IDENTIFIER_CHARS:
+        raise ValueError(
+            f"{name} must be at most {_MAX_LEDGER_IDENTIFIER_CHARS} characters"
+        )
+    if redact(normalized) != normalized:
+        raise ValueError(f"{name} must not contain secret-like content")
+    return normalized
+
+
+def _validate_existing_start(
+    started: Mapping[str, Any],
+    *,
+    run_id: str,
+    turn_index: int,
+    canonical_model_id: str,
+    provider_id: str,
+) -> None:
+    identity = (
+        str(started.get("run_id") or ""),
+        started.get("turn_index"),
+        str(started.get("canonical_model_id") or ""),
+        str(started.get("provider_id") or ""),
+    )
+    expected = (run_id, turn_index, canonical_model_id, provider_id)
+    if identity != expected:
+        raise ValueError("call_id already belongs to a different provider turn")
+
+
+def record_model_call_started(
+    project_root: Path,
+    task: str,
+    *,
+    call_id: str,
+    run_id: str,
+    turn_index: int,
+    model_id: str,
+    provider_id: str,
+    model_tier: str,
+    provider_type: str,
+    confirmed: bool,
+) -> dict[str, Any]:
+    """Append one idempotent pre-dispatch provider-turn record."""
+
+    stable_call_id = _required_identifier(call_id, "call_id")
+    stable_run_id = _required_identifier(run_id, "run_id")
+    raw_model_id = _required_identifier(model_id, "model_id")
+    provider = _required_identifier(provider_id, "provider_id").lower()
+    if (
+        isinstance(turn_index, bool)
+        or not isinstance(turn_index, int)
+        or turn_index < 1
+    ):
+        raise ValueError("turn_index must be a positive integer")
+    canonical = canonical_usage_model_id(raw_model_id)
+
+    with _ledger_transaction(project_root) as (root, path, head):
+        indexed = _load_indexed_call(root, stable_call_id)
+        if indexed is not None and isinstance(indexed.get("start"), dict):
+            started = indexed["start"]
+            _validate_existing_start(
+                started,
+                run_id=stable_run_id,
+                turn_index=turn_index,
+                canonical_model_id=canonical,
+                provider_id=provider,
+            )
+            return started
+        active = head["active_calls"].get(stable_call_id)
+        if isinstance(active, dict):
+            _validate_existing_start(
+                active,
+                run_id=stable_run_id,
+                turn_index=turn_index,
+                canonical_model_id=canonical,
+                provider_id=provider,
+            )
+            return active
+
+        epoch_state = head["model_epochs"].get(canonical) or {}
+        usage_epoch = int(epoch_state.get("usage_epoch") or 0)
+        event = _build_event(
+            EVENT_MODEL_CALL_STARTED,
+            task=task,
+            store_summary=False,
+            fields={
+                "schema_version": MODEL_CALL_SCHEMA_VERSION,
+                "call_id": stable_call_id,
+                "run_id": stable_run_id,
+                "turn_index": turn_index,
+                "model_id": raw_model_id,
+                "canonical_model_id": canonical,
+                "provider_id": provider,
+                "model_tier": str(model_tier or "").strip().upper(),
+                "provider_type": str(provider_type or "").strip().lower(),
+                "confirmed": bool(confirmed),
+                "usage_epoch": usage_epoch,
+                "is_local_route": is_local_tier(
+                    model_tier,
+                    load_cost_model(root),
+                ),
+            },
+        )
+        return _append_and_commit(root, path, head, event)
+
+
+def record_model_call_finalized(
+    project_root: Path,
+    task: str,
+    *,
+    call_id: str,
+    usage: ProviderTurnUsage,
+) -> dict[str, Any]:
+    """Append one matching provider response without inventing missing usage."""
+
+    stable_call_id = _required_identifier(call_id, "call_id")
+    if not isinstance(usage, ProviderTurnUsage):
+        raise TypeError("usage must be a ProviderTurnUsage")
+    with _ledger_transaction(project_root) as (root, path, head):
+        indexed = _load_indexed_call(root, stable_call_id)
+        if indexed is not None and isinstance(indexed.get("final"), dict):
+            return indexed["final"]
+        started = head["active_calls"].get(stable_call_id)
+        if not isinstance(started, dict) and indexed is not None:
+            started = indexed.get("start")
+        if not isinstance(started, dict):
+            raise ValueError(f"unknown call_id: {stable_call_id}")
+        if usage.turn_index != started.get("turn_index"):
+            raise ValueError("usage turn_index does not match the started call")
+
+        fields: dict[str, Any] = {
+            "schema_version": MODEL_CALL_SCHEMA_VERSION,
+            "call_id": stable_call_id,
+            "run_id": started["run_id"],
+            "turn_index": started["turn_index"],
+            "model_id": started["model_id"],
+            "canonical_model_id": started["canonical_model_id"],
+            "provider_id": started["provider_id"],
+            "model_tier": started["model_tier"],
+            "provider_type": started["provider_type"],
+            "confirmed": started["confirmed"],
+            "is_local_route": started["is_local_route"],
+            "usage_epoch": started["usage_epoch"],
+            "model_calls": 1,
+            "tokens": usage.total_tokens.value,
+            "measurement": usage.total_tokens.provenance,
+            "input_tokens": usage.input_tokens.value,
+            "input_tokens_provenance": usage.input_tokens.provenance,
+            "output_tokens": usage.output_tokens.value,
+            "output_tokens_provenance": usage.output_tokens.provenance,
+            "total_tokens": usage.total_tokens.value,
+            "total_tokens_provenance": usage.total_tokens.provenance,
+            "cached_input_tokens": usage.cached_input_tokens.value,
+            "cached_input_tokens_provenance": usage.cached_input_tokens.provenance,
+            "reasoning_tokens": usage.reasoning_tokens.value,
+            "reasoning_tokens_provenance": usage.reasoning_tokens.provenance,
+            "cost_usd": usage.cost_usd.value,
+            "cost_usd_provenance": usage.cost_usd.provenance,
+            "estimated_actual_usd": usage.cost_usd.value,
+            "provider_quota": usage.to_dict()["providerQuota"],
+        }
+        event = _build_event(
+            EVENT_MODEL_CALL,
+            task=task,
+            store_summary=False,
+            fields=fields,
+        )
+        return _append_and_commit(root, path, head, event)
+
+
+def reset_usage_baseline(project_root: Path, model_id: str) -> dict[str, Any]:
+    """Advance one model's visible usage epoch without deleting audit history."""
+
+    raw_model_id = _required_identifier(model_id, "model_id")
+    canonical = canonical_usage_model_id(raw_model_id)
+    with _ledger_transaction(project_root) as (root, path, head):
+        prior = head["model_epochs"].get(canonical) or {}
+        previous_epoch = int(prior.get("usage_epoch") or 0)
+        event = _build_event(
+            EVENT_USAGE_BASELINE_RESET,
+            task="",
+            store_summary=False,
+            fields={
+                "schema_version": MODEL_CALL_SCHEMA_VERSION,
+                "model_id": raw_model_id,
+                "canonical_model_id": canonical,
+                "provider_id": model_provider(canonical),
+                "previous_usage_epoch": previous_epoch,
+                "usage_epoch": previous_epoch + 1,
+            },
+        )
+        return _append_and_commit(root, path, head, event)
+
+
 def record_model_call(
     project_root: Path,
     task: str,
@@ -383,9 +1220,13 @@ def record_model_call(
         if real_cost_usd is not None
         else tier_cost(model_tier, tokens, cost_model)
     )
-    metadata: dict[str, Any] = {"measurement": str(measurement or "estimated")}
+    metadata: dict[str, Any] = {
+        "schema_version": 1,
+        "measurement": str(measurement or "estimated"),
+    }
     if model_id:
         metadata["model_id"] = str(model_id)
+        metadata["canonical_model_id"] = canonical_usage_model_id(str(model_id))
     if provider_id:
         metadata["provider_id"] = str(provider_id)
     if input_tokens is not None:

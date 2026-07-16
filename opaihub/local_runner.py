@@ -521,9 +521,14 @@ class FreeAPIRunner(OpenAICompatibleRunner):
     ) -> dict[str, Any]:
         """Run a bounded repository tool loop through an OpenAI-compatible API."""
 
+        from .github_connector import public_read_allowed
         from .provider_tools import MAX_TOOL_CALLS, RepositoryToolExecutor
 
-        executor = RepositoryToolExecutor(project_root, allow_edits=allow_edits)
+        executor = RepositoryToolExecutor(
+            project_root,
+            allow_edits=allow_edits,
+            allow_github_public_read=public_read_allowed(),
+        )
         messages: list[dict[str, Any]] = []
         if system:
             messages.append({"role": "system", "content": system})

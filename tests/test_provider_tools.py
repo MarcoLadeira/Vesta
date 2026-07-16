@@ -4,6 +4,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from opaihub.provider_tools import RepositoryToolExecutor
 from tests._helpers import make_repo
@@ -42,6 +43,107 @@ class RepositoryToolExecutorTests(unittest.TestCase):
         )
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["error_code"], "TOOL_NOT_ALLOWED")
+
+    def test_github_issue_search_is_a_read_only_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = RepositoryToolExecutor(
+                root,
+                allow_edits=False,
+                allow_github_read=True,
+                allow_github_write=False,
+            )
+            names = [item["function"]["name"] for item in executor.schemas()]
+            with mock.patch(
+                "opaihub.github_connector.search_issues",
+                return_value={
+                    "ok": True,
+                    "issues": [{"number": 7, "title": "Bounded fix"}],
+                    "content_trust": "untrusted_quoted_data",
+                },
+            ) as search:
+                result = executor.invoke(
+                    "github_search_issues",
+                    {
+                        "query": "good first issue",
+                        "state": "open",
+                        "labels": ["bug"],
+                        "limit": 2,
+                    },
+                )
+
+        self.assertIn("github_search_issues", names)
+        self.assertNotIn("run_command", names)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["data"]["issues"][0]["number"], 7)
+        search.assert_called_once_with(
+            root,
+            query="good first issue",
+            state="open",
+            labels=("bug",),
+            limit=2,
+            allow_public=False,
+        )
+
+    def test_explicit_public_read_consent_can_enable_issue_search_without_a_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            with (
+                mock.patch(
+                    "opaihub.github_connector.stored_github_token",
+                    return_value=("", ""),
+                ),
+                mock.patch(
+                    "opaihub.github_connector.public_read_allowed", return_value=True
+                ),
+            ):
+                executor = RepositoryToolExecutor(
+                    root,
+                    allow_edits=False,
+                    allow_github_write=False,
+                )
+            names = [item["function"]["name"] for item in executor.schemas()]
+            with mock.patch(
+                "opaihub.github_connector.search_issues",
+                return_value={
+                    "ok": True,
+                    "issues": [],
+                    "content_trust": "untrusted_quoted_data",
+                },
+            ) as search:
+                result = executor.invoke("github_search_issues", {})
+
+        self.assertIn("github_search_issues", names)
+        self.assertNotIn("github_pr_status", names)
+        self.assertNotIn("github_get_issue", names)
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(search.call_args.kwargs["allow_public"])
+
+    def test_github_issue_search_validates_arguments_and_preserves_typed_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = RepositoryToolExecutor(
+                root,
+                allow_edits=False,
+                allow_github_read=True,
+                allow_github_write=False,
+            )
+            invalid = executor.invoke(
+                "github_search_issues",
+                {"state": "deleted", "labels": "bug", "limit": 51},
+            )
+            with mock.patch(
+                "opaihub.github_connector.search_issues",
+                return_value={
+                    "ok": False,
+                    "reason": "rate_limit",
+                    "error": "GitHub issue search is rate limited",
+                },
+            ):
+                limited = executor.invoke("github_search_issues", {})
+
+        self.assertEqual(invalid["error_code"], "INVALID_TOOL_ARGUMENTS")
+        self.assertEqual(limited["error_code"], "GITHUB_RATE_LIMIT")
 
     def test_read_and_search_paths_cannot_escape_repository(self):
         with tempfile.TemporaryDirectory() as tmp:

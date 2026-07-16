@@ -63,6 +63,12 @@ class DocumentedCommandsExistTests(unittest.TestCase):
         args = parser.parse_args(["route", "fix bug", "--record"])
         self.assertTrue(args.record)
 
+    def test_github_public_read_consent_command_is_registered(self):
+        args = build_parser().parse_args(["github", "allow-public-read", "on"])
+
+        self.assertEqual(args.github_command, "allow-public-read")
+        self.assertEqual(args.state, "on")
+
     def test_savings_runs_and_uses_positioning_help(self):
         # The command must execute without error on an empty project.
         from opai.cli import main

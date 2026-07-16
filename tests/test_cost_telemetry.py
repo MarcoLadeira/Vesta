@@ -16,12 +16,109 @@ from opaihub.cost_telemetry import (
     read_cost_events,
     record_workflow_cost,
     summarize_cost_telemetry,
+    usage_report_to_cost_telemetry,
 )
+from opaihub.usage_report import ProviderTurnUsage, UsageReport, UsageValue
 
 from tests._helpers import FakeAccountRunner, make_repo
 
 
 class NormalizationTests(unittest.TestCase):
+    def test_usage_report_is_the_single_truth_for_compatibility_telemetry(self):
+        report = UsageReport(
+            schema_version=1,
+            run_id="run-1",
+            model_id="account:claude:opus-4.8",
+            provider_id="claude",
+            turns=(
+                ProviderTurnUsage.from_provider(
+                    turn_index=1,
+                    input_tokens=80,
+                    output_tokens=20,
+                    total=120,
+                    cost_usd=0.1,
+                    cost_provenance="actual",
+                    provider_quota={"remaining": "9"},
+                ),
+            ),
+        )
+
+        telemetry = usage_report_to_cost_telemetry(report)
+
+        self.assertEqual(telemetry.input_tokens, 80)
+        self.assertEqual(telemetry.output_tokens, 20)
+        self.assertEqual(telemetry.total_tokens, 120)
+        self.assertEqual(telemetry.tokens_measurement, "provider")
+        self.assertEqual(telemetry.cost_usd, 0.1)
+        self.assertEqual(telemetry.cost_measurement, "actual")
+        self.assertEqual(telemetry.quota, {"remaining": "9"})
+        self.assertEqual(telemetry.source, "usage_report")
+
+    def test_usage_report_cost_precision_is_independent_from_token_precision(self):
+        report = UsageReport(
+            schema_version=1,
+            run_id="run-1",
+            model_id="free:gemini:flash",
+            provider_id="gemini",
+            turns=(
+                ProviderTurnUsage(
+                    turn_index=1,
+                    input_tokens=UsageValue(80, "estimated"),
+                    output_tokens=UsageValue(20, "estimated"),
+                    total_tokens=UsageValue(100, "estimated"),
+                    cached_input_tokens=UsageValue(None, "unknown"),
+                    reasoning_tokens=UsageValue(None, "unknown"),
+                    cost_usd=UsageValue(0.0, "actual"),
+                ),
+            ),
+        )
+
+        telemetry = usage_report_to_cost_telemetry(report)
+
+        self.assertEqual(telemetry.tokens_measurement, "estimated")
+        self.assertEqual(telemetry.cost_measurement, "actual")
+
+    def test_usage_report_missing_components_remain_unknown_in_telemetry(self):
+        report = UsageReport(
+            schema_version=1,
+            run_id="run-1",
+            model_id="free:gemini:flash",
+            provider_id="gemini",
+            turns=(ProviderTurnUsage.from_provider(turn_index=1, total=42),),
+        )
+
+        telemetry = usage_report_to_cost_telemetry(report)
+
+        self.assertIsNone(telemetry.input_tokens)
+        self.assertIsNone(telemetry.output_tokens)
+        self.assertEqual(telemetry.total_tokens, 42)
+
+    def test_usage_report_quota_drops_arbitrary_secret_bearing_fields(self):
+        secret = "sk-abcdefghijklmnopqrstuvwxyz"
+        report = UsageReport(
+            schema_version=1,
+            run_id="run-1",
+            model_id="free:gemini:flash",
+            provider_id="gemini",
+            turns=(
+                ProviderTurnUsage.from_provider(
+                    turn_index=1,
+                    total=42,
+                    provider_quota={
+                        "remaining": 9,
+                        "authorization": f"Bearer {secret}",
+                        "x-ratelimit-note": secret,
+                    },
+                ),
+            ),
+        )
+
+        telemetry = usage_report_to_cost_telemetry(report)
+
+        self.assertEqual(telemetry.quota["remaining"], "9")
+        self.assertNotIn("authorization", telemetry.quota)
+        self.assertNotIn(secret, str(telemetry.quota))
+
     def test_claude_reported_dollars_are_actual(self):
         telemetry = normalize_account_result(
             "claude", {"cost_usd": 0.0421}, model="account:claude:sonnet"
