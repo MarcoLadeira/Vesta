@@ -33,6 +33,7 @@
 - Create: `opaihub/atomic_io.py`
 - Create: `tests/test_atomic_io.py`
 - Create: `tests/test_pytest_discovery.py`
+- Modify: `.gitignore`
 - Modify: `pyproject.toml`
 
 **Interfaces:**
@@ -49,7 +50,7 @@
   def test_eight_processes_serialize_transactions(tmp_path):
       target = tmp_path / "state.json"
       results = run_writers(8, target)
-      assert results == list(range(8))
+      assert sorted(results) == list(range(8))
       assert json.loads(target.read_text())["writes"] == 8
 
   def test_default_collection_excludes_embedded_benchmark_fixtures():
@@ -76,6 +77,9 @@
   testpaths = ["tests"]
   ```
 
+  Add `/.superpowers/` to `.gitignore` so the required subagent-development
+  progress ledger remains durable local scratch and never enters a release.
+
 - [ ] **Step 4: Verify focused and explicit fixture collection**
 
   ```powershell
@@ -88,7 +92,7 @@
 - [ ] **Step 5: Commit**
 
   ```powershell
-  git add pyproject.toml opaihub/atomic_io.py tests/test_atomic_io.py tests/test_pytest_discovery.py
+  git add .gitignore pyproject.toml opaihub/atomic_io.py tests/test_atomic_io.py tests/test_pytest_discovery.py
   git commit -m "test: make state IO and discovery deterministic"
   ```
 
@@ -652,7 +656,7 @@
 
   ```powershell
   gh pr checks --watch
-  gh pr merge --merge --delete-branch=false
+  gh pr merge --merge
   ```
 
   Expected: required checks pass, PR is merged into `main`, branch remains available for rollback evidence, and the merged commit is verified through the GitHub API/CLI.
