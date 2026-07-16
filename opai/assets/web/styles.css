@@ -218,6 +218,14 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 }
 .nav-group-toggle:hover { color: var(--muted); }
 .nav-group-toggle .ngt-chev { font-size: 10px; }
+/* Brand button graphics (#icons) for the Insights toggle and Recents header —
+   wide transparent PNGs, shown at a modest height so their glow blends into
+   the sidebar. */
+.nav-img { display: block; height: 46px; width: 100%; object-fit: contain; object-position: left center; }
+.nav-group-branded { padding: 6px 10px 4px; }
+.nav-group-branded .nav-img { max-width: calc(100% - 16px); }
+.recents-label { padding: 8px 10px 2px; }
+.recents-label .nav-img { height: 42px; }
 .nav-group-body { animation: viewIn 0.18s var(--ease); }
 
 /* Settings pinned in the sidebar footer — always findable, never noisy. */
@@ -335,6 +343,12 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 .window-controls { display: flex; align-items: center; margin-left: 2px; }
 .window-control { width: 38px; border-radius: 6px; font-size: 15px; }
 .window-control.close:hover { color: #fff; background: #c42b3a; border-color: #c42b3a; }
+/* Brand icon images (transparent PNGs) in the header, window controls, and
+   sidebar footer. Sized to the old glyphs; the button background still reacts
+   to hover/active. */
+.tb-icon { width: 19px; height: 19px; object-fit: contain; display: block; pointer-events: none; }
+.wc-icon { width: 15px; height: 15px; object-fit: contain; display: block; pointer-events: none; }
+.foot-icon { width: 16px; height: 16px; object-fit: contain; display: inline-block; vertical-align: -3px; }
 
 .ws-switch {
   min-height: 40px;

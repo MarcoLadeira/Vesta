@@ -254,6 +254,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         ]:
             self.assertIn(f"=opai/assets/web/{asset}", joined_gui_args)
         self.assertIn("=opai/assets/fonts", joined_gui_args)
+        self.assertIn("=opai/assets/web/icons", joined_gui_args)
         self.assertIn("=opai/assets/opai-icon.png", joined_gui_args)
         self.assertIn("=opai/assets/opai-mascot.png", joined_gui_args)
         self.assertIn("=opaihub/data", joined_gui_args)
