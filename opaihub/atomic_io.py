@@ -13,8 +13,14 @@ from typing import BinaryIO, Iterator
 
 _LOCK_RETRY_SECONDS = 0.01
 _REPLACE_ATTEMPTS = 20
+_DIRECTORY_OPEN_FLAGS: int | None = (
+    None
+    if os.name == "nt"
+    else os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+)
 _PATH_LOCKS: dict[str, threading.RLock] = {}
 _PATH_LOCKS_GUARD = threading.Lock()
+_PATH_LOCKS_PROCESS_ID = os.getpid()
 _HELD_PATHS = threading.local()
 
 
@@ -27,16 +33,25 @@ def _path_key(target: Path) -> str:
 
 
 def _path_lock(key: str) -> threading.RLock:
+    global _PATH_LOCKS, _PATH_LOCKS_GUARD, _PATH_LOCKS_PROCESS_ID
+
+    process_id = os.getpid()
+    if process_id != _PATH_LOCKS_PROCESS_ID:
+        _PATH_LOCKS = {}
+        _PATH_LOCKS_GUARD = threading.Lock()
+        _PATH_LOCKS_PROCESS_ID = process_id
     with _PATH_LOCKS_GUARD:
         return _PATH_LOCKS.setdefault(key, threading.RLock())
 
 
 def _held_paths() -> set[str]:
-    held = getattr(_HELD_PATHS, "paths", None)
-    if held is None:
+    process_id = os.getpid()
+    if getattr(_HELD_PATHS, "process_id", None) != process_id:
         held = set()
+        _HELD_PATHS.process_id = process_id
         _HELD_PATHS.paths = held
-    return held
+        return held
+    return _HELD_PATHS.paths
 
 
 def _try_file_lock(handle: BinaryIO) -> bool:
@@ -82,6 +97,16 @@ def _replace_with_retry(temporary: Path, target: Path) -> None:
             if attempt == _REPLACE_ATTEMPTS - 1:
                 raise
             time.sleep(_LOCK_RETRY_SECONDS * (attempt + 1))
+
+
+def _sync_parent_directory(directory: Path) -> None:
+    if _DIRECTORY_OPEN_FLAGS is None:
+        return
+    descriptor = os.open(directory, _DIRECTORY_OPEN_FLAGS)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 @contextmanager
@@ -162,6 +187,7 @@ def atomic_write_text(
             os.fsync(handle.fileno())
         _replace_with_retry(temporary, target)
         temporary = None
+        _sync_parent_directory(target.parent)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

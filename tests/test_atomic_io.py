@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -139,6 +140,64 @@ def test_lock_contention_raises_typed_timeout(tmp_path: Path) -> None:
             pytest.fail(f"lock holder failed:\nstdout:\n{stdout}\nstderr:\n{stderr}")
 
 
+def test_process_identity_change_resets_reentrant_lock_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opaihub import atomic_io
+
+    target = tmp_path / "state.json"
+    process_id = [10_001]
+    lock_attempts: list[int] = []
+    monkeypatch.setattr(atomic_io.os, "getpid", lambda: process_id[0])
+    monkeypatch.setattr(
+        atomic_io,
+        "_try_file_lock",
+        lambda _handle: not lock_attempts.append(process_id[0]),
+    )
+    monkeypatch.setattr(atomic_io, "_unlock_file", lambda _handle: None)
+
+    with atomic_io.interprocess_transaction(target):
+        parent_lock = atomic_io._path_lock(atomic_io._path_key(target))
+        process_id[0] = 10_002
+        with atomic_io.interprocess_transaction(target):
+            child_lock = atomic_io._path_lock(atomic_io._path_key(target))
+
+    assert lock_attempts == [10_001, 10_002]
+    assert child_lock is not parent_lock
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX os.fork")
+def test_forked_child_cannot_bypass_parent_file_lock(tmp_path: Path) -> None:
+    from opaihub.atomic_io import InterprocessLockTimeout, interprocess_transaction
+
+    target = tmp_path / "state.json"
+    read_fd, write_fd = os.pipe()
+    with interprocess_transaction(target):
+        child_pid = os.fork()
+        if child_pid == 0:
+            os.close(read_fd)
+            try:
+                with interprocess_transaction(target, timeout_seconds=0.05):
+                    outcome = b"acquired"
+            except InterprocessLockTimeout:
+                outcome = b"timed-out"
+            except BaseException as error:
+                outcome = f"error:{error!r}".encode("utf-8", errors="replace")
+            os.write(write_fd, outcome)
+            os.close(write_fd)
+            os._exit(0)
+
+        os.close(write_fd)
+        outcome = os.read(read_fd, 512)
+        os.close(read_fd)
+        waited_pid, wait_status = os.waitpid(child_pid, 0)
+
+    assert waited_pid == child_pid
+    assert os.waitstatus_to_exitcode(wait_status) == 0
+    assert outcome == b"timed-out"
+
+
 def test_atomic_write_text_uses_unique_sibling_temps_and_cleans_them(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -166,6 +225,83 @@ def test_atomic_write_text_uses_unique_sibling_temps_and_cleans_them(
     assert all(source.name.startswith(f".{target.name}.") for source in sources)
     assert all(not source.exists() for source in sources)
     assert list(target.parent.glob(f".{target.name}.*.tmp")) == []
+
+
+def test_atomic_write_text_syncs_parent_directory_after_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opaihub import atomic_io
+
+    target = tmp_path / "state.txt"
+    events: list[tuple[str, Path]] = []
+    real_replace = atomic_io.os.replace
+
+    def record_replace(source: Path, destination: Path) -> None:
+        real_replace(source, destination)
+        events.append(("replace", Path(destination)))
+
+    monkeypatch.setattr(atomic_io.os, "replace", record_replace)
+    monkeypatch.setattr(
+        atomic_io,
+        "_sync_parent_directory",
+        lambda directory: events.append(("sync", Path(directory))),
+        raising=False,
+    )
+
+    atomic_io.atomic_write_text(target, "durable")
+
+    assert events == [("replace", target), ("sync", target.parent)]
+
+
+def test_sync_parent_directory_opens_fsyncs_and_closes_descriptor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opaihub import atomic_io
+
+    directory_flags = 0x4000
+    opened: list[tuple[Path, int]] = []
+    fsynced: list[int] = []
+    closed: list[int] = []
+    monkeypatch.setattr(
+        atomic_io,
+        "_DIRECTORY_OPEN_FLAGS",
+        directory_flags,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        atomic_io.os,
+        "open",
+        lambda path, flags: opened.append((Path(path), flags)) or 73,
+    )
+    monkeypatch.setattr(atomic_io.os, "fsync", fsynced.append)
+    monkeypatch.setattr(atomic_io.os, "close", closed.append)
+    sync_parent_directory = getattr(atomic_io, "_sync_parent_directory", None)
+
+    assert callable(sync_parent_directory)
+    sync_parent_directory(tmp_path)
+    assert opened == [(tmp_path, directory_flags)]
+    assert fsynced == [73]
+    assert closed == [73]
+
+
+def test_sync_parent_directory_is_noop_when_platform_does_not_support_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opaihub import atomic_io
+
+    monkeypatch.setattr(atomic_io, "_DIRECTORY_OPEN_FLAGS", None, raising=False)
+
+    def unexpected_open(_path: Path, _flags: int) -> int:
+        pytest.fail("unsupported platform attempted to open a directory")
+
+    monkeypatch.setattr(atomic_io.os, "open", unexpected_open)
+    sync_parent_directory = getattr(atomic_io, "_sync_parent_directory", None)
+
+    assert callable(sync_parent_directory)
+    sync_parent_directory(tmp_path)
 
 
 def test_failed_replace_preserves_previous_bytes_and_cleans_temp(
