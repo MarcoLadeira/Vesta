@@ -31,6 +31,7 @@ REQUIRED_WEB_ASSETS = (
     "activity.js",
     "message-state.js",
     "settings.js",
+    "onboarding.js",
 )
 GUI_QT_MODULES = (
     "Core",

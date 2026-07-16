@@ -639,7 +639,10 @@
     return (
       '<div class="set-head">About</div>' +
       row(esc, "Version", d.about.version) +
-      row(esc, "Release stage", d.about.release_stage || "—")
+      row(esc, "Release stage", d.about.release_stage || "—") +
+      // Replay the first-run tour on demand (#250).
+      '<div class="set-note">New here, or want a refresher? Replay the three-step welcome tour.</div>' +
+      '<div class="actions"><button class="btn" id="settingsReplayTour">Replay tour</button></div>'
     );
   }
 
@@ -1150,6 +1153,12 @@
         );
       };
     });
+    // Replay the first-run tour (#250) — reuses the real onboarding overlay.
+    var replayBtn = q("#settingsReplayTour");
+    if (replayBtn && ctx.replayTour)
+      replayBtn.onclick = function () {
+        ctx.replayTour();
+      };
     // Clear saved chat & recents (#239): a destructive action, gated by the
     // same styled inline confirm the rest of the app uses — never a bare click.
     var clearBtn = q("#settingsClearRecents");

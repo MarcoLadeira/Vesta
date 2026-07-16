@@ -287,7 +287,9 @@ export function fullScenario(overrides = {}) {
         { id: "approve-edits", label: "Approve Edits" },
         { id: "full-auto", label: "Full Auto" },
       ],
-      prefs: { model: "auto", mode: "safe-auto", focus: "general", format: "normal", showPanel: true },
+      // onboardingSeen defaults true so the existing suite behaves as returning
+      // users; onboarding.spec.js overrides it to false to drive the tour (#250).
+      prefs: { model: "auto", mode: "safe-auto", focus: "general", format: "normal", showPanel: true, onboardingSeen: true },
       taskModes: [
         { id: "general", label: "General" },
         { id: "coding", label: "Coding" },

@@ -368,6 +368,33 @@ class PermissionsPrivacyPayloadTests(unittest.TestCase):
         self.assertIn("no telemetry", joined)
 
 
+class OnboardingPreferenceTests(unittest.TestCase):
+    """First-run onboarding flag (#250): default-show, persist-once, boot-surfaced."""
+
+    def test_fresh_profile_boots_with_onboarding_unseen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            prefs = boot_payload(root)["prefs"]
+        self.assertFalse(prefs["onboardingSeen"])
+
+    def test_marking_seen_persists_and_surfaces_at_boot(self):
+        from opaihub.gui_preferences import save_gui_preferences
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            saved = save_gui_preferences(root, {"onboarding_seen": True})
+            self.assertTrue(saved["onboarding_seen"])
+            self.assertTrue(boot_payload(root)["prefs"]["onboardingSeen"])
+
+    def test_non_boolean_flag_is_coerced(self):
+        from opaihub.gui_preferences import save_gui_preferences
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            saved = save_gui_preferences(root, {"onboarding_seen": "yes"})
+            self.assertIs(saved["onboarding_seen"], True)
+
+
 class AppearancePreferenceTests(unittest.TestCase):
     """Appearance prefs (#241): persisted, sanitized, and surfaced at boot."""
 

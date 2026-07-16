@@ -250,6 +250,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             "activity.js",
             "message-state.js",
             "settings.js",
+            "onboarding.js",
         ]:
             self.assertIn(f"=opai/assets/web/{asset}", joined_gui_args)
         self.assertIn("=opai/assets/fonts", joined_gui_args)
