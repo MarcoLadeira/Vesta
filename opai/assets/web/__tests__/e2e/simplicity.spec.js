@@ -34,9 +34,8 @@ test("first-run sidebar is ChatGPT-simple: two items + one folded group", async 
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Prompt Library", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Money Saved", exact: true })).toBeHidden();
-  // The Insights group toggle is a branded image button; it is identified by
-  // its accessible name (aria-label), not visible text.
-  await expect(page.locator(".nav-group-toggle")).toHaveAttribute("aria-label", "Insights");
+  // The Insights group toggle is a quiet text button (sibling of New app).
+  await expect(page.locator(".nav-group-toggle")).toContainText("Insights");
 });
 
 test("Insights unfolds on demand and folds back", async ({ page }) => {

@@ -23,6 +23,7 @@ import contextlib
 import importlib.util
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -54,6 +55,45 @@ from opai.gui_workspace import (
 )
 
 WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
+
+# Name of the generated, cache-busted copy of index.html the GUI actually loads.
+# Kept next to index.html so every relative asset path, the CSP, and the qrc
+# web-channel script resolve identically to index.html itself.
+_RUNTIME_INDEX = ".runtime-index.html"
+
+_ASSET_REF = re.compile(r'(href|src)="([^"]+)"')
+
+
+def _runtime_index_url(web_dir: Path) -> "Any":
+    """Write a per-launch, cache-busted copy of index.html and return its file
+    URL. QtWebEngine's resource cache can serve a stale styles.css/app.js/icon
+    across restarts even after the file on disk changes; appending a fresh
+    ``?v=<launch>`` to every local sub-resource makes each launch request a URL
+    the cache has never seen, so the current on-disk assets always render.
+
+    Falls back to plain index.html if the package dir is not writable (e.g. a
+    read-only wheel install) — behaviour then matches the pre-change loader.
+    """
+    from PySide6.QtCore import QUrl  # local import: Qt only present in the GUI
+
+    index = web_dir / "index.html"
+    try:
+        ver = str(int(time.time() * 1000))
+
+        def _bust(m: "re.Match[str]") -> str:
+            attr, url = m.group(1), m.group(2)
+            if url.startswith(("http:", "https:", "qrc:", "data:", "//", "#")):
+                return m.group(0)
+            sep = "&" if "?" in url else "?"
+            return f'{attr}="{url}{sep}v={ver}"'
+
+        html = _ASSET_REF.sub(_bust, index.read_text(encoding="utf-8"))
+        out = web_dir / _RUNTIME_INDEX
+        out.write_text(html, encoding="utf-8")
+        return QUrl.fromLocalFile(str(out))
+    except OSError:
+        return QUrl.fromLocalFile(str(index))
+
 
 # Startup instrumentation (#246). t0 is import time — the closest proxy to GUI
 # process start. Off unless OPAI_STARTUP_TRACE is set, in which case boot marks
@@ -962,7 +1002,7 @@ def _run_gui(
         raise RuntimeError("QtWebEngine is not available")
     from PySide6 import QtCore, QtGui, QtWidgets
     from PySide6.QtWebChannel import QWebChannel
-    from PySide6.QtWebEngineCore import QWebEngineSettings
+    from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
     from PySide6.QtWebEngineWidgets import QWebEngineView
 
     QtCore.qInstallMessageHandler(lambda *_a: None)
@@ -1778,13 +1818,22 @@ def _run_gui(
                 QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, False
             )
             s.setAttribute(QWebEngineSettings.WebAttribute.ShowScrollBars, False)
+            # Local-only surface: HTML/CSS/JS/icons load from disk over file://
+            # and every byte of data arrives over the bridge, so an HTTP cache
+            # buys nothing and only causes staleness — edited CSS or swapped
+            # icons would keep showing the old bytes until the cache evicts.
+            # Disable it and clear any prior cache so a relaunch always renders
+            # the current on-disk assets.
+            prof = self.view.page().profile()
+            prof.setHttpCacheType(QWebEngineProfile.HttpCacheType.NoCache)
+            prof.clearHttpCache()
             self.setCentralWidget(self.view)
             self.bridge = Bridge(self)
             self.channel = QWebChannel()
             self.channel.registerObject("bridge", self.bridge)
             self.view.page().setWebChannel(self.channel)
             self.view.setHtml("")  # avoid white flash before load
-            self.view.load(QtCore.QUrl.fromLocalFile(str(WEB_DIR / "index.html")))
+            self.view.load(_runtime_index_url(WEB_DIR))
 
         def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
             # Closing the window is how most users "stop" an AI app: cancel any

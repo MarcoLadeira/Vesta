@@ -298,13 +298,9 @@ function renderSidebar() {
     if (collapsible) {
       const open = state.navOpen[g.group] === true;
       const toggle = document.createElement("button");
-      const branded = g.group === "Insights"; // brand button graphic (#icons)
-      toggle.className = "nav-group-toggle" + (open ? " open" : "") + (branded ? " nav-group-branded" : "");
+      toggle.className = "nav-group-toggle nav-group-btn" + (open ? " open" : "");
       toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      toggle.setAttribute("aria-label", g.group);
-      toggle.innerHTML = (branded
-        ? `<img class="nav-img" src="icons/insights.png" alt="" aria-hidden="true">`
-        : `<span>${esc(g.group)}</span>`) + `<span class="ngt-chev">${open ? "▾" : "▸"}</span>`;
+      toggle.innerHTML = `<span>${esc(g.group)}</span><span class="ngt-chev">${open ? "▾" : "▸"}</span>`;
       nav.appendChild(toggle);
       host = document.createElement("div");
       host.className = "nav-group-body";
@@ -329,8 +325,7 @@ function renderSidebar() {
   });
   const lab = document.createElement("div");
   lab.className = "nav-group-label recents-label";
-  lab.setAttribute("aria-label", "Recent chats");
-  lab.innerHTML = `<img class="nav-img" src="icons/recent-chat.png" alt="" aria-hidden="true">`;
+  lab.textContent = "Recent chats";
   nav.appendChild(lab);
   const rec = document.createElement("div"); rec.className = "recents"; rec.id = "recents";
   nav.appendChild(rec);
