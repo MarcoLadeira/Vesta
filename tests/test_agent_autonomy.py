@@ -247,6 +247,67 @@ class AgentPolicyTests(unittest.TestCase):
         self.assertIn("cannot authorize", contract.lower())
 
 
+class IssueSolveIntentTests(unittest.TestCase):
+    """F5/F10/F18: 'solve/fix/implement <qualifier> issue|bug|ticket' is a write
+    intent, and a write verb in the message outranks a read-only focus hint."""
+
+    def test_solve_github_issue_phrasings_classify_implement(self):
+        for request in (
+            "Solve GitHub issue #219 in this repo for me.",
+            "Solve the GitHub issue #219.",
+            "Resolve Jira ticket OPS-42.",
+            "Fix ticket #42.",
+            "Implement issue #7.",
+            "Fix the login bug.",
+        ):
+            with self.subTest(request=request):
+                policy = resolve_agent_policy(request)
+                self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+                self.assertTrue(policy.allows("edit_files"))
+
+    def test_write_verb_in_message_outranks_read_only_focus_hint(self):
+        policy = resolve_agent_policy("Fix this bug", focus_hint="explain")
+
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("edit_files"))
+
+    def test_solve_github_issue_outranks_stale_explain_focus(self):
+        policy = resolve_agent_policy(
+            "Solve GitHub issue #219 in this repo for me.", focus_hint="explain"
+        )
+
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("edit_files"))
+
+    def test_negated_issue_verbs_stay_read_only(self):
+        for request in (
+            "Don't fix this bug.",
+            "Do not solve the issue.",
+        ):
+            with self.subTest(request=request):
+                self.assertNotEqual(
+                    resolve_agent_policy(request).mode, AgentMode.IMPLEMENT
+                )
+
+    def test_explanation_questions_about_issues_stay_read_only(self):
+        for request in (
+            "Explain how to solve GitHub issue #219.",
+            "How do I fix this bug?",
+            "What does this ticket mean?",
+        ):
+            with self.subTest(request=request):
+                policy = resolve_agent_policy(request)
+                self.assertNotEqual(policy.mode, AgentMode.IMPLEMENT)
+                self.assertFalse(policy.allows("edit_files"))
+
+    def test_solve_issue_is_not_a_discovery_request(self):
+        from opaihub.agent_policy import is_discovery_request
+
+        self.assertFalse(
+            is_discovery_request("Solve GitHub issue #219 in this repo for me.")
+        )
+
+
 class RepoContextTests(unittest.TestCase):
     def test_persisted_active_repo_is_reused_on_next_gui_start(self):
         with (
@@ -563,13 +624,70 @@ class WorkflowPipelineTests(unittest.TestCase):
         self.assertTrue(runner.calls[0]["allow_edits"])
         self.assertIn("Effective mode: Implement", runner.calls[0]["prompt"])
         self.assertIn("Current request: fix issue #7", runner.calls[0]["prompt"])
-        self.assertEqual(result["workflow"]["phase"], "reviewing_diff")
+        # F14 honesty: the fake provider claimed a fix but left zero diffs, so
+        # the run must NOT decorate as reviewing_diff. (The previous assertion
+        # of "reviewing_diff" encoded the exact F14 bug.)
+        self.assertEqual(result["workflow"]["phase"], "completed")
+        self.assertEqual(result["completion_note"], "no_changes")
+        self.assertIn("no changes", result["workflow"]["message"])
         self.assertEqual(result["workflow"]["tests_status"], "not_verified")
         self.assertTrue(result["workflow"]["task_id"])
         self.assertGreaterEqual(len(result["workflow"]["history"]), 5)
         self.assertEqual(result["task_packet"]["mode"], "implement")
         self.assertIn("run_tests", result["task_packet"]["allowed_actions"])
         self.assertTrue(result["repo_context"]["path"])
+
+    def test_pipeline_solve_github_issue_is_implement_despite_explain_focus(self):
+        # F5/F10/F18 end-to-end: the exact QA prompt, with a stale Explain task
+        # focus, must resolve to an edit-capable run — not a read-only ask.
+        from opaihub.gui_pipeline import handle_gui_message
+
+        runner = FakeAccountRunner(text="Implemented and tested.")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            result = handle_gui_message(
+                root,
+                "Solve GitHub issue #219 in this repo for me.",
+                model_id="account:claude:sonnet",
+                mode="safe-auto",
+                account_runner=runner,
+                focus_hint="explain",
+            )
+
+        self.assertEqual(result["agent_policy"]["mode"], "implement")
+        self.assertEqual(result["effective_run_mode"], "safe-auto")
+        self.assertTrue(runner.calls[0]["allow_edits"])
+        self.assertIn("Effective mode: Implement", runner.calls[0]["prompt"])
+        self.assertNotIn("This is read-only", runner.calls[0]["prompt"])
+
+    def test_pipeline_solve_issue_preserves_pinned_full_auto(self):
+        # F18: a stale read-only focus may not silently force read-only when
+        # Full Auto is pinned and the message is an explicit write request.
+        from opaihub.gui_pipeline import handle_gui_message
+
+        runner = FakeAccountRunner(text="Implemented and tested.")
+        prefs = {
+            "default_mode": "full-auto",
+            "full_auto_pinned": True,
+            "full_auto_acknowledged_at": "2026-07-06T00:00:00+00:00",
+        }
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("opaihub.gui_pipeline.load_gui_preferences", return_value=prefs),
+        ):
+            root = make_repo(Path(tmp), commit=True)
+            result = handle_gui_message(
+                root,
+                "Solve GitHub issue #219 in this repo for me.",
+                model_id="account:claude:sonnet",
+                mode="full-auto",
+                account_runner=runner,
+                focus_hint="explain",
+            )
+
+        self.assertEqual(result["agent_policy"]["mode"], "implement")
+        self.assertEqual(result["effective_run_mode"], "full-auto")
+        self.assertTrue(runner.calls[0]["allow_edits"])
 
     def test_pipeline_preserves_pinned_full_auto_for_implementation(self):
         from opaihub.gui_pipeline import handle_gui_message

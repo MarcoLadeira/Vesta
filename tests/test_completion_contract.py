@@ -90,7 +90,9 @@ def test_unknown_legacy_status_fails_closed() -> None:
         ("rate_limit", CompletionState.PROVIDER_BLOCKED),
         ("quota", CompletionState.PROVIDER_BLOCKED),
         ("timeout", CompletionState.RETRYABLE_PROVIDER_ERROR),
+        ("approval_required", CompletionState.NEEDS_CONSENT),
         ("repeated_failure", CompletionState.STUCK_NO_PROGRESS),
+        ("repeated_success", CompletionState.STUCK_NO_PROGRESS),
         ("unclassified stop", CompletionState.FAILED),
     ],
 )

@@ -9,12 +9,31 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from opaihub.free_models import (
     FREE_MODEL_SPECS,
     list_free_models,
     spec_for_model_id,
 )
 from tests._helpers import make_repo
+
+
+@pytest.fixture(autouse=True)
+def _clean_broken_git_config_env():
+    """Scrub the broken inherited GIT_CONFIG_* header before each test.
+
+    The dev shell exports ``GIT_CONFIG_COUNT=2`` with an EMPTY
+    ``GIT_CONFIG_VALUE_0``. Any ``mock.patch.dict(os.environ, ...)`` in this
+    module round-trips that empty value through ``putenv``, which on Windows
+    deletes it — leaving a config header git rejects ("missing config value
+    GIT_CONFIG_VALUE_0") so every later ``git init`` in ``make_repo`` exits
+    128. The header is junk for these tests; removing it is safe.
+    """
+    for name in list(os.environ):
+        if name == "GIT_TERMINAL_PROMPT" or name.startswith("GIT_CONFIG_"):
+            os.environ.pop(name, None)
+    yield
 
 
 PATCH_ONE_TO_TWO = """diff --git a/app.py b/app.py
@@ -820,6 +839,279 @@ class AskFreeModelTests(unittest.TestCase):
             )
 
         self.assertEqual(result["status"], "needs_free_confirmation")
+
+
+class FreeToolCallingTests(unittest.TestCase):
+    """F6/F7: free models get a real (read-only when edits are off) tool loop."""
+
+    def test_free_read_only_run_offers_read_tools_and_loops(self):
+        """tool_calling_enabled=True + allow_edits=False drives complete_with_tools
+        with read-only authority — the model loops instead of narrating."""
+        from opaihub.ask import run_explicit_model
+
+        class RecordingLoopRunner:
+            name = "free-api"
+            model = "gemini-3.1-flash-lite"
+            last_usage = {}
+
+            def __init__(self):
+                self.calls: list[dict] = []
+
+            def available(self):
+                return True
+
+            def complete_with_tools(self, prompt, **kwargs):
+                self.calls.append(kwargs)
+                return {
+                    "text": "Explained after reading the files.",
+                    "tool_trace": [{"tool": "read_file", "ok": True, "data": {}}],
+                    "completion_state": "completed",
+                }
+
+        runner = RecordingLoopRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            result = run_explicit_model(
+                root,
+                "Explain app.py",
+                runner=runner,
+                selected_model_id="free:gemini:gemini-3.1-flash-lite",
+                allow_edits=False,
+                tool_calling_enabled=True,
+                record=False,
+            )
+
+        # The loop actually ran — no single-shot prose narration.
+        self.assertEqual(len(runner.calls), 1)
+        # Read tools are offered (tool calling on) while writes stay gated.
+        self.assertTrue(runner.calls[0]["tool_calling_enabled"])
+        self.assertFalse(runner.calls[0]["allow_edits"])
+        self.assertEqual(result["tool_trace"][0]["tool"], "read_file")
+        self.assertEqual(result["completion_state"], "completed")
+
+    def test_free_tool_loop_keeps_write_tools_gated_on_allow_edits(self):
+        """allow_edits=False must reach the loop unchanged — write tools are
+        derived from it inside the runner/executor."""
+        from opaihub.ask import run_explicit_model
+
+        class RecordingLoopRunner:
+            name = "free-api"
+            model = "m"
+            last_usage = {}
+
+            def __init__(self):
+                self.calls: list[dict] = []
+
+            def available(self):
+                return True
+
+            def complete_with_tools(self, prompt, **kwargs):
+                self.calls.append(kwargs)
+                return {"text": "ok", "tool_trace": [], "completion_state": "completed"}
+
+        runner = RecordingLoopRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            run_explicit_model(
+                root,
+                "Explain app.py",
+                runner=runner,
+                selected_model_id="free:gemini:gemini-3.1-flash-lite",
+                allow_edits=False,
+                tool_calling_enabled=True,
+                record=False,
+            )
+
+        self.assertFalse(runner.calls[0]["allow_edits"])
+
+    def test_no_tool_free_path_is_not_completed_when_nothing_happened(self):
+        """F8: a single-shot free run with an empty answer used to default to
+        'completed' — it must now report an honest non-completed state."""
+        from opaihub.ask import run_explicit_model
+        from opaihub.completion import result_is_completed
+
+        class ProseOnlyRunner:
+            name = "free-api"
+            model = "m"
+
+            def available(self):
+                return True
+
+            def complete(self, prompt, **kwargs):
+                return ""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            result = run_explicit_model(
+                root,
+                "hi",
+                runner=ProseOnlyRunner(),
+                selected_model_id="free:gemini:gemini-3.1-flash-lite",
+                record=False,
+            )
+
+        self.assertNotEqual(result["completion_state"], "completed")
+        self.assertFalse(result_is_completed(result))
+
+    def test_no_tool_free_path_with_a_real_answer_still_completes(self):
+        from opaihub.ask import run_explicit_model
+        from opaihub.completion import result_is_completed
+
+        class ProseOnlyRunner:
+            name = "free-api"
+            model = "m"
+
+            def available(self):
+                return True
+
+            def complete(self, prompt, **kwargs):
+                return "A real answer."
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            result = run_explicit_model(
+                root,
+                "hi",
+                runner=ProseOnlyRunner(),
+                selected_model_id="free:gemini:gemini-3.1-flash-lite",
+                record=False,
+            )
+
+        self.assertEqual(result["completion_state"], "completed")
+        self.assertTrue(result_is_completed(result))
+
+    def test_ask_free_threads_tool_calling_enabled_to_explicit_run(self):
+        """app_state.ask must pass the pipeline's tool authority down (F6/F7)."""
+        from opai.app_state import ask
+
+        fake_result = {
+            "status": "answered_locally",
+            "answer": "Explained.",
+            "source": "explicit_model",
+        }
+        with (
+            mock.patch(
+                "opaihub.ask.run_explicit_model", return_value=fake_result
+            ) as run_explicit,
+            mock.patch.dict(
+                os.environ,
+                {"GOOGLE_API_KEY": "sk-test"},  # pragma: allowlist secret
+            ),
+        ):
+            result = ask(
+                Path("/tmp"),
+                "Explain this project",
+                model_choice="free:gemini:gemini-3.1-flash-lite",
+                allow_cloud=True,
+                allow_edits=False,
+                tool_calling_enabled=True,
+            )
+
+        self.assertEqual(result["status"], "answered_by_free_api")
+        self.assertTrue(run_explicit.call_args.kwargs["tool_calling_enabled"])
+        self.assertFalse(run_explicit.call_args.kwargs["allow_edits"])
+
+    def test_gui_pipeline_threads_tool_authority_to_free_model(self):
+        """The pipeline computes RequestToolAuthority and passes it down."""
+        from opaihub.gui_pipeline import handle_gui_message
+
+        selected = "free:gemini:gemini-3.1-flash-lite"
+        fake_result = {
+            "status": "answered_by_free_api",
+            "answer": "Free-tier answer",
+            "source": "free_api",
+            "model_id": selected,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch("opai.app_state.ask", return_value=fake_result) as ask_mock:
+                handle_gui_message(
+                    root,
+                    "Explain this project",
+                    model_id=selected,
+                    mode="ask",
+                    allow_cloud=True,
+                )
+
+        self.assertTrue(ask_mock.call_args.kwargs["tool_calling_enabled"])
+        self.assertFalse(ask_mock.call_args.kwargs["allow_edits"])
+
+    def test_explicit_run_threads_one_shot_allow_command_to_tool_loop(self):
+        """F17/F9: the exact approved command reaches complete_with_tools."""
+        from opaihub.ask import run_explicit_model
+
+        class RecordingLoopRunner:
+            name = "free-api"
+            model = "m"
+            last_usage = {}
+
+            def __init__(self):
+                self.calls: list[dict] = []
+
+            def available(self):
+                return True
+
+            def complete_with_tools(self, prompt, **kwargs):
+                self.calls.append(kwargs)
+                return {"text": "ok", "tool_trace": [], "completion_state": "completed"}
+
+        runner = RecordingLoopRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            run_explicit_model(
+                root,
+                "Fetch the issue",
+                runner=runner,
+                selected_model_id="free:gemini:gemini-3.1-flash-lite",
+                allow_edits=True,
+                tool_calling_enabled=True,
+                record=False,
+                allow_command="gh issue view 219",
+            )
+
+        self.assertEqual(runner.calls[0]["allow_command"], "gh issue view 219")
+
+    def test_allow_command_survives_runners_without_the_parameter(self):
+        """Older runners that lack allow_command still run — the grant is additive."""
+        from opaihub.ask import run_explicit_model
+
+        class LegacyLoopRunner:
+            name = "free-api"
+            model = "m"
+            last_usage = {}
+
+            def available(self):
+                return True
+
+            def complete_with_tools(
+                self,
+                prompt,
+                *,
+                project_root,
+                allow_edits,
+                system=None,
+                timeout=60.0,
+                cancel=None,
+                max_tool_calls=None,
+                tool_calling_enabled=True,
+                guard=None,
+            ):
+                return {"text": "ok", "tool_trace": [], "completion_state": "completed"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            result = run_explicit_model(
+                root,
+                "Fetch the issue",
+                runner=LegacyLoopRunner(),
+                selected_model_id="free:gemini:gemini-3.1-flash-lite",
+                allow_edits=True,
+                tool_calling_enabled=True,
+                record=False,
+                allow_command="gh issue view 219",
+            )
+
+        self.assertEqual(result["completion_state"], "completed")
 
 
 if __name__ == "__main__":
