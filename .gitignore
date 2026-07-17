@@ -36,3 +36,4 @@ id_rsa*
 
 # Generated per-launch cache-busted GUI index (opai/gui_web.py)
 opai/assets/web/.runtime-index.html
+.worktrees
