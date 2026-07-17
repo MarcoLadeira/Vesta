@@ -256,6 +256,26 @@ def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> Agen
     )
 
 
+_DISCOVERY_SIGNAL = re.compile(
+    r"\b(?:find|search|look\s+for|pick|choose|scan|discover|browse)\b[^.]{0,60}?"
+    r"\b(?:issue|issues|ticket|tickets|pr|prs|pull\s+requests?|bug|bugs|task|tasks|"
+    r"work\s+item|something\s+to\s+(?:fix|solve|do|work|build))\b",
+    re.IGNORECASE,
+)
+
+
+def is_discovery_request(message: str) -> bool:
+    """True when the user wants to *find* work (an issue/PR/bug/task) to act on.
+
+    A discovery turn is read-only by nature: it locates work; it does not change
+    the repository.  It therefore runs with read tools (including
+    ``github_search_issues``) but no mutation tools, even under an editing UI
+    mode — you do not edit files while searching for what to do.
+    """
+
+    return bool(_DISCOVERY_SIGNAL.search(" ".join(str(message or "").split())))
+
+
 def build_capability_contract(
     policy: AgentPolicy,
     *,

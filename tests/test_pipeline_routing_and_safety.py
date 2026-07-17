@@ -13,7 +13,7 @@ from unittest import mock
 
 from _helpers import FakeAccountRunner, FakeLocalRunner, make_repo
 
-from opaihub.gui_pipeline import handle_gui_message
+from opaihub.gui_pipeline import handle_gui_message, request_tool_authority
 from opaihub.intent_router import safety_warnings
 
 
@@ -206,6 +206,73 @@ class SelectedLocalModelTests(unittest.TestCase):
         self.assertEqual(result["changed_files"], [])
         self.assertEqual(result["workflow"]["phase"], "blocked")
         self.assertTrue(run.call_args.kwargs["allow_edits"])
+
+
+class DiscoveryDetectionTests(unittest.TestCase):
+    def test_positive_discovery_phrasings(self):
+        from opaihub.agent_policy import is_discovery_request
+
+        for message in (
+            "find me a git issue that we can solve",
+            "search for an open issue to work on",
+            "look for a good first issue",
+            "pick a bug we can fix next",
+            "find something to build",
+        ):
+            self.assertTrue(is_discovery_request(message), message)
+
+    def test_editing_and_explaining_requests_are_not_discovery(self):
+        from opaihub.agent_policy import is_discovery_request
+
+        for message in (
+            "fix the login bug in app.py",
+            "add a dark-mode toggle",
+            "explain how routing works",
+            "find and replace the constant in config.py",  # a code find, not work-discovery
+        ):
+            self.assertFalse(is_discovery_request(message), message)
+
+
+class DiscoveryReadOnlyRoutingTests(unittest.TestCase):
+    """Task 6: a discovery request gets read tools, never mutation tools."""
+
+    def test_discovery_gets_read_tools_without_mutations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            authority = request_tool_authority(
+                "find me a git issue that we can solve",
+                selected_mode="full-auto",
+                repo_root=root,
+                focus_hint="build",
+            )
+        self.assertFalse(authority.allow_edits)
+        self.assertTrue(authority.is_discovery)
+        self.assertIn("github_search_issues", authority.tool_names)
+        self.assertFalse(
+            {"write_file", "apply_patch", "run_command", "git_commit"}
+            & set(authority.tool_names)
+        )
+
+    def test_editing_request_in_full_auto_keeps_mutation_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            authority = request_tool_authority(
+                "fix the bug in app.py",
+                selected_mode="full-auto",
+                repo_root=root,
+            )
+        self.assertTrue(authority.allow_edits)
+        self.assertFalse(authority.is_discovery)
+        self.assertIn("apply_patch", authority.tool_names)
+
+    def test_plan_mode_is_read_only_even_for_an_edit_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            authority = request_tool_authority(
+                "fix the bug in app.py", selected_mode="plan", repo_root=root
+            )
+        self.assertFalse(authority.allow_edits)
+        self.assertNotIn("apply_patch", authority.tool_names)
 
 
 if __name__ == "__main__":
