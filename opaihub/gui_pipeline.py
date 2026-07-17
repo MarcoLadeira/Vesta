@@ -3,13 +3,14 @@ from __future__ import annotations
 import contextlib
 import json
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from .agent_policy import (
     AgentMode,
     build_capability_contract,
+    is_discovery_request,
     resolve_agent_policy,
 )
 from .agent_runtime import AgentRuntime, RuntimePhase
@@ -35,6 +36,54 @@ from .model_intelligence import recommend_model
 from .repo_context import classify_dirty_paths, resolve_repo_context, save_active_repo
 from .task_packet import build_task_packet
 from .workflow_state import WorkflowState, load_workflow_state, save_workflow_state
+
+
+_EDITING_MODES = {"safe-auto", "full-auto"}
+
+
+@dataclass(frozen=True)
+class RequestToolAuthority:
+    """The tool vocabulary and edit authority for one request."""
+
+    allow_edits: bool
+    tool_calling_enabled: bool
+    is_discovery: bool
+    tool_names: tuple[str, ...]
+
+
+def request_tool_authority(
+    message: str,
+    *,
+    selected_mode: str,
+    repo_root: Path,
+    focus_hint: str | None = None,
+    github_public_read: bool = False,
+) -> RequestToolAuthority:
+    """Resolve which tools a request may call, and whether it may mutate.
+
+    Editing UI modes (Safe Auto / Full Auto) normally allow mutations, but a
+    *discovery* request — "find me a git issue to solve" — is read-only by
+    nature: it gets read tools plus ``github_search_issues`` and never the
+    mutation tools, even under an editing mode. This keeps "go find work" from
+    silently editing the repository before the user has chosen what to do.
+    """
+
+    from .provider_tools import available_tool_names
+
+    discovery = is_discovery_request(message)
+    allow_edits = (selected_mode in _EDITING_MODES) and not discovery
+    allow_github_public_read = True if (discovery or github_public_read) else None
+    tool_names = available_tool_names(
+        repo_root,
+        allow_edits=allow_edits,
+        allow_github_public_read=allow_github_public_read,
+    )
+    return RequestToolAuthority(
+        allow_edits=allow_edits,
+        tool_calling_enabled=True,
+        is_discovery=discovery,
+        tool_names=tuple(tool_names),
+    )
 
 
 def _mode_label(mode: str) -> str:
@@ -894,8 +943,12 @@ def handle_gui_message(
         )
 
     # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
-    # The selected model always actually answers - no canned template.
-    allow_edits = selected_mode in {"safe-auto", "full-auto"}
+    # A discovery request ("find me an issue to solve") stays read-only even in
+    # an editing mode — it locates work, it does not change the repository.
+    allow_edits = selected_mode in {
+        "safe-auto",
+        "full-auto",
+    } and not is_discovery_request(message)
 
     if selected_model.startswith("free:"):
         from opai import app_state as A
