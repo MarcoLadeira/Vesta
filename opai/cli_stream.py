@@ -82,6 +82,20 @@ def _footer_bits(result: dict[str, Any], elapsed_s: float) -> list[str]:
     return bits
 
 
+def _consent_request(result: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract a pending command-approval request from a pipeline result.
+
+    The pipeline surfaces a confirm-class command (git push, gh mutations, …)
+    as a consent payload carrying the exact command string and the reason
+    (F17). Keys are probed defensively so older payloads degrade to None.
+    """
+    for key in ("consent", "consent_payload", "approval"):
+        payload = result.get(key)
+        if isinstance(payload, dict) and str(payload.get("command") or "").strip():
+            return payload
+    return None
+
+
 def stream_ask(
     project_root: Path,
     task: str,
@@ -212,6 +226,14 @@ def stream_ask(
         elif state["last_line_open"]:
             _line("")
         footer = " · ".join(_footer_bits(result, elapsed_s))
+        consent = _consent_request(result)
+        if consent is not None:
+            # F17: never bury an approval request inside a bare status line.
+            _line(f"! Approval needed to run: {consent['command']}")
+            reason = str(consent.get("reason") or "").strip()
+            if reason:
+                _line(f"  {reason}")
+            _line("  Approve it in the app, or re-run with the command allowed.")
         if status == "cancelled":
             _line("⊘ Stopped by you — partial output kept. Retry or switch model.")
         elif status in ANSWERED:

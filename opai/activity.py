@@ -403,6 +403,13 @@ class ActivitySession:
         self._tool_seq = 0
         self._group_seq = -1
         self._last_tool_type: str | None = None
+        # Claude tool_use blocks, keyed by tool_use_id so a later tool_result
+        # can correct the optimistic row in place (F19/F11 honesty):
+        # tool_use_id -> (event_id, etype, title, detail).
+        self._tool_use_index: dict[str, tuple[str, str, str, str | None]] = {}
+        # Normalized Bash command strings -> invocation count, for the
+        # repeated-command warning (F13).
+        self._command_counts: dict[str, int] = {}
         # Open Codex items: event_id -> (started_ms, etype, title, detail).
         self._codex_open: dict[str, tuple[int, str, str, str | None]] = {}
         self._codex_execs: list[str] = []  # FIFO of open legacy exec ids
@@ -470,7 +477,67 @@ class ActivitySession:
         event["requestId"] = self.request_id
         event["group"] = f"{self.request_id}:g{self._group_seq}"
         self._tool_seq += 1
+        tool_use_id = str(block.get("id") or "").strip()
+        if tool_use_id:
+            self._tool_use_index[tool_use_id] = (
+                event["id"],
+                str(event["type"]),
+                str(event["title"]),
+                event.get("detail"),
+            )
+        # F13: a Bash command identical to one already run this request is
+        # flagged, not silently celebrated a second time.
+        name = str(block.get("name") or "").strip().lower()
+        if name == "bash":
+            command = " ".join(
+                str((block.get("input") or {}).get("command") or "").split()
+            )
+            if command:
+                count = self._command_counts.get(command, 0) + 1
+                self._command_counts[command] = count
+                if count >= 2:
+                    event["status"] = "warning"
+                    event["title"] = (
+                        f"Repeated command — same input already ran: "
+                        f"{event.get('detail') or command[:200]}"
+                    )
+                    event["metadata"]["repeated"] = True
         return event
+
+    def _tool_result(self, block: dict[str, Any]) -> dict[str, Any] | None:
+        """Correct the optimistic tool_use row when its result contradicts it.
+
+        Every tool_use is rendered optimistically; the tool_result that follows
+        is the truth.  An ``is_error`` result flips the row to ``error`` (same
+        derived id, so the front-end upserts in place); a successful but empty
+        result flips it to ``warning`` — a green check for a command that
+        returned nothing usable is how "✓ Ran" lies happened (F19/F11).
+        """
+        correction = _tool_result_correction(block)
+        if correction is None:
+            return None
+        status, suffix, detail = correction
+        tool_use_id = str(block.get("tool_use_id") or "").strip()
+        prior = self._tool_use_index.get(tool_use_id)
+        if prior is not None:
+            event_id, etype, title, prior_detail = prior
+            return make_event(
+                etype,
+                status,
+                f"{title} — {suffix}",
+                detail=detail or prior_detail,
+                event_id=event_id,
+                request_id=self.request_id,
+            )
+        # Unknown tool_use_id (schema drift or a pruned index): still surface
+        # the failure honestly as a standalone row rather than dropping it.
+        return make_event(
+            "command_complete",
+            status,
+            f"Command {suffix}",
+            detail=detail,
+            request_id=self.request_id,
+        )
 
     def _codex_item(
         self,
@@ -479,6 +546,7 @@ class ActivitySession:
         title: str,
         detail: str | None,
         item_id: str,
+        item: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """One row per Codex item: started opens it, completed closes it."""
         event_id = derived_id(self.request_id, f"codex:{item_id}")
@@ -495,10 +563,15 @@ class ActivitySession:
             )
         opened = self._codex_open.pop(event_id, None)
         duration_ms = max(0, now_ms - opened[0]) if opened else None
+        # F11: a completed command is only green when its exit code and output
+        # actually back that up.
+        status, suffix = ("success", "")
+        if etype == "command_run" and item is not None:
+            status, suffix = _codex_completion(item)
         return make_event(
             etype,
-            "success",
-            title,
+            status,
+            f"{title} — {suffix}" if suffix else title,
             detail=detail,
             event_id=event_id,
             request_id=self.request_id,
@@ -506,7 +579,7 @@ class ActivitySession:
         )
 
     def _codex_exec(
-        self, begin: bool, title: str, detail: str | None
+        self, begin: bool, title: str, detail: str | None, msg: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Legacy exec_command begin/end pairs coalesce FIFO (no item ids)."""
         now_ms = int(time.time() * 1000)
@@ -523,14 +596,18 @@ class ActivitySession:
                 event_id=event_id,
                 request_id=self.request_id,
             )
+        status, suffix = ("success", "")
+        if msg is not None:
+            status, suffix = _codex_completion(msg)
+        honest_title = f"{title} — {suffix}" if suffix else title
         if self._codex_execs:
             event_id = self._codex_execs.pop(0)
             opened = self._codex_open.pop(event_id, None)
             duration_ms = max(0, now_ms - opened[0]) if opened else None
             return make_event(
                 "command_run",
-                "success",
-                title,
+                status,
+                honest_title,
                 detail=detail,
                 event_id=event_id,
                 request_id=self.request_id,
@@ -538,7 +615,7 @@ class ActivitySession:
             )
         # An end with no open begin (schema drift): standalone row, honest.
         return make_event(
-            "command_run", "success", title, detail=detail, request_id=self.request_id
+            "command_run", status, honest_title, detail=detail, request_id=self.request_id
         )
 
     def _codex_fail_open(self) -> list[dict[str, Any]]:
@@ -623,6 +700,25 @@ def _parse_claude_line(line: str, session: ActivitySession | None) -> dict[str, 
                 else session._stream_event(out["text"])
             )
         return out
+    if kind == "user":
+        # tool_result blocks arrive inside user messages. They are the truth
+        # behind the optimistic tool_use rows: parse them so failures and
+        # empty outputs correct the timeline instead of staying "✓ Ran".
+        content = ((obj.get("message") or {}).get("content")) or []
+        if isinstance(content, list):
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if str(block.get("type") or "") != "tool_result":
+                    continue
+                event = (
+                    _tool_result_event(block)
+                    if session is None
+                    else session._tool_result(block)
+                )
+                if event is not None:
+                    out["events"].append(event)
+        return out
     if kind == "result":
         cost = obj.get("total_cost_usd")
         if isinstance(cost, (int, float)):
@@ -669,6 +765,71 @@ def _tool_event(block: dict[str, Any]) -> dict[str, Any]:
     detail = str(target)[:200]
     title = f"{verb}: {detail}" if detail else verb
     return make_event(etype, "success", title, detail=detail, metadata={"tool": name})
+
+
+def _tool_result_text(content: Any) -> str:
+    """Flatten a tool_result content payload (string or content blocks) to text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                if str(item.get("type") or "") == "text":
+                    parts.append(str(item.get("text") or ""))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts)
+    if isinstance(content, dict):
+        return str(content.get("text") or "")
+    return ""
+
+
+def _tool_result_correction(
+    block: dict[str, Any],
+) -> tuple[str, str, str | None] | None:
+    """``(status, suffix, detail)`` when a tool_result contradicts the green row.
+
+    Returns ``None`` for a successful result with real output — the optimistic
+    row was honest and needs no correction.  ``is_error`` flips to ``error``;
+    success with empty/whitespace output flips to ``warning`` (F19: an empty
+    ``gh issue view`` must not stay "✓ Ran").
+    """
+    is_error = block.get("is_error") is True
+    text = _tool_result_text(block.get("content"))
+    if not is_error and text.strip():
+        return None
+    if is_error:
+        detail = _safe_provider_diagnostic(text)[:200] if text.strip() else None
+        return ("error", "failed", detail or None)
+    return ("warning", "no output returned", None)
+
+
+def _tool_result_event(block: dict[str, Any]) -> dict[str, Any] | None:
+    """Stateless corrective event for a tool_result (v1 one-event-per-line)."""
+    correction = _tool_result_correction(block)
+    if correction is None:
+        return None
+    status, suffix, detail = correction
+    return make_event("command_complete", status, f"Command {suffix}", detail=detail)
+
+
+def _codex_completion(item: dict[str, Any]) -> tuple[str, str]:
+    """Honest terminal ``(status, title-suffix)`` for a completed command item.
+
+    A non-zero exit code is an error; a zero exit with no captured output is a
+    warning; anything unverifiable (no exit code field at all) is left alone
+    rather than guessed.
+    """
+    exit_code = item.get("exit_code", item.get("exitCode"))
+    output = item.get("aggregated_output", item.get("output", item.get("stdout")))
+    if isinstance(exit_code, bool) or not isinstance(exit_code, (int, float)):
+        return ("success", "")
+    if int(exit_code) != 0:
+        return ("error", f"failed (exit {int(exit_code)})")
+    if output is not None and not str(output).strip():
+        return ("warning", "no output returned")
+    return ("success", "")
 
 
 def parse_claude_stream(lines: list[str]) -> dict[str, Any]:
@@ -802,11 +963,21 @@ def _parse_codex_line(line: str, session: ActivitySession | None) -> dict[str, A
             item_id = str(item.get("id") or "")
             if session is not None and item_id:
                 out["events"].append(
-                    session._codex_item(kind, etype, title, target or None, item_id)
+                    session._codex_item(
+                        kind, etype, title, target or None, item_id, item
+                    )
                 )
             else:
                 # No session or no item id: v1 one-event-per-line behavior.
-                status = "success" if kind == "item.completed" else "running"
+                if kind == "item.completed":
+                    status, suffix = (
+                        _codex_completion(item)
+                        if etype == "command_run"
+                        else ("success", "")
+                    )
+                    title = f"{title} — {suffix}" if suffix else title
+                else:
+                    status = "running"
                 out["events"].append(
                     make_event(etype, status, title, detail=target or None)
                 )
@@ -824,11 +995,15 @@ def _parse_codex_line(line: str, session: ActivitySession | None) -> dict[str, A
             if session is not None:
                 out["events"].append(
                     session._codex_exec(
-                        mtype == "exec_command_begin", title, target or None
+                        mtype == "exec_command_begin", title, target or None, msg
                     )
                 )
             else:
-                status = "success" if mtype.endswith("end") else "running"
+                if mtype.endswith("end"):
+                    status, suffix = _codex_completion(msg)
+                    title = f"{title} — {suffix}" if suffix else title
+                else:
+                    status = "running"
                 out["events"].append(
                     make_event("command_run", status, title, detail=target or None)
                 )
