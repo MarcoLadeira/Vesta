@@ -820,7 +820,6 @@ class DesktopArtifactContractTests(unittest.TestCase):
             Loader=yaml.BaseLoader,
         )
         source = str(workflow)
-        sign = workflow["jobs"]["sign"]
         smoke = workflow["jobs"]["smoke"]
 
         for requirement in (
@@ -838,7 +837,12 @@ class DesktopArtifactContractTests(unittest.TestCase):
             '--macos-team-id "$MACOS_TEAM_ID"',
         ):
             self.assertIn(requirement, source)
-        self.assertIn("PUBLISHER_IDENTITY", sign["env"])
+        # PUBLISHER_IDENTITY is a runner-scoped path (outside the checkout).
+        # runner.temp is not allowed in job-level env, so it is provisioned into
+        # $GITHUB_ENV from $RUNNER_TEMP by the job's resolve-paths step.
+        self.assertIn(
+            "PUBLISHER_IDENTITY=$RUNNER_TEMP/opai-publisher-identity.json", source
+        )
         self.assertNotIn("EXPECTED_WINDOWS_SIGNER_THUMBPRINT", smoke["env"])
         self.assertNotIn("EXPECTED_MACOS_TEAM_ID", smoke["env"])
 
