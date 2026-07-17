@@ -50,11 +50,20 @@ jobs:
       RELEASE_TAG: ${{ inputs.release_tag }}
       RELEASE_CHANNEL: ${{ inputs.release_channel }}
       ALLOW_UNSIGNED_PREALPHA: ${{ inputs.allow_unsigned_prealpha }}
-      BUNDLE: ${{ runner.temp }}/opai-desktop-bundle
-      VERIFY_LOG: ${{ runner.temp }}/opai-unsigned-verification.log
       DESKTOP_BUILD_LOCK: ${{ matrix.build_lock }}
 
     steps:
+      # runner.temp is unavailable in job-level env, so resolve the runner-scoped
+      # output paths (kept outside the checkout) once here via $RUNNER_TEMP into
+      # $GITHUB_ENV; later steps read them as $BUNDLE / ${{ env.BUNDLE }}.
+      - name: Resolve runner-scoped output paths
+        shell: bash
+        run: |
+          {
+            echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
+            echo "VERIFY_LOG=$RUNNER_TEMP/opai-unsigned-verification.log"
+          } >> "$GITHUB_ENV"
+
       - name: Reject invalid channel acknowledgement and untrusted production workflow ref
         shell: bash
         run: |
@@ -193,9 +202,6 @@ jobs:
           - macos-latest
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
-      BUNDLE: ${{ runner.temp }}/opai-desktop-bundle
-      VERIFY_LOG: ${{ runner.temp }}/opai-signing-verification.log
-      PUBLISHER_IDENTITY: ${{ runner.temp }}/opai-publisher-identity.json
       EXPECTED_WINDOWS_SIGNER_THUMBPRINT: ${{ vars.OPAI_WINDOWS_SIGNER_THUMBPRINT }}
       EXPECTED_MACOS_TEAM_ID: ${{ vars.OPAI_MACOS_TEAM_ID }}
 
@@ -206,6 +212,17 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      # runner.temp is unavailable in job-level env; resolve runner-scoped signing
+      # paths here (after checkout so the checkout stays step 0) via $GITHUB_ENV.
+      - name: Resolve runner-scoped signing paths
+        shell: bash
+        run: |
+          {
+            echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
+            echo "VERIFY_LOG=$RUNNER_TEMP/opai-signing-verification.log"
+            echo "PUBLISHER_IDENTITY=$RUNNER_TEMP/opai-publisher-identity.json"
+          } >> "$GITHUB_ENV"
 
       - name: Set up trusted Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -418,8 +435,6 @@ jobs:
           - macos-latest
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
-      SIGNED_OUTPUT: ${{ runner.temp }}/opai-signed-output
-      SMOKE_REPORT: ${{ runner.temp }}/opai-smoke-report.json
 
     steps:
       - name: Check out trusted smoke tooling from main
@@ -428,6 +443,16 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+
+      # runner.temp is unavailable in job-level env; resolve runner-scoped smoke
+      # paths here (after checkout) via $GITHUB_ENV.
+      - name: Resolve runner-scoped smoke paths
+        shell: bash
+        run: |
+          {
+            echo "SIGNED_OUTPUT=$RUNNER_TEMP/opai-signed-output"
+            echo "SMOKE_REPORT=$RUNNER_TEMP/opai-smoke-report.json"
+          } >> "$GITHUB_ENV"
 
       - name: Set up trusted Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -526,10 +551,18 @@ jobs:
           - macos-latest
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
-      SIGNED_OUTPUT: ${{ runner.temp }}/opai-signed-output
-      SMOKE_OUTPUT: ${{ runner.temp }}/opai-smoke-output
 
     steps:
+      # runner.temp is unavailable in job-level env; this job has no checkout, so
+      # resolve runner-scoped paths first via $GITHUB_ENV before they are used.
+      - name: Resolve runner-scoped attestation paths
+        shell: bash
+        run: |
+          {
+            echo "SIGNED_OUTPUT=$RUNNER_TEMP/opai-signed-output"
+            echo "SMOKE_OUTPUT=$RUNNER_TEMP/opai-smoke-output"
+          } >> "$GITHUB_ENV"
+
       - name: Download immutable signed production output
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
