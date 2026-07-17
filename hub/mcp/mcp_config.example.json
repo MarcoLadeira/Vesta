@@ -23,6 +23,12 @@
       "url": "https://api.githubcopilot.com/mcp/",
       "enabled": false,
       "notes": "Read-only by default; requires explicit project opt-in."
+    },
+    "graphify": {
+      "command": "python",
+      "args": ["-m", "graphify.serve", "${PROJECT_ROOT}/graphify-out/graph.json"],
+      "enabled": false,
+      "notes": "Local knowledge-graph queries (query_graph/get_node/get_neighbors/shortest_path). Enable after building graphify-out/graph.json; requires uv tool install \"graphifyy[mcp]\"."
     }
   }
 }

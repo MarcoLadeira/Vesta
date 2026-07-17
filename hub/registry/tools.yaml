@@ -892,6 +892,44 @@
       "docs_url": "https://context7.com/docs",
       "notes": "Network tool; enable per project only when current docs are needed and local docs are insufficient.",
       "enabled_by_default": false
+    },
+    {
+      "id": "graphify",
+      "name": "Graphify",
+      "category": "context",
+      "description": "Optional local-first code knowledge-graph CLI (MIT, Graphify Labs). Maps code, docs, PDFs, and media into a queryable graph so agents run graphify query/path/explain instead of grepping and re-reading files into model context.",
+      "status": "optional",
+      "type": "local-open-source",
+      "cost_level": "free",
+      "permission_level": "medium",
+      "local_first": true,
+      "open_source": true,
+      "requires_api_key": false,
+      "env_vars": [],
+      "install_command": "uv tool install graphifyy",
+      "run_command": "graphify query \"<question>\"",
+      "health_check": {
+        "command": "graphify --version"
+      },
+      "inputs": [
+        "project path",
+        "natural-language question"
+      ],
+      "outputs": [
+        "graphify-out/graph.json",
+        "graphify-out/GRAPH_REPORT.md",
+        "graphify-out/graph.html",
+        "scoped subgraph answers"
+      ],
+      "tags": [
+        "context",
+        "repo-map",
+        "knowledge-graph",
+        "code-intelligence"
+      ],
+      "docs_url": "hub/docs/GRAPHIFY_INTEGRATION.md",
+      "notes": "Code parsing is local tree-sitter AST with zero LLM credits; the semantic pass over docs/media uses the active assistant session or an explicit API key. Register the assistant skill with 'graphify install --platform codex|kimi|agents'. MIT License (c) 2026 Safi Shamsi; OPai does not vendor graphify code.",
+      "enabled_by_default": false
     }
   ]
 }

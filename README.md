@@ -210,6 +210,7 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 - Automatic project instructions for Codex, Claude Code, and GitHub Copilot where those tools read local instruction files.
 - Superpowers as part of OPai; the default installer fetches the free open-source Superpowers repo and exposes its skills through native discovery.
 - A local-first tool registry for coding, testing, GitOps, security, MCP, docs, local models, browser automation, and deployment helpers.
+- Optional graphify integration (local code knowledge graph): the `graphify-code-graph` skill, tool registry, and MCP entries answer codebase questions at L0 before any model call.
 - Cost-aware routing that gathers git diffs, tests, profiles, registry data, logs, and cached context before model escalation.
 - Compact-by-default AI-facing output: route summaries, launcher badges, and instruction blocks stay tiny unless you opt into full evidence or welcome graphics.
 - Safe command policies for destructive shell commands, Git operations, cloud calls, and secret-bearing logs.
@@ -396,7 +397,7 @@ Global integration files are written under `~/.opai/`, `~/.agents/skills/opai/`,
 
 Superpowers is treated as part of OPai. The default installer clones or updates it under `~/.codex/superpowers`, then OPai activation ensures it is visible to native skill discovery at `~/.agents/skills/superpowers`. Restart Codex/Claude/Copilot after first activation so skills are rediscovered.
 
-OPai also publishes its own skill library under `~/.agents/skills/opai/`. That folder contains the root `opai` skill plus 35 focused OPai skills for routing, model selection, testing, debugging, GitOps, security, refactors, MCP setup, local models, and release preflight.
+OPai also publishes its own skill library under `~/.agents/skills/opai/`. That folder contains the root `opai` skill plus 36 focused OPai skills for routing, model selection, codebase knowledge graphs via graphify, testing, debugging, GitOps, security, refactors, MCP setup, local models, and release preflight.
 
 ## Legacy Name
 
