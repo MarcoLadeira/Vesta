@@ -171,6 +171,19 @@ _LEGACY_STATUS_BY_STATE = {
 }
 
 
+def result_is_completed(result: Mapping[str, Any] | None) -> bool:
+    """True only when a runner/pipeline result genuinely completed.
+
+    The single honest gate for "may this surface say the task finished?".  It
+    reads the canonical completion truth (``completion_state`` / ``stopped_reason``
+    win over any legacy ``status``), so a stuck, blocked, cancelled, or
+    needs-input run is never reported as done even when an older layer left its
+    status as "answered".
+    """
+
+    return completion_state_from_legacy(result) is CompletionState.COMPLETED
+
+
 def legacy_status_for_completion(
     state: CompletionState | str,
     *,
