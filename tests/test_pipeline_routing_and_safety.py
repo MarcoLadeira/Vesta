@@ -208,6 +208,59 @@ class SelectedLocalModelTests(unittest.TestCase):
         self.assertTrue(run.call_args.kwargs["allow_edits"])
 
 
+class HonestCompletionTests(unittest.TestCase):
+    """Task 7: a run that streamed text but did not finish never shows completed."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _run(self, ask_result):
+        events: list[dict] = []
+        selected = FakeLocalRunner(answer=ask_result.get("answer", ""))
+        with (
+            mock.patch("opaihub.local_runner.runner_for_model", return_value=selected),
+            mock.patch("opaihub.ask.run_ask", return_value=ask_result),
+        ):
+            result = handle_gui_message(
+                self.root,
+                "do the thing",
+                model_id="ollama:llama3.2",
+                mode="ask",
+                on_event=events.append,
+            )
+        return result, events
+
+    def test_stuck_run_is_not_reported_completed(self):
+        result, events = self._run(
+            {
+                "status": "answered_locally",
+                "answer": "I read some files but could not finish.",
+                "stopped_reason": "no_progress",
+                "completion_state": "stuck_no_progress",
+            }
+        )
+        titles = [str(e.get("title") or "") for e in events]
+        self.assertNotIn("OPai completed", titles)
+        self.assertTrue(any("without finishing" in t for t in titles))
+        self.assertEqual(result["checkpoint"]["completion_state"], "incomplete")
+
+    def test_genuinely_completed_run_still_reports_completed(self):
+        result, events = self._run(
+            {
+                "status": "answered_locally",
+                "answer": "Done.",
+                "completion_state": "completed",
+            }
+        )
+        titles = [str(e.get("title") or "") for e in events]
+        self.assertIn("OPai completed", titles)
+        self.assertEqual(result["checkpoint"]["completion_state"], "read_only")
+
+
 class DiscoveryDetectionTests(unittest.TestCase):
     def test_positive_discovery_phrasings(self):
         from opaihub.agent_policy import is_discovery_request

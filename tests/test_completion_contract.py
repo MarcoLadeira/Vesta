@@ -12,7 +12,23 @@ from opaihub.completion import (
     ProviderBlockedReason,
     completion_state_from_legacy,
     legacy_status_for_completion,
+    result_is_completed,
 )
+
+
+def test_result_is_completed_only_for_a_genuine_completion() -> None:
+    assert result_is_completed({"status": "answered_by_free_api"})
+    assert result_is_completed({"completion_state": "completed"})
+    # A run that streamed text but ended stuck/blocked is not a completion,
+    # even though a legacy layer left status as "answered".
+    assert not result_is_completed(
+        {"status": "answered_by_free_api", "stopped_reason": "no_progress"}
+    )
+    assert not result_is_completed(
+        {"status": "answered", "completion_state": "provider_blocked"}
+    )
+    assert not result_is_completed({"status": "cancelled"})
+    assert not result_is_completed(None)
 
 
 def test_legacy_stop_text_can_never_map_to_completed() -> None:

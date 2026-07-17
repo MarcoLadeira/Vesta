@@ -16,6 +16,11 @@ from .agent_policy import (
 from .agent_runtime import AgentRuntime, RuntimePhase
 from .autonomy import effective_mode
 from .checkpoints import create_run_checkpoint, finalize_run_checkpoint
+from .completion import (
+    CompletionState,
+    completion_state_from_legacy,
+    result_is_completed,
+)
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
 from .cost_telemetry import (
     estimated_telemetry,
@@ -39,6 +44,24 @@ from .workflow_state import WorkflowState, load_workflow_state, save_workflow_st
 
 
 _EDITING_MODES = {"safe-auto", "full-auto"}
+
+# Honest terminal titles for a run that produced text but did not complete
+# (Task 7). No non-COMPLETED run ever shows "OPai completed".
+_INCOMPLETE_TITLES = {
+    CompletionState.STUCK_NO_PROGRESS: "OPai stopped without finishing",
+    CompletionState.PROVIDER_BLOCKED: "OPai stopped: provider blocked",
+    CompletionState.NEEDS_CONSENT: "OPai needs your confirmation to continue",
+    CompletionState.NEEDS_USER_INPUT: "OPai needs more information",
+    CompletionState.RETRYABLE_PROVIDER_ERROR: "Provider was temporarily unavailable",
+    CompletionState.CANCELLED: "Stopped by you",
+    CompletionState.FAILED: "OPai could not complete the task",
+}
+
+
+def _incomplete_title(result: dict[str, Any]) -> str:
+    return _INCOMPLETE_TITLES.get(
+        completion_state_from_legacy(result), "OPai stopped without finishing"
+    )
 
 
 @dataclass(frozen=True)
@@ -720,14 +743,40 @@ def handle_gui_message(
         # "answered"; a read-only answer is "read_only"; confirmation prompts
         # edited nothing; a cancel with no in-run changes is
         # "cancelled_before_edit".
-        if status == "answered":
+        # Honest completion truth (Task 7): the canonical state wins over the
+        # legacy status, so a run that streamed some text but ended stuck /
+        # blocked / cancelled is never recorded as "answered". The runner's
+        # completion signal may sit on the payload or its raw_result.
+        _raw = payload.get("raw_result")
+        _raw = _raw if isinstance(_raw, dict) else {}
+        canonical = completion_state_from_legacy(
+            {
+                "status": payload.get("status"),
+                "completion_state": payload.get("completion_state")
+                or _raw.get("completion_state")
+                or "",
+                "stopped_reason": payload.get("stopped_reason")
+                or _raw.get("stopped_reason")
+                or "",
+            }
+        )
+        completed_ok = canonical is CompletionState.COMPLETED
+        if status == "answered" and completed_ok:
             completion = "answered" if edit_capable else "read_only"
-        elif status == "cancelled":
+        elif canonical is CompletionState.CANCELLED or status == "cancelled":
             completion = "cancelled_before_edit" if not changed_files else "cancelled"
-        elif status in {"blocked", "capability_mismatch"}:
+        elif canonical is CompletionState.PROVIDER_BLOCKED or status in {
+            "blocked",
+            "capability_mismatch",
+        }:
             completion = "blocked"
-        elif status.startswith("needs_"):
+        elif canonical in {
+            CompletionState.NEEDS_CONSENT,
+            CompletionState.NEEDS_USER_INPUT,
+        } or status.startswith("needs_"):
             completion = "read_only"
+        elif canonical is CompletionState.STUCK_NO_PROGRESS:
+            completion = "incomplete"
         else:
             completion = "failed"
         recovery = tuple(str(item) for item in payload.get("next_actions") or ())
@@ -758,9 +807,9 @@ def handle_gui_message(
                 turn_id,
                 state=(
                     DONE
-                    if status == "answered"
+                    if status == "answered" and completed_ok
                     else CANCELLED
-                    if status == "cancelled"
+                    if canonical is CompletionState.CANCELLED or status == "cancelled"
                     else FAILED
                 ),
             )
@@ -1032,8 +1081,13 @@ def handle_gui_message(
             or "The free-tier API did not return an answer."
         )
         if status == "answered":
-            _phase_close("success", "Request sent")
-            _emit("completed", "success", "OPai completed")
+            if result_is_completed(result):
+                _phase_close("success", "Request sent")
+                _emit("completed", "success", "OPai completed")
+            else:
+                # Honest: text was produced but the run did not finish.
+                _phase_close("warning", "Stopped without finishing")
+                _emit("stopped", "warning", _incomplete_title(result))
             # The runner already streamed tokens to on_text (#154); only emit the
             # whole answer here when it did NOT stream (blocking path).
             if on_text and answer and not result.get("streamed"):
@@ -1236,8 +1290,10 @@ def handle_gui_message(
                 selected_mode=selected_mode,
                 tool_count=len(tool_trace),
             )
-        if status == "answered":
+        if status == "answered" and result_is_completed(result):
             _emit("completed", "success", "OPai completed")
+        elif status == "answered":
+            _emit("stopped", "warning", _incomplete_title(result))
         else:
             error = result.get("error") if isinstance(result.get("error"), dict) else {}
             code = str(error.get("code") or "UNKNOWN")
@@ -1399,8 +1455,12 @@ def handle_gui_message(
             model_id=selected_model,
             mode=selected_mode,
         )
-        _phase_close("success", "Answered locally")
-        _emit("completed", "success", "OPai completed")
+        if result_is_completed(result):
+            _phase_close("success", "Answered locally")
+            _emit("completed", "success", "OPai completed")
+        else:
+            _phase_close("warning", "Stopped without finishing")
+            _emit("stopped", "warning", _incomplete_title(result))
         # Skip the one-shot emit when the runner already streamed tokens (#154).
         if on_text and answer and not result.get("streamed"):
             on_text(answer)
