@@ -385,7 +385,11 @@ class FreeAPIRunnerTests(unittest.TestCase):
         ]
         self.assertNotIn("apply_patch", names)
 
-    def test_tool_loop_enforces_limit_across_batched_calls(self):
+    def test_explicit_external_ceiling_stops_recoverably_without_slicing(self):
+        # Task 5: 12 is no longer a terminal budget. An explicit, deprecated
+        # external ceiling is honoured only when set (the GUI never sets it), and
+        # a batch that would cross it stops recoverably — never a partial turn,
+        # never a fake completion.
         from opaihub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
@@ -421,17 +425,16 @@ class FreeAPIRunnerTests(unittest.TestCase):
             with mock.patch(
                 "opaihub.local_runner._http_json_cancellable", return_value=response
             ):
-                # #311: the budget is enforced by stopping cleanly with an honest
-                # terminal — not by raising or by running a partial batch.
                 result = runner.complete_with_tools(
                     "Read app.py",
                     project_root=root,
                     allow_edits=True,
                     max_tool_calls=1,
                 )
-            self.assertEqual(result["stopped_reason"], "tool_budget_exhausted")
+            self.assertEqual(result["stopped_reason"], "external_ceiling")
+            self.assertEqual(result["completion_state"], "stuck_no_progress")
             self.assertEqual(result["tool_trace"], [])
-            self.assertIn("budget", result["text"].lower())
+            self.assertIn("ceiling", result["text"].lower())
             # No partial, half-applied turn ran.
             self.assertEqual((root / "app.py").read_text(), "value = 1\n")
 
@@ -468,6 +471,8 @@ class FreeAPIRunnerTests(unittest.TestCase):
                     "Fix it", project_root=root, allow_edits=True
                 )
         self.assertEqual(result["stopped_reason"], "repeated_failure")
+        # A thrashing run is reported honestly — never "OPai completed".
+        self.assertEqual(result["completion_state"], "stuck_no_progress")
         self.assertTrue(result["last_error"])
         # Stopped at the repeat threshold, not after burning the whole budget.
         self.assertEqual(len(result["tool_trace"]), 3)
@@ -513,6 +518,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
                     "Set value to two.", project_root=root, allow_edits=True
                 )
             self.assertEqual(result["stopped_reason"], "")
+            self.assertEqual(result["completion_state"], "completed")
             self.assertEqual(result["text"], "Fixed the value.")
             trace = result["tool_trace"]
             self.assertFalse(trace[0]["ok"])  # first attempt failed

@@ -267,7 +267,7 @@
 - Refactors: `FreeAPIRunner.complete_with_tools(..., tool_calling_enabled=True, allow_mutations=None, policy=None, guard=None, checkpoint=None)`.
 - Preserves: explicit `max_tool_calls` as a deprecated recoverable external ceiling; GUI supplies no value.
 
-- [ ] **Step 1: Write controller/compaction red tests**
+- [x] **Step 1: Write controller/compaction red tests**
 
   ```python
   def test_exactly_twelve_tools_can_still_complete(controller):
@@ -285,17 +285,17 @@
 
   Cover valid/invalid decision JSON, false evidence, task-class verification, batch crossing without slicing, cancellation between calls, partial effects, malformed/duplicate call IDs, protocol-atom integrity, Unicode JSON, bounded rings, and productive work across multiple checkpoints.
 
-- [ ] **Step 2: Run red tests**
+- [x] **Step 2: Run red tests**
 
   ```powershell
   python -m pytest tests/test_tool_loop_controller.py tests/test_tool_context_compaction.py tests/test_free_models.py -q
   ```
 
-- [ ] **Step 3: Implement controller and make the runner a transport adapter**
+- [x] **Step 3: Implement controller and make the runner a transport adapter**
 
   Parse every no-tool response through the version-1 decision schema, compact before request threshold/checkpoint calls, retain whole protocol atoms, tie milestones to controller evidence, and return typed recoverable states. Remove the internal `tool_budget_exhausted` terminal.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
   ```powershell
   python -m pytest tests/test_tool_loop_controller.py tests/test_tool_context_compaction.py tests/test_free_models.py -q
