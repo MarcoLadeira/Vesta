@@ -23,14 +23,25 @@ _RISKY_NAMES = {
 
 
 def is_destructive_command(command: Iterable[str]) -> bool:
-    """Catch destructive Git/filesystem operations, including shell wrappers."""
+    """Catch destructive Git/filesystem operations, including shell wrappers.
+
+    ``gh`` mutations (issue/pr close, comment, merge, ...) and plain
+    ``git push`` change shared remote state, so they are destructive even
+    without force flags (F23). ``git commit`` stays out: it is local and
+    undoable, and the confirm-policy registry already gates it.
+    """
 
     text = " ".join(str(item) for item in command).lower()
     patterns = (
         r"\bgit\s+reset\s+--hard\b",
         r"\bgit\s+clean\b",
-        r"\bgit\s+push\b[^\r\n]*(?:--force(?:-with-lease)?|\s-f(?:\s|$))",
+        r"\bgit\s+push\b",
         r"\bgit\s+branch\s+(?:-d|-D|--delete)\b",
+        r"\bgh\s+issue\s+(?:close|comment|edit|delete|create|reopen)\b",
+        r"\bgh\s+pr\s+(?:close|merge|comment|create|edit|review)\b",
+        r"\bgh\s+release\s+(?:create|delete|edit)\b",
+        r"\bgh\s+api\b",
+        r"\bgh\s+repo\s+(?:delete|archive)\b",
         r"\brm\s+-rf\b",
         r"\brmdir\s+/s\b",
         r"\bremove-item\b[^\r\n]*-recurse\b",
