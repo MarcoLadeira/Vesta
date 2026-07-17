@@ -305,6 +305,20 @@ def _f2(value: Any) -> float:
         return 0.0
 
 
+def live_agent_mode_row(run_mode: str | None, focus: str | None) -> dict[str, str]:
+    """Inspector row with the LIVE agent-mode preview for the next run (F21).
+
+    The persisted ``Agent mode`` row reports the *last completed* run and is
+    stale until the next one finishes. This row is computed live from the
+    current run mode + focus via ``gui_modes.describe_controls`` — the single
+    source of truth (F20) — so web and classic always show the same preview.
+    """
+    from opai.gui_modes import describe_controls
+
+    controls = describe_controls(run_mode, focus)
+    return {"label": "Agent mode (next run)", "value": controls["agent_mode_label"]}
+
+
 def session_inspector(
     *,
     model_label: str,

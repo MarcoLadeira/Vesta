@@ -7,7 +7,9 @@ actually enforces:
 
 * Ask / Plan are read-only — the runner is built with ``allow_edits=False``.
 * Safe Auto allows the curated ``safe_auto.allow_commands`` and asks before
-  edits; destructive commands and network sit in ``deny_commands``.
+  edits; it also *asks* before an arbitrary command instead of hard-refusing
+  it (the in-context ``needs_command_approval`` confirmation is the escalation
+  path, F17); destructive commands and network sit in ``deny_commands``.
 * Approve Edits allows reads, asks before every edit.
 * Full Auto allows edits and commands but still flags destructive actions.
 
@@ -43,7 +45,9 @@ _MODE_RULES: dict[str, dict[str, str]] = {
         "run_safe": "allow",
         "edit": "ask",
         "create": "ask",
-        "run_any": "block",
+        # F17: an arbitrary command is confirmable in-context (the same
+        # approval flow as edits), not a hard block with no way forward.
+        "run_any": "ask",
         "delete": "block",
         "network": "block",
     },

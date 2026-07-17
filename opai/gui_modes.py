@@ -15,6 +15,17 @@ model (no mock):
 Both are Qt-free and unit-tested. ``compose_prompt`` is the single place the
 preface + format instruction get attached, so the behavior is verifiable
 without a display and identical across the composer and prompt library.
+
+This module is also the single source of truth for what the mode controls
+*mean* together (F20 — Run mode / Task focus / Agent mode must not silently
+disagree across surfaces):
+
+* ``describe_controls(run_mode, focus)`` — one dict summarizing the effective
+  behavior (edit/command capability, read-only, live agent-mode preview) that
+  the web GUI, the classic GUI, and tests all consume.
+* ``plan_mode_selection(selected_mode, prefs)`` — the Qt-free decision behind
+  the composer's Full Auto pin flow, so the classic GUI mirrors the web
+  contract (#137) exactly.
 """
 
 from __future__ import annotations
@@ -224,4 +235,94 @@ def task_summary(mode_id: str | None, format_id: str | None) -> dict[str, Any]:
         "suggested_run_mode": mode["run_mode"],
         "format": fmt["label"],
         "read_only": mode["run_mode"] in {"ask", "plan"},
+    }
+
+
+def describe_controls(run_mode: str | None, focus: str | None) -> dict[str, Any]:
+    """One honest summary of what the current Run mode + Task focus mean (F20).
+
+    Three concepts overlap in the UI — the *Run mode* (safety authority), the
+    *Task focus* (intent persona), and the derived *Agent mode* (per-message
+    capability class) — and each surface used to recompute its own reading of
+    them, so they could silently disagree (e.g. Full Auto + an Explain focus
+    is read-only in effect). This is the single definition the web GUI, the
+    classic GUI, and the tests all consume.
+
+    ``agent_mode_preview`` is derived live with the same resolver the pipeline
+    uses per message (``opaihub.agent_policy.resolve_agent_policy``) called
+    with an empty message and the current focus as the hint: it is the agent
+    mode the *next* run falls back to when the message carries no explicit
+    action/read-only signal. A real message can still override it — the
+    latest explicit request always wins — so this is a preview, never a gate.
+
+    ``read_only`` is the *effective* read-only state: either a read-only run
+    mode (Ask/Plan) or a read-only focus (Explain/Plan/Review) makes the next
+    run read-only in practice, regardless of what the other control says.
+    """
+    from opai.gui_permissions import is_read_only, permissions_for
+    from opaihub.agent_policy import resolve_agent_policy
+
+    mode = str(run_mode or "").strip() or "safe-auto"
+    focus_id = str(focus or "").strip() or DEFAULT_TASK_MODE
+    focus_mode = task_mode(focus_id)
+    states = {row["id"]: row["state"] for row in permissions_for(mode)}
+    edit_state = states.get("edit", "block")
+    run_any_state = states.get("run_any", "block")
+    # A mode is run-mode-read-only when it is a known read-only mode OR when
+    # its permission rules block edits outright — unknown modes degrade to the
+    # read-only "ask" ruleset and must report read-only too (fail closed).
+    run_mode_read_only = is_read_only(mode) or edit_state == "block"
+    focus_read_only = focus_mode["run_mode"] in {"ask", "plan"}
+    preview = resolve_agent_policy("", focus_hint=focus_id)
+    return {
+        "run_mode": mode,
+        "focus": focus_id,
+        "focus_label": focus_mode["label"],
+        "suggested_run_mode": focus_mode["run_mode"],
+        "read_only": run_mode_read_only or focus_read_only,
+        "run_mode_read_only": run_mode_read_only,
+        "focus_read_only": focus_read_only,
+        "can_edit": edit_state in {"allow", "ask"},
+        "can_run_commands": run_any_state in {"allow", "ask"},
+        "edit_state": edit_state,
+        "run_any_state": run_any_state,
+        "agent_mode_preview": preview.mode.value,
+        "agent_mode_label": preview.mode.value.title(),
+    }
+
+
+def plan_mode_selection(
+    selected_mode: str, prefs: dict[str, Any]
+) -> dict[str, Any]:
+    """Decide what picking a run mode in the composer must do (F16, #137).
+
+    Qt-free so both GUIs share one rule and the classic pin flow is testable
+    without a display. Selecting Full Auto while it is not pinned must NOT
+    persist a bare full-auto default (the save would be silently downgraded to
+    Safe Auto while the combo still shows Full Auto — the original F16 lie):
+    the caller must first run the explicit pin acknowledgement and only then
+    persist via ``opaihub.gui_preferences.pin_full_auto``. Any other selection
+    (or Full Auto while already pinned) persists directly.
+    """
+    from opaihub.autonomy import is_full_auto_pinned, resolve_startup_mode
+
+    mode = str(selected_mode or "").strip() or "safe-auto"
+    pinned = is_full_auto_pinned(prefs)
+    if mode == "full-auto" and not pinned:
+        return {
+            "action": "confirm_pin",
+            "selected_mode": mode,
+            "needs_pin_confirmation": True,
+            "pinned": False,
+            # Where the combo must revert to when the pin is declined: the
+            # effective mode for the current preferences — never the stale
+            # selection.
+            "effective_mode": resolve_startup_mode(prefs).effective_mode,
+        }
+    return {
+        "action": "persist",
+        "selected_mode": mode,
+        "needs_pin_confirmation": False,
+        "pinned": pinned,
+        "effective_mode": mode,
     }
