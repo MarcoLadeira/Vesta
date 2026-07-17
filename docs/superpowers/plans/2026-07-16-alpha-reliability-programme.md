@@ -320,7 +320,7 @@
 - Refactors: `run_explicit_model(..., tool_calling_enabled=False, allow_mutations=False, checkpoint=None, guard=None)`.
 - Integrates: per-turn `record_model_call_started/finalized`; runner result carries canonical `usage_report`.
 
-- [ ] **Step 1: Write guard and read-only routing tests**
+- [x] **Step 1: Write guard and read-only routing tests**
 
   ```python
   def test_guard_runs_before_every_provider_turn(fake_guard, runner):
@@ -335,7 +335,7 @@
 
   Cover cancel/panic/cloud consent/auth/rate/quota/billing/task/daily/monthly caps, free $0, and advisory threshold ignored by guard.
 
-- [ ] **Step 2: Run red tests**
+- [x] **Step 2: Run red tests**
 
   ```powershell
   python -m pytest tests/test_execution_guard.py tests/test_pipeline_routing_and_safety.py tests/test_agent_autonomy.py tests/test_model_call_accounting.py -q

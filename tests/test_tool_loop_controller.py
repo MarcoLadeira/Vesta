@@ -343,5 +343,89 @@ class ControllerTraceTests(unittest.TestCase):
         self.assertIs(result.completion_state, CompletionState.COMPLETED)
 
 
+class ControllerGuardTests(unittest.TestCase):
+    """The per-turn guard (Task 6) runs before every provider turn."""
+
+    def _base(self):
+        return [{"role": "user", "content": "task"}]
+
+    def test_guard_runs_before_every_provider_turn(self):
+        from opaihub.execution_guard import GuardDecision, GuardOutcome
+
+        checked: list[int] = []
+
+        def guard(turn_index):
+            checked.append(turn_index)
+            return GuardDecision(GuardOutcome.ALLOW)
+
+        turns = [tool_turn("c1", "apply_patch"), tool_turn("c2", "apply_patch")]
+        turns.append(decision_turn(evidence=["apply_patch"]))
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=scripted_chat(turns),
+            executor=FakeExecutor(),
+            base_messages=self._base(),
+            guard=guard,
+        )
+        self.assertEqual(checked, [1, 2, 3])
+        self.assertIs(result.completion_state, CompletionState.COMPLETED)
+
+    def test_guard_block_stops_the_run_before_spending(self):
+        from opaihub.completion import ProviderBlockedReason
+        from opaihub.execution_guard import GuardDecision, GuardOutcome
+
+        calls = {"chat": 0}
+
+        def chat(messages, *, tools):
+            calls["chat"] += 1
+            return tool_turn("c1", "apply_patch")
+
+        def guard(turn_index):
+            return GuardDecision(
+                GuardOutcome.BLOCKED, ProviderBlockedReason.DAILY_CAP, detail="daily"
+            )
+
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=chat, executor=FakeExecutor(), base_messages=self._base(), guard=guard
+        )
+        self.assertIs(result.completion_state, CompletionState.PROVIDER_BLOCKED)
+        self.assertEqual(result.blocked_reason, "daily_cap")
+        self.assertEqual(calls["chat"], 0)  # blocked before any provider call
+
+    def test_guard_consent_maps_to_needs_consent(self):
+        from opaihub.execution_guard import GuardDecision, GuardOutcome
+
+        def guard(turn_index):
+            return GuardDecision(GuardOutcome.NEEDS_CONSENT, detail="confirm cloud")
+
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=scripted_chat([tool_turn("c1", "apply_patch")]),
+            executor=FakeExecutor(),
+            base_messages=self._base(),
+            guard=guard,
+        )
+        self.assertIs(result.completion_state, CompletionState.NEEDS_CONSENT)
+
+    def test_tool_calling_disabled_offers_no_tools(self):
+        seen_tools = []
+
+        def chat(messages, *, tools):
+            seen_tools.append(tools)
+            return ChatTurn(content="Answered from context.")
+
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=chat,
+            executor=FakeExecutor(),
+            base_messages=self._base(),
+            allow_mutations=False,
+            tool_calling_enabled=False,
+        )
+        self.assertEqual(seen_tools, [[]])  # no tool schemas offered
+        self.assertIs(result.completion_state, CompletionState.COMPLETED)
+
+
 if __name__ == "__main__":
     unittest.main()

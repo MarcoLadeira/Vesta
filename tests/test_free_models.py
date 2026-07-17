@@ -525,6 +525,89 @@ class FreeAPIRunnerTests(unittest.TestCase):
             self.assertTrue(trace[1]["ok"])  # correction applied
             self.assertEqual((root / "app.py").read_text(), "value = 2\n")
 
+    def test_guard_runs_before_every_provider_turn(self):
+        # Task 6: the injected guard is consulted before each provider turn of a
+        # continuous run — the first and every continuation.
+        from opaihub.execution_guard import GuardDecision, GuardOutcome
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+
+        class RecordingGuard:
+            def __init__(self):
+                self.checked_turns = []
+
+            def __call__(self, turn_index):
+                self.checked_turns.append(turn_index)
+                return GuardDecision(GuardOutcome.ALLOW)
+
+        def _read(cid):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": cid,
+                                    "function": {
+                                        "name": "read_file",
+                                        "arguments": '{"path":"app.py"}',
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        responses = [
+            _read("r1"),
+            _read("r2"),
+            {"choices": [{"message": {"content": "Explained."}}]},
+        ]
+        guard = RecordingGuard()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch(
+                "opaihub.local_runner._http_json_cancellable", side_effect=responses
+            ):
+                runner.complete_with_tools(
+                    "Explain app.py",
+                    project_root=root,
+                    allow_edits=False,
+                    tool_calling_enabled=True,
+                    guard=guard,
+                )
+        self.assertEqual(guard.checked_turns, [1, 2, 3])
+
+    def test_guard_block_reports_provider_blocked_not_completion(self):
+        # A guard that blocks (e.g. panic/cap) stops the run honestly, with no
+        # provider call and no fake completion.
+        from opaihub.completion import ProviderBlockedReason
+        from opaihub.execution_guard import GuardDecision, GuardOutcome
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+
+        def guard(turn_index):
+            return GuardDecision(
+                GuardOutcome.BLOCKED, ProviderBlockedReason.PANIC, detail="panic"
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch("opaihub.local_runner._http_json_cancellable") as http:
+                result = runner.complete_with_tools(
+                    "Fix app.py",
+                    project_root=root,
+                    allow_edits=True,
+                    guard=guard,
+                )
+            http.assert_not_called()  # blocked before any provider call
+        self.assertEqual(result["completion_state"], "provider_blocked")
+        self.assertEqual(result["blocked_reason"], "panic")
+
 
 class AskFreeModelTests(unittest.TestCase):
     """Tests for the ask() → _ask_free_model() dispatch path."""
