@@ -9,6 +9,16 @@ Execution: free models hit public endpoints and always go through OPai's
 policy confirmation gate (``requires_confirmation=True``), consistent with how
 all cloud/paid routes are treated. No network calls happen here; availability
 is determined solely by env var presence (no latency in picker enumeration).
+
+Relationship to ``opai.model_registry`` (F2, QA E2E 2026-07-17): this module
+owns the *operational* spec for the free tier — API base, env key, setup hint,
+picker labels. ``opai.model_registry._REGISTRY`` registers the same providers
+(``gemini``/``groq``/``mistral``) and model ids with capability/display
+metadata so every picker-visible model resolves through one validation path.
+The two modules are pinned together by
+``tests/test_free_model_registry.py``: every ``model_id`` here must be
+registered there under the same provider, and no free provider may exist in
+one module without the other.
 """
 
 from __future__ import annotations
