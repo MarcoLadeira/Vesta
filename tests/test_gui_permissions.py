@@ -40,6 +40,15 @@ class PermissionMappingTests(unittest.TestCase):
         self.assertEqual(_state(rows, "network"), "block")
         self.assertFalse(is_read_only("safe-auto"))
 
+    def test_safe_auto_asks_before_arbitrary_commands_instead_of_blocking(self):
+        # F17: a hard "run any command = block" left users with no escalation
+        # path; Safe Auto now asks in-context (needs_command_approval flow),
+        # like it already does for edits. Destructive/network stay blocked.
+        rows = permissions_for("safe-auto")
+        self.assertEqual(_state(rows, "run_any"), "ask")
+        note = next(r["note"] for r in rows if r["id"] == "run_any")
+        self.assertEqual(note, "Asks you first")
+
     def test_approve_edits_asks_before_every_edit(self):
         rows = permissions_for("approve-edits")
         self.assertEqual(_state(rows, "edit"), "ask")

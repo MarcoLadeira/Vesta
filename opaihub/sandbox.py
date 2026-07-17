@@ -8,12 +8,18 @@ from typing import Any
 from .loader import hub_root, load_registry
 
 
-def _rules(project_root: Path | None = None) -> dict[str, Any]:
+def _rules(project_root: Path | None = None) -> dict[str, Any] | None:
+    """Load the risky-command registry; ``None`` means the store is unavailable.
+
+    Callers must treat ``None`` as fail-closed: an unloadable policy store must
+    never silently downgrade unknown commands to ``allow``.
+    """
     path = hub_root(project_root) / "security" / "risky_commands.yaml"
     try:
-        return load_registry(path)
+        data = load_registry(path)
     except Exception:
-        return {"deny": [], "confirm": [], "safe_examples": []}
+        return None
+    return data if isinstance(data, dict) else None
 
 
 # Matches the prefix of a command that is just a shell wrapper, e.g.
@@ -74,6 +80,17 @@ def _candidates(command: str) -> list[str]:
 
 def classify_command(command: str, project_root: Path | None = None) -> dict[str, Any]:
     rules = _rules(project_root)
+    if rules is None:
+        # Fail closed: without the policy store we cannot prove a command is
+        # safe, so everything requires explicit confirmation (F23 hardening).
+        return {
+            "command": command,
+            "decision": "confirm",
+            "requires_confirmation": True,
+            "denied": False,
+            "matched_rule": None,
+            "reason": "Command policy store unavailable; confirmation required.",
+        }
     variants = _candidates(command)
 
     for pattern in rules.get("deny", []):

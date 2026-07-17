@@ -23,7 +23,7 @@ from pathlib import Path
 from unittest import mock
 
 from opaihub import accounts
-from opaihub.proc import provider_child_env
+from opaihub.proc import AGENT_SESSION_ENV, provider_child_env
 
 SECRET = "sk-super-secret-value-123456789"  # pragma: allowlist secret
 
@@ -74,7 +74,9 @@ class ProviderChildEnvTests(unittest.TestCase):
         for provider in ("copilot", "mystery", ""):
             env, removed = provider_child_env(provider, self._base())
             self.assertEqual(removed, [])
-            self.assertEqual(env, self._base())
+            # Nothing is stripped; the one addition is the recursion-guard
+            # session marker every provider child env now carries (F12).
+            self.assertEqual(env, {**self._base(), AGENT_SESSION_ENV: "1"})
 
     def test_default_base_reads_current_environment(self):
         with mock.patch.dict(

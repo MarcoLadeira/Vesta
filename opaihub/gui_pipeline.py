@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,72 @@ def _incomplete_title(result: dict[str, Any]) -> str:
     return _INCOMPLETE_TITLES.get(
         completion_state_from_legacy(result), "OPai stopped without finishing"
     )
+
+
+# Tools whose successful execution leaves verifiable evidence of a repository
+# change (F14/F24). Reads, searches, and git inspections never qualify.
+_CHANGE_EVIDENCE_TOOLS = frozenset(
+    {
+        "apply_patch",
+        "write_file",
+        "git_commit",
+        "git_create_branch",
+        "git_push",
+        "open_pr",
+    }
+)
+
+
+def _has_change_evidence(result: Mapping[str, Any] | None) -> bool:
+    """True only when a run produced verifiable evidence of a change.
+
+    The honesty gate for F14/F24: an edit-intent run may not be celebrated as
+    "OPai completed" when nothing actually changed — no changed files and no
+    successful mutating tool call in the trace.
+    """
+
+    if not isinstance(result, Mapping):
+        return False
+    if list(result.get("changed_files") or []):
+        return True
+    for item in result.get("tool_trace") or []:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("ok") and str(item.get("tool") or "") in _CHANGE_EVIDENCE_TOOLS:
+            return True
+    return False
+
+
+def _command_approval(result: Mapping[str, Any] | None) -> dict[str, str] | None:
+    """The pending command-approval request in a runner result, if any (F17/F9).
+
+    Cross-workstream contract: the tool executor rejects a confirm-class
+    command with ``COMMAND_NEEDS_APPROVAL``; the loop exits ``needs_consent``
+    carrying ``{"command", "reason"}``. ``opaihub.ask.run_explicit_model``
+    normalizes that into ``result["command_approval"]``; the trace error code
+    is the fallback for results that did not pass through that normalization.
+    """
+
+    if not isinstance(result, Mapping):
+        return None
+    raw = result.get("command_approval")
+    if isinstance(raw, Mapping):
+        command = str(raw.get("command") or "").strip()
+        if command:
+            return {
+                "command": command,
+                "reason": str(raw.get("reason") or "").strip(),
+            }
+    for item in result.get("tool_trace") or []:
+        if not isinstance(item, Mapping):
+            continue
+        if str(item.get("error_code") or "") != "COMMAND_NEEDS_APPROVAL":
+            continue
+        command = str(item.get("command") or "").strip()
+        if command:
+            reason = str(item.get("reason") or item.get("message") or "").strip()
+            return {"command": command, "reason": reason}
+    return None
 
 
 @dataclass(frozen=True)
@@ -384,10 +451,18 @@ def handle_gui_message(
     focus_hint: str | None = None,
     output_instruction: str | None = None,
     resume_context: dict[str, Any] | None = None,
+    allow_command: str | None = None,
+    allowCommand: str | None = None,
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
-    exactly as before (one blocking call)."""
+    exactly as before (one blocking call).
+
+    ``allow_command`` (or the front-end's ``allowCommand`` spelling) is a
+    one-shot grant for the exact command a command-approval card named
+    (F17/F9); it is threaded to the tool executor verbatim and never widens
+    any other permission.
+    """
 
     def _emit(etype: str, status: str, title: str, **kw: Any) -> None:
         if on_event:
@@ -438,6 +513,8 @@ def handle_gui_message(
 
     root = project_root.expanduser().resolve()
     _phase("request_prepare", "running", "Preparing request")
+    # One-shot exact-command grant from a command-approval re-send (F17/F9).
+    command_grant = str(allow_command or allowCommand or "").strip() or None
     prefs = load_gui_preferences(root)
     selected_model = model_id or prefs.get("default_model") or "auto"
     # Central autonomy decision (#137): a requested/stored full-auto is honored
@@ -627,10 +704,44 @@ def handle_gui_message(
 
     def _decorate(payload: dict[str, Any]) -> dict[str, Any]:
         status = str(payload.get("status") or "error")
-        if status == "answered" and policy.mode in {
-            AgentMode.IMPLEMENT,
-            AgentMode.SHIP,
-        }:
+        edit_intent = policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}
+        current_repo = resolve_repo_context(root)
+        save_active_repo(root, current_repo)
+        changed_files = tuple(str(item) for item in payload.get("changed_files") or [])
+        attributed_paths = changed_files or tuple(
+            path
+            for path in current_repo.dirty_paths
+            if path not in set(repo_context.dirty_paths)
+        )
+        diff_review: dict[str, Any] = {}
+        if status == "answered" and edit_intent:
+            diff_review = build_diff_review(
+                current_repo.path, include_paths=attributed_paths
+            )
+        # F14/F24 honesty gate: an edit-intent run with zero change evidence
+        # (no changed files, no newly dirty paths, no successful mutating tool)
+        # is NOT a green completion — it is "completed with no changes".
+        no_change_evidence = (
+            status == "answered"
+            and edit_intent
+            and not attributed_paths
+            and not _has_change_evidence(payload)
+        )
+        if status == "answered" and edit_intent and no_change_evidence:
+            runtime.transition(
+                RuntimePhase.REVIEWING_DIFF,
+                message="Provider response received; no repository changes detected",
+                metadata={"changed_files": []},
+                next_actions=(
+                    "ask OPai to actually apply the change",
+                    "check the run's tool trace for blocked or skipped steps",
+                ),
+            )
+            runtime.transition(
+                RuntimePhase.COMPLETED,
+                message="Completed with no changes — there is no diff to review",
+            )
+        elif status == "answered" and edit_intent:
             runtime.transition(
                 RuntimePhase.REVIEWING_DIFF,
                 message="Provider response received; OPai is awaiting test and diff evidence",
@@ -663,22 +774,6 @@ def handle_gui_message(
                 if status == "cancelled"
                 else str(payload.get("answer") or "Provider execution failed"),
                 next_actions=payload.get("next_actions") or (),
-            )
-        current_repo = resolve_repo_context(root)
-        save_active_repo(root, current_repo)
-        changed_files = tuple(str(item) for item in payload.get("changed_files") or [])
-        attributed_paths = changed_files or tuple(
-            path
-            for path in current_repo.dirty_paths
-            if path not in set(repo_context.dirty_paths)
-        )
-        diff_review: dict[str, Any] = {}
-        if status == "answered" and policy.mode in {
-            AgentMode.IMPLEMENT,
-            AgentMode.SHIP,
-        }:
-            diff_review = build_diff_review(
-                current_repo.path, include_paths=attributed_paths
             )
         state = WorkflowState(
             task_id=runtime.task_id,
@@ -820,6 +915,9 @@ def handle_gui_message(
             "effective_run_mode": selected_mode,
             "autonomy": autonomy.to_dict(),
             "checkpoint_id": checkpoint.checkpoint_id,
+            # F14/F24: surfaces can render "completed with no changes" honestly
+            # instead of a green success for an edit run that changed nothing.
+            "completion_note": "no_changes" if no_change_evidence else "",
             "checkpoint": {
                 "id": checkpoint.checkpoint_id,
                 "edit_capable": checkpoint.edit_capable,
@@ -1018,12 +1116,24 @@ def handle_gui_message(
         )
         # Real Stop for free-tier (#152): thread the cancel Event so the HTTP
         # request is aborted mid-flight, not just hidden by the stale guard.
+        # F6/F7: thread the request's tool authority down so free models get a
+        # real tool loop (read-only tools when edits are off) instead of
+        # narrating fake tool calls as prose. F17/F9: a one-shot grant from a
+        # command-approval re-send rides along verbatim.
+        authority = request_tool_authority(
+            message,
+            selected_mode=selected_mode,
+            repo_root=root,
+            focus_hint=focus_hint,
+        )
         result = A.ask(
             root,
             _tool_aware_message(allow_edits),
             selected_model,
             allow_cloud=allow_cloud,
             allow_edits=allow_edits,
+            tool_calling_enabled=authority.tool_calling_enabled,
+            allow_command=command_grant,
             mode=selected_mode,
             record_route=False,
             cancel=cancel,
@@ -1034,6 +1144,41 @@ def handle_gui_message(
             _emit("cancelled", "cancelled", "Stopped by you")
             return _decorate(
                 _cancelled_result(message, tool_trace, selected_model, selected_mode)
+            )
+        approval = _command_approval(result)
+        if approval is not None:
+            # F17/F9: surface an actionable approval card — never a green
+            # completion and never a dead-end "approve through the prompt".
+            _phase_close("warning", "Awaiting your approval")
+            _emit(
+                "command_run",
+                "warning",
+                "Command needs your approval",
+                detail=approval["command"],
+                metadata={"command": approval["command"]},
+            )
+            reason_suffix = f" — {approval['reason']}" if approval["reason"] else ""
+            return _decorate(
+                {
+                    "status": "needs_command_approval",
+                    "answer": (
+                        "OPai needs your approval to run this command: "
+                        f"`{approval['command']}`{reason_suffix}. Approve it to "
+                        "continue, or edit your request."
+                    ),
+                    "command": approval["command"],
+                    "reason": approval["reason"],
+                    "command_approval": approval,
+                    "tool_trace": tool_trace + list(result.get("tool_trace") or []),
+                    "receipt": {},
+                    "changed_files": [],
+                    "warnings": [],
+                    "next_actions": [
+                        "Approve the exact command to let OPai run it once.",
+                        "Or edit your request to avoid the command.",
+                    ],
+                    "raw_result": result,
+                }
             )
         receipt = build_savings_receipt(
             root,
@@ -1082,8 +1227,17 @@ def handle_gui_message(
         )
         if status == "answered":
             if result_is_completed(result):
-                _phase_close("success", "Request sent")
-                _emit("completed", "success", "OPai completed")
+                if policy.mode in {
+                    AgentMode.IMPLEMENT,
+                    AgentMode.SHIP,
+                } and not _has_change_evidence(result):
+                    # F14/F24: an edit-intent run that changed nothing is not
+                    # a green completion.
+                    _phase_close("warning", "Finished with no changes")
+                    _emit("completed", "warning", "OPai finished with no changes")
+                else:
+                    _phase_close("success", "Request sent")
+                    _emit("completed", "success", "OPai completed")
             else:
                 # Honest: text was produced but the run did not finish.
                 _phase_close("warning", "Stopped without finishing")
@@ -1229,6 +1383,40 @@ def handle_gui_message(
                     answer=result.get("answer") or "",
                 )
             )
+        approval = _command_approval(result)
+        if approval is not None:
+            # F17/F9: an account-side command the executor refused is a consent
+            # request, not a completed answer.
+            _emit(
+                "command_run",
+                "warning",
+                "Command needs your approval",
+                detail=approval["command"],
+                metadata={"provider": provider, "command": approval["command"]},
+            )
+            reason_suffix = f" — {approval['reason']}" if approval["reason"] else ""
+            return _decorate(
+                {
+                    "status": "needs_command_approval",
+                    "answer": (
+                        "OPai needs your approval to run this command: "
+                        f"`{approval['command']}`{reason_suffix}. Approve it to "
+                        "continue, or edit your request."
+                    ),
+                    "command": approval["command"],
+                    "reason": approval["reason"],
+                    "command_approval": approval,
+                    "tool_trace": tool_trace,
+                    "receipt": {},
+                    "changed_files": [],
+                    "warnings": [],
+                    "next_actions": [
+                        "Approve the exact command to let OPai run it once.",
+                        "Or edit your request to avoid the command.",
+                    ],
+                    "raw_result": result,
+                }
+            )
         if result.get("status") == "capability_mismatch":
             answer = str(result.get("hint") or result.get("reason") or "")
             _phase_close("warning", "Provider cannot enforce this edit mode")
@@ -1291,7 +1479,15 @@ def handle_gui_message(
                 tool_count=len(tool_trace),
             )
         if status == "answered" and result_is_completed(result):
-            _emit("completed", "success", "OPai completed")
+            if policy.mode in {
+                AgentMode.IMPLEMENT,
+                AgentMode.SHIP,
+            } and not _has_change_evidence(result):
+                # F14/F24: an edit-intent run that changed nothing is not a
+                # green completion, no matter how confident the prose sounds.
+                _emit("completed", "warning", "OPai finished with no changes")
+            else:
+                _emit("completed", "success", "OPai completed")
         elif status == "answered":
             _emit("stopped", "warning", _incomplete_title(result))
         else:
@@ -1456,8 +1652,15 @@ def handle_gui_message(
             mode=selected_mode,
         )
         if result_is_completed(result):
-            _phase_close("success", "Answered locally")
-            _emit("completed", "success", "OPai completed")
+            if policy.mode in {
+                AgentMode.IMPLEMENT,
+                AgentMode.SHIP,
+            } and not _has_change_evidence(result):
+                _phase_close("warning", "Finished with no changes")
+                _emit("completed", "warning", "OPai finished with no changes")
+            else:
+                _phase_close("success", "Answered locally")
+                _emit("completed", "success", "OPai completed")
         else:
             _phase_close("warning", "Stopped without finishing")
             _emit("stopped", "warning", _incomplete_title(result))

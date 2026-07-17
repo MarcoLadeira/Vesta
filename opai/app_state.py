@@ -626,6 +626,8 @@ def ask(
     *,
     allow_cloud: bool = False,
     allow_edits: bool = False,
+    tool_calling_enabled: bool | None = None,
+    allow_command: str | None = None,
     record_route: bool = True,
     account_runner: Any = None,
     mode: str | None = None,
@@ -643,6 +645,10 @@ def ask(
     - ``auto`` lets OPai route the cheapest safe path (local execution + cache).
     - a local ``provider:model`` id runs that connected local model.
     Cloud auto-routing is never auto-called - it returns ``confirmation_required``.
+
+    ``tool_calling_enabled`` offers the read-only tool vocabulary to free
+    models even when ``allow_edits`` is False (F6/F7); ``allow_command`` is a
+    one-shot exact-command grant from a command-approval prompt (F17/F9).
     """
     root = project_root.expanduser().resolve()
     if model_choice and model_choice.startswith("account:"):
@@ -669,6 +675,8 @@ def ask(
             model_choice,
             allow_cloud=allow_cloud,
             allow_edits=allow_edits,
+            tool_calling_enabled=tool_calling_enabled,
+            allow_command=allow_command,
             mode=mode,
             record_route=record_route,
             cancel=cancel,
@@ -702,6 +710,8 @@ def _ask_free_model(
     *,
     allow_cloud: bool = False,
     allow_edits: bool = False,
+    tool_calling_enabled: bool | None = None,
+    allow_command: str | None = None,
     mode: str | None = None,
     record_route: bool = True,
     cancel: Any = None,
@@ -758,6 +768,10 @@ def _ask_free_model(
         runner=runner,
         selected_model_id=model_id,
         allow_edits=allow_edits,
+        # F6/F7: free models get the (read-only, when edits are off) tool
+        # vocabulary and a real tool loop instead of narrating fake calls.
+        tool_calling_enabled=tool_calling_enabled,
+        allow_command=allow_command,
         mode=mode or ("safe-auto" if allow_edits else "ask"),
         record=record_route,
         cancel=cancel,
@@ -834,6 +848,33 @@ def _invalidate_stale_auth_cache(account_id: str, error: dict[str, Any]) -> None
             from opaihub.accounts import invalidate_connection_cache
 
             invalidate_connection_cache(account_id)
+
+
+def _account_completion(result: Any, answer: str) -> tuple[str, str]:
+    """Canonical ``(completion_state, stopped_reason)`` for an account run.
+
+    Older runners only ever returned ``{"text", "cost"}``; newer ones surface
+    the provider's own terminal signals (``is_error`` / result ``subtype`` /
+    permission denials). A run the provider says errored, stopped early, or
+    was refused permission is NOT a completion, even when it produced prose
+    (F24) — the GUI's green state must never be inferred from text alone.
+    """
+
+    if not isinstance(result, dict):
+        return ("completed" if str(answer).strip() else "failed"), ""
+    explicit = str(result.get("completion_state") or "").strip()
+    if explicit:
+        return explicit, str(result.get("stopped_reason") or "")
+    if result.get("permission_denied") or result.get("permission_denials"):
+        return "needs_consent", "approval_required"
+    subtype = str(result.get("subtype") or "").strip().lower()
+    if result.get("is_error") is True or subtype.startswith("error_"):
+        return "failed", subtype or "provider_error"
+    if subtype and subtype != "success":
+        return "stuck_no_progress", subtype
+    if not str(answer).strip():
+        return "failed", ""
+    return "completed", ""
 
 
 def _ask_account(
@@ -1033,6 +1074,10 @@ def _ask_account(
     # Surface what the agent actually changed, like Claude Code / Cursor do.
     changed = sorted(set(_changed_files(root)) - before) if allow_edits else []
 
+    # F24: completion truth comes from the provider's own terminal signals,
+    # not from the fact that prose exists.
+    completion_state, stopped_reason = _account_completion(result, answer)
+
     # Honest firewall accounting: a paid account call is a real spend, not a
     # saving. Use the runner's real cost when available (claude returns
     # total_cost_usd); fall back to the L3 tier estimate for Codex which
@@ -1070,6 +1115,8 @@ def _ask_account(
         "cost_usd": cost,
         "changed_files": changed,
         "ledger_recorded": ledger_recorded,
+        "completion_state": completion_state,
+        "stopped_reason": stopped_reason,
         "answer": answer,
     }
 

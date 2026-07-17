@@ -546,6 +546,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         max_tool_calls: int | None = None,
         tool_calling_enabled: bool = True,
         guard: Any = None,
+        allow_command: str | None = None,
     ) -> dict[str, Any]:
         """Run a continuous, checkpointed repository tool loop.
 
@@ -560,7 +561,8 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         whether any tools are offered. ``guard`` — a callable ``(turn_index) ->
         GuardDecision`` — runs before every provider turn; a non-allow decision
         stops the run with the guard's typed state (blocked / needs-consent /
-        cancelled), never a fake completion.
+        cancelled), never a fake completion. ``allow_command`` threads a
+        one-shot user-approved confirm-class command down to the executor (F17).
         """
 
         from .completion import CompletionState
@@ -577,6 +579,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             project_root,
             allow_edits=allow_edits,
             allow_github_public_read=public_read_allowed(),
+            allow_command=allow_command,
         )
         base_messages: list[dict[str, Any]] = []
         if system:

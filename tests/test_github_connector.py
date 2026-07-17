@@ -244,6 +244,60 @@ class ReadToolTests(unittest.TestCase):
         # the model.
         self.assertNotIn("sk-abcdef1234567890abcd", result["body"])
 
+    def test_get_issue_without_comments_never_calls_comments_endpoint(self):
+        calls = []
+
+        def http(method, url, token, payload):
+            calls.append(url)
+            return 200, {"number": 5, "state": "open", "title": "T"}
+
+        result = gc.get_issue(Path("."), 5, http=http)
+        self.assertTrue(result["ok"], result)
+        self.assertNotIn("comments", result)
+        self.assertEqual(len(calls), 1)
+
+    def test_get_issue_can_include_redacted_comments(self):
+        def http(method, url, token, payload):
+            if url.endswith("/issues/5"):
+                return 200, {
+                    "number": 5,
+                    "state": "open",
+                    "title": "Fix the widget",
+                    "body": "steps",
+                    "labels": [],
+                    "html_url": "https://github.com/o/r/issues/5",
+                }
+            if "/issues/5/comments" in url:
+                return 200, [
+                    {
+                        "user": {"login": "marco"},
+                        "created_at": "2026-07-17T14:00:00Z",
+                        "body": "repro with token=sk-abcdef1234567890abcd",
+                    },
+                    "not-a-dict-entry",
+                ]
+            return 404, {}
+
+        result = gc.get_issue(Path("."), 5, include_comments=True, http=http)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(len(result["comments"]), 1)
+        comment = result["comments"][0]
+        self.assertEqual(comment["author"], "marco")
+        self.assertEqual(comment["created_at"], "2026-07-17T14:00:00Z")
+        # Comment bodies get the same redaction as the issue body (F19).
+        self.assertNotIn("sk-abcdef1234567890abcd", comment["body"])
+
+    def test_get_issue_comments_fetch_failure_is_an_error(self):
+        def http(method, url, token, payload):
+            if url.endswith("/issues/5"):
+                return 200, {"number": 5, "state": "open", "title": "T"}
+            return 500, {}
+
+        result = gc.get_issue(Path("."), 5, include_comments=True, http=http)
+        self.assertFalse(result["ok"])
+        self.assertIn("comments", result["error"])
+        self.assertIn("500", result["error"])
+
     def test_issue_search_is_origin_scoped_encoded_paginated_and_excludes_prs(self):
         calls = []
 

@@ -170,6 +170,7 @@ class RepositoryToolExecutor:
         allow_github_public_read: bool | None = None,
         allow_github_write: bool | None = None,
         git_run: Any = None,
+        allow_command: str | None = None,
     ) -> None:
         self.repo_root = repo_root.expanduser().resolve()
         self.allow_edits = bool(allow_edits)
@@ -178,6 +179,12 @@ class RepositoryToolExecutor:
         self.initial_dirty_paths = resolve_repo_context(self.repo_root).dirty_paths
         self.test_commands = self._test_commands()
         self._git_run = git_run or subprocess.run
+        # One-shot, exact-string grant for a confirm-class command (F17): the
+        # pipeline threads the user-approved command back down and it permits
+        # exactly that command, exactly once.
+        self._allowed_once: str | None = (
+            str(allow_command).strip() if allow_command else None
+        ) or None
         # Paths this run created/changed; git_commit stages exactly these by
         # default so a commit can never sweep up unrelated user work.
         self.written_paths: list[str] = []
@@ -309,7 +316,8 @@ class RepositoryToolExecutor:
             schemas.append(
                 _schema(
                     "github_get_issue",
-                    "Read a GitHub issue's title, state, labels, and body by number.",
+                    "Read a GitHub issue's title, state, labels, body, and "
+                    "comments by number.",
                     {"number": {"type": "integer", "minimum": 1}},
                     required=("number",),
                 )
@@ -688,8 +696,12 @@ class RepositoryToolExecutor:
             return _error("INVALID_TOOL_ARGUMENTS", "A positive number is required")
         from .github_connector import get_issue, pull_request_status
 
-        reader = pull_request_status if name == "github_pr_status" else get_issue
-        result = reader(self.repo_root, number)
+        if name == "github_pr_status":
+            result = pull_request_status(self.repo_root, number)
+        else:
+            # Issues carry their (redacted) discussion too, so an agent solving
+            # the issue sees reproduction details and maintainer feedback (F19).
+            result = get_issue(self.repo_root, number, include_comments=True)
         if not result.get("ok"):
             return _error(
                 "GITHUB_READ_FAILED", str(result.get("error") or "read failed")
@@ -749,14 +761,34 @@ class RepositoryToolExecutor:
             message=f"Read {len(data.get('issues', []))} GitHub issues",
         ).to_dict()
 
+    def grant_command_once(self, command: str) -> None:
+        """Grant a one-shot approval for exactly this command string (F17).
+
+        The grant is consumed by the first matching confirm-class command; a
+        mismatching command neither consumes it nor is permitted by it.
+        """
+        value = str(command or "").strip()
+        self._allowed_once = value or None
+
+    def _consume_one_shot_grant(self, raw: str) -> bool:
+        grant = self._allowed_once
+        if grant and grant == raw:
+            self._allowed_once = None  # single-use: exactly this command, once
+            return True
+        return False
+
     def _run_command(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Run one canonical local Git read without a shell.
 
         Builds/tests have fixed tools and remote operations have consent-aware
         tools. Normalization fails closed before the ACI sees an argv.
+        Non-allowlisted commands are classified (F17): deny stays hard-blocked;
+        confirm-class commands (git push, gh mutations, …) stop for an
+        explicit one-shot user grant instead of a dead-end refusal.
         """
         from .command_runner import split_command
         from .safety_gates import (
+            _SHELL_OPERATORS,
             normalize_autonomous_command,
             resolve_trusted_git_executable,
         )
@@ -770,6 +802,26 @@ class RepositoryToolExecutor:
             return _error("INVALID_TOOL_ARGUMENTS", "Command could not be parsed")
         normalized = normalize_autonomous_command(raw, argv)
         if normalized is None:
+            from .sandbox import classify_command
+
+            verdict = classify_command(raw, self.repo_root)
+            reason = str(verdict.get("reason") or "")
+            if (
+                str(verdict.get("decision") or "") == "confirm"
+                and not _SHELL_OPERATORS.search(raw)
+            ):
+                if self._consume_one_shot_grant(raw):
+                    return self._run_granted_command(argv, arguments)
+                blocked = _error(
+                    "COMMAND_NEEDS_APPROVAL",
+                    f"{reason} Command: {raw}",
+                )
+                blocked["command"] = raw
+                blocked["approval_reason"] = reason
+                blocked["matched_rule"] = verdict.get("matched_rule")
+                return blocked
+            # 'deny', shell-operator forms, and unrecognized commands stay
+            # hard-blocked: the allowlist remains the only autonomous path.
             return _error(
                 "COMMAND_BLOCKED",
                 "Only bounded local Git reads are allowed. Use dedicated build, "
@@ -807,6 +859,69 @@ class RepositoryToolExecutor:
             hardened_argv,
             purpose=purpose,
             environment=git_environment,
+        ).to_dict()
+
+    def _run_granted_command(
+        self, argv: list[str], arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Execute a confirm-class command the user explicitly granted once.
+
+        The one-shot, exact-string grant IS the "separate explicit approval
+        boundary" the ACI destructive-command refusal asks for, so this runs
+        the granted argv directly: still no shell, still confined to the
+        repository, output redacted and bounded. Uses the executor's
+        injectable runner (``git_run``) so tests never spawn a real process.
+        """
+        import time
+
+        argv = [str(item) for item in argv]
+        purpose = str(arguments.get("purpose") or "user-approved command")[:200]
+        started = time.monotonic()
+        try:
+            completed = self._git_run(
+                argv,
+                cwd=str(self.repo_root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=self.aci.timeout,
+                check=False,
+                **no_window_kwargs(),
+            )
+        except subprocess.TimeoutExpired:
+            return Observation(
+                "command",
+                False,
+                {"command": argv, "purpose": purpose},
+                "TIMEOUT",
+                "Command timed out",
+            ).to_dict()
+        except OSError as exc:
+            return Observation(
+                "command",
+                False,
+                {"command": argv, "purpose": purpose},
+                "SPAWN_FAILED",
+                redact(str(exc)),
+            ).to_dict()
+        max_chars = self.aci.max_output_chars
+        stdout = redact(str(completed.stdout or ""))[:max_chars]
+        stderr = redact(str(completed.stderr or ""))[:max_chars]
+        return Observation(
+            "command",
+            completed.returncode == 0,
+            {
+                "command": [redact(item) for item in argv],
+                "purpose": purpose,
+                "returncode": int(completed.returncode),
+                "stdout": stdout,
+                "stderr": stderr,
+                "approved": True,
+            },
+            "COMMAND_FAILED" if completed.returncode else "",
+            stderr if completed.returncode else "",
+            int((time.monotonic() - started) * 1000),
         ).to_dict()
 
     def _github_number(self, arguments: dict[str, Any]) -> int | None:

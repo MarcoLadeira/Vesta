@@ -90,6 +90,36 @@ and privacy-preserving by default; nothing new phones home.
 - Added clean-install verification and a hermetic test suite that runs without
   network access or provider credentials.
 
+### QA E2E fix bundle (issue #219)
+
+A full end-to-end QA pass — "Solve GitHub issue #219" driven through the real
+desktop GUI — surfaced 23 findings (F2–F24), including a fabricated completion
+that closed the real issue. Fixes in this bundle
+(`docs/QA_E2E_ISSUE219_2026-07-17.md`, resolution map in
+`docs/QA_E2E_ISSUE219_RESOLUTION.md`):
+
+- **Destructive-action gating:** `gh`/`git` mutations (`gh issue close|comment`,
+  `gh pr`, `git push`, …) are classified destructive and require confirmation
+  even in Full Auto — the pin dialog's promise is now kept (F22, F23).
+- **Composer mode sync:** the composer run-mode reflects the real engine mode
+  after a workspace switch, and the Pin-Full-Auto acknowledgement runs whenever
+  the effective mode would change (F16, F4).
+- **Intent mapping:** "solve/fix/implement" maps to an edit-capable task focus
+  instead of read-only Explain (F18, F5).
+- **Free-model agentic execution:** the free API path (Gemini/Groq/Mistral)
+  executes tools instead of narrating them; free providers are also registered
+  in `opai.model_registry` with honest capability metadata, pinned by a
+  consistency test (F6, F2).
+- **Honesty invariants:** no green "Completed/✓ Ran/successfully solved"
+  without real output, a diff, or a test artifact; empty command output is
+  surfaced as an error, not a success (F8, F11, F14, F19, F24).
+- **Loop & spend guards:** recursive self-invocation (`opai route` from inside
+  a task) is blocked, repeated identical failures stop the run, and paid spend
+  cannot burn with zero progress (F12, F13, F15).
+- **Branded executable (F3):** documented in `docs/BRANDED_EXECUTABLE.md` —
+  why pip-installed launches show `pythonw.exe`, the existing native-artifact
+  path, and the recommended signing track; packaging follow-up.
+
 ## 0.2.0 Alpha.1
 
 - Added the public static launch funnel under `site/`, ready for Cloudflare

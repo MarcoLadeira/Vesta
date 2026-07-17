@@ -86,9 +86,18 @@ _ENV_DENY_PREFIXES: dict[str, tuple[str, ...]] = {
     "copilot": (),
 }
 
+# Marker exported into every provider CLI's environment. Any `opai` process an
+# agent then launches from its own shell (e.g. by following a CLAUDE.md /
+# AGENTS.md "run `opai route ...`" recipe) inherits it and can refuse the
+# recursive self-invocation (F12). See opai.cli._refuse_if_nested_agent_session.
+AGENT_SESSION_ENV = "OPAI_AGENT_SESSION"
+
 
 def provider_child_env(
-    provider: str, base_env: dict[str, str] | None = None
+    provider: str,
+    base_env: dict[str, str] | None = None,
+    *,
+    session_id: str | None = None,
 ) -> tuple[dict[str, str], list[str]]:
     """Return ``(env, removed_names)`` for spawning a provider CLI.
 
@@ -96,7 +105,11 @@ def provider_child_env(
     hijacking variables removed; ``removed_names`` lists (names only, sorted)
     what was stripped so diagnostics can say "ignored session overrides:
     ANTHROPIC_API_KEY" without ever touching a value. Unknown providers get
-    the environment unchanged.
+    the environment unchanged apart from the agent-session marker below.
+
+    Every child env also carries ``OPAI_AGENT_SESSION`` so a nested `opai`
+    invocation from inside the agent can detect and refuse recursion (F12).
+    An inherited session id is preserved when no explicit one is given.
     """
     source = dict(os.environ if base_env is None else base_env)
     exact = _ENV_DENY_EXACT.get(str(provider or "").lower(), frozenset())
@@ -108,4 +121,5 @@ def provider_child_env(
             removed.append(name)
             continue
         env[name] = value
+    env[AGENT_SESSION_ENV] = session_id or source.get(AGENT_SESSION_ENV) or "1"
     return env, sorted(removed)

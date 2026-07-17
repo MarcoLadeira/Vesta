@@ -141,7 +141,11 @@ class ControllerCompletionTests(unittest.TestCase):
     def test_exactly_twelve_tools_can_still_complete(self):
         # The old budget stopped at 12; here 12 productive calls plus a final
         # decision completes — 12 is a checkpoint, not a terminal quota.
-        turns = [tool_turn(f"c{i}", "apply_patch") for i in range(12)]
+        # (Arguments vary per call: identical repeated calls are anti-thrash
+        # stopped by design — see ControllerDuplicateSuccessTests.)
+        turns = [
+            tool_turn(f"c{i}", "apply_patch", f'{{"patch":"p{i}"}}') for i in range(12)
+        ]
         turns.append(decision_turn(evidence=["apply_patch"]))
         result = self._run(turns)
         self.assertIs(result.completion_state, CompletionState.COMPLETED)
@@ -149,7 +153,9 @@ class ControllerCompletionTests(unittest.TestCase):
         self.assertGreaterEqual(result.milestones, 1)
 
     def test_productive_work_continues_well_past_twelve(self):
-        turns = [tool_turn(f"c{i}", "apply_patch") for i in range(30)]
+        turns = [
+            tool_turn(f"c{i}", "apply_patch", f'{{"patch":"p{i}"}}') for i in range(30)
+        ]
         turns.append(decision_turn(evidence=["apply_patch"]))
         result = self._run(turns)
         self.assertIs(result.completion_state, CompletionState.COMPLETED)
@@ -425,6 +431,176 @@ class ControllerGuardTests(unittest.TestCase):
         )
         self.assertEqual(seen_tools, [[]])  # no tool schemas offered
         self.assertIs(result.completion_state, CompletionState.COMPLETED)
+
+
+class ControllerDuplicateSuccessTests(unittest.TestCase):
+    """F13: identical successful calls are noticed, then stopped (not run)."""
+
+    def _base(self):
+        return [{"role": "user", "content": "task"}]
+
+    def test_second_identical_success_carries_a_notice_to_the_model(self):
+        seen_messages: list[list[dict]] = []
+        calls = {"n": 0}
+
+        def chat(messages, *, tools):
+            calls["n"] += 1
+            seen_messages.append(messages)
+            if calls["n"] <= 2:
+                return tool_turn(f"c{calls['n']}", "read_file", '{"path":"a.py"}')
+            return decision_turn(evidence=["read_file"])
+
+        executor = FakeExecutor()
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=chat,
+            executor=executor,
+            base_messages=self._base(),
+            allow_mutations=False,
+        )
+        self.assertIs(result.completion_state, CompletionState.COMPLETED)
+        self.assertEqual(len(executor.invocations), 2)
+        # The model saw the duplicate notice in the tool observation.
+        final_request = json.dumps(seen_messages[-1], default=str)
+        self.assertIn("already succeeded", final_request)
+
+    def test_third_identical_success_is_never_executed(self):
+        def chat(messages, *, tools):
+            return tool_turn("c1", "read_file", '{"path":"a.py"}')
+
+        executor = FakeExecutor()
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=chat,
+            executor=executor,
+            base_messages=self._base(),
+            allow_mutations=False,
+        )
+        self.assertIs(result.completion_state, CompletionState.STUCK_NO_PROGRESS)
+        self.assertEqual(result.stopped_reason, "repeated_success")
+        # Two executions (first + noticed duplicate); the third was stopped.
+        self.assertEqual(len(executor.invocations), 2)
+
+    def test_failures_still_use_the_failure_budget_not_the_success_one(self):
+        executor = FakeExecutor({"read_file": {"ok": False, "error_code": "NOPE"}})
+
+        def chat(messages, *, tools):
+            return tool_turn("c1", "read_file", '{"path":"a.py"}')
+
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=chat,
+            executor=executor,
+            base_messages=self._base(),
+            allow_mutations=False,
+        )
+        self.assertIs(result.completion_state, CompletionState.STUCK_NO_PROGRESS)
+        self.assertEqual(result.stopped_reason, "repeated_failure")
+        self.assertEqual(len(executor.invocations), 3)  # max_identical_failures
+
+
+class ControllerEmptyOutputTests(unittest.TestCase):
+    """F19: an ok observation with no usable payload is marked EMPTY_OUTPUT."""
+
+    def test_empty_successful_observation_is_explained_to_the_model(self):
+        seen_messages: list[list[dict]] = []
+        calls = {"n": 0}
+
+        def chat(messages, *, tools):
+            calls["n"] += 1
+            seen_messages.append(messages)
+            if calls["n"] == 1:
+                return tool_turn("c1", "run_command", '{"command":"git status"}')
+            return decision_turn(evidence=["run_command"])
+
+        executor = FakeExecutor(
+            {
+                "run_command": {
+                    "ok": True,
+                    "data": {"stdout": "", "stderr": ""},
+                    "content": "",
+                }
+            }
+        )
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=chat,
+            executor=executor,
+            base_messages=[{"role": "user", "content": "task"}],
+        )
+        self.assertIs(result.completion_state, CompletionState.COMPLETED)
+        final_request = json.dumps(seen_messages[-1], default=str)
+        self.assertIn("produced no output", final_request)
+        self.assertIn("--json", final_request)
+
+    def test_nonempty_observation_is_not_marked(self):
+        seen_messages: list[list[dict]] = []
+        calls = {"n": 0}
+
+        def chat(messages, *, tools):
+            calls["n"] += 1
+            seen_messages.append(messages)
+            if calls["n"] == 1:
+                return tool_turn("c1", "run_command", '{"command":"git status"}')
+            return decision_turn(evidence=["run_command"])
+
+        executor = FakeExecutor(
+            {
+                "run_command": {
+                    "ok": True,
+                    "data": {"stdout": " M app.py", "stderr": ""},
+                    "content": "",
+                }
+            }
+        )
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=chat,
+            executor=executor,
+            base_messages=[{"role": "user", "content": "task"}],
+        )
+        self.assertIs(result.completion_state, CompletionState.COMPLETED)
+        final_request = json.dumps(seen_messages[-1], default=str)
+        self.assertNotIn("produced no output", final_request)
+
+
+class ControllerConsentGateTests(unittest.TestCase):
+    """F17: COMMAND_NEEDS_APPROVAL becomes a NEEDS_CONSENT exit with payload."""
+
+    def test_needs_approval_observation_exits_with_command_and_reason(self):
+        executor = FakeExecutor(
+            {
+                "run_command": {
+                    "ok": False,
+                    "error_code": "COMMAND_NEEDS_APPROVAL",
+                    "message": "Requires explicit user confirmation before execution.",
+                    "command": "git push origin main",
+                    "approval_reason": "Requires explicit user confirmation before execution.",
+                }
+            }
+        )
+
+        def chat(messages, *, tools):
+            return tool_turn("c1", "run_command", '{"command":"git push origin main"}')
+
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=chat,
+            executor=executor,
+            base_messages=[{"role": "user", "content": "task"}],
+        )
+        self.assertIs(result.completion_state, CompletionState.NEEDS_CONSENT)
+        self.assertEqual(result.stopped_reason, "approval_required")
+        self.assertEqual(
+            result.consent_payload,
+            {
+                "command": "git push origin main",
+                "reason": "Requires explicit user confirmation before execution.",
+            },
+        )
+        self.assertEqual(result.model_calls, 1)  # loop stopped immediately
+        # The blocked call is still traced honestly.
+        self.assertEqual(result.tool_trace[0]["error_code"], "COMMAND_NEEDS_APPROVAL")
 
 
 if __name__ == "__main__":

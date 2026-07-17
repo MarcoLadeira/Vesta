@@ -263,13 +263,46 @@ class RunCommandToolTests(unittest.TestCase):
                 "git -c alias.x=push x",
                 "git -C .. fetch",
                 "git ls-remote origin",
-                "cmd /c git push",
-                "powershell -Command git push",
                 "python -m malicious_push_module",
             )
             for command in commands:
                 result = executor.invoke("run_command", {"command": command})
                 self.assertEqual(result["error_code"], "COMMAND_BLOCKED", command)
+
+        self.assertEqual(aci.calls, [])
+
+    def test_confirm_class_commands_stop_for_approval_before_aci_execution(self):
+        """F17/F23: confirm-class commands (git push, gh mutations) no longer
+        hit a dead-end block, but they must still never reach the executor
+        without an explicit one-shot grant."""
+
+        class RecordingACI:
+            def __init__(self):
+                self.calls = []
+
+            def run_command(self, argv, *, purpose):
+                self.calls.append((argv, purpose))
+                raise AssertionError("unapproved command reached the executor")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            aci = RecordingACI()
+            executor = RepositoryToolExecutor(root, allow_edits=True, aci=aci)
+            commands = (
+                "cmd /c git push",
+                "powershell -Command git push",
+                "git push origin main",
+                "git commit -m wip",
+                "gh issue close 219 --comment done",
+                "gh pr merge 5 --squash",
+                "gh api -X DELETE /repos/o/r",
+            )
+            for command in commands:
+                result = executor.invoke("run_command", {"command": command})
+                self.assertEqual(
+                    result["error_code"], "COMMAND_NEEDS_APPROVAL", command
+                )
+                self.assertFalse(result["ok"], command)
 
         self.assertEqual(aci.calls, [])
 
@@ -316,10 +349,15 @@ class RunCommandToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             executor = RepositoryToolExecutor(root, allow_edits=True)
-            for cmd in ("rm -rf .", "npm install left-pad", "echo x | sh"):
+            for cmd in ("npm install left-pad", "echo x | sh"):
                 result = executor.invoke("run_command", {"command": cmd})
                 self.assertFalse(result["ok"], cmd)
                 self.assertEqual(result["error_code"], "COMMAND_BLOCKED", cmd)
+            # Confirm-class destructive commands stop for approval (F17/F23)
+            # instead of a dead-end block, but still never run unapproved.
+            result = executor.invoke("run_command", {"command": "rm -rf ."})
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL")
 
     def test_empty_command_is_an_argument_error(self):
         with tempfile.TemporaryDirectory() as tmp:

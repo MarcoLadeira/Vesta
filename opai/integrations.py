@@ -62,7 +62,7 @@ def _python_executable() -> str:
 def instruction_text(project_root: Path | None = None) -> str:
     project_line = f"Root: `{project_root}`.\n" if project_root else "Root: cwd.\n"
     return f"""# OPai Active
-{STATUS_TEXT}. OPai {__version__} {__release_stage__}. {project_line}Local first: `opai route "<task>"`; use full evidence only when needed. The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
+{STATUS_TEXT}. OPai {__version__} {__release_stage__}. {project_line}OPai manages routing, cost controls, and safety policy for this session. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by OPai (F12). The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
 """
 
 
@@ -142,8 +142,7 @@ def project_instruction_text(project_root: Path) -> str:
     return f"""{START_MARKER}
 # OPai Active
 {STATUS_TEXT}. Root: current repository.
-OPai is active; run `opai cockpit` if unsure.
-Local first: `opai route "<task>"`; `opai slim` if context grows.
+OPai is active and manages this session's routing and safety. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by OPai.
 The latest explicit request controls. A fix/build/test/refactor/PR request allows OPai to edit files, create a branch, test, commit, push, and open a pull request; do not ask again for those requested steps. Explain/review is read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`.
 Use Superpowers when available.
 {END_MARKER}"""

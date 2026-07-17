@@ -33,11 +33,17 @@ from typing import Any
 
 from opai import app_state as A
 from opai.activity_batch import FLUSH_INTERVAL_MS, ActivityBatcher
-from opai.gui_controls import header_status, model_badge, session_inspector
+from opai.gui_controls import (
+    header_status,
+    live_agent_mode_row,
+    model_badge,
+    session_inspector,
+)
 from opai.gui_lifecycle import drain_workers, signal_cancels
 from opai.gui_modes import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_TASK_MODE,
+    describe_controls,
     output_format,
     output_formats,
     task_modes,
@@ -349,11 +355,19 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
         run_mode, safe_auto=(prefs or {}).get("safe_auto")
     )
     workflow = load_workflow_state(root)
+    # F21: the persisted "Agent mode" row is the *last completed* run and goes
+    # stale; the live preview (F20 single source of truth) shows what the next
+    # run would do with the current run mode + focus. They are separate fields
+    # on purpose — one is history, one is a preview.
+    controls = describe_controls(run_mode, focus)
     rows_to_add: list[dict[str, Any]] = [
         {"label": "Agent mode", "value": workflow.mode.title()},
+        live_agent_mode_row(run_mode, focus),
         {"label": "Workflow", "value": workflow.phase.replace("_", " ").title()},
         {"label": "Tests", "value": workflow.tests_status.replace("_", " ").title()},
     ]
+    data["agent_mode_preview"] = controls["agent_mode_preview"]
+    data["controls"] = controls
     # Push readiness matters only when this run could actually push (#300): in an
     # edit-capable mode, tell the user up front whether a PR is even possible.
     if run_mode in {"safe-auto", "full-auto"}:
@@ -544,6 +558,10 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             "freeConsent": list(prefs.get("free_consent") or []),
         },
         "autonomy": autonomy.to_dict(),
+        # F20/F21: one live, shared reading of Run mode + Task focus + the
+        # agent mode the next run would fall back to (describe_controls is the
+        # single source of truth; the classic GUI reads the same helper).
+        "controls": describe_controls(mode, focus),
         "accounts": models["accounts"],
         "connections": models["connections"],
         "status": _status(root, sel["model_label"], sel["mode_label"]),

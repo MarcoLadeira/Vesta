@@ -61,24 +61,34 @@ class ClaudeBuildCommandTests(unittest.TestCase):
     def test_full_auto_adds_dangerously_skip(self):
         cmd = self._runner().build_command("hi", allow_edits=True, mode="full-auto")
         self.assertIn("--dangerously-skip-permissions", cmd)
+        # ...but only together with the PreToolUse hook gate: every Bash call
+        # is re-classified and destructive ones are denied even in Full Auto
+        # (F23). The flag must never appear without the settings file.
+        self.assertIn("--settings", cmd)
+        settings_arg = cmd[cmd.index("--settings") + 1]
+        self.assertIn("opai-claude-hooks.json", settings_arg)
 
     def test_safe_auto_does_not_add_dangerously_skip(self):
         cmd = self._runner().build_command("hi", allow_edits=True, mode="safe-auto")
         self.assertNotIn("--dangerously-skip-permissions", cmd)
+        self.assertNotIn("--settings", cmd)
 
     def test_ask_does_not_add_dangerously_skip(self):
         cmd = self._runner().build_command("hi", allow_edits=False, mode="ask")
         self.assertNotIn("--dangerously-skip-permissions", cmd)
+        self.assertNotIn("--settings", cmd)
 
     def test_plan_does_not_add_dangerously_skip(self):
         cmd = self._runner().build_command("hi", allow_edits=False, mode="plan")
         self.assertNotIn("--dangerously-skip-permissions", cmd)
+        self.assertNotIn("--settings", cmd)
 
     def test_approve_edits_does_not_add_dangerously_skip(self):
         cmd = self._runner().build_command(
             "hi", allow_edits=False, mode="approve-edits"
         )
         self.assertNotIn("--dangerously-skip-permissions", cmd)
+        self.assertNotIn("--settings", cmd)
 
     def test_read_only_modes_prepend_no_modify_instruction(self):
         for mode in ("ask", "plan", "approve-edits"):
@@ -135,10 +145,13 @@ class CodexBuildCommandTests(unittest.TestCase):
         idx = cmd.index("--sandbox")
         self.assertEqual(cmd[idx + 1], "workspace-write")
 
-    def test_full_auto_uses_never_approval(self):
+    def test_full_auto_does_not_auto_approve(self):
+        # F23: codex exec has no hook protocol, so "never" would let gh/git
+        # mutations run unconfirmed. Full Auto keeps on-request, which is
+        # denied non-interactively — the fail-closed posture.
         cmd = self._runner().build_command("hi", mode="full-auto")
         idx = cmd.index("--ask-for-approval")
-        self.assertEqual(cmd[idx + 1], "never")
+        self.assertEqual(cmd[idx + 1], "on-request")
 
     def test_non_full_auto_uses_on_request_approval(self):
         for mode in ("ask", "plan", "safe-auto", "approve-edits"):

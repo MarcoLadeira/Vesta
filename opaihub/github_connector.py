@@ -567,9 +567,19 @@ def pull_request_status(
 
 
 def get_issue(
-    project_root: Path, number: int, *, http: HttpFn = _default_http
+    project_root: Path,
+    number: int,
+    *,
+    include_comments: bool = False,
+    http: HttpFn = _default_http,
 ) -> dict[str, Any]:
-    """Read a single issue's title, state, labels, and body (read-only, token-gated)."""
+    """Read a single issue's title, state, labels, and body (read-only, token-gated).
+
+    With ``include_comments=True`` the issue's discussion is fetched too, so an
+    agent solving the issue can see reproduction details and maintainer
+    feedback (F19). Comment bodies are redacted before they leave the machine,
+    exactly like the issue body.
+    """
     context, error = _read_context(project_root)
     if error:
         return error
@@ -584,7 +594,7 @@ def get_issue(
         for label in (issue.get("labels") or [])
         if isinstance(label, dict) and label.get("name")
     ]
-    return {
+    result: dict[str, Any] = {
         "ok": True,
         "number": issue.get("number"),
         "state": str(issue.get("state") or "unknown"),
@@ -593,6 +603,34 @@ def get_issue(
         "labels": labels,
         "url": str(issue.get("html_url") or ""),
     }
+    if include_comments:
+        c_code, raw_comments = http(
+            "GET",
+            f"{API_ROOT}/repos/{slug}/issues/{int(number)}/comments?per_page=50",
+            token,
+            None,
+        )
+        if c_code != 200 or not isinstance(raw_comments, list):
+            return {
+                "ok": False,
+                "error": f"Could not read issue #{number} comments (HTTP {c_code})",
+            }
+        comments: list[dict[str, Any]] = []
+        for item in raw_comments[:50]:
+            if not isinstance(item, dict):
+                continue
+            author = item.get("user")
+            comments.append(
+                {
+                    "author": str(author.get("login") or "")
+                    if isinstance(author, dict)
+                    else "",
+                    "created_at": str(item.get("created_at") or ""),
+                    "body": redact(str(item.get("body") or ""))[:2000],
+                }
+            )
+        result["comments"] = comments
+    return result
 
 
 def add_comment(

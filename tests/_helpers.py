@@ -32,21 +32,38 @@ def make_repo(
     """Initialise a throwaway git repo at ``root``.
 
     Optionally writes (and commits) ``files`` so ``git ls-files`` / ``git diff``
-    have real content to report.
+    have real content to report. Inherited ``GIT_CONFIG_*`` variables are
+    scrubbed from the git child environment: a header exported with an empty
+    value (unrestorable by ``mock.patch.dict`` on Windows) makes git exit 128
+    with "missing config value", and a throwaway test repo never needs it.
     """
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith("GIT_CONFIG_")
+    }
     subprocess.run(
-        ["git", "config", "user.email", "t@t.t"], cwd=root, capture_output=True
+        ["git", "init", "-q"], cwd=root, check=True, capture_output=True, env=env
     )
-    subprocess.run(["git", "config", "user.name", "t"], cwd=root, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t.t"],
+        cwd=root,
+        capture_output=True,
+        env=env,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "t"], cwd=root, capture_output=True, env=env
+    )
     (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
     for rel, content in (files or {}).items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
     if commit:
-        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
-        subprocess.run(["git", "commit", "-qm", "init"], cwd=root, capture_output=True)
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True, env=env)
+        subprocess.run(
+            ["git", "commit", "-qm", "init"], cwd=root, capture_output=True, env=env
+        )
     return root
 
 
