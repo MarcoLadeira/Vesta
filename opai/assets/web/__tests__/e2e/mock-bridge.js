@@ -224,13 +224,52 @@
     appReceipt: function (cb) {
       cb(JSON.stringify(scenario.appReceipt || { ok: false, status: "not_an_app" }));
     },
-    pinFullAuto: function (cb) { window.__mock.fullAutoPins++; if (cb) cb(JSON.stringify({ effective_mode: "full-auto", full_auto_pinned: true })); },
-    unpinFullAuto: function (cb) { window.__mock.fullAutoUnpins++; if (cb) cb(JSON.stringify({ effective_mode: "safe-auto", full_auto_pinned: false })); },
+    pinFullAuto: function (cb) {
+      window.__mock.fullAutoPins++;
+      var res = scenario.pinFullAutoResult || { effective_mode: "full-auto", full_auto_pinned: true };
+      boot.prefs.fullAutoPinned = !!res.full_auto_pinned;
+      if (cb) cb(JSON.stringify(res));
+    },
+    unpinFullAuto: function (cb) {
+      window.__mock.fullAutoUnpins++;
+      var res = scenario.unpinFullAutoResult || { effective_mode: "safe-auto", full_auto_pinned: false };
+      boot.prefs.fullAutoPinned = !!res.full_auto_pinned;
+      if (cb) cb(JSON.stringify(res));
+    },
     grantFreeConsent: function (modelId, cb) {
       window.__mock.freeConsentGrants.push(modelId);
       if (cb) cb(JSON.stringify({ ok: true, freeConsent: window.__mock.freeConsentGrants.slice() }));
     },
-    send: function (p) { var m = window.__mock; m.lastRequest = JSON.parse(p); m.sendCount++; },
+    send: function (p) {
+      var m = window.__mock; m.lastRequest = JSON.parse(p); m.sendCount++;
+      // F9/F17 scenario: the pipeline hard-blocks a command and asks for a
+      // one-time approval. Until the front-end re-sends with allowCommand set
+      // to the exact string, every send gets a needs_command_approval reply;
+      // the approved re-send gets the configured (or a default) answer.
+      var gate = scenario.commandApproval;
+      if (gate && gate.command) {
+        var req = m.lastRequest;
+        if (req.allowCommand === gate.command) {
+          setTimeout(function () {
+            bridge.replyReady.emit(JSON.stringify({
+              requestId: req.requestId,
+              result: gate.approvedResult || { status: "answered", answer: gate.approvedAnswer || "Ran with the approved command.", receipt: {} },
+            }));
+          }, gate.delayMs || 0);
+        } else {
+          setTimeout(function () {
+            bridge.replyReady.emit(JSON.stringify({
+              requestId: req.requestId,
+              result: {
+                status: "needs_command_approval",
+                command: gate.command,
+                reason: gate.reason || "The current run mode blocks this command.",
+              },
+            }));
+          }, gate.delayMs || 0);
+        }
+      }
+    },
     build: function (p) {
       var m = window.__mock;
       m.lastBuild = JSON.parse(p);
@@ -263,7 +302,25 @@
       cb(JSON.stringify({ ok: true, workflow: { diff_review: {} } }));
     },
     openWorkspace: function () { window.__mock.openWorkspaceCount++; },
-    switchWorkspace: function (p) { window.__mock.switched.push(p); },
+    switchWorkspace: function (p) {
+      window.__mock.switched.push(p);
+      // Mirror the real bridge: switching workspace re-boots server-side and
+      // emits workspaceChanged with the NEW workspace's payload. The scenario
+      // can override the new workspace's prefs.mode / fullAutoPinned /
+      // autonomy via scenario.workspaceSwitch.boot (F16/F4 regression hook).
+      var ws = scenario.workspaceSwitch || {};
+      var wsBoot = ws.boot || {};
+      var next = merge(boot, wsBoot);
+      var explicitWs = wsBoot.workspace || {};
+      next.workspace = merge(next.workspace || {}, {
+        root: explicitWs.root || p,
+        label: explicitWs.label || ws.label || String(p).split(/[\\/]/).filter(Boolean).pop() || String(p),
+      });
+      boot = next;
+      setTimeout(function () {
+        bridge.workspaceChanged.emit(JSON.stringify(next));
+      }, ws.delayMs || 0);
+    },
     openPath: function (p) { window.__mock.opened.push(p); },
     startWindowMove: function () { window.__mock.windowMoves++; },
     startWindowResize: function (edge) { window.__mock.windowResizes.push(edge); },
@@ -316,6 +373,12 @@
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },
+    // Drive a workspace switch through the same slot the UI uses; the mock
+    // emits workspaceChanged with the (possibly scenario-overridden) payload.
+    switchWorkspace: function (path) { bridge.switchWorkspace(path); },
+    // Merge a partial override into the mock's live boot payload (e.g. to make
+    // the inspector report a fresh authoritative Agent mode after a run).
+    updateBoot: function (override) { boot = merge(boot, override || {}); },
     reqId: function () { return window.__mock.lastRequest && window.__mock.lastRequest.requestId; },
     emitActivity: function (id, ev) { bridge.activity.emit(JSON.stringify({ requestId: id, event: ev })); },
     // Schema v2 batch path (#226/#230): one signal carrying an event array,

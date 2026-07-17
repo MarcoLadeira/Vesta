@@ -121,21 +121,9 @@ function applyAppearance(prefs) {
 
 // #238: a default changed on the settings Models page must show in the composer
 // and inspector immediately (the pref is already persisted by settings.js).
-function applyDefaults(key, value) {
-  if (key === "default_model") {
-    const m = (state.boot.models || []).find((x) => x.id === value);
-    if (m) { state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider }; setProviderDot(); }
-    renderComposerSelects();
-  } else if (key === "default_mode") {
-    const md = (state.boot.modes || []).find((x) => x.id === value);
-    if (md) state.mode = md;
-    renderComposerSelects();
-  } else if (key === "default_task_mode") {
-    state.focus = value; renderInspector();
-  } else if (key === "default_output_format") {
-    state.format = value; renderInspector();
-  }
-}
+// NOTE: the single implementation lives further below — a duplicate top-level
+// declaration here was dead code in the browser (the later declaration wins
+// hoisting) and a hard SyntaxError when imported as an ES module in tests.
 
 // Shared dependencies the onboarding tour (#250) needs — it reuses the real
 // bridge paths (settings navigation, the model default, the normal send) so it
@@ -162,23 +150,30 @@ function onboardingCtx() {
   };
 }
 
+// The payload's selection (model/mode/focus/format) is authoritative — applied
+// identically at first boot and after every workspace switch, so the composer,
+// inspector, and header can never disagree (F16/F4).
+function applyBootSelection(b) {
+  state.panel = b.prefs.showPanel !== false;
+  state.focus = b.prefs.focus || "general";
+  state.format = b.prefs.format || "normal";
+  const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
+  if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
+  const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
+  if (md) state.mode = md;
+}
+
 function boot() {
   bridge.boot((json) => {
     state.boot = JSON.parse(json);
     const b = state.boot;
     state.accounts = b.accounts || [];
-    state.panel = b.prefs.showPanel !== false;
-    state.focus = b.prefs.focus || "general";
-    state.format = b.prefs.format || "normal";
+    applyBootSelection(b);
     // One-time consent per free-tier model id: after the first "Send to X"
     // click the card never appears again for that provider (persisted per
     // workspace by grantFreeConsent). Fresh install → empty Set.
     state.freeConsent = new Set(b.prefs.freeConsent || []);
     applyAppearance(b.prefs); // #241: density + reduced-motion on the root, live
-    const m = (b.models || []).find((x) => x.id === b.selectedModel) || b.models[0];
-    if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
-    const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || b.modes[0];
-    if (md) state.mode = md;
     applyBrand(b.brand);
     renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
     renderStatus(b.status); renderAccount(); applyPanel();
@@ -187,6 +182,9 @@ function boot() {
     switchView("chat");
     if (b.initialTask) { $("#input").value = b.initialTask; }
     renderResumeChoice();
+    // F16: if this workspace requests Full Auto but has no pin, surface the
+    // acknowledgement even though no dropdown change event fired.
+    maybeOfferFullAutoPin();
     // #246: the inspector payload is deferred at boot; fetch it now only if the
     // panel is actually visible. When hidden (the default), togglePanel loads it
     // on first open — so cold boot skips the work entirely.
@@ -205,7 +203,14 @@ function boot() {
   if (bridge.activityBatch) bridge.activityBatch.connect(onActivityBatch);
   bridge.token.connect(onToken);
   bridge.toolReady.connect(onTool);
-  bridge.workspaceChanged.connect((json) => { state.boot = JSON.parse(json); rebootFromState(); toast("Workspace switched"); });
+  bridge.workspaceChanged.connect((json) => {
+    state.boot = JSON.parse(json);
+    rebootFromState();
+    toast("Workspace switched");
+    // F16: the new workspace may request Full Auto without a pin — the ack
+    // must be offered even though no dropdown change event fired.
+    maybeOfferFullAutoPin();
+  });
   if (bridge.modelsChanged) bridge.modelsChanged.connect((json) => {
     const catalog = JSON.parse(json);
     if (catalog.models) { state.boot.models = catalog.models; renderComposerSelects(); }
@@ -243,10 +248,16 @@ function applyBrand(brand) {
 function rebootFromState() {
   const b = state.boot;
   state.accounts = b.accounts || [];
+  // F16/F4: re-apply the fresh payload's selection — without this the composer
+  // kept the PREVIOUS workspace's mode while the header showed the new one.
+  applyBootSelection(b);
   renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
   renderStatus(b.status); renderAccount(); renderEmptyChips();
   syncBuildMode();
   clearChat(); switchView("chat"); renderResumeChoice();
+  // The inspector payload is deferred like at boot; refresh it for the new
+  // workspace when the panel is actually visible.
+  if (state.panel) refreshInspector();
 }
 
 /* OPai Build in the cockpit (#276): when the workspace is a scaffolded app,
@@ -455,30 +466,25 @@ function renderComposerSelects() {
     if (modeSel.value === "full-auto") {
       // Revert the selector until the styled card is confirmed (#151).
       modeSel.value = state.mode.id;
-      chatConfirm({
-        title: "Pin Full Auto?",
-        body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Push, deploy, and destructive actions still ask for confirmation.",
-        confirmLabel: "Pin Full Auto",
-        cancelLabel: "Keep current mode",
-        danger: true,
-      }).then((ok) => {
-        if (!ok || !bridge.pinFullAuto) return;
-        bridge.pinFullAuto((res) => {
-          try { const d = JSON.parse(res); state.boot.prefs.fullAutoPinned = !!d.full_auto_pinned; } catch (e) {}
-        });
-        state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
-        modeSel.value = "full-auto";
-        refreshInspector(); refreshStatus();
-      });
+      offerFullAutoPinAck();
       return;
     }
     // Leaving Full Auto unpins it so the durable default falls back to safe.
     if (state.mode.id === "full-auto" && bridge.unpinFullAuto) {
-      bridge.unpinFullAuto(() => {});
+      bridge.unpinFullAuto(() => { maybeOfferFullAutoPin(); });
       state.boot.prefs.fullAutoPinned = false;
     }
     state.mode = state.boot.modes.find((m) => m.id === modeSel.value) || state.mode;
-    bridge.savePref("default_mode", state.mode.id); refreshInspector(); refreshStatus();
+    bridge.savePref("default_mode", state.mode.id);
+    // Keep the local autonomy snapshot coherent: an explicit non-Full-Auto
+    // choice becomes the requested mode for this workspace, so the pin ack is
+    // not re-offered for a mode the user just deliberately left.
+    if (state.boot.autonomy) {
+      state.boot.autonomy.requested_mode = state.mode.id;
+      state.boot.autonomy.effective_mode = state.mode.id;
+      state.boot.autonomy.downgraded = false;
+    }
+    refreshInspector(); refreshStatus();
   };
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
   // Group models by their group field into optgroup sections
@@ -525,6 +531,63 @@ function renderComposerSelects() {
   };
   setProviderDot();
 }
+
+// The Full Auto acknowledgement (#137/#151), extracted so it can be offered
+// from the composer dropdown AND proactively after a boot/workspace switch —
+// the stale-dropdown bug (F16) made this ack unreachable when the select
+// already displayed Full Auto.
+function offerFullAutoPinAck() {
+  state.fullAutoAckOpen = true;
+  chatConfirm({
+    title: "Pin Full Auto?",
+    body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Push, deploy, and destructive actions still ask for confirmation.",
+    confirmLabel: "Pin Full Auto",
+    cancelLabel: "Keep current mode",
+    danger: true,
+  }).then((ok) => {
+    state.fullAutoAckOpen = false;
+    if (!ok) {
+      // Declined: if Full Auto was being shown optimistically (e.g. carried
+      // over from another workspace), fall back to the mode the engine
+      // actually resolved for THIS workspace and paint it honestly.
+      if (state.mode.id === "full-auto") {
+        const eff = ((state.boot && state.boot.autonomy) || {}).effective_mode || "safe-auto";
+        state.mode = (state.boot.modes || []).find((m) => m.id === eff) || state.mode;
+      }
+      renderComposerSelects(); refreshInspector(); refreshStatus();
+      return;
+    }
+    if (!bridge.pinFullAuto) return;
+    bridge.pinFullAuto((res) => {
+      try {
+        const d = JSON.parse(res);
+        state.boot.prefs.fullAutoPinned = !!d.full_auto_pinned;
+        if (state.boot.autonomy) {
+          state.boot.autonomy.effective_mode = d.effective_mode || state.boot.autonomy.effective_mode;
+          state.boot.autonomy.full_auto_pinned = !!d.full_auto_pinned;
+          state.boot.autonomy.downgraded = !d.full_auto_pinned && state.boot.autonomy.requested_mode === "full-auto";
+        }
+      } catch (e) {}
+      maybeOfferFullAutoPin();
+    });
+    state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
+    const modeSel = $("#modeSel");
+    if (modeSel) modeSel.value = "full-auto";
+    refreshInspector(); refreshStatus();
+  });
+}
+
+// Offer the pin ack whenever the CURRENT workspace requests Full Auto but has
+// no pin for it — regardless of whether a dropdown change event fired (F16).
+function maybeOfferFullAutoPin() {
+  if (state.fullAutoAckOpen) return;
+  const prefs = (state.boot && state.boot.prefs) || {};
+  const autonomy = (state.boot && state.boot.autonomy) || {};
+  if (prefs.fullAutoPinned) return;
+  if (autonomy.requested_mode !== "full-auto" && state.mode.id !== "full-auto") return;
+  offerFullAutoPinAck();
+}
+
 function setProviderDot() {
   const k = state.model.provider || state.model.kind || "auto";
   $("#providerDot").style.background = PROVIDER_COLOR[k] || "var(--muted)";
@@ -557,6 +620,23 @@ function onStatusReady(json) {
   renderStatus(d.data || {});
 }
 
+// F21: the backend "Agent mode" inspector row only refreshes from persisted
+// state after a run completes. Derive the pending agent mode from the CURRENT
+// controls (run mode caps what focus can do — a read-only run mode stays
+// read-only no matter the focus) so the inspector can show what the NEXT run
+// will do instead of a stale value.
+const IMPLEMENT_FOCI = ["build", "debug", "refactor", "test", "implement"];
+function derivedAgentMode() {
+  if (state.mode.id === "ask") return "Explain";
+  if (state.mode.id === "plan") return "Plan";
+  const focus = String(state.focus || "").toLowerCase();
+  if (IMPLEMENT_FOCI.indexOf(focus) !== -1) return "Implement";
+  if (focus === "review") return "Review";
+  if (focus === "plan") return "Plan";
+  if (focus === "explain") return "Explain";
+  return ""; // no honest derivation — keep whatever the backend reported
+}
+
 function renderInspector(data) {
   // #246: the inspector payload is deferred at boot (null) and fetched on demand
   // when the panel is shown, so render an empty shell until it arrives.
@@ -564,7 +644,18 @@ function renderInspector(data) {
   const ins = $("#inspector");
   const focusOpts = (state.boot.taskModes || []).map((m) => `<option value="${m.id}"${m.id === state.focus ? " selected" : ""}>${esc(m.label)}</option>`).join("");
   const fmtOpts = (state.boot.outputFormats || []).map((f) => `<option value="${f.id}"${f.id === state.format ? " selected" : ""}>${esc(f.label)}</option>`).join("");
-  const rows = (data.rows || []).map((r) => `<div class="insp-row"><span class="k">${esc(r.label)}</span><span class="v">${esc(r.value)}</span></div>`).join("");
+  // F21: when the derived next-run mode differs from the persisted one, show
+  // the derivation — honestly labelled "(next run)" — until a completed run
+  // delivers the authoritative value via onReply → refreshInspector.
+  const preview = derivedAgentMode();
+  let sawAgentRow = false;
+  const rowData = (data.rows || []).map((r) => {
+    if (r.label !== "Agent mode") return r;
+    sawAgentRow = true;
+    return (preview && r.value !== preview) ? { label: r.label, value: preview + " (next run)" } : r;
+  });
+  if (preview && !sawAgentRow) rowData.push({ label: "Agent mode", value: preview + " (next run)" });
+  const rows = rowData.map((r) => `<div class="insp-row"><span class="k">${esc(r.label)}</span><span class="v">${esc(r.value)}</span></div>`).join("");
   const perms = (data.permissions || []).map((p) => `<div class="perm"><span class="k">${esc(p.label)}</span><span class="s ${p.state}" title="${esc(p.note || "")}">${esc(p.state)}</span></div>`).join("");
   const badges = (data.privacy || []).map((b) => `<div class="badge ${b.tone}">${esc(b.label)}</div>`).join("");
   const bud = data.budget || { pct: 0, text: "" };
@@ -1066,6 +1157,9 @@ function send(retryOf) {
   bridge.send(JSON.stringify({
     requestId, text, model: sel.model, mode: sel.mode, focus: sel.focus,
     format: sel.format, allowCloud: sel.allowCloud === true, allowLimit: sel.allowLimit === true,
+    // F9/F17: one-time approval for a policy-blocked command — the exact
+    // string echoed by the pipeline, never a rewritten one. Omitted unless set.
+    allowCommand: typeof sel.allowCommand === "string" && sel.allowCommand ? sel.allowCommand : undefined,
   }));
 }
 
@@ -1698,6 +1792,12 @@ function finalize(status, r) {
     return;
   }
   if (!ANSWERED.includes(status)) {
+    // F9/F17: a policy-blocked command gets an inline approval card, not an
+    // error dead-end — the user can approve the exact command once or deny it.
+    if (status === "needs_command_approval") {
+      renderCommandApprovalCard(el, r, sel);
+      return;
+    }
     state.lastFailedRequestId = state.message && state.message.requestId;
     renderErrorCard(el, status, r, sel); return;
   }
@@ -2147,6 +2247,47 @@ function appendCard(title, text) {
   appendMsg(`<div class="tool-card"><div class="t">${esc(title)}</div><pre>${esc(text)}</pre></div>`, "bot");
 }
 
+// F9/F17: in-chat approval for a command hard-blocked by the run-mode policy
+// (mirrors the needs_free_confirmation flow). The card shows the EXACT command
+// the pipeline asked to run; Approve once re-sends the original message with
+// allowCommand set to that exact string; Deny posts a cancellation and nothing
+// is re-sent.
+function renderCommandApprovalCard(el, r, sel) {
+  const command = String((r && r.command) || "");
+  const reason = String((r && r.reason) || "The current run mode blocks this command.");
+  el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
+    `<div class="approval-card command-approval" role="group" aria-label="Command approval required">
+       <div class="ap-head"><span class="ap-badge">Command blocked</span><span class="ap-risk">One-time approval</span></div>
+       <div class="ap-title">Approve this command once?</div>
+       <div class="ap-why">${esc(reason)}</div>
+       <div class="ap-scope"><span class="k">Command</span><span class="v"><code>${esc(command)}</code></span></div>
+       <div class="ap-actions">
+         <button class="btn primary" data-ap="approve">Approve once</button>
+         <button class="btn" data-ap="deny">Deny</button>
+       </div>
+     </div>`;
+  wireActivitySummary(el);
+  const card = el.querySelector(".approval-card");
+  const done = (note, cls) => {
+    card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    card.classList.add(cls);
+    const outcome = document.createElement("div");
+    outcome.className = "ap-state";
+    outcome.textContent = note;
+    card.appendChild(outcome);
+  };
+  el.querySelector('[data-ap="approve"]').onclick = () => {
+    done("Approved — re-running with this command allowed…", "approved");
+    send(Object.assign({}, state.lastSend || sel || {}, { allowCommand: command }));
+  };
+  el.querySelector('[data-ap="deny"]').onclick = () => {
+    done("Denied — the command was not run.", "denied");
+    if (bridge.cancel && state.message && state.message.requestId) {
+      try { bridge.cancel(state.message.requestId); } catch (_e) { /* best-effort cancellation */ }
+    }
+  };
+}
+
 /* ---------- palette + shortcuts ---------- */
 function openPalette() {
   const ov = $("#palette"); ov.classList.add("open");
@@ -2309,5 +2450,13 @@ window.addEventListener("DOMContentLoaded", () => {
 // Test hook: lets the Playwright harness read state and drive send/stop without
 // a real Qt bridge. Harmless in production (a read-only handle on internals).
 if (typeof window !== "undefined") {
-  window.__opai = { get state() { return state; }, send: (x) => send(x), stop: () => stop() };
+  window.__opai = {
+    get state() { return state; },
+    send: (x) => send(x),
+    stop: () => stop(),
+    // Pure-ish internals exposed for unit tests: the payload→state selection
+    // sync (F16/F4) and the derived next-run agent mode preview (F21).
+    applyBootSelection: (b) => applyBootSelection(b),
+    derivedAgentMode: () => derivedAgentMode(),
+  };
 }
