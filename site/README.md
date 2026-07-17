@@ -1,55 +1,58 @@
-# OPai Launch Site
+# OPai Landing Page
 
-This folder is the static free-public-alpha funnel for OPai.
+Static single-file site for OPai — the AI coding cost firewall — built around the
+**free public alpha** narrative. OPai is free. Install it in one command.
 
-## Primary Funnel
+## The Funnel
 
 ```text
-page visit -> verified release availability -> free install when published -> opai doctor -> local proof loop -> privacy-safe feedback -> evidence-led product learning
+visit -> pip install opai -> opai doctor -> opai savings -> share
 ```
 
-The page has one primary CTA:
+The page has exactly one goal: **install**. The single CTA is the install
+command itself (`pip install opai`, copy-to-clipboard). Secondary links go to
+GitHub and Discussions. After install, `opai doctor` verifies the setup and
+`opai savings` proves the value in numbers.
 
-- Get OPai Free.
+Hard rule: **no paid-tier or gated-access CTAs on this page.** No pricing
+sections, no checkout links, no invite walls, no "apply" forms. OPai is free
+during alpha — no credit card, no invite.
 
-The supporting CTAs are **Run the proof loop** and **See alpha readiness**.
-The public offer language is **Free public alpha**: no checkout, license,
-invitation, or private-link gate. The page intentionally avoids raw GitHub
-installation URLs; free access does not require the project to choose an open-
-source distribution posture. Until a verified artifact exists, it links only to
-the GitHub Releases page and says that there is no public package installation
-command yet.
+## Files
 
-Use a privacy-safe support channel for optional feedback and benchmark evidence.
-Do not add payment buttons, private-access placeholders, or public issue forms
-as a substitute for a support workflow.
+- `index.html` — the whole site (inline CSS + JS, no frameworks, no external
+  dependencies except the mascot image)
+- `assets/opai-mascot.png` — mascot (also used as favicon and og:image)
+- `_headers` — Cloudflare Pages security headers (already present)
+- `serve.py` — local preview helper
 
-## Cloudflare Pages
-
-Current Cloudflare Pages direct-upload commands, from the official Wrangler
-Pages docs:
+## Preview Locally
 
 ```sh
-npx wrangler pages project create opai --production-branch main
-npx wrangler pages deploy site --project-name opai --branch main
+cd site
+python serve.py            # serves on http://localhost:7100 for 10 minutes
+# or
+python -m http.server 7100 # standard library, any port you like
 ```
 
-If the project is connected to Git instead, set:
+## Deploy
+
+Fully static — no build step. On Cloudflare Pages: connect the repo and set
 
 ```text
 Build command: none
 Build output directory: site
 ```
 
-## Analytics
+or direct-upload with Wrangler:
 
-The site includes Cloudflare Web Analytics only:
-
-```html
-const token = "REPLACE_WITH_CLOUDFLARE_WEB_ANALYTICS_TOKEN";
-// When the placeholder is replaced, index.html injects:
-// https://static.cloudflareinsights.com/beacon.min.js
+```sh
+npx wrangler pages deploy site --project-name opai --branch main
 ```
 
-Replace the placeholder token in Cloudflare before public launch. Do not add
-Google Analytics, Mixpanel, or silent CLI telemetry.
+`_headers` ships with the site and is applied automatically by Cloudflare Pages.
+
+## Analytics
+
+None. The site is privacy-first, like the tool: no trackers, no beacons, no
+third-party requests of any kind.
