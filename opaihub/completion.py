@@ -75,6 +75,7 @@ _BLOCKED_REASONS = {reason.value for reason in ProviderBlockedReason}
 _STUCK_REASONS = _STUCK_STATUSES | {
     "tool_budget_exhausted",
     "repeated_failure",
+    "repeated_success",
     "no_progress",
     "exploration_limit",
     "controller_timeout",
