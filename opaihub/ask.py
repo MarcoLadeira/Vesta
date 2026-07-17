@@ -246,14 +246,25 @@ def run_explicit_model(
     runner: LocalRunner,
     selected_model_id: str,
     allow_edits: bool = False,
+    tool_calling_enabled: bool | None = None,
+    allow_cloud: bool = False,
+    guard: Any = None,
     mode: str = "ask",
     record: bool = True,
     cancel: Any = None,
     on_text: Any = None,
 ) -> dict[str, Any]:
-    """Run an explicitly selected model without Auto routing or prose caching."""
+    """Run an explicitly selected model without Auto routing or prose caching.
+
+    Authority is split (Task 6): ``allow_edits`` governs repository *mutations*;
+    ``tool_calling_enabled`` governs whether tools are offered at all (defaults
+    to ``allow_edits`` for compatibility). A per-turn :class:`ExecutionGuard`
+    runs the financial/consent/provider checks before every provider turn — a
+    caller may inject one, otherwise a default guard is built here.
+    """
 
     root = project_root.expanduser().resolve()
+    use_tools = allow_edits if tool_calling_enabled is None else tool_calling_enabled
     base = {
         "task_hash": hashlib.sha256(
             (selected_model_id + "\0" + task).encode("utf-8")
@@ -263,27 +274,40 @@ def run_explicit_model(
     }
     if cancel is not None and cancel.is_set():
         return {**base, "status": "cancelled", "answer": ""}
+    completion_state = "completed"
+    blocked_reason = ""
     try:
-        if allow_edits:
-            complete_with_tools = getattr(runner, "complete_with_tools", None)
-            if not callable(complete_with_tools):
-                return {
-                    **base,
-                    "status": "capability_mismatch",
-                    "error": "The selected provider cannot edit repository files.",
-                }
+        complete_with_tools = getattr(runner, "complete_with_tools", None)
+        if use_tools and callable(complete_with_tools):
+            turn_guard = _build_turn_guard(
+                root,
+                runner=runner,
+                allow_cloud=allow_cloud,
+                cancel=cancel,
+                guard=guard,
+            )
             completed = complete_with_tools(
                 task,
                 project_root=root,
-                allow_edits=True,
+                allow_edits=allow_edits,
+                tool_calling_enabled=True,
                 system=SYSTEM_PROMPT,
                 cancel=cancel,
+                guard=turn_guard,
             )
             answer = str(completed.get("text") or "")
             tool_trace = list(completed.get("tool_trace") or [])
             stopped_reason = str(completed.get("stopped_reason") or "")
             last_error = str(completed.get("last_error") or "")
+            completion_state = str(completed.get("completion_state") or "completed")
+            blocked_reason = str(completed.get("blocked_reason") or "")
             streamed = False
+        elif allow_edits and not callable(complete_with_tools):
+            return {
+                **base,
+                "status": "capability_mismatch",
+                "error": "The selected provider cannot edit repository files.",
+            }
         else:
             answer, streamed = _complete_streaming(
                 runner, task, cancel=cancel, on_text=on_text
@@ -310,12 +334,56 @@ def run_explicit_model(
         # The runner already streamed the answer to on_text (#154); the caller
         # must not re-emit it as one block.
         "streamed": streamed,
-        # Typed terminal for a run the tool loop could not finish (#311): empty
-        # on a clean completion, else "tool_budget_exhausted"/"repeated_failure".
-        # Callers can detect a stuck run without a new status to special-case.
+        # Typed terminal for a run the tool loop could not finish: empty on a
+        # clean completion, else the controller's honest stopped_reason. Callers
+        # can detect a non-success run without a new status to special-case.
         "stopped_reason": stopped_reason,
         "last_error": last_error,
+        # Canonical completion truth (Task 6): only "completed" is success; a
+        # guard-blocked turn also carries the ProviderBlockedReason.
+        "completion_state": completion_state,
+        "blocked_reason": blocked_reason,
     }
+
+
+def _build_turn_guard(
+    project_root: Path,
+    *,
+    runner: LocalRunner,
+    allow_cloud: bool,
+    cancel: Any,
+    guard: Any = None,
+) -> Any:
+    """Return a ``(turn_index) -> GuardDecision`` callable for the tool loop.
+
+    Explicit runs here are free/local ($0), so the guard chiefly enforces
+    cancellation, panic mode, and paid/cloud consent per turn. A caller may
+    inject its own guard callable (used as-is); otherwise a default
+    :class:`ExecutionGuard` is wrapped with a per-turn context.
+    """
+
+    if callable(guard):
+        return guard
+    from opaihub.execution_guard import ExecutionGuard, ExecutionGuardContext
+
+    engine = guard if isinstance(guard, ExecutionGuard) else ExecutionGuard()
+    provider_type = "local" if getattr(runner, "name", "") != "free-api" else "free_api"
+
+    def _guard(turn_index: int) -> Any:
+        return engine.check(
+            ExecutionGuardContext(
+                project_root=project_root,
+                turn_index=turn_index,
+                tier="L2",
+                provider_type=provider_type,
+                is_free=True,
+                estimated_cost_usd=0.0,
+                allow_cloud=allow_cloud,
+                cancel=cancel,
+            )
+        )
+
+    return _guard
 
 
 def render_ask(result: dict[str, Any]) -> str:

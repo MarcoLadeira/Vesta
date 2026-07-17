@@ -397,6 +397,7 @@ class ToolLoopResult:
     compactions: int = 0
     cumulative_serialized_chars: int = 0
     last_error: str = ""
+    blocked_reason: str = ""
 
 
 ChatCallable = Callable[..., ChatTurn]
@@ -421,6 +422,8 @@ class ToolLoopController:
         executor: Any,
         base_messages: Sequence[Mapping[str, Any]],
         allow_mutations: bool = True,
+        tool_calling_enabled: bool = True,
+        guard: Callable[[int], Any] | None = None,
         cancel: Any = None,
     ) -> ToolLoopResult:
         policy = self.policy
@@ -443,6 +446,7 @@ class ToolLoopController:
             answer: str = "",
             question: str = "",
             stopped: str = "",
+            blocked_reason: str = "",
         ) -> ToolLoopResult:
             return ToolLoopResult(
                 completion_state=state_value,
@@ -459,6 +463,7 @@ class ToolLoopController:
                 compactions=state.compactions,
                 cumulative_serialized_chars=state.cumulative_serialized_chars,
                 last_error=last_error,
+                blocked_reason=blocked_reason,
             )
 
         while True:
@@ -481,8 +486,32 @@ class ToolLoopController:
                 compact_context(state, policy)
             state.cumulative_serialized_chars += state.serialized_chars()
 
+            # Per-turn guard (Task 6): the financial/consent/provider check runs
+            # before *every* provider turn — the first and every continuation —
+            # so a run that becomes unaffordable or loses consent stops honestly
+            # mid-flight rather than continuing to spend.
+            if guard is not None:
+                decision = guard(model_calls + 1)
+                if decision is not None and not decision.allowed:
+                    guard_state = decision.to_completion_state()
+                    reason = (
+                        decision.blocked_reason.value
+                        if getattr(decision, "blocked_reason", None) is not None
+                        else ""
+                    )
+                    # A clean, recognised token (e.g. "daily_cap") so downstream
+                    # completion-state mapping stays honest; free-text detail is
+                    # kept separately for diagnostics.
+                    last_error = str(getattr(decision, "detail", "") or "")
+                    return _result(
+                        guard_state,
+                        stopped=reason or guard_state.value,
+                        blocked_reason=reason,
+                    )
+
+            tools = executor.schemas() if tool_calling_enabled else []
             try:
-                turn = chat(state.request_messages(), tools=executor.schemas())
+                turn = chat(state.request_messages(), tools=tools)
             except ToolLoopProviderError as exc:
                 last_error = str(exc)
                 return _result(

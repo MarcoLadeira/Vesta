@@ -544,6 +544,8 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         timeout: float = 60.0,
         cancel: threading.Event | None = None,
         max_tool_calls: int | None = None,
+        tool_calling_enabled: bool = True,
+        guard: Any = None,
     ) -> dict[str, Any]:
         """Run a continuous, checkpointed repository tool loop.
 
@@ -552,6 +554,13 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         completion. ``12`` is a maintenance checkpoint, never a terminal budget.
         ``max_tool_calls`` is a deprecated, recoverable external ceiling that the
         GUI never sets; hitting it is a recoverable stop, not a fake completion.
+
+        Authority is split (Task 6): ``allow_edits`` governs *mutations* (whether
+        edit tools are exposed at all), while ``tool_calling_enabled`` governs
+        whether any tools are offered. ``guard`` — a callable ``(turn_index) ->
+        GuardDecision`` — runs before every provider turn; a non-allow decision
+        stops the run with the guard's typed state (blocked / needs-consent /
+        cancelled), never a fake completion.
         """
 
         from .completion import CompletionState
@@ -601,6 +610,8 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             executor=executor,
             base_messages=base_messages,
             allow_mutations=allow_edits,
+            tool_calling_enabled=tool_calling_enabled,
+            guard=guard,
             cancel=cancel,
         )
 
@@ -632,6 +643,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             "last_error": outcome.last_error,
             "completion_state": outcome.completion_state.value,
             "user_question": outcome.user_question,
+            "blocked_reason": outcome.blocked_reason,
         }
 
 
