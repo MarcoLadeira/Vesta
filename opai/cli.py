@@ -28,6 +28,7 @@ from opai.publish import publish_status, write_publish_status
 from opai.terminal_ui import build_welcome, play_animation
 from opaihub.cli import main as hub_main
 from opaihub.model_intelligence import recommend_model
+from opaihub.proc import AGENT_SESSION_ENV
 from opaihub.router import compact_decision, route_task
 from opaihub.skills import skill_items, skill_status
 
@@ -403,6 +404,9 @@ def cmd_build(args: argparse.Namespace) -> int:
     access. Runs through the normal pipeline, so routing, the cost firewall,
     and the savings receipt all apply.
     """
+    refusal = _refuse_if_nested_agent_session()
+    if refusal is not None:
+        return refusal
     from opaihub.build_loop import run_build_request
 
     app_root = Path(args.app).expanduser().resolve() if args.app else Path.cwd()
@@ -672,7 +676,132 @@ def cmd_launch(args: argparse.Namespace) -> int:
         return 126
 
 
+# --------------------------------------------------------------------------- #
+# Recursion guard (F12): provider CLIs spawned by OPai carry OPAI_AGENT_SESSION
+# in their environment (see opaihub.proc). When an agent follows an
+# instruction-file recipe like "run `opai route ...`", the nested OPai process
+# must refuse instead of recursing into another agent run. Agentic subcommands
+# check this guard; pure utility/hook subcommands must keep working inside an
+# agent session.
+# --------------------------------------------------------------------------- #
+_NESTED_SESSION_REFUSAL = (
+    "OPai is already running inside an OPai agent session; "
+    "recursive self-invocation is disabled."
+)
+
+
+def _nested_agent_session_active() -> bool:
+    return bool(os.environ.get(AGENT_SESSION_ENV))
+
+
+def _refuse_if_nested_agent_session() -> int | None:
+    """Exit code when invoked from inside an OPai agent session, else None."""
+    if _nested_agent_session_active():
+        print(_NESTED_SESSION_REFUSAL, file=sys.stderr)
+        return 2
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Claude Code PreToolUse hook gate (F23). AccountRunner wires this subcommand
+# into `claude` Full Auto runs via a generated --settings file (see
+# opaihub.accounts.build_claude_hook_settings); the claude CLI then executes
+# it for every Bash tool call. It must be fast, deterministic, and must never
+# be blocked by the recursion guard above — it runs *inside* agent sessions.
+# --------------------------------------------------------------------------- #
+_HOOK_SHELL_TOOLS = frozenset({"bash", "shell", "sh", "powershell", "pwsh", "cmd"})
+
+_HOOK_BLOCK_REASON = (
+    "OPai safety gate: this command is classified as destructive or "
+    "confirmation-only ({detail}). It needs explicit user confirmation in the "
+    "OPai UI. Do not retry it or work around the block; continue with safe, "
+    "read-only steps only."
+)
+
+
+def _hook_allow() -> dict[str, Any]:
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        },
+        # Legacy shape for older Claude Code versions; ignored by current ones.
+        "decision": "approve",
+    }
+
+
+def _hook_deny(reason: str) -> dict[str, Any]:
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        },
+        "decision": "block",
+        "reason": reason,
+    }
+
+
+def claude_pre_tool_decision(
+    payload: dict[str, Any], project_root: Path | None = None
+) -> dict[str, Any]:
+    """Map a Claude Code PreToolUse payload to an OPai gate decision.
+
+    Shell-tool commands are re-classified through the same policy the GUI
+    uses: ``sandbox.classify_command`` (deny/confirm rules) plus
+    ``safety_gates.is_destructive_command``. Anything not provably safe is
+    denied with an explanation; non-shell tools pass through untouched.
+    """
+    from opaihub.safety_gates import is_destructive_command
+    from opaihub.sandbox import classify_command
+
+    tool_name = str(payload.get("tool_name") or "").strip().lower()
+    if tool_name not in _HOOK_SHELL_TOOLS:
+        return _hook_allow()
+    tool_input = payload.get("tool_input")
+    command = ""
+    if isinstance(tool_input, dict):
+        command = str(tool_input.get("command") or "").strip()
+    if not command:
+        # Fail closed: a shell call we cannot inspect is not provably safe.
+        return _hook_deny(
+            _HOOK_BLOCK_REASON.format(detail="no inspectable command in payload")
+        )
+    verdict = classify_command(command, project_root)
+    if (
+        verdict.get("denied")
+        or verdict.get("requires_confirmation")
+        or is_destructive_command([command])
+    ):
+        detail = str(verdict.get("reason") or "destructive command policy")
+        return _hook_deny(_HOOK_BLOCK_REASON.format(detail=detail))
+    return _hook_allow()
+
+
+def cmd_hooks(args: argparse.Namespace) -> int:
+    """Provider CLI hook entrypoints; currently Claude Code PreToolUse only."""
+    if getattr(args, "hooks_command", None) != "claude-pre-tool":
+        print_json({"status": "unknown_hook", "hooks": ["claude-pre-tool"]})
+        return 2
+    raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("hook payload is not a JSON object")
+    except (json.JSONDecodeError, ValueError):
+        # Fail closed: an unparseable payload cannot be proven safe.
+        print(json.dumps(_hook_deny(_HOOK_BLOCK_REASON.format(detail="unparseable hook payload"))))
+        return 0
+    # Single-line JSON on stdout; exit code stays 0 because the decision is
+    # carried in the payload, not the process status.
+    print(json.dumps(claude_pre_tool_decision(payload)))
+    return 0
+
+
 def cmd_route(args: argparse.Namespace) -> int:
+    refusal = _refuse_if_nested_agent_session()
+    if refusal is not None:
+        return refusal
     root = _project(args.project)
     if args.activate:
         activate_project(root, install_global=False)
@@ -729,6 +858,9 @@ def cmd_why(args: argparse.Namespace) -> int:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
+    refusal = _refuse_if_nested_agent_session()
+    if refusal is not None:
+        return refusal
     root = _project(args.project)
     # --model routes through the same pipeline as the GUI (accounts/auto/local)
     # with live activity, streaming, Ctrl+C cancel, and a cost/savings footer.
@@ -1158,6 +1290,9 @@ def cmd_budget(args: argparse.Namespace) -> int:
 
 
 def cmd_proxy(args: argparse.Namespace) -> int:
+    refusal = _refuse_if_nested_agent_session()
+    if refusal is not None:
+        return refusal
     from opaihub.proxy import proxy_run
 
     root = _project(args.project)
@@ -2459,6 +2594,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-record", action="store_true", help="Do not record a ledger savings event"
     )
     p.set_defaults(func=cmd_ask)
+
+    p = sub.add_parser(
+        "hooks",
+        help="Provider CLI hook entrypoints (fast; safe inside agent sessions)",
+    )
+    hooks_sub = p.add_subparsers(dest="hooks_command")
+    hp = hooks_sub.add_parser(
+        "claude-pre-tool",
+        help="Claude Code PreToolUse gate: classify a Bash command from stdin",
+    )
+    hp.set_defaults(func=cmd_hooks)
+    p.set_defaults(func=cmd_hooks)
 
     p = sub.add_parser(
         "context", help="Build a tiny, targeted context pack instead of whole files"

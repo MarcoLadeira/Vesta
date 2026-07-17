@@ -1097,6 +1097,69 @@ def account_models(
     return options
 
 
+# --------------------------------------------------------------------------- #
+# Claude PreToolUse hook gate (F23).
+#
+# Full Auto used to hand the claude CLI a blanket ``--dangerously-skip-
+# permissions`` with no further control, so classified-destructive commands
+# (``gh issue close``, ``git push --force``, ``rm -rf``) ran with zero
+# confirmation. Full Auto now pairs that flag with a generated ``--settings``
+# file registering a PreToolUse hook for the Bash tool; the hook is the
+# ``opai hooks claude-pre-tool`` subcommand, which re-classifies every shell
+# command through opaihub.sandbox + opaihub.safety_gates and denies anything
+# that needs explicit user confirmation. Net posture: auto-approve EXCEPT
+# classified-destructive, which the hook denies.
+# --------------------------------------------------------------------------- #
+_CLAUDE_HOOK_SETTINGS_NAME = "opai-claude-hooks.json"
+
+
+def claude_hook_command() -> str:
+    """Shell command Claude Code runs for each PreToolUse (Bash) event."""
+    executable = sys.executable or "python"
+    return f'"{executable}" -m opai hooks claude-pre-tool'
+
+
+def build_claude_hook_settings() -> dict[str, Any]:
+    """The ``--settings`` payload wiring OPai's gate into Claude Code hooks."""
+    return {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {"type": "command", "command": claude_hook_command()},
+                    ],
+                }
+            ]
+        }
+    }
+
+
+def claude_hook_settings_path() -> Path:
+    """Deterministic settings location (rewritten each gated run)."""
+    return Path(tempfile.gettempdir()) / "opai" / _CLAUDE_HOOK_SETTINGS_NAME
+
+
+def ensure_claude_hook_settings(path: Path | None = None) -> Path:
+    """Write the hook settings file if missing/stale; return its path.
+
+    Best-effort: a write failure leaves any previous (identical-content) file
+    in place, and the deterministic path is still returned so the CLI either
+    reads a valid gate or errors on a missing file rather than running
+    ungated.
+    """
+    target = path or claude_hook_settings_path()
+    payload = json.dumps(build_claude_hook_settings(), indent=2, sort_keys=True) + "\n"
+    try:
+        current = target.read_text(encoding="utf-8") if target.exists() else None
+        if current != payload:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(payload, encoding="utf-8")
+    except OSError:
+        pass
+    return target
+
+
 class AccountRunner:
     """Run one task through a logged-in CLI. Paid/cloud; read-only by default."""
 
@@ -1145,7 +1208,15 @@ class AccountRunner:
             if self.model:
                 cmd += ["--model", self.model]
             if selected_mode == "full-auto":
+                # Full Auto stays autonomous for ordinary commands, but every
+                # Bash call is gated by the PreToolUse hook in the generated
+                # settings file: the hook denies commands the OPai classifier
+                # marks destructive/confirm-only (gh mutations, git push,
+                # rm -rf), so those still need explicit user confirmation in
+                # the UI (F23). skip-permissions is only ever emitted together
+                # with this gate.
                 cmd += ["--dangerously-skip-permissions"]
+                cmd += ["--settings", str(claude_hook_settings_path())]
             if selected_mode in {"ask", "plan", "approve-edits"}:
                 prompt = (
                     "Do not modify files or run mutating commands. "
@@ -1158,7 +1229,12 @@ class AccountRunner:
                 sandbox = "workspace-write"
             else:
                 sandbox = "read-only"
-            approval = "never" if selected_mode == "full-auto" else "on-request"
+            # Codex exec has no hook protocol, so there is no way to gate
+            # individual destructive commands from outside. Full Auto therefore
+            # keeps `--ask-for-approval on-request`: in non-interactive exec
+            # mode approval requests cannot be answered and are denied, which
+            # is exactly the fail-closed posture gh/git mutations need (F23).
+            approval = "on-request"
             cmd = [
                 self.cli_path,
                 "--ask-for-approval",
@@ -1179,6 +1255,16 @@ class AccountRunner:
                 cmd += ["--model", self.model]
             if out_file:
                 cmd += ["--output-last-message", out_file]
+            if selected_mode == "full-auto":
+                # No hook protocol exists to enforce this, so make the gate
+                # explicit to the agent as well (defense in depth for F23).
+                prompt = (
+                    "Safety: destructive or external-mutating commands "
+                    "(git push, gh issue/pr mutations, rm -rf, deploys) are "
+                    "denied in this mode. Do not attempt them; report that "
+                    "they need explicit user confirmation in the OPai UI."
+                    "\n\n" + prompt
+                )
             cmd.append(prompt)
             return cmd
         if self.account_id == "copilot":
@@ -1267,6 +1353,10 @@ class AccountRunner:
                 "returncode": returncode,
             }
         cmd = self.build_command(prompt, allow_edits=allow_edits, mode=mode)
+        if "--settings" in cmd:
+            # Claude Full Auto: the PreToolUse hook settings file must exist
+            # before the CLI starts or the Bash gate is silently absent (F23).
+            ensure_claude_hook_settings()
         try:
             proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
         except subprocess.TimeoutExpired:
@@ -1390,6 +1480,10 @@ class AccountRunner:
             mode=mode,
             stream=structured,
         )
+        if "--settings" in cmd:
+            # Claude Full Auto: the PreToolUse hook settings file must exist
+            # before the CLI starts or the Bash gate is silently absent (F23).
+            ensure_claude_hook_settings()
         # Sanitized child env: parent AI-session variables must never steer
         # this CLI's auth or model selection (see opaihub.proc).
         child_env, _env_removed = provider_child_env(self.account_id)
