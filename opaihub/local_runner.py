@@ -386,6 +386,32 @@ class OpenAICompatibleRunner(LocalRunner):
         return text
 
 
+# The continuous tool loop asks the model to end with a single versioned
+# decision object so a claimed completion can be verified (opaihub/tool_loop.py).
+# Bare prose is still accepted, but is only reported COMPLETED when real progress
+# backs it — reading alone never fakes success.
+_TOOL_LOOP_PROTOCOL = (
+    "You are running in OPai's continuous tool loop. Use the provided tools to "
+    "make real progress on the task. When — and only when — the task is genuinely "
+    "finished, reply with a single JSON object and nothing else:\n"
+    '{"opai_decision_version": 1, "state": "completed", "summary": "<what you '
+    'accomplished>", "evidence": ["<tool call id or name that proves it>"]}\n'
+    'If you need the user to decide something, reply with state "needs_user_input" '
+    'and a "question". Never claim a completion you cannot back with evidence.'
+)
+
+# Human-readable text for a run that stopped without a final answer, keyed by the
+# controller's stopped_reason. Completed runs carry the model's own answer.
+_STOP_MESSAGES = {
+    "no_progress": "Stopped: no real progress was being made toward the goal.",
+    "repeated_failure": "Stopped: the same action kept failing and could not be recovered.",
+    "controller_timeout": "Stopped: the task ran too long without reaching a milestone.",
+    "external_ceiling": "Stopped: reached the configured external tool-call ceiling.",
+    "invalid_decision": "Stopped: the provider did not return a valid completion decision.",
+    "provider_error": "Stopped: the provider was temporarily unavailable.",
+}
+
+
 class FreeAPIRunner(OpenAICompatibleRunner):
     """OpenAI-compatible runner for verified free-tier APIs.
 
@@ -519,141 +545,94 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         cancel: threading.Event | None = None,
         max_tool_calls: int | None = None,
     ) -> dict[str, Any]:
-        """Run a bounded repository tool loop through an OpenAI-compatible API."""
+        """Run a continuous, checkpointed repository tool loop.
 
+        Thin transport adapter over :class:`~opaihub.tool_loop.ToolLoopController`:
+        the controller owns continuation, context compaction, and honest
+        completion. ``12`` is a maintenance checkpoint, never a terminal budget.
+        ``max_tool_calls`` is a deprecated, recoverable external ceiling that the
+        GUI never sets; hitting it is a recoverable stop, not a fake completion.
+        """
+
+        from .completion import CompletionState
         from .github_connector import public_read_allowed
-        from .provider_tools import MAX_TOOL_CALLS, RepositoryToolExecutor
+        from .provider_tools import RepositoryToolExecutor
+        from .tool_loop import (
+            ChatTurn,
+            ToolLoopController,
+            ToolLoopPolicy,
+            ToolLoopProviderError,
+        )
 
         executor = RepositoryToolExecutor(
             project_root,
             allow_edits=allow_edits,
             allow_github_public_read=public_read_allowed(),
         )
-        messages: list[dict[str, Any]] = []
+        base_messages: list[dict[str, Any]] = []
         if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-        trace: list[dict[str, Any]] = []
-        input_tokens = 0
-        output_tokens = 0
-        model_calls = 0
-        measured = False
-        quota = None
-        limit = max(1, int(max_tool_calls or MAX_TOOL_CALLS))
-        tool_calls_used = 0
-        # Multi-step reliability (#311): the loop feeds every tool observation
-        # (including errors) back to the model so it can self-correct, but it
-        # never spins forever. It stops gracefully — with an honest
-        # ``stopped_reason`` — when the budget is exhausted or the model keeps
-        # repeating the *same* failing action, instead of raising or fabricating
-        # a success.
-        max_repeats = 3
-        last_text = ""
-        last_error = ""
-        repeated_failures: dict[str, int] = {}
+            base_messages.append({"role": "system", "content": system})
+        base_messages.append({"role": "system", "content": _TOOL_LOOP_PROTOCOL})
+        base_messages.append({"role": "user", "content": prompt})
 
-        def _finish(reason: str) -> dict[str, Any]:
-            self.last_usage = {
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "tokens": input_tokens + output_tokens,
-                # How many model calls this one task actually made (#334). A tool
-                # loop re-sends the growing context every step, so the summed
-                # token figure is only honest next to the call count — one task
-                # can be dozens of calls, which is why "5 uses" can be 700k
-                # tokens without anything being wrong.
-                "model_calls": model_calls,
-                "measurement": "provider" if measured else "estimated",
-                "quota_snapshot": quota,
-            }
-            text = last_text
-            if not text:
-                text = {
-                    "tool_budget_exhausted": "Stopped: reached the tool-call budget before finishing the task.",
-                    "repeated_failure": "Stopped: the same action kept failing and could not be recovered.",
-                    "malformed_tool_calls": "Stopped: the provider returned malformed tool calls.",
-                }.get(reason, "")
-            return {
-                "text": text,
-                "tool_trace": trace,
-                "stopped_reason": reason,
-                "last_error": last_error,
-            }
-
-        while True:
-            if cancel is not None and cancel.is_set():
-                raise LocalRunCancelled("Provider tool loop cancelled")
-            if tool_calls_used >= limit:
-                return _finish("tool_budget_exhausted")
-            result = self._chat(
-                messages,
-                tools=executor.schemas(),
-                timeout=timeout,
-                cancel=cancel,
-            )
-            model_calls += 1
-            usage = self._usage(result)
-            input_tokens += int(usage["input_tokens"])
-            output_tokens += int(usage["output_tokens"])
-            measured = measured or usage["measurement"] == "provider"
-            quota = usage.get("quota_snapshot") or quota
+        def chat(
+            messages: list[dict[str, Any]], *, tools: list[dict[str, Any]]
+        ) -> ChatTurn:
+            try:
+                result = self._chat(
+                    messages, tools=tools, timeout=timeout, cancel=cancel
+                )
+            except LocalRunCancelled:
+                raise
+            except Exception as exc:  # transport failure -> retryable state
+                raise ToolLoopProviderError(str(exc)) from exc
             message = (result.get("choices") or [{}])[0].get("message") or {}
-            content = str(message.get("content") or "").strip()
-            if content:
-                last_text = content
-            calls = message.get("tool_calls") or []
-            if not isinstance(calls, list):
-                return _finish("malformed_tool_calls")
-            if not calls:
-                return _finish("")  # the model is done — an honest completion
-            if len(calls) > limit - tool_calls_used:
-                # The next batch won't fit the budget — stop cleanly rather than
-                # running a partial, half-applied turn.
-                return _finish("tool_budget_exhausted")
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.get("content") or "",
-                    "tool_calls": calls,
-                }
+            calls = message.get("tool_calls")
+            calls = calls if isinstance(calls, list) else []
+            return ChatTurn(
+                content=str(message.get("content") or ""),
+                tool_calls=tuple(call for call in calls if isinstance(call, dict)),
+                usage=self._usage(result),
             )
-            for call in calls:
-                observation = executor.invoke_call(call, cancel=cancel)
-                function = call.get("function") if isinstance(call, dict) else {}
-                name = str((function or {}).get("name") or "unknown")
-                call_id = str(call.get("id") or "") if isinstance(call, dict) else ""
-                ok = bool(observation.get("ok"))
-                error_code = str(observation.get("error_code") or "")
-                trace.append(
-                    {
-                        "tool": name,
-                        "call_id": call_id,
-                        "ok": ok,
-                        "error_code": error_code,
-                        "message": str(observation.get("message") or ""),
-                        "duration_ms": int(observation.get("duration_ms") or 0),
-                    }
-                )
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call_id,
-                        "content": json.dumps(observation, sort_keys=True),
-                    }
-                )
-                # Anti-thrash: an identical call that fails again and again is
-                # not progress. Track consecutive failures per (tool, arguments).
-                signature = name + "|" + str((function or {}).get("arguments") or "")
-                if ok:
-                    repeated_failures.pop(signature, None)
-                else:
-                    last_error = error_code or str(observation.get("message") or "")
-                    repeated_failures[signature] = (
-                        repeated_failures.get(signature, 0) + 1
-                    )
-            tool_calls_used += len(calls)
-            if any(count >= max_repeats for count in repeated_failures.values()):
-                return _finish("repeated_failure")
+
+        controller = ToolLoopController(ToolLoopPolicy(max_tool_calls=max_tool_calls))
+        outcome = controller.run(
+            chat=chat,
+            executor=executor,
+            base_messages=base_messages,
+            allow_mutations=allow_edits,
+            cancel=cancel,
+        )
+
+        if outcome.completion_state is CompletionState.CANCELLED:
+            raise LocalRunCancelled("Provider tool loop cancelled")
+
+        self.last_usage = {
+            "input_tokens": outcome.input_tokens,
+            "output_tokens": outcome.output_tokens,
+            "tokens": outcome.input_tokens + outcome.output_tokens,
+            # One task re-sends the growing context every step, so the token
+            # total is only honest next to the call count (#334).
+            "model_calls": outcome.model_calls,
+            "measurement": outcome.measurement,
+            "quota_snapshot": outcome.quota_snapshot,
+        }
+        completed = outcome.completion_state is CompletionState.COMPLETED
+        text = outcome.answer
+        if not text and not completed:
+            text = _STOP_MESSAGES.get(outcome.stopped_reason, "")
+        return {
+            "text": text,
+            "tool_trace": [dict(item) for item in outcome.tool_trace],
+            "stopped_reason": (
+                ""
+                if completed
+                else (outcome.stopped_reason or outcome.completion_state.value)
+            ),
+            "last_error": outcome.last_error,
+            "completion_state": outcome.completion_state.value,
+            "user_question": outcome.user_question,
+        }
 
 
 def _candidate_runners() -> list[tuple[str, LocalRunner]]:
