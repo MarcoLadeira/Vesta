@@ -49,6 +49,20 @@ raw ids stay in code surfaces (Principle 5). Grouped tool rows: `{Verb} {N}
 
 ## Patterns
 
+- **View state:** `{title}` + `{plain-language reason}` + `{safe next action}`.
+  Error cards use an assertive alert; loading, empty, and degraded cards use a
+  polite status. The action must be user initiated: never retry a model call
+  or spend-triggering operation automatically.
+- **Loading:** name the work actually under way — "Loading settings" / "Checking
+  local preferences and connections." Never show a simulated percentage or a
+  fake progress bar. Workspace generation uses the canonical prepare, context,
+  model, connect, and send phases above.
+- **Empty:** say what is absent and expose the shortest productive path —
+  "No saved chats yet" / "Start a chat and it will appear here." / "New chat".
+- **Degraded:** say what is temporarily unavailable, preserve the safe path,
+  and do not imply a retry is running — "Dashboard is temporarily unavailable"
+  / "You appear to be offline, so fresh savings data is unavailable." /
+  "Open chat".
 - **Error:** `{What broke}. {Next action}.` — e.g. "Claude hit an error and
   couldn't finish. Try again, or pick a different model."
 - **Cancel:** neutral tone, never error styling: "Generation stopped by you.
