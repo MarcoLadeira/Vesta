@@ -71,7 +71,7 @@ test("starter prompts respect the same disconnected-provider send gate", async (
     boot: { accounts: [{ id: "claude", label: "Claude", connected: false, authenticated: false }] },
   });
   await page.locator("#modelSel").selectOption("account:claude:opus");
-  await page.getByRole("button", { name: "Summarize my changes" }).click();
+  await page.locator("#chips").getByRole("button", { name: "Summarize my changes" }).click();
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
 });
 

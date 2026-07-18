@@ -29,7 +29,7 @@ test("sends a prompt, streams one response, and accepts a follow-up", async ({ p
 
 test("empty and whitespace-only prompts never create requests", async ({ page }) => {
   await page.fill("#input", "   ");
-  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
   await page.press("#input", "Enter");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
   await expect(page.locator(".msg")).toHaveCount(0);

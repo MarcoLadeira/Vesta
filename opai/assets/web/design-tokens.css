@@ -1,0 +1,88 @@
+/* OPai web visual contract (#388). Component CSS consumes these tokens. */
+:root {
+  /* Surfaces and semantic colour. */
+  --bg: #0a0c11;
+  --surface: #0d1016;
+  --surface-2: #11151c;
+  --panel: #151a22;
+  --panel-2: #1b212b;
+  --elevated: #222a36;
+  --glass: rgba(255, 255, 255, 0.025);
+  --glass-hi: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --ink: #eef2f8;
+  --muted: #9aa6b6;
+  --faint: #5d6878;
+  --accent: #34d399;
+  --accent-2: #2bd4bf;
+  --accent-deep: #1c9e70;
+  --accent-ink: #04241a;
+  --accent-glow: rgba(52, 211, 153, 0.20);
+  --brand-gradient: linear-gradient(135deg, #34d399, #2bd4bf);
+  --green: #34d399;
+  --amber: #e6b15e;
+  --red: #f2768a;
+  --blue: #74b6ff;
+  --claude: #e0937a;
+  --codex: #6cc1e8;
+
+  /* Semantic type roles: size / line-height / weight travel together. */
+  --type-caption: 12px;
+  --type-label: 13px;
+  --type-body: 14px;
+  --type-body-lg: 16px;
+  --type-heading: 20px;
+  --type-title: 24px;
+  --type-display: 32px;
+  --type-caption-line: 1.35;
+  --type-label-line: 1.4;
+  --type-body-line: 1.5;
+  --type-heading-line: 1.25;
+  --type-display-line: 1.1;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-extrabold: 800;
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* Four-pixel rhythm. Component layout may only use these names. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-7: 28px;
+  --space-9: 36px;
+  --space-11: 44px;
+  --space-14: 56px;
+  --space-15: 60px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --r-sm: var(--radius-sm);
+  --r-md: var(--radius-md);
+  --r-lg: var(--radius-lg);
+  --r-xl: var(--radius-xl);
+  --elevation-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --elevation-md: 0 8px 28px rgba(0, 0, 0, 0.42);
+  --elevation-lg: 0 22px 60px rgba(0, 0, 0, 0.55);
+  --shadow-sm: var(--elevation-sm);
+  --shadow-md: var(--elevation-md);
+  --shadow-lg: var(--elevation-lg);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}

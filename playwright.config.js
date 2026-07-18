@@ -6,6 +6,9 @@ export default defineConfig({
   testDir: "opai/assets/web/__tests__/e2e",
   timeout: 15000,
   expect: { timeout: 5000 },
+  // Token screenshots use bundled fonts and a fixed viewport, so a single
+  // baseline is intentional across the Windows desktop build and Linux CI.
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{ext}",
   fullyParallel: true,
   workers: 4,
   reporter: process.env.CI

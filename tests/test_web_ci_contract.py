@@ -22,6 +22,7 @@ class WebCiContractTests(unittest.TestCase):
             "reproducible install": "npm ci",
             "high-severity audit": "npm audit --audit-level=high",
             "unit tests": "npm run test:unit",
+            "design token lint": "npm run test:tokens",
             "Chromium dependencies": "playwright install --with-deps chromium",
             "browser E2E tests": "npm run test:e2e",
             "failure artifacts": "actions/upload-artifact@v4",

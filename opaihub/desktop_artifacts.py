@@ -27,7 +27,9 @@ REQUIRED_BUILD_PINS = {"PySide6": "6.11.1", "Nuitka": "4.0"}
 REQUIRED_WEB_ASSETS = (
     "index.html",
     "app.js",
+    "icons.js",
     "styles.css",
+    "design-tokens.css",
     "activity.js",
     "message-state.js",
     "settings.js",

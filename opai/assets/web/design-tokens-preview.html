@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OPai web design tokens</title>
+  <link rel="stylesheet" href="design-tokens.css" />
+  <style>
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, sans-serif; font-size: var(--type-body); line-height: var(--type-body-line); }
+    main { max-width: 760px; margin: var(--space-10) auto; padding: 0 var(--space-6); }
+    section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--elevation-sm); margin-top: var(--space-6); padding: var(--space-6); }
+    h1 { font-size: var(--type-title); line-height: var(--type-heading-line); font-weight: var(--weight-bold); margin: 0; }
+    h2 { font-size: var(--type-heading); line-height: var(--type-heading-line); font-weight: var(--weight-bold); margin: 0; }
+    .type { display: grid; gap: var(--space-3); }
+    .caption { font-size: var(--type-caption); line-height: var(--type-caption-line); font-weight: var(--weight-medium); }
+    .label { font-size: var(--type-label); line-height: var(--type-label-line); font-weight: var(--weight-semibold); }
+    .body-lg { font-size: var(--type-body-lg); line-height: var(--type-body-line); }
+    .heading { font-size: var(--type-heading); line-height: var(--type-heading-line); font-weight: var(--weight-bold); }
+    .display { font-size: var(--type-display); line-height: var(--type-display-line); font-weight: var(--weight-extrabold); }
+    .samples { display: flex; align-items: end; gap: var(--space-1); }
+    .sample { width: var(--space-1); background: var(--accent); border-radius: var(--radius-sm); }
+    .sample:nth-child(1) { height: var(--space-1); }.sample:nth-child(2) { height: var(--space-2); }.sample:nth-child(3) { height: var(--space-3); }.sample:nth-child(4) { height: var(--space-4); }.sample:nth-child(5) { height: var(--space-6); }.sample:nth-child(6) { height: var(--space-8); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>OPai web design tokens</h1>
+    <section class="type" aria-labelledby="type-title">
+      <h2 id="type-title">Typography</h2>
+      <div class="caption">Caption — 12px / 1.35 / medium</div>
+      <div class="label">Label — 13px / 1.4 / semibold</div>
+      <div>Body — 14px / 1.5 / regular</div>
+      <div class="body-lg">Body large — 16px / 1.5 / regular</div>
+      <div class="heading">Heading — 20px / 1.25 / bold</div>
+      <div class="display">Display — 32px / 1.1 / extrabold</div>
+    </section>
+    <section aria-labelledby="spacing-title">
+      <h2 id="spacing-title">Four-pixel spacing rhythm</h2>
+      <p>4, 8, 12, 16, 24, and 32 pixels.</p>
+      <div class="samples" aria-label="Spacing samples from 4 to 32 pixels"><span class="sample"></span><span class="sample"></span><span class="sample"></span><span class="sample"></span><span class="sample"></span><span class="sample"></span></div>
+    </section>
+  </main>
+</body>
+</html>
