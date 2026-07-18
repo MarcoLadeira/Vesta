@@ -97,14 +97,24 @@
           </div>
           <div class="composer-wrap">
             <div class="composer">
+              <div class="composer-context" id="composerContext" aria-label="Effective task setup"></div>
               <textarea id="input" rows="1" placeholder="Tell OPai what to build, fix, or explain…"></textarea>
+              <div class="composer-help" id="composerHelp">Enter to send · Shift+Enter for a new line</div>
+              <div class="context-controls">
+                <label class="context-label" for="contextPath">Repository context</label>
+                <input class="context-path" id="contextPath" autocomplete="off" placeholder="src/file.py" aria-describedby="contextHelp" />
+                <button class="context-add" id="addContext" type="button">Add context</button>
+              </div>
+              <div class="context-help" id="contextHelp">Add a repository-relative path or drop files here. OPai sends references, not file contents.</div>
+              <div class="context-hints" id="contextHints" aria-label="Repository context references"></div>
+              <div class="composer-reason" id="composerReason" aria-live="polite"></div>
               <div class="composer-row">
                 <select class="select" id="modeSel" aria-label="Mode"></select>
                 <button class="build-pill" id="buildToggle" aria-pressed="true" hidden>✦ Build</button>
                 <div class="spacer"></div>
                 <span class="pdot" id="providerDot"></span>
                 <select class="select" id="modelSel" style="max-width:230px" aria-label="Model"></select>
-                <button class="send" id="send">Send</button>
+                <button class="send" id="send" type="button" aria-label="Send prompt">Send</button>
               </div>
             </div>
           </div>

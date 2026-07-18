@@ -69,6 +69,21 @@ raw ids stay in code surfaces (Principle 5). Grouped tool rows: `{Verb} {N}
   You can edit the prompt, retry, or switch model."
 - **Cost warning:** "This needs a paid model. Pick your Claude, Codex, or
   Copilot account to run it — OPai won't spend on a paid call automatically."
+- **Composer setup:** show the effective mode, its one-line consequence, the
+  selected model, and one conservative cost posture before every send. Use
+  "No provider spend" only for local or free routes; use "May spend within
+  your limits" for an account route. Never imply a price OPai has not read
+  from the local ledger.
+- **Disabled send:** state the cause and name one local remedy: "Write a prompt
+  before sending." or "Connect Claude before sending." The Settings action is
+  an explicit user choice; OPai never starts connection or spend workflows on
+  its own.
+- **Repository context:** call these "references", not uploads or attachments.
+  The composer may send a repository-relative path, never claim the file bytes
+  were included, and reminds people that existing context caps still apply.
+- **Keyboard:** keep the compact hint literal: "Enter to send · Shift+Enter for
+  a new line". The same behavior must work in the composer regardless of
+  whether it was reached through the sidebar or command palette.
 - **Activity:** `{Verb} {object}: {detail}` — "Read file: opai/activity.py",
   "Ran command: pytest".
 - **Buttons:** imperative, ≤3 words: Send · Stop · Retry · Edit prompt ·
