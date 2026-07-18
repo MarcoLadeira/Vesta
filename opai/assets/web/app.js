@@ -36,6 +36,7 @@ const state = {
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   expandedGroups: new Set(), stripColor: "",
   resumePending: false,
+  contextHints: [],
 };
 const providerLoginRequests = new Map();
 let doctorRefreshRequestId = null;
@@ -175,12 +176,12 @@ function boot() {
     state.freeConsent = new Set(b.prefs.freeConsent || []);
     applyAppearance(b.prefs); // #241: density + reduced-motion on the root, live
     applyBrand(b.brand);
-    renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
+    renderSidebar(); renderWorkspace(); renderComposerSelects(); renderComposerContext(); renderInspector();
     renderStatus(b.status); renderAccount(); applyPanel();
     renderEmptyChips();
     syncBuildMode();
     switchView("chat");
-    if (b.initialTask) { $("#input").value = b.initialTask; }
+    if (b.initialTask) { $("#input").value = b.initialTask; autoSize(); }
     renderResumeChoice();
     // F16: if this workspace requests Full Auto but has no pin, surface the
     // acknowledgement even though no dropdown change event fired.
@@ -251,7 +252,7 @@ function rebootFromState() {
   // F16/F4: re-apply the fresh payload's selection — without this the composer
   // kept the PREVIOUS workspace's mode while the header showed the new one.
   applyBootSelection(b);
-  renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
+  renderSidebar(); renderWorkspace(); renderComposerSelects(); renderComposerContext(); renderInspector();
   renderStatus(b.status); renderAccount(); renderEmptyChips();
   syncBuildMode();
   clearChat(); switchView("chat"); renderResumeChoice();
@@ -285,9 +286,10 @@ function syncBuildMode() {
 function updateSendLabel() {
   const btn = $("#send");
   if (btn && !state.busy) btn.textContent = (state.buildMode && state.buildApp) ? "Build" : "Send";
+  updateComposerAvailability();
 }
 function submitComposer() {
-  if (state.resumePending) return;
+  if (composerBlockReason()) return;
   const text = $("#input").value.trim();
   if (state.buildMode && state.buildApp && text && !text.startsWith("/")) {
     sendBuild(text);
@@ -523,7 +525,7 @@ function renderComposerSelects() {
       state.boot.autonomy.effective_mode = state.mode.id;
       state.boot.autonomy.downgraded = false;
     }
-    refreshInspector(); refreshStatus();
+    renderComposerContext(); refreshInspector(); refreshStatus();
   };
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
   // Group models by their group field into optgroup sections
@@ -566,9 +568,106 @@ function renderComposerSelects() {
   modelSel.onchange = () => {
     const m = state.boot.models.find((x) => x.id === modelSel.value);
     if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
-    setProviderDot(); bridge.savePref("default_model", state.model.id); refreshInspector(); refreshStatus();
+    setProviderDot(); renderComposerContext(); bridge.savePref("default_model", state.model.id); refreshInspector(); refreshStatus();
   };
   setProviderDot();
+  renderComposerContext();
+}
+
+function autonomyConsequence(modeId) {
+  return {
+    ask: "Answers without changes",
+    plan: "Plans without changes",
+    "safe-auto": "Asks before edits",
+    "approve-edits": "Asks before commands",
+    "full-auto": "Edits and runs commands",
+  }[modeId] || "Uses your selected autonomy";
+}
+
+function costPosture() {
+  if (state.model.kind === "local" || state.model.kind === "free") return "No provider spend";
+  if (state.model.kind === "auto") return "Routes local first";
+  return "May spend within your limits";
+}
+
+function composerBlockReason() {
+  if (state.resumePending) return "Choose how to continue this saved session before sending.";
+  if (state.model.kind === "account") {
+    const account = (state.accounts || []).find((item) => item.id === state.model.provider);
+    if (!account || !(account.connected || account.authenticated)) {
+      return `Connect ${state.model.provider ? providerName(state.model.provider) : "this provider"} before sending.`;
+    }
+  }
+  if (!$("#input").value.trim()) return "Write a prompt before sending.";
+  return "";
+}
+
+function renderComposerContext() {
+  const root = $("#composerContext");
+  if (!root || !state.boot) return;
+  const modeLabel = state.mode.label || "Selected mode";
+  const modelLabel = state.model.kind === "auto" ? "OPai · Auto mode" : (state.model.label || "Selected model");
+  root.innerHTML = [
+    `<button class="context-chip" type="button" data-composer-focus="mode" aria-label="Mode: ${esc(modeLabel)}">Mode · ${esc(modeLabel)}</button>`,
+    `<button class="context-chip" type="button" data-composer-focus="mode" aria-label="Autonomy: ${esc(autonomyConsequence(state.mode.id))}">${esc(autonomyConsequence(state.mode.id))}</button>`,
+    `<button class="context-chip" type="button" data-composer-focus="model" aria-label="Model: ${esc(modelLabel)}">${esc(modelLabel)}</button>`,
+    `<button class="context-chip" type="button" data-composer-focus="cost" aria-label="Cost posture: ${esc(costPosture())}">${esc(costPosture())}</button>`,
+  ].join("");
+  root.querySelectorAll("[data-composer-focus]").forEach((button) => {
+    button.onclick = () => {
+      const target = button.dataset.composerFocus;
+      if (target === "mode") $("#modeSel").focus();
+      else if (target === "model") $("#modelSel").focus();
+      else {
+        try { window.history.replaceState(null, "", "#settings/firewall"); } catch (_e) { /* best-effort deep link */ }
+        switchView("settings");
+      }
+    };
+  });
+  renderContextHints();
+  updateComposerAvailability();
+}
+
+function updateComposerAvailability() {
+  const send = $("#send"), reason = $("#composerReason");
+  if (!send || !reason) return;
+  const blocked = composerBlockReason();
+  if (state.busy) { send.disabled = false; reason.innerHTML = ""; return; }
+  send.disabled = Boolean(blocked);
+  send.setAttribute("aria-label", (state.buildMode && state.buildApp) ? "Start build" : "Send prompt");
+  if (!blocked) { reason.innerHTML = ""; send.removeAttribute("aria-describedby"); return; }
+  const action = !state.resumePending && state.model.kind === "account"
+    ? ' <button class="reason-action" type="button">Open Settings</button>'
+    : "";
+  reason.innerHTML = `${esc(blocked)}${action}`;
+  send.setAttribute("aria-describedby", "composerReason");
+  const open = reason.querySelector(".reason-action");
+  if (open) open.onclick = () => switchView("settings");
+}
+
+function normalizeContextHint(value) {
+  const path = String(value || "").trim().replaceAll("\\", "/").replace(/^@+/, "");
+  if (!path || path.startsWith("/") || path.includes("..") || path.length > 240) return "";
+  if (/^(?:[a-z]:|\/\/|[a-z][a-z0-9+.-]*:)/i.test(path)) return "";
+  return path;
+}
+
+function addContextHint(value) {
+  const path = normalizeContextHint(value);
+  if (!path || state.contextHints.includes(path)) return;
+  state.contextHints.push(path);
+  renderContextHints();
+}
+
+function renderContextHints() {
+  const root = $("#contextHints");
+  if (!root) return;
+  root.innerHTML = state.contextHints.map((path, index) =>
+    `<span class="context-hint">@${esc(path)}<button class="context-remove" type="button" aria-label="Remove ${esc(path)}" data-context-index="${index}">×</button></span>`
+  ).join("");
+  root.querySelectorAll("[data-context-index]").forEach((button) => {
+    button.onclick = () => { state.contextHints.splice(Number(button.dataset.contextIndex), 1); renderContextHints(); };
+  });
 }
 
 // The Full Auto acknowledgement (#137/#151), extracted so it can be offered
@@ -816,10 +915,10 @@ function clearChat() {
 }
 function setResumeGate(on) {
   state.resumePending = !!on;
-  const input = $("#input"), sendButton = $("#send"), buildToggle = $("#buildToggle");
+  const input = $("#input"), buildToggle = $("#buildToggle");
   if (input) input.disabled = !!on;
-  if (sendButton) sendButton.disabled = !!on;
   if (buildToggle) buildToggle.disabled = !!on;
+  updateComposerAvailability();
 }
 function clearFailure(message) {
   return {
@@ -1149,6 +1248,7 @@ const ERROR_TITLES = {
 
 function send(retryOf) {
   if (state.busy && !retryOf) return; // duplicate-submit protection
+  if (!retryOf && composerBlockReason()) return;
   const text = retryOf ? retryOf.text : $("#input").value.trim();
   if (!text) return;
   // Slash commands run local OPai tools ("/panic", "/savings", "/connect") —
@@ -1165,6 +1265,7 @@ function send(retryOf) {
   const sel = retryOf || {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
+    contextHints: state.contextHints.slice(),
   };
   // Free-tier consent: one confirmation per provider, ever. If the user has
   // already confirmed this free model in the past (persisted per workspace),
@@ -1193,9 +1294,19 @@ function send(retryOf) {
   stripReset(sel);
   startTimer(sel);
   setBusy(true);
+  // The bridge remains backwards-compatible with older hosts by receiving
+  // metadata too, while the prompt itself carries safe path references for
+  // the existing context-selection pipeline. Never read or serialize files.
+  const contextHints = Array.isArray(sel.contextHints)
+    ? sel.contextHints.map(normalizeContextHint).filter(Boolean)
+    : [];
+  const requestText = contextHints.length
+    ? `Repository context references:\n${contextHints.map((path) => `@${path}`).join("\n")}\n\n${text}`
+    : text;
   bridge.send(JSON.stringify({
-    requestId, text, model: sel.model, mode: sel.mode, focus: sel.focus,
+    requestId, text: requestText, model: sel.model, mode: sel.mode, focus: sel.focus,
     format: sel.format, allowCloud: sel.allowCloud === true, allowLimit: sel.allowLimit === true,
+    contextHints,
     // F9/F17: one-time approval for a policy-blocked command — the exact
     // string echoed by the pipeline, never a rewritten one. Omitted unless set.
     allowCommand: typeof sel.allowCommand === "string" && sel.allowCommand ? sel.allowCommand : undefined,
@@ -2073,6 +2184,7 @@ function setBusy(on) {
   s.textContent = on ? "Stop" : ((state.buildMode && state.buildApp) ? "Build" : "Send");
   s.classList.toggle("stop", on);
   s.setAttribute("aria-label", on ? "Stop generation" : "Send prompt");
+  if (!on) updateComposerAvailability();
   updateInspectorLive(on ? "Preparing request…" : null);
 }
 
@@ -2627,10 +2739,26 @@ function wire() {
   $("#wsMenu").addEventListener("click", (e) => e.stopPropagation());
   document.addEventListener("click", closeWsMenu);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWsMenu(); });
-  $("#input").addEventListener("input", autoSize);
+  $("#input").addEventListener("input", () => { autoSize(); updateComposerAvailability(); });
   $("#input").addEventListener("keydown", (e) => {
     // Enter sends; while a request is active it is ignored (no duplicate/queue).
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!state.busy) submitComposer(); }
+  });
+  const contextPath = $("#contextPath");
+  $("#addContext").onclick = () => {
+    addContextHint(contextPath.value);
+    if (normalizeContextHint(contextPath.value)) contextPath.value = "";
+    contextPath.focus();
+  };
+  contextPath.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); $("#addContext").click(); }
+  });
+  const composer = $(".composer");
+  composer.addEventListener("dragover", (e) => { e.preventDefault(); composer.classList.add("drag-over"); });
+  composer.addEventListener("dragleave", () => composer.classList.remove("drag-over"));
+  composer.addEventListener("drop", (e) => {
+    e.preventDefault(); composer.classList.remove("drag-over");
+    Array.from((e.dataTransfer && e.dataTransfer.files) || []).forEach((file) => addContextHint(file.name));
   });
   $("#promptSearch").addEventListener("input", loadPrompts);
   $("#promptCat").addEventListener("change", loadPrompts);

@@ -666,6 +666,27 @@ kbd {
   font-size: 15px; line-height: 1.5; min-height: 26px; max-height: 180px; user-select: text;
 }
 .composer textarea::placeholder { color: var(--faint); }
+.composer-context { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.context-chip, .context-add, .context-remove {
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--glass); color: var(--muted);
+  font: inherit; font-size: 11.5px; font-weight: 700; line-height: 1.2;
+}
+.context-chip { padding: 6px 8px; cursor: pointer; text-align: left; }
+.context-chip:hover, .context-chip:focus-visible { color: var(--ink); border-color: var(--border-strong); outline: 0; }
+.context-controls { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
+.context-label { color: var(--faint); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.context-path { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--glass); color: var(--ink); padding: 6px 8px; font: inherit; font-size: 12px; }
+.context-path:focus { border-color: rgba(52, 211, 153, 0.45); outline: 0; }
+.context-add { padding: 7px 9px; cursor: pointer; white-space: nowrap; }
+.context-help, .composer-help, .composer-reason { color: var(--faint); font-size: 11px; line-height: 1.4; }
+.context-help, .composer-help { margin-top: 5px; }
+.composer-reason { min-height: 0; margin-top: 7px; color: var(--warn, #e9c46a); }
+.composer-reason:empty { display: none; }
+.context-hints { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.context-hint { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; background: var(--glass); border: 1px solid var(--border); color: var(--muted); padding: 4px 5px 4px 8px; font-size: 11px; }
+.context-remove { padding: 1px 4px; cursor: pointer; color: var(--muted); }
+.context-remove:hover, .context-remove:focus-visible { color: var(--ink); border-color: var(--border-strong); outline: 0; }
+.composer.drag-over { border-color: rgba(52, 211, 153, 0.85); box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow-md), var(--inset-hi); }
 .composer-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .composer-row .spacer { flex: 1; }
 .pdot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 6px rgba(255,255,255,0.15); flex-shrink: 0; }
@@ -689,6 +710,7 @@ kbd {
 .send:hover { transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-glow); filter: brightness(1.05); }
 .send:active { transform: translateY(0) scale(0.98); }
 .send.stop { background: linear-gradient(180deg, #ff7a8c, #e85f73); color: #2a0810; box-shadow: 0 3px 14px rgba(242, 118, 138, 0.25); }
+.send:disabled { cursor: not-allowed; filter: grayscale(0.5); opacity: 0.55; box-shadow: none; transform: none; }
 
 /* ---------- inspector: the control tower ---------- */
 .inspector {
