@@ -348,7 +348,14 @@ function renderRecents() {
   if (!rec) return;
   const list = state.boot.recents || [];
   if (!list.length) {
-    rec.innerHTML = `<div class="recent" style="color:var(--faint);cursor:default">Your chats appear here.</div>`;
+    renderViewState(rec, {
+      kind: "empty",
+      title: "No saved chats yet",
+      reason: "Start a chat and it will appear here.",
+      action: "new_chat",
+      actionLabel: "New chat",
+      compact: true,
+    }, () => startNewChat());
     return;
   }
   rec.innerHTML = "";
@@ -387,6 +394,38 @@ function renderRecents() {
     });
   };
   rec.appendChild(clear);
+}
+
+function stateCardHtml(stateCard) {
+  const state = stateCard || {};
+  const kind = ["error", "empty", "loading", "degraded"].includes(state.kind) ? state.kind : "empty";
+  const icons = { error: "!", empty: "✦", loading: "◌", degraded: "!" };
+  const role = kind === "error" ? "alert" : "status";
+  const title = state.title || (kind === "loading" ? "Loading" : "Nothing to show yet");
+  const reason = state.reason || "";
+  const action = state.action && state.actionLabel
+    ? `<button class="btn ${state.primary ? "primary" : ""}" data-state-action="${esc(state.action)}">${esc(state.actionLabel)}</button>`
+    : "";
+  return `<section class="state-card ${kind}${state.compact ? " compact" : ""}" role="${role}"${kind !== "error" ? ' aria-live="polite"' : ""}>` +
+    `<span class="state-card-icon" aria-hidden="true">${icons[kind]}</span><div class="state-card-copy"><div class="state-card-title">${esc(title)}</div>` +
+    (reason ? `<div class="state-card-reason">${esc(reason)}</div>` : "") +
+    (action ? `<div class="state-card-actions">${action}</div>` : "") +
+    `</div></section>`;
+}
+
+function renderViewState(host, stateCard, onAction) {
+  host.innerHTML = stateCardHtml(stateCard);
+  const action = host.querySelector("[data-state-action]");
+  if (action && onAction) action.onclick = onAction;
+}
+
+// Bridge failures can originate in local tools and provider adapters. Only an
+// explicitly structured, user-facing message is safe to render by default;
+// raw exception strings may contain paths, tokens, or implementation details.
+function safeStateReason(value, fallback) {
+  if (!value || typeof value !== "object" || typeof value.userMessage !== "string") return fallback;
+  const message = value.userMessage.trim();
+  return message || fallback;
 }
 
 function renderAccount() {
@@ -1712,7 +1751,7 @@ function renderErrorCard(el, status, r, sel) {
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
   el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
-    `<div class="error-card"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
+    `<div class="error-card" role="alert"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button>` +
     (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
     (offerLogin ? `<button class="btn primary" data-a="signin">Sign in to ${esc(providerName(loginProvider))}</button>` : "") +
@@ -2039,10 +2078,64 @@ function setBusy(on) {
 
 /* ---------- dashboards ---------- */
 function renderDashboard(section) {
-  const page = $("#dashPage"); page.innerHTML = `<div class="page-sub">Loading…</div>`;
+  const page = $("#dashPage");
+  renderViewState(page, {
+    kind: "loading",
+    title: "Loading dashboard",
+    reason: "Waiting for locally prepared dashboard data.",
+  });
   const paint = (json) => {
-    const s = JSON.parse(json);
-    if (s.error) { page.innerHTML = `<div class="page-sub">Couldn't load: ${esc(s.error)}</div>`; return; }
+    let s = {};
+    try { s = JSON.parse(json); } catch (_e) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load this dashboard",
+        reason: "OPai received an invalid local dashboard response.",
+        action: "retry_dashboard",
+        actionLabel: "Try again",
+      }, () => renderDashboard(section));
+      return;
+    }
+    if (!s || typeof s !== "object" || Array.isArray(s)) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load this dashboard",
+        reason: "OPai received an invalid local dashboard response.",
+        action: "retry_dashboard",
+        actionLabel: "Try again",
+      }, () => renderDashboard(section));
+      return;
+    }
+    if (s.error) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load this dashboard",
+        reason: safeStateReason(s.error, "Dashboard data is temporarily unavailable."),
+        action: "retry_dashboard",
+        actionLabel: "Try again",
+      }, () => renderDashboard(section));
+      return;
+    }
+    if (s.degraded) {
+      renderViewState(page, {
+        kind: "degraded",
+        title: "Dashboard is temporarily unavailable",
+        reason: safeStateReason(s.degraded, "Fresh dashboard data is temporarily unavailable."),
+        action: "open_chat",
+        actionLabel: "Open chat",
+      }, () => switchView("chat"));
+      return;
+    }
+    if (!s.hero && !(s.kpis || []).length && !(s.cards || []).length && !(s.actions || []).length) {
+      renderViewState(page, {
+        kind: "empty",
+        title: s.title || "No dashboard data yet",
+        reason: s.subtitle || "Run a task to give this dashboard something to show.",
+        action: "open_chat",
+        actionLabel: "Open chat",
+      }, () => switchView("chat"));
+      return;
+    }
     let h = `<div class="page-title">${esc(s.title || section)}</div>`;
     if (s.subtitle) h += `<div class="page-sub">${esc(s.subtitle)}</div>`;
     if (s.hero) h += `<div class="hero"><div class="num" style="color:${sevColor(s.hero.severity)}">${esc(s.hero.headline)}</div><div class="cap">${esc(s.hero.caption || "")}</div></div>`;
@@ -2077,9 +2170,16 @@ function renderDashboard(section) {
   }
 }
 function onDashboardReady(json) {
-  let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
-  if (!state.dashPaint || d.requestId !== state.dashRequest) return; // stale
-  state.dashPaint(JSON.stringify(d.data || {}));
+  let d = {}; try { d = JSON.parse(json); } catch (_e) {
+    if (state.dashPaint) state.dashPaint("");
+    return;
+  }
+  if (!state.dashPaint || !d || typeof d !== "object" || Array.isArray(d) || d.requestId !== state.dashRequest) return; // stale
+  if (!Object.prototype.hasOwnProperty.call(d, "data") || !d.data || typeof d.data !== "object" || Array.isArray(d.data)) {
+    state.dashPaint("");
+    return;
+  }
+  state.dashPaint(JSON.stringify(d.data));
 }
 function runAction(aid, cmd) {
   if (aid === "panic_toggle") { switchView("chat"); bridge.runTool("panic"); return; }
@@ -2138,9 +2238,54 @@ function settingsCtx(d) {
   };
 }
 function renderSettings() {
-  const page = $("#settingsPage"); page.innerHTML = `<div class="page-sub">Loading…</div>`;
+  const page = $("#settingsPage");
+  renderViewState(page, {
+    kind: "loading",
+    title: "Loading settings",
+    reason: "Checking local preferences and connections.",
+  });
   const paint = (json) => {
-    let d = {}; try { d = JSON.parse(json); } catch (_e) { d = {}; }
+    let d = {};
+    try { d = JSON.parse(json); } catch (_e) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load settings",
+        reason: "OPai received an invalid local settings response.",
+        action: "retry_settings",
+        actionLabel: "Try again",
+      }, renderSettings);
+      return;
+    }
+    if (!d || typeof d !== "object" || Array.isArray(d)) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load settings",
+        reason: "OPai received an invalid local settings response.",
+        action: "retry_settings",
+        actionLabel: "Try again",
+      }, renderSettings);
+      return;
+    }
+    if (d.error) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load settings",
+        reason: safeStateReason(d.error, "Settings data is temporarily unavailable."),
+        action: "retry_settings",
+        actionLabel: "Try again",
+      }, renderSettings);
+      return;
+    }
+    if (d.degraded) {
+      renderViewState(page, {
+        kind: "degraded",
+        title: "Settings are temporarily unavailable",
+        reason: safeStateReason(d.degraded, "Fresh settings data is temporarily unavailable."),
+        action: "retry_settings",
+        actionLabel: "Try again",
+      }, renderSettings);
+      return;
+    }
     window.OPaiSettings.render(page, settingsCtx(d));
   };
   // #146: prefer the async path — doctor/credential/usage aggregation happens
@@ -2154,9 +2299,16 @@ function renderSettings() {
   }
 }
 function onSettingsReady(json) {
-  let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
-  if (!state.settingsPaint || d.requestId !== state.settingsRequest) return; // stale
-  state.settingsPaint(JSON.stringify(d.data || {}));
+  let d = {}; try { d = JSON.parse(json); } catch (_e) {
+    if (state.settingsPaint) state.settingsPaint("");
+    return;
+  }
+  if (!state.settingsPaint || !d || typeof d !== "object" || Array.isArray(d) || d.requestId !== state.settingsRequest) return; // stale
+  if (!Object.prototype.hasOwnProperty.call(d, "data") || !d.data || typeof d.data !== "object" || Array.isArray(d.data)) {
+    state.settingsPaint("");
+    return;
+  }
+  state.settingsPaint(JSON.stringify(d.data));
 }
 
 /* ---------- tools ---------- */

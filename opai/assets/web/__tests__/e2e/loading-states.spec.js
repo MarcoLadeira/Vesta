@@ -6,14 +6,16 @@ import { openApp, openNav } from "./helpers/app.js";
 test("dashboard shows loading until bridge data arrives", async ({ page }) => {
   await openApp(page, { dashboardDelayMs: 250 });
   await openNav(page, "Money Saved");
-  await expect(page.locator("#dashPage")).toHaveText("Loading…");
+  await expect(page.locator("#dashPage .state-card.loading")).toHaveAttribute("role", "status");
+  await expect(page.locator("#dashPage")).toContainText("Waiting for locally prepared dashboard data.");
   await expect(page.locator("#dashPage")).toContainText("Money Saved");
 });
 
 test("settings shows loading until connection data arrives", async ({ page }) => {
   await openApp(page, { settingsDelayMs: 250 });
   await openNav(page, "Settings");
-  await expect(page.locator("#settingsPage")).toHaveText("Loading…");
+  await expect(page.locator("#settingsPage .state-card.loading")).toHaveAttribute("role", "status");
+  await expect(page.locator("#settingsPage")).toContainText("Checking local preferences and connections.");
   // Paned settings (#217): the default page is Providers & Connections.
   await expect(page.locator("#settingsPage")).toContainText("Connection Doctor");
 });

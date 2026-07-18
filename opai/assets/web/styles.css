@@ -1271,6 +1271,25 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .palette .opt .hint { color: var(--faint); font-size: 11.5px; }
 
 /* ---------- toast ---------- */
+.state-card {
+  display: flex; gap: 12px; align-items: flex-start; max-width: 620px;
+  padding: 18px; border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  background: var(--glass); color: var(--ink); box-shadow: var(--inset-hi);
+}
+.state-card.error { border-color: color-mix(in srgb, var(--red) 55%, var(--border-strong)); }
+.state-card.empty { border-style: dashed; }
+.state-card.loading { border-color: color-mix(in srgb, var(--blue) 45%, var(--border-strong)); }
+.state-card.degraded { border-color: color-mix(in srgb, var(--yellow) 55%, var(--border-strong)); }
+.state-card.compact { margin: 2px 0 8px; padding: 12px; gap: 9px; font-size: 12px; }
+.state-card-icon { display: grid; place-items: center; width: 23px; height: 23px; flex: 0 0 23px; border-radius: 50%; background: var(--glass-hi); color: var(--accent); font-weight: 800; }
+.state-card.error .state-card-icon { color: var(--red); }
+.state-card.loading .state-card-icon { color: var(--blue); }
+.state-card.degraded .state-card-icon { color: var(--yellow); }
+.state-card-copy { min-width: 0; }
+.state-card-title { font-weight: 700; }
+.state-card-reason { margin-top: 4px; color: var(--muted); line-height: 1.45; }
+.state-card-actions { margin-top: 12px; }
+.state-card.compact .state-card-actions { margin-top: 8px; }
 .toast {
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px);
   background: var(--elevated); border: 1px solid var(--border-strong); color: var(--ink);
