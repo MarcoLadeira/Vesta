@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import math
+import re
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -35,6 +36,363 @@ class ProviderBlockedReason(str, Enum):
     DAILY_CAP = "daily_cap"
     MONTHLY_CAP = "monthly_cap"
     TASK_CAP = "task_cap"
+
+
+class AcceptanceRequirement(str, Enum):
+    """Machine-checkable evidence required before a run may be completed."""
+
+    ANSWER_PRESENT = "answer_present"
+    EXPECTED_EDIT = "expected_edit"
+    TESTS_PASS = "tests_pass"
+
+
+class CompletionVerdict(str, Enum):
+    """User-visible terminal truth, independent from legacy runner status."""
+
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    TIMEOUT = "timeout"
+
+
+@dataclass(frozen=True)
+class ObjectiveRecord:
+    """The declared goal and its deterministic acceptance requirements."""
+
+    objective_text: str
+    mode: str
+    acceptance: tuple[AcceptanceRequirement, ...]
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        text = str(self.objective_text or "").strip()
+        if not text:
+            raise ValueError("objective_text is required")
+        if len(text) > 20_000:
+            raise ValueError("objective_text exceeds the safety limit")
+        object.__setattr__(self, "objective_text", text)
+        object.__setattr__(self, "mode", _normalized(self.mode) or "explain")
+        requirements: list[AcceptanceRequirement] = []
+        for requirement in self.acceptance:
+            typed = (
+                requirement
+                if isinstance(requirement, AcceptanceRequirement)
+                else AcceptanceRequirement(str(requirement))
+            )
+            if typed not in requirements:
+                requirements.append(typed)
+        if not requirements:
+            raise ValueError("objective acceptance is required")
+        object.__setattr__(self, "acceptance", tuple(requirements))
+        if (
+            isinstance(self.schema_version, bool)
+            or not isinstance(self.schema_version, int)
+            or self.schema_version < 1
+        ):
+            raise ValueError("schema_version must be a positive integer")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "objective_text": self.objective_text,
+            "mode": self.mode,
+            "acceptance": [item.value for item in self.acceptance],
+        }
+
+
+@dataclass(frozen=True)
+class EvidenceRef:
+    """A bounded reference to evidence OPai observed, never self-attestation."""
+
+    kind: str
+    summary: str
+
+    def __post_init__(self) -> None:
+        kind = _normalized(self.kind)
+        summary = str(self.summary or "").strip()
+        if not kind:
+            raise ValueError("evidence kind is required")
+        if not summary:
+            raise ValueError("evidence summary is required")
+        object.__setattr__(self, "kind", kind[:64])
+        object.__setattr__(self, "summary", summary[:500])
+
+    def to_dict(self) -> dict[str, str]:
+        return {"kind": self.kind, "summary": self.summary}
+
+
+@dataclass(frozen=True)
+class CompletionVerdictResult:
+    """The sole verdict producer consumed by all OPai surfaces."""
+
+    verdict: CompletionVerdict
+    reason_code: str
+    reason: str
+    objective: ObjectiveRecord
+    evidence: tuple[EvidenceRef, ...] = ()
+    next_action: str = ""
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.verdict, CompletionVerdict):
+            object.__setattr__(self, "verdict", CompletionVerdict(str(self.verdict)))
+        code = _normalized(self.reason_code)
+        if not code:
+            raise ValueError("reason_code is required")
+        object.__setattr__(self, "reason_code", code[:120])
+        reason = str(self.reason or "").strip()
+        if not reason:
+            raise ValueError("reason is required")
+        object.__setattr__(self, "reason", reason[:1_000])
+        if not isinstance(self.objective, ObjectiveRecord):
+            raise TypeError("objective must be an ObjectiveRecord")
+        refs: list[EvidenceRef] = []
+        for evidence in self.evidence:
+            typed = (
+                evidence
+                if isinstance(evidence, EvidenceRef)
+                else EvidenceRef(**evidence)
+            )
+            if typed not in refs:
+                refs.append(typed)
+        object.__setattr__(self, "evidence", tuple(refs))
+        object.__setattr__(
+            self, "next_action", str(self.next_action or "").strip()[:500]
+        )
+        if (
+            isinstance(self.schema_version, bool)
+            or not isinstance(self.schema_version, int)
+            or self.schema_version < 1
+        ):
+            raise ValueError("schema_version must be a positive integer")
+
+    def to_dict(self, *, include_objective_text: bool = True) -> dict[str, Any]:
+        objective = self.objective.to_dict()
+        if not include_objective_text:
+            objective.pop("objective_text", None)
+        return {
+            "schema_version": self.schema_version,
+            "verdict": self.verdict.value,
+            "reason_code": self.reason_code,
+            "reason": self.reason,
+            "objective": objective,
+            "evidence": [item.to_dict() for item in self.evidence],
+            "next_action": self.next_action,
+        }
+
+
+_EDIT_MODES = frozenset({"implement", "ship", "build", "edit", "fix"})
+_TEST_REQUEST = re.compile(r"\b(?:test|tests|testing|verify|verification|ci)\b", re.I)
+
+
+def objective_from_request(objective_text: str, *, mode: str) -> ObjectiveRecord:
+    """Create the run objective without trusting a provider's claimed success."""
+
+    normalized_mode = _normalized(mode) or "explain"
+    if normalized_mode in _EDIT_MODES:
+        acceptance: list[AcceptanceRequirement] = [AcceptanceRequirement.EXPECTED_EDIT]
+        if normalized_mode == "ship" or _TEST_REQUEST.search(str(objective_text)):
+            acceptance.append(AcceptanceRequirement.TESTS_PASS)
+    else:
+        acceptance = [AcceptanceRequirement.ANSWER_PRESENT]
+    return ObjectiveRecord(
+        objective_text=objective_text,
+        mode=normalized_mode,
+        acceptance=tuple(acceptance),
+    )
+
+
+def _has_successful_test(payload: Mapping[str, Any]) -> bool:
+    tests = payload.get("tests") or payload.get("test_results")
+    if isinstance(tests, Mapping):
+        status = _normalized(tests.get("status") or tests.get("result"))
+        if status in {"passed", "pass", "success", "successful"}:
+            return True
+    for item in payload.get("tool_trace") or ():
+        if not isinstance(item, Mapping):
+            continue
+        tool = _normalized(item.get("tool") or item.get("type"))
+        status = _normalized(item.get("status"))
+        if tool in {"run_tests", "test", "tests"} and (
+            item.get("ok") is True or status in {"success", "passed"}
+        ):
+            return True
+    return False
+
+
+def _evidence_from_payload(payload: Mapping[str, Any]) -> tuple[EvidenceRef, ...]:
+    refs: list[EvidenceRef] = []
+    files = [
+        str(item).strip()
+        for item in payload.get("changed_files") or ()
+        if str(item).strip()
+    ]
+    if files:
+        refs.append(EvidenceRef("diff", f"{len(files)} file(s) changed"))
+    diff = payload.get("diff_review")
+    if not refs and isinstance(diff, Mapping):
+        summary = diff.get("summary")
+        if isinstance(summary, Mapping) and int(summary.get("files_changed") or 0) > 0:
+            refs.append(
+                EvidenceRef("diff", f"{int(summary['files_changed'])} file(s) changed")
+            )
+    if _has_successful_test(payload):
+        refs.append(EvidenceRef("tests", "Repository tests passed"))
+    answer = str(payload.get("answer") or "").strip()
+    if answer:
+        refs.append(EvidenceRef("answer", "Provider returned a non-empty response"))
+    return tuple(refs)
+
+
+def _verdict(
+    verdict: CompletionVerdict,
+    code: str,
+    reason: str,
+    objective: ObjectiveRecord,
+    evidence: tuple[EvidenceRef, ...],
+    next_action: str,
+) -> CompletionVerdictResult:
+    return CompletionVerdictResult(
+        verdict=verdict,
+        reason_code=code,
+        reason=reason,
+        objective=objective,
+        evidence=evidence,
+        next_action=next_action,
+    )
+
+
+def evaluate_completion(
+    objective: ObjectiveRecord, payload: Mapping[str, Any] | None
+) -> CompletionVerdictResult:
+    """Evaluate terminal truth from objective + observed evidence.
+
+    This function deliberately ignores provider prose such as "done".  Only
+    a canonical terminal state and evidence produced by OPai's execution path
+    can return :attr:`CompletionVerdict.COMPLETED`.
+    """
+
+    result = payload if isinstance(payload, Mapping) else {}
+    evidence = _evidence_from_payload(result)
+    if AcceptanceRequirement.ANSWER_PRESENT not in objective.acceptance:
+        evidence = tuple(item for item in evidence if item.kind != "answer")
+    stopped_reason = _normalized(result.get("stopped_reason"))
+    status = _normalized(result.get("status"))
+    canonical = completion_state_from_legacy(result)
+
+    if canonical is CompletionState.CANCELLED:
+        return _verdict(
+            CompletionVerdict.CANCELLED,
+            stopped_reason or "cancel_requested",
+            "Stopped by you before OPai could verify the objective.",
+            objective,
+            evidence,
+            "Retry when you are ready.",
+        )
+    if stopped_reason == "timeout" or status == "timeout":
+        return _verdict(
+            CompletionVerdict.TIMEOUT,
+            "timeout",
+            "The run timed out before OPai could verify the objective.",
+            objective,
+            evidence,
+            "Retry with a narrower task or a longer timeout.",
+        )
+    if status == "capability_mismatch":
+        return _verdict(
+            CompletionVerdict.BLOCKED,
+            "capability_mismatch",
+            "The selected provider cannot perform this task.",
+            objective,
+            evidence,
+            "Choose a provider with the required capability.",
+        )
+    if status.startswith("needs_"):
+        return _verdict(
+            CompletionVerdict.BLOCKED,
+            "permission_required",
+            "OPai needs your approval or input before it can verify the objective.",
+            objective,
+            evidence,
+            "Resolve the requested approval or input, then retry.",
+        )
+    if canonical in {
+        CompletionState.PROVIDER_BLOCKED,
+        CompletionState.NEEDS_CONSENT,
+        CompletionState.NEEDS_USER_INPUT,
+    }:
+        code = (
+            "permission_required"
+            if canonical is CompletionState.NEEDS_CONSENT
+            else "input_required"
+            if canonical is CompletionState.NEEDS_USER_INPUT
+            else "provider_blocked"
+        )
+        return _verdict(
+            CompletionVerdict.BLOCKED,
+            code,
+            "OPai is blocked before it can verify the objective.",
+            objective,
+            evidence,
+            "Resolve the blocker and retry.",
+        )
+    if canonical is not CompletionState.COMPLETED:
+        return _verdict(
+            CompletionVerdict.FAILED,
+            "provider_failed",
+            "The provider failed before OPai could verify the objective.",
+            objective,
+            evidence,
+            "Retry the run.",
+        )
+
+    kinds = {item.kind for item in evidence}
+    if (
+        AcceptanceRequirement.EXPECTED_EDIT in objective.acceptance
+        and "diff" not in kinds
+    ):
+        return _verdict(
+            CompletionVerdict.PARTIAL,
+            "change_not_verified",
+            "OPai received a response but no changed-file or diff evidence verifies the requested edit.",
+            objective,
+            evidence,
+            "Review the tool trace or ask OPai to apply the change.",
+        )
+    if (
+        AcceptanceRequirement.TESTS_PASS in objective.acceptance
+        and "tests" not in kinds
+    ):
+        return _verdict(
+            CompletionVerdict.PARTIAL,
+            "tests_not_verified",
+            "Edits were observed, but required tests were not verified as passing.",
+            objective,
+            evidence,
+            "Run the relevant tests and retry verification.",
+        )
+    if (
+        AcceptanceRequirement.ANSWER_PRESENT in objective.acceptance
+        and "answer" not in kinds
+    ):
+        return _verdict(
+            CompletionVerdict.PARTIAL,
+            "answer_missing",
+            "The run ended without a response that verifies the answer-only objective.",
+            objective,
+            evidence,
+            "Retry the request.",
+        )
+    return _verdict(
+        CompletionVerdict.COMPLETED,
+        "objective_verified",
+        "Objective verified from OPai-observed evidence.",
+        objective,
+        evidence,
+        "Review the attached evidence.",
+    )
 
 
 _ANSWERED_STATUSES = {

@@ -46,6 +46,7 @@ class WorkflowState:
     cost: dict[str, object] = field(default_factory=dict)
     safety_gates: dict[str, object] = field(default_factory=dict)
     diff_review: dict[str, object] = field(default_factory=dict)
+    completion_verdict: dict[str, object] = field(default_factory=dict)
     updated_at: str = ""
 
     def to_dict(self) -> dict[str, object]:
@@ -219,6 +220,7 @@ def _sanitize_workflow_state(state: WorkflowState) -> WorkflowState:
         cost=_clean_mapping(state.cost),
         safety_gates=_clean_mapping(state.safety_gates),
         diff_review=_clean_mapping(state.diff_review),
+        completion_verdict=_clean_mapping(state.completion_verdict),
         updated_at=_clean_text(state.updated_at, limit=64),
     )
 
@@ -373,6 +375,9 @@ def load_workflow_state(project_root: Path) -> WorkflowState:
         else {},
         diff_review=dict(data.get("diff_review") or {})
         if isinstance(data.get("diff_review"), dict)
+        else {},
+        completion_verdict=dict(data.get("completion_verdict") or {})
+        if isinstance(data.get("completion_verdict"), dict)
         else {},
         updated_at=str(data.get("updated_at") or ""),
     )

@@ -1073,10 +1073,15 @@ def _ask_account(
 
         error = normalize_provider_error(account_id, "", model=model, timed_out=True)
         return {
-            "status": "failed",
+            # #378: a timeout is neither a generic provider failure nor an
+            # answered response.  Preserve the typed terminal cause so the
+            # shared completion verdict can render it identically in GUI/CLI.
+            "status": "retryable_provider_error",
             "provider": account_id,
             "answer": error["userMessage"],
             "error": error,
+            "completion_state": "retryable_provider_error",
+            "stopped_reason": "timeout",
         }
 
     # complete() returns {"text", "cost"}; tolerate a plain string too.
@@ -1153,6 +1158,13 @@ def _ask_account(
         "ledger_recorded": ledger_recorded,
         "completion_state": completion_state,
         "stopped_reason": stopped_reason,
+        # #378: terminal verification must consume OPai-observed tool results.
+        # Keep the structured trace through the account normalization boundary;
+        # dropping it made a passed ``run_tests`` call indistinguishable from a
+        # provider's unverified prose claim.
+        "tool_trace": list(result.get("tool_trace") or [])
+        if isinstance(result, dict)
+        else [],
         # F26: Edit/Write attempts the provider's permission gate refused —
         # the pipeline turns these into an in-context approval card.
         "edit_denials": list(result.get("edit_denials") or [])

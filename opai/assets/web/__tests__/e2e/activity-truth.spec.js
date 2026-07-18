@@ -38,6 +38,26 @@ test("provider failure never presents a completed state", async ({ page }) => {
   await expect(page.locator(".msg.bot")).not.toContainText("Completed");
 });
 
+test("an unverified run renders a partial verdict instead of success", async ({ page }) => {
+  const id = await sendPrompt(page, "Fix parser.py and run tests.");
+  await finishRequest(page, id, {
+    status: "answered",
+    answer: "I inspected the parser.",
+    completion_verdict: {
+      verdict: "partial",
+      reason_code: "change_not_verified",
+      reason: "OPai received a response but no changed-file or diff evidence verifies the requested edit.",
+      next_action: "Ask OPai to apply the change.",
+      evidence: [],
+    },
+  });
+
+  await expect(page.locator(".completion-verdict.partial")).toContainText("Partial");
+  await expect(page.locator(".completion-verdict")).toContainText("no changed-file or diff evidence");
+  await expect(page.locator("#ssConn")).toHaveText("Partial");
+  await expect(page.locator(".msg.bot")).not.toContainText("✓ Completed");
+});
+
 test("cancelled request never becomes failed or completed", async ({ page }) => {
   await sendPrompt(page);
   await page.locator(".gen-stop").click();

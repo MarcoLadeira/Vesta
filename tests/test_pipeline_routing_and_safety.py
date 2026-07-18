@@ -246,7 +246,8 @@ class HonestCompletionTests(unittest.TestCase):
         titles = [str(e.get("title") or "") for e in events]
         self.assertNotIn("OPai completed", titles)
         self.assertTrue(any("without finishing" in t for t in titles))
-        self.assertEqual(result["checkpoint"]["completion_state"], "incomplete")
+        self.assertEqual(result["checkpoint"]["completion_state"], "failed")
+        self.assertEqual(result["completion_verdict"]["verdict"], "failed")
 
     def test_genuinely_completed_run_still_reports_completed(self):
         result, events = self._run(
@@ -257,7 +258,8 @@ class HonestCompletionTests(unittest.TestCase):
             }
         )
         titles = [str(e.get("title") or "") for e in events]
-        self.assertIn("OPai completed", titles)
+        self.assertTrue(any(title.startswith("Completed") for title in titles))
+        self.assertEqual(result["completion_verdict"]["verdict"], "completed")
         self.assertEqual(result["checkpoint"]["completion_state"], "read_only")
 
 

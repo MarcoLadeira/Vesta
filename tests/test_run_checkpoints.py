@@ -209,7 +209,8 @@ class PipelineCheckpointTests(unittest.TestCase):
             self.assertTrue(result["checkpoint"]["edit_capable"])
             checkpoint = load_run_checkpoint(root, result["checkpoint_id"])
             self.assertEqual(checkpoint.mode, "implement")
-            self.assertEqual(checkpoint.completion_state, "answered")
+            self.assertEqual(checkpoint.completion_state, "partial")
+            self.assertEqual(checkpoint.completion_verdict["verdict"], "partial")
             # The checkpoint was created before the run and finalized after.
             self.assertTrue(checkpoint.created_at)
             self.assertTrue(checkpoint.finalized_at)
