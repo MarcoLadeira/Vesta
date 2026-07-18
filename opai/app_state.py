@@ -14,6 +14,7 @@ only after explicit user confirmation in the GUI.
 from __future__ import annotations
 
 import contextlib
+import inspect
 import os
 from pathlib import Path
 from typing import Any
@@ -628,6 +629,7 @@ def ask(
     allow_edits: bool = False,
     tool_calling_enabled: bool | None = None,
     allow_command: str | None = None,
+    edit_grant: bool = False,
     record_route: bool = True,
     account_runner: Any = None,
     mode: str | None = None,
@@ -661,6 +663,7 @@ def ask(
             account_id,
             model=model or None,
             allow_edits=allow_edits,
+            edit_grant=edit_grant,
             runner=account_runner,
             mode=mode,
             on_event=on_event,
@@ -865,7 +868,14 @@ def _account_completion(result: Any, answer: str) -> tuple[str, str]:
     explicit = str(result.get("completion_state") or "").strip()
     if explicit:
         return explicit, str(result.get("stopped_reason") or "")
-    if result.get("permission_denied") or result.get("permission_denials"):
+    if result.get("no_progress"):
+        # F27: the no-progress guard checkpointed the run — never a completion.
+        return "stuck_no_progress", "no_progress_guard"
+    if (
+        result.get("permission_denied")
+        or result.get("permission_denials")
+        or result.get("edit_denials")
+    ):
         return "needs_consent", "approval_required"
     subtype = str(result.get("subtype") or "").strip().lower()
     if result.get("is_error") is True or subtype.startswith("error_"):
@@ -884,6 +894,7 @@ def _ask_account(
     *,
     model: str | None = None,
     allow_edits: bool = False,
+    edit_grant: bool = False,
     runner: Any = None,
     mode: str | None = None,
     on_event: Any = None,
@@ -932,6 +943,7 @@ def _ask_account(
             account_id,
             model=fallback_id,
             allow_edits=allow_edits,
+            edit_grant=edit_grant,
             runner=None,  # build a fresh runner for the fallback model
             mode=mode,
             on_event=on_event,
@@ -990,24 +1002,38 @@ def _ask_account(
     before = set(_changed_files(root)) if allow_edits else set()
     try:
         if want_stream:
-            result = run.stream(
-                task,
-                project_root=root,
-                allow_edits=allow_edits,
-                mode=mode,
-                on_event=on_event,
-                on_text=on_text,
-                cancel=cancel,
-            )
+            stream_kwargs: dict[str, Any] = {
+                "project_root": root,
+                "allow_edits": allow_edits,
+                "mode": mode,
+                "on_event": on_event,
+                "on_text": on_text,
+                "cancel": cancel,
+            }
+            if edit_grant:
+                # Additive (F26): only pass the one-shot edit grant to runners
+                # that accept it, so older/fake runners keep working unchanged.
+                with contextlib.suppress(TypeError, ValueError):
+                    if "edit_grant" in inspect.signature(run.stream).parameters:
+                        stream_kwargs["edit_grant"] = True
+            result = run.stream(task, **stream_kwargs)
         else:
+            complete_kwargs: dict[str, Any] = {
+                "project_root": root,
+                "allow_edits": allow_edits,
+                "mode": mode,
+            }
+            if edit_grant:
+                with contextlib.suppress(TypeError, ValueError):
+                    if "edit_grant" in inspect.signature(run.complete).parameters:
+                        complete_kwargs["edit_grant"] = True
             try:
-                result = run.complete(
-                    task, project_root=root, allow_edits=allow_edits, mode=mode
-                )
+                result = run.complete(task, **complete_kwargs)
             except TypeError as exc:
                 if "mode" not in str(exc):
                     raise
-                result = run.complete(task, project_root=root, allow_edits=allow_edits)
+                complete_kwargs.pop("mode", None)
+                result = run.complete(task, **complete_kwargs)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         from opai.provider_contract import normalize_provider_error
 
@@ -1060,16 +1086,26 @@ def _ask_account(
     else:
         answer, cost = str(result), None
 
+    no_progress = isinstance(result, dict) and bool(result.get("no_progress"))
     if not str(answer).strip():
-        from opai.provider_contract import normalize_provider_error
+        if no_progress:
+            steps = result.get("tool_steps") if isinstance(result, dict) else None
+            answer = (
+                "OPai stopped this run early: "
+                f"{steps if steps is not None else 'many'} tool steps ran "
+                "without a single edit attempt (no-progress guard, F27). "
+                "Refine the request, or re-send to continue from here."
+            )
+        else:
+            from opai.provider_contract import normalize_provider_error
 
-        error = normalize_provider_error(account_id, "", model=model, returncode=0)
-        return {
-            "status": "failed",
-            "provider": account_id,
-            "answer": error["userMessage"],
-            "error": error,
-        }
+            error = normalize_provider_error(account_id, "", model=model, returncode=0)
+            return {
+                "status": "failed",
+                "provider": account_id,
+                "answer": error["userMessage"],
+                "error": error,
+            }
 
     # Surface what the agent actually changed, like Claude Code / Cursor do.
     changed = sorted(set(_changed_files(root)) - before) if allow_edits else []
@@ -1117,6 +1153,12 @@ def _ask_account(
         "ledger_recorded": ledger_recorded,
         "completion_state": completion_state,
         "stopped_reason": stopped_reason,
+        # F26: Edit/Write attempts the provider's permission gate refused —
+        # the pipeline turns these into an in-context approval card.
+        "edit_denials": list(result.get("edit_denials") or [])
+        if isinstance(result, dict)
+        else [],
+        "no_progress": no_progress,
         "answer": answer,
     }
 

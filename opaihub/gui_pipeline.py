@@ -131,6 +131,23 @@ def _command_approval(result: Mapping[str, Any] | None) -> dict[str, str] | None
     return None
 
 
+def _edit_denials(result: Mapping[str, Any] | None) -> list[str]:
+    """File paths whose Edit/Write the provider's permission gate refused (F26).
+
+    The account runner collects these from the stream's tool_result denials;
+    an empty list means the run was not edit-blocked.
+    """
+
+    if not isinstance(result, Mapping):
+        return []
+    seen: list[str] = []
+    for raw in result.get("edit_denials") or []:
+        path = str(raw or "").strip()
+        if path and path not in seen:
+            seen.append(path)
+    return seen
+
+
 @dataclass(frozen=True)
 class RequestToolAuthority:
     """The tool vocabulary and edit authority for one request."""
@@ -453,6 +470,8 @@ def handle_gui_message(
     resume_context: dict[str, Any] | None = None,
     allow_command: str | None = None,
     allowCommand: str | None = None,
+    allow_edits_once: bool = False,
+    allowEditsOnce: bool = False,
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -461,7 +480,10 @@ def handle_gui_message(
     ``allow_command`` (or the front-end's ``allowCommand`` spelling) is a
     one-shot grant for the exact command a command-approval card named
     (F17/F9); it is threaded to the tool executor verbatim and never widens
-    any other permission.
+    any other permission. ``allow_edits_once`` (front-end ``allowEditsOnce``)
+    is the same idea for file edits (F26): the one-shot grant issued by the
+    in-context "Allow edits once" card after a Safe Auto run had its
+    Edit/Write attempts refused by the provider's permission gate.
     """
 
     def _emit(etype: str, status: str, title: str, **kw: Any) -> None:
@@ -515,6 +537,8 @@ def handle_gui_message(
     _phase("request_prepare", "running", "Preparing request")
     # One-shot exact-command grant from a command-approval re-send (F17/F9).
     command_grant = str(allow_command or allowCommand or "").strip() or None
+    # One-shot edit grant from an edit-approval re-send (F26).
+    edit_grant = bool(allow_edits_once or allowEditsOnce)
     prefs = load_gui_preferences(root)
     selected_model = model_id or prefs.get("default_model") or "auto"
     # Central autonomy decision (#137): a requested/stored full-auto is honored
@@ -727,6 +751,26 @@ def handle_gui_message(
             and not attributed_paths
             and not _has_change_evidence(payload)
         )
+        # Canonical completion for phase labels (QA pass-2): a run that the
+        # runner says stopped/stuck must not be labelled "Completed" just
+        # because its legacy status is "answered".
+        _raw_phase = payload.get("raw_result")
+        _raw_phase = _raw_phase if isinstance(_raw_phase, dict) else {}
+        run_completed = (
+            completion_state_from_legacy(
+                {
+                    "status": payload.get("status"),
+                    "completion_state": payload.get("completion_state")
+                    or _raw_phase.get("completion_state")
+                    or "",
+                    "stopped_reason": payload.get("stopped_reason")
+                    or _raw_phase.get("stopped_reason")
+                    or "",
+                    "answer": payload.get("answer") or "",
+                }
+            )
+            is CompletionState.COMPLETED
+        )
         if status == "answered" and edit_intent and no_change_evidence:
             runtime.transition(
                 RuntimePhase.REVIEWING_DIFF,
@@ -739,12 +783,20 @@ def handle_gui_message(
             )
             runtime.transition(
                 RuntimePhase.COMPLETED,
-                message="Completed with no changes — there is no diff to review",
+                message=(
+                    "Completed with no changes — there is no diff to review"
+                    if run_completed
+                    else "Stopped without finishing — no changes were made"
+                ),
             )
         elif status == "answered" and edit_intent:
             runtime.transition(
                 RuntimePhase.REVIEWING_DIFF,
-                message="Provider response received; OPai is awaiting test and diff evidence",
+                message=(
+                    "Provider response received; OPai is awaiting test and diff evidence"
+                    if run_completed
+                    else "Run stopped early — partial changes await review"
+                ),
                 metadata={"changed_files": list(payload.get("changed_files") or [])},
                 next_actions=(
                     "review changed files",
@@ -1223,8 +1275,26 @@ def handle_gui_message(
             or result.get("message")
             or result.get("hint")
             or result.get("error")
-            or "The free-tier API did not return an answer."
         )
+        if not answer:
+            # Name the provider and the concrete next check instead of a
+            # generic "did not return an answer" (QA pass-2): an empty free
+            # response is nearly always a key/quota problem the user can fix.
+            from .free_models import spec_for_model_id
+
+            spec = spec_for_model_id(selected_model) or {}
+            provider_label = str(spec.get("label") or provider).split(" ·")[0]
+            env_key = str(spec.get("env_key") or "")
+            answer = (
+                f"The {provider_label} free-tier API returned no answer. "
+                + (
+                    f"Check that {env_key} is set to a valid key with remaining "
+                    "quota (Settings ▸ Providers & Connections), "
+                    if env_key
+                    else ""
+                )
+                + "or switch model."
+            )
         if status == "answered":
             if result_is_completed(result):
                 if policy.mode in {
@@ -1366,6 +1436,7 @@ def handle_gui_message(
             provider_message,
             selected_model,
             allow_edits=allow_edits,
+            edit_grant=edit_grant,
             account_runner=account_runner,
             mode=selected_mode,
             on_event=on_event,
@@ -1413,6 +1484,41 @@ def handle_gui_message(
                     "next_actions": [
                         "Approve the exact command to let OPai run it once.",
                         "Or edit your request to avoid the command.",
+                    ],
+                    "raw_result": result,
+                }
+            )
+        denied_edits = _edit_denials(result)
+        if denied_edits and selected_mode == "safe-auto" and not edit_grant:
+            # F26: Safe Auto gates edits at the provider CLI, which cannot ask
+            # interactively. Surface an actionable in-context approval card —
+            # never a prose "should I proceed?" that ends the run.
+            _phase_close("warning", "Awaiting your approval")
+            _emit(
+                "file_edit",
+                "warning",
+                "Edits need your approval",
+                detail=", ".join(denied_edits[:5]),
+                metadata={"provider": provider, "files": denied_edits},
+            )
+            file_list = "\n".join(f"- `{path}`" for path in denied_edits[:10])
+            return _decorate(
+                {
+                    "status": "needs_edit_approval",
+                    "answer": (
+                        "OPai needs your approval to edit these files:\n"
+                        f"{file_list}\n\nAllow edits once to let this run "
+                        "change them, or switch to Full Auto for the session."
+                    ),
+                    "edit_files": denied_edits,
+                    "edit_approval": {"files": denied_edits},
+                    "tool_trace": tool_trace,
+                    "receipt": {},
+                    "changed_files": list(result.get("changed_files") or []),
+                    "warnings": [],
+                    "next_actions": [
+                        "Allow edits once to apply the changes.",
+                        "Or switch to Full Auto (pinned) for the session.",
                     ],
                     "raw_result": result,
                 }
