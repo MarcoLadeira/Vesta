@@ -723,14 +723,18 @@ class RecordAfterOutcomeTests(unittest.TestCase):
         self.assertEqual(len(self._receipt_events()), 1)
         self.assertGreater(budget_status(self.root)["spent"]["today_usd"], 0)
 
-    def test_cancelled_before_run_records_nothing(self):
+    def test_cancelled_before_run_records_only_a_terminal_verdict(self):
         cancel = threading.Event()
         cancel.set()
         result = handle_gui_message(
             self.root, "task", model_id="auto", mode="ask", cancel=cancel
         )
         self.assertEqual(result["status"], "cancelled")
-        self.assertEqual(read_events(self.root), [])
+        events = read_events(self.root)
+        self.assertEqual(
+            [event["event_type"] for event in events], ["completion_verdict"]
+        )
+        self.assertEqual(events[0]["verdict"], "cancelled")
 
 
 if __name__ == "__main__":

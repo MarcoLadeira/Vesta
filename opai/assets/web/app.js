@@ -1401,7 +1401,10 @@ function stripFinalize(status, r) {
   if (cost > 0) $("#ssCost").textContent = "$" + cost.toFixed(4) + " spent";
   else if (+rc.estimated_savings_usd > 0) $("#ssCost").textContent = "$" + (+rc.estimated_savings_usd).toFixed(4) + " saved";
   else $("#ssCost").textContent = ""; // never a fake $0 for a paid call
-  if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
+  const verdict = completionVerdict(r);
+  if (verdict && verdict.verdict === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Cancelled"; }
+  else if (verdict && verdict.verdict !== "completed") { stripSetState("error"); $("#ssConn").textContent = verdict.verdict.replace(/\b\w/g, (c) => c.toUpperCase()); }
+  else if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
   else if (ANSWERED.includes(status)) { stripSetState("connected"); $("#ssConn").textContent = "Done"; }
   else { stripSetState("error"); $("#ssConn").textContent = "Failed"; }
 }
@@ -1519,6 +1522,21 @@ function receiptBadge(rc) {
   if (c === "unknown") return { cls: "subscription", label: "Subscription", title: "Covered by a subscription — no per-call dollar amount" };
   return { cls: "estimated", label: "Estimated", title: "Estimated from token math, not a billed amount" };
 }
+function completionVerdict(r) {
+  const raw = r && r.completion_verdict;
+  if (!raw || typeof raw !== "object") return null;
+  const verdict = String(raw.verdict || "").toLowerCase();
+  return verdict ? { verdict, reason: String(raw.reason || ""), nextAction: String(raw.next_action || "") } : null;
+}
+function completionVerdictHtml(r) {
+  const item = completionVerdict(r);
+  if (!item) return "";
+  const label = item.verdict.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const glyph = item.verdict === "completed" ? "✓" : item.verdict === "cancelled" ? "⊘" : "!";
+  const next = item.nextAction ? `<div class="cv-next">Next: ${esc(item.nextAction)}</div>` : "";
+  return `<section class="completion-verdict ${esc(item.verdict)}" role="status" aria-label="Completion verdict: ${esc(label)}">` +
+    `<div class="cv-title">${glyph} ${esc(label)}</div><div class="cv-reason">${esc(item.reason)}</div>${next}</section>`;
+}
 function metaFooter(r, sel, durMs) {
   const rc = (r && r.receipt) || {};
   const badge = receiptBadge(rc);
@@ -1528,6 +1546,8 @@ function metaFooter(r, sel, durMs) {
   if (+rc.estimated_actual_usd) bits.push("$" + (+rc.estimated_actual_usd).toFixed(4) + " spent");
   if (+rc.estimated_savings_usd) bits.push("$" + (+rc.estimated_savings_usd).toFixed(4) + " saved");
   if (rc.paid_call_avoided) bits.push("paid call avoided");
+  const verdict = completionVerdict(r);
+  if (verdict) bits.unshift(`${verdict.verdict}: ${verdict.reason}`);
   return `<div class="receipt-card">` +
     `<div class="footer-note" role="button" tabindex="0" title="Copy this receipt" aria-label="Copy receipt">` +
       `<span class="rc-badge rc-${badge.cls}" title="${esc(badge.title)}">${esc(badge.label)}</span>` +
@@ -1830,7 +1850,7 @@ function finalize(status, r) {
     : "OPai";
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
-  let html = roleHeader(label, color) + activitySummaryHtml() + `<div class="body">${mdToHtml(answer)}</div>`;
+  let html = roleHeader(label, color) + activitySummaryHtml() + completionVerdictHtml(r) + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];
   if (changed.length) html += filesCardHtml(changed);
   if (r && (r.workflow || r.agent_policy)) html += workflowCardHtml(r);

@@ -416,7 +416,14 @@ class CopilotAppStateAskTests(unittest.TestCase):
         self.assertEqual(result["changed_files"], [])
         self.assertEqual(result["workflow"]["phase"], "blocked")
         self.assertEqual(fake.calls, [])
-        self.assertEqual(read_events(self.root), [])
+        terminal_events = [
+            event
+            for event in read_events(self.root)
+            if event.get("event_type") == "completion_verdict"
+        ]
+        self.assertEqual(len(terminal_events), 1)
+        self.assertEqual(terminal_events[0]["verdict"], "blocked")
+        self.assertEqual(terminal_events[0]["reason_code"], "capability_mismatch")
 
 
 if __name__ == "__main__":

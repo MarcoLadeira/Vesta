@@ -63,13 +63,13 @@ class NormalizeModelTests(unittest.TestCase):
 
 
 class StreamAskTests(unittest.TestCase):
-    def _run(self, runner, **kw):
+    def _run(self, runner, *, task="summarize this", **kw):
         lines: list[str] = []
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             code = stream_ask(
                 root,
-                "summarize this",
+                task,
                 model="claude:opus",
                 account_runner=runner,
                 printer=lines.append,
@@ -105,6 +105,19 @@ class StreamAskTests(unittest.TestCase):
         self.assertEqual(code, 2)
         joined = "\n".join(lines)
         self.assertIn("account_not_connected", joined)
+
+    def test_unverified_edit_renders_partial_and_exits_nonzero(self):
+        code, lines = self._run(
+            FakeStreamingRunner(chunks=["I looked at the fix."]),
+            task="Fix parser.py and run tests.",
+            mode="safe-auto",
+        )
+
+        joined = "\n".join(lines)
+        self.assertEqual(code, 2)
+        self.assertIn("Partial —", joined)
+        self.assertIn("no changed-file or diff evidence", joined)
+        self.assertNotIn("✓ done in", joined)
 
     def test_json_output_is_machine_readable(self):
         buf = io.StringIO()
@@ -223,7 +236,11 @@ class StreamAskTests(unittest.TestCase):
 
         code, lines = self._run(InstantCancel())
         self.assertEqual(code, 130)
-        self.assertIn("Stopped by you", "\n".join(lines))
+        joined = "\n".join(lines)
+        self.assertIn(
+            "Cancelled — Stopped by you before OPai could verify the objective.", joined
+        )
+        self.assertIn("Next: Retry when you are ready.", joined)
 
 
 class CmdAskWiringTests(unittest.TestCase):

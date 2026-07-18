@@ -18,8 +18,11 @@ from .agent_runtime import AgentRuntime, RuntimePhase
 from .autonomy import effective_mode
 from .checkpoints import create_run_checkpoint, finalize_run_checkpoint
 from .completion import (
+    CompletionVerdict,
     CompletionState,
     completion_state_from_legacy,
+    evaluate_completion,
+    objective_from_request,
     result_is_completed,
 )
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
@@ -344,15 +347,6 @@ def _record_gui_route(
     ]
     event["selected_model"] = model_id
     event["selected_mode"] = mode
-    record_event(
-        project_root,
-        "gui_receipt",
-        task=task,
-        receipt=receipt,
-        selected_model=model_id,
-        selected_mode=mode,
-        tool_count=len(tool_trace),
-    )
 
 
 def _outcome_category(status: str, *, had_work: bool) -> str | None:
@@ -742,6 +736,66 @@ def handle_gui_message(
             diff_review = build_diff_review(
                 current_repo.path, include_paths=attributed_paths
             )
+        # #378: declare the objective before execution, then derive exactly one
+        # evidence-backed terminal verdict here.  No renderer may infer success
+        # from a provider's prose or compatibility ``status`` field.
+        objective = objective_from_request(message, mode=policy.mode.value)
+        raw_terminal = payload.get("raw_result")
+        raw_terminal = raw_terminal if isinstance(raw_terminal, Mapping) else {}
+        evidence_payload = {
+            **payload,
+            "changed_files": list(attributed_paths),
+            "diff_review": diff_review,
+            "completion_state": payload.get("completion_state")
+            or raw_terminal.get("completion_state"),
+            "stopped_reason": payload.get("stopped_reason")
+            or raw_terminal.get("stopped_reason"),
+        }
+        verdict = evaluate_completion(objective, evidence_payload)
+        verdict_payload = verdict.to_dict()
+        stored_verdict = verdict.to_dict(include_objective_text=False)
+        verdict_event_status = (
+            "success"
+            if verdict.verdict is CompletionVerdict.COMPLETED
+            else "cancelled"
+            if verdict.verdict is CompletionVerdict.CANCELLED
+            else "error"
+            if verdict.verdict in {CompletionVerdict.FAILED, CompletionVerdict.TIMEOUT}
+            else "warning"
+        )
+        _emit(
+            "completion_verdict",
+            verdict_event_status,
+            f"{verdict.verdict.value.replace('_', ' ').title()} — {verdict.reason}",
+            metadata={
+                "verdict": verdict.verdict.value,
+                "reason_code": verdict.reason_code,
+            },
+        )
+        receipt = payload.get("receipt")
+        if isinstance(receipt, Mapping) and receipt:
+            payload = {
+                **payload,
+                "receipt": {
+                    **dict(receipt),
+                    # Receipts inherit the same verdict, but never retain the
+                    # raw prompt (the objective remains in the live result).
+                    "completion_verdict": stored_verdict,
+                },
+            }
+        if status == "answered" and isinstance(payload.get("receipt"), Mapping):
+            # The receipt is durable only after the objective verdict exists;
+            # reloaded receipts must carry the same non-upgradable truth as
+            # the live GUI, CLI, workflow, and checkpoint views.
+            record_event(
+                root,
+                "gui_receipt",
+                task=message,
+                receipt=dict(payload["receipt"]),
+                selected_model=selected_model,
+                selected_mode=selected_mode,
+                tool_count=len(payload.get("tool_trace") or []),
+            )
         # F14/F24 honesty gate: an edit-intent run with zero change evidence
         # (no changed files, no newly dirty paths, no successful mutating tool)
         # is NOT a green completion — it is "completed with no changes".
@@ -754,23 +808,7 @@ def handle_gui_message(
         # Canonical completion for phase labels (QA pass-2): a run that the
         # runner says stopped/stuck must not be labelled "Completed" just
         # because its legacy status is "answered".
-        _raw_phase = payload.get("raw_result")
-        _raw_phase = _raw_phase if isinstance(_raw_phase, dict) else {}
-        run_completed = (
-            completion_state_from_legacy(
-                {
-                    "status": payload.get("status"),
-                    "completion_state": payload.get("completion_state")
-                    or _raw_phase.get("completion_state")
-                    or "",
-                    "stopped_reason": payload.get("stopped_reason")
-                    or _raw_phase.get("stopped_reason")
-                    or "",
-                    "answer": payload.get("answer") or "",
-                }
-            )
-            is CompletionState.COMPLETED
-        )
+        run_completed = verdict.verdict is CompletionVerdict.COMPLETED
         if status == "answered" and edit_intent and no_change_evidence:
             runtime.transition(
                 RuntimePhase.REVIEWING_DIFF,
@@ -781,14 +819,13 @@ def handle_gui_message(
                     "check the run's tool trace for blocked or skipped steps",
                 ),
             )
-            runtime.transition(
-                RuntimePhase.COMPLETED,
-                message=(
-                    "Completed with no changes — there is no diff to review"
-                    if run_completed
-                    else "Stopped without finishing — no changes were made"
-                ),
-            )
+            if run_completed:
+                runtime.transition(
+                    RuntimePhase.COMPLETED,
+                    message="Completed with no changes — there is no diff to review",
+                )
+            else:
+                runtime.fail(verdict.reason, next_actions=(verdict.next_action,))
         elif status == "answered" and edit_intent:
             runtime.transition(
                 RuntimePhase.REVIEWING_DIFF,
@@ -805,9 +842,12 @@ def handle_gui_message(
                 ),
             )
         elif status == "answered":
-            runtime.transition(
-                RuntimePhase.COMPLETED, message="Read-only task completed"
-            )
+            if run_completed:
+                runtime.transition(
+                    RuntimePhase.COMPLETED, message="Read-only task completed"
+                )
+            else:
+                runtime.fail(verdict.reason, next_actions=(verdict.next_action,))
         elif status.startswith("needs_") or status in {
             "blocked",
             "capability_mismatch",
@@ -869,6 +909,7 @@ def handle_gui_message(
                 ),
             },
             diff_review=diff_review,
+            completion_verdict=stored_verdict,
         )
         runtime.ledger.append(
             "turn_result",
@@ -883,6 +924,7 @@ def handle_gui_message(
             error=payload.get("error") or "",
             cost=payload.get("receipt") or {},
             telemetry=payload.get("cost_telemetry") or {},
+            completion_verdict=stored_verdict,
         )
         save_workflow_state(root, state)
         # Finalize the checkpoint (#75) with the run's real result. Completion
@@ -907,26 +949,20 @@ def handle_gui_message(
                 or "",
             }
         )
-        completed_ok = canonical is CompletionState.COMPLETED
-        if status == "answered" and completed_ok:
+        completed_ok = verdict.verdict is CompletionVerdict.COMPLETED
+        if completed_ok:
             completion = "answered" if edit_capable else "read_only"
-        elif canonical is CompletionState.CANCELLED or status == "cancelled":
+        elif verdict.verdict is CompletionVerdict.PARTIAL:
+            completion = "partial"
+        elif verdict.verdict is CompletionVerdict.TIMEOUT:
+            completion = "timeout"
+        elif verdict.verdict is CompletionVerdict.CANCELLED:
             completion = "cancelled_before_edit" if not changed_files else "cancelled"
-        elif canonical is CompletionState.PROVIDER_BLOCKED or status in {
-            "blocked",
-            "capability_mismatch",
-        }:
+        elif verdict.verdict is CompletionVerdict.BLOCKED:
             completion = "blocked"
-        elif canonical in {
-            CompletionState.NEEDS_CONSENT,
-            CompletionState.NEEDS_USER_INPUT,
-        } or status.startswith("needs_"):
-            completion = "read_only"
-        elif canonical is CompletionState.STUCK_NO_PROGRESS:
-            completion = "incomplete"
         else:
             completion = "failed"
-        recovery = tuple(str(item) for item in payload.get("next_actions") or ())
+        recovery = (verdict.next_action,) if verdict.next_action else ()
         with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
             finalize_run_checkpoint(
                 root,
@@ -935,17 +971,26 @@ def handle_gui_message(
                 outcome=str(payload.get("status") or ""),
                 changed_files=changed_files,
                 diff_summary=diff_review.get("summary") or {},
+                completion_verdict=stored_verdict,
                 recovery_actions=recovery,
             )
         # One terminal task-outcome per turn (#288), keyed by the turn id so it
         # is idempotent and reconcilable to the authoritative model_call spend.
         # A pre-work cancel or awaiting-input turn records nothing (honest no-op).
         outcome_fields = build_task_outcome_fields(
-            payload, completion=completion, run_mode=selected_mode
+            payload, completion=verdict.verdict.value, run_mode=selected_mode
         )
         if outcome_fields is not None:
             with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
                 record_task_outcome(root, message, outcome_id=turn_id, **outcome_fields)
+        with contextlib.suppress(Exception):  # noqa: BLE001 - terminal audit must not fail a turn
+            record_event(
+                root,
+                "completion_verdict",
+                task=message,
+                outcome_id=turn_id,
+                **stored_verdict,
+            )
         # Close the registry session for this turn (#169) with an honest state.
         with contextlib.suppress(Exception):  # noqa: BLE001
             from .session_registry import CANCELLED, DONE, FAILED, registry
@@ -954,7 +999,7 @@ def handle_gui_message(
                 turn_id,
                 state=(
                     DONE
-                    if status == "answered" and completed_ok
+                    if completed_ok
                     else CANCELLED
                     if canonical is CompletionState.CANCELLED or status == "cancelled"
                     else FAILED
@@ -962,6 +1007,8 @@ def handle_gui_message(
             )
         return {
             **payload,
+            "objective": objective.to_dict(),
+            "completion_verdict": verdict_payload,
             "agent_policy": policy.to_dict(),
             "requested_run_mode": autonomy.requested_mode,
             "effective_run_mode": selected_mode,
@@ -1306,8 +1353,8 @@ def handle_gui_message(
                     _phase_close("warning", "Finished with no changes")
                     _emit("completed", "warning", "OPai finished with no changes")
                 else:
-                    _phase_close("success", "Request sent")
-                    _emit("completed", "success", "OPai completed")
+                    _phase_close("warning", "Verifying completion evidence")
+                    _emit("verifying", "warning", "Verifying completion evidence")
             else:
                 # Honest: text was produced but the run did not finish.
                 _phase_close("warning", "Stopped without finishing")
@@ -1574,16 +1621,6 @@ def handle_gui_message(
         # Ledger truth (#144): only an answered call leaves a receipt event —
         # a failed provider call must not become the "last savings receipt".
         # (The real spend is recorded by record_model_call on success only.)
-        if status == "answered":
-            record_event(
-                root,
-                "gui_receipt",
-                task=message,
-                receipt=receipt,
-                selected_model=selected_model,
-                selected_mode=selected_mode,
-                tool_count=len(tool_trace),
-            )
         if status == "answered" and result_is_completed(result):
             if policy.mode in {
                 AgentMode.IMPLEMENT,
@@ -1593,7 +1630,7 @@ def handle_gui_message(
                 # green completion, no matter how confident the prose sounds.
                 _emit("completed", "warning", "OPai finished with no changes")
             else:
-                _emit("completed", "success", "OPai completed")
+                _emit("verifying", "warning", "Verifying completion evidence")
         elif status == "answered":
             _emit("stopped", "warning", _incomplete_title(result))
         else:
@@ -1618,7 +1655,10 @@ def handle_gui_message(
             {
                 "status": status,
                 "answer": answer_text,
-                "tool_trace": tool_trace,
+                # Preserve provider-tool observations for the terminal verifier
+                # and activity UI.  The route trace alone cannot prove that a
+                # gated repository test actually passed.
+                "tool_trace": tool_trace + list(result.get("tool_trace") or []),
                 "receipt": receipt,
                 "changed_files": result.get("changed_files", []),
                 "warnings": [],
@@ -1765,8 +1805,8 @@ def handle_gui_message(
                 _phase_close("warning", "Finished with no changes")
                 _emit("completed", "warning", "OPai finished with no changes")
             else:
-                _phase_close("success", "Answered locally")
-                _emit("completed", "success", "OPai completed")
+                _phase_close("warning", "Verifying completion evidence")
+                _emit("verifying", "warning", "Verifying completion evidence")
         else:
             _phase_close("warning", "Stopped without finishing")
             _emit("stopped", "warning", _incomplete_title(result))

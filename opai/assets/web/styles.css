@@ -557,6 +557,19 @@ kbd {
   border-top: 0; margin-top: 0; padding-top: 0;
   display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0;
 }
+.completion-verdict {
+  margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--glass); color: var(--muted);
+}
+.completion-verdict .cv-title { color: var(--ink); font-size: 12.5px; font-weight: 750; }
+.completion-verdict .cv-reason, .completion-verdict .cv-next { margin-top: 4px; font-size: 11.5px; line-height: 1.45; }
+.completion-verdict .cv-next { color: var(--faint); }
+.completion-verdict.completed { border-color: rgba(52, 211, 153, 0.34); }
+.completion-verdict.completed .cv-title { color: var(--green); }
+.completion-verdict.partial, .completion-verdict.blocked, .completion-verdict.cancelled { border-color: rgba(251, 191, 36, 0.4); }
+.completion-verdict.partial .cv-title, .completion-verdict.blocked .cv-title, .completion-verdict.cancelled .cv-title { color: var(--amber); }
+.completion-verdict.failed, .completion-verdict.timeout { border-color: rgba(242, 118, 138, 0.42); }
+.completion-verdict.failed .cv-title, .completion-verdict.timeout .cv-title { color: var(--red); }
 .rc-badge {
   font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
   padding: 2px 7px; border-radius: 999px; flex-shrink: 0; border: 1px solid transparent;
