@@ -1160,6 +1160,22 @@ def ensure_claude_hook_settings(path: Path | None = None) -> Path:
     return target
 
 
+def _guard_int_env(name: str, default: int) -> int:
+    """Non-negative int knob from the environment; bad values keep the default.
+
+    Used by the F27 no-progress guard (`OPAI_NO_PROGRESS_STEP_BUDGET`,
+    `OPAI_NO_PROGRESS_SECONDS`). ``0`` disables the corresponding check.
+    """
+    raw = str(os.environ.get(name, "") or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
 class AccountRunner:
     """Run one task through a logged-in CLI. Paid/cloud; read-only by default."""
 
@@ -1188,8 +1204,16 @@ class AccountRunner:
         out_file: str | None = None,
         mode: str | None = None,
         stream: bool = False,
+        edit_grant: bool = False,
     ) -> list[str]:
-        """Construct the CLI argv. Pure + side-effect free so tests can assert it."""
+        """Construct the CLI argv. Pure + side-effect free so tests can assert it.
+
+        ``edit_grant`` is the one-shot approval from the in-context
+        "Allow edits once" card (F26): in Safe Auto it maps to the claude
+        CLI's ``--permission-mode acceptEdits`` so file edits proceed while
+        Bash and destructive actions stay gated. It never applies to
+        read-only modes and is redundant in Full Auto.
+        """
         selected_mode = mode or ("safe-auto" if allow_edits else "ask")
         if self.account_id == "claude":
             # Non-stream: `json` gives final text + real $ cost in one object.
@@ -1217,6 +1241,12 @@ class AccountRunner:
                 # with this gate.
                 cmd += ["--dangerously-skip-permissions"]
                 cmd += ["--settings", str(claude_hook_settings_path())]
+            elif selected_mode == "safe-auto" and edit_grant:
+                # F26: the user clicked "Allow edits once" on the approval
+                # card. acceptEdits auto-approves file edits only — Bash and
+                # anything destructive still go through the CLI's own gate
+                # (denied non-interactively → surfaced as approval cards).
+                cmd += ["--permission-mode", "acceptEdits"]
             if selected_mode in {"ask", "plan", "approve-edits"}:
                 prompt = (
                     "Do not modify files or run mutating commands. "
@@ -1290,6 +1320,7 @@ class AccountRunner:
         allow_edits: bool = False,
         mode: str | None = None,
         timeout: float = 1200.0,
+        edit_grant: bool = False,
     ) -> dict[str, Any]:
         """Run the task; return ``{"text", "cost", "timed_out"?}``.
 
@@ -1352,7 +1383,9 @@ class AccountRunner:
                 "cost": None,
                 "returncode": returncode,
             }
-        cmd = self.build_command(prompt, allow_edits=allow_edits, mode=mode)
+        cmd = self.build_command(
+            prompt, allow_edits=allow_edits, mode=mode, edit_grant=edit_grant
+        )
         if "--settings" in cmd:
             # Claude Full Auto: the PreToolUse hook settings file must exist
             # before the CLI starts or the Bash gate is silently absent (F23).
@@ -1440,6 +1473,7 @@ class AccountRunner:
         on_text: Callable[[str], None] | None = None,
         cancel: threading.Event | None = None,
         timeout: float = 1200.0,
+        edit_grant: bool = False,
     ) -> dict[str, Any]:
         """Run the task with a killable subprocess, emitting live activity.
 
@@ -1479,6 +1513,7 @@ class AccountRunner:
             out_file=out_path,
             mode=mode,
             stream=structured,
+            edit_grant=edit_grant,
         )
         if "--settings" in cmd:
             # Claude Full Auto: the PreToolUse hook settings file must exist
@@ -1520,6 +1555,22 @@ class AccountRunner:
         stopped: str | None = None
         streamed_any = False
         open_pipes = 2
+        # F27 no-progress guard: an edit-intent run that keeps exploring
+        # without a single edit attempt is stopped (checkpointed) instead of
+        # burning the whole budget. Both knobs are env-tunable; 0 disables.
+        guard_active = structured and allow_edits and mode in {"safe-auto", "full-auto"}
+        step_budget = _guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60)
+        no_progress_seconds = _guard_int_env("OPAI_NO_PROGRESS_SECONDS", 600)
+        step_ids: set[str] = set()
+        edit_attempted = False
+        _STEP_TYPES = {
+            "tool_call",
+            "file_read",
+            "file_edit",
+            "command_run",
+            "context_read",
+            "ci_watch",
+        }
         while True:
             if cancel is not None and cancel.is_set():
                 stopped = "cancelled"
@@ -1552,6 +1603,38 @@ class AccountRunner:
                 for event in part["events"]:
                     if on_event:
                         on_event(event)
+                    etype = str(event.get("type") or "")
+                    if etype in _STEP_TYPES:
+                        step_ids.add(str(event.get("id") or len(step_ids)))
+                        if etype == "file_edit":
+                            edit_attempted = True
+                if guard_active and not edit_attempted:
+                    elapsed = time.monotonic() - started
+                    over_steps = step_budget > 0 and len(step_ids) >= step_budget
+                    over_time = (
+                        no_progress_seconds > 0
+                        and elapsed >= no_progress_seconds
+                        and len(step_ids) >= 20
+                    )
+                    if over_steps or over_time:
+                        stopped = "no_progress"
+                        if on_event:
+                            on_event(
+                                make_event(
+                                    "completion",
+                                    "warning",
+                                    (
+                                        "No-progress guard: stopped after "
+                                        f"{len(step_ids)} steps without an edit "
+                                        "attempt"
+                                    ),
+                                    metadata={
+                                        "steps": len(step_ids),
+                                        "elapsed_s": int(elapsed),
+                                    },
+                                )
+                            )
+                        break
                 if part.get("error"):
                     provider_errors.append(str(part["error"]))
                 if part["text"] and not (
@@ -1582,6 +1665,17 @@ class AccountRunner:
             partial = "".join(text_parts).strip()
             if stopped == "timed_out":
                 return {"text": partial, "cost": cost, "timed_out": True}
+            if stopped == "no_progress":
+                # F27: checkpoint, honestly. The paid spend so far is real and
+                # is recorded by the caller; the result can never render green.
+                return {
+                    "text": partial,
+                    "cost": cost,
+                    "no_progress": True,
+                    "stopped_reason": "no_progress_guard",
+                    "tool_steps": len(step_ids),
+                    "edit_denials": list(session.edit_denials),
+                }
             return {"text": partial, "cost": cost, "cancelled": True}
 
         try:
@@ -1659,7 +1753,12 @@ class AccountRunner:
         # error events and known stderr diagnostics were handled above, so this
         # preserves valid partial answers without promoting error payloads.
         if text:
-            return {"text": text, "cost": cost, "returncode": returncode}
+            return {
+                "text": text,
+                "cost": cost,
+                "returncode": returncode,
+                "edit_denials": list(session.edit_denials),
+            }
         if returncode not in (0, None) or known_failure:
             _invalidate_cache_for_error(self.account_id, normalized)
             return {
@@ -1668,7 +1767,12 @@ class AccountRunner:
                 "error": normalized,
                 "returncode": returncode,
             }
-        return {"text": "", "cost": cost, "returncode": returncode}
+        return {
+            "text": "",
+            "cost": cost,
+            "returncode": returncode,
+            "edit_denials": list(session.edit_denials),
+        }
 
 
 def runner_for_account(

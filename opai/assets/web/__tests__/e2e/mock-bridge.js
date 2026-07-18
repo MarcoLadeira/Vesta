@@ -269,6 +269,33 @@
           }, gate.delayMs || 0);
         }
       }
+      // F26 scenario: Safe Auto refused file edits; until the front-end
+      // re-sends with allowEditsOnce=true, every send gets a
+      // needs_edit_approval reply carrying the exact file paths.
+      var editGate = scenario.editApproval;
+      if (editGate && editGate.files) {
+        var ereq = m.lastRequest;
+        if (ereq.allowEditsOnce === true) {
+          setTimeout(function () {
+            bridge.replyReady.emit(JSON.stringify({
+              requestId: ereq.requestId,
+              result: editGate.approvedResult || { status: "answered", answer: editGate.approvedAnswer || "Edits applied.", changed_files: editGate.files, receipt: {} },
+            }));
+          }, editGate.delayMs || 0);
+        } else {
+          setTimeout(function () {
+            bridge.replyReady.emit(JSON.stringify({
+              requestId: ereq.requestId,
+              result: {
+                status: "needs_edit_approval",
+                edit_files: editGate.files,
+                edit_approval: { files: editGate.files },
+                answer: "OPai needs your approval to edit these files.",
+              },
+            }));
+          }, editGate.delayMs || 0);
+        }
+      }
     },
     build: function (p) {
       var m = window.__mock;

@@ -407,6 +407,11 @@ class ActivitySession:
         # can correct the optimistic row in place (F19/F11 honesty):
         # tool_use_id -> (event_id, etype, title, detail).
         self._tool_use_index: dict[str, tuple[str, str, str, str | None]] = {}
+        # File paths whose Edit/Write tool_use was denied by the provider's
+        # permission system (F26): the bridge returns these so the GUI can
+        # offer an in-context "Allow edits once" approval instead of a
+        # dead-end prose plea. Order-preserving, deduplicated on read.
+        self.edit_denials: list[str] = []
         # Normalized Bash command strings -> invocation count, for the
         # repeated-command warning (F13).
         self._command_counts: dict[str, int] = {}
@@ -519,6 +524,15 @@ class ActivitySession:
         status, suffix, detail = correction
         tool_use_id = str(block.get("tool_use_id") or "").strip()
         prior = self._tool_use_index.get(tool_use_id)
+        # F26: an Edit/Write refused by the provider's permission gate is an
+        # approval request, not just a failed row. Record the file path so the
+        # runner can surface an actionable in-context approval.
+        if prior is not None and status == "error" and prior[1] == "file_edit":
+            result_text = _tool_result_text(block.get("content"))
+            if _is_edit_permission_denial(result_text):
+                path = (prior[3] or "").strip()
+                if path and path not in self.edit_denials:
+                    self.edit_denials.append(path)
         if prior is not None:
             event_id, etype, title, prior_detail = prior
             return make_event(
@@ -785,6 +799,46 @@ def _tool_result_text(content: Any) -> str:
     return ""
 
 
+# Provider permission-gate phrasings for a denied Edit/Write (F26). The claude
+# CLI words it "Claude requested permissions to write to X, but you haven't
+# granted it yet"; keep the markers narrow so ordinary tool errors (syntax,
+# missing file) never masquerade as approval requests.
+_EDIT_DENIAL_MARKERS = (
+    "requested permissions",
+    "haven't granted",
+    "has not been granted",
+    "permission to edit",
+    "permission to write",
+)
+
+
+def _is_edit_permission_denial(text: str) -> bool:
+    """True when a tool_result error text is a permission denial, not a bug."""
+    low = str(text or "").lower()
+    return any(marker in low for marker in _EDIT_DENIAL_MARKERS)
+
+
+def _friendly_tool_error(text: str) -> str | None:
+    """Rewrite a cryptic provider-CLI diagnostic into actionable guidance.
+
+    The Claude Code CLI's own bash parser rejects a command over ~965 bytes as
+    "malformed syntax that cannot be parsed / too long for parsing" — an
+    external limit OPai cannot raise (QA pass-2 F25). Rather than surface the
+    raw diagnostic, tell the user the concrete workaround. Returns ``None``
+    when no rewrite applies (the raw text is used unchanged).
+    """
+    low = str(text or "").lower()
+    if ("too long for parsing" in low or "maximum supported length" in low) or (
+        "cannot be parsed" in low and "command" in low
+    ):
+        return (
+            "Command exceeded the provider CLI's parser limit (~965 bytes). "
+            "Use the Edit/Write tools instead of embedding file contents in a "
+            "shell command, or split it into smaller commands."
+        )
+    return None
+
+
 def _tool_result_correction(
     block: dict[str, Any],
 ) -> tuple[str, str, str | None] | None:
@@ -800,7 +854,13 @@ def _tool_result_correction(
     if not is_error and text.strip():
         return None
     if is_error:
-        detail = _safe_provider_diagnostic(text)[:200] if text.strip() else None
+        if text.strip():
+            # F25: surface a clear workaround for the CLI parser-length limit
+            # instead of the raw "malformed syntax" diagnostic.
+            friendly = _friendly_tool_error(text)
+            detail = friendly or _safe_provider_diagnostic(text)[:200]
+        else:
+            detail = None
         return ("error", "failed", detail or None)
     return ("warning", "no output returned", None)
 

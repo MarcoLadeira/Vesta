@@ -1506,6 +1506,11 @@ def _run_gui(
                     cancel=cancel,
                     allow_cloud=bool(payload.get("allowCloud", False)),
                     allow_limit=bool(payload.get("allowLimit", False)),
+                    # One-shot grants from the in-context approval cards. The
+                    # mock bridge honored these in e2e, but the real bridge
+                    # dropped them — the Approve buttons were no-ops (F17/F26).
+                    allow_command=str(payload.get("allowCommand") or "") or None,
+                    allow_edits_once=bool(payload.get("allowEditsOnce", False)),
                     resume_context=resume_context,
                 )
 

@@ -1160,6 +1160,8 @@ function send(retryOf) {
     // F9/F17: one-time approval for a policy-blocked command — the exact
     // string echoed by the pipeline, never a rewritten one. Omitted unless set.
     allowCommand: typeof sel.allowCommand === "string" && sel.allowCommand ? sel.allowCommand : undefined,
+    // F26: one-time approval for provider-gated file edits. Omitted unless set.
+    allowEditsOnce: sel.allowEditsOnce === true ? true : undefined,
   }));
 }
 
@@ -1679,7 +1681,14 @@ function renderErrorCard(el, status, r, sel) {
   const offerLogin = ["AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED"].includes(String(error.code || "")) && !!loginProvider;
   // Free-tier consent card (replaces the old native confirm popup): confirm to
   // send to the provider's public API with the same explicit warning text.
-  const freeProvider = String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
+  // F29: name the provider from the RESULT's model id ("free:groq:…"), not the
+  // composer selection — a stale/mismatched selection must never label a Groq
+  // consent card "Send to Gemini".
+  const resultModelId = String((r && (r.model_id || (r.raw_result && r.raw_result.model_id))) || "");
+  const freeFromResult = resultModelId.startsWith("free:") ? resultModelId.split(":")[1] : "";
+  const freeProvider = freeFromResult
+    ? freeFromResult.charAt(0).toUpperCase() + freeFromResult.slice(1)
+    : String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
   el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
@@ -1796,6 +1805,12 @@ function finalize(status, r) {
     // error dead-end — the user can approve the exact command once or deny it.
     if (status === "needs_command_approval") {
       renderCommandApprovalCard(el, r, sel);
+      return;
+    }
+    // F26: file edits refused by the provider's permission gate get the same
+    // treatment — an actionable "Allow edits once" card, never a dead end.
+    if (status === "needs_edit_approval") {
+      renderEditApprovalCard(el, r, sel);
       return;
     }
     state.lastFailedRequestId = state.message && state.message.requestId;
@@ -2282,6 +2297,50 @@ function renderCommandApprovalCard(el, r, sel) {
   };
   el.querySelector('[data-ap="deny"]').onclick = () => {
     done("Denied — the command was not run.", "denied");
+    if (bridge.cancel && state.message && state.message.requestId) {
+      try { bridge.cancel(state.message.requestId); } catch (_e) { /* best-effort cancellation */ }
+    }
+  };
+}
+
+// F26: in-chat approval for file edits the provider's permission gate refused
+// in Safe Auto. Mirrors the command-approval card: the card names the EXACT
+// files; "Allow edits once" re-sends the original message with
+// allowEditsOnce=true (Safe Auto keeps commands and destructive actions
+// gated); Deny changes nothing.
+function renderEditApprovalCard(el, r, sel) {
+  const files = Array.isArray(r && r.edit_files) ? r.edit_files.map(String) : [];
+  const listed = files.slice(0, 10);
+  const more = files.length - listed.length;
+  const rows = listed.map((f) => `<li><code>${esc(f)}</code></li>`).join("") +
+    (more > 0 ? `<li>…and ${more} more</li>` : "");
+  el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
+    `<div class="approval-card edit-approval" role="group" aria-label="Edit approval required">
+       <div class="ap-head"><span class="ap-badge">Edits blocked</span><span class="ap-risk">One-time approval</span></div>
+       <div class="ap-title">Allow OPai to edit these files once?</div>
+       <div class="ap-why">Safe Auto asks before changing files. Commands and destructive actions stay gated.</div>
+       <div class="ap-scope"><span class="k">Files</span><span class="v"><ul class="ap-files">${rows || "<li>(paths unavailable)</li>"}</ul></span></div>
+       <div class="ap-actions">
+         <button class="btn primary" data-ap="approve">Allow edits once</button>
+         <button class="btn" data-ap="deny">Deny</button>
+       </div>
+     </div>`;
+  wireActivitySummary(el);
+  const card = el.querySelector(".approval-card");
+  const done = (note, cls) => {
+    card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    card.classList.add(cls);
+    const outcome = document.createElement("div");
+    outcome.className = "ap-state";
+    outcome.textContent = note;
+    card.appendChild(outcome);
+  };
+  el.querySelector('[data-ap="approve"]').onclick = () => {
+    done("Approved — re-running with edits allowed once…", "approved");
+    send(Object.assign({}, state.lastSend || sel || {}, { allowEditsOnce: true }));
+  };
+  el.querySelector('[data-ap="deny"]').onclick = () => {
+    done("Denied — no files were changed.", "denied");
     if (bridge.cancel && state.message && state.message.requestId) {
       try { bridge.cancel(state.message.requestId); } catch (_e) { /* best-effort cancellation */ }
     }
