@@ -8,6 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: qrc:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data:; font-src 'self' file:; base-uri 'none'; form-action 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>OPai</title>
+  <link rel="stylesheet" href="design-tokens.css" />
   <link rel="stylesheet" href="styles.css" />
   <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </head>
@@ -16,7 +17,7 @@
     <header class="app-header" id="appHeader">
       <div class="header-leading">
         <button class="topbar-icon sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar" aria-expanded="true" title="Toggle sidebar">
-          <img class="tb-icon" src="icons/toggle-sidebar.png" alt="" aria-hidden="true" />
+          <span class="tb-icon" data-icon="menu" aria-hidden="true"></span>
         </button>
         <div class="header-brand" aria-label="OPai">
           <span class="header-logo"><img src="../opai-icon.png" alt="OPai" /></span>
@@ -26,12 +27,12 @@
         <span class="header-divider" aria-hidden="true"></span>
         <div class="ws-switch-wrap">
           <button class="ws-switch" id="wsSwitch" aria-label="Switch project folder" aria-haspopup="true" aria-expanded="false" title="Switch project folder">
-            <span class="ws-ico" aria-hidden="true">▰</span>
+            <span class="ws-ico" data-icon="workspace" aria-hidden="true"></span>
             <span class="ws-copy">
               <span id="wsLabel">…</span>
               <span class="ws-context" id="wsContext">Local workspace</span>
             </span>
-            <span class="chev" aria-hidden="true">▾</span>
+            <span class="chev" data-icon="chevronDown" aria-hidden="true"></span>
           </button>
           <div class="ws-menu" id="wsMenu" role="menu"></div>
         </div>
@@ -42,29 +43,29 @@
       <div class="header-actions">
         <div class="status-line" id="statusLine"></div>
         <button class="topbar-action" id="headerNewChat" aria-label="New chat" title="New chat">
-          <span class="action-icon" aria-hidden="true">+</span><span class="action-label">New chat</span>
+          <span class="action-icon" data-icon="plus" aria-hidden="true"></span><span class="action-label">New chat</span>
         </button>
         <button class="topbar-icon" id="headerSettings" aria-label="Settings" title="Settings">
-          <img class="tb-icon" src="icons/settings.png" alt="" aria-hidden="true" />
+          <span class="tb-icon" data-icon="settings" aria-hidden="true"></span>
         </button>
         <button class="topbar-icon inspector-toggle on" id="panelToggle" aria-label="Inspector" aria-pressed="true" title="Inspector">
-          <img class="tb-icon" src="icons/inspector.png" alt="" aria-hidden="true" />
+          <span class="tb-icon" data-icon="panel" aria-hidden="true"></span>
         </button>
         <div class="window-controls" id="windowControls" aria-label="Window controls">
-          <button class="window-control" id="windowMinimize" aria-label="Minimize" title="Minimize"><img class="wc-icon" src="icons/minimize.png" alt="" aria-hidden="true" /></button>
-          <button class="window-control" id="windowMaximize" aria-label="Maximize or restore" title="Maximize or restore"><img class="wc-icon" src="icons/maximize.png" alt="" aria-hidden="true" /></button>
-          <button class="window-control close" id="windowClose" aria-label="Close" title="Close"><img class="wc-icon" src="icons/close.png" alt="" aria-hidden="true" /></button>
+          <button class="window-control" id="windowMinimize" aria-label="Minimize" title="Minimize"><span class="wc-icon" data-icon="minimize" aria-hidden="true"></span></button>
+          <button class="window-control" id="windowMaximize" aria-label="Maximize or restore" title="Maximize or restore"><span class="wc-icon" data-icon="maximize" aria-hidden="true"></span></button>
+          <button class="window-control close" id="windowClose" aria-label="Close" title="Close"><span class="wc-icon" data-icon="close" aria-hidden="true"></span></button>
         </div>
       </div>
     </header>
 
     <!-- sidebar -->
     <aside class="sidebar">
-      <button class="new-chat" id="newChat"><span>+</span> New chat</button>
-      <button class="new-chat new-app" id="newApp"><span>✦</span> New app</button>
+      <button class="new-chat" id="newChat"><span data-icon="plus" aria-hidden="true"></span> New chat</button>
+      <button class="new-chat new-app" id="newApp"><span data-icon="sparkles" aria-hidden="true"></span> New app</button>
       <nav class="nav" id="nav"></nav>
       <div class="side-foot">
-        <button class="foot-settings" id="footSettings" aria-label="Settings"><img class="foot-icon" src="icons/settings.png" alt="" aria-hidden="true" /> <span>Settings</span></button>
+        <button class="foot-settings" id="footSettings" aria-label="Settings"><span class="foot-icon" data-icon="settings" aria-hidden="true"></span> <span>Settings</span></button>
         <div class="acct" id="acct"></div>
         <div class="priv-foot">Local only · no telemetry</div>
       </div>
@@ -110,7 +111,7 @@
               <div class="composer-reason" id="composerReason" aria-live="polite"></div>
               <div class="composer-row">
                 <select class="select" id="modeSel" aria-label="Mode"></select>
-                <button class="build-pill" id="buildToggle" aria-pressed="true" hidden>✦ Build</button>
+                <button class="build-pill" id="buildToggle" aria-pressed="true" hidden><span data-icon="sparkles" aria-hidden="true"></span> Build</button>
                 <div class="spacer"></div>
                 <span class="pdot" id="providerDot"></span>
                 <select class="select" id="modelSel" style="max-width:230px" aria-label="Model"></select>
@@ -170,6 +171,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <script src="activity.js"></script>
   <script src="message-state.js"></script>
+  <script src="icons.js"></script>
   <script src="settings.js"></script>
   <script src="onboarding.js"></script>
   <script src="app.js"></script>

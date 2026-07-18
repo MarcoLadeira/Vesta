@@ -8,6 +8,7 @@ const esc = (s) =>
   String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+const uiIcon = (name, options) => window.OPaiIcons.icon(name, options);
 
 const PROVIDER_COLOR = { claude: "#e0937a", codex: "#6cc1e8", auto: "#98a2b0", local: "#34d399" };
 
@@ -313,7 +314,7 @@ function renderSidebar() {
       const toggle = document.createElement("button");
       toggle.className = "nav-group-toggle nav-group-btn" + (open ? " open" : "");
       toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      toggle.innerHTML = `<span>${esc(g.group)}</span><span class="ngt-chev">${open ? "▾" : "▸"}</span>`;
+      toggle.innerHTML = `<span>${esc(g.group)}</span><span class="ngt-chev">${uiIcon(open ? "chevronDown" : "chevronRight")}</span>`;
       nav.appendChild(toggle);
       host = document.createElement("div");
       host.className = "nav-group-body";
@@ -401,7 +402,7 @@ function renderRecents() {
 function stateCardHtml(stateCard) {
   const state = stateCard || {};
   const kind = ["error", "empty", "loading", "degraded"].includes(state.kind) ? state.kind : "empty";
-  const icons = { error: "!", empty: "✦", loading: "◌", degraded: "!" };
+  const icons = { error: "error", empty: "sparkles", loading: "running", degraded: "warning" };
   const role = kind === "error" ? "alert" : "status";
   const title = state.title || (kind === "loading" ? "Loading" : "Nothing to show yet");
   const reason = state.reason || "";
@@ -409,7 +410,7 @@ function stateCardHtml(stateCard) {
     ? `<button class="btn ${state.primary ? "primary" : ""}" data-state-action="${esc(state.action)}">${esc(state.actionLabel)}</button>`
     : "";
   return `<section class="state-card ${kind}${state.compact ? " compact" : ""}" role="${role}"${kind !== "error" ? ' aria-live="polite"' : ""}>` +
-    `<span class="state-card-icon" aria-hidden="true">${icons[kind]}</span><div class="state-card-copy"><div class="state-card-title">${esc(title)}</div>` +
+    `<span class="state-card-icon" aria-hidden="true">${uiIcon(icons[kind])}</span><div class="state-card-copy"><div class="state-card-title">${esc(title)}</div>` +
     (reason ? `<div class="state-card-reason">${esc(reason)}</div>` : "") +
     (action ? `<div class="state-card-actions">${action}</div>` : "") +
     `</div></section>`;
@@ -464,17 +465,17 @@ function renderWorkspace() {
   };
   label("Current project");
   item(
-    `<span class="m-ico">📁</span><div class="m-body"><div class="m-name">${esc(w.label)}</div><div class="sub">${esc(w.root)}</div></div><span class="m-check">✓</span>`,
+    `<span class="m-ico">${uiIcon("folder")}</span><div class="m-body"><div class="m-name">${esc(w.label)}</div><div class="sub">${esc(w.root)}</div></div><span class="m-check">${uiIcon("check")}</span>`,
     () => bridge.openPath(""), "current",
   );
-  item(`<span class="m-ico">📂</span><div class="m-body"><div class="m-name">Open another folder…</div></div>`, () => bridge.openWorkspace());
+  item(`<span class="m-ico">${uiIcon("folder")}</span><div class="m-body"><div class="m-name">Open another folder…</div></div>`, () => bridge.openWorkspace());
   const recents = w.recents || [];
   if (recents.length) {
     sep();
     label("Recent projects");
     recents.forEach((r) => {
       item(
-        `<span class="m-ico">📁</span><div class="m-body"><div class="m-name">${esc(r.label)}</div><div class="sub">${esc(r.path)}</div></div>`,
+        `<span class="m-ico">${uiIcon("folder")}</span><div class="m-body"><div class="m-name">${esc(r.label)}</div><div class="sub">${esc(r.path)}</div></div>`,
         () => bridge.switchWorkspace(r.path),
       );
     });
@@ -663,7 +664,7 @@ function renderContextHints() {
   const root = $("#contextHints");
   if (!root) return;
   root.innerHTML = state.contextHints.map((path, index) =>
-    `<span class="context-hint">@${esc(path)}<button class="context-remove" type="button" aria-label="Remove ${esc(path)}" data-context-index="${index}">×</button></span>`
+    `<span class="context-hint">@${esc(path)}<button class="context-remove" type="button" aria-label="Remove ${esc(path)}" data-context-index="${index}">${uiIcon("close")}</button></span>`
   ).join("");
   root.querySelectorAll("[data-context-index]").forEach((button) => {
     button.onclick = () => { state.contextHints.splice(Number(button.dataset.contextIndex), 1); renderContextHints(); };
@@ -1090,7 +1091,7 @@ function renderNewAppSuccess(el, result) {
   const tokens = Number(result.boilerplate_tokens_avoided || 0).toLocaleString();
   el.innerHTML = roleHeader("OPai Build", "var(--accent)") +
     `<div class="new-app-card done" role="group" aria-label="App created">
-       <div class="nac-t">✓ ${esc(result.name)} is ready — ${(result.files || []).length} files scaffolded for free (~${esc(tokens)} tokens never spent).</div>
+       <div class="nac-t">${uiIcon("check")} ${esc(result.name)} is ready — ${(result.files || []).length} files scaffolded for free (~${esc(tokens)} tokens never spent).</div>
        <div class="nac-sub">${esc(result.root)}</div>
        <div class="nac-actions">
          <button class="btn primary" data-a="open">Open app workspace</button>
@@ -1173,12 +1174,12 @@ function buildResultHtml(r) {
       `<code>${esc(f.path)}</code> <span class="bres-diff">+${f.added} −${f.removed}</span></li>`).join("");
     const v = r.verify || {};
     const verify = v.ok
-      ? `<span class="bres-verify ok">✓ verified (${v.passed} checks)</span>`
-      : (v.failed ? `<span class="bres-verify warn">⚠ ${v.failed} check(s) failed</span>` : "");
+      ? `<span class="bres-verify ok">${uiIcon("check")} verified (${v.passed} checks)</span>`
+      : (v.failed ? `<span class="bres-verify warn">${uiIcon("warning")} ${v.failed} check(s) failed</span>` : "");
     const ctx = r.context || {};
     const saved = ctx.saved_pct ? `<div class="bres-note">${ctx.saved_pct}% of the app left out of the prompt — that's the saving.</div>` : "";
     return `<div class="build-card" role="group" aria-label="Build result">` +
-      `<div class="bres-t">✓ Applied ${(r.applied || []).length} change(s) ${verify}</div>` +
+      `<div class="bres-t">${uiIcon("check")} Applied ${(r.applied || []).length} change(s) ${verify}</div>` +
       `<ul class="bres-files">${files}</ul>${saved}` +
       `<div class="nac-actions"><button class="btn ghost" data-a="preview">Copy preview command</button></div>` +
       `</div>`;
@@ -1187,7 +1188,7 @@ function buildResultHtml(r) {
     const checks = ((r.verify || {}).checks || []).filter((c) => !c.ok).slice(0, 5)
       .map((c) => `<li><code>${esc(c.path)}</code> · ${esc(c.check)}: ${esc(c.detail)}</li>`).join("");
     return `<div class="build-card error" role="group" aria-label="Build rolled back">` +
-      `<div class="bres-t">✗ Verification failed — the edit was rolled back. The files changed by this build were restored.</div>` +
+      `<div class="bres-t">${uiIcon("error")} Verification failed — the edit was rolled back. The files changed by this build were restored.</div>` +
       `<ul class="bres-files">${checks}</ul></div>`;
   }
   if (status === "partial_rollback" || status === "rollback_failed") {
@@ -1198,7 +1199,7 @@ function buildResultHtml(r) {
       ? `${restored} file(s) restored; the following files are still changed:`
       : "No changed files could be restored automatically:";
     return `<div class="build-card error" role="group" aria-label="Build rollback incomplete">` +
-      `<div class="bres-t">✗ Verification failed. Automatic rollback was incomplete.</div>` +
+      `<div class="bres-t">${uiIcon("error")} Verification failed. Automatic rollback was incomplete.</div>` +
       `<div class="body">${esc(detail)}</div><ul class="bres-files">${files}</ul>` +
       `<div class="bres-note">Review the remaining file changes and the saved backup before continuing.</div></div>`;
   }
@@ -1207,7 +1208,7 @@ function buildResultHtml(r) {
       .map((c) => `<li><code>${esc(c.path || "app")}</code> · ${esc(c.check)}: ${esc(c.detail)}</li>`).join("");
     const files = (r.applied || []).map((f) => `<li><code>${esc(f.path)}</code></li>`).join("");
     return `<div class="build-card error" role="group" aria-label="Build verification failed">` +
-      `<div class="bres-t">✗ Changes were applied, but verification failed. They were preserved for review or rollback.</div>` +
+      `<div class="bres-t">${uiIcon("error")} Changes were applied, but verification failed. They were preserved for review or rollback.</div>` +
       `<ul class="bres-files">${checks || files}</ul></div>`;
   }
   if (status === "no_edits") {
@@ -1215,7 +1216,7 @@ function buildResultHtml(r) {
       `<div class="body">${mdToHtml(String(r.answer || ""))}</div></div>`;
   }
   const msg = (r.error && (r.error.userMessage || r.error)) || r.answer || status;
-  return `<div class="build-card error" role="group" aria-label="Build failed"><div class="bres-t">✗ ${esc(String(msg)).slice(0, 400)}</div></div>`;
+  return `<div class="build-card error" role="group" aria-label="Build failed"><div class="bres-t">${uiIcon("error")} ${esc(String(msg)).slice(0, 400)}</div></div>`;
 }
 function appendMsg(html, cls) {
   $("#empty").style.display = "none";
@@ -1232,7 +1233,7 @@ function roleHeader(label, color) {
   const av = `<span class="av" style="background:${color};color:#06160f">${esc((label[0] || "O"))}</span>`;
   return `<div class="role" style="color:${color}">${av}${esc(label)}</div>`;
 }
-const ICON = { pending: "◌", running: "◐", success: "✓", warning: "!", error: "✗", cancelled: "⊘" };
+const ICON = { pending: "pending", running: "running", success: "check", warning: "warning", error: "error", cancelled: "cancelled" };
 const ANSWERED = ["answered", "cache_hit", "answered_by_account", "answered_by_free_api", "answered_locally"];
 const ERROR_TITLES = {
   account_timeout: "Ran out of time", account_error: "The model hit an error",
@@ -1346,7 +1347,7 @@ function tlRowInner(e) {
   if (typeof e.timestamp === "number" && state.startTime && e.timestamp >= state.startTime) {
     ts = `<span class="tl-ts">+${((e.timestamp - state.startTime) / 1000).toFixed(1)}s</span>`;
   }
-  return `<span class="tl-ic">${ICON[e.status] || "•"}</span>` +
+  return `<span class="tl-ic">${uiIcon(ICON[e.status] || "pending")}</span>` +
     `<span class="tl-t">${esc(e.title)}</span>${e.detail ? `<span class="tl-d">${esc(e.detail)}</span>` : ""}${ts}`;
 }
 function timelineRows() {
@@ -1374,8 +1375,8 @@ function updateSingleNode(entry, event) {
 }
 function groupHeaderInner(row, expanded) {
   return `<button class="tl-group-toggle" aria-expanded="${expanded}" tabindex="0">` +
-    `<span class="tl-ic">${ICON[row.status] || "•"}</span>` +
-    `<span class="tl-caret">${expanded ? "▾" : "▸"}</span>` +
+    `<span class="tl-ic">${uiIcon(ICON[row.status] || "pending")}</span>` +
+    `<span class="tl-caret">${uiIcon(expanded ? "chevronDown" : "chevronRight")}</span>` +
     `<span class="tl-t">${esc(row.label)}</span></button>`;
 }
 function reconcileGroupNode(entry, row) {
@@ -1442,7 +1443,7 @@ function renderTimeline() {
     if (truncated > 0) {
       const key = "truncation";
       seen.add(key);
-      const inner = `<span class="tl-ic">⋯</span>` +
+      const inner = `<span class="tl-ic">${uiIcon("more")}</span>` +
         `<span class="tl-t">${truncated.toLocaleString()} earlier steps hidden</span>` +
         `<span class="tl-d">full record in the ledger</span>`;
       let entry = rows.get(key);
@@ -1682,10 +1683,10 @@ function completionVerdictHtml(r) {
   const item = completionVerdict(r);
   if (!item) return "";
   const label = item.verdict.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  const glyph = item.verdict === "completed" ? "✓" : item.verdict === "cancelled" ? "⊘" : "!";
+  const glyph = item.verdict === "completed" ? "check" : item.verdict === "cancelled" ? "cancelled" : "warning";
   const next = item.nextAction ? `<div class="cv-next">Next: ${esc(item.nextAction)}</div>` : "";
   return `<section class="completion-verdict ${esc(item.verdict)}" role="status" aria-label="Completion verdict: ${esc(label)}">` +
-    `<div class="cv-title">${glyph} ${esc(label)}</div><div class="cv-reason">${esc(item.reason)}</div>${next}</section>`;
+    `<div class="cv-title">${uiIcon(glyph)} ${esc(label)}</div><div class="cv-reason">${esc(item.reason)}</div>${next}</section>`;
 }
 function metaFooter(r, sel, durMs) {
   const rc = (r && r.receipt) || {};
@@ -1703,7 +1704,7 @@ function metaFooter(r, sel, durMs) {
       `<span class="rc-badge rc-${badge.cls}" title="${esc(badge.title)}">${esc(badge.label)}</span>` +
       `<span class="rc-bits">${esc(bits.join("   ·   "))}</span>` +
     `</div>` +
-    `<button class="rc-ledger" type="button" aria-label="Open the savings ledger">Ledger →</button>` +
+    `<button class="rc-ledger" type="button" aria-label="Open the savings ledger">Ledger ${uiIcon("arrowRight")}</button>` +
   `</div>`;
 }
 
@@ -2034,7 +2035,7 @@ function diffReviewHtml(review, testsStatus) {
     </article>`;
   }).join("");
   return `<section class="diff-review" aria-label="Changed-file review">
-    <div class="diff-review-head"><div><strong>Review changes</strong><small><span data-diff-counts>${esc(summary.files || files.length)} files · ${esc(summary.pending || 0)} pending${summary.risky ? ` · ${esc(summary.risky)} risky` : ""}</span> · Tests: ${esc(String(testsStatus || "not run").replaceAll("_", " "))}</small></div><div class="diff-nav"><button class="btn ghost" data-diff-nav="prev" aria-label="Previous changed file">←</button><span data-diff-position>1 / ${files.length}</span><button class="btn ghost" data-diff-nav="next" aria-label="Next changed file">→</button></div></div>
+    <div class="diff-review-head"><div><strong>Review changes</strong><small><span data-diff-counts>${esc(summary.files || files.length)} files · ${esc(summary.pending || 0)} pending${summary.risky ? ` · ${esc(summary.risky)} risky` : ""}</span> · Tests: ${esc(String(testsStatus || "not run").replaceAll("_", " "))}</small></div><div class="diff-nav"><button class="btn ghost" data-diff-nav="prev" aria-label="Previous changed file">${uiIcon("arrowLeft")}</button><span data-diff-position>1 / ${files.length}</span><button class="btn ghost" data-diff-nav="next" aria-label="Next changed file">${uiIcon("arrowRight")}</button></div></div>
     ${panels}
   </section>`;
 }
@@ -2155,7 +2156,7 @@ function cleanPath(f) { return String(f).replace(/^[ \t]*[A-Z?!]{1,2}[ \t]+/, ""
 function filesCardHtml(changed) {
   const rows = changed.map((f) => {
     const p = cleanPath(f);
-    return `<button class="file-chip" data-file="${esc(p)}"><span class="fc-ico">📄</span><span class="fc-name">${esc(f)}</span><span class="fc-open">Open ↗</span></button>`;
+    return `<button class="file-chip" data-file="${esc(p)}"><span class="fc-ico">${uiIcon("file")}</span><span class="fc-name">${esc(f)}</span><span class="fc-open">Open</span></button>`;
   }).join("");
   return `<div class="files-card"><div class="fc-head"><div class="fc-t">${changed.length} file(s) changed</div>` +
     `<button class="btn ghost" data-openfolder="1">Open folder</button></div>${rows}</div>`;

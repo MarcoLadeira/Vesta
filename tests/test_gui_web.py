@@ -230,13 +230,15 @@ class BootPayloadTests(unittest.TestCase):
 
 class WebAssetsTests(unittest.TestCase):
     def test_core_assets_exist(self):
-        for name in ("index.html", "styles.css", "app.js"):
+        for name in ("index.html", "design-tokens.css", "design-tokens-preview.html", "icons.js", "styles.css", "app.js"):
             self.assertTrue((WEB_DIR / name).exists(), name)
 
     def test_index_wires_bridge_and_assets(self):
         html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn("qwebchannel.js", html)
+        self.assertIn("design-tokens.css", html)
         self.assertIn("styles.css", html)
+        self.assertIn("icons.js", html)
         self.assertIn("app.js", html)
 
     def test_index_uses_one_unified_desktop_header(self):

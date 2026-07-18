@@ -1,5 +1,38 @@
 # OPai Desktop — Design System
 
+## Web UI token contract (#388)
+
+The browser shell uses the same visual language through one source of truth:
+`opai/assets/web/design-tokens.css`. `styles.css` must consume its tokens rather
+than adding raw type or layout-spacing pixels. `npm run test:tokens` enforces
+this locally and in the web CI job. Open the renderable [token preview](../opai/assets/web/design-tokens-preview.html)
+in a browser for the canonical type, spacing, elevation, and icon examples.
+
+| Area | Tokens | Rules |
+| --- | --- | --- |
+| Type | `--type-caption` through `--type-display` | Use body (14px) for readable defaults; each semantic role has an approved line-height and weight. |
+| Spacing | `--space-1` (4px), `--space-2` (8px), `--space-3` (12px), `--space-4` (16px), `--space-6` (24px), `--space-8` (32px) | Use only the 4px rhythm. The token linter rejects unrecognised spacing token names as well as raw pixels. |
+| Radius | `--radius-sm`, `--radius-md`, `--radius-lg`, `--radius-xl` | Components use the alias pair `--r-*`; no component invents a new radius. |
+| Elevation | `--elevation-sm`, `--elevation-md`, `--elevation-lg`, `--inset-hi` | Elevation communicates layer, never status. Status remains semantic colour plus text. |
+| Icons | `icons.js`, `--icon-sm/md/lg` | Inline SVG only, `currentColor`, 16px default. Decorative icons are `aria-hidden`; controls retain an accessible text or `aria-label`. Emoji belongs only in user-provided content. |
+
+### Rendered web type scale
+
+| Role | Token | Size | Line height | Weight | Rendered example |
+| --- | --- | ---: | ---: | ---: | --- |
+| Caption | `--type-caption` | 12px | 1.35 | 500 | `Small explanatory copy` |
+| Label | `--type-label` | 13px | 1.4 | 600 | `Section label` |
+| Body | `--type-body` | 14px | 1.5 | 400 | `Readable default body copy` |
+| Body large | `--type-body-lg` | 16px | 1.5 | 400 | `Emphasised supporting copy` |
+| Heading | `--type-heading` | 20px | 1.25 | 700 | `Surface heading` |
+| Title | `--type-title` | 24px | 1.25 | 700 | `Page title` |
+| Display | `--type-display` | 32px | 1.1 | 800 | `Build more. Burn less.` |
+
+The linter intentionally permits one-pixel borders and positional offsets; it
+enforces `font-size`, `margin`, `padding`, and `gap`, which are the values that
+govern visual rhythm. Verify normal and compact density after changing a core
+surface.
+
 The OPai GUI is **PySide6 + QSS**, not CSS. "Tokens" are Python constants in
 `opai/gui_desktop.py`; components are Qt widgets styled by object name. This doc
 is the contract so the surface stays consistent as it grows.

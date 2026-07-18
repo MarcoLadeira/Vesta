@@ -181,6 +181,9 @@ jobs:
       - name: Audit JavaScript development dependencies
         run: npm audit --audit-level=high
 
+      - name: Enforce web design tokens
+        run: npm run test:tokens
+
       - name: Run JavaScript unit tests
         run: npm run test:unit
 

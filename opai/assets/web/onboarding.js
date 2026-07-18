@@ -140,7 +140,9 @@
         : '<button class="btn primary" type="button" data-ob="next">Next</button>') +
       "</div></div>";
     overlay.querySelector(".ob-card").innerHTML =
-      '<button class="ob-close" type="button" data-ob="skip" aria-label="Skip onboarding">×</button>' +
+      '<button class="ob-close" type="button" data-ob="skip" aria-label="Skip onboarding">' +
+      window.OPaiIcons.icon("close") +
+      "</button>" +
       '<div class="ob-content">' +
       step.render(ctx) +
       "</div>" +
