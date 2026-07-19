@@ -271,7 +271,9 @@ class ProviderAdapter:
             expected_sandbox = (
                 "workspace-write" if mode in {"safe-auto", "full-auto"} else "read-only"
             )
-            expected_permission = "never" if mode == "full-auto" else "on-request"
+            # Codex exec has no hook protocol, so build_command keeps every
+            # mode — full-auto included — on fail-closed ``on-request`` (F23).
+            expected_permission = "on-request"
             if (
                 request.sandbox != expected_sandbox
                 or request.permission != expected_permission

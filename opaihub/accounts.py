@@ -39,6 +39,10 @@ _CONNECTION_CACHE_LOCK = threading.RLock()
 _CONNECTION_CACHE_TTL = 300.0
 _CONNECTION_HISTORY: dict[tuple[str, str], dict[str, Any]] = {}
 _CONNECTION_HISTORY_LIMIT = 64
+# Capability classifications come from an auth-status check.  They must not
+# outlive the check indefinitely because a user can switch Codex sign-in modes
+# without removing the local auth artifact.
+_ACCOUNT_TYPE_HISTORY_TTL_MS = int(_CONNECTION_CACHE_TTL * 1000)
 _CLI_VERSION_CACHE: dict[str, str] = {}
 
 _INVALID_CODEX_TIER = 'service_tier = "default"'
@@ -77,6 +81,7 @@ def _safe_connection_summary(result: dict[str, Any]) -> dict[str, Any]:
             "displayName": result.get("displayName"),
             "authStatus": result.get("authStatus"),
             "credentialSource": result.get("credentialSource"),
+            "accountType": result.get("accountType"),
             "lastCheckedAt": result.get("lastCheckedAt"),
             "lastError": result.get("lastError"),
             "lastErrorCode": result.get("lastErrorCode"),
@@ -334,6 +339,7 @@ def connection_for_account(
     last_checked_at: int | None = None,
     error: dict[str, Any] | None = None,
     env_overrides_removed: list[str] | None = None,
+    account_type: str | None = None,
 ) -> dict[str, Any]:
     """Build the safe connection payload used by Settings and the chat gate.
 
@@ -380,6 +386,9 @@ def connection_for_account(
         "userFacingName": "OPai",
         "authStatus": auth_status,
         "credentialSource": "user_account",
+        # Safe, normalized classification from an account status command. It
+        # never contains credential material or raw provider output.
+        "accountType": str(account_type or "unknown"),
         "lastCheckedAt": last_checked_at,
         "lastError": (error or {}).get("userMessage"),
         "lastErrorCode": (error or {}).get("code"),
@@ -427,6 +436,19 @@ def account_connections(home: Path | None = None) -> list[dict[str, Any]]:
     return [
         connection_for_account(account) for account in list_connected_accounts(home)
     ]
+
+
+def _account_type_from_status(account_id: str, detail: str) -> str:
+    """Return a safe Codex capability class from status text, never raw text."""
+
+    if account_id != "codex":
+        return "unknown"
+    normalized_detail = detail.lower()
+    if "chatgpt" in normalized_detail:
+        return "chatgpt"
+    if "api key" in normalized_detail or "api-key" in normalized_detail:
+        return "api_key"
+    return "unknown"
 
 
 def test_account_connection(
@@ -528,11 +550,13 @@ def test_account_connection(
         and status_error["code"] not in {"UNKNOWN", "NO_RESPONSE"}
     )
     if returncode == 0 and not status_failed:
+        account_type = _account_type_from_status(account_id, detail)
         result = connection_for_account(
             account,
             auth_status="connected",
             last_checked_at=checked_at,
             env_overrides_removed=env_removed,
+            account_type=account_type,
         )
         if run is None:
             with _CONNECTION_CACHE_LOCK:
@@ -588,6 +612,19 @@ def _with_connection_history(
     if changed:
         for key in ("authStatus", "safeDiagnostic", "error"):
             merged[key] = current.get(key)
+    checked_at = history.get("lastCheckedAt")
+    try:
+        account_type_is_fresh = (
+            int(time.time() * 1000) - int(checked_at)
+            <= _ACCOUNT_TYPE_HISTORY_TTL_MS
+        )
+    except (TypeError, ValueError):
+        account_type_is_fresh = False
+    if not account_type_is_fresh:
+        # Do not retain an API-key capability after the status result that
+        # established it has expired.  Unknown falls back to the Codex CLI's
+        # own compatible default model.
+        merged["accountType"] = str(current.get("accountType") or "unknown")
     return merged
 
 
@@ -664,6 +701,7 @@ def provider_connection_doctor(
                 "health": _connection_health(connection),
                 "authStatus": str(connection.get("authStatus") or "unknown"),
                 "credentialSource": "user_account",
+                "accountType": str(connection.get("accountType") or "unknown"),
                 "credentialSourceLabel": "Subscription sign-in",
                 "cliInstalled": bool(account.get("cli_present")),
                 "cliVersion": (
@@ -995,7 +1033,7 @@ COPILOT_MODELS: list[tuple[str, str, str]] = [
 
 
 def _account_options(
-    account: dict[str, Any], *, connected: bool
+    account: dict[str, Any], *, connected: bool, account_type: str | None = None
 ) -> list[dict[str, Any]]:
     from opai.provider_contract import provider_display_name
 
@@ -1019,6 +1057,32 @@ def _account_options(
             for alias, label in CLAUDE_MODELS
         ]
     if account["id"] == "codex":
+        normalized_account_type = str(account_type or "").lower()
+        if account_type is not None and normalized_account_type != "api_key":
+            return [
+                {
+                    "id": "account:codex",
+                    "label": "Codex · Account default",
+                    "advanced_label": (
+                        "Codex chooses a model supported by this ChatGPT account"
+                        if normalized_account_type == "chatgpt"
+                        else (
+                            "Codex chooses a supported model until this account's "
+                            "sign-in type is verified"
+                        )
+                    ),
+                    "provider": "codex",
+                    "model": "",
+                    "kind": "account",
+                    "group": "codex",
+                    "paid": True,
+                    "vendor": account["vendor"],
+                    "speed": "balanced",
+                    "connected": connected,
+                    "available": connected,
+                    "disabled_reason": disabled_reason,
+                }
+            ]
         return [
             {
                 "id": f"account:codex:{model_id}",
@@ -1081,6 +1145,7 @@ def account_models(
     *,
     include_unavailable: bool = False,
     accounts: list[dict[str, Any]] | None = None,
+    account_types: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Picker options for connected accounts (paid, run via the user's CLI).
 
@@ -1093,8 +1158,94 @@ def account_models(
         connected = bool(account["connected"])
         if not connected and not include_unavailable:
             continue
-        options.extend(_account_options(account, connected=connected))
+        account_type = (
+            str(account_types.get(account["id"]) or "unknown")
+            if account_types is not None
+            else None
+        )
+        options.extend(
+            _account_options(account, connected=connected, account_type=account_type)
+        )
     return options
+
+
+# --------------------------------------------------------------------------- #
+# Claude PreToolUse hook gate (F23).
+#
+# Full Auto used to hand the claude CLI a blanket ``--dangerously-skip-
+# permissions`` with no further control, so classified-destructive commands
+# (``gh issue close``, ``git push --force``, ``rm -rf``) ran with zero
+# confirmation. Full Auto now pairs that flag with a generated ``--settings``
+# file registering a PreToolUse hook for the Bash tool; the hook is the
+# ``opai hooks claude-pre-tool`` subcommand, which re-classifies every shell
+# command through opaihub.sandbox + opaihub.safety_gates and denies anything
+# that needs explicit user confirmation. Net posture: auto-approve EXCEPT
+# classified-destructive, which the hook denies.
+# --------------------------------------------------------------------------- #
+_CLAUDE_HOOK_SETTINGS_NAME = "opai-claude-hooks.json"
+
+
+def claude_hook_command() -> str:
+    """Shell command Claude Code runs for each PreToolUse (Bash) event."""
+    executable = sys.executable or "python"
+    return f'"{executable}" -m opai hooks claude-pre-tool'
+
+
+def build_claude_hook_settings() -> dict[str, Any]:
+    """The ``--settings`` payload wiring OPai's gate into Claude Code hooks."""
+    return {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {"type": "command", "command": claude_hook_command()},
+                    ],
+                }
+            ]
+        }
+    }
+
+
+def claude_hook_settings_path() -> Path:
+    """Deterministic settings location (rewritten each gated run)."""
+    return Path(tempfile.gettempdir()) / "opai" / _CLAUDE_HOOK_SETTINGS_NAME
+
+
+def ensure_claude_hook_settings(path: Path | None = None) -> Path:
+    """Write the hook settings file if missing/stale; return its path.
+
+    Best-effort: a write failure leaves any previous (identical-content) file
+    in place, and the deterministic path is still returned so the CLI either
+    reads a valid gate or errors on a missing file rather than running
+    ungated.
+    """
+    target = path or claude_hook_settings_path()
+    payload = json.dumps(build_claude_hook_settings(), indent=2, sort_keys=True) + "\n"
+    try:
+        current = target.read_text(encoding="utf-8") if target.exists() else None
+        if current != payload:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(payload, encoding="utf-8")
+    except OSError:
+        pass
+    return target
+
+
+def _guard_int_env(name: str, default: int) -> int:
+    """Non-negative int knob from the environment; bad values keep the default.
+
+    Used by the F27 no-progress guard (`OPAI_NO_PROGRESS_STEP_BUDGET`,
+    `OPAI_NO_PROGRESS_SECONDS`). ``0`` disables the corresponding check.
+    """
+    raw = str(os.environ.get(name, "") or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
 
 
 class AccountRunner:
@@ -1125,8 +1276,16 @@ class AccountRunner:
         out_file: str | None = None,
         mode: str | None = None,
         stream: bool = False,
+        edit_grant: bool = False,
     ) -> list[str]:
-        """Construct the CLI argv. Pure + side-effect free so tests can assert it."""
+        """Construct the CLI argv. Pure + side-effect free so tests can assert it.
+
+        ``edit_grant`` is the one-shot approval from the in-context
+        "Allow edits once" card (F26): in Safe Auto it maps to the claude
+        CLI's ``--permission-mode acceptEdits`` so file edits proceed while
+        Bash and destructive actions stay gated. It never applies to
+        read-only modes and is redundant in Full Auto.
+        """
         selected_mode = mode or ("safe-auto" if allow_edits else "ask")
         if self.account_id == "claude":
             # Non-stream: `json` gives final text + real $ cost in one object.
@@ -1145,7 +1304,21 @@ class AccountRunner:
             if self.model:
                 cmd += ["--model", self.model]
             if selected_mode == "full-auto":
+                # Full Auto stays autonomous for ordinary commands, but every
+                # Bash call is gated by the PreToolUse hook in the generated
+                # settings file: the hook denies commands the OPai classifier
+                # marks destructive/confirm-only (gh mutations, git push,
+                # rm -rf), so those still need explicit user confirmation in
+                # the UI (F23). skip-permissions is only ever emitted together
+                # with this gate.
                 cmd += ["--dangerously-skip-permissions"]
+                cmd += ["--settings", str(claude_hook_settings_path())]
+            elif selected_mode == "safe-auto" and edit_grant:
+                # F26: the user clicked "Allow edits once" on the approval
+                # card. acceptEdits auto-approves file edits only — Bash and
+                # anything destructive still go through the CLI's own gate
+                # (denied non-interactively → surfaced as approval cards).
+                cmd += ["--permission-mode", "acceptEdits"]
             if selected_mode in {"ask", "plan", "approve-edits"}:
                 prompt = (
                     "Do not modify files or run mutating commands. "
@@ -1158,7 +1331,12 @@ class AccountRunner:
                 sandbox = "workspace-write"
             else:
                 sandbox = "read-only"
-            approval = "never" if selected_mode == "full-auto" else "on-request"
+            # Codex exec has no hook protocol, so there is no way to gate
+            # individual destructive commands from outside. Full Auto therefore
+            # keeps `--ask-for-approval on-request`: in non-interactive exec
+            # mode approval requests cannot be answered and are denied, which
+            # is exactly the fail-closed posture gh/git mutations need (F23).
+            approval = "on-request"
             cmd = [
                 self.cli_path,
                 "--ask-for-approval",
@@ -1179,6 +1357,16 @@ class AccountRunner:
                 cmd += ["--model", self.model]
             if out_file:
                 cmd += ["--output-last-message", out_file]
+            if selected_mode == "full-auto":
+                # No hook protocol exists to enforce this, so make the gate
+                # explicit to the agent as well (defense in depth for F23).
+                prompt = (
+                    "Safety: destructive or external-mutating commands "
+                    "(git push, gh issue/pr mutations, rm -rf, deploys) are "
+                    "denied in this mode. Do not attempt them; report that "
+                    "they need explicit user confirmation in the OPai UI."
+                    "\n\n" + prompt
+                )
             cmd.append(prompt)
             return cmd
         if self.account_id == "copilot":
@@ -1204,6 +1392,7 @@ class AccountRunner:
         allow_edits: bool = False,
         mode: str | None = None,
         timeout: float = 1200.0,
+        edit_grant: bool = False,
     ) -> dict[str, Any]:
         """Run the task; return ``{"text", "cost", "timed_out"?}``.
 
@@ -1266,7 +1455,13 @@ class AccountRunner:
                 "cost": None,
                 "returncode": returncode,
             }
-        cmd = self.build_command(prompt, allow_edits=allow_edits, mode=mode)
+        cmd = self.build_command(
+            prompt, allow_edits=allow_edits, mode=mode, edit_grant=edit_grant
+        )
+        if "--settings" in cmd:
+            # Claude Full Auto: the PreToolUse hook settings file must exist
+            # before the CLI starts or the Bash gate is silently absent (F23).
+            ensure_claude_hook_settings()
         try:
             proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
         except subprocess.TimeoutExpired:
@@ -1350,6 +1545,7 @@ class AccountRunner:
         on_text: Callable[[str], None] | None = None,
         cancel: threading.Event | None = None,
         timeout: float = 1200.0,
+        edit_grant: bool = False,
     ) -> dict[str, Any]:
         """Run the task with a killable subprocess, emitting live activity.
 
@@ -1389,7 +1585,12 @@ class AccountRunner:
             out_file=out_path,
             mode=mode,
             stream=structured,
+            edit_grant=edit_grant,
         )
+        if "--settings" in cmd:
+            # Claude Full Auto: the PreToolUse hook settings file must exist
+            # before the CLI starts or the Bash gate is silently absent (F23).
+            ensure_claude_hook_settings()
         # Sanitized child env: parent AI-session variables must never steer
         # this CLI's auth or model selection (see opaihub.proc).
         child_env, _env_removed = provider_child_env(self.account_id)
@@ -1426,6 +1627,22 @@ class AccountRunner:
         stopped: str | None = None
         streamed_any = False
         open_pipes = 2
+        # F27 no-progress guard: an edit-intent run that keeps exploring
+        # without a single edit attempt is stopped (checkpointed) instead of
+        # burning the whole budget. Both knobs are env-tunable; 0 disables.
+        guard_active = structured and allow_edits and mode in {"safe-auto", "full-auto"}
+        step_budget = _guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60)
+        no_progress_seconds = _guard_int_env("OPAI_NO_PROGRESS_SECONDS", 600)
+        step_ids: set[str] = set()
+        edit_attempted = False
+        _STEP_TYPES = {
+            "tool_call",
+            "file_read",
+            "file_edit",
+            "command_run",
+            "context_read",
+            "ci_watch",
+        }
         while True:
             if cancel is not None and cancel.is_set():
                 stopped = "cancelled"
@@ -1458,6 +1675,38 @@ class AccountRunner:
                 for event in part["events"]:
                     if on_event:
                         on_event(event)
+                    etype = str(event.get("type") or "")
+                    if etype in _STEP_TYPES:
+                        step_ids.add(str(event.get("id") or len(step_ids)))
+                        if etype == "file_edit":
+                            edit_attempted = True
+                if guard_active and not edit_attempted:
+                    elapsed = time.monotonic() - started
+                    over_steps = step_budget > 0 and len(step_ids) >= step_budget
+                    over_time = (
+                        no_progress_seconds > 0
+                        and elapsed >= no_progress_seconds
+                        and len(step_ids) >= 20
+                    )
+                    if over_steps or over_time:
+                        stopped = "no_progress"
+                        if on_event:
+                            on_event(
+                                make_event(
+                                    "completion",
+                                    "warning",
+                                    (
+                                        "No-progress guard: stopped after "
+                                        f"{len(step_ids)} steps without an edit "
+                                        "attempt"
+                                    ),
+                                    metadata={
+                                        "steps": len(step_ids),
+                                        "elapsed_s": int(elapsed),
+                                    },
+                                )
+                            )
+                        break
                 if part.get("error"):
                     provider_errors.append(str(part["error"]))
                 if part["text"] and not (
@@ -1488,6 +1737,17 @@ class AccountRunner:
             partial = "".join(text_parts).strip()
             if stopped == "timed_out":
                 return {"text": partial, "cost": cost, "timed_out": True}
+            if stopped == "no_progress":
+                # F27: checkpoint, honestly. The paid spend so far is real and
+                # is recorded by the caller; the result can never render green.
+                return {
+                    "text": partial,
+                    "cost": cost,
+                    "no_progress": True,
+                    "stopped_reason": "no_progress_guard",
+                    "tool_steps": len(step_ids),
+                    "edit_denials": list(session.edit_denials),
+                }
             return {"text": partial, "cost": cost, "cancelled": True}
 
         try:
@@ -1565,7 +1825,12 @@ class AccountRunner:
         # error events and known stderr diagnostics were handled above, so this
         # preserves valid partial answers without promoting error payloads.
         if text:
-            return {"text": text, "cost": cost, "returncode": returncode}
+            return {
+                "text": text,
+                "cost": cost,
+                "returncode": returncode,
+                "edit_denials": list(session.edit_denials),
+            }
         if returncode not in (0, None) or known_failure:
             _invalidate_cache_for_error(self.account_id, normalized)
             return {
@@ -1574,7 +1839,12 @@ class AccountRunner:
                 "error": normalized,
                 "returncode": returncode,
             }
-        return {"text": "", "cost": cost, "returncode": returncode}
+        return {
+            "text": "",
+            "cost": cost,
+            "returncode": returncode,
+            "edit_denials": list(session.edit_denials),
+        }
 
 
 def runner_for_account(

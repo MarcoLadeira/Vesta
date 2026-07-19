@@ -175,7 +175,9 @@ def _gates_catch_secrets() -> bool:
 def _gates_catch_destructive_commands() -> bool:
     from .safety_gates import is_destructive_command
 
-    return is_destructive_command(["git", "push", "--force"]) and not (
+    # F23: plain ``git push`` mutates shared remote state, so the gate catches
+    # it even without force flags.
+    return is_destructive_command(["git", "push", "--force"]) and (
         is_destructive_command(["git", "push"])
     )
 

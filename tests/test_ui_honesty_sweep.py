@@ -16,6 +16,9 @@ from opaihub.autonomy import MODE_LABELS
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "opai" / "assets" / "web"
 STYLES = WEB / "styles.css"
+# Colour/type/spacing tokens live in design-tokens.css (#388); styles.css
+# consumes them, so both files ship together and both define custom properties.
+DESIGN_TOKENS = WEB / "design-tokens.css"
 APP_JS = WEB / "app.js"
 SETTINGS_JS = WEB / "settings.js"
 GUI_CONTROLS = ROOT / "opai" / "gui_controls.py"
@@ -32,14 +35,15 @@ MODE_LABEL_CONSUMERS = [
 
 class NoUndefinedCssVarsTests(unittest.TestCase):
     def test_every_css_var_reference_is_defined(self):
-        css = STYLES.read_text(encoding="utf-8")
-        # A custom property is "defined" wherever it appears as `--name:` — this
-        # covers :root plus any theme/component-scoped override block.
-        defined = set(re.findall(r"(--[A-Za-z0-9-]+)\s*:", css))
+        styles = STYLES.read_text(encoding="utf-8")
+        tokens = DESIGN_TOKENS.read_text(encoding="utf-8")
+        # A custom property is "defined" wherever it appears as `--name:` — across
+        # the token file and any :root/theme/component block in styles.css.
+        defined = set(re.findall(r"(--[A-Za-z0-9-]+)\s*:", styles + "\n" + tokens))
         # Only flag references with NO fallback: `var(--name)`. A `var(--x, y)`
         # reference degrades to `y` when `--x` is absent, so it is a deliberate
         # optional token, not a silent breakage.
-        referenced = set(re.findall(r"var\(\s*(--[A-Za-z0-9-]+)\s*\)", css))
+        referenced = set(re.findall(r"var\(\s*(--[A-Za-z0-9-]+)\s*\)", styles))
         undefined = sorted(referenced - defined)
         self.assertEqual(
             undefined, [], f"styles.css references undefined CSS variables: {undefined}"
@@ -110,8 +114,11 @@ class SingleModeLabelSourceTests(unittest.TestCase):
 class HonestLabelsTests(unittest.TestCase):
     def test_receipt_button_does_not_claim_a_ledger(self):
         app = APP_JS.read_text(encoding="utf-8")
-        self.assertIn("Summary →", app)
-        self.assertNotIn("Ledger →", app)
+        # The receipt button reads "Summary" (with the shared arrow icon) and its
+        # aria-label matches; it must not advertise a ledger that doesn't exist.
+        self.assertIn('aria-label="Open the savings summary">Summary ', app)
+        self.assertNotIn("Open the savings ledger", app)
+        self.assertNotIn(">Ledger ", app)
 
     def test_truncation_marker_does_not_promise_an_unreachable_record(self):
         app = APP_JS.read_text(encoding="utf-8")

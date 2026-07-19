@@ -81,6 +81,10 @@ class ToolLoopPolicy:
     evidence_fingerprint_cap: int = 256
     max_calls_per_subgoal: int = 12
     max_identical_failures: int = 3
+    # Anti-thrash for *successful* repeats (F13): the 2nd identical success
+    # carries a notice to the model; the 3rd is never executed — the loop
+    # stops as STUCK_NO_PROGRESS/repeated_success instead of burning turns.
+    max_identical_successes: int = 3
     max_active_seconds: float = 600.0
     # Deprecated, opt-in external ceiling.  ``None`` means "no ceiling"; the GUI
     # never sets it.  Hitting it is a recoverable stop, never a fake completion.
@@ -238,6 +242,7 @@ class ToolLoopState:
     notes: list[str] = field(default_factory=list)
     evidence: deque[str] = field(default_factory=lambda: deque(maxlen=64))
     repeated_failures: dict[str, int] = field(default_factory=dict)
+    repeated_successes: dict[str, int] = field(default_factory=dict)
     turn_index: int = 0
     tool_calls_used: int = 0
     calls_since_milestone: int = 0
@@ -398,9 +403,64 @@ class ToolLoopResult:
     cumulative_serialized_chars: int = 0
     last_error: str = ""
     blocked_reason: str = ""
+    # Set on a NEEDS_CONSENT exit caused by a tool that requires user approval
+    # (F17): {"command": <exact string>, "reason": <why>}. The pipeline turns
+    # this into an approval card and threads the granted string back down.
+    consent_payload: Mapping[str, Any] | None = None
 
 
 ChatCallable = Callable[..., ChatTurn]
+
+
+# Observation notice codes surfaced to the model (F19/F11/F13).
+EMPTY_OUTPUT_NOTICE_CODE = "EMPTY_OUTPUT"
+DUPLICATE_SUCCESS_NOTICE = "DUPLICATE_SUCCESS"
+COMMAND_NEEDS_APPROVAL_CODE = "COMMAND_NEEDS_APPROVAL"
+
+_EMPTY_OUTPUT_GUIDANCE = (
+    "The command ran but produced no output. Try a different form (for "
+    "example add --json, or verify the command writes to stdout) before "
+    "continuing."
+)
+_DUPLICATE_SUCCESS_GUIDANCE = (
+    "[OPai notice] This exact call already succeeded; repeating it returns "
+    "the same result. Move on to the next step instead of re-running it."
+)
+
+
+@dataclass(frozen=True)
+class _ConsentStop:
+    """Internal signal: a tool call requires user approval before it may run."""
+
+    command: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class _RepeatedSuccessStop:
+    """Internal signal: the same call succeeded enough times already (F13)."""
+
+    tool: str
+
+
+def _observation_output_empty(observation: Mapping[str, Any]) -> bool:
+    """True when an ``ok`` observation carries no usable payload (F19)."""
+
+    if str(observation.get("content") or "").strip():
+        return False
+    if str(observation.get("message") or "").strip():
+        return False
+    data = observation.get("data")
+    if isinstance(data, Mapping):
+        if "stdout" in data or "stderr" in data:
+            return not (
+                str(data.get("stdout") or "").strip()
+                or str(data.get("stderr") or "").strip()
+            )
+        return not any(
+            str(value).strip() for value in data.values() if value is not None
+        )
+    return not str(data or "").strip()
 
 
 class ToolLoopController:
@@ -447,6 +507,7 @@ class ToolLoopController:
             question: str = "",
             stopped: str = "",
             blocked_reason: str = "",
+            consent: Mapping[str, Any] | None = None,
         ) -> ToolLoopResult:
             return ToolLoopResult(
                 completion_state=state_value,
@@ -464,6 +525,7 @@ class ToolLoopController:
                 cumulative_serialized_chars=state.cumulative_serialized_chars,
                 last_error=last_error,
                 blocked_reason=blocked_reason,
+                consent_payload=consent,
             )
 
         while True:
@@ -564,6 +626,26 @@ class ToolLoopController:
             )
             if observations is _CANCELLED:
                 return _result(CompletionState.CANCELLED, stopped="cancelled")
+            if isinstance(observations, _ConsentStop):
+                # F17: a confirm-class command (git push, gh mutation, …) needs
+                # an explicit user grant. Exit with the exact command so the
+                # pipeline can render an approval card and thread the grant
+                # back as a one-shot allow_command.
+                last_error = COMMAND_NEEDS_APPROVAL_CODE
+                return _result(
+                    CompletionState.NEEDS_CONSENT,
+                    stopped="approval_required",
+                    consent={
+                        "command": observations.command,
+                        "reason": observations.reason,
+                    },
+                )
+            if isinstance(observations, _RepeatedSuccessStop):
+                # F13: the model is re-running a call that already succeeded;
+                # stop honestly instead of burning turns on identical work.
+                return _result(
+                    CompletionState.STUCK_NO_PROGRESS, stopped="repeated_success"
+                )
             for observation in observations:
                 if not observation.get("ok"):
                     last_error = str(
@@ -612,17 +694,48 @@ class ToolLoopController:
         for call in calls:
             if _cancelled(cancel):
                 return _CANCELLED
-            observation = dict(executor.invoke_call(call, cancel=cancel))
             function = call.get("function") if isinstance(call, Mapping) else {}
             name = str((function or {}).get("name") or "unknown")
             call_id = str(call.get("id") or "") if isinstance(call, Mapping) else ""
+            signature = name + "|" + str((function or {}).get("arguments") or "")
+            # F13: the Nth identical successful call is never executed — stop
+            # the loop instead of re-running work whose result cannot change.
+            if state.repeated_successes.get(signature, 0) >= max(
+                1, self.policy.max_identical_successes - 1
+            ):
+                return _RepeatedSuccessStop(tool=name)
+            observation = dict(executor.invoke_call(call, cancel=cancel))
             ok = bool(observation.get("ok"))
             observation.setdefault("tool", name)
             observation.setdefault("call_id", call_id)
+            # F19: an ok observation with no usable payload is marked so the
+            # model is told to try a different form, not fed silence.
+            if ok and _observation_output_empty(observation):
+                observation["notice_code"] = EMPTY_OUTPUT_NOTICE_CODE
+                observation["content"] = _EMPTY_OUTPUT_GUIDANCE
             observation.setdefault(
                 "content", json.dumps(observation, sort_keys=True, default=str)
             )
             self._cap_observation(observation)
+            if ok:
+                state.repeated_failures.pop(signature, None)
+                successes = state.repeated_successes.get(signature, 0) + 1
+                state.repeated_successes[signature] = successes
+                if successes == 2:
+                    # Second identical success: warn the model inline so it
+                    # moves on (the third is stopped before execution above).
+                    observation["notice"] = DUPLICATE_SUCCESS_NOTICE
+                    observation["content"] = (
+                        str(observation.get("content") or "")
+                        + "\n"
+                        + _DUPLICATE_SUCCESS_GUIDANCE
+                    )
+                if name in self.policy.mutating_tools:
+                    made_milestone = True
+            else:
+                state.repeated_failures[signature] = (
+                    state.repeated_failures.get(signature, 0) + 1
+                )
             observations.append(observation)
             trace.append(
                 {
@@ -636,14 +749,18 @@ class ToolLoopController:
             )
             fingerprint = (name + "|" + call_id)[: self.policy.evidence_fingerprint_cap]
             state.evidence.append(fingerprint)
-            signature = name + "|" + str((function or {}).get("arguments") or "")
-            if ok:
-                state.repeated_failures.pop(signature, None)
-                if name in self.policy.mutating_tools:
-                    made_milestone = True
-            else:
-                state.repeated_failures[signature] = (
-                    state.repeated_failures.get(signature, 0) + 1
+            if not ok and str(observation.get("error_code") or "") == (
+                COMMAND_NEEDS_APPROVAL_CODE
+            ):
+                # F17: confirm-class command — stop the loop for approval with
+                # the exact command string and the classifier's reason.
+                return _ConsentStop(
+                    command=str(observation.get("command") or ""),
+                    reason=str(
+                        observation.get("approval_reason")
+                        or observation.get("message")
+                        or ""
+                    ),
                 )
         if made_milestone:
             state.milestones += 1

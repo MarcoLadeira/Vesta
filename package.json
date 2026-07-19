@@ -7,6 +7,7 @@
     "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
   },
   "scripts": {
+    "test:tokens": "node scripts/lint-web-design-tokens.mjs && node --test opai/assets/web/__tests__/design-tokens.test.mjs",
     "test:unit": "vitest run",
     "test:e2e": "playwright test"
   },

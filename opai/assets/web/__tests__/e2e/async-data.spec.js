@@ -14,14 +14,15 @@ test("dashboard renders through the async request/ready path", async ({ page }) 
   const requests = await page.evaluate(() => window.__mock.dashboardRequests);
   expect(requests.length).toBeGreaterThan(0);
   expect(requests[0].requestId).toContain("dash-");
-  await expect(page.locator("#dashPage")).not.toContainText("Loading…");
+  await expect(page.locator("#dashPage .state-card.loading")).toHaveCount(0);
 });
 
 test("a slow dashboard shows loading until the worker delivers", async ({ page }) => {
   await openApp(page, { dashboardDelayMs: 400 });
   await openNav(page, "Money Saved");
-  await expect(page.locator("#dashPage")).toContainText("Loading…");
-  await expect(page.locator("#dashPage")).not.toContainText("Loading…", { timeout: 3000 });
+  await expect(page.locator("#dashPage .state-card.loading")).toHaveAttribute("role", "status");
+  await expect(page.locator("#dashPage .state-card.loading")).toContainText("Waiting for locally prepared dashboard data.");
+  await expect(page.locator("#dashPage .state-card.loading")).toHaveCount(0, { timeout: 3000 });
 });
 
 test("a stale dashboard response is dropped after navigating on", async ({ page }) => {

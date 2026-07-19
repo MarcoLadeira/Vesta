@@ -39,6 +39,8 @@ COMPLETION_STATES = {
     "blocked",
     "cancelled",
     "cancelled_before_edit",
+    "partial",
+    "timeout",
     "failed",
     "interrupted",
 }
@@ -83,6 +85,7 @@ class RunCheckpoint:
     result_changed_files: tuple[str, ...] = ()
     changed_during_run: tuple[str, ...] = ()
     diff_summary: dict[str, Any] = field(default_factory=dict)
+    completion_verdict: dict[str, Any] = field(default_factory=dict)
     recovery_actions: tuple[str, ...] = ()
     finalized_at: str = ""
 
@@ -234,6 +237,7 @@ def finalize_run_checkpoint(
     outcome: str = "",
     changed_files: Any = (),
     diff_summary: dict[str, Any] | None = None,
+    completion_verdict: dict[str, Any] | None = None,
     recovery_actions: Any = (),
 ) -> RunCheckpoint:
     """Record the run's result: changed files, diff summary, completion (#75)."""
@@ -251,6 +255,7 @@ def finalize_run_checkpoint(
         result_changed_files=tuple(resulting),
         changed_during_run=tuple(during),
         diff_summary=dict(diff_summary or {}),
+        completion_verdict=dict(completion_verdict or {}),
         recovery_actions=tuple(redact(str(item)) for item in (recovery_actions or ())),
         finalized_at=_now(),
     )
@@ -279,6 +284,7 @@ def load_run_checkpoint(project_root: Path, checkpoint_id: str) -> RunCheckpoint
         result_changed_files=tuple(data.get("result_changed_files") or ()),
         changed_during_run=tuple(data.get("changed_during_run") or ()),
         diff_summary=dict(data.get("diff_summary") or {}),
+        completion_verdict=dict(data.get("completion_verdict") or {}),
         recovery_actions=tuple(data.get("recovery_actions") or ()),
         finalized_at=str(data.get("finalized_at") or ""),
     )

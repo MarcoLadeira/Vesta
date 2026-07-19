@@ -424,18 +424,23 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertEqual(read_only[:2], ["/bin/claude", "-p"])
         self.assertIn("--output-format", read_only)  # structured output -> real cost
         self.assertIn("sonnet", read_only)  # selected model is passed through
-        # Read-only stays safe: no autonomous skip-permissions.
+        # Read-only stays safe: no autonomous skip-permissions, no hook file.
         self.assertNotIn("--dangerously-skip-permissions", read_only)
+        self.assertNotIn("--settings", read_only)
         # Safe Auto may allow edits, but it does not skip permissions.
-        self.assertNotIn(
-            "--dangerously-skip-permissions",
-            claude.build_command("hi", allow_edits=True),
-        )
-        # Full Auto is the explicit high-risk path.
-        self.assertIn(
-            "--dangerously-skip-permissions",
-            claude.build_command("hi", mode="full-auto"),
-        )
+        safe_auto_claude = claude.build_command("hi", allow_edits=True)
+        self.assertNotIn("--dangerously-skip-permissions", safe_auto_claude)
+        self.assertNotIn("--settings", safe_auto_claude)
+        # Full Auto is the explicit high-risk path: skip-permissions is only
+        # ever paired with the generated --settings PreToolUse hook, which
+        # re-classifies every Bash command and denies destructive ones
+        # (gh mutations, git push, rm -rf) so they still need explicit user
+        # confirmation (F23).
+        full_auto_claude = claude.build_command("hi", mode="full-auto")
+        self.assertIn("--dangerously-skip-permissions", full_auto_claude)
+        self.assertIn("--settings", full_auto_claude)
+        settings_arg = full_auto_claude[full_auto_claude.index("--settings") + 1]
+        self.assertIn("opai-claude-hooks.json", settings_arg)
 
         codex = AccountRunner("codex", "/bin/codex", model="gpt-5.4-mini")
         ro = codex.build_command("hi", allow_edits=False, out_file="/t/o.txt")
@@ -449,6 +454,12 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertIn("on-request", safe_auto)
         self.assertIn("--model", safe_auto)
         self.assertIn("gpt-5.4-mini", safe_auto)
+        # Codex exec has no hook protocol, so Full Auto must never
+        # auto-approve: approval stays on-request (denied non-interactively),
+        # which keeps gh/git mutations confirmation-gated (F23).
+        full_auto_codex = codex.build_command("hi", mode="full-auto")
+        idx = full_auto_codex.index("--ask-for-approval")
+        self.assertEqual(full_auto_codex[idx + 1], "on-request")
 
     def test_account_complete_runs_hidden_without_console_window(self):
         import sys

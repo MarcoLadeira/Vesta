@@ -147,6 +147,24 @@ class ShipChecks:
 class GitHubAdapter:
     """Small `gh` adapter; all process execution is injectable for tests."""
 
+    #: ``gh`` noun/verb pairs whose success is legitimately silent on stdout
+    #: (mutations that report only through the exit code or stderr). Every
+    #: other command — reads and creates/comments that echo a URL — must
+    #: produce stdout; exit 0 with empty stdout is a silent failure (F19).
+    _SILENT_STDOUT_VERBS = frozenset(
+        {
+            ("issue", "close"),
+            ("issue", "delete"),
+            ("issue", "reopen"),
+            ("pr", "close"),
+            ("pr", "merge"),
+            ("pr", "ready"),
+            ("pr", "review"),
+            ("release", "delete"),
+            ("repo", "archive"),
+        }
+    )
+
     def __init__(
         self,
         repo_root: Path,
@@ -165,8 +183,16 @@ class GitHubAdapter:
 
         return emit_event(self._on_event, event_type, status, title, **kwargs)
 
+    def _expects_stdout(self, args: list[str]) -> bool:
+        pair = tuple(str(item).lower() for item in args[:2])
+        return pair not in self._SILENT_STDOUT_VERBS
+
     def _run(
-        self, args: list[str], *, allowed_returncodes: tuple[int, ...] = (0,)
+        self,
+        args: list[str],
+        *,
+        allowed_returncodes: tuple[int, ...] = (0,),
+        expect_output: bool | None = None,
     ) -> str:
         command = ["gh", *args]
         kwargs: dict[str, Any] = {
@@ -188,6 +214,17 @@ class GitHubAdapter:
                 str(result.stderr or result.stdout or "GitHub command failed")
             )
             raise RuntimeError(detail)
+        if expect_output is None:
+            expect_output = self._expects_stdout(args)
+        if expect_output and not stdout:
+            # `gh` can exit 0 with an empty body in broken environments (F19);
+            # surface that as an error instead of a green "ran" with no data.
+            detail = redact(
+                f"gh {' '.join(str(item) for item in args)} produced no output "
+                "on stdout (exit 0); treating it as failed instead of "
+                "reporting an empty success"
+            )
+            raise RuntimeError(detail)
         return stdout
 
     def list_open_issues(self, *, limit: int = 100) -> list[dict[str, Any]]:
@@ -205,6 +242,33 @@ class GitHubAdapter:
         )
         data = json.loads(output or "[]")
         return data if isinstance(data, list) else []
+
+    def issue_view(self, number: int, *, repo: str | None = None) -> dict[str, Any]:
+        """Read one issue with body, labels, and comments via ``--json`` (F19).
+
+        Plain ``gh issue view`` can exit 0 with empty stdout in some
+        environments, so this always uses the reliable ``--json`` form and
+        refuses to hand back empty or malformed payloads.
+        """
+        args = [
+            "issue",
+            "view",
+            str(int(number)),
+            "--json",
+            "number,title,body,state,labels,comments,url",
+        ]
+        if repo:
+            args += ["--repo", str(repo)]
+        output = self._run(args)
+        try:
+            data = json.loads(output)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                redact(f"gh issue view returned malformed JSON: {exc}")
+            ) from exc
+        if not isinstance(data, dict) or not data:
+            raise RuntimeError("gh issue view returned no issue data")
+        return data
 
     def create_issue(self, *, title: str, body: str, labels: Iterable[str] = ()) -> str:
         args = ["issue", "create", "--title", title, "--body", body]

@@ -14,6 +14,7 @@ only after explicit user confirmation in the GUI.
 from __future__ import annotations
 
 import contextlib
+import inspect
 import os
 from pathlib import Path
 from typing import Any
@@ -540,20 +541,53 @@ def available_models(
         account_models,
         connection_for_account,
         list_connected_accounts,
+        provider_connection_doctor,
     )
     from opaihub.free_models import list_free_models
     from opaihub.local_runner import cached_local_models, list_local_models
 
     detected_accounts = list_connected_accounts()
-    accounts = account_models(accounts=detected_accounts)
-    account_catalog = account_models(
-        include_unavailable=True, accounts=detected_accounts
+    connections = [connection_for_account(account) for account in detected_accounts]
+    # Use only local connection history here: it records a recent safe auth
+    # check (including a known failure) without adding a CLI/provider probe to
+    # model-picker enumeration.
+    account_health = {
+        str(entry.get("providerId") or ""): entry
+        for entry in provider_connection_doctor(
+            accounts=detected_accounts,
+            connections=connections,
+            credentials=[],
+            include_cli_versions=False,
+            include_history=True,
+        )
+    }
+    account_types = {
+        provider: str(health.get("accountType") or "unknown")
+        for provider, health in account_health.items()
+    }
+    accounts = account_models(
+        accounts=detected_accounts, account_types=account_types
     )
+    account_catalog = account_models(
+        include_unavailable=True,
+        accounts=detected_accounts,
+        account_types=account_types,
+    )
+    unavailable_account_statuses = {
+        "misconfigured",
+        "provider_unavailable",
+        "invalid",
+        "expired",
+        "disconnected",
+    }
     local = list_local_models(project_root) if discover_local else cached_local_models()
     options: list[dict[str, Any]] = []
 
     # 1. Connected account models — group already set by _account_options()
     for account in accounts:
+        health = account_health.get(str(account.get("provider") or ""), {})
+        auth_status = str(health.get("authStatus") or "").lower()
+        known_unavailable = auth_status in unavailable_account_statuses
         options.append(
             {
                 "id": account["id"],
@@ -564,8 +598,13 @@ def available_models(
                 "paid": True,
                 "provider": account["provider"],
                 "model": account.get("model", ""),
-                "available": account.get("available", True),
-                "disabled_reason": account.get("disabled_reason"),
+                "available": bool(account.get("available", True))
+                and not known_unavailable,
+                "disabled_reason": (
+                    str(health.get("safeDiagnostic") or "") or None
+                    if known_unavailable
+                    else account.get("disabled_reason")
+                ),
             }
         )
 
@@ -608,9 +647,7 @@ def available_models(
         "available_models": options,
         "account_models": account_catalog,
         "accounts": detected_accounts,
-        "connections": [
-            connection_for_account(account) for account in detected_accounts
-        ],
+        "connections": connections,
         "account_count": len(accounts),
         "account_model_count": len(accounts),
         "local_count": len(local),
@@ -626,6 +663,9 @@ def ask(
     *,
     allow_cloud: bool = False,
     allow_edits: bool = False,
+    tool_calling_enabled: bool | None = None,
+    allow_command: str | None = None,
+    edit_grant: bool = False,
     record_route: bool = True,
     account_runner: Any = None,
     mode: str | None = None,
@@ -643,6 +683,10 @@ def ask(
     - ``auto`` lets OPai route the cheapest safe path (local execution + cache).
     - a local ``provider:model`` id runs that connected local model.
     Cloud auto-routing is never auto-called - it returns ``confirmation_required``.
+
+    ``tool_calling_enabled`` offers the read-only tool vocabulary to free
+    models even when ``allow_edits`` is False (F6/F7); ``allow_command`` is a
+    one-shot exact-command grant from a command-approval prompt (F17/F9).
     """
     root = project_root.expanduser().resolve()
     if model_choice and model_choice.startswith("account:"):
@@ -655,6 +699,7 @@ def ask(
             account_id,
             model=model or None,
             allow_edits=allow_edits,
+            edit_grant=edit_grant,
             runner=account_runner,
             mode=mode,
             on_event=on_event,
@@ -669,6 +714,8 @@ def ask(
             model_choice,
             allow_cloud=allow_cloud,
             allow_edits=allow_edits,
+            tool_calling_enabled=tool_calling_enabled,
+            allow_command=allow_command,
             mode=mode,
             record_route=record_route,
             cancel=cancel,
@@ -702,6 +749,8 @@ def _ask_free_model(
     *,
     allow_cloud: bool = False,
     allow_edits: bool = False,
+    tool_calling_enabled: bool | None = None,
+    allow_command: str | None = None,
     mode: str | None = None,
     record_route: bool = True,
     cancel: Any = None,
@@ -758,6 +807,10 @@ def _ask_free_model(
         runner=runner,
         selected_model_id=model_id,
         allow_edits=allow_edits,
+        # F6/F7: free models get the (read-only, when edits are off) tool
+        # vocabulary and a real tool loop instead of narrating fake calls.
+        tool_calling_enabled=tool_calling_enabled,
+        allow_command=allow_command,
         mode=mode or ("safe-auto" if allow_edits else "ask"),
         record=record_route,
         cancel=cancel,
@@ -836,6 +889,40 @@ def _invalidate_stale_auth_cache(account_id: str, error: dict[str, Any]) -> None
             invalidate_connection_cache(account_id)
 
 
+def _account_completion(result: Any, answer: str) -> tuple[str, str]:
+    """Canonical ``(completion_state, stopped_reason)`` for an account run.
+
+    Older runners only ever returned ``{"text", "cost"}``; newer ones surface
+    the provider's own terminal signals (``is_error`` / result ``subtype`` /
+    permission denials). A run the provider says errored, stopped early, or
+    was refused permission is NOT a completion, even when it produced prose
+    (F24) — the GUI's green state must never be inferred from text alone.
+    """
+
+    if not isinstance(result, dict):
+        return ("completed" if str(answer).strip() else "failed"), ""
+    explicit = str(result.get("completion_state") or "").strip()
+    if explicit:
+        return explicit, str(result.get("stopped_reason") or "")
+    if result.get("no_progress"):
+        # F27: the no-progress guard checkpointed the run — never a completion.
+        return "stuck_no_progress", "no_progress_guard"
+    if (
+        result.get("permission_denied")
+        or result.get("permission_denials")
+        or result.get("edit_denials")
+    ):
+        return "needs_consent", "approval_required"
+    subtype = str(result.get("subtype") or "").strip().lower()
+    if result.get("is_error") is True or subtype.startswith("error_"):
+        return "failed", subtype or "provider_error"
+    if subtype and subtype != "success":
+        return "stuck_no_progress", subtype
+    if not str(answer).strip():
+        return "failed", ""
+    return "completed", ""
+
+
 def _ask_account(
     project_root: Path,
     task: str,
@@ -843,6 +930,7 @@ def _ask_account(
     *,
     model: str | None = None,
     allow_edits: bool = False,
+    edit_grant: bool = False,
     runner: Any = None,
     mode: str | None = None,
     on_event: Any = None,
@@ -891,6 +979,7 @@ def _ask_account(
             account_id,
             model=fallback_id,
             allow_edits=allow_edits,
+            edit_grant=edit_grant,
             runner=None,  # build a fresh runner for the fallback model
             mode=mode,
             on_event=on_event,
@@ -949,24 +1038,38 @@ def _ask_account(
     before = set(_changed_files(root)) if allow_edits else set()
     try:
         if want_stream:
-            result = run.stream(
-                task,
-                project_root=root,
-                allow_edits=allow_edits,
-                mode=mode,
-                on_event=on_event,
-                on_text=on_text,
-                cancel=cancel,
-            )
+            stream_kwargs: dict[str, Any] = {
+                "project_root": root,
+                "allow_edits": allow_edits,
+                "mode": mode,
+                "on_event": on_event,
+                "on_text": on_text,
+                "cancel": cancel,
+            }
+            if edit_grant:
+                # Additive (F26): only pass the one-shot edit grant to runners
+                # that accept it, so older/fake runners keep working unchanged.
+                with contextlib.suppress(TypeError, ValueError):
+                    if "edit_grant" in inspect.signature(run.stream).parameters:
+                        stream_kwargs["edit_grant"] = True
+            result = run.stream(task, **stream_kwargs)
         else:
+            complete_kwargs: dict[str, Any] = {
+                "project_root": root,
+                "allow_edits": allow_edits,
+                "mode": mode,
+            }
+            if edit_grant:
+                with contextlib.suppress(TypeError, ValueError):
+                    if "edit_grant" in inspect.signature(run.complete).parameters:
+                        complete_kwargs["edit_grant"] = True
             try:
-                result = run.complete(
-                    task, project_root=root, allow_edits=allow_edits, mode=mode
-                )
+                result = run.complete(task, **complete_kwargs)
             except TypeError as exc:
                 if "mode" not in str(exc):
                     raise
-                result = run.complete(task, project_root=root, allow_edits=allow_edits)
+                complete_kwargs.pop("mode", None)
+                result = run.complete(task, **complete_kwargs)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         from opai.provider_contract import normalize_provider_error
 
@@ -1006,10 +1109,15 @@ def _ask_account(
 
         error = normalize_provider_error(account_id, "", model=model, timed_out=True)
         return {
-            "status": "failed",
+            # #378: a timeout is neither a generic provider failure nor an
+            # answered response.  Preserve the typed terminal cause so the
+            # shared completion verdict can render it identically in GUI/CLI.
+            "status": "retryable_provider_error",
             "provider": account_id,
             "answer": error["userMessage"],
             "error": error,
+            "completion_state": "retryable_provider_error",
+            "stopped_reason": "timeout",
         }
 
     # complete() returns {"text", "cost"}; tolerate a plain string too.
@@ -1019,19 +1127,33 @@ def _ask_account(
     else:
         answer, cost = str(result), None
 
+    no_progress = isinstance(result, dict) and bool(result.get("no_progress"))
     if not str(answer).strip():
-        from opai.provider_contract import normalize_provider_error
+        if no_progress:
+            steps = result.get("tool_steps") if isinstance(result, dict) else None
+            answer = (
+                "OPai stopped this run early: "
+                f"{steps if steps is not None else 'many'} tool steps ran "
+                "without a single edit attempt (no-progress guard, F27). "
+                "Refine the request, or re-send to continue from here."
+            )
+        else:
+            from opai.provider_contract import normalize_provider_error
 
-        error = normalize_provider_error(account_id, "", model=model, returncode=0)
-        return {
-            "status": "failed",
-            "provider": account_id,
-            "answer": error["userMessage"],
-            "error": error,
-        }
+            error = normalize_provider_error(account_id, "", model=model, returncode=0)
+            return {
+                "status": "failed",
+                "provider": account_id,
+                "answer": error["userMessage"],
+                "error": error,
+            }
 
     # Surface what the agent actually changed, like Claude Code / Cursor do.
     changed = sorted(set(_changed_files(root)) - before) if allow_edits else []
+
+    # F24: completion truth comes from the provider's own terminal signals,
+    # not from the fact that prose exists.
+    completion_state, stopped_reason = _account_completion(result, answer)
 
     # Honest firewall accounting: a paid account call is a real spend, not a
     # saving. Use the runner's real cost when available (claude returns
@@ -1070,6 +1192,21 @@ def _ask_account(
         "cost_usd": cost,
         "changed_files": changed,
         "ledger_recorded": ledger_recorded,
+        "completion_state": completion_state,
+        "stopped_reason": stopped_reason,
+        # #378: terminal verification must consume OPai-observed tool results.
+        # Keep the structured trace through the account normalization boundary;
+        # dropping it made a passed ``run_tests`` call indistinguishable from a
+        # provider's unverified prose claim.
+        "tool_trace": list(result.get("tool_trace") or [])
+        if isinstance(result, dict)
+        else [],
+        # F26: Edit/Write attempts the provider's permission gate refused —
+        # the pipeline turns these into an in-context approval card.
+        "edit_denials": list(result.get("edit_denials") or [])
+        if isinstance(result, dict)
+        else [],
+        "no_progress": no_progress,
         "answer": answer,
     }
 

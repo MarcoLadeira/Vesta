@@ -25,7 +25,9 @@ test("benchmark approved claim remains exact and locally scoped", async ({ page 
 test("benchmark failure state is explicit", async ({ page }) => {
   await openApp(page, { dashboardErrors: { benchmark: "Benchmark history is unavailable." } });
   await openNav(page, "Benchmark");
-  await expect(page.locator("#dashPage")).toContainText("Couldn't load: Benchmark history is unavailable.");
+  const card = page.locator("#dashPage .state-card.error");
+  await expect(card).toHaveAttribute("role", "alert");
+  await expect(card).toContainText("Dashboard data is temporarily unavailable.");
 });
 
 test("benchmark command can be copied without starting a run", async ({ page }) => {

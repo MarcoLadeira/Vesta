@@ -140,6 +140,158 @@ class ProviderConnectionTests(unittest.TestCase):
 
         self.assertEqual(connection["authStatus"], "connected")
 
+    def test_codex_account_type_is_derived_from_safe_status_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".codex").mkdir()
+            (home / ".codex" / "auth.json").touch()
+            with mock.patch("opaihub.accounts._which", return_value="/bin/codex"):
+                chatgpt = check_account_connection(
+                    "codex",
+                    home=home,
+                    run=lambda argv: _Completed(0, "Logged in using ChatGPT"),
+                )
+                api_key = check_account_connection(
+                    "codex",
+                    home=home,
+                    run=lambda argv: _Completed(0, "Logged in using API key"),
+                    force=True,
+                )
+                api_key_hyphenated = check_account_connection(
+                    "codex",
+                    home=home,
+                    run=lambda argv: _Completed(0, "Logged in using API-key"),
+                    force=True,
+                )
+
+        self.assertEqual(chatgpt["accountType"], "chatgpt")
+        self.assertEqual(api_key["accountType"], "api_key")
+        self.assertEqual(api_key_hyphenated["accountType"], "api_key")
+
+    def test_codex_picker_uses_cli_default_for_chatgpt_account(self):
+        account = {
+            "id": "codex",
+            "label": "Codex",
+            "vendor": "OpenAI Codex CLI",
+            "cli": "codex",
+            "cli_path": "/bin/codex",
+            "cli_present": True,
+            "authenticated": True,
+            "connected": True,
+            "login_hint": "",
+        }
+
+        chatgpt = account_models(
+            accounts=[account], account_types={"codex": "chatgpt"}
+        )
+        api_key = account_models(
+            accounts=[account], account_types={"codex": "api_key"}
+        )
+
+        self.assertEqual([option["id"] for option in chatgpt], ["account:codex"])
+        self.assertIn(
+            "account:codex:gpt-5.6", [option["id"] for option in api_key]
+        )
+
+    def test_codex_picker_treats_unrecognized_account_type_as_unknown(self):
+        account = {
+            "id": "codex",
+            "label": "Codex",
+            "vendor": "OpenAI Codex CLI",
+            "cli": "codex",
+            "cli_path": "/bin/codex",
+            "cli_present": True,
+            "authenticated": True,
+            "connected": True,
+            "login_hint": "",
+        }
+
+        options = account_models(
+            accounts=[account], account_types={"codex": "unrecognized"}
+        )
+
+        self.assertEqual([option["id"] for option in options], ["account:codex"])
+
+    def test_available_models_applies_cached_codex_account_type(self):
+        account = {
+            "id": "codex",
+            "label": "Codex",
+            "vendor": "OpenAI Codex CLI",
+            "cli": "codex",
+            "cli_path": "/bin/codex",
+            "cli_present": True,
+            "authenticated": True,
+            "connected": True,
+            "login_hint": "",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=[account]
+                ),
+                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch(
+                    "opaihub.accounts.provider_connection_doctor",
+                    return_value=[
+                        {
+                            "providerId": "codex",
+                            "authStatus": "connected",
+                            "accountType": "chatgpt",
+                        }
+                    ],
+                ),
+            ):
+                payload = available_models(Path(tmp))
+
+        codex_ids = [
+            model["id"]
+            for model in payload["models"]
+            if model.get("provider") == "codex"
+        ]
+        self.assertEqual(codex_ids, ["account:codex"])
+        codex = next(
+            model for model in payload["models"] if model.get("id") == "account:codex"
+        )
+        self.assertIn("ChatGPT", codex["advanced_label"])
+
+    def test_available_models_is_conservative_until_codex_type_is_verified(self):
+        account = {
+            "id": "codex",
+            "label": "Codex",
+            "vendor": "OpenAI Codex CLI",
+            "cli": "codex",
+            "cli_path": "/bin/codex",
+            "cli_present": True,
+            "authenticated": True,
+            "connected": True,
+            "login_hint": "",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=[account]
+                ),
+                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch(
+                    "opaihub.accounts.provider_connection_doctor",
+                    return_value=[
+                        {"providerId": "codex", "authStatus": "connected"}
+                    ],
+                ),
+            ):
+                payload = available_models(Path(tmp))
+
+        codex_ids = [
+            model["id"]
+            for model in payload["models"]
+            if model.get("provider") == "codex"
+        ]
+        self.assertEqual(codex_ids, ["account:codex"])
+        codex = next(
+            model for model in payload["models"] if model.get("id") == "account:codex"
+        )
+        self.assertNotIn("ChatGPT", codex["advanced_label"])
+
     def test_copilot_presence_remains_unverified_without_model_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -178,6 +330,47 @@ class ProviderConnectionTests(unittest.TestCase):
 
         self.assertEqual(payload["connections"][0]["providerId"], "claude")
         self.assertEqual(payload["connections"][0]["authStatus"], "unknown")
+
+    def test_known_failed_account_is_not_offered_as_available_model(self):
+        accounts = [
+            {
+                "id": "claude",
+                "label": "Claude",
+                "vendor": "Anthropic Claude Code",
+                "cli": "claude",
+                "cli_path": "/bin/claude",
+                "cli_present": True,
+                "authenticated": True,
+                "connected": True,
+                "login_hint": "Sign in",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=accounts
+                ),
+                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch(
+                    "opaihub.accounts.provider_connection_doctor",
+                    return_value=[
+                        {
+                            "providerId": "claude",
+                            "authStatus": "expired",
+                            "safeDiagnostic": "Sign-in expired.",
+                        }
+                    ],
+                ),
+            ):
+                payload = available_models(Path(tmp))
+
+        claude = [
+            model
+            for model in payload["models"]
+            if model["id"] == "account:claude:haiku"
+        ][0]
+        self.assertFalse(claude["available"])
+        self.assertEqual(claude["disabled_reason"], "Sign-in expired.")
 
     def test_account_picker_has_provider_prefixed_labels(self):
         account = {

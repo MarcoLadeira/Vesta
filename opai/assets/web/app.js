@@ -8,6 +8,7 @@ const esc = (s) =>
   String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+const uiIcon = (name, options) => window.OPaiIcons.icon(name, options);
 
 const PROVIDER_COLOR = { claude: "#e0937a", codex: "#6cc1e8", auto: "#98a2b0", local: "#34d399" };
 
@@ -38,6 +39,7 @@ const state = {
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   expandedGroups: new Set(), stripColor: "",
   resumePending: false,
+  contextHints: [],
 };
 const providerLoginRequests = new Map();
 let doctorRefreshRequestId = null;
@@ -123,21 +125,9 @@ function applyAppearance(prefs) {
 
 // #238: a default changed on the settings Models page must show in the composer
 // and inspector immediately (the pref is already persisted by settings.js).
-function applyDefaults(key, value) {
-  if (key === "default_model") {
-    const m = (state.boot.models || []).find((x) => x.id === value);
-    if (m) { state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider }; setProviderDot(); }
-    renderComposerSelects();
-  } else if (key === "default_mode") {
-    const md = (state.boot.modes || []).find((x) => x.id === value);
-    if (md) state.mode = md;
-    renderComposerSelects();
-  } else if (key === "default_task_mode") {
-    state.focus = value; renderInspector();
-  } else if (key === "default_output_format") {
-    state.format = value; renderInspector();
-  }
-}
+// NOTE: the single implementation lives further below — a duplicate top-level
+// declaration here was dead code in the browser (the later declaration wins
+// hoisting) and a hard SyntaxError when imported as an ES module in tests.
 
 // Shared dependencies the onboarding tour (#250) needs — it reuses the real
 // bridge paths (settings navigation, the model default, the normal send) so it
@@ -164,31 +154,41 @@ function onboardingCtx() {
   };
 }
 
+// The payload's selection (model/mode/focus/format) is authoritative — applied
+// identically at first boot and after every workspace switch, so the composer,
+// inspector, and header can never disagree (F16/F4).
+function applyBootSelection(b) {
+  state.panel = b.prefs.showPanel !== false;
+  state.focus = b.prefs.focus || "general";
+  state.format = b.prefs.format || "normal";
+  const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
+  if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
+  const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
+  if (md) state.mode = md;
+}
+
 function boot() {
   bridge.boot((json) => {
     state.boot = JSON.parse(json);
     const b = state.boot;
     state.accounts = b.accounts || [];
-    state.panel = b.prefs.showPanel !== false;
-    state.focus = b.prefs.focus || "general";
-    state.format = b.prefs.format || "normal";
+    applyBootSelection(b);
     // One-time consent per free-tier model id: after the first "Send to X"
     // click the card never appears again for that provider (persisted per
     // workspace by grantFreeConsent). Fresh install → empty Set.
     state.freeConsent = new Set(b.prefs.freeConsent || []);
     applyAppearance(b.prefs); // #241: density + reduced-motion on the root, live
-    const m = (b.models || []).find((x) => x.id === b.selectedModel) || b.models[0];
-    if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
-    const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || b.modes[0];
-    if (md) state.mode = md;
     applyBrand(b.brand);
-    renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
+    renderSidebar(); renderWorkspace(); renderComposerSelects(); renderComposerContext(); renderInspector();
     renderStatus(b.status); renderAccount(); applyPanel();
     renderEmptyChips();
     syncBuildMode();
     switchView("chat");
-    if (b.initialTask) { $("#input").value = b.initialTask; }
+    if (b.initialTask) { $("#input").value = b.initialTask; autoSize(); }
     renderResumeChoice();
+    // F16: if this workspace requests Full Auto but has no pin, surface the
+    // acknowledgement even though no dropdown change event fired.
+    maybeOfferFullAutoPin();
     // #246: the inspector payload is deferred at boot; fetch it now only if the
     // panel is actually visible. When hidden (the default), togglePanel loads it
     // on first open — so cold boot skips the work entirely.
@@ -207,7 +207,14 @@ function boot() {
   if (bridge.activityBatch) bridge.activityBatch.connect(onActivityBatch);
   bridge.token.connect(onToken);
   bridge.toolReady.connect(onTool);
-  bridge.workspaceChanged.connect((json) => { state.boot = JSON.parse(json); rebootFromState(); toast("Workspace switched"); });
+  bridge.workspaceChanged.connect((json) => {
+    state.boot = JSON.parse(json);
+    rebootFromState();
+    toast("Workspace switched");
+    // F16: the new workspace may request Full Auto without a pin — the ack
+    // must be offered even though no dropdown change event fired.
+    maybeOfferFullAutoPin();
+  });
   if (bridge.modelsChanged) bridge.modelsChanged.connect((json) => {
     const catalog = JSON.parse(json);
     if (catalog.models) { state.boot.models = catalog.models; renderComposerSelects(); }
@@ -245,10 +252,16 @@ function applyBrand(brand) {
 function rebootFromState() {
   const b = state.boot;
   state.accounts = b.accounts || [];
-  renderSidebar(); renderWorkspace(); renderComposerSelects(); renderInspector();
+  // F16/F4: re-apply the fresh payload's selection — without this the composer
+  // kept the PREVIOUS workspace's mode while the header showed the new one.
+  applyBootSelection(b);
+  renderSidebar(); renderWorkspace(); renderComposerSelects(); renderComposerContext(); renderInspector();
   renderStatus(b.status); renderAccount(); renderEmptyChips();
   syncBuildMode();
   clearChat(); switchView("chat"); renderResumeChoice();
+  // The inspector payload is deferred like at boot; refresh it for the new
+  // workspace when the panel is actually visible.
+  if (state.panel) refreshInspector();
 }
 
 /* OPai Build in the cockpit (#276): when the workspace is a scaffolded app,
@@ -276,9 +289,10 @@ function syncBuildMode() {
 function updateSendLabel() {
   const btn = $("#send");
   if (btn && !state.busy) btn.textContent = (state.buildMode && state.buildApp) ? "Build" : "Send";
+  updateComposerAvailability();
 }
 function submitComposer() {
-  if (state.resumePending) return;
+  if (composerBlockReason()) return;
   const text = $("#input").value.trim();
   if (state.buildMode && state.buildApp && text && !text.startsWith("/")) {
     sendBuild(text);
@@ -302,7 +316,7 @@ function renderSidebar() {
       const toggle = document.createElement("button");
       toggle.className = "nav-group-toggle nav-group-btn" + (open ? " open" : "");
       toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      toggle.innerHTML = `<span>${esc(g.group)}</span><span class="ngt-chev">${open ? "▾" : "▸"}</span>`;
+      toggle.innerHTML = `<span>${esc(g.group)}</span><span class="ngt-chev">${uiIcon(open ? "chevronDown" : "chevronRight")}</span>`;
       nav.appendChild(toggle);
       host = document.createElement("div");
       host.className = "nav-group-body";
@@ -339,7 +353,14 @@ function renderRecents() {
   if (!rec) return;
   const list = state.boot.recents || [];
   if (!list.length) {
-    rec.innerHTML = `<div class="recent" style="color:var(--faint);cursor:default">Your chats appear here.</div>`;
+    renderViewState(rec, {
+      kind: "empty",
+      title: "No saved chats yet",
+      reason: "Start a chat and it will appear here.",
+      action: "new_chat",
+      actionLabel: "New chat",
+      compact: true,
+    }, () => startNewChat());
     return;
   }
   rec.innerHTML = "";
@@ -380,6 +401,38 @@ function renderRecents() {
   rec.appendChild(clear);
 }
 
+function stateCardHtml(stateCard) {
+  const state = stateCard || {};
+  const kind = ["error", "empty", "loading", "degraded"].includes(state.kind) ? state.kind : "empty";
+  const icons = { error: "error", empty: "sparkles", loading: "running", degraded: "warning" };
+  const role = kind === "error" ? "alert" : "status";
+  const title = state.title || (kind === "loading" ? "Loading" : "Nothing to show yet");
+  const reason = state.reason || "";
+  const action = state.action && state.actionLabel
+    ? `<button class="btn ${state.primary ? "primary" : ""}" data-state-action="${esc(state.action)}">${esc(state.actionLabel)}</button>`
+    : "";
+  return `<section class="state-card ${kind}${state.compact ? " compact" : ""}" role="${role}"${kind !== "error" ? ' aria-live="polite"' : ""}>` +
+    `<span class="state-card-icon" aria-hidden="true">${uiIcon(icons[kind])}</span><div class="state-card-copy"><div class="state-card-title">${esc(title)}</div>` +
+    (reason ? `<div class="state-card-reason">${esc(reason)}</div>` : "") +
+    (action ? `<div class="state-card-actions">${action}</div>` : "") +
+    `</div></section>`;
+}
+
+function renderViewState(host, stateCard, onAction) {
+  host.innerHTML = stateCardHtml(stateCard);
+  const action = host.querySelector("[data-state-action]");
+  if (action && onAction) action.onclick = onAction;
+}
+
+// Bridge failures can originate in local tools and provider adapters. Only an
+// explicitly structured, user-facing message is safe to render by default;
+// raw exception strings may contain paths, tokens, or implementation details.
+function safeStateReason(value, fallback) {
+  if (!value || typeof value !== "object" || typeof value.userMessage !== "string") return fallback;
+  const message = value.userMessage.trim();
+  return message || fallback;
+}
+
 function renderAccount() {
   const connected = state.accounts.filter((a) => a.connected);
   const el = $("#acct");
@@ -414,17 +467,17 @@ function renderWorkspace() {
   };
   label("Current project");
   item(
-    `<span class="m-ico">📁</span><div class="m-body"><div class="m-name">${esc(w.label)}</div><div class="sub">${esc(w.root)}</div></div><span class="m-check">✓</span>`,
+    `<span class="m-ico">${uiIcon("folder")}</span><div class="m-body"><div class="m-name">${esc(w.label)}</div><div class="sub">${esc(w.root)}</div></div><span class="m-check">${uiIcon("check")}</span>`,
     () => bridge.openPath(""), "current",
   );
-  item(`<span class="m-ico">📂</span><div class="m-body"><div class="m-name">Open another folder…</div></div>`, () => bridge.openWorkspace());
+  item(`<span class="m-ico">${uiIcon("folder")}</span><div class="m-body"><div class="m-name">Open another folder…</div></div>`, () => bridge.openWorkspace());
   const recents = w.recents || [];
   if (recents.length) {
     sep();
     label("Recent projects");
     recents.forEach((r) => {
       item(
-        `<span class="m-ico">📁</span><div class="m-body"><div class="m-name">${esc(r.label)}</div><div class="sub">${esc(r.path)}</div></div>`,
+        `<span class="m-ico">${uiIcon("folder")}</span><div class="m-body"><div class="m-name">${esc(r.label)}</div><div class="sub">${esc(r.path)}</div></div>`,
         () => bridge.switchWorkspace(r.path),
       );
     });
@@ -457,30 +510,25 @@ function renderComposerSelects() {
     if (modeSel.value === "full-auto") {
       // Revert the selector until the styled card is confirmed (#151).
       modeSel.value = state.mode.id;
-      chatConfirm({
-        title: "Pin Full Auto?",
-        body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Push, deploy, and destructive actions still ask for confirmation.",
-        confirmLabel: "Pin Full Auto",
-        cancelLabel: "Keep current mode",
-        danger: true,
-      }).then((ok) => {
-        if (!ok || !bridge.pinFullAuto) return;
-        bridge.pinFullAuto((res) => {
-          try { const d = JSON.parse(res); state.boot.prefs.fullAutoPinned = !!d.full_auto_pinned; } catch (e) {}
-        });
-        state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
-        modeSel.value = "full-auto";
-        refreshInspector(); refreshStatus();
-      });
+      offerFullAutoPinAck();
       return;
     }
     // Leaving Full Auto unpins it so the durable default falls back to safe.
     if (state.mode.id === "full-auto" && bridge.unpinFullAuto) {
-      bridge.unpinFullAuto(() => {});
+      bridge.unpinFullAuto(() => { maybeOfferFullAutoPin(); });
       state.boot.prefs.fullAutoPinned = false;
     }
     state.mode = state.boot.modes.find((m) => m.id === modeSel.value) || state.mode;
-    bridge.savePref("default_mode", state.mode.id); refreshInspector(); refreshStatus();
+    bridge.savePref("default_mode", state.mode.id);
+    // Keep the local autonomy snapshot coherent: an explicit non-Full-Auto
+    // choice becomes the requested mode for this workspace, so the pin ack is
+    // not re-offered for a mode the user just deliberately left.
+    if (state.boot.autonomy) {
+      state.boot.autonomy.requested_mode = state.mode.id;
+      state.boot.autonomy.effective_mode = state.mode.id;
+      state.boot.autonomy.downgraded = false;
+    }
+    renderComposerContext(); refreshInspector(); refreshStatus();
   };
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
   // Group models by their group field into optgroup sections
@@ -523,10 +571,164 @@ function renderComposerSelects() {
   modelSel.onchange = () => {
     const m = state.boot.models.find((x) => x.id === modelSel.value);
     if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
-    setProviderDot(); bridge.savePref("default_model", state.model.id); refreshInspector(); refreshStatus();
+    setProviderDot(); renderComposerContext(); bridge.savePref("default_model", state.model.id); refreshInspector(); refreshStatus();
   };
   setProviderDot();
+  renderComposerContext();
 }
+
+function autonomyConsequence(modeId) {
+  return {
+    ask: "Answers without changes",
+    plan: "Plans without changes",
+    "safe-auto": "Asks before edits",
+    "approve-edits": "Asks before commands",
+    "full-auto": "Edits and runs commands",
+  }[modeId] || "Uses your selected autonomy";
+}
+
+function costPosture() {
+  if (state.model.kind === "local" || state.model.kind === "free") return "No provider spend";
+  if (state.model.kind === "auto") return "Routes local first";
+  return "May spend within your limits";
+}
+
+function composerBlockReason() {
+  if (state.resumePending) return "Choose how to continue this saved session before sending.";
+  if (state.model.kind === "account") {
+    const account = (state.accounts || []).find((item) => item.id === state.model.provider);
+    if (!account || !(account.connected || account.authenticated)) {
+      return `Connect ${state.model.provider ? providerName(state.model.provider) : "this provider"} before sending.`;
+    }
+  }
+  if (!$("#input").value.trim()) return "Write a prompt before sending.";
+  return "";
+}
+
+function renderComposerContext() {
+  const root = $("#composerContext");
+  if (!root || !state.boot) return;
+  const modeLabel = state.mode.label || "Selected mode";
+  const modelLabel = state.model.kind === "auto" ? "OPai · Auto mode" : (state.model.label || "Selected model");
+  root.innerHTML = [
+    `<button class="context-chip" type="button" data-composer-focus="mode" aria-label="Mode: ${esc(modeLabel)}">Mode · ${esc(modeLabel)}</button>`,
+    `<button class="context-chip" type="button" data-composer-focus="mode" aria-label="Autonomy: ${esc(autonomyConsequence(state.mode.id))}">${esc(autonomyConsequence(state.mode.id))}</button>`,
+    `<button class="context-chip" type="button" data-composer-focus="model" aria-label="Model: ${esc(modelLabel)}">${esc(modelLabel)}</button>`,
+    `<button class="context-chip" type="button" data-composer-focus="cost" aria-label="Cost posture: ${esc(costPosture())}">${esc(costPosture())}</button>`,
+  ].join("");
+  root.querySelectorAll("[data-composer-focus]").forEach((button) => {
+    button.onclick = () => {
+      const target = button.dataset.composerFocus;
+      if (target === "mode") $("#modeSel").focus();
+      else if (target === "model") $("#modelSel").focus();
+      else {
+        try { window.history.replaceState(null, "", "#settings/firewall"); } catch (_e) { /* best-effort deep link */ }
+        switchView("settings");
+      }
+    };
+  });
+  renderContextHints();
+  updateComposerAvailability();
+}
+
+function updateComposerAvailability() {
+  const send = $("#send"), reason = $("#composerReason");
+  if (!send || !reason) return;
+  const blocked = composerBlockReason();
+  if (state.busy) { send.disabled = false; reason.innerHTML = ""; return; }
+  send.disabled = Boolean(blocked);
+  send.setAttribute("aria-label", (state.buildMode && state.buildApp) ? "Start build" : "Send prompt");
+  if (!blocked) { reason.innerHTML = ""; send.removeAttribute("aria-describedby"); return; }
+  const action = !state.resumePending && state.model.kind === "account"
+    ? ' <button class="reason-action" type="button">Open Settings</button>'
+    : "";
+  reason.innerHTML = `${esc(blocked)}${action}`;
+  send.setAttribute("aria-describedby", "composerReason");
+  const open = reason.querySelector(".reason-action");
+  if (open) open.onclick = () => switchView("settings");
+}
+
+function normalizeContextHint(value) {
+  const path = String(value || "").trim().replaceAll("\\", "/").replace(/^@+/, "");
+  if (!path || path.startsWith("/") || path.includes("..") || path.length > 240) return "";
+  if (/^(?:[a-z]:|\/\/|[a-z][a-z0-9+.-]*:)/i.test(path)) return "";
+  return path;
+}
+
+function addContextHint(value) {
+  const path = normalizeContextHint(value);
+  if (!path || state.contextHints.includes(path)) return;
+  state.contextHints.push(path);
+  renderContextHints();
+}
+
+function renderContextHints() {
+  const root = $("#contextHints");
+  if (!root) return;
+  root.innerHTML = state.contextHints.map((path, index) =>
+    `<span class="context-hint">@${esc(path)}<button class="context-remove" type="button" aria-label="Remove ${esc(path)}" data-context-index="${index}">${uiIcon("close")}</button></span>`
+  ).join("");
+  root.querySelectorAll("[data-context-index]").forEach((button) => {
+    button.onclick = () => { state.contextHints.splice(Number(button.dataset.contextIndex), 1); renderContextHints(); };
+  });
+}
+
+// The Full Auto acknowledgement (#137/#151), extracted so it can be offered
+// from the composer dropdown AND proactively after a boot/workspace switch —
+// the stale-dropdown bug (F16) made this ack unreachable when the select
+// already displayed Full Auto.
+function offerFullAutoPinAck() {
+  state.fullAutoAckOpen = true;
+  chatConfirm({
+    title: "Pin Full Auto?",
+    body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Push, deploy, and destructive actions still ask for confirmation.",
+    confirmLabel: "Pin Full Auto",
+    cancelLabel: "Keep current mode",
+    danger: true,
+  }).then((ok) => {
+    state.fullAutoAckOpen = false;
+    if (!ok) {
+      // Declined: if Full Auto was being shown optimistically (e.g. carried
+      // over from another workspace), fall back to the mode the engine
+      // actually resolved for THIS workspace and paint it honestly.
+      if (state.mode.id === "full-auto") {
+        const eff = ((state.boot && state.boot.autonomy) || {}).effective_mode || "safe-auto";
+        state.mode = (state.boot.modes || []).find((m) => m.id === eff) || state.mode;
+      }
+      renderComposerSelects(); refreshInspector(); refreshStatus();
+      return;
+    }
+    if (!bridge.pinFullAuto) return;
+    bridge.pinFullAuto((res) => {
+      try {
+        const d = JSON.parse(res);
+        state.boot.prefs.fullAutoPinned = !!d.full_auto_pinned;
+        if (state.boot.autonomy) {
+          state.boot.autonomy.effective_mode = d.effective_mode || state.boot.autonomy.effective_mode;
+          state.boot.autonomy.full_auto_pinned = !!d.full_auto_pinned;
+          state.boot.autonomy.downgraded = !d.full_auto_pinned && state.boot.autonomy.requested_mode === "full-auto";
+        }
+      } catch (e) {}
+      maybeOfferFullAutoPin();
+    });
+    state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
+    const modeSel = $("#modeSel");
+    if (modeSel) modeSel.value = "full-auto";
+    refreshInspector(); refreshStatus();
+  });
+}
+
+// Offer the pin ack whenever the CURRENT workspace requests Full Auto but has
+// no pin for it — regardless of whether a dropdown change event fired (F16).
+function maybeOfferFullAutoPin() {
+  if (state.fullAutoAckOpen) return;
+  const prefs = (state.boot && state.boot.prefs) || {};
+  const autonomy = (state.boot && state.boot.autonomy) || {};
+  if (prefs.fullAutoPinned) return;
+  if (autonomy.requested_mode !== "full-auto" && state.mode.id !== "full-auto") return;
+  offerFullAutoPinAck();
+}
+
 function setProviderDot() {
   const k = state.model.provider || state.model.kind || "auto";
   $("#providerDot").style.background = PROVIDER_COLOR[k] || "var(--muted)";
@@ -559,6 +761,23 @@ function onStatusReady(json) {
   renderStatus(d.data || {});
 }
 
+// F21: the backend "Agent mode" inspector row only refreshes from persisted
+// state after a run completes. Derive the pending agent mode from the CURRENT
+// controls (run mode caps what focus can do — a read-only run mode stays
+// read-only no matter the focus) so the inspector can show what the NEXT run
+// will do instead of a stale value.
+const IMPLEMENT_FOCI = ["build", "debug", "refactor", "test", "implement"];
+function derivedAgentMode() {
+  if (state.mode.id === "ask") return "Explain";
+  if (state.mode.id === "plan") return "Plan";
+  const focus = String(state.focus || "").toLowerCase();
+  if (IMPLEMENT_FOCI.indexOf(focus) !== -1) return "Implement";
+  if (focus === "review") return "Review";
+  if (focus === "plan") return "Plan";
+  if (focus === "explain") return "Explain";
+  return ""; // no honest derivation — keep whatever the backend reported
+}
+
 function renderInspector(data) {
   // #246: the inspector payload is deferred at boot (null) and fetched on demand
   // when the panel is shown, so render an empty shell until it arrives.
@@ -566,7 +785,18 @@ function renderInspector(data) {
   const ins = $("#inspector");
   const focusOpts = (state.boot.taskModes || []).map((m) => `<option value="${m.id}"${m.id === state.focus ? " selected" : ""}>${esc(m.label)}</option>`).join("");
   const fmtOpts = (state.boot.outputFormats || []).map((f) => `<option value="${f.id}"${f.id === state.format ? " selected" : ""}>${esc(f.label)}</option>`).join("");
-  const rows = (data.rows || []).map((r) => `<div class="insp-row"><span class="k">${esc(r.label)}</span><span class="v">${esc(r.value)}</span></div>`).join("");
+  // F21: when the derived next-run mode differs from the persisted one, show
+  // the derivation — honestly labelled "(next run)" — until a completed run
+  // delivers the authoritative value via onReply → refreshInspector.
+  const preview = derivedAgentMode();
+  let sawAgentRow = false;
+  const rowData = (data.rows || []).map((r) => {
+    if (r.label !== "Agent mode") return r;
+    sawAgentRow = true;
+    return (preview && r.value !== preview) ? { label: r.label, value: preview + " (next run)" } : r;
+  });
+  if (preview && !sawAgentRow) rowData.push({ label: "Agent mode", value: preview + " (next run)" });
+  const rows = rowData.map((r) => `<div class="insp-row"><span class="k">${esc(r.label)}</span><span class="v">${esc(r.value)}</span></div>`).join("");
   const perms = (data.permissions || []).map((p) => `<div class="perm"><span class="k">${esc(p.label)}</span><span class="s ${p.state}" title="${esc(p.note || "")}">${esc(p.state)}</span></div>`).join("");
   const badges = (data.privacy || []).map((b) => `<div class="badge ${b.tone}">${esc(b.label)}</div>`).join("");
   const bud = data.budget || { pct: 0, text: "" };
@@ -688,10 +918,10 @@ function clearChat() {
 }
 function setResumeGate(on) {
   state.resumePending = !!on;
-  const input = $("#input"), sendButton = $("#send"), buildToggle = $("#buildToggle");
+  const input = $("#input"), buildToggle = $("#buildToggle");
   if (input) input.disabled = !!on;
-  if (sendButton) sendButton.disabled = !!on;
   if (buildToggle) buildToggle.disabled = !!on;
+  updateComposerAvailability();
 }
 function clearFailure(message) {
   return {
@@ -863,7 +1093,7 @@ function renderNewAppSuccess(el, result) {
   const tokens = Number(result.boilerplate_tokens_avoided || 0).toLocaleString();
   el.innerHTML = roleHeader("OPai Build", "var(--accent)") +
     `<div class="new-app-card done" role="group" aria-label="App created">
-       <div class="nac-t">✓ ${esc(result.name)} is ready — ${(result.files || []).length} files scaffolded for free (~${esc(tokens)} tokens never spent).</div>
+       <div class="nac-t">${uiIcon("check")} ${esc(result.name)} is ready — ${(result.files || []).length} files scaffolded for free (~${esc(tokens)} tokens never spent).</div>
        <div class="nac-sub">${esc(result.root)}</div>
        <div class="nac-actions">
          <button class="btn primary" data-a="open">Open app workspace</button>
@@ -946,12 +1176,12 @@ function buildResultHtml(r) {
       `<code>${esc(f.path)}</code> <span class="bres-diff">+${f.added} −${f.removed}</span></li>`).join("");
     const v = r.verify || {};
     const verify = v.ok
-      ? `<span class="bres-verify ok">✓ verified (${v.passed} checks)</span>`
-      : (v.failed ? `<span class="bres-verify warn">⚠ ${v.failed} check(s) failed</span>` : "");
+      ? `<span class="bres-verify ok">${uiIcon("check")} verified (${v.passed} checks)</span>`
+      : (v.failed ? `<span class="bres-verify warn">${uiIcon("warning")} ${v.failed} check(s) failed</span>` : "");
     const ctx = r.context || {};
     const saved = ctx.saved_pct ? `<div class="bres-note">${ctx.saved_pct}% of the app left out of the prompt — that's the saving.</div>` : "";
     return `<div class="build-card" role="group" aria-label="Build result">` +
-      `<div class="bres-t">✓ Applied ${(r.applied || []).length} change(s) ${verify}</div>` +
+      `<div class="bres-t">${uiIcon("check")} Applied ${(r.applied || []).length} change(s) ${verify}</div>` +
       `<ul class="bres-files">${files}</ul>${saved}` +
       `<div class="nac-actions"><button class="btn ghost" data-a="preview">Copy preview command</button></div>` +
       `</div>`;
@@ -960,7 +1190,7 @@ function buildResultHtml(r) {
     const checks = ((r.verify || {}).checks || []).filter((c) => !c.ok).slice(0, 5)
       .map((c) => `<li><code>${esc(c.path)}</code> · ${esc(c.check)}: ${esc(c.detail)}</li>`).join("");
     return `<div class="build-card error" role="group" aria-label="Build rolled back">` +
-      `<div class="bres-t">✗ Verification failed — the edit was rolled back. The files changed by this build were restored.</div>` +
+      `<div class="bres-t">${uiIcon("error")} Verification failed — the edit was rolled back. The files changed by this build were restored.</div>` +
       `<ul class="bres-files">${checks}</ul></div>`;
   }
   if (status === "partial_rollback" || status === "rollback_failed") {
@@ -971,7 +1201,7 @@ function buildResultHtml(r) {
       ? `${restored} file(s) restored; the following files are still changed:`
       : "No changed files could be restored automatically:";
     return `<div class="build-card error" role="group" aria-label="Build rollback incomplete">` +
-      `<div class="bres-t">✗ Verification failed. Automatic rollback was incomplete.</div>` +
+      `<div class="bres-t">${uiIcon("error")} Verification failed. Automatic rollback was incomplete.</div>` +
       `<div class="body">${esc(detail)}</div><ul class="bres-files">${files}</ul>` +
       `<div class="bres-note">Review the remaining file changes and the saved backup before continuing.</div></div>`;
   }
@@ -980,7 +1210,7 @@ function buildResultHtml(r) {
       .map((c) => `<li><code>${esc(c.path || "app")}</code> · ${esc(c.check)}: ${esc(c.detail)}</li>`).join("");
     const files = (r.applied || []).map((f) => `<li><code>${esc(f.path)}</code></li>`).join("");
     return `<div class="build-card error" role="group" aria-label="Build verification failed">` +
-      `<div class="bres-t">✗ Changes were applied, but verification failed. They were preserved for review or rollback.</div>` +
+      `<div class="bres-t">${uiIcon("error")} Changes were applied, but verification failed. They were preserved for review or rollback.</div>` +
       `<ul class="bres-files">${checks || files}</ul></div>`;
   }
   if (status === "no_edits") {
@@ -988,7 +1218,7 @@ function buildResultHtml(r) {
       `<div class="body">${mdToHtml(String(r.answer || ""))}</div></div>`;
   }
   const msg = (r.error && (r.error.userMessage || r.error)) || r.answer || status;
-  return `<div class="build-card error" role="group" aria-label="Build failed"><div class="bres-t">✗ ${esc(String(msg)).slice(0, 400)}</div></div>`;
+  return `<div class="build-card error" role="group" aria-label="Build failed"><div class="bres-t">${uiIcon("error")} ${esc(String(msg)).slice(0, 400)}</div></div>`;
 }
 function appendMsg(html, cls) {
   $("#empty").style.display = "none";
@@ -1005,7 +1235,7 @@ function roleHeader(label, color) {
   const av = `<span class="av" style="background:${color};color:#06160f">${esc((label[0] || "O"))}</span>`;
   return `<div class="role" style="color:${color}">${av}${esc(label)}</div>`;
 }
-const ICON = { pending: "◌", running: "◐", success: "✓", warning: "!", error: "✗", cancelled: "⊘" };
+const ICON = { pending: "pending", running: "running", success: "check", warning: "warning", error: "error", cancelled: "cancelled" };
 const ANSWERED = ["answered", "cache_hit", "answered_by_account", "answered_by_free_api", "answered_locally"];
 const ERROR_TITLES = {
   account_timeout: "Ran out of time", account_error: "The model hit an error",
@@ -1021,6 +1251,7 @@ const ERROR_TITLES = {
 
 function send(retryOf) {
   if (state.busy && !retryOf) return; // duplicate-submit protection
+  if (!retryOf && composerBlockReason()) return;
   const text = retryOf ? retryOf.text : $("#input").value.trim();
   if (!text) return;
   // Slash commands run local OPai tools ("/panic", "/savings", "/connect") —
@@ -1037,6 +1268,7 @@ function send(retryOf) {
   const sel = retryOf || {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
+    contextHints: state.contextHints.slice(),
   };
   // Free-tier consent: one confirmation per provider, ever. If the user has
   // already confirmed this free model in the past (persisted per workspace),
@@ -1065,9 +1297,24 @@ function send(retryOf) {
   stripReset(sel);
   startTimer(sel);
   setBusy(true);
+  // The bridge remains backwards-compatible with older hosts by receiving
+  // metadata too, while the prompt itself carries safe path references for
+  // the existing context-selection pipeline. Never read or serialize files.
+  const contextHints = Array.isArray(sel.contextHints)
+    ? sel.contextHints.map(normalizeContextHint).filter(Boolean)
+    : [];
+  const requestText = contextHints.length
+    ? `Repository context references:\n${contextHints.map((path) => `@${path}`).join("\n")}\n\n${text}`
+    : text;
   bridge.send(JSON.stringify({
-    requestId, text, model: sel.model, mode: sel.mode, focus: sel.focus,
+    requestId, text: requestText, model: sel.model, mode: sel.mode, focus: sel.focus,
     format: sel.format, allowCloud: sel.allowCloud === true, allowLimit: sel.allowLimit === true,
+    contextHints,
+    // F9/F17: one-time approval for a policy-blocked command — the exact
+    // string echoed by the pipeline, never a rewritten one. Omitted unless set.
+    allowCommand: typeof sel.allowCommand === "string" && sel.allowCommand ? sel.allowCommand : undefined,
+    // F26: one-time approval for provider-gated file edits. Omitted unless set.
+    allowEditsOnce: sel.allowEditsOnce === true ? true : undefined,
   }));
 }
 
@@ -1102,7 +1349,7 @@ function tlRowInner(e) {
   if (typeof e.timestamp === "number" && state.startTime && e.timestamp >= state.startTime) {
     ts = `<span class="tl-ts">+${((e.timestamp - state.startTime) / 1000).toFixed(1)}s</span>`;
   }
-  return `<span class="tl-ic">${ICON[e.status] || "•"}</span>` +
+  return `<span class="tl-ic">${uiIcon(ICON[e.status] || "pending")}</span>` +
     `<span class="tl-t">${esc(e.title)}</span>${e.detail ? `<span class="tl-d">${esc(e.detail)}</span>` : ""}${ts}`;
 }
 function timelineRows() {
@@ -1130,8 +1377,8 @@ function updateSingleNode(entry, event) {
 }
 function groupHeaderInner(row, expanded) {
   return `<button class="tl-group-toggle" aria-expanded="${expanded}" tabindex="0">` +
-    `<span class="tl-ic">${ICON[row.status] || "•"}</span>` +
-    `<span class="tl-caret">${expanded ? "▾" : "▸"}</span>` +
+    `<span class="tl-ic">${uiIcon(ICON[row.status] || "pending")}</span>` +
+    `<span class="tl-caret">${uiIcon(expanded ? "chevronDown" : "chevronRight")}</span>` +
     `<span class="tl-t">${esc(row.label)}</span></button>`;
 }
 function reconcileGroupNode(entry, row) {
@@ -1199,7 +1446,7 @@ function renderTimeline() {
     if (truncated > 0) {
       const key = "truncation";
       seen.add(key);
-      const inner = `<span class="tl-ic">⋯</span>` +
+      const inner = `<span class="tl-ic">${uiIcon("more")}</span>` +
         `<span class="tl-t">${truncated.toLocaleString()} earlier steps hidden</span>` +
         `<span class="tl-d">dropped to stay fast</span>`;
       let entry = rows.get(key);
@@ -1308,7 +1555,10 @@ function stripFinalize(status, r) {
   if (cost > 0) $("#ssCost").textContent = "$" + cost.toFixed(4) + " spent";
   else if (+rc.estimated_savings_usd > 0) $("#ssCost").textContent = "$" + (+rc.estimated_savings_usd).toFixed(4) + " saved";
   else $("#ssCost").textContent = ""; // never a fake $0 for a paid call
-  if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
+  const verdict = completionVerdict(r);
+  if (verdict && verdict.verdict === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Cancelled"; }
+  else if (verdict && verdict.verdict !== "completed") { stripSetState("error"); $("#ssConn").textContent = verdict.verdict.replace(/\b\w/g, (c) => c.toUpperCase()); }
+  else if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
   else if (ANSWERED.includes(status)) { stripSetState("connected"); $("#ssConn").textContent = "Done"; }
   else { stripSetState("error"); $("#ssConn").textContent = "Failed"; }
 }
@@ -1426,6 +1676,21 @@ function receiptBadge(rc) {
   if (c === "unknown") return { cls: "subscription", label: "Subscription", title: "Covered by a subscription — no per-call dollar amount" };
   return { cls: "estimated", label: "Estimated", title: "Estimated from token math, not a billed amount" };
 }
+function completionVerdict(r) {
+  const raw = r && r.completion_verdict;
+  if (!raw || typeof raw !== "object") return null;
+  const verdict = String(raw.verdict || "").toLowerCase();
+  return verdict ? { verdict, reason: String(raw.reason || ""), nextAction: String(raw.next_action || "") } : null;
+}
+function completionVerdictHtml(r) {
+  const item = completionVerdict(r);
+  if (!item) return "";
+  const label = item.verdict.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const glyph = item.verdict === "completed" ? "check" : item.verdict === "cancelled" ? "cancelled" : "warning";
+  const next = item.nextAction ? `<div class="cv-next">Next: ${esc(item.nextAction)}</div>` : "";
+  return `<section class="completion-verdict ${esc(item.verdict)}" role="status" aria-label="Completion verdict: ${esc(label)}">` +
+    `<div class="cv-title">${uiIcon(glyph)} ${esc(label)}</div><div class="cv-reason">${esc(item.reason)}</div>${next}</section>`;
+}
 function metaFooter(r, sel, durMs) {
   const rc = (r && r.receipt) || {};
   const badge = receiptBadge(rc);
@@ -1435,12 +1700,14 @@ function metaFooter(r, sel, durMs) {
   if (+rc.estimated_actual_usd) bits.push("$" + (+rc.estimated_actual_usd).toFixed(4) + " spent");
   if (+rc.estimated_savings_usd) bits.push("$" + (+rc.estimated_savings_usd).toFixed(4) + " saved");
   if (rc.paid_call_avoided) bits.push("paid call avoided");
+  const verdict = completionVerdict(r);
+  if (verdict) bits.unshift(`${verdict.verdict}: ${verdict.reason}`);
   return `<div class="receipt-card">` +
     `<div class="footer-note" role="button" tabindex="0" title="Copy this receipt" aria-label="Copy receipt">` +
       `<span class="rc-badge rc-${badge.cls}" title="${esc(badge.title)}">${esc(badge.label)}</span>` +
       `<span class="rc-bits">${esc(bits.join("   ·   "))}</span>` +
     `</div>` +
-    `<button class="rc-ledger" type="button" aria-label="Open the savings summary">Summary →</button>` +
+    `<button class="rc-ledger" type="button" aria-label="Open the savings summary">Summary ${uiIcon("arrowRight")}</button>` +
   `</div>`;
 }
 
@@ -1577,6 +1844,9 @@ function onConnectionDoctorReady(json) {
 
 function renderErrorCard(el, status, r, sel) {
   const error = r && r.error && typeof r.error === "object" ? r.error : {};
+  // Retrying Auto with no eligible provider only reproduces the same setup
+  // card. Keep recovery concrete: choose a model or configure one first.
+  const canRetry = status !== "needs_model";
   const title = error.title || ERROR_TITLES[status] || "OPai could not complete this request.";
   const what = error.userMessage || (typeof (r && r.answer) === "string" && r.answer) || "Retry, or open Settings if the problem continues.";
   const raw = redactSecrets(
@@ -1589,12 +1859,20 @@ function renderErrorCard(el, status, r, sel) {
   const offerLogin = ["AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED"].includes(String(error.code || "")) && !!loginProvider;
   // Free-tier consent card (replaces the old native confirm popup): confirm to
   // send to the provider's public API with the same explicit warning text.
-  const freeProvider = String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
+  // F29: name the provider from the RESULT's model id ("free:groq:…"), not the
+  // composer selection — a stale/mismatched selection must never label a Groq
+  // consent card "Send to Gemini".
+  const resultModelId = String((r && (r.model_id || (r.raw_result && r.raw_result.model_id))) || "");
+  const freeFromResult = resultModelId.startsWith("free:") ? resultModelId.split(":")[1] : "";
+  const freeProvider = freeFromResult
+    ? freeFromResult.charAt(0).toUpperCase() + freeFromResult.slice(1)
+    : String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
   el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
-    `<div class="error-card"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
-    `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button>` +
+    `<div class="error-card" role="alert"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
+    `<div class="ec-actions">` +
+    (canRetry ? `<button class="btn" data-a="retry">Retry</button>` : "") +
     (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
     (offerLogin ? `<button class="btn primary" data-a="signin">Sign in to ${esc(providerName(loginProvider))}</button>` : "") +
     // A live re-check, not just a link to Settings: OPai may have said
@@ -1615,7 +1893,7 @@ function renderErrorCard(el, status, r, sel) {
     (raw ? `<button class="btn ghost" data-a="details">Show technical details</button><button class="btn ghost" data-a="copy">Copy details</button>` : "") + `</div>` +
     (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
   wireActivitySummary(el);
-  el.querySelector('[data-a="retry"]').onclick = () => retry();
+  const retryButton = el.querySelector('[data-a="retry"]'); if (retryButton) retryButton.onclick = () => retry();
   const signIn = el.querySelector('[data-a="signin"]'); if (signIn) signIn.onclick = () => {
     const retryPayload = state.lastSend ? { ...state.lastSend } : (sel ? { ...sel } : null);
     startGuidedProviderLogin(loginProvider, { button: signIn, retryPayload, retryRequestId: state.lastFailedRequestId });
@@ -1670,7 +1948,15 @@ function renderErrorCard(el, status, r, sel) {
     send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
   };
   const fallback = el.querySelector('[data-a="fallback"]'); if (fallback) fallback.onclick = () => {
-    send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
+    // Preserve the reviewed route. Re-sending Auto here would recompute a
+    // fallback after consent and could differ from the configured provider the
+    // user was shown on the confirmation card.
+    const fallbackModelId = String(r.fallbackModelId || "").trim();
+    if (!fallbackModelId) { switchView("settings"); return; }
+    send(Object.assign({}, state.lastSend || {}, {
+      model: fallbackModelId,
+      allowCloud: true,
+    }));
   };
   const limit = el.querySelector('[data-a="limit"]'); if (limit) limit.onclick = () => {
     send(Object.assign({}, state.lastSend || {}, { allowLimit: true }));
@@ -1702,6 +1988,18 @@ function finalize(status, r) {
     return;
   }
   if (!ANSWERED.includes(status)) {
+    // F9/F17: a policy-blocked command gets an inline approval card, not an
+    // error dead-end — the user can approve the exact command once or deny it.
+    if (status === "needs_command_approval") {
+      renderCommandApprovalCard(el, r, sel);
+      return;
+    }
+    // F26: file edits refused by the provider's permission gate get the same
+    // treatment — an actionable "Allow edits once" card, never a dead end.
+    if (status === "needs_edit_approval") {
+      renderEditApprovalCard(el, r, sel);
+      return;
+    }
     state.lastFailedRequestId = state.message && state.message.requestId;
     renderErrorCard(el, status, r, sel); return;
   }
@@ -1719,7 +2017,7 @@ function finalize(status, r) {
     : "OPai";
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
-  let html = roleHeader(label, color) + activitySummaryHtml() + `<div class="body">${mdToHtml(answer)}</div>`;
+  let html = roleHeader(label, color) + activitySummaryHtml() + completionVerdictHtml(r) + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];
   if (changed.length) html += filesCardHtml(changed);
   if (r && (r.workflow || r.agent_policy)) html += workflowCardHtml(r);
@@ -1753,7 +2051,7 @@ function diffReviewHtml(review, testsStatus) {
     </article>`;
   }).join("");
   return `<section class="diff-review" aria-label="Changed-file review">
-    <div class="diff-review-head"><div><strong>Review changes</strong><small><span data-diff-counts>${esc(summary.files || files.length)} files · ${esc(summary.pending || 0)} pending${summary.risky ? ` · ${esc(summary.risky)} risky` : ""}</span> · Tests: ${esc(String(testsStatus || "not run").replaceAll("_", " "))}</small></div><div class="diff-nav"><button class="btn ghost" data-diff-nav="prev" aria-label="Previous changed file">←</button><span data-diff-position>1 / ${files.length}</span><button class="btn ghost" data-diff-nav="next" aria-label="Next changed file">→</button></div></div>
+    <div class="diff-review-head"><div><strong>Review changes</strong><small><span data-diff-counts>${esc(summary.files || files.length)} files · ${esc(summary.pending || 0)} pending${summary.risky ? ` · ${esc(summary.risky)} risky` : ""}</span> · Tests: ${esc(String(testsStatus || "not run").replaceAll("_", " "))}</small></div><div class="diff-nav"><button class="btn ghost" data-diff-nav="prev" aria-label="Previous changed file">${uiIcon("arrowLeft")}</button><span data-diff-position>1 / ${files.length}</span><button class="btn ghost" data-diff-nav="next" aria-label="Next changed file">${uiIcon("arrowRight")}</button></div></div>
     ${panels}
   </section>`;
 }
@@ -1874,7 +2172,7 @@ function cleanPath(f) { return String(f).replace(/^[ \t]*[A-Z?!]{1,2}[ \t]+/, ""
 function filesCardHtml(changed) {
   const rows = changed.map((f) => {
     const p = cleanPath(f);
-    return `<button class="file-chip" data-file="${esc(p)}"><span class="fc-ico">📄</span><span class="fc-name">${esc(f)}</span><span class="fc-open">Open ↗</span></button>`;
+    return `<button class="file-chip" data-file="${esc(p)}"><span class="fc-ico">${uiIcon("file")}</span><span class="fc-name">${esc(f)}</span><span class="fc-open">Open</span></button>`;
   }).join("");
   return `<div class="files-card"><div class="fc-head"><div class="fc-t">${changed.length} file(s) changed</div>` +
     `<button class="btn ghost" data-openfolder="1">Open folder</button></div>${rows}</div>`;
@@ -1903,15 +2201,70 @@ function setBusy(on) {
   s.textContent = on ? "Stop" : ((state.buildMode && state.buildApp) ? "Build" : "Send");
   s.classList.toggle("stop", on);
   s.setAttribute("aria-label", on ? "Stop generation" : "Send prompt");
+  if (!on) updateComposerAvailability();
   updateInspectorLive(on ? "Preparing request…" : null);
 }
 
 /* ---------- dashboards ---------- */
 function renderDashboard(section) {
-  const page = $("#dashPage"); page.innerHTML = `<div class="page-sub">Loading…</div>`;
+  const page = $("#dashPage");
+  renderViewState(page, {
+    kind: "loading",
+    title: "Loading dashboard",
+    reason: "Waiting for locally prepared dashboard data.",
+  });
   const paint = (json) => {
-    const s = JSON.parse(json);
-    if (s.error) { page.innerHTML = `<div class="page-sub">Couldn't load: ${esc(s.error)}</div>`; return; }
+    let s = {};
+    try { s = JSON.parse(json); } catch (_e) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load this dashboard",
+        reason: "OPai received an invalid local dashboard response.",
+        action: "retry_dashboard",
+        actionLabel: "Try again",
+      }, () => renderDashboard(section));
+      return;
+    }
+    if (!s || typeof s !== "object" || Array.isArray(s)) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load this dashboard",
+        reason: "OPai received an invalid local dashboard response.",
+        action: "retry_dashboard",
+        actionLabel: "Try again",
+      }, () => renderDashboard(section));
+      return;
+    }
+    if (s.error) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load this dashboard",
+        reason: safeStateReason(s.error, "Dashboard data is temporarily unavailable."),
+        action: "retry_dashboard",
+        actionLabel: "Try again",
+      }, () => renderDashboard(section));
+      return;
+    }
+    if (s.degraded) {
+      renderViewState(page, {
+        kind: "degraded",
+        title: "Dashboard is temporarily unavailable",
+        reason: safeStateReason(s.degraded, "Fresh dashboard data is temporarily unavailable."),
+        action: "open_chat",
+        actionLabel: "Open chat",
+      }, () => switchView("chat"));
+      return;
+    }
+    if (!s.hero && !(s.kpis || []).length && !(s.cards || []).length && !(s.actions || []).length) {
+      renderViewState(page, {
+        kind: "empty",
+        title: s.title || "No dashboard data yet",
+        reason: s.subtitle || "Run a task to give this dashboard something to show.",
+        action: "open_chat",
+        actionLabel: "Open chat",
+      }, () => switchView("chat"));
+      return;
+    }
     let h = `<div class="page-title">${esc(s.title || section)}</div>`;
     if (s.subtitle) h += `<div class="page-sub">${esc(s.subtitle)}</div>`;
     if (s.hero) h += `<div class="hero"><div class="num" style="color:${sevColor(s.hero.severity)}">${esc(s.hero.headline)}</div><div class="cap">${esc(s.hero.caption || "")}</div></div>`;
@@ -1946,9 +2299,16 @@ function renderDashboard(section) {
   }
 }
 function onDashboardReady(json) {
-  let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
-  if (!state.dashPaint || d.requestId !== state.dashRequest) return; // stale
-  state.dashPaint(JSON.stringify(d.data || {}));
+  let d = {}; try { d = JSON.parse(json); } catch (_e) {
+    if (state.dashPaint) state.dashPaint("");
+    return;
+  }
+  if (!state.dashPaint || !d || typeof d !== "object" || Array.isArray(d) || d.requestId !== state.dashRequest) return; // stale
+  if (!Object.prototype.hasOwnProperty.call(d, "data") || !d.data || typeof d.data !== "object" || Array.isArray(d.data)) {
+    state.dashPaint("");
+    return;
+  }
+  state.dashPaint(JSON.stringify(d.data));
 }
 function runAction(aid, cmd) {
   if (aid === "panic_toggle") { switchView("chat"); bridge.runTool("panic"); return; }
@@ -2007,9 +2367,54 @@ function settingsCtx(d) {
   };
 }
 function renderSettings() {
-  const page = $("#settingsPage"); page.innerHTML = `<div class="page-sub">Loading…</div>`;
+  const page = $("#settingsPage");
+  renderViewState(page, {
+    kind: "loading",
+    title: "Loading settings",
+    reason: "Checking local preferences and connections.",
+  });
   const paint = (json) => {
-    let d = {}; try { d = JSON.parse(json); } catch (_e) { d = {}; }
+    let d = {};
+    try { d = JSON.parse(json); } catch (_e) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load settings",
+        reason: "OPai received an invalid local settings response.",
+        action: "retry_settings",
+        actionLabel: "Try again",
+      }, renderSettings);
+      return;
+    }
+    if (!d || typeof d !== "object" || Array.isArray(d)) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load settings",
+        reason: "OPai received an invalid local settings response.",
+        action: "retry_settings",
+        actionLabel: "Try again",
+      }, renderSettings);
+      return;
+    }
+    if (d.error) {
+      renderViewState(page, {
+        kind: "error",
+        title: "Couldn't load settings",
+        reason: safeStateReason(d.error, "Settings data is temporarily unavailable."),
+        action: "retry_settings",
+        actionLabel: "Try again",
+      }, renderSettings);
+      return;
+    }
+    if (d.degraded) {
+      renderViewState(page, {
+        kind: "degraded",
+        title: "Settings are temporarily unavailable",
+        reason: safeStateReason(d.degraded, "Fresh settings data is temporarily unavailable."),
+        action: "retry_settings",
+        actionLabel: "Try again",
+      }, renderSettings);
+      return;
+    }
     window.OPaiSettings.render(page, settingsCtx(d));
   };
   // #146: prefer the async path — doctor/credential/usage aggregation happens
@@ -2023,9 +2428,16 @@ function renderSettings() {
   }
 }
 function onSettingsReady(json) {
-  let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
-  if (!state.settingsPaint || d.requestId !== state.settingsRequest) return; // stale
-  state.settingsPaint(JSON.stringify(d.data || {}));
+  let d = {}; try { d = JSON.parse(json); } catch (_e) {
+    if (state.settingsPaint) state.settingsPaint("");
+    return;
+  }
+  if (!state.settingsPaint || !d || typeof d !== "object" || Array.isArray(d) || d.requestId !== state.settingsRequest) return; // stale
+  if (!Object.prototype.hasOwnProperty.call(d, "data") || !d.data || typeof d.data !== "object" || Array.isArray(d.data)) {
+    state.settingsPaint("");
+    return;
+  }
+  state.settingsPaint(JSON.stringify(d.data));
 }
 
 /* ---------- tools ---------- */
@@ -2151,6 +2563,91 @@ function appendCard(title, text) {
   appendMsg(`<div class="tool-card"><div class="t">${esc(title)}</div><pre>${esc(text)}</pre></div>`, "bot");
 }
 
+// F9/F17: in-chat approval for a command hard-blocked by the run-mode policy
+// (mirrors the needs_free_confirmation flow). The card shows the EXACT command
+// the pipeline asked to run; Approve once re-sends the original message with
+// allowCommand set to that exact string; Deny posts a cancellation and nothing
+// is re-sent.
+function renderCommandApprovalCard(el, r, sel) {
+  const command = String((r && r.command) || "");
+  const reason = String((r && r.reason) || "The current run mode blocks this command.");
+  el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
+    `<div class="approval-card command-approval" role="group" aria-label="Command approval required">
+       <div class="ap-head"><span class="ap-badge">Command blocked</span><span class="ap-risk">One-time approval</span></div>
+       <div class="ap-title">Approve this command once?</div>
+       <div class="ap-why">${esc(reason)}</div>
+       <div class="ap-scope"><span class="k">Command</span><span class="v"><code>${esc(command)}</code></span></div>
+       <div class="ap-actions">
+         <button class="btn primary" data-ap="approve">Approve once</button>
+         <button class="btn" data-ap="deny">Deny</button>
+       </div>
+     </div>`;
+  wireActivitySummary(el);
+  const card = el.querySelector(".approval-card");
+  const done = (note, cls) => {
+    card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    card.classList.add(cls);
+    const outcome = document.createElement("div");
+    outcome.className = "ap-state";
+    outcome.textContent = note;
+    card.appendChild(outcome);
+  };
+  el.querySelector('[data-ap="approve"]').onclick = () => {
+    done("Approved — re-running with this command allowed…", "approved");
+    send(Object.assign({}, state.lastSend || sel || {}, { allowCommand: command }));
+  };
+  el.querySelector('[data-ap="deny"]').onclick = () => {
+    done("Denied — the command was not run.", "denied");
+    if (bridge.cancel && state.message && state.message.requestId) {
+      try { bridge.cancel(state.message.requestId); } catch (_e) { /* best-effort cancellation */ }
+    }
+  };
+}
+
+// F26: in-chat approval for file edits the provider's permission gate refused
+// in Safe Auto. Mirrors the command-approval card: the card names the EXACT
+// files; "Allow edits once" re-sends the original message with
+// allowEditsOnce=true (Safe Auto keeps commands and destructive actions
+// gated); Deny changes nothing.
+function renderEditApprovalCard(el, r, sel) {
+  const files = Array.isArray(r && r.edit_files) ? r.edit_files.map(String) : [];
+  const listed = files.slice(0, 10);
+  const more = files.length - listed.length;
+  const rows = listed.map((f) => `<li><code>${esc(f)}</code></li>`).join("") +
+    (more > 0 ? `<li>…and ${more} more</li>` : "");
+  el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
+    `<div class="approval-card edit-approval" role="group" aria-label="Edit approval required">
+       <div class="ap-head"><span class="ap-badge">Edits blocked</span><span class="ap-risk">One-time approval</span></div>
+       <div class="ap-title">Allow OPai to edit these files once?</div>
+       <div class="ap-why">Safe Auto asks before changing files. Commands and destructive actions stay gated.</div>
+       <div class="ap-scope"><span class="k">Files</span><span class="v"><ul class="ap-files">${rows || "<li>(paths unavailable)</li>"}</ul></span></div>
+       <div class="ap-actions">
+         <button class="btn primary" data-ap="approve">Allow edits once</button>
+         <button class="btn" data-ap="deny">Deny</button>
+       </div>
+     </div>`;
+  wireActivitySummary(el);
+  const card = el.querySelector(".approval-card");
+  const done = (note, cls) => {
+    card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    card.classList.add(cls);
+    const outcome = document.createElement("div");
+    outcome.className = "ap-state";
+    outcome.textContent = note;
+    card.appendChild(outcome);
+  };
+  el.querySelector('[data-ap="approve"]').onclick = () => {
+    done("Approved — re-running with edits allowed once…", "approved");
+    send(Object.assign({}, state.lastSend || sel || {}, { allowEditsOnce: true }));
+  };
+  el.querySelector('[data-ap="deny"]').onclick = () => {
+    done("Denied — no files were changed.", "denied");
+    if (bridge.cancel && state.message && state.message.requestId) {
+      try { bridge.cancel(state.message.requestId); } catch (_e) { /* best-effort cancellation */ }
+    }
+  };
+}
+
 /* ---------- palette + shortcuts ---------- */
 function openPalette() {
   const ov = $("#palette"); ov.classList.add("open");
@@ -2268,10 +2765,26 @@ function wire() {
   $("#wsMenu").addEventListener("click", (e) => e.stopPropagation());
   document.addEventListener("click", closeWsMenu);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWsMenu(); });
-  $("#input").addEventListener("input", autoSize);
+  $("#input").addEventListener("input", () => { autoSize(); updateComposerAvailability(); });
   $("#input").addEventListener("keydown", (e) => {
     // Enter sends; while a request is active it is ignored (no duplicate/queue).
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!state.busy) submitComposer(); }
+  });
+  const contextPath = $("#contextPath");
+  $("#addContext").onclick = () => {
+    addContextHint(contextPath.value);
+    if (normalizeContextHint(contextPath.value)) contextPath.value = "";
+    contextPath.focus();
+  };
+  contextPath.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); $("#addContext").click(); }
+  });
+  const composer = $(".composer");
+  composer.addEventListener("dragover", (e) => { e.preventDefault(); composer.classList.add("drag-over"); });
+  composer.addEventListener("dragleave", () => composer.classList.remove("drag-over"));
+  composer.addEventListener("drop", (e) => {
+    e.preventDefault(); composer.classList.remove("drag-over");
+    Array.from((e.dataTransfer && e.dataTransfer.files) || []).forEach((file) => addContextHint(file.name));
   });
   $("#promptSearch").addEventListener("input", loadPrompts);
   $("#promptCat").addEventListener("change", loadPrompts);
@@ -2324,5 +2837,13 @@ window.addEventListener("DOMContentLoaded", () => {
 // Test hook: lets the Playwright harness read state and drive send/stop without
 // a real Qt bridge. Harmless in production (a read-only handle on internals).
 if (typeof window !== "undefined") {
-  window.__opai = { get state() { return state; }, send: (x) => send(x), stop: () => stop() };
+  window.__opai = {
+    get state() { return state; },
+    send: (x) => send(x),
+    stop: () => stop(),
+    // Pure-ish internals exposed for unit tests: the payload→state selection
+    // sync (F16/F4) and the derived next-run agent mode preview (F21).
+    applyBootSelection: (b) => applyBootSelection(b),
+    derivedAgentMode: () => derivedAgentMode(),
+  };
 }

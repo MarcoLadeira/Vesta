@@ -134,6 +134,50 @@ class BootPayloadTests(unittest.TestCase):
         self.assertTrue(ins["privacy"])
         self.assertIn("pct", ins["budget"])
 
+    def test_boot_exposes_live_controls_preview_that_tracks_focus(self):
+        # F20/F21: boot carries describe_controls — the single live reading of
+        # Run mode + Task focus + the next run's agent mode — and it changes
+        # when the persisted focus changes.
+        from opaihub.gui_preferences import save_gui_preferences
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            controls = boot_payload(root)["controls"]
+            self.assertEqual(controls["run_mode"], "safe-auto")
+            self.assertEqual(controls["focus"], "general")
+            self.assertEqual(controls["agent_mode_preview"], "explain")
+            save_gui_preferences(root, {"default_task_mode": "build"})
+            controls = boot_payload(root)["controls"]
+            self.assertEqual(controls["focus"], "build")
+            self.assertEqual(controls["agent_mode_preview"], "implement")
+            self.assertFalse(controls["read_only"])
+
+    def test_inspector_shows_live_agent_mode_preview_beside_last_run(self):
+        # F21: the persisted "Agent mode" row is the last completed run; the
+        # new "Agent mode (next run)" row + payload field are computed live
+        # from the CURRENT run mode + focus selection.
+        from opai.gui_modes import describe_controls
+        from opai.gui_web import _inspector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            ins = _inspector(
+                root,
+                {
+                    "mode": "safe-auto",
+                    "mode_label": "Safe Auto",
+                    "focus": "build",
+                    "format": "normal",
+                    "accounts": [],
+                },
+            )
+            rows = {r["label"]: r["value"] for r in ins["rows"]}
+        # Both rows exist: history stays history, the preview is live.
+        self.assertIn("Agent mode", rows)
+        self.assertEqual(rows["Agent mode (next run)"], "Implement")
+        self.assertEqual(ins["agent_mode_preview"], "implement")
+        self.assertEqual(ins["controls"], describe_controls("safe-auto", "build"))
+
     def test_inspector_surfaces_github_push_readiness_only_when_editing(self):
         # #300: an edit-capable run shows GitHub push readiness up front; a
         # read-only Ask run doesn't clutter the panel with it.
@@ -186,13 +230,15 @@ class BootPayloadTests(unittest.TestCase):
 
 class WebAssetsTests(unittest.TestCase):
     def test_core_assets_exist(self):
-        for name in ("index.html", "styles.css", "app.js"):
+        for name in ("index.html", "design-tokens.css", "design-tokens-preview.html", "icons.js", "styles.css", "app.js"):
             self.assertTrue((WEB_DIR / name).exists(), name)
 
     def test_index_wires_bridge_and_assets(self):
         html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn("qwebchannel.js", html)
+        self.assertIn("design-tokens.css", html)
         self.assertIn("styles.css", html)
+        self.assertIn("icons.js", html)
         self.assertIn("app.js", html)
 
     def test_index_uses_one_unified_desktop_header(self):

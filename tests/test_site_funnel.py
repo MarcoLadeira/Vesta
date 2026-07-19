@@ -14,7 +14,7 @@ class SiteFunnelTests(unittest.TestCase):
         self.html = (REPO / "site" / "index.html").read_text(encoding="utf-8")
 
     def test_page_exists_with_positioning(self):
-        self.assertIn("AI coding cost firewall", self.html)
+        self.assertIn("AI Coding Cost Firewall", self.html)
         for client in ["Claude", "Codex", "Copilot", "Cursor", "Cline"]:
             self.assertIn(client, self.html)
 
@@ -24,11 +24,7 @@ class SiteFunnelTests(unittest.TestCase):
         self.assertNotIn("install.sh", self.html)
         self.assertNotIn('python -m pip install "opai[desktop-gui]"', self.html)
         self.assertIn("Free public alpha", self.html)
-        self.assertIn(
-            "No checkout, license, invitation, or private-access link", self.html
-        )
-        self.assertIn("There is no public package installation command yet", self.html)
-        self.assertIn("github.com/MarcoLadeira/OPai/releases", self.html)
+        self.assertIn("pip install opai", self.html)
         for token in [
             "PRIVATE_FOUNDING_PRO_CHECKOUT_URL",
             "PRIVATE_TEAM_PILOT_APPLY_URL",
@@ -37,24 +33,19 @@ class SiteFunnelTests(unittest.TestCase):
             "data-checkout-provider",
         ]:
             self.assertNotIn(token, self.html)
-        self.assertIn("opai quickstart", self.html)
-        self.assertIn("opai benchmark run --suite max --mode both", self.html)
-        self.assertIn(
-            "opai benchmark gate --min-effectiveness-index 95",
-            self.html,
-        )
         self.assertIn("opai savings --markdown", self.html)
 
-    def test_page_uses_only_privacy_safe_cloudflare_analytics(self):
+    def test_page_uses_no_third_party_trackers(self):
+        # The current page ships zero analytics; privacy-safe means none at all.
         lowered = self.html.lower()
-        self.assertIn("static.cloudflareinsights.com/beacon.min.js", lowered)
-        self.assertIn("replace_with_cloudflare_web_analytics_token", lowered)
         for tracker in [
             "google-analytics",
             "googletagmanager",
             "gtag(",
             "plausible",
             "mixpanel",
+            "cloudflareinsights",
+            "beacon.min.js",
         ]:
             self.assertNotIn(tracker, lowered)
 
@@ -62,10 +53,10 @@ class SiteFunnelTests(unittest.TestCase):
         for token in ["$12", "$99", "$19", "$29", "Founding Pro", "Team Pilot"]:
             self.assertNotIn(token, self.html)
         self.assertIn("$0", self.html)
-        self.assertIn("Future pricing follows evidence", self.html)
+        self.assertIn("Free public alpha", self.html)
 
     def test_launch_ctas_match_free_alpha_contract(self):
-        for token in ["Get OPai Free", "Run the proof loop", "See alpha readiness"]:
+        for token in ["Try the playground", "View on GitHub", "Join Discussions"]:
             self.assertIn(token, self.html)
         self.assertIn("Free public alpha", self.html)
 

@@ -49,12 +49,41 @@ raw ids stay in code surfaces (Principle 5). Grouped tool rows: `{Verb} {N}
 
 ## Patterns
 
+- **View state:** `{title}` + `{plain-language reason}` + `{safe next action}`.
+  Error cards use an assertive alert; loading, empty, and degraded cards use a
+  polite status. The action must be user initiated: never retry a model call
+  or spend-triggering operation automatically.
+- **Loading:** name the work actually under way — "Loading settings" / "Checking
+  local preferences and connections." Never show a simulated percentage or a
+  fake progress bar. Workspace generation uses the canonical prepare, context,
+  model, connect, and send phases above.
+- **Empty:** say what is absent and expose the shortest productive path —
+  "No saved chats yet" / "Start a chat and it will appear here." / "New chat".
+- **Degraded:** say what is temporarily unavailable, preserve the safe path,
+  and do not imply a retry is running — "Dashboard is temporarily unavailable"
+  / "You appear to be offline, so fresh savings data is unavailable." /
+  "Open chat".
 - **Error:** `{What broke}. {Next action}.` — e.g. "Claude hit an error and
   couldn't finish. Try again, or pick a different model."
 - **Cancel:** neutral tone, never error styling: "Generation stopped by you.
   You can edit the prompt, retry, or switch model."
 - **Cost warning:** "This needs a paid model. Pick your Claude, Codex, or
   Copilot account to run it — OPai won't spend on a paid call automatically."
+- **Composer setup:** show the effective mode, its one-line consequence, the
+  selected model, and one conservative cost posture before every send. Use
+  "No provider spend" only for local or free routes; use "May spend within
+  your limits" for an account route. Never imply a price OPai has not read
+  from the local ledger.
+- **Disabled send:** state the cause and name one local remedy: "Write a prompt
+  before sending." or "Connect Claude before sending." The Settings action is
+  an explicit user choice; OPai never starts connection or spend workflows on
+  its own.
+- **Repository context:** call these "references", not uploads or attachments.
+  The composer may send a repository-relative path, never claim the file bytes
+  were included, and reminds people that existing context caps still apply.
+- **Keyboard:** keep the compact hint literal: "Enter to send · Shift+Enter for
+  a new line". The same behavior must work in the composer regardless of
+  whether it was reached through the sidebar or command palette.
 - **Activity:** `{Verb} {object}: {detail}` — "Read file: opai/activity.py",
   "Ran command: pytest".
 - **Buttons:** imperative, ≤3 words: Send · Stop · Retry · Edit prompt ·

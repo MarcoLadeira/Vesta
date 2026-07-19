@@ -32,6 +32,7 @@ from opai.gui_controls import (
     empty_state,
     filter_commands,
     header_status,
+    live_agent_mode_row,
     model_badge,
     session_inspector,
     thinking_text,
@@ -42,6 +43,7 @@ from opai.gui_modes import (
     DEFAULT_TASK_MODE,
     output_format,
     output_formats,
+    plan_mode_selection,
     task_modes,
     task_summary,
 )
@@ -384,6 +386,7 @@ def _run_gui(
         DEFAULT_MODE,
         MODES,
         load_gui_preferences,
+        pin_full_auto,
         save_gui_preferences,
     )
 
@@ -751,6 +754,10 @@ def _run_gui(
             data["rows"].extend(
                 [
                     {"label": "Agent mode", "value": workflow.mode.title()},
+                    # F21: live preview for the NEXT run, derived from the
+                    # current run mode + focus (single source of truth, F20);
+                    # the persisted row above is the last completed run.
+                    live_agent_mode_row(run_mode, self._task_mode_id),
                     {
                         "label": "Workflow",
                         "value": workflow.phase.replace("_", " ").title(),
@@ -1306,7 +1313,6 @@ def _run_gui(
         def _load_models(self) -> None:
             data = A.available_models(self.root)
             default_model = str(self._preferences.get("default_model") or "auto")
-            default_mode = str(self._preferences.get("default_mode") or DEFAULT_MODE)
             self.model.blockSignals(True)
             self._loading_models = True
             self.model.clear()
@@ -1328,7 +1334,22 @@ def _run_gui(
             if self.model.count():
                 self.model.setCurrentIndex(selected)
                 self._on_model_changed(selected)
-            mode_index = MODES.index(default_mode) if default_mode in MODES else 0
+            self._sync_mode_combo()
+
+        def _sync_mode_combo(self) -> None:
+            """Force the composer combo to display the EFFECTIVE mode (F16).
+
+            A persisted full-auto default that is not pinned is downgraded to
+            Safe Auto on load/save; the combo must never keep showing a
+            silently-downgraded Full Auto (the root cause of F16). The
+            effective mode comes from the same autonomy rule every surface
+            uses, so the classic GUI can never disagree with the engine.
+            """
+            from opaihub.autonomy import resolve_startup_mode
+
+            self._preferences = load_gui_preferences(self.root)
+            effective = resolve_startup_mode(self._preferences).effective_mode
+            mode_index = MODES.index(effective) if effective in MODES else 0
             self._loading_mode = True
             self.mode.setCurrentIndex(max(0, mode_index))
             self._loading_mode = False
@@ -1356,15 +1377,48 @@ def _run_gui(
                 self._refresh_status()
 
         def _on_mode_changed(self, _index) -> None:
-            mode = self._selected_mode()
             if not self._loading_mode:
-                self._preferences = save_gui_preferences(
-                    self.root, {"default_mode": mode}
-                )
+                mode = self._selected_mode()
+                decision = plan_mode_selection(mode, self._preferences)
+                if decision["needs_pin_confirmation"]:
+                    # F16: Full Auto requires the same explicit pin
+                    # acknowledgement the web GUI shows (#137). Persisting a
+                    # bare full-auto default would be silently downgraded to
+                    # Safe Auto while the combo kept displaying Full Auto.
+                    if self._confirm_full_auto_pin():
+                        self._preferences = pin_full_auto(self.root)
+                else:
+                    self._preferences = save_gui_preferences(
+                        self.root, {"default_mode": decision["effective_mode"]}
+                    )
+                # After a declined pin or any sanitize-downgrade, force the
+                # combo back to the EFFECTIVE mode — never a stale lie.
+                self._sync_mode_combo()
             if hasattr(self, "inspector_box"):
                 self._refresh_inspector()
             if hasattr(self, "header_stat"):
                 self._refresh_status()
+
+        def _confirm_full_auto_pin(self) -> bool:
+            """The classic Pin-Full-Auto acknowledgement — same copy as web."""
+            box = QtWidgets.QMessageBox(self)
+            box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            box.setWindowTitle("Pin Full Auto?")
+            box.setText("Pin Full Auto?")
+            box.setInformativeText(
+                "Full Auto lets OPai edit files and run commands without asking "
+                "first. It stays on until you unpin it. Push, deploy, and "
+                "destructive actions still ask for confirmation."
+            )
+            pin_btn = box.addButton(
+                "Pin Full Auto", QtWidgets.QMessageBox.ButtonRole.AcceptRole
+            )
+            keep_btn = box.addButton(
+                "Keep current mode", QtWidgets.QMessageBox.ButtonRole.RejectRole
+            )
+            box.setDefaultButton(keep_btn)
+            box.exec()
+            return box.clickedButton() is pin_btn
 
         def _on_focus_changed(self, _index) -> None:
             self._task_mode_id = str(self.focus_pick.currentData() or DEFAULT_TASK_MODE)

@@ -82,6 +82,32 @@ def _footer_bits(result: dict[str, Any], elapsed_s: float) -> list[str]:
     return bits
 
 
+def _terminal_verdict(result: dict[str, Any]) -> tuple[str, str, str] | None:
+    """Read the pipeline-owned #378 verdict without inventing terminal truth."""
+
+    raw = result.get("completion_verdict")
+    if not isinstance(raw, dict):
+        return None
+    verdict = str(raw.get("verdict") or "").strip().lower()
+    reason = str(raw.get("reason") or "").strip()
+    next_action = str(raw.get("next_action") or "").strip()
+    return (verdict, reason, next_action) if verdict else None
+
+
+def _consent_request(result: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract a pending command-approval request from a pipeline result.
+
+    The pipeline surfaces a confirm-class command (git push, gh mutations, …)
+    as a consent payload carrying the exact command string and the reason
+    (F17). Keys are probed defensively so older payloads degrade to None.
+    """
+    for key in ("consent", "consent_payload", "approval"):
+        payload = result.get(key)
+        if isinstance(payload, dict) and str(payload.get("command") or "").strip():
+            return payload
+    return None
+
+
 def stream_ask(
     project_root: Path,
     task: str,
@@ -212,13 +238,39 @@ def stream_ask(
         elif state["last_line_open"]:
             _line("")
         footer = " · ".join(_footer_bits(result, elapsed_s))
-        if status == "cancelled":
-            _line("⊘ Stopped by you — partial output kept. Retry or switch model.")
+        consent = _consent_request(result)
+        if consent is not None:
+            # F17: never bury an approval request inside a bare status line.
+            _line(f"! Approval needed to run: {consent['command']}")
+            reason = str(consent.get("reason") or "").strip()
+            if reason:
+                _line(f"  {reason}")
+            _line("  Approve it in the app, or re-run with the command allowed.")
+        if (terminal := _terminal_verdict(result)) is not None:
+            verdict, reason, next_action = terminal
+            glyph = (
+                "✓"
+                if verdict == "completed"
+                else "⊘"
+                if verdict == "cancelled"
+                else "!"
+            )
+            label = verdict.replace("_", " ").title()
+            legacy_detail = (
+                f" ({status})" if status not in ANSWERED and status != verdict else ""
+            )
+            _line(f"{glyph} {label}{legacy_detail} — {reason}")
+            if next_action and verdict != "completed":
+                _line(f"  Next: {next_action}")
+            _line(f"  {footer}")
         elif status in ANSWERED:
             _line(f"✓ {footer}")
         else:
             _line(f"✗ {status} · {footer}")
 
-    if status == "cancelled":
+    terminal = _terminal_verdict(result)
+    if status == "cancelled" or (terminal is not None and terminal[0] == "cancelled"):
         return 130
+    if terminal is not None:
+        return 0 if terminal[0] == "completed" else 2
     return 0 if status in ANSWERED else 2

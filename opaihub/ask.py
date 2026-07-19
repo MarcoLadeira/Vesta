@@ -10,6 +10,8 @@ and recorded to the ledger. Cloud-tier tasks are never auto-called - they return
 from __future__ import annotations
 
 import hashlib
+import inspect
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -239,6 +241,88 @@ def run_ask(
     }
 
 
+_COMMAND_APPROVAL_ERROR = "COMMAND_NEEDS_APPROVAL"
+
+
+def _extract_command_approval(payload: Any) -> dict[str, str] | None:
+    """Normalize the tool loop's command-approval signal (F17/F9).
+
+    The provider tool executor rejects confirm-class commands with the
+    ``COMMAND_NEEDS_APPROVAL`` error code; the loop then stops with
+    ``needs_consent`` carrying the exact command and its reason. The field
+    layout has evolved, so read the explicit payload shapes first, then fall
+    back to the tool trace.
+    """
+
+    if not isinstance(payload, Mapping):
+        return None
+    raw = payload.get("command_approval")
+    if isinstance(raw, Mapping):
+        command = str(raw.get("command") or "").strip()
+        if command:
+            return {
+                "command": command,
+                "reason": str(raw.get("reason") or "").strip(),
+            }
+    command = str(payload.get("command") or "").strip()
+    consent = str(payload.get("completion_state") or "").strip() == "needs_consent"
+    if command and consent:
+        reason = str(
+            payload.get("approval_reason") or payload.get("reason") or ""
+        ).strip()
+        return {"command": command, "reason": reason}
+    for item in payload.get("tool_trace") or []:
+        if not isinstance(item, Mapping):
+            continue
+        if str(item.get("error_code") or "") != _COMMAND_APPROVAL_ERROR:
+            continue
+        command = str(item.get("command") or "").strip()
+        if command:
+            reason = str(item.get("reason") or item.get("message") or "").strip()
+            return {"command": command, "reason": reason}
+    return None
+
+
+def _call_tool_loop(
+    complete_with_tools: Any,
+    task: str,
+    *,
+    root: Path,
+    allow_edits: bool,
+    system: str,
+    cancel: Any,
+    guard: Any,
+    allow_command: str | None,
+) -> dict[str, Any]:
+    """Invoke the runner's tool loop, threading a one-shot command grant.
+
+    ``allow_command`` is the exact command the user just approved (F17/F9); the
+    executor permits it once. Older runners without the parameter simply never
+    receive it — the grant is additive, never a behavior change on its own.
+    """
+
+    kwargs: dict[str, Any] = {
+        "project_root": root,
+        "allow_edits": allow_edits,
+        "tool_calling_enabled": True,
+        "system": system,
+        "cancel": cancel,
+        "guard": guard,
+    }
+    if allow_command:
+        try:
+            params = inspect.signature(complete_with_tools).parameters
+            accepts = "allow_command" in params or any(
+                param.kind is inspect.Parameter.VAR_KEYWORD
+                for param in params.values()
+            )
+        except (TypeError, ValueError):
+            accepts = True
+        if accepts:
+            kwargs["allow_command"] = allow_command
+    return complete_with_tools(task, **kwargs)
+
+
 def run_explicit_model(
     project_root: Path,
     task: str,
@@ -253,6 +337,7 @@ def run_explicit_model(
     record: bool = True,
     cancel: Any = None,
     on_text: Any = None,
+    allow_command: str | None = None,
 ) -> dict[str, Any]:
     """Run an explicitly selected model without Auto routing or prose caching.
 
@@ -261,6 +346,11 @@ def run_explicit_model(
     to ``allow_edits`` for compatibility). A per-turn :class:`ExecutionGuard`
     runs the financial/consent/provider checks before every provider turn — a
     caller may inject one, otherwise a default guard is built here.
+
+    ``allow_command`` is a one-shot, exact-command grant the user issued after
+    a command-approval prompt (F17/F9); it is threaded to the tool executor
+    verbatim. Completion truth (F8): the result's ``completion_state`` is
+    derived from what actually happened — never pre-seeded as "completed".
     """
 
     root = project_root.expanduser().resolve()
@@ -274,8 +364,9 @@ def run_explicit_model(
     }
     if cancel is not None and cancel.is_set():
         return {**base, "status": "cancelled", "answer": ""}
-    completion_state = "completed"
+    completion_state = ""
     blocked_reason = ""
+    approval: dict[str, str] | None = None
     try:
         complete_with_tools = getattr(runner, "complete_with_tools", None)
         if use_tools and callable(complete_with_tools):
@@ -286,20 +377,34 @@ def run_explicit_model(
                 cancel=cancel,
                 guard=guard,
             )
-            completed = complete_with_tools(
+            completed = _call_tool_loop(
+                complete_with_tools,
                 task,
-                project_root=root,
+                root=root,
                 allow_edits=allow_edits,
-                tool_calling_enabled=True,
                 system=SYSTEM_PROMPT,
                 cancel=cancel,
                 guard=turn_guard,
+                allow_command=allow_command,
             )
             answer = str(completed.get("text") or "")
             tool_trace = list(completed.get("tool_trace") or [])
             stopped_reason = str(completed.get("stopped_reason") or "")
             last_error = str(completed.get("last_error") or "")
-            completion_state = str(completed.get("completion_state") or "completed")
+            approval = _extract_command_approval(completed)
+            completion_state = str(completed.get("completion_state") or "")
+            if not completion_state:
+                # Derive completion from what actually happened (F8): an
+                # approval request is a consent stop; a real answer completes;
+                # an empty no-op is an honest failure, never "completed".
+                if approval is not None:
+                    completion_state = "needs_consent"
+                elif stopped_reason:
+                    completion_state = ""  # canonical mapping reads stopped_reason
+                elif answer.strip():
+                    completion_state = "completed"
+                else:
+                    completion_state = "failed"
             blocked_reason = str(completed.get("blocked_reason") or "")
             streamed = False
         elif allow_edits and not callable(complete_with_tools):
@@ -315,13 +420,15 @@ def run_explicit_model(
             tool_trace = []
             stopped_reason = ""
             last_error = ""
+            # F8: a single-shot free run that produced nothing is not "done".
+            completion_state = "completed" if answer.strip() else "failed"
     except LocalRunCancelled:
         return {**base, "status": "cancelled", "answer": ""}
     except Exception as exc:  # noqa: BLE001 - normalize provider failures upstream
         return {**base, "status": "runner_error", "error": str(exc)}
     if record:
         _record(root, task, "L2", cache_hit=False)
-    return {
+    result = {
         **base,
         "status": "answered_locally",
         "free": True,
@@ -344,6 +451,9 @@ def run_explicit_model(
         "completion_state": completion_state,
         "blocked_reason": blocked_reason,
     }
+    if approval is not None:
+        result["command_approval"] = approval
+    return result
 
 
 def _build_turn_guard(

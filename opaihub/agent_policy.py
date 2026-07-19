@@ -64,6 +64,9 @@ _PUBLISH_SIGNAL = re.compile(
 _IMPLEMENT_SIGNAL = re.compile(
     r"\b(?:fix|implement|build|create\s+(?:a\s+)?pr|make\s+(?:a\s+)?pr|open\s+(?:a\s+)?pr|"
     r"pull\s+request|patch|(?:resolve|solve)\s+(?:the\s+)?issue|refactor|(?:write|run)(?:\s+the)?(?:\s+relevant)?\s+tests?|"
+    # "Solve GitHub issue #219" / "fix ticket #42" / "implement issue #7": the
+    # verb may be separated from issue/bug/ticket by a qualifier (F5/F10).
+    r"(?:resolve|solve|fix|implement)\b[^.\n]{0,40}?\b(?:issue|bug|ticket)s?\b|"
     r"create\s+(?:a\s+)?(?:new\s+)?(?:file|module|component|config)|add\s+(?:a\s+)?feature|"
     r"change\s+(?:the\s+)?code|edit\s+(?:the\s+)?files?|improve|update|upgrade|rename|remove|replace)\b",
     re.IGNORECASE,

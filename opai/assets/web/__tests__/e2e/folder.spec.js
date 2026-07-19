@@ -66,7 +66,8 @@ test("chat history can be cleared in one click (#145)", async ({ page }) => {
   await page.click("#clearRecents");
   expect(await page.evaluate(() => window.__mock.clearedRecents)).toBe(1);
   await expect(page.locator("#clearRecents")).toHaveCount(0);
-  await expect(page.locator("#recents")).toContainText("Your chats appear here.");
+  await expect(page.locator("#recents")).toContainText("No saved chats yet");
+  await expect(page.locator("#recents").getByRole("button", { name: "New chat" })).toBeVisible();
 });
 
 test("sending a prompt saves it to history", async ({ page }) => {

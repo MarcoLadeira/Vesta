@@ -256,6 +256,22 @@
       "forbidden_paths": [],
       "requires_confirmation": ["model download"],
       "notes": "Phase 2 integration target."
+    },
+    {
+      "id": "graphify",
+      "name": "Graphify Graph MCP",
+      "description": "Query the project's graphify knowledge graph (query_graph, get_node, get_neighbors, shortest_path) instead of reading raw files.",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "graphify.serve", "${PROJECT_ROOT}/graphify-out/graph.json"],
+      "env": {},
+      "enabled": false,
+      "permission_level": "low",
+      "cost_level": "free",
+      "allowed_paths": ["${PROJECT_ROOT}/graphify-out"],
+      "forbidden_paths": [],
+      "requires_confirmation": [],
+      "notes": "Read-only graph queries; requires 'uv tool install graphifyy[mcp]' and a built graphify-out/graph.json. Disabled until the project builds its first graph."
     }
   ]
 }

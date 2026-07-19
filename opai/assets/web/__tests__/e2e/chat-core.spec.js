@@ -29,7 +29,7 @@ test("sends a prompt, streams one response, and accepts a follow-up", async ({ p
 
 test("empty and whitespace-only prompts never create requests", async ({ page }) => {
   await page.fill("#input", "   ");
-  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
   await page.press("#input", "Enter");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
   await expect(page.locator(".msg")).toHaveCount(0);
@@ -90,8 +90,25 @@ test("Auto fallback names the model and only starts cloud after confirmation", a
   await expect(page.getByText("Continue with Groq · GPT-OSS 120B")).toBeVisible();
   await page.getByRole("button", { name: "Confirm Groq · GPT-OSS 120B" }).click();
   const second = await page.evaluate(() => window.__mock.lastRequest);
+  expect(second.model).toBe("free:groq:openai/gpt-oss-120b");
   expect(second.allowCloud).toBe(true);
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
+});
+
+test("Auto with no eligible provider directs model selection without retrying", async ({ page }) => {
+  await openApp(page, { boot: { selectedModel: "auto" } });
+  await page.fill("#input", "Explain the project");
+  await page.getByRole("button", { name: "Send" }).click();
+  const first = await page.evaluate(() => window.__mock.lastRequest);
+  await page.evaluate((id) => window.__mock.emitReply(id, {
+    status: "needs_model",
+    answer: "Auto has no available model. Choose a configured model, or connect a free API, account, or local model in Settings.",
+  }), first.requestId);
+
+  await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Switch model" }).click();
+  await expect(page.locator("#modelSel")).toBeFocused();
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
 });
 
 test("usage limit warning resends only after explicit confirmation", async ({ page }) => {

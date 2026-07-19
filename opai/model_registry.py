@@ -12,6 +12,21 @@ Now both derive from the registry here, and there is one validation path
 and if not, what is the safe fallback?". Kept dependency-free so every layer
 (accounts, provider_contract, routing, doctor, the GUI Connection Doctor) can
 import it without a cycle.
+
+Two provider tiers (F2, QA E2E 2026-07-17):
+
+- **Account providers** (``claude``/``codex``/``copilot``) are subscription
+  CLIs. :func:`providers` and :func:`catalog` cover exactly this tier because
+  the account pickers, doctor, and the derived ``accounts.py`` /
+  ``provider_contract.py`` tables are account-only contracts.
+- **Free API providers** (``gemini``/``groq``/``mistral``) are registered in
+  ``_REGISTRY`` too — with honest capability metadata — so every picker-visible
+  model resolves through :func:`find` / :func:`resolve_id` / :func:`validate`
+  instead of being a registry blind spot. Their *operational* spec (API base,
+  env key, setup hint, picker labels) lives in ``opaihub/free_models.py``;
+  this module deliberately does not duplicate it.
+  ``tests/test_free_model_registry.py`` pins the two modules together so the
+  tiers cannot drift apart again.
 """
 
 from __future__ import annotations
@@ -98,12 +113,58 @@ _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
         ModelSpec("gpt-5.2", "GPT-5.2", "GPT-5.2", "best"),
         ModelSpec("claude-haiku-4.5", "Claude Haiku", "Claude Haiku 4.5", "fast"),
     ),
+    # Free API tier (F2): picker-visible free models are registered here too,
+    # so find/resolve_id/validate answer for every model the GUI offers. The
+    # ids MUST stay identical to opaihub/free_models.py FREE_MODEL_SPECS
+    # model_id values — the consistency test enforces it. Capability hints
+    # rank within the free tier (not against account models): the lite/small
+    # models are "fast"; the 120B open model is the free tier's "balanced".
+    "gemini": (
+        ModelSpec(
+            "gemini-3.1-flash-lite",
+            "Gemini 3.1 Flash-Lite",
+            "Google Gemini 3.1 Flash-Lite (free tier)",
+            "fast",
+        ),
+    ),
+    "groq": (
+        ModelSpec(
+            "openai/gpt-oss-120b",
+            "GPT-OSS 120B",
+            "OpenAI GPT-OSS 120B via Groq (free tier)",
+            "balanced",
+        ),
+    ),
+    "mistral": (
+        ModelSpec(
+            "mistral-small-latest",
+            "Mistral Small",
+            "Mistral Small (free tier)",
+            "fast",
+        ),
+    ),
 }
+
+# Account providers are subscription CLIs; free providers are key-gated public
+# API tiers. Both live in _REGISTRY, but the account pickers, doctor catalog,
+# and the derived accounts/provider_contract tables are account-only contracts.
+ACCOUNT_PROVIDERS = ("claude", "codex", "copilot")
+FREE_PROVIDERS = ("gemini", "groq", "mistral")
 
 
 def providers() -> tuple[str, ...]:
-    """All account providers the registry knows, in registration order."""
-    return tuple(_REGISTRY)
+    """All account providers the registry knows, in registration order.
+
+    Free API providers are registered too but are exposed separately via
+    :func:`free_providers` — account surfaces must not suddenly list them.
+    """
+    return ACCOUNT_PROVIDERS
+
+
+def free_providers() -> tuple[str, ...]:
+    """Free API providers (``opaihub/free_models.py`` operational specs), in
+    registration order."""
+    return FREE_PROVIDERS
 
 
 def models_for(provider: str) -> tuple[ModelSpec, ...]:
@@ -155,6 +216,8 @@ def validate(provider: str, model_id: str | None) -> dict[str, object]:
     Returns ``{valid, canonical, fallback, reason}``. ``canonical`` is the
     resolved id when valid; ``fallback`` is the safe default id to route to
     instead; ``reason`` is a human sentence when invalid (empty when valid).
+    Covers both tiers — account providers and the free API providers
+    registered under :data:`FREE_PROVIDERS`.
     """
     prov = str(provider or "").lower()
     if prov not in _REGISTRY:
@@ -181,12 +244,17 @@ def validate(provider: str, model_id: str | None) -> dict[str, object]:
 
 
 def catalog() -> dict[str, list[dict[str, str]]]:
-    """The whole registry as plain data — for ``opai doctor`` and the GUI
-    Connection Doctor to render the one true model list."""
+    """The account-provider registry as plain data — for ``opai doctor`` and
+    the GUI Connection Doctor to render the one true account model list.
+
+    Free API providers are registered in ``_REGISTRY`` as well (F2) but are
+    intentionally not part of this account catalog; their picker/diagnostic
+    surface is ``opaihub/free_models.py``.
+    """
     return {
         provider: [
             {"id": spec.id, "display": spec.display, "capability": spec.capability}
-            for spec in specs
+            for spec in models_for(provider)
         ]
-        for provider, specs in _REGISTRY.items()
+        for provider in ACCOUNT_PROVIDERS
     }

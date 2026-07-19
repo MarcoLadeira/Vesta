@@ -246,7 +246,9 @@ class DesktopArtifactContractTests(unittest.TestCase):
         for asset in [
             "index.html",
             "app.js",
+            "icons.js",
             "styles.css",
+            "design-tokens.css",
             "activity.js",
             "message-state.js",
             "settings.js",
