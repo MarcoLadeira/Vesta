@@ -165,9 +165,10 @@ export const DASHBOARDS = {
     title: "Context Waste",
     subtitle: "Large generated folders can consume model context.",
     kpis: [
-      { label: "Estimated waste", value: "46,200 tokens", severity: "warning" },
+      { label: "Estimated wasted tokens", value: "46,200 tokens", severity: "warning" },
       { label: "Largest source", value: "node_modules", severity: "danger" },
       { label: "Potential reduction", value: "12.0x", severity: "success" },
+      { label: "Estimated cost if sent", value: "$0.13", description: "Not money spent — projection for uncompressed context.", severity: "neutral" },
     ],
     cards: [
       { title: "node_modules", body: "Generated dependency files", metrics: [{ label: "Estimated tokens", value: "41,000", severity: "warning" }] },

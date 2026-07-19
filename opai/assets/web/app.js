@@ -2265,7 +2265,7 @@ function renderDashboard(section) {
     if (s.subtitle) h += `<div class="page-sub">${esc(s.subtitle)}</div>`;
     if (s.hero) h += `<div class="hero"><div class="num" style="color:${sevColor(s.hero.severity)}">${esc(s.hero.headline)}</div><div class="cap">${esc(s.hero.caption || "")}</div></div>`;
     if (s.kpis && s.kpis.length) {
-      h += `<div class="kpis">` + s.kpis.map((k) => `<div class="kpi"><div class="l">${esc(k.label)}</div><div class="v" style="color:${sevColor(k.severity)}">${esc(k.value)}</div></div>`).join("") + `</div>`;
+      h += `<div class="kpis">` + s.kpis.map((k) => `<div class="kpi"><div class="l">${esc(k.label)}</div><div class="v" style="color:${sevColor(k.severity)}">${esc(k.value)}</div>${k.description ? `<div class="d">${esc(k.description)}</div>` : ""}</div>`).join("") + `</div>`;
     }
     (s.cards || []).forEach((c) => {
       h += `<div class="card"><div class="ch"><div class="ct">${esc(c.title || "")}</div>${c.status ? `<span class="pill ${c.severity || "neutral"}">${esc(c.status)}</span>` : ""}</div>`;

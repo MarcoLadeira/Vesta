@@ -344,6 +344,24 @@ class PremiumGuiContractTests(unittest.TestCase):
         )
         self.assertEqual(benchmark_kpi["value"], "Run local max")
 
+    def test_context_waste_cost_is_clearly_an_estimate_not_spend(self):
+        from opai.gui_view_model import build_view_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            vm = build_view_model(root)
+
+        context = next(section for section in vm["sections"] if section["id"] == "context")
+        tokens = next(kpi for kpi in context["kpis"] if "token" in kpi["label"].lower())
+        self.assertEqual(tokens["label"], "Estimated wasted tokens")
+        cost = next(kpi for kpi in context["kpis"] if "cost" in kpi["label"].lower())
+        self.assertEqual(cost["label"], "Estimated cost if sent")
+        self.assertEqual(
+            cost["description"],
+            "Not money spent — projection for uncompressed context.",
+        )
+
     def test_view_model_does_not_expose_raw_prompts_or_secrets(self):
         from opai.gui_view_model import build_view_model
         from opaihub.ledger import record_route_decision
