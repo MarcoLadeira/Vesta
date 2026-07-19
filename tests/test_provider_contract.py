@@ -45,6 +45,20 @@ class ProviderErrorContractTests(unittest.TestCase):
         self.assertEqual(timed_out["code"], "PROVIDER_TIMEOUT")
         self.assertTrue(timed_out["retryable"])
 
+    def test_copilot_monthly_quota_is_an_actionable_headline(self):
+        for diagnostic in (
+            "You have exceeded your monthly quota (Request ID: CE73:2B35E5)",
+            "Copilot quota exceeded",
+            "HTTP 403: You have exceeded your monthly quota",
+        ):
+            with self.subTest(diagnostic=diagnostic):
+                error = normalize_provider_error("copilot", diagnostic)
+
+                self.assertEqual(error["code"], "PROVIDER_QUOTA_EXHAUSTED")
+                self.assertIn("quota", error["title"].lower())
+                self.assertIn("switch model", error["userMessage"].lower())
+                self.assertFalse(error["retryable"])
+
     def test_secret_values_are_redacted(self):
         text = (
             "Authorization: Bearer sk-live-secret123456 "
