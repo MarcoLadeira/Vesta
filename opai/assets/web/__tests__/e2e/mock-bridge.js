@@ -372,12 +372,18 @@
     },
     clearSession: function (cb) {
       window.__mock.clearedSessions++;
-      if (scenario.clearSessionResult) {
-        if (cb) cb(JSON.stringify(scenario.clearSessionResult));
+      var result = scenario.clearSessionResult;
+      if (!result) {
+        boot.resume = { available: false, requires_choice: false, thread: {}, workflow: {}, checkpoint: {} };
+        result = Object.assign({}, boot, { ok: true });
+      }
+      // Simulate a slow/contended real bridge: hold the callback so a test can
+      // assert the resume card is dismissed synchronously on click (#416).
+      if (scenario.deferClearSession) {
+        window.__mock.flushClearSession = function () { if (cb) cb(JSON.stringify(result)); };
         return;
       }
-      boot.resume = { available: false, requires_choice: false, thread: {}, workflow: {}, checkpoint: {} };
-      if (cb) cb(JSON.stringify(Object.assign({}, boot, { ok: true })));
+      if (cb) cb(JSON.stringify(result));
     },
     copyText: function (t) { window.__mock.copiedTexts.push(t); },
     openExternal: function (url) { window.__mock.externalUrls.push(url); },

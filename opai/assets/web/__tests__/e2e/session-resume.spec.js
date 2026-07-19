@@ -56,6 +56,38 @@ test("start fresh clears only through the session bridge and restores the empty 
 });
 
 
+test("start fresh dismisses the resume card immediately, before the bridge confirms (#416)", async ({ page }) => {
+  // Hold the clearSession callback to simulate a slow/contended real bridge; the
+  // card must still disappear on click, not wait for the reply (a lingering,
+  // still-interactive card is what made an earlier click seem to need a second).
+  await openApp(page, { boot: { resume }, deferClearSession: true });
+
+  await expect(page.getByRole("group", { name: "Resume previous work" })).toBeVisible();
+  await page.getByRole("button", { name: "Start fresh" }).click();
+
+  // Gone right away, while the bridge callback is still pending.
+  await expect(page.getByRole("group", { name: "Resume previous work" })).toHaveCount(0);
+  expect(await page.evaluate(() => window.__mock.clearedSessions)).toBe(1);
+  expect(await page.evaluate(() => typeof window.__mock.flushClearSession)).toBe("function");
+
+  // Let the bridge finally answer; the composer settles into the empty state.
+  await page.evaluate(() => window.__mock.flushClearSession());
+  await expect(page.locator("#empty")).toBeVisible();
+  await expect(page.locator("#input")).toBeEnabled();
+});
+
+
+test("resume work dismisses the card immediately, before activation confirms (#416)", async ({ page }) => {
+  await openApp(page, { boot: { resume } });
+
+  await page.getByRole("button", { name: "Resume work" }).click();
+
+  // The choice card is removed synchronously; the restored thread renders in its place.
+  await expect(page.getByRole("group", { name: "Resume previous work" })).toHaveCount(0);
+  await expect(page.locator(".msg.user")).toContainText("Continue the index work");
+});
+
+
 test("failed start fresh keeps resume visible and reports a recoverable error", async ({ page }) => {
   const failure = {
     ok: false,
