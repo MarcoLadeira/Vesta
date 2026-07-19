@@ -1699,11 +1699,15 @@ def cmd_models(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.models_command == "list":
         from opai import app_state as A
-        from opaihub.accounts import account_models
         from opaihub.gui_preferences import load_gui_preferences
 
         data = A.available_models(root)
-        account_options = account_models(include_unavailable=True)
+        # Reuse the GUI's capability-filtered source of truth.  Calling
+        # account_models() directly here would bypass the local Codex
+        # account-type check and advertise subscription-incompatible IDs.
+        account_options = [
+            option for option in data["models"] if option.get("kind") == "account"
+        ]
         groups = [
             {
                 "id": "auto",
@@ -1763,13 +1767,9 @@ def cmd_models(args: argparse.Namespace) -> int:
         )
     elif args.models_command == "set-default":
         from opai import app_state as A
-        from opaihub.accounts import account_models
         from opaihub.gui_preferences import save_gui_preferences
 
         known = {"auto"}
-        known.update(
-            option["id"] for option in account_models(include_unavailable=True)
-        )
         known.update(option["id"] for option in A.available_models(root)["models"])
         if args.model_id not in known:
             print_json(

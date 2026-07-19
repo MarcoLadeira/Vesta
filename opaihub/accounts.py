@@ -39,6 +39,10 @@ _CONNECTION_CACHE_LOCK = threading.RLock()
 _CONNECTION_CACHE_TTL = 300.0
 _CONNECTION_HISTORY: dict[tuple[str, str], dict[str, Any]] = {}
 _CONNECTION_HISTORY_LIMIT = 64
+# Capability classifications come from an auth-status check.  They must not
+# outlive the check indefinitely because a user can switch Codex sign-in modes
+# without removing the local auth artifact.
+_ACCOUNT_TYPE_HISTORY_TTL_MS = int(_CONNECTION_CACHE_TTL * 1000)
 _CLI_VERSION_CACHE: dict[str, str] = {}
 
 _INVALID_CODEX_TIER = 'service_tier = "default"'
@@ -77,6 +81,7 @@ def _safe_connection_summary(result: dict[str, Any]) -> dict[str, Any]:
             "displayName": result.get("displayName"),
             "authStatus": result.get("authStatus"),
             "credentialSource": result.get("credentialSource"),
+            "accountType": result.get("accountType"),
             "lastCheckedAt": result.get("lastCheckedAt"),
             "lastError": result.get("lastError"),
             "lastErrorCode": result.get("lastErrorCode"),
@@ -334,6 +339,7 @@ def connection_for_account(
     last_checked_at: int | None = None,
     error: dict[str, Any] | None = None,
     env_overrides_removed: list[str] | None = None,
+    account_type: str | None = None,
 ) -> dict[str, Any]:
     """Build the safe connection payload used by Settings and the chat gate.
 
@@ -380,6 +386,9 @@ def connection_for_account(
         "userFacingName": "OPai",
         "authStatus": auth_status,
         "credentialSource": "user_account",
+        # Safe, normalized classification from an account status command. It
+        # never contains credential material or raw provider output.
+        "accountType": str(account_type or "unknown"),
         "lastCheckedAt": last_checked_at,
         "lastError": (error or {}).get("userMessage"),
         "lastErrorCode": (error or {}).get("code"),
@@ -427,6 +436,19 @@ def account_connections(home: Path | None = None) -> list[dict[str, Any]]:
     return [
         connection_for_account(account) for account in list_connected_accounts(home)
     ]
+
+
+def _account_type_from_status(account_id: str, detail: str) -> str:
+    """Return a safe Codex capability class from status text, never raw text."""
+
+    if account_id != "codex":
+        return "unknown"
+    normalized_detail = detail.lower()
+    if "chatgpt" in normalized_detail:
+        return "chatgpt"
+    if "api key" in normalized_detail or "api-key" in normalized_detail:
+        return "api_key"
+    return "unknown"
 
 
 def test_account_connection(
@@ -528,11 +550,13 @@ def test_account_connection(
         and status_error["code"] not in {"UNKNOWN", "NO_RESPONSE"}
     )
     if returncode == 0 and not status_failed:
+        account_type = _account_type_from_status(account_id, detail)
         result = connection_for_account(
             account,
             auth_status="connected",
             last_checked_at=checked_at,
             env_overrides_removed=env_removed,
+            account_type=account_type,
         )
         if run is None:
             with _CONNECTION_CACHE_LOCK:
@@ -588,6 +612,19 @@ def _with_connection_history(
     if changed:
         for key in ("authStatus", "safeDiagnostic", "error"):
             merged[key] = current.get(key)
+    checked_at = history.get("lastCheckedAt")
+    try:
+        account_type_is_fresh = (
+            int(time.time() * 1000) - int(checked_at)
+            <= _ACCOUNT_TYPE_HISTORY_TTL_MS
+        )
+    except (TypeError, ValueError):
+        account_type_is_fresh = False
+    if not account_type_is_fresh:
+        # Do not retain an API-key capability after the status result that
+        # established it has expired.  Unknown falls back to the Codex CLI's
+        # own compatible default model.
+        merged["accountType"] = str(current.get("accountType") or "unknown")
     return merged
 
 
@@ -664,6 +701,7 @@ def provider_connection_doctor(
                 "health": _connection_health(connection),
                 "authStatus": str(connection.get("authStatus") or "unknown"),
                 "credentialSource": "user_account",
+                "accountType": str(connection.get("accountType") or "unknown"),
                 "credentialSourceLabel": "Subscription sign-in",
                 "cliInstalled": bool(account.get("cli_present")),
                 "cliVersion": (
@@ -995,7 +1033,7 @@ COPILOT_MODELS: list[tuple[str, str, str]] = [
 
 
 def _account_options(
-    account: dict[str, Any], *, connected: bool
+    account: dict[str, Any], *, connected: bool, account_type: str | None = None
 ) -> list[dict[str, Any]]:
     from opai.provider_contract import provider_display_name
 
@@ -1019,6 +1057,32 @@ def _account_options(
             for alias, label in CLAUDE_MODELS
         ]
     if account["id"] == "codex":
+        normalized_account_type = str(account_type or "").lower()
+        if account_type is not None and normalized_account_type != "api_key":
+            return [
+                {
+                    "id": "account:codex",
+                    "label": "Codex · Account default",
+                    "advanced_label": (
+                        "Codex chooses a model supported by this ChatGPT account"
+                        if normalized_account_type == "chatgpt"
+                        else (
+                            "Codex chooses a supported model until this account's "
+                            "sign-in type is verified"
+                        )
+                    ),
+                    "provider": "codex",
+                    "model": "",
+                    "kind": "account",
+                    "group": "codex",
+                    "paid": True,
+                    "vendor": account["vendor"],
+                    "speed": "balanced",
+                    "connected": connected,
+                    "available": connected,
+                    "disabled_reason": disabled_reason,
+                }
+            ]
         return [
             {
                 "id": f"account:codex:{model_id}",
@@ -1081,6 +1145,7 @@ def account_models(
     *,
     include_unavailable: bool = False,
     accounts: list[dict[str, Any]] | None = None,
+    account_types: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Picker options for connected accounts (paid, run via the user's CLI).
 
@@ -1093,7 +1158,14 @@ def account_models(
         connected = bool(account["connected"])
         if not connected and not include_unavailable:
             continue
-        options.extend(_account_options(account, connected=connected))
+        account_type = (
+            str(account_types.get(account["id"]) or "unknown")
+            if account_types is not None
+            else None
+        )
+        options.extend(
+            _account_options(account, connected=connected, account_type=account_type)
+        )
     return options
 
 

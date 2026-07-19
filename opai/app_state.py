@@ -547,10 +547,6 @@ def available_models(
     from opaihub.local_runner import cached_local_models, list_local_models
 
     detected_accounts = list_connected_accounts()
-    accounts = account_models(accounts=detected_accounts)
-    account_catalog = account_models(
-        include_unavailable=True, accounts=detected_accounts
-    )
     connections = [connection_for_account(account) for account in detected_accounts]
     # Use only local connection history here: it records a recent safe auth
     # check (including a known failure) without adding a CLI/provider probe to
@@ -565,6 +561,18 @@ def available_models(
             include_history=True,
         )
     }
+    account_types = {
+        provider: str(health.get("accountType") or "unknown")
+        for provider, health in account_health.items()
+    }
+    accounts = account_models(
+        accounts=detected_accounts, account_types=account_types
+    )
+    account_catalog = account_models(
+        include_unavailable=True,
+        accounts=detected_accounts,
+        account_types=account_types,
+    )
     unavailable_account_statuses = {
         "misconfigured",
         "provider_unavailable",

@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from opaihub.accounts import (
+    _with_connection_history,
     disconnect_account,
     interactive_provider_login,
     provider_connection_doctor,
@@ -51,6 +52,27 @@ def account(
 
 
 class ConnectionDoctorTests(unittest.TestCase):
+    def test_stale_codex_capability_history_reverts_to_unknown(self):
+        current = {
+            "providerId": "codex",
+            "authStatus": "unknown",
+            "accountType": "unknown",
+            "cliPresent": True,
+            "detected": True,
+        }
+        history = {
+            "providerId": "codex",
+            "authStatus": "connected",
+            "accountType": "api_key",
+            "lastCheckedAt": 1,
+            "cliPresent": True,
+            "detected": True,
+        }
+
+        merged = _with_connection_history(current, history)
+
+        self.assertEqual(merged["accountType"], "unknown")
+
     def test_doctor_aggregates_account_and_api_diagnostics_without_secret_values(self):
         secret = "must-" + "never-render"
         entries = provider_connection_doctor(
