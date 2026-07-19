@@ -31,6 +31,7 @@ ERROR_CODES = (
     "AUTH_INVALID",
     "AUTH_EXPIRED",
     "PROVIDER_RATE_LIMITED",
+    "PROVIDER_QUOTA_EXHAUSTED",
     "PROVIDER_TIMEOUT",
     "PROVIDER_UNAVAILABLE",
     "NETWORK_ERROR",
@@ -82,6 +83,15 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
         "userMessage": "Wait a moment, then retry or choose another connection.",
         "actions": ["retry", "open_settings"],
         "retryable": True,
+    },
+    "PROVIDER_QUOTA_EXHAUSTED": {
+        "authStatus": "rate_limited",
+        "title": "This provider's quota has been exhausted.",
+        "userMessage": (
+            "Switch model, or wait for your provider quota to reset before retrying."
+        ),
+        "actions": ["change_mode", "open_settings", "show_details"],
+        "retryable": False,
     },
     "PROVIDER_TIMEOUT": {
         "authStatus": "unknown",
@@ -204,6 +214,13 @@ def classify_error_code(
     if timed_out:
         return "PROVIDER_TIMEOUT"
     low = str(detail or "").lower()
+    # Quota exhaustion may be wrapped in an HTTP 403 by Copilot. Classify the
+    # specific, actionable provider diagnosis before the generic auth status.
+    if any(
+        phrase in low
+        for phrase in ("quota exceeded", "exceeded your monthly quota")
+    ):
+        return "PROVIDER_QUOTA_EXHAUSTED"
     if "expired" in low and any(
         word in low for word in ("token", "oauth", "session", "credential")
     ):
@@ -236,10 +253,7 @@ def classify_error_code(
         )
     ):
         return "AUTH_INVALID"
-    if any(
-        word in low
-        for word in ("429", "rate limit", "too many requests", "quota exceeded")
-    ):
+    if any(word in low for word in ("429", "rate limit", "too many requests")):
         return "PROVIDER_RATE_LIMITED"
     if "context" in low and any(
         word in low for word in ("large", "limit", "exceed", "too long")
