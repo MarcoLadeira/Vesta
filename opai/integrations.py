@@ -13,6 +13,7 @@ from typing import Any
 from opai import __brand__, __release_stage__, __version__
 from opai.context_slim import AI_IGNORE_FILES, write_ai_ignore_files
 from opai.terminal_ui import render_badge
+from opaihub.atomic_io import atomic_write_text, interprocess_transaction
 from opaihub.loader import hub_root
 from opaihub.proc import no_window_kwargs
 from opaihub.skills import skill_items
@@ -167,8 +168,7 @@ For Cline: prefer OPai local-first routing before model escalation.
 
 
 def _write(path: Path, text: str, executable: bool = False) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    atomic_write_text(path, text)
     if executable:
         try:
             path.chmod(path.stat().st_mode | 0o755)
@@ -824,7 +824,16 @@ def install_global_integrations(
         ],
     }
     manifest_path = base / "global.json"
-    _write(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    with interprocess_transaction(manifest_path):
+        latest_global = load_global_status(user_home)
+        manifest["targets"] = sorted(
+            set(manifest["targets"]) | set(latest_global.get("targets") or [])
+        )
+        manifest["shell_aliases_installed"] = bool(
+            manifest["shell_aliases_installed"]
+            or latest_global.get("shell_aliases_installed")
+        )
+        _write(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return {"status": "installed", "manifest": str(manifest_path), **manifest}
 
 

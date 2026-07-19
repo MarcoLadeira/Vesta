@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from opaihub.autonomy import (
@@ -131,6 +132,19 @@ class PreferenceMigrationTests(unittest.TestCase):
     def test_saving_full_auto_default_without_pin_does_not_stick(self):
         prefs = save_gui_preferences(self.root, {"default_mode": "full-auto"})
         self.assertEqual(prefs["default_mode"], "safe-auto")
+
+    def test_saving_preferences_uses_one_locked_atomic_transaction(self):
+        path = preference_path(self.root)
+        with (
+            mock.patch("opaihub.gui_preferences.interprocess_transaction") as transaction,
+            mock.patch("opaihub.gui_preferences.atomic_write_text") as atomic_write,
+        ):
+            transaction.return_value.__enter__.return_value = None
+            save_gui_preferences(self.root, {"density": "compact"})
+
+        transaction.assert_called_once_with(path)
+        atomic_write.assert_called_once()
+        self.assertEqual(atomic_write.call_args.args[0], path)
 
 
 class SurfaceParityTests(unittest.TestCase):
