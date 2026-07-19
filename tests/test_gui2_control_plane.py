@@ -99,7 +99,7 @@ class Gui2ModelAndPreferenceTests(unittest.TestCase):
                     [
                         "models",
                         "set-default",
-                        "account:codex:gpt-5.4-mini",
+                        "auto",
                         "--project",
                         str(root),
                     ]
@@ -109,9 +109,62 @@ class Gui2ModelAndPreferenceTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(set_code, 0)
         self.assertIn("groups", listed)
-        self.assertEqual(
-            updated["preferences"]["default_model"], "account:codex:gpt-5.4-mini"
-        )
+        self.assertEqual(updated["preferences"]["default_model"], "auto")
+
+    def test_cli_codex_picker_and_default_reuse_capability_filtered_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            payload = {
+                "models": [
+                    {
+                        "id": "account:codex",
+                        "label": "Codex · Account default",
+                        "provider": "codex",
+                        "kind": "account",
+                    },
+                    {"id": "auto", "label": "Auto", "kind": "auto"},
+                ],
+                "accounts": [],
+                "hint": None,
+            }
+            with mock.patch("opai.app_state.available_models", return_value=payload):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    list_code = main(["models", "list", "--project", str(root)])
+                listed = json.loads(buf.getvalue())
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rejected_code = main(
+                        [
+                            "models",
+                            "set-default",
+                            "account:codex:gpt-5.4-mini",
+                            "--project",
+                            str(root),
+                        ]
+                    )
+                rejected = json.loads(buf.getvalue())
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    accepted_code = main(
+                        [
+                            "models",
+                            "set-default",
+                            "account:codex",
+                            "--project",
+                            str(root),
+                        ]
+                    )
+                accepted = json.loads(buf.getvalue())
+
+        codex_group = next(group for group in listed["groups"] if group["id"] == "codex")
+        self.assertEqual(list_code, 0)
+        self.assertEqual([option["id"] for option in codex_group["models"]], ["account:codex"])
+        self.assertEqual(rejected_code, 2)
+        self.assertEqual(rejected["status"], "unknown_model")
+        self.assertEqual(accepted_code, 0)
+        self.assertEqual(accepted["preferences"]["default_model"], "account:codex")
 
 
 class Gui2ModeAndAutomationTests(unittest.TestCase):
