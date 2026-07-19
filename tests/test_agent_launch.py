@@ -141,6 +141,36 @@ class InvocationClassifierTests(unittest.TestCase):
         self.assertEqual(capture["value"], "selective proxy")
         self.assertEqual(capture["severity"], "success")
 
+    def test_agent_card_formats_needs_setup_status_for_the_dashboard(self):
+        card = _client_card(
+            {
+                "id": "cursor",
+                "label": "Cursor",
+                "status": "needs_setup",
+                "wrapper_installed": False,
+                "wrapper_capture_mode": "missing",
+                "global_ready": False,
+            }
+        )
+        self.assertEqual(card["status"], "NEEDS SETUP")
+
+    def test_agent_card_marks_unsupported_global_check_as_not_required(self):
+        card = _client_card(
+            {
+                "id": "cursor",
+                "label": "Cursor",
+                "status": "active",
+                "wrapper_installed": True,
+                "wrapper_capture_mode": "selective_proxy",
+                "global_required": False,
+            }
+        )
+        global_metric = next(
+            metric for metric in card["metrics"] if metric["label"] == "Global"
+        )
+        self.assertEqual(global_metric["value"], "not required")
+        self.assertEqual(global_metric["severity"], "neutral")
+
 
 class AgentLaunchTests(unittest.TestCase):
     def setUp(self) -> None:

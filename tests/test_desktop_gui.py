@@ -54,8 +54,57 @@ class AppStateReadTests(unittest.TestCase):
         ids = [c["id"] for c in ar["clients"]]
         self.assertEqual(ids, ["claude", "codex", "copilot", "cursor", "cline"])
         for c in ar["clients"]:
-            self.assertIn(c["status"], {"active", "broken", "missing", "unknown"})
+            self.assertIn(c["status"], {"active", "broken", "missing", "needs_setup", "unknown"})
             self.assertTrue(c["repair"])
+
+    def _agent_readiness_card(self, client: dict[str, object], wrapper: dict[str, object]) -> dict[str, object]:
+        integrations = {
+            "clients": [
+                {"id": "cursor", "label": "Cursor", "status": "active", **client}
+            ],
+            "summary": {},
+            "repair_command": "opai activate --repair",
+        }
+        status = {"global": {"wrappers": {"cursor": wrapper}}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            with (
+                mock.patch("opai.clients.client_integrations_status", return_value=integrations),
+                mock.patch("opai.clients.detect_stale_paths", return_value=[]),
+                mock.patch("opai.integrations.project_status", return_value=status),
+            ):
+                cards = A.agent_readiness(root)["clients"]
+        return next(card for card in cards if card["id"] == "cursor")
+
+    def test_agent_readiness_marks_missing_wrapper_as_needs_setup(self):
+        cursor = self._agent_readiness_card(
+            {"global_ready": True},
+            {"exists": False, "capture_mode": "selective_proxy"},
+        )
+        self.assertEqual(cursor["status"], "needs_setup")
+
+    def test_agent_readiness_marks_missing_capture_as_needs_setup(self):
+        cursor = self._agent_readiness_card(
+            {"global_ready": True},
+            {"exists": True, "capture_mode": "missing"},
+        )
+        self.assertEqual(cursor["status"], "needs_setup")
+
+    def test_agent_readiness_marks_missing_required_global_as_needs_setup(self):
+        cursor = self._agent_readiness_card(
+            {"global_ready": False},
+            {"exists": True, "capture_mode": "selective_proxy"},
+        )
+        self.assertEqual(cursor["status"], "needs_setup")
+
+    def test_agent_readiness_treats_missing_global_check_as_not_required(self):
+        cursor = self._agent_readiness_card(
+            {},
+            {"exists": True, "capture_mode": "selective_proxy"},
+        )
+        self.assertEqual(cursor["status"], "active")
+        self.assertFalse(cursor["global_required"])
 
     def test_cost_firewall_profiles_and_panic(self):
         with tempfile.TemporaryDirectory() as tmp:
