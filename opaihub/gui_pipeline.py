@@ -1063,17 +1063,40 @@ def handle_gui_message(
 
         catalog = app.available_models(root, discover_local=False)
         models = list(catalog.get("models") or [])
+        unavailable_account_statuses = {
+            "misconfigured",
+            "provider_unavailable",
+            "invalid",
+            "expired",
+            "disconnected",
+        }
+        unavailable_accounts = {
+            str(connection.get("providerId") or "")
+            for connection in list(catalog.get("connections") or [])
+            if str(connection.get("authStatus") or "").lower()
+            in unavailable_account_statuses
+        }
+
+        def _account_provider(item: dict[str, Any]) -> str:
+            provider = str(item.get("provider") or "")
+            if provider:
+                return provider
+            parts = str(item.get("id") or "").split(":", 2)
+            return parts[1] if len(parts) > 1 and parts[0] == "account" else ""
+
         free = [
             item
             for item in models
-            if item.get("kind") == "free" and item.get("available") is not False
+            if item.get("kind") == "free" and item.get("available") is True
         ]
         if free:
             return free[0]
         accounts = [
             item
             for item in models
-            if item.get("kind") == "account" and item.get("available") is not False
+            if item.get("kind") == "account"
+            and item.get("available") is True
+            and _account_provider(item) not in unavailable_accounts
         ]
         preferred = ("haiku", "mini", "spark", "sonnet")
         return next(
@@ -1770,8 +1793,8 @@ def handle_gui_message(
                 }
             )
         answer = (
-            "Auto has no available model. Connect a free API, account, or local "
-            "model in Settings, then retry."
+            "Auto has no available model. Choose a configured model, or connect "
+            "a free API, account, or local model in Settings."
         )
     elif result.get("status") == "confirmation_required":
         answer = (

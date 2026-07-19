@@ -554,6 +554,72 @@ class AutoFallbackTests(unittest.TestCase):
         self.assertIn("Groq", result["answer"])
         self.assertFalse(result["cloudStarted"])
 
+    def test_auto_ignores_catalog_entries_without_verified_availability(self) -> None:
+        from opaihub.gui_pipeline import handle_gui_message
+
+        models = {
+            "models": [
+                {
+                    # Legacy/malformed free entries must not be treated as a
+                    # configured API key. Auto can safely offer the verified
+                    # connected account instead.
+                    "id": "free:gemini:unverified",
+                    "label": "Gemini · Unverified free tier",
+                    "kind": "free",
+                },
+                {
+                    "id": "account:claude:haiku",
+                    "label": "Claude · Haiku",
+                    "kind": "account",
+                    "available": True,
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.ask.run_ask",
+                    return_value={"status": "no_local_model", "hint": "none"},
+                ),
+                mock.patch("opai.app_state.available_models", return_value=models),
+            ):
+                result = handle_gui_message(
+                    Path(tmp), "explain", model_id="auto", mode="ask"
+                )
+
+        self.assertEqual(result["status"], "needs_auto_confirmation")
+        self.assertEqual(result["fallbackModelId"], "account:claude:haiku")
+        self.assertIn("Claude", result["answer"])
+
+    def test_auto_skips_account_with_known_failed_connection(self) -> None:
+        from opaihub.gui_pipeline import handle_gui_message
+
+        catalog = {
+            "models": [
+                {
+                    "id": "account:claude:haiku",
+                    "label": "Claude · Haiku",
+                    "kind": "account",
+                    "available": True,
+                }
+            ],
+            "connections": [{"providerId": "claude", "authStatus": "expired"}],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.ask.run_ask",
+                    return_value={"status": "no_local_model", "hint": "none"},
+                ),
+                mock.patch("opai.app_state.available_models", return_value=catalog),
+            ):
+                result = handle_gui_message(
+                    Path(tmp), "explain", model_id="auto", mode="ask"
+                )
+
+        self.assertEqual(result["status"], "needs_model")
+        self.assertNotIn("fallbackModelId", result)
+
     def test_reaching_soft_limit_requires_confirmation_before_provider_call(
         self,
     ) -> None:

@@ -179,6 +179,47 @@ class ProviderConnectionTests(unittest.TestCase):
         self.assertEqual(payload["connections"][0]["providerId"], "claude")
         self.assertEqual(payload["connections"][0]["authStatus"], "unknown")
 
+    def test_known_failed_account_is_not_offered_as_available_model(self):
+        accounts = [
+            {
+                "id": "claude",
+                "label": "Claude",
+                "vendor": "Anthropic Claude Code",
+                "cli": "claude",
+                "cli_path": "/bin/claude",
+                "cli_present": True,
+                "authenticated": True,
+                "connected": True,
+                "login_hint": "Sign in",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=accounts
+                ),
+                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch(
+                    "opaihub.accounts.provider_connection_doctor",
+                    return_value=[
+                        {
+                            "providerId": "claude",
+                            "authStatus": "expired",
+                            "safeDiagnostic": "Sign-in expired.",
+                        }
+                    ],
+                ),
+            ):
+                payload = available_models(Path(tmp))
+
+        claude = [
+            model
+            for model in payload["models"]
+            if model["id"] == "account:claude:haiku"
+        ][0]
+        self.assertFalse(claude["available"])
+        self.assertEqual(claude["disabled_reason"], "Sign-in expired.")
+
     def test_account_picker_has_provider_prefixed_labels(self):
         account = {
             "id": "claude",
