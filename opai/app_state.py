@@ -541,6 +541,7 @@ def available_models(
         account_models,
         connection_for_account,
         list_connected_accounts,
+        provider_connection_doctor,
     )
     from opaihub.free_models import list_free_models
     from opaihub.local_runner import cached_local_models, list_local_models
@@ -550,11 +551,35 @@ def available_models(
     account_catalog = account_models(
         include_unavailable=True, accounts=detected_accounts
     )
+    connections = [connection_for_account(account) for account in detected_accounts]
+    # Use only local connection history here: it records a recent safe auth
+    # check (including a known failure) without adding a CLI/provider probe to
+    # model-picker enumeration.
+    account_health = {
+        str(entry.get("providerId") or ""): entry
+        for entry in provider_connection_doctor(
+            accounts=detected_accounts,
+            connections=connections,
+            credentials=[],
+            include_cli_versions=False,
+            include_history=True,
+        )
+    }
+    unavailable_account_statuses = {
+        "misconfigured",
+        "provider_unavailable",
+        "invalid",
+        "expired",
+        "disconnected",
+    }
     local = list_local_models(project_root) if discover_local else cached_local_models()
     options: list[dict[str, Any]] = []
 
     # 1. Connected account models — group already set by _account_options()
     for account in accounts:
+        health = account_health.get(str(account.get("provider") or ""), {})
+        auth_status = str(health.get("authStatus") or "").lower()
+        known_unavailable = auth_status in unavailable_account_statuses
         options.append(
             {
                 "id": account["id"],
@@ -565,8 +590,13 @@ def available_models(
                 "paid": True,
                 "provider": account["provider"],
                 "model": account.get("model", ""),
-                "available": account.get("available", True),
-                "disabled_reason": account.get("disabled_reason"),
+                "available": bool(account.get("available", True))
+                and not known_unavailable,
+                "disabled_reason": (
+                    str(health.get("safeDiagnostic") or "") or None
+                    if known_unavailable
+                    else account.get("disabled_reason")
+                ),
             }
         )
 
@@ -609,9 +639,7 @@ def available_models(
         "available_models": options,
         "account_models": account_catalog,
         "accounts": detected_accounts,
-        "connections": [
-            connection_for_account(account) for account in detected_accounts
-        ],
+        "connections": connections,
         "account_count": len(accounts),
         "account_model_count": len(accounts),
         "local_count": len(local),

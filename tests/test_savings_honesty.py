@@ -592,6 +592,8 @@ class RecordAfterOutcomeTests(unittest.TestCase):
         ):
             result = handle_gui_message(self.root, "task", model_id="auto", mode="ask")
         self.assertEqual(result["status"], "needs_model")
+        self.assertNotIn("retry", result["answer"].lower())
+        self.assertIn("model", result["answer"].lower())
         self.assertEqual(self._routes(), [])
         self.assertEqual(self._receipt_events(), [])
         self.assertEqual(summarize_ledger(self.root)["estimated_savings_usd"], 0)

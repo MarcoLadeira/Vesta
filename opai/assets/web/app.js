@@ -1840,6 +1840,9 @@ function onConnectionDoctorReady(json) {
 
 function renderErrorCard(el, status, r, sel) {
   const error = r && r.error && typeof r.error === "object" ? r.error : {};
+  // Retrying Auto with no eligible provider only reproduces the same setup
+  // card. Keep recovery concrete: choose a model or configure one first.
+  const canRetry = status !== "needs_model";
   const title = error.title || ERROR_TITLES[status] || "OPai could not complete this request.";
   const what = error.userMessage || (typeof (r && r.answer) === "string" && r.answer) || "Retry, or open Settings if the problem continues.";
   const raw = redactSecrets(
@@ -1864,7 +1867,8 @@ function renderErrorCard(el, status, r, sel) {
   // structured provider recovery actions from the shared message contract.
   el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card" role="alert"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
-    `<div class="ec-actions"><button class="btn" data-a="retry">Retry</button>` +
+    `<div class="ec-actions">` +
+    (canRetry ? `<button class="btn" data-a="retry">Retry</button>` : "") +
     (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
     (offerLogin ? `<button class="btn primary" data-a="signin">Sign in to ${esc(providerName(loginProvider))}</button>` : "") +
     // A live re-check, not just a link to Settings: OPai may have said
@@ -1885,7 +1889,7 @@ function renderErrorCard(el, status, r, sel) {
     (raw ? `<button class="btn ghost" data-a="details">Show technical details</button><button class="btn ghost" data-a="copy">Copy details</button>` : "") + `</div>` +
     (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
   wireActivitySummary(el);
-  el.querySelector('[data-a="retry"]').onclick = () => retry();
+  const retryButton = el.querySelector('[data-a="retry"]'); if (retryButton) retryButton.onclick = () => retry();
   const signIn = el.querySelector('[data-a="signin"]'); if (signIn) signIn.onclick = () => {
     const retryPayload = state.lastSend ? { ...state.lastSend } : (sel ? { ...sel } : null);
     startGuidedProviderLogin(loginProvider, { button: signIn, retryPayload, retryRequestId: state.lastFailedRequestId });
@@ -1940,7 +1944,15 @@ function renderErrorCard(el, status, r, sel) {
     send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
   };
   const fallback = el.querySelector('[data-a="fallback"]'); if (fallback) fallback.onclick = () => {
-    send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
+    // Preserve the reviewed route. Re-sending Auto here would recompute a
+    // fallback after consent and could differ from the configured provider the
+    // user was shown on the confirmation card.
+    const fallbackModelId = String(r.fallbackModelId || "").trim();
+    if (!fallbackModelId) { switchView("settings"); return; }
+    send(Object.assign({}, state.lastSend || {}, {
+      model: fallbackModelId,
+      allowCloud: true,
+    }));
   };
   const limit = el.querySelector('[data-a="limit"]'); if (limit) limit.onclick = () => {
     send(Object.assign({}, state.lastSend || {}, { allowLimit: true }));
