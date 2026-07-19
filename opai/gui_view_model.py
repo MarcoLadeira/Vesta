@@ -106,7 +106,7 @@ def _action(
 def _status_severity(status: str) -> str:
     if status in {"active", "on", "ok", "ready"}:
         return "success"
-    if status in {"broken", "blocked", "attention"}:
+    if status in {"broken", "blocked", "attention", "needs setup"}:
         return "warning"
     if status in {"deny", "panic", "fail"}:
         return "danger"

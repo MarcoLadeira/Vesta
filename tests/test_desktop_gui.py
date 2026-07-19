@@ -54,7 +54,10 @@ class AppStateReadTests(unittest.TestCase):
         ids = [c["id"] for c in ar["clients"]]
         self.assertEqual(ids, ["claude", "codex", "copilot", "cursor", "cline"])
         for c in ar["clients"]:
-            self.assertIn(c["status"], {"active", "broken", "missing", "unknown"})
+            self.assertIn(
+                c["status"],
+                {"active", "needs setup", "broken", "missing", "unknown"},
+            )
             self.assertTrue(c["repair"])
 
     def test_cost_firewall_profiles_and_panic(self):

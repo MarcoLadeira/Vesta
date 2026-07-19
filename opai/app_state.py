@@ -226,6 +226,43 @@ def overview(project_root: Path) -> dict[str, Any]:
     }
 
 
+def _derive_card_status(
+    raw_status: str,
+    *,
+    wrapper_installed: bool,
+    capture_mode: str,
+    global_ready: Any,
+) -> str:
+    """Honest top-line readiness for an agent card (#414).
+
+    ``client_integrations_status`` calls a client ``active`` as soon as its
+    project rules carry the OPai managed block — even when the wrapper binary or
+    capture proxy is still missing. Reporting that as a green ``active`` badge
+    directly contradicts the ``wrapper: missing`` / ``capture: missing`` sub-rows
+    shown on the same card (and the ``opai activate --repair`` hint below them).
+
+    A client is only truly ``active`` when the sub-states that can actually fail
+    are green: the wrapper is installed and capture is on the selective proxy. A
+    rules-managed-but-incomplete client instead reads ``needs setup`` — matching
+    the repair command it already offers. States other than ``active``
+    (``broken`` / ``missing`` / ``unknown``) are honest already and pass through
+    unchanged.
+
+    ``global_ready`` blocks only when it is explicitly ``False`` (a client that
+    has a global discovery file which is missing). Cursor and Cline have no
+    global file, so their ``global_ready`` is ``None`` (not applicable) and must
+    not, on its own, hold an otherwise-ready client at ``needs setup``.
+    """
+    if raw_status != "active":
+        return raw_status
+    fully_ready = (
+        wrapper_installed
+        and capture_mode == "selective_proxy"
+        and global_ready is not False
+    )
+    return "active" if fully_ready else "needs setup"
+
+
 def agent_readiness(project_root: Path) -> dict[str, Any]:
     """Per-client cards (Claude/Codex/Copilot/Cursor/Cline) with repair commands."""
     from opai.clients import client_integrations_status, detect_stale_paths
@@ -242,16 +279,25 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
     for client_id in order:
         client = by_id.get(client_id, {"id": client_id, "status": "unknown"})
         wrapper = wrappers.get(client_id) or {}
+        wrapper_installed = bool(wrapper.get("exists"))
+        capture_mode = wrapper.get("capture_mode", "missing")
+        global_ready = client.get("global_ready")
+        card_status = _derive_card_status(
+            client.get("status", "unknown"),
+            wrapper_installed=wrapper_installed,
+            capture_mode=capture_mode,
+            global_ready=global_ready,
+        )
         cards.append(
             {
                 "id": client_id,
                 "label": client.get("label", client_id.title()),
-                "status": client.get("status", "unknown"),
+                "status": card_status,
                 "reason": client.get("reason", ""),
-                "wrapper_installed": bool(wrapper.get("exists")),
-                "wrapper_capture_mode": wrapper.get("capture_mode", "missing"),
+                "wrapper_installed": wrapper_installed,
+                "wrapper_capture_mode": capture_mode,
                 "config_rules": bool(client.get("project_managed")),
-                "global_ready": client.get("global_ready"),
+                "global_ready": global_ready,
                 "repair": client.get("repair", "opai activate --repair"),
             }
         )
