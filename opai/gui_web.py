@@ -485,7 +485,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     from opaihub.gui_preferences import MODES, load_gui_preferences
     from opaihub.workflow_state import load_workflow_state
 
-    from opaihub.autonomy import resolve_startup_mode
+    from opaihub.autonomy import MODE_LABELS, resolve_startup_mode
 
     _STARTUP.mark("boot:start")
     root = root.expanduser().resolve()
@@ -499,13 +499,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     _STARTUP.mark("boot:prefs")
     models = _models(root, discover_local=False)
     _STARTUP.mark("boot:models")
-    mode_labels = {
-        "ask": "Ask",
-        "plan": "Plan",
-        "safe-auto": "Safe Auto",
-        "approve-edits": "Approve Edits",
-        "full-auto": "Full Auto",
-    }
+    mode_labels = MODE_LABELS
     sel_model = next(
         (m for m in models["models"] if m["id"] == prefs.get("default_model")),
         models["models"][0]
@@ -871,16 +865,11 @@ def github_disconnect_payload() -> dict[str, Any]:
 def settings_payload(root: Path) -> dict[str, Any]:
     """Return the complete, secret-free Settings/Connections payload."""
 
+    from opaihub.autonomy import MODE_LABELS
     from opaihub.gui_preferences import MODES, load_gui_preferences
 
     prefs = load_gui_preferences(root)
-    mode_labels = {
-        "ask": "Ask",
-        "plan": "Plan",
-        "safe-auto": "Safe Auto",
-        "approve-edits": "Approve Edits",
-        "full-auto": "Full Auto",
-    }
+    mode_labels = MODE_LABELS
     try:
         firewall = A.cost_firewall(root)
     except Exception:  # noqa: BLE001

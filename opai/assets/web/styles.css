@@ -574,7 +574,7 @@ kbd {
 
 /* Styled inline confirmation (#151) — replaces native window.confirm(). */
 .inline-confirm {
-  background: rgba(0, 0, 0, 0.02); border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.02); border: 1px solid var(--border);
   border-radius: var(--r-md); padding: var(--space-3) var(--space-4); margin-top: var(--space-2); box-shadow: var(--inset-hi);
   outline: none;
 }
@@ -1264,12 +1264,12 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .state-card.error { border-color: color-mix(in srgb, var(--red) 55%, var(--border-strong)); }
 .state-card.empty { border-style: dashed; }
 .state-card.loading { border-color: color-mix(in srgb, var(--blue) 45%, var(--border-strong)); }
-.state-card.degraded { border-color: color-mix(in srgb, var(--yellow) 55%, var(--border-strong)); }
+.state-card.degraded { border-color: color-mix(in srgb, var(--amber) 55%, var(--border-strong)); }
 .state-card.compact { margin: var(--space-1) 0 var(--space-2); padding: var(--space-3); gap: var(--space-2); font-size: var(--type-caption); }
 .state-card-icon { display: grid; place-items: center; width: 23px; height: 23px; flex: 0 0 23px; border-radius: 50%; background: var(--glass-hi); color: var(--accent); font-weight: 800; }
 .state-card.error .state-card-icon { color: var(--red); }
 .state-card.loading .state-card-icon { color: var(--blue); }
-.state-card.degraded .state-card-icon { color: var(--yellow); }
+.state-card.degraded .state-card-icon { color: var(--amber); }
 .state-card-copy { min-width: 0; }
 .state-card-title { font-weight: 700; }
 .state-card-reason { margin-top: var(--space-1); color: var(--muted); line-height: 1.45; }
