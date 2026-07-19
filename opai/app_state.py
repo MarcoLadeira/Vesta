@@ -242,16 +242,24 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
     for client_id in order:
         client = by_id.get(client_id, {"id": client_id, "status": "unknown"})
         wrapper = wrappers.get(client_id) or {}
+        global_required = "global_ready" in client
+        global_ready = bool(client.get("global_ready")) if global_required else True
+        ready = (
+            bool(wrapper.get("exists"))
+            and wrapper.get("capture_mode") == "selective_proxy"
+            and global_ready
+        )
         cards.append(
             {
                 "id": client_id,
                 "label": client.get("label", client_id.title()),
-                "status": client.get("status", "unknown"),
+                "status": client.get("status", "unknown") if ready else "needs_setup",
                 "reason": client.get("reason", ""),
                 "wrapper_installed": bool(wrapper.get("exists")),
                 "wrapper_capture_mode": wrapper.get("capture_mode", "missing"),
                 "config_rules": bool(client.get("project_managed")),
-                "global_ready": client.get("global_ready"),
+                "global_required": global_required,
+                "global_ready": global_ready,
                 "repair": client.get("repair", "opai activate --repair"),
             }
         )

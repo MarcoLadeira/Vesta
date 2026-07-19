@@ -118,7 +118,7 @@ def _client_card(client: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": _redact(client.get("label") or client.get("id")),
         "subtitle": _redact(client.get("reason") or "OPai client integration status"),
-        "status": _redact(client.get("status", "unknown")).upper(),
+        "status": _redact(client.get("status", "unknown")).replace("_", " ").upper(),
         "severity": _status_severity(str(client.get("status", "unknown"))),
         "metrics": [
             {
@@ -142,8 +142,20 @@ def _client_card(client: dict[str, Any]) -> dict[str, Any]:
             },
             {
                 "label": "Global",
-                "value": "ready" if client.get("global_ready") else "check",
-                "severity": "success" if client.get("global_ready") else "neutral",
+                "value": (
+                    "not required"
+                    if not client.get("global_required", True)
+                    else "ready"
+                    if client.get("global_ready")
+                    else "check"
+                ),
+                "severity": (
+                    "neutral"
+                    if not client.get("global_required", True)
+                    else "success"
+                    if client.get("global_ready")
+                    else "neutral"
+                ),
             },
         ],
         "command": repair,
