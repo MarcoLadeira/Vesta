@@ -14,7 +14,7 @@ from .agent_policy import (
     resolve_agent_policy,
 )
 from .agent_runtime import AgentRuntime, RuntimePhase
-from .autonomy import effective_mode
+from .autonomy import MODE_LABELS, effective_mode
 from .checkpoints import create_run_checkpoint, finalize_run_checkpoint
 from .completion import (
     CompletionState,
@@ -110,13 +110,9 @@ def request_tool_authority(
 
 
 def _mode_label(mode: str) -> str:
-    return {
-        "ask": "Ask",
-        "plan": "Plan",
-        "safe-auto": "Safe Auto",
-        "approve-edits": "Approve Edits",
-        "full-auto": "Full Auto",
-    }.get(mode, "Safe Auto")
+    # Labels come from the single autonomy source (#400); an unknown mode falls
+    # back to Safe Auto here because the pipeline never runs a mode it can't map.
+    return MODE_LABELS.get(mode, "Safe Auto")
 
 
 def _plan_payload(mode: str, status: str, answer: str) -> dict[str, Any]:

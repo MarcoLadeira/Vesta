@@ -18,13 +18,28 @@ SAFE_MODE = "safe-auto"
 FULL_AUTO = "full-auto"
 VALID_MODES = ("ask", "plan", "safe-auto", "approve-edits", "full-auto")
 
-_MODE_LABELS = {
+# The single source of truth for human-readable run-mode labels (#400). Every
+# surface — web GUI, classic GUI, pipeline, CLI — must consume these rather than
+# hardcoding its own copy, so a renamed mode can never say one thing in the
+# composer and another in the receipt. The web front-end receives them via the
+# boot payload's ``modes`` list (built in ``gui_web.boot_payload``); the JS
+# mirror in ``settings.js`` is kept in sync by a CI contract test.
+MODE_LABELS = {
     "ask": "Ask",
     "plan": "Plan",
     "safe-auto": "Safe Auto",
     "approve-edits": "Approve Edits",
     "full-auto": "Full Auto",
 }
+
+# Back-compat alias for the previously-private name.
+_MODE_LABELS = MODE_LABELS
+
+
+def mode_label(mode: str) -> str:
+    """Human-readable label for a run mode, falling back to the raw id."""
+
+    return MODE_LABELS.get(mode, mode)
 
 
 def is_full_auto_pinned(prefs: Mapping[str, Any]) -> bool:

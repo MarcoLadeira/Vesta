@@ -259,13 +259,9 @@ MSG_COLORS = {
     "border": BORDER,
 }
 
-MODE_LABELS = {
-    "ask": "Ask",
-    "plan": "Plan",
-    "safe-auto": "Safe Auto",
-    "approve-edits": "Approve Edits",
-    "full-auto": "Full Auto",
-}
+# Run-mode labels come from the single autonomy source (#400); re-exported here
+# so existing ``gui_desktop.MODE_LABELS`` references keep working.
+from opaihub.autonomy import MODE_LABELS  # noqa: E402
 
 
 def _stylesheet() -> str:

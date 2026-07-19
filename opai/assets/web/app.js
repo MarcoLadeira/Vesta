@@ -15,6 +15,7 @@ const PALETTE = [
   { id: "new_chat", label: "New chat", hint: "Ctrl+N" },
   { id: "new_app", label: "New app (free scaffold)", hint: "" },
   { id: "focus_input", label: "Focus prompt", hint: "Ctrl+L" },
+  { id: "stop", label: "Stop generation", hint: "Esc" },
   { id: "prompts", label: "Open prompt library", hint: "Ctrl+P" },
   { id: "inspector", label: "Toggle control panel", hint: "Ctrl+I" },
   { id: "workspace", label: "Open project folder", hint: "Ctrl+O" },
@@ -22,6 +23,7 @@ const PALETTE = [
   { id: "savings", label: "Show savings", hint: "" },
   { id: "firewall", label: "Cost firewall", hint: "" },
   { id: "settings", label: "Open settings", hint: "" },
+  { id: "doctor", label: "Run connection doctor", hint: "" },
   { id: "connect", label: "Connect accounts", hint: "" },
   { id: "shortcuts", label: "Keyboard shortcuts", hint: "?" },
 ];
@@ -1190,15 +1192,16 @@ function renderTimeline() {
     const rows = state.tlNodes.rows;
     const seen = new Set();
     const order = [];
-    // Honest truncation marker (#248): when the store dropped the oldest events
-    // to stay bounded, say so explicitly and point at the complete ledger.
+    // Honest truncation marker (#248, #400): when the store dropped the oldest
+    // events to stay bounded, say so plainly — and don't promise a full record
+    // the UI can't actually show (no itemized ledger view exists yet, #390).
     const truncated = state.store.truncatedCount ? state.store.truncatedCount() : 0;
     if (truncated > 0) {
       const key = "truncation";
       seen.add(key);
       const inner = `<span class="tl-ic">⋯</span>` +
         `<span class="tl-t">${truncated.toLocaleString()} earlier steps hidden</span>` +
-        `<span class="tl-d">full record in the ledger</span>`;
+        `<span class="tl-d">dropped to stay fast</span>`;
       let entry = rows.get(key);
       if (!entry || entry.type !== "single") {
         const node = document.createElement("div");
@@ -1437,13 +1440,14 @@ function metaFooter(r, sel, durMs) {
       `<span class="rc-badge rc-${badge.cls}" title="${esc(badge.title)}">${esc(badge.label)}</span>` +
       `<span class="rc-bits">${esc(bits.join("   ·   "))}</span>` +
     `</div>` +
-    `<button class="rc-ledger" type="button" aria-label="Open the savings ledger">Ledger →</button>` +
+    `<button class="rc-ledger" type="button" aria-label="Open the savings summary">Summary →</button>` +
   `</div>`;
 }
 
-// The receipt is a claim — let the user take it with them, and open the full
-// ledger. One click on the strip copies a clean plaintext receipt; the Ledger
-// button jumps to the savings dashboard (not a copy).
+// The receipt is a claim — let the user take it with them, and open the savings
+// summary. One click on the strip copies a clean plaintext receipt; the Summary
+// button jumps to the aggregate savings dashboard (not an itemized ledger — that
+// view lands with #390 — and not a copy).
 function wireReceipt(el, sel) {
   const card = el.querySelector(".receipt-card");
   const strip = el.querySelector(".footer-note");
@@ -2164,6 +2168,7 @@ function runCommand(id) {
     case "new_chat": startNewChat(); break;
     case "new_app": startNewApp(); break;
     case "focus_input": switchView("chat"); $("#input").focus(); break;
+    case "stop": stop(); break;
     case "prompts": switchView("prompts"); break;
     case "inspector": togglePanel(); break;
     case "workspace": bridge.openWorkspace(); break;
@@ -2171,8 +2176,9 @@ function runCommand(id) {
     case "savings": switchView("home"); break;
     case "firewall": switchView("firewall"); break;
     case "settings": switchView("settings"); break;
+    case "doctor": switchView("settings"); break;
     case "connect": switchView("chat"); bridge.runTool("connect"); break;
-    case "shortcuts": toast("Ctrl+K palette · Ctrl+N new · Ctrl+P prompts · Ctrl+I inspector · Ctrl+O folder · Ctrl+L focus"); break;
+    case "shortcuts": toast("Ctrl+K palette · Ctrl+N new · Ctrl+L focus · Ctrl+P prompts · Ctrl+I panel · Ctrl+O folder · Ctrl+M model · Ctrl+B sidebar · Esc stop · ? shortcuts"); break;
   }
 }
 function togglePanel() {
@@ -2190,6 +2196,13 @@ function applyPanel() {
 
 function isCompactShell() {
   return window.matchMedia("(max-width: 700px)").matches;
+}
+// True when focus is in a text field, so single-key shortcuts (like "?") don't
+// steal characters the user is typing.
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable === true;
 }
 function closeMobileSidebar() {
   $("#app").classList.remove("mobile-sidebar-open");
@@ -2294,6 +2307,8 @@ function wire() {
     else if (c && e.key === "o") { e.preventDefault(); bridge.openWorkspace(); }
     else if (c && e.key === "l") { e.preventDefault(); switchView("chat"); $("#input").focus(); }
     else if (c && e.key === "m") { e.preventDefault(); $("#modelSel").focus(); }
+    else if (c && e.key === "b") { e.preventDefault(); toggleSidebar(); }
+    else if (e.key === "?" && !isTypingTarget(e.target)) { e.preventDefault(); runCommand("shortcuts"); }
     else if (e.key === "Escape" && state.busy) { e.preventDefault(); stop(); }
   });
 }

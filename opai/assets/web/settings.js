@@ -60,6 +60,10 @@
   }
 
   // ---- section HTML builders (exact markup moved from app.js) ------------- //
+  // MIRROR of opaihub/autonomy.py MODE_LABELS — the single source of truth for
+  // run-mode labels (#400). JS can't import the Python module, so this copy is
+  // kept in lockstep by a CI contract test (tests/test_ui_honesty_sweep.py).
+  // If you rename a mode, change autonomy.py and this together.
   var MODE_LABELS = {
     ask: "Ask",
     plan: "Plan",

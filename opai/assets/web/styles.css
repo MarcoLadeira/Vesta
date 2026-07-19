@@ -598,7 +598,7 @@ kbd {
 
 /* Styled inline confirmation (#151) — replaces native window.confirm(). */
 .inline-confirm {
-  background: rgba(0, 0, 0, 0.02); border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.02); border: 1px solid var(--border);
   border-radius: var(--r-md); padding: 13px 15px; margin-top: 8px; box-shadow: var(--inset-hi);
   outline: none;
 }
