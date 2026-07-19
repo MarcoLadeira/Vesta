@@ -111,6 +111,33 @@ class SingleModeLabelSourceTests(unittest.TestCase):
         )
 
 
+class ModeLabelSourceBehaviourTests(unittest.TestCase):
+    """Exercise the single label source and its consumers (not just static text)."""
+
+    def test_mode_label_maps_known_modes_and_falls_back(self):
+        from opaihub.autonomy import mode_label
+
+        for mode, label in MODE_LABELS.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(mode_label(mode), label)
+        # Unknown modes fall back to the raw id — never a wrong human label.
+        self.assertEqual(mode_label("nonexistent-mode"), "nonexistent-mode")
+
+    def test_effective_label_uses_the_shared_source(self):
+        from opaihub.autonomy import effective_mode
+
+        decision = effective_mode("plan", {})
+        self.assertEqual(decision.effective_label, MODE_LABELS["plan"])
+
+    def test_pipeline_mode_label_consumes_autonomy(self):
+        from opaihub.gui_pipeline import _mode_label
+
+        self.assertEqual(_mode_label("full-auto"), MODE_LABELS["full-auto"])
+        self.assertEqual(_mode_label("ask"), MODE_LABELS["ask"])
+        # The pipeline defaults an unknown mode to the safest label.
+        self.assertEqual(_mode_label("mystery"), MODE_LABELS["safe-auto"])
+
+
 class HonestLabelsTests(unittest.TestCase):
     def test_receipt_button_does_not_claim_a_ledger(self):
         app = APP_JS.read_text(encoding="utf-8")

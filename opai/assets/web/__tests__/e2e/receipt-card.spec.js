@@ -61,15 +61,20 @@ test("clicking the strip copies a clean plaintext receipt", async ({ page }) => 
   await expect(page.locator("#toast")).toContainText("Receipt copied");
 });
 
-test("the Ledger button jumps to the savings dashboard without copying", async ({ page }) => {
+test("the Summary button jumps to the savings dashboard without copying", async ({ page }) => {
   const id = await sendPrompt(page);
   await finishRequest(page, id, {
     status: "answered", answer: "done",
     receipt: { estimated_actual_usd: 0.01, confidence: "actual" },
   });
-  await page.locator(".rc-ledger").click();
+  const summary = page.locator(".rc-ledger");
+  // #400: honest label — it opens the aggregate summary, not an itemized ledger.
+  await expect(summary).toContainText("Summary");
+  await expect(summary).not.toContainText("Ledger");
+  await expect(summary).toHaveAttribute("aria-label", "Open the savings summary");
+  await summary.click();
   await expect(page.locator("#view-dashboard")).toHaveClass(/active/);
-  await expect(page.locator("#toast")).not.toContainText("Receipt copied"); // ledger != copy
+  await expect(page.locator("#toast")).not.toContainText("Receipt copied"); // summary != copy
 });
 
 test("no receipt card appears when a request is blocked", async ({ page }) => {

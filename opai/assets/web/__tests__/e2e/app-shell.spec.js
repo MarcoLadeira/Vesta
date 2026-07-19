@@ -57,3 +57,45 @@ test("command palette opens, filters, executes, and closes with Escape", async (
   await page.keyboard.press("Escape");
   await expect(page.locator("#palette")).not.toHaveClass(/open/);
 });
+
+test("Ctrl+B toggles the sidebar (#400: advertised shortcut is wired)", async ({ page }) => {
+  await openApp(page);
+  const app = page.locator("#app");
+  await expect(app).not.toHaveClass(/sidebar-hidden/);
+  await page.keyboard.press("Control+b");
+  await expect(app).toHaveClass(/sidebar-hidden/);
+  await page.keyboard.press("Control+b");
+  await expect(app).not.toHaveClass(/sidebar-hidden/);
+});
+
+test("? shows the keyboard shortcuts (#400), but not while typing", async ({ page }) => {
+  await openApp(page);
+  // Typing "?" in the composer must not hijack the key.
+  await page.locator("#input").click();
+  await page.keyboard.type("?");
+  await expect(page.locator("#toast")).not.toContainText("palette");
+  await expect(page.locator("#input")).toHaveValue("?");
+
+  // Pressing "?" outside a field surfaces the shortcuts toast. (press("?")
+  // dispatches e.key === "?", matching a real browser's Shift+/; Playwright's
+  // synthetic "Shift+/" would report e.key === "/".)
+  await page.locator("body").click();
+  await page.keyboard.press("?");
+  await expect(page.locator("#toast")).toContainText("Ctrl+B sidebar");
+});
+
+test("palette exposes stop and doctor commands (#400) and they run", async ({ page }) => {
+  await openApp(page);
+  // doctor → settings view (where the connection doctor lives).
+  await page.keyboard.press("Control+k");
+  await page.fill("#paletteInput", "doctor");
+  await expect(page.locator("#paletteList .opt")).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#view-settings")).toBeVisible();
+
+  // stop is offered as a command (safe no-op when idle).
+  await page.keyboard.press("Control+k");
+  await page.fill("#paletteInput", "stop generation");
+  await expect(page.locator("#paletteList .opt")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+});
