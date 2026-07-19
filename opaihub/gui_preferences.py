@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .state import state_dir
 
@@ -170,11 +171,13 @@ def grant_free_consent(project_root: Path, model_id: str) -> dict[str, Any]:
     """
     if not isinstance(model_id, str) or not model_id.startswith("free:"):
         raise ValueError("Only free:<provider>:<model> ids may be granted consent")
-    current = load_gui_preferences(project_root)
-    consent = list(current.get("free_consent") or [])
-    if model_id not in consent:
-        consent.append(model_id)
-    return save_gui_preferences(project_root, {"free_consent": consent})
+    def add_consent(current: dict[str, Any]) -> dict[str, Any]:
+        consent = list(current.get("free_consent") or [])
+        if model_id not in consent:
+            consent.append(model_id)
+        return {"free_consent": consent}
+
+    return _mutate_gui_preferences(project_root, add_consent)
 
 
 def pin_full_auto(project_root: Path) -> dict[str, Any]:
@@ -219,14 +222,18 @@ def load_gui_preferences(project_root: Path) -> dict[str, Any]:
 
 
 def save_gui_preferences(project_root: Path, updates: dict[str, Any]) -> dict[str, Any]:
-    current = load_gui_preferences(project_root)
-    current.update(updates)
-    clean = _sanitize(current)
+    return _mutate_gui_preferences(project_root, lambda _current: updates)
+
+
+def _mutate_gui_preferences(
+    project_root: Path, updates_for: Callable[[dict[str, Any]], dict[str, Any]]
+) -> dict[str, Any]:
     path = preference_path(project_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(clean, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    with interprocess_transaction(path):
+        current = load_gui_preferences(project_root)
+        current.update(updates_for(current))
+        clean = _sanitize(current)
+        atomic_write_text(path, json.dumps(clean, indent=2, sort_keys=True) + "\n")
     return clean
 
 
@@ -246,11 +253,9 @@ def save_usage_limit(
         raise ValueError("Usage window must be minute, day, or month")
     if int(limit) <= 0:
         raise ValueError("Usage limit must be greater than zero")
-    current = load_gui_preferences(project_root)
-    limits = dict(current.get("usage_limits") or {})
-    limits[str(model_id)] = {
-        "metric": metric,
-        "limit": int(limit),
-        "window": window,
-    }
-    return save_gui_preferences(project_root, {"usage_limits": limits})
+    def add_limit(current: dict[str, Any]) -> dict[str, Any]:
+        limits = dict(current.get("usage_limits") or {})
+        limits[str(model_id)] = {"metric": metric, "limit": int(limit), "window": window}
+        return {"usage_limits": limits}
+
+    return _mutate_gui_preferences(project_root, add_limit)

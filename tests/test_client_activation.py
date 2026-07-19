@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from opai.clients import client_integrations_status, detect_stale_paths
 from opai.integrations import (
@@ -13,6 +14,34 @@ from opai.integrations import (
 
 
 class ClientDetectionTests(unittest.TestCase):
+    def test_global_manifest_write_is_atomic(self):
+        from opai import integrations
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / ".opai" / "global.json"
+            with mock.patch("opai.integrations.atomic_write_text") as atomic_write:
+                integrations._write(target, "{}\n")
+
+        atomic_write.assert_called_once_with(target, "{}\n")
+
+    def test_global_install_preserves_previously_registered_targets(self):
+        from opai.integrations import install_global_integrations, load_global_status
+
+        with (
+            tempfile.TemporaryDirectory() as ptmp,
+            tempfile.TemporaryDirectory() as htmp,
+        ):
+            project, home = Path(ptmp), Path(htmp)
+            install_global_integrations(
+                project, home=home, targets=["codex"], ensure_superpowers=False
+            )
+            install_global_integrations(
+                project, home=home, targets=["gemini"], ensure_superpowers=False
+            )
+            status = load_global_status(home)
+
+        self.assertEqual(set(status["targets"]), {"codex", "gemini"})
+
     def test_activation_makes_all_six_clients_active(self):
         with (
             tempfile.TemporaryDirectory() as ptmp,
