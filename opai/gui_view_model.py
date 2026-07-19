@@ -401,13 +401,14 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
                 "severity": "warning",
             },
             {
-                "label": "Wasted tokens",
+                "label": "Estimated wasted tokens",
                 "value": _num(context.get("estimated_tokens_wasted")),
                 "severity": "warning",
             },
             {
-                "label": "Cost impact",
+                "label": "Estimated cost if sent",
                 "value": _money(context.get("estimated_cost_wasted_usd")),
+                "description": "Not money spent — projection for uncompressed context.",
                 "severity": "neutral",
             },
         ],

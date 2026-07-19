@@ -906,6 +906,7 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .kpi:hover { transform: translateY(-2px); border-color: var(--border-strong); }
 .kpi .l { font-size: var(--type-caption); font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
 .kpi .v { font-size: var(--type-heading); font-weight: 800; margin-top: var(--space-1); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi .d { color: var(--muted); font-size: var(--type-caption); line-height: 1.35; margin-top: var(--space-2); }
 .card {
   background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-lg);
   padding: var(--space-4) var(--space-4); margin: var(--space-3) 0; box-shadow: var(--inset-hi);

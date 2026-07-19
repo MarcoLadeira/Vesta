@@ -7,8 +7,10 @@ test("context page ranks waste and labels estimates", async ({ page }) => {
   await openApp(page);
   await openNav(page, "Context Waste");
   const dashboard = page.locator("#dashPage");
-  await expect(dashboard).toContainText("Estimated waste");
+  await expect(dashboard).toContainText("Estimated wasted tokens");
   await expect(dashboard).toContainText("46,200 tokens");
+  await expect(dashboard).toContainText("Estimated cost if sent");
+  await expect(dashboard).toContainText("Not money spent — projection for uncompressed context.");
   await expect(dashboard).toContainText("node_modules");
   await expect(dashboard).toContainText("Potential reduction");
 });
