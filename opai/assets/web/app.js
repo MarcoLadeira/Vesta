@@ -937,12 +937,24 @@ function parseClearResponse(raw) {
   try { return JSON.parse(raw || "{}"); }
   catch (_e) { return clearFailure("OPai could not confirm that the saved work was cleared."); }
 }
+// #416: drop the "Resume your previous work?" choice card from the DOM right now,
+// on click — the dismissal must not wait for the async session bridge to answer,
+// or a slow/contended clear leaves an interactive card the user clicks twice.
+function dismissResumeChoice() {
+  document.querySelectorAll(".msg.resume-choice").forEach((el) => el.remove());
+}
 function showSessionClearFailure(response) {
   if (response && response.resume) state.boot.resume = response.resume;
   const error = (response && response.error) || {};
   const action = (error.recoveryActions || [])[0] || "Try again.";
   const message = `${error.userMessage || "Saved work could not be cleared."} ${action}`;
-  const card = document.querySelector(".resume-card");
+  // The choice was dismissed synchronously on click (#416); the clear failed, so
+  // bring it back rather than stranding the user with saved work they can't reach.
+  let card = document.querySelector(".resume-card");
+  if (!card && state.boot && state.boot.resume && state.boot.resume.requires_choice) {
+    renderResumeChoice();
+    card = document.querySelector(".resume-card");
+  }
   let alert = card && card.querySelector("[data-clear-error]");
   if (card && !alert) {
     alert = document.createElement("div");
@@ -998,10 +1010,12 @@ function restoreSession(resume) {
 function activateResumeSession(resume) {
   setResumeGate(true);
   if (!bridge || !bridge.resumeSession) return;
+  dismissResumeChoice();  // #416: dismiss on click; re-surface if activation fails
   bridge.resumeSession((raw) => {
     let activated = false;
     try { activated = !!JSON.parse(raw || "{}").activated; } catch (_e) { activated = false; }
     if (activated) restoreSession(resume);
+    else renderResumeChoice();
   });
 }
 function startFreshSession() {
@@ -1017,6 +1031,7 @@ function startFreshSession() {
     $("#input").focus();
   };
   setResumeGate(true);
+  dismissResumeChoice();  // #416: remove the card now, not on the bridge callback
   if (bridge && bridge.clearSession) bridge.clearSession(done);
   else showSessionClearFailure(clearFailure("Saved work could not be cleared."));
 }
