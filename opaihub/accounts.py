@@ -15,6 +15,7 @@ account model and sends.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import queue
@@ -257,6 +258,19 @@ def _terminate(proc: Any) -> None:
     by a provider CLI must not survive Stop and keep spending or mutating the
     repo. Delegates to the platform-aware, idempotent tree killer."""
     terminate_tree(proc)
+
+
+def _terminate_async(proc: Any, *, after: Callable[[], None] | None = None) -> None:
+    """Start best-effort tree cleanup without delaying a known terminal result."""
+
+    def _cleanup() -> None:
+        try:
+            _terminate(proc)
+        finally:
+            if after is not None:
+                after()
+
+    threading.Thread(target=_cleanup, daemon=True).start()
 
 
 def _process_returncode(proc: Any) -> int:
@@ -1625,6 +1639,7 @@ class AccountRunner:
         cost: float | None = None
         started = time.monotonic()
         stopped: str | None = None
+        terminal_provider_error: str | None = None
         streamed_any = False
         open_pipes = 2
         # F27 no-progress guard: an edit-intent run that keeps exploring
@@ -1709,6 +1724,13 @@ class AccountRunner:
                         break
                 if part.get("error"):
                     provider_errors.append(str(part["error"]))
+                    if self.account_id == "codex":
+                        terminal_provider_error = provider_errors[-1]
+                        # `turn.failed` is terminal. Waiting for a misbehaving
+                        # Codex child to close its pipes leaves the GUI in a false
+                        # "Waiting for Codex" state after the provider already
+                        # supplied the actionable failure.
+                        break
                 if part["text"] and not (
                     self.account_id == "claude" and part.get("done") and text_parts
                 ):
@@ -1729,6 +1751,35 @@ class AccountRunner:
                     text_parts.append(chunk)
                     if on_text:
                         on_text(chunk)
+
+        if terminal_provider_error is not None:
+            # A terminal JSONL error is already enough to render the failure.
+            # Tree cleanup may block on Windows taskkill, so keep it running in
+            # the background rather than holding the UI spinner hostage.
+            def _remove_out_file() -> None:
+                if out_path:
+                    with contextlib.suppress(OSError):
+                        Path(out_path).unlink(missing_ok=True)
+
+            _terminate_async(proc, after=_remove_out_file)
+            returncode = getattr(proc, "returncode", None)
+            if isinstance(returncode, bool) or not isinstance(returncode, int):
+                returncode = None
+            from opai.provider_contract import normalize_provider_error
+
+            normalized = normalize_provider_error(
+                self.account_id,
+                terminal_provider_error,
+                model=self.model,
+                returncode=returncode,
+            )
+            _invalidate_cache_for_error(self.account_id, normalized)
+            return {
+                "text": "",
+                "cost": cost,
+                "error": normalized,
+                "returncode": returncode,
+            }
 
         if stopped is not None:
             _terminate(proc)

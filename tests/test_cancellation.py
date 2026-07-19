@@ -219,6 +219,127 @@ class CodexStructuredStreamTests(unittest.TestCase):
         self.assertTrue(result.get("cancelled"))
         self.assertTrue(proc.terminated)
 
+    def test_terminal_codex_error_stops_a_hung_stream_without_waiting_for_timeout(self):
+        proc = FakeProc(
+            [
+                '{"type":"turn.failed","error":{"message":'
+                '"The selected model is not supported"}}\n'
+            ],
+            hang=True,
+            returncode=1,
+        )
+
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            result = self._runner().stream("x", timeout=0.2)
+
+        self.assertIn("not supported", result["error"]["technicalMessage"])
+        self.assertFalse(result.get("timed_out"))
+        deadline = time.monotonic() + 1
+        while not proc.terminated and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(proc.terminated)
+
+    def test_terminal_codex_error_is_not_blocked_by_tree_cleanup(self):
+        proc = FakeProc(
+            ['{"type":"turn.failed","error":{"message":"provider failed"}}\n'],
+            hang=True,
+            returncode=1,
+        )
+        cleanup_started = threading.Event()
+        allow_cleanup = threading.Event()
+
+        def slow_terminate(_proc):
+            cleanup_started.set()
+            allow_cleanup.wait(timeout=1)
+
+        started = time.monotonic()
+        with mock.patch.object(accounts, "_popen", return_value=proc), mock.patch.object(
+            accounts, "_terminate", side_effect=slow_terminate
+        ):
+            result = self._runner().stream("x", timeout=0.2)
+        elapsed = time.monotonic() - started
+        allow_cleanup.set()
+
+        self.assertTrue(cleanup_started.wait(timeout=0.1))
+        self.assertIn("error", result)
+        self.assertLess(elapsed, 0.2)
+
+    def test_terminal_codex_error_preserves_unknown_returncode_until_reaped(self):
+        proc = FakeProc(
+            ['{"type":"turn.failed","error":{"message":"provider failed"}}\n'],
+            hang=True,
+            returncode=None,
+        )
+
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            result = self._runner().stream("x", timeout=0.2)
+
+        self.assertIsNone(result["returncode"])
+
+    def test_terminal_codex_error_defers_output_file_cleanup_until_after_termination(self):
+        proc = FakeProc(
+            ['{"type":"turn.failed","error":{"message":"provider failed"}}\n'],
+            hang=True,
+            returncode=1,
+        )
+        cleanup_started = threading.Event()
+        allow_cleanup = threading.Event()
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            out_path = Path(handle.name)
+        original_unlink = Path.unlink
+
+        def delayed_terminate(_proc):
+            cleanup_started.set()
+            allow_cleanup.wait(timeout=1)
+            proc.terminated = True
+
+        def windows_unlink(path, *args, **kwargs):
+            if path == out_path and not proc.terminated:
+                raise PermissionError("file is still open")
+            return original_unlink(path, *args, **kwargs)
+
+        named_file = mock.MagicMock()
+        named_file.__enter__.return_value.name = str(out_path)
+        named_file.__exit__.return_value = False
+        try:
+            with (
+                mock.patch.object(accounts, "_popen", return_value=proc),
+                mock.patch.object(accounts, "_terminate", side_effect=delayed_terminate),
+                mock.patch.object(accounts.tempfile, "NamedTemporaryFile", return_value=named_file),
+                mock.patch.object(Path, "unlink", new=windows_unlink),
+            ):
+                result = self._runner().stream("x", timeout=0.2)
+                allow_cleanup.set()
+                deadline = time.monotonic() + 1
+                while out_path.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+        finally:
+            allow_cleanup.set()
+            out_path.unlink(missing_ok=True)
+
+        self.assertTrue(cleanup_started.is_set())
+        self.assertIn("error", result)
+        self.assertFalse(out_path.exists())
+
+    def test_claude_terminal_error_keeps_its_existing_synchronous_cleanup_path(self):
+        proc = FakeProc(
+            [
+                '{"type":"result","subtype":"error_during_execution",'
+                '"is_error":true,"result":"401 Invalid authentication credentials"}\n'
+            ],
+            returncode=1,
+        )
+        runner = AccountRunner("claude", "/bin/claude", model="haiku")
+
+        with (
+            mock.patch.object(accounts, "_popen", return_value=proc),
+            mock.patch.object(accounts, "_terminate_async") as terminate_async,
+        ):
+            result = runner.stream("x")
+
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+        terminate_async.assert_not_called()
+
 
 class PipelineCancellationTests(unittest.TestCase):
     def test_precancel_returns_cancelled_without_calling_runner(self):
