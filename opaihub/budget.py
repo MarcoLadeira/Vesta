@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -80,21 +82,80 @@ def _default_caps(project_root: Path) -> dict[str, Any]:
     }
 
 
+def _backup_path(project_root: Path) -> Path:
+    return state_dir(project_root) / "budget.json.bak"
+
+
+def _read_budget_dict(path: Path) -> dict[str, Any] | None:
+    """Parse a budget file into a dict, or ``None`` when it is absent or corrupt.
+
+    Distinguishes "no budget configured" from "budget configured but unreadable"
+    so a corrupt file never silently reads as "no caps" (#470).
+    """
+
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def budget_state(project_root: Path) -> dict[str, str]:
+    """Typed state of the on-disk budget configuration (#470).
+
+    ``ok`` (absent or valid), ``recovered`` (primary unreadable, a valid backup
+    exists), or ``unreadable`` (primary and backup both unreadable — the gate
+    fails closed on paid routes).
+    """
+
+    root = project_root.expanduser().resolve()
+    path = budget_path(root)
+    if not path.exists() or _read_budget_dict(path) is not None:
+        return {"state": "ok", "reason": ""}
+    if _read_budget_dict(_backup_path(root)) is not None:
+        return {
+            "state": "recovered",
+            "reason": "budget.json was unreadable; recovered the last valid backup",
+        }
+    return {
+        "state": "unreadable",
+        "reason": "budget.json and its backup are unreadable; failing closed on paid routes",
+    }
+
+
 def load_budget(project_root: Path) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     caps = _default_caps(root)
     path = budget_path(root)
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                caps.update(data)
-        except (OSError, json.JSONDecodeError, ValueError):
-            pass
+    data = _read_budget_dict(path)
+    if data is None and path.exists():
+        # Primary is present but corrupt — recover the last known-good backup
+        # rather than silently reverting to policy defaults (which may drop the
+        # user's configured cap and let the next paid route through).
+        data = _read_budget_dict(_backup_path(root))
+    if isinstance(data, dict):
+        caps.update(data)
     # A corrupt/non-finite ceiling from disk must never fail open at the gate.
     for key in _CAP_KEYS:
         caps[key] = _sanitize_cap(caps.get(key))
     return caps
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` atomically (temp file + os.replace), so a
+    crash mid-write can never leave a torn, unparseable budget file."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def set_budget(
@@ -116,13 +177,13 @@ def set_budget(
     if panic is not None:
         caps["panic"] = bool(panic)
     path = budget_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
     # allow_nan=False makes a non-finite value fail loudly at write time rather
     # than emit invalid JSON that would parse back to a fail-open cap.
-    path.write_text(
-        json.dumps(caps, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(caps, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    # Atomic write + a last-known-good backup: a crash mid-write can't tear the
+    # file, and a later corruption is recoverable from the backup (#470).
+    _atomic_write(path, payload)
+    _atomic_write(_backup_path(root), payload)
     return {"status": "updated", **caps, "path": str(path)}
 
 
@@ -189,6 +250,7 @@ def budget_gate(
     caps = load_budget(root)
     cost_model = load_cost_model(root)
     is_local = is_local_tier(tier, cost_model)
+    budget_config = budget_state(root)
     reasons: list[str] = []
     decision = "allow"
 
@@ -199,6 +261,12 @@ def budget_gate(
         if sev[level] > sev[decision]:
             decision = level
         reasons.append(reason)
+
+    # 0a. Unreadable budget configuration (#470): the user's caps may be gone,
+    # so a paid/cloud route must fail closed instead of proceeding as if no
+    # budget were set. A recovered backup is used transparently by load_budget.
+    if budget_config["state"] == "unreadable" and not is_local:
+        escalate("deny", "Budget state unreadable — failing closed: " + budget_config["reason"])
 
     # 0. A degraded cost model (#471): the paid estimate can't be trusted, so a
     # paid/cloud route must never be silently allowed on a possibly-understated
@@ -267,6 +335,7 @@ def budget_gate(
         "denied": decision == "deny",
         "panic": bool(caps.get("panic")),
         "cost_model_degraded": cost_model_degraded,
+        "budget_state": budget_config["state"],
         "tier": str(tier).upper(),
         "is_local_route": is_local,
         "next_cost_usd": next_cost_usd,
