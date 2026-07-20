@@ -230,26 +230,47 @@ def record_workflow_cost(
     )
 
 
+def _read_cost_events(
+    project_root: Path, *, limit: int | None = None
+) -> tuple[list[dict[str, Any]], int]:
+    """``(events, skipped)`` — cost events plus the count of malformed lines.
+
+    A torn line from a concurrent append or on-disk corruption is unparseable.
+    Dropping it silently makes a spend summary look authoritative while it is
+    actually missing evidence, so the skipped count is tracked and surfaced as a
+    degraded/partial signal (#475) instead of vanishing.
+    """
+
+    path = state_dir(project_root.expanduser().resolve()) / "agent" / "events.jsonl"
+    if not path.exists():
+        return [], 0
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if limit is not None:
+        lines = lines[-limit:]
+    events: list[dict[str, Any]] = []
+    skipped = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            skipped += 1
+            continue
+        if not isinstance(value, dict):
+            skipped += 1
+            continue
+        if value.get("event_type") == "cost_telemetry":
+            events.append(value)
+    return events, skipped
+
+
 def read_cost_events(
     project_root: Path, *, limit: int | None = None
 ) -> list[dict[str, Any]]:
     """Read ``cost_telemetry`` events across every workflow task."""
 
-    path = state_dir(project_root.expanduser().resolve()) / "agent" / "events.jsonl"
-    if not path.exists():
-        return []
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if limit is not None:
-        lines = lines[-limit:]
-    events = []
-    for line in lines:
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if value.get("event_type") == "cost_telemetry":
-            events.append(value)
-    return events
+    return _read_cost_events(project_root, limit=limit)[0]
 
 
 def summarize_cost_telemetry(
@@ -269,7 +290,7 @@ def summarize_cost_telemetry(
     }
     tokens = 0
     by_provider: dict[str, dict[str, Any]] = {}
-    events = read_cost_events(project_root, limit=limit)
+    events, skipped = _read_cost_events(project_root, limit=limit)
     for event in events:
         data = event.get("metadata") or {}
         provider = str(data.get("provider") or "unknown")
@@ -305,5 +326,11 @@ def summarize_cost_telemetry(
         "total_tokens": tokens,
         **totals,
         "by_provider": by_provider,
+        # #475: a summary built over corrupted/torn events is partial, not
+        # authoritative — surface that so receipts/UI never present an
+        # under-counted total as the complete truth.
+        "complete": skipped == 0,
+        "degraded": skipped > 0,
+        "skipped_events": skipped,
         "privacy": "Telemetry is local and redacted; no raw prompts are stored.",
     }

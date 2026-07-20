@@ -341,5 +341,53 @@ class CockpitTelemetryTests(unittest.TestCase):
         self.assertIn("no provider calls recorded yet", text)
 
 
+class DegradedTelemetryTests(unittest.TestCase):
+    """#475: corrupt/torn cost events must not silently under-report spend."""
+
+    def _events_path(self, root: Path) -> Path:
+        return root / ".opaihub" / "agent" / "events.jsonl"
+
+    def test_clean_telemetry_reports_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_workflow_cost(
+                root, "t1", normalize_account_result("claude", {"cost_usd": 0.5})
+            )
+            summary = summarize_cost_telemetry(root)
+        self.assertTrue(summary["complete"])
+        self.assertFalse(summary["degraded"])
+        self.assertEqual(summary["skipped_events"], 0)
+
+    def test_torn_events_mark_the_summary_partial_not_authoritative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_workflow_cost(
+                root, "t1", normalize_account_result("claude", {"cost_usd": 0.5})
+            )
+            with self._events_path(root).open("a", encoding="utf-8") as handle:
+                handle.write("{ torn line without a close\n")
+                handle.write("not json at all\n")
+            summary = summarize_cost_telemetry(root)
+        # The valid event still counts, but the total is flagged partial.
+        self.assertEqual(summary["calls"], 1)
+        self.assertFalse(summary["complete"])
+        self.assertTrue(summary["degraded"])
+        self.assertEqual(summary["skipped_events"], 2)
+
+    def test_degraded_state_propagates_to_the_cockpit(self):
+        from opai.cockpit import build_cockpit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_workflow_cost(
+                root, "t1", normalize_account_result("claude", {"cost_usd": 0.5})
+            )
+            with self._events_path(root).open("a", encoding="utf-8") as handle:
+                handle.write("{corrupt\n")
+            cockpit = build_cockpit(root)
+        self.assertTrue(cockpit["cost_telemetry"]["degraded"])
+        self.assertGreaterEqual(cockpit["cost_telemetry"]["skipped_events"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
