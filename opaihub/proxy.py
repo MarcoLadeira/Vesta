@@ -195,14 +195,21 @@ def proxy_run(
         )
         if not isinstance(result, dict):
             raise TypeError("account path returned a non-dict result")
-        if result.get("status") == "failed":
-            error = result.get("error")
-            error_code = error.get("code") if isinstance(error, dict) else ""
-            result["status"] = (
-                "account_timeout"
-                if error_code == "PROVIDER_TIMEOUT"
-                else "account_error"
-            )
+        # A provider timeout must surface as "account_timeout" (capture outcome
+        # "timeout", TIMEOUT verdict) even though #378 has _ask_account return a
+        # typed "retryable_provider_error" status carrying stopped_reason
+        # "timeout". Detect it by the normalized error code or stop reason so the
+        # proxy timeout contract holds regardless of the internal status label.
+        error = result.get("error")
+        error_code = error.get("code") if isinstance(error, dict) else ""
+        is_timeout = (
+            error_code == "PROVIDER_TIMEOUT"
+            or str(result.get("stopped_reason") or "").strip().lower() == "timeout"
+        )
+        if is_timeout:
+            result["status"] = "account_timeout"
+        elif result.get("status") == "failed":
+            result["status"] = "account_error"
         result.setdefault("agent", agent)
         result["captured"] = True
         return finish(result)
