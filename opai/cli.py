@@ -486,6 +486,21 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ux_metrics(args: argparse.Namespace) -> int:
+    """Local-only product-health metrics (#395): verdict distribution and
+    cancel/timeout rates from this project's ledger. No telemetry leaves the
+    machine — this reads the same local events OPai already recorded."""
+    from opaihub.ux_metrics import render_ux_metrics_markdown, summarize_ux_metrics
+
+    root = _project(args.project)
+    metrics = summarize_ux_metrics(root)
+    if getattr(args, "markdown", False):
+        print(render_ux_metrics_markdown(metrics))
+    else:
+        print_json(metrics)
+    return 0
+
+
 def cmd_app_receipt(args: argparse.Namespace) -> int:
     """The aggregate cost story of one OPai Build app (#276): what was spent,
     and — the number no one else shows — what was never spent."""
@@ -2304,6 +2319,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include day/week/month/agent/repo savings rollups",
     )
     p.set_defaults(func=cmd_savings)
+
+    p = sub.add_parser(
+        "ux-metrics",
+        help="Show local-only product-health metrics (verdict distribution, cancel/timeout rates)",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--markdown", action="store_true", help="Render the report as markdown"
+    )
+    p.set_defaults(func=cmd_ux_metrics)
 
     p = sub.add_parser(
         "outcomes",
