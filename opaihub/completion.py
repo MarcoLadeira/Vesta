@@ -57,6 +57,23 @@ class CompletionVerdict(str, Enum):
     TIMEOUT = "timeout"
 
 
+class FailureReason(str, Enum):
+    """The typed cause behind a FAILED verdict (#380).
+
+    A failure the user can act on names its class instead of a generic
+    "provider failed": an auth failure sends them to re-connect, a rate-limit to
+    wait or switch, an internal error to report. GUI and CLI read the same
+    verdict, so they present the identical typed failure and next action.
+    """
+
+    AUTH = "auth"
+    RATE_LIMIT = "rate_limit"
+    NETWORK = "network"
+    PROVIDER = "provider"
+    POLICY = "policy"
+    INTERNAL = "internal"
+
+
 @dataclass(frozen=True)
 class ObjectiveRecord:
     """The declared goal and its deterministic acceptance requirements."""
@@ -191,8 +208,91 @@ class CompletionVerdictResult:
 _TIMEOUT_STOP_REASONS = frozenset({"timeout", "controller_timeout"})
 _TIMEOUT_STATUSES = frozenset({"timeout", "account_timeout"})
 
+# Typed provider error codes (opai.provider_contract.ERROR_CODES) → failure class
+# (#380). Codes that are their own verdict — PROVIDER_TIMEOUT (TIMEOUT),
+# USER_CANCELLED (CANCELLED) — never reach the FAILED branch and are omitted.
+_FAILURE_BY_ERROR_CODE = {
+    "AUTH_MISSING": FailureReason.AUTH,
+    "AUTH_INVALID": FailureReason.AUTH,
+    "AUTH_EXPIRED": FailureReason.AUTH,
+    "PROVIDER_RATE_LIMITED": FailureReason.RATE_LIMIT,
+    "PROVIDER_QUOTA_EXHAUSTED": FailureReason.RATE_LIMIT,
+    "NETWORK_ERROR": FailureReason.NETWORK,
+    "PROVIDER_UNAVAILABLE": FailureReason.PROVIDER,
+    "MODEL_UNAVAILABLE": FailureReason.PROVIDER,
+    "NO_RESPONSE": FailureReason.PROVIDER,
+    "STREAM_ABORTED": FailureReason.PROVIDER,
+    "CONTEXT_TOO_LARGE": FailureReason.PROVIDER,
+    "CONFIG_INVALID": FailureReason.INTERNAL,
+    "UNKNOWN": FailureReason.PROVIDER,
+}
+
+# Per-class user-facing reason + next safe action (#380: "next safe action
+# offered"). Kept provider-independent and free of raw diagnostics.
+_FAILURE_COPY = {
+    FailureReason.AUTH: (
+        "The provider rejected OPai's credentials before the objective could be verified.",
+        "Re-connect the provider account, then retry.",
+    ),
+    FailureReason.RATE_LIMIT: (
+        "The provider throttled the request or its quota was exhausted before the objective could be verified.",
+        "Wait a moment and retry, or switch to another provider.",
+    ),
+    FailureReason.NETWORK: (
+        "OPai could not reach the provider before it could verify the objective.",
+        "Check your connection and retry.",
+    ),
+    FailureReason.PROVIDER: (
+        "The provider failed before OPai could verify the objective.",
+        "Retry the run, or switch to another provider.",
+    ),
+    FailureReason.POLICY: (
+        "A safety policy stopped the run before the objective could be verified.",
+        "Adjust the request or autonomy level, then retry.",
+    ),
+    FailureReason.INTERNAL: (
+        "OPai hit an internal error before it could verify the objective.",
+        "Retry the run; if it keeps happening, report it with the run id.",
+    ),
+}
+
+_INTERNAL_FAILURE_STATUSES = frozenset(
+    {"runner_error", "internal_error", "opai_error"}
+)
+_POLICY_FAILURE_STATUSES = frozenset({"blocked_policy", "policy_error"})
+
 _EDIT_MODES = frozenset({"implement", "ship", "build", "edit", "fix"})
 _TEST_REQUEST = re.compile(r"\b(?:test|tests|testing|verify|verification|ci)\b", re.I)
+
+
+def classify_failure_reason(result: Mapping[str, Any] | None) -> FailureReason:
+    """Map a failed run to its typed cause (#380).
+
+    Prefers the normalized provider error code (``error.code``); falls back to
+    the legacy ``status`` and finally to :attr:`FailureReason.PROVIDER` — the
+    same honest default the generic "provider_failed" verdict used, never a
+    fabricated internal blame.
+    """
+
+    payload = result or {}
+    error = payload.get("error")
+    if isinstance(error, Mapping):
+        code = str(error.get("code") or "").strip().upper()
+        mapped = _FAILURE_BY_ERROR_CODE.get(code)
+        if mapped is not None:
+            return mapped
+    status = _normalized(payload.get("status"))
+    if status in _INTERNAL_FAILURE_STATUSES:
+        return FailureReason.INTERNAL
+    if status in _POLICY_FAILURE_STATUSES:
+        return FailureReason.POLICY
+    if status.startswith("auth") or "unauthor" in status:
+        return FailureReason.AUTH
+    if "rate" in status or "quota" in status:
+        return FailureReason.RATE_LIMIT
+    if "network" in status or "connection" in status:
+        return FailureReason.NETWORK
+    return FailureReason.PROVIDER
 
 
 def objective_from_request(objective_text: str, *, mode: str) -> ObjectiveRecord:
@@ -347,13 +447,15 @@ def evaluate_completion(
             "Resolve the blocker and retry.",
         )
     if canonical is not CompletionState.COMPLETED:
+        failure = classify_failure_reason(result)
+        reason_text, next_action = _FAILURE_COPY[failure]
         return _verdict(
             CompletionVerdict.FAILED,
-            "provider_failed",
-            "The provider failed before OPai could verify the objective.",
+            failure.value,
+            reason_text,
             objective,
             evidence,
-            "Retry the run.",
+            next_action,
         )
 
     kinds = {item.kind for item in evidence}
