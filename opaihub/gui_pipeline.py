@@ -44,6 +44,7 @@ from .ledger import (
 )
 from .model_intelligence import recommend_model
 from .repo_context import classify_dirty_paths, resolve_repo_context, save_active_repo
+from .run_state import run_state_for_verdict
 from .run_summary import build_run_summary
 from .task_packet import build_task_packet
 from .workflow_state import WorkflowState, load_workflow_state, save_workflow_state
@@ -1054,6 +1055,10 @@ def handle_gui_message(
             **payload,
             "objective": objective.to_dict(),
             "completion_verdict": verdict_payload,
+            # #379: the engine emits the canonical terminal run state (derived
+            # from the verdict, 1:1) so every surface reads one lifecycle field
+            # instead of inferring it from a local status string.
+            "run_state": run_state_for_verdict(verdict.verdict).value,
             "agent_policy": policy.to_dict(),
             "requested_run_mode": autonomy.requested_mode,
             "effective_run_mode": selected_mode,
