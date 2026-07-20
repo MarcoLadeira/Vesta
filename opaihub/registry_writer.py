@@ -4,23 +4,34 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .loader import load_named_registry, registry_file, registry_items
+from .atomic_io import atomic_write_text, interprocess_transaction
+from .loader import load_named_registry, registry_file
 
 
 def add_tool_entry(project_root: Path, entry: dict[str, Any]) -> dict[str, Any]:
     path = registry_file("tools", project_root)
-    data = load_named_registry("tools", project_root)
-    tools = registry_items("tools", project_root)
-    if any(tool.get("id") == entry.get("id") for tool in tools):
-        return {
-            "ok": False,
-            "error": f"tool already exists: {entry.get('id')}",
-            "path": str(path),
-        }
-    data.setdefault("tools", []).append(entry)
-    path.write_text(
-        json.dumps(data, indent=2, sort_keys=False) + "\n", encoding="utf-8"
-    )
+    # Serialize the whole read-check-append-write across threads and processes so
+    # two concurrent adds can't both read the pre-append registry and clobber
+    # each other's tool (#459). Each writer re-reads the current file under the
+    # lock, so no addition is lost and the write is atomic.
+    with interprocess_transaction(path):
+        data = load_named_registry("tools", project_root)
+        tools = data.get("tools")
+        tools = tools if isinstance(tools, list) else []
+        if any(
+            isinstance(tool, dict) and tool.get("id") == entry.get("id")
+            for tool in tools
+        ):
+            return {
+                "ok": False,
+                "error": f"tool already exists: {entry.get('id')}",
+                "path": str(path),
+            }
+        tools.append(entry)
+        data["tools"] = tools
+        atomic_write_text(
+            path, json.dumps(data, indent=2, sort_keys=False) + "\n"
+        )
     return {"ok": True, "id": entry.get("id"), "path": str(path)}
 
 
