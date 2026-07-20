@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .cost_model import is_local_tier, load_cost_model
+from .cost_model import is_degraded, is_local_tier, load_cost_model
 from .ledger import EVENT_MODEL_CALL, read_events
 from .policy import evaluate_action, resolve_policy
 from .state import state_dir
@@ -200,6 +200,18 @@ def budget_gate(
             decision = level
         reasons.append(reason)
 
+    # 0. A degraded cost model (#471): the paid estimate can't be trusted, so a
+    # paid/cloud route must never be silently allowed on a possibly-understated
+    # number — require explicit confirmation until the model is repaired.
+    cost_model_degraded = is_degraded(cost_model)
+    if cost_model_degraded and not is_local:
+        escalate(
+            "confirm",
+            "Cost model is degraded ("
+            + (str(cost_model.get("degraded_reason") or "unreadable"))
+            + "); the paid estimate is unreliable — confirm before routing.",
+        )
+
     # 1. Panic mode: only deterministic/local routes allowed.
     if caps.get("panic") and not is_local:
         escalate(
@@ -254,6 +266,7 @@ def budget_gate(
         "requires_confirmation": decision == "confirm",
         "denied": decision == "deny",
         "panic": bool(caps.get("panic")),
+        "cost_model_degraded": cost_model_degraded,
         "tier": str(tier).upper(),
         "is_local_route": is_local,
         "next_cost_usd": next_cost_usd,

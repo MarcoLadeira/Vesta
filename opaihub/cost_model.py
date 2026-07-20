@@ -39,19 +39,54 @@ DEFAULT_COST_MODEL: dict[str, Any] = {
 }
 
 
+def _degraded_model(reason: str) -> dict[str, Any]:
+    """The default model, flagged as a degraded fallback (#471).
+
+    A *missing* cost model is a clean default; a *present but unreadable* one is
+    degraded — its absence of the user's tuned rates can understate paid cost, so
+    the fallback carries a typed flag surfaces can escalate on instead of
+    silently trusting a possibly-too-low estimate.
+    """
+
+    model = dict(DEFAULT_COST_MODEL)
+    model["degraded"] = True
+    model["degraded_reason"] = reason
+    return model
+
+
 def load_cost_model(project_root: Path | None = None) -> dict[str, Any]:
     path = hub_root(project_root) / "model-intelligence" / "cost_model.yaml"
     if not path.exists():
         return dict(DEFAULT_COST_MODEL)
     try:
         data = load_registry(path)
-    except Exception:
-        return dict(DEFAULT_COST_MODEL)
+    except Exception as exc:  # noqa: BLE001 - a broken model must degrade, not crash
+        return _degraded_model(f"cost model could not be parsed ({type(exc).__name__})")
     if not isinstance(data, dict):
-        return dict(DEFAULT_COST_MODEL)
+        return _degraded_model("cost model file is not a mapping")
     merged = dict(DEFAULT_COST_MODEL)
+    # A user file never smuggles in a false all-clear flag.
+    data.pop("degraded", None)
+    data.pop("degraded_reason", None)
     merged.update(data)
     return merged
+
+
+def is_degraded(model: dict[str, Any] | None) -> bool:
+    """True when a cost model is a degraded fallback for an unreadable file."""
+
+    return bool((model or {}).get("degraded"))
+
+
+def cost_model_status(project_root: Path | None = None) -> dict[str, Any]:
+    """Typed load status for routing/budget surfaces (#471)."""
+
+    model = load_cost_model(project_root)
+    return {
+        "ok": not is_degraded(model),
+        "degraded": is_degraded(model),
+        "reason": str(model.get("degraded_reason") or ""),
+    }
 
 
 def chars_per_token(model: dict[str, Any] | None = None) -> int:
