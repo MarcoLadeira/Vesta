@@ -4,6 +4,7 @@ from html import escape
 from pathlib import Path
 
 from .analytics import build_analytics_summary
+from .atomic_io import atomic_write_text
 from .benchmark import latest_benchmark_report
 from .context_engine import profile_context
 from .state import state_dir
@@ -153,6 +154,7 @@ def build_dashboard_html(project_root: Path) -> Path:
 </html>
 """
     path = state_dir(project_root) / "dashboard.html"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(html, encoding="utf-8")
+    # Atomic replace so a concurrent refresh or a reader always sees one coherent
+    # snapshot — never a half-written dashboard (#461).
+    atomic_write_text(path, html)
     return path
