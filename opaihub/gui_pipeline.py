@@ -44,6 +44,7 @@ from .ledger import (
 )
 from .model_intelligence import recommend_model
 from .repo_context import classify_dirty_paths, resolve_repo_context, save_active_repo
+from .run_summary import build_run_summary
 from .task_packet import build_task_packet
 from .workflow_state import WorkflowState, load_workflow_state, save_workflow_state
 
@@ -1042,7 +1043,7 @@ def handle_gui_message(
                     else FAILED
                 ),
             )
-        return {
+        decorated = {
             **payload,
             "objective": objective.to_dict(),
             "completion_verdict": verdict_payload,
@@ -1064,6 +1065,11 @@ def handle_gui_message(
             "workflow": state.to_dict(),
             "task_packet": task_packet.to_dict(),
         }
+        # #389: the shareable, verdict-first receipt summary is rendered once
+        # here, from the assembled record, so the GUI copy action and any other
+        # surface export identical content (never a display-side recomputation).
+        decorated["run_summary"] = build_run_summary(decorated)
+        return decorated
 
     if policy.requires_confirmation:
         blocked_tier = str(

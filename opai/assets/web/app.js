@@ -1732,11 +1732,20 @@ function metaFooter(r, sel, durMs) {
 // summary. One click on the strip copies a clean plaintext receipt; the Summary
 // button jumps to the aggregate savings dashboard (not an itemized ledger — that
 // view lands with #390 — and not a copy).
-function wireReceipt(el, sel) {
+function wireReceipt(el, sel, r) {
   const card = el.querySelector(".receipt-card");
   const strip = el.querySelector(".footer-note");
   if (!strip) return;
   const copy = () => {
+    // #389: prefer the verdict-first summary rendered from the run record (one
+    // source of truth, redacted server-side). Fall back to the footer scrape
+    // only for surfaces without a record (e.g. the Build result card).
+    const summary = r && typeof r.run_summary === "string" && r.run_summary.trim();
+    if (summary) {
+      copyText(summary);
+      toast("Receipt summary copied");
+      return;
+    }
     const badge = strip.querySelector(".rc-badge");
     const bits = strip.querySelector(".rc-bits");
     const line = [badge && badge.textContent.trim(), bits && bits.textContent.trim()].filter(Boolean).join(" · ");
@@ -2044,7 +2053,7 @@ function finalize(status, r) {
   el.innerHTML = html;
   wireActivitySummary(el);
   wireFilesCard(el);
-  wireReceipt(el, sel);
+  wireReceipt(el, sel, r);
   wirePlanCard(el, sel);
   wireDiffReview(el);
   enhanceCodeBlocks(el);
