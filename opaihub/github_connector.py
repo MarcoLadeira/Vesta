@@ -88,11 +88,32 @@ def _load_config() -> dict[str, Any]:
 
 
 def _save_config(config: dict[str, Any]) -> None:
-    path = _config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    # Crash-safe: a temp file + atomic replace can never leave a torn config.
+    from .atomic_io import atomic_write_text
+
+    atomic_write_text(
+        _config_path(), json.dumps(config, indent=2, sort_keys=True) + "\n"
     )
+
+
+def _update_config(
+    mutator: Callable[[dict[str, Any]], None],
+) -> dict[str, Any]:
+    """Read-modify-write the connector config under a cross-process lock (#477).
+
+    Concurrent independent updates — connecting a token in one process while
+    another flips allow-push — serialize instead of clobbering each other: each
+    re-reads the latest config inside the lock, applies only its own change, and
+    writes atomically. Returns the persisted config.
+    """
+    from .atomic_io import interprocess_transaction
+
+    path = _config_path()
+    with interprocess_transaction(path):
+        config = _load_config()
+        mutator(config)
+        _save_config(config)
+        return config
 
 
 def stored_github_token() -> tuple[str, str]:
@@ -141,11 +162,12 @@ def connect_github(token: str, *, http: HttpFn = _default_http) -> dict[str, Any
         # No secure keychain on this machine: never fall back to plaintext.
         # The user can still export GITHUB_TOKEN in their shell profile.
         stored = "env-only"
-    config = _load_config()
-    config["login"] = login
-    config.setdefault("allow_push", False)
-    config.setdefault("allow_public_read", False)
-    _save_config(config)
+    def _apply(config: dict[str, Any]) -> None:
+        config["login"] = login
+        config.setdefault("allow_push", False)
+        config.setdefault("allow_public_read", False)
+
+    config = _update_config(_apply)
     return {
         "connected": True,
         "login": login,
@@ -165,11 +187,12 @@ def disconnect_github() -> dict[str, Any]:
         removed = bool(result.get("deleted"))
     except CredentialStoreUnavailable:
         removed = False
-    config = _load_config()
-    config.pop("login", None)
-    config["allow_push"] = False
-    config["allow_public_read"] = False
-    _save_config(config)
+    def _apply(config: dict[str, Any]) -> None:
+        config.pop("login", None)
+        config["allow_push"] = False
+        config["allow_public_read"] = False
+
+    _update_config(_apply)
     env_token = any(os.environ.get(name) for name in _TOKEN_ENV_VARS)
     return {
         "disconnected": True,
@@ -191,9 +214,7 @@ def set_push_allowed(allowed: bool) -> dict[str, Any]:
     names the missing piece — so ``allow-push on`` never claims a capability the
     run cannot deliver.
     """
-    config = _load_config()
-    config["allow_push"] = bool(allowed)
-    _save_config(config)
+    _update_config(lambda config: config.__setitem__("allow_push", bool(allowed)))
     readiness = github_readiness()
     return {
         "allow_push": bool(allowed),
@@ -211,9 +232,9 @@ def push_allowed() -> bool:
 def set_public_read_allowed(allowed: bool) -> dict[str, Any]:
     """Persist explicit consent for anonymous reads from a public GitHub origin."""
 
-    config = _load_config()
-    config["allow_public_read"] = bool(allowed)
-    _save_config(config)
+    _update_config(
+        lambda config: config.__setitem__("allow_public_read", bool(allowed))
+    )
     return {
         "allow_public_read": bool(allowed),
         "note": (
