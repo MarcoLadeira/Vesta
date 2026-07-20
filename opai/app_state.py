@@ -779,6 +779,12 @@ def _ask_free_model(
         record=record_route,
         cancel=cancel,
         on_text=None if allow_edits else on_text,
+        # The consent to leave the device was already granted above (the
+        # allow_cloud gate this function opened with) — without threading it
+        # through, every per-turn ExecutionGuard check inside the tool loop
+        # re-demands consent it has no way to collect, so the run always
+        # dead-ends as "needs_consent" with an empty answer (#219).
+        allow_cloud=allow_cloud,
     )
     if result.get("status") == "runner_error":
         from opai.provider_contract import normalize_provider_error
