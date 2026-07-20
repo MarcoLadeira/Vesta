@@ -57,6 +57,27 @@ class CompletionVerdict(str, Enum):
     TIMEOUT = "timeout"
 
 
+# The one user-facing label for each verdict (#396). GUI, CLI, and the receipt
+# summary all render from this table so the same run never reads as "Timeout"
+# on one surface and "Timed out" on another. Mirrored in assets/web/app.js
+# (VERDICT_LABELS) and guarded by a vocabulary-parity test.
+VERDICT_LABELS = {
+    CompletionVerdict.COMPLETED.value: "Completed",
+    CompletionVerdict.PARTIAL.value: "Partial",
+    CompletionVerdict.BLOCKED.value: "Blocked",
+    CompletionVerdict.FAILED.value: "Failed",
+    CompletionVerdict.CANCELLED.value: "Cancelled",
+    CompletionVerdict.TIMEOUT.value: "Timed out",
+}
+
+
+def verdict_label(verdict: Any) -> str:
+    """The shared user-facing label for a verdict value (#396)."""
+
+    key = str(getattr(verdict, "value", verdict) or "").strip().lower()
+    return VERDICT_LABELS.get(key) or (key.replace("_", " ").title() or "Unknown")
+
+
 class FailureReason(str, Enum):
     """The typed cause behind a FAILED verdict (#380).
 

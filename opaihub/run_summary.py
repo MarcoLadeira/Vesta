@@ -13,15 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-# User-facing verdict labels (mirrors the completion verdict; #378/#402).
-_VERDICT_LABEL = {
-    "completed": "Completed",
-    "partial": "Partial",
-    "blocked": "Blocked",
-    "failed": "Failed",
-    "cancelled": "Cancelled",
-    "timeout": "Timed out",
-}
+from .completion import verdict_label
 
 # Cost-measurement badge (mirrors app.js receiptBadge / #235 honesty badge).
 _BADGE_LABEL = {
@@ -68,7 +60,7 @@ def build_run_summary(record: Mapping[str, Any] | None) -> str:
     # 1) Verdict + typed reason — first, always. This is the answer to "did it
     #    work?" and no other line may precede it.
     vkey = str(verdict.get("verdict") or "").strip().lower()
-    vlabel = _VERDICT_LABEL.get(vkey) or (vkey.replace("_", " ").title() or "Unknown")
+    vlabel = verdict_label(vkey)
     reason = _redact(verdict.get("reason"))
     lines.append(f"**Verdict: {vlabel}**" + (f" — {reason}" if reason else ""))
 
