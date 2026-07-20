@@ -158,6 +158,15 @@ class SummarizeOutcomesReconciliationTests(unittest.TestCase):
         self.assertEqual(by_cat["blocked"], 1)
         self.assertEqual(by_cat["cancelled"], 1)
 
+    def test_partial_outcomes_excluded_from_cost_per_completed(self):
+        # #402: a partial run is bucketed separately and must not count toward
+        # completed_tasks — cost-per-completed excludes it.
+        record_task_outcome(self.root, "t", outcome_id="c", category="completed")
+        record_task_outcome(self.root, "t", outcome_id="p", category="partial")
+        summary = summarize_outcomes(self.root)
+        self.assertEqual(summary["by_category"]["partial"], 1)
+        self.assertEqual(summary["spend"]["completed_tasks"], 1)
+
     def test_duplicate_calls_avoided_come_from_cache_evidence(self):
         record_cache_lookup(
             self.root, "t", cache_kind="ask", outcome="hit", avoided_model_call=True
@@ -317,6 +326,17 @@ class BuildTaskOutcomeFieldsTests(unittest.TestCase):
             self.assertEqual(
                 self._fields({"status": status}, status)["category"], category
             )
+
+    def test_answered_but_partial_verdict_is_not_completed(self):
+        # #402: an "answered" run whose completion verdict is PARTIAL (edit/tests
+        # /answer never verified) must bucket as "partial", never "completed", so
+        # cost-per-completed excludes it instead of inflating the denominator.
+        payload = {
+            "status": "answered",
+            "cost_telemetry": {"total_tokens": 50, "cost_usd": 0.01},
+        }
+        self.assertEqual(self._fields(payload, "partial")["category"], "partial")
+        self.assertEqual(self._fields(payload, "completed")["category"], "completed")
 
     def test_pre_work_cancel_and_awaiting_input_record_nothing(self):
         # A cancel before any work, capability mismatches, and every needs_*

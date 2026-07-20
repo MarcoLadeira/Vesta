@@ -345,7 +345,9 @@ def _record_gui_route(
     event["selected_mode"] = mode
 
 
-def _outcome_category(status: str, *, had_work: bool) -> str | None:
+def _outcome_category(
+    status: str, *, had_work: bool, verdict: str = ""
+) -> str | None:
     """The honest terminal class for a finished turn, or ``None`` when there is
     nothing to record (#288).
 
@@ -354,10 +356,16 @@ def _outcome_category(status: str, *, had_work: bool) -> str | None:
     completed denominator and understate cost per completed task. A cancel with
     no work done (the classic pre-flight cancel) records nothing at all, matching
     the ledger-honesty invariant that an untouched turn leaves no trace.
+
+    #402: the completion verdict is authoritative over the legacy status. An
+    ``answered`` run whose verdict is ``partial`` (edit/tests/answer never
+    verified) is bucketed as ``partial``, never ``completed`` — so cost per
+    completed task excludes it instead of inflating the denominator.
     """
     status = str(status or "")
+    verdict = str(verdict or "").strip().lower()
     if status == "answered":
-        return "completed"
+        return "partial" if verdict == "partial" else "completed"
     if status == "blocked":
         return "blocked"
     # capability_mismatch and every needs_* state are awaiting a different model
@@ -390,7 +398,9 @@ def build_task_outcome_fields(
     """
     telemetry = payload.get("cost_telemetry") or {}
     had_work = bool(telemetry) or bool(payload.get("changed_files"))
-    category = _outcome_category(payload.get("status") or "", had_work=had_work)
+    category = _outcome_category(
+        payload.get("status") or "", had_work=had_work, verdict=completion
+    )
     if category is None:
         return None
     fields: dict[str, Any] = {
