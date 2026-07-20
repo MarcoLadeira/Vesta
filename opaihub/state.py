@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,40 @@ def state_path(project_root: Path) -> Path:
     return state_dir(project_root) / "project.json"
 
 
+def _state_backup_path(project_root: Path) -> Path:
+    return state_dir(project_root) / "project.json.bak"
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` atomically (temp file + os.replace).
+
+    A reader during the write always sees either the complete old file or the
+    complete new one — never a torn, unparseable project state (#473).
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _read_state_dict(path: Path) -> dict[str, Any] | None:
+    """Parsed project state, or ``None`` when the file is absent or unreadable."""
+
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def default_state(project_root: Path) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -50,24 +86,26 @@ def default_state(project_root: Path) -> dict[str, Any]:
 
 def load_state(project_root: Path) -> dict[str, Any]:
     path = state_path(project_root)
-    if not path.exists():
-        return default_state(project_root)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return default_state(project_root)
-    base = default_state(project_root)
-    base.update(data)
+    data = _read_state_dict(path)
+    if data is None and path.exists():
+        # Primary is present but unreadable (e.g. an interrupted legacy write):
+        # recover the last known-good backup before reverting to defaults, so a
+        # torn file doesn't silently discard the project's saved configuration.
+        data = _read_state_dict(_state_backup_path(project_root))
+    base = default_state(project_root)  # always carries the current schema_version
+    if isinstance(data, dict):
+        base.update(data)
     return base
 
 
 def save_state(project_root: Path, state: dict[str, Any]) -> Path:
     path = state_path(project_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = now_iso()
-    path.write_text(
-        json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    payload = json.dumps(state, indent=2, sort_keys=True) + "\n"
+    # Atomic write + last-known-good backup: an interrupted write can't leave a
+    # torn project.json, and a corrupted file is recoverable (#473).
+    _atomic_write(path, payload)
+    _atomic_write(_state_backup_path(project_root), payload)
     return path
 
 
