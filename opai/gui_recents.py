@@ -32,7 +32,19 @@ MAX_RESUME_CONTEXT_CHARS = 12_000
 
 _THREAD_LOCKS: dict[str, threading.RLock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
-_THREAD_STATUSES = {"complete", "pending", "failed", "cancelled", "interrupted"}
+# "partial", "blocked", "timeout" carry the completion verdict (#402) into the
+# persisted thread so a non-completed run is never coerced to "complete" (or, via
+# the old whitelist, to "failed"). See opai.gui_web._thread_status_for.
+_THREAD_STATUSES = {
+    "complete",
+    "partial",
+    "blocked",
+    "timeout",
+    "pending",
+    "failed",
+    "cancelled",
+    "interrupted",
+}
 _PLAN_STATUSES = {"pending", "in_progress", "completed", "blocked"}
 
 

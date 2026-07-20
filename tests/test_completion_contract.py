@@ -90,6 +90,13 @@ def test_answer_objective_requires_a_real_answer_before_completion() -> None:
             "timeout",
         ),
         (
+            # #402: the tool-loop controller's wall-clock timeout keeps STUCK as
+            # its canonical state but must surface a TIMEOUT verdict end-to-end.
+            {"status": "incomplete", "stopped_reason": "controller_timeout"},
+            CompletionVerdict.TIMEOUT,
+            "timeout",
+        ),
+        (
             {"status": "failed", "error": "provider crashed"},
             CompletionVerdict.FAILED,
             "provider_failed",

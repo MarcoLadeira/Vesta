@@ -1117,14 +1117,17 @@ def _ask_account(
 
         error = normalize_provider_error(account_id, "", model=model, timed_out=True)
         return {
-            # #378: a timeout is neither a generic provider failure nor an
-            # answered response.  Preserve the typed terminal cause so the
-            # shared completion verdict can render it identically in GUI/CLI.
-            "status": "retryable_provider_error",
+            # #378/#402: a timeout is a distinct terminal cause. The typed
+            # PROVIDER_TIMEOUT error and the "timeout" stop reason are what the
+            # shared completion verdict reads to render TIMEOUT identically in
+            # GUI + CLI. The legacy status stays "failed" so ask/handle_gui_message
+            # keep their clean-error contract, while proxy_run maps a
+            # PROVIDER_TIMEOUT/"timeout" result to the "account_timeout" status
+            # its capture ledger and desktop timeout card expect.
+            "status": "failed",
             "provider": account_id,
             "answer": error["userMessage"],
             "error": error,
-            "completion_state": "retryable_provider_error",
             "stopped_reason": "timeout",
         }
 

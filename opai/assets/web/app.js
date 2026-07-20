@@ -1581,6 +1581,8 @@ function stripFinalize(status, r) {
 const ACTIVITY_STATE_BY_TYPE = {
   provider_checking: "authenticating", request_sending: "sending",
   waiting_first_token: "waiting", streaming: "streaming",
+  // #402: the pipeline's evidence check before a terminal verdict.
+  verifying: "verifying",
 };
 function applyActivityState(event) {
   const next = ACTIVITY_STATE_BY_TYPE[event.type];
@@ -2202,7 +2204,13 @@ function onReply(json) {
   const d = JSON.parse(json);
   if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale reply ignored
   const backendStatus = (d.result && d.result.status) || "failed";
-  state.message = OPaiMessageState.transition(state.message, OPaiMessageState.fromBackendStatus(backendStatus));
+  // #402: the completion verdict, when present, is the honest terminal truth —
+  // hand it to the state machine so a partial/blocked/timeout run is not
+  // collapsed into "failed".
+  state.message = OPaiMessageState.transition(
+    state.message,
+    OPaiMessageState.fromBackendStatus(backendStatus, d.result && d.result.completion_verdict),
+  );
   state.currentRequest = null;
   setBusy(false);
   finalize(backendStatus, d.result || {});

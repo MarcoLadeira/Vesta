@@ -183,6 +183,14 @@ class CompletionVerdictResult:
         }
 
 
+# Stop reasons that are honestly a timeout, not a generic failure or a stuck
+# no-progress run (#402). The account path emits "timeout"; the tool-loop
+# controller emits "controller_timeout" when it exceeds max_active_seconds.
+# Both must surface the TIMEOUT verdict end-to-end even though the tool-loop
+# controller keeps STUCK_NO_PROGRESS as its canonical legacy state.
+_TIMEOUT_STOP_REASONS = frozenset({"timeout", "controller_timeout"})
+_TIMEOUT_STATUSES = frozenset({"timeout", "account_timeout"})
+
 _EDIT_MODES = frozenset({"implement", "ship", "build", "edit", "fix"})
 _TEST_REQUEST = re.compile(r"\b(?:test|tests|testing|verify|verification|ci)\b", re.I)
 
@@ -291,7 +299,7 @@ def evaluate_completion(
             evidence,
             "Retry when you are ready.",
         )
-    if stopped_reason == "timeout" or status == "timeout":
+    if stopped_reason in _TIMEOUT_STOP_REASONS or status in _TIMEOUT_STATUSES:
         return _verdict(
             CompletionVerdict.TIMEOUT,
             "timeout",

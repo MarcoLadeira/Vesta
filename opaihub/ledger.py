@@ -56,7 +56,7 @@ KNOWN_EVENT_TYPES = {
 OUTCOME_SCHEMA_VERSION = 1
 # Terminal classes. Every turn ends in exactly one; there is no "running" state
 # in the ledger because only terminal outcomes are recorded.
-OUTCOME_CATEGORIES = {"completed", "failed", "blocked", "cancelled"}
+OUTCOME_CATEGORIES = {"completed", "partial", "failed", "blocked", "cancelled"}
 # Sentinel for a value OPai has not measured. Distinct from a real 0 (e.g. zero
 # tokens because no model call happened), which is a fact, not a guess.
 UNKNOWN = "unknown"

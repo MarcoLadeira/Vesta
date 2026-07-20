@@ -10,12 +10,43 @@ describe("message terminal truth", () => {
     expect(transition(failed, "completed").status).toBe("failed");
   });
 
-  it("maps every non-answer backend status to failed", () => {
+  it("falls back to legacy buckets when no verdict is present", () => {
     expect(fromBackendStatus("failed")).toBe("failed");
     expect(fromBackendStatus("account_error")).toBe("failed");
     expect(fromBackendStatus("account_not_connected")).toBe("failed");
     expect(fromBackendStatus("answered")).toBe("completed");
     expect(fromBackendStatus("cancelled")).toBe("cancelled");
+  });
+
+  it("honors the completion verdict over the legacy status (#402)", () => {
+    // The exact leak: a legacy "answered" status whose verdict is not completed
+    // must render its honest outcome, never a flat "failed" or a false success.
+    expect(fromBackendStatus("answered", { verdict: "partial" })).toBe("partial");
+    expect(fromBackendStatus("answered", { verdict: "blocked" })).toBe("blocked");
+    expect(fromBackendStatus("failed", { verdict: "timeout" })).toBe("timeout");
+    expect(fromBackendStatus("failed", { verdict: "blocked" })).toBe("blocked");
+    // A bare verdict string is accepted too.
+    expect(fromBackendStatus("answered", "completed")).toBe("completed");
+  });
+
+  it("treats partial/blocked/timeout as distinct terminal states", () => {
+    for (const end of ["partial", "blocked", "timeout"]) {
+      const done = transition({ requestId: "r1", status: "streaming" }, end);
+      expect(done.status).toBe(end);
+      // Terminal: a late reply must not mutate it, and completed cannot follow.
+      expect(canApply(done, "r1")).toBe(false);
+      expect(transition(done, "completed").status).toBe(end);
+      // But a retry is offered from each of them.
+      expect(transition(done, "retrying").status).toBe("retrying");
+    }
+  });
+
+  it("passes through the transient verifying state before a verdict", () => {
+    const verifying = transition({ requestId: "r1", status: "streaming" }, "verifying");
+    expect(verifying.status).toBe("verifying");
+    // verifying is not terminal — the real verdict still applies.
+    expect(canApply(verifying, "r1")).toBe(true);
+    expect(transition(verifying, "partial").status).toBe("partial");
   });
 
   it("keeps retry identity separate from the failed request", () => {
