@@ -30,6 +30,14 @@ class EventModelTests(unittest.TestCase):
         self.assertEqual(ev["type"], "tool_call")
         self.assertEqual(ev["status"], "running")
 
+    def test_terminal_verdict_types_are_registered_not_coerced(self):
+        # #402: verifying/stopped/completion_verdict are emitted by the pipeline
+        # as terminal rows. They must keep their real type — coercing them to
+        # tool_call gives terminal rows the wrong semantics.
+        for etype in ("verifying", "stopped", "completion_verdict"):
+            ev = make_event(etype, "warning", "x")
+            self.assertEqual(ev["type"], etype)
+
 
 class StaleGuardTests(unittest.TestCase):
     def test_only_matching_request_applies(self):
