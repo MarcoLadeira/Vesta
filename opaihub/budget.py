@@ -11,6 +11,7 @@ exceed policy or budget.
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,49 @@ from .cost_model import is_local_tier, load_cost_model
 from .ledger import EVENT_MODEL_CALL, read_events
 from .policy import evaluate_action, resolve_policy
 from .state import state_dir
+
+# The numeric spend ceilings a budget can carry.
+_CAP_KEYS = ("daily_usd_limit", "monthly_usd_limit", "per_task_hard_limit_usd")
+
+
+def _validate_cap(value: Any, *, name: str) -> float | None:
+    """A cap the user is *setting* must be a finite, non-negative amount.
+
+    NaN and infinity round-trip through JSON but silently disable the ceiling —
+    every ``spent + cost > NaN`` comparison is false — so an invalid cap is
+    rejected at the source rather than persisted and failing open later (#469).
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be a finite dollar amount, not {value!r}")
+    if number < 0:
+        raise ValueError(f"{name} must not be negative")
+    return number
+
+
+def _sanitize_cap(raw: Any) -> float | None:
+    """A usable cap read from disk, or ``None`` when unset.
+
+    Defense in depth for a hand-edited or legacy budget.json: a present-but-
+    invalid ceiling (NaN, infinity, negative, non-number) becomes ``0.0`` so the
+    gate *fails closed* — a corrupt ceiling blocks paid spend instead of
+    silently vanishing on a NaN comparison that is always false.
+    """
+
+    if raw is None:
+        return None
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(number) or number < 0:
+        return 0.0
+    return number
 
 
 def budget_path(project_root: Path) -> Path:
@@ -45,8 +89,11 @@ def load_budget(project_root: Path) -> dict[str, Any]:
             data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 caps.update(data)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError, ValueError):
             pass
+    # A corrupt/non-finite ceiling from disk must never fail open at the gate.
+    for key in _CAP_KEYS:
+        caps[key] = _sanitize_cap(caps.get(key))
     return caps
 
 
@@ -61,16 +108,21 @@ def set_budget(
     root = project_root.expanduser().resolve()
     caps = load_budget(root)
     if daily_usd is not None:
-        caps["daily_usd_limit"] = daily_usd
+        caps["daily_usd_limit"] = _validate_cap(daily_usd, name="daily_usd")
     if monthly_usd is not None:
-        caps["monthly_usd_limit"] = monthly_usd
+        caps["monthly_usd_limit"] = _validate_cap(monthly_usd, name="monthly_usd")
     if per_task_usd is not None:
-        caps["per_task_hard_limit_usd"] = per_task_usd
+        caps["per_task_hard_limit_usd"] = _validate_cap(per_task_usd, name="per_task_usd")
     if panic is not None:
         caps["panic"] = bool(panic)
     path = budget_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(caps, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # allow_nan=False makes a non-finite value fail loudly at write time rather
+    # than emit invalid JSON that would parse back to a fail-open cap.
+    path.write_text(
+        json.dumps(caps, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     return {"status": "updated", **caps, "path": str(path)}
 
 

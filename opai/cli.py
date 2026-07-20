@@ -1252,14 +1252,17 @@ def cmd_budget(args: argparse.Namespace) -> int:
 
     root = _project(args.project)
     if args.budget_command == "set":
-        print_json(
-            set_budget(
+        try:
+            result = set_budget(
                 root,
                 daily_usd=args.daily,
                 monthly_usd=args.monthly,
                 per_task_usd=args.per_task,
             )
-        )
+        except ValueError as exc:
+            print_json({"status": "invalid", "error": str(exc)})
+            return 2
+        print_json(result)
         return 0
     if args.budget_command == "status":
         print_json(budget_status(root))
