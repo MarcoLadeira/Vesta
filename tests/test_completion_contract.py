@@ -15,7 +15,9 @@ from opaihub.completion import (
     CompletionResult,
     CompletionState,
     CompletionVerdict,
+    FailureReason,
     ProviderBlockedReason,
+    classify_failure_reason,
     completion_state_from_legacy,
     evaluate_completion,
     legacy_status_for_completion,
@@ -116,9 +118,18 @@ def test_answer_objective_requires_a_real_answer_before_completion() -> None:
             "timeout",
         ),
         (
+            # #380: a bare failure with no typed error code defaults to the
+            # honest "provider" class (the old generic "provider_failed" cause).
             {"status": "failed", "error": "provider crashed"},
             CompletionVerdict.FAILED,
-            "provider_failed",
+            "provider",
+        ),
+        (
+            # #380: a typed provider error code drives the failure class so the
+            # user is sent to re-connect, not offered a generic retry.
+            {"status": "failed", "error": {"code": "AUTH_EXPIRED"}},
+            CompletionVerdict.FAILED,
+            "auth",
         ),
         (
             {"status": "needs_edit_approval", "answer": "approve this"},
@@ -137,6 +148,55 @@ def test_terminal_verdicts_have_typed_reason_codes(
     assert result.verdict is verdict
     assert result.reason_code == reason_code
     assert result.reason
+
+
+@pytest.mark.parametrize(
+    ("error_code", "expected"),
+    [
+        ("AUTH_MISSING", FailureReason.AUTH),
+        ("AUTH_INVALID", FailureReason.AUTH),
+        ("AUTH_EXPIRED", FailureReason.AUTH),
+        ("PROVIDER_RATE_LIMITED", FailureReason.RATE_LIMIT),
+        ("PROVIDER_QUOTA_EXHAUSTED", FailureReason.RATE_LIMIT),
+        ("NETWORK_ERROR", FailureReason.NETWORK),
+        ("PROVIDER_UNAVAILABLE", FailureReason.PROVIDER),
+        ("MODEL_UNAVAILABLE", FailureReason.PROVIDER),
+        ("NO_RESPONSE", FailureReason.PROVIDER),
+        ("STREAM_ABORTED", FailureReason.PROVIDER),
+        ("CONTEXT_TOO_LARGE", FailureReason.PROVIDER),
+        ("CONFIG_INVALID", FailureReason.INTERNAL),
+    ],
+)
+def test_failure_reason_maps_every_provider_error_code(
+    error_code: str, expected: FailureReason
+) -> None:
+    assert classify_failure_reason({"status": "failed", "error": {"code": error_code}}) is expected
+
+
+def test_failure_reason_falls_back_honestly_without_a_typed_code() -> None:
+    # A codeless failure defaults to "provider" (the old generic cause), never a
+    # fabricated internal blame; a local runner error is honestly internal.
+    assert classify_failure_reason({"status": "failed"}) is FailureReason.PROVIDER
+    assert classify_failure_reason({"status": "failed", "error": "raw text"}) is FailureReason.PROVIDER
+    assert classify_failure_reason({"status": "runner_error"}) is FailureReason.INTERNAL
+    assert classify_failure_reason(None) is FailureReason.PROVIDER
+
+
+def test_typed_failure_offers_a_class_specific_next_action() -> None:
+    # #380: a failure names its class AND the next safe action — auth failures
+    # send the user to re-connect, not a generic "retry the run".
+    objective = objective_from_request("Fix it.", mode="implement")
+    auth = evaluate_completion(objective, {"status": "failed", "error": {"code": "AUTH_MISSING"}})
+    rate = evaluate_completion(objective, {"status": "failed", "error": {"code": "PROVIDER_RATE_LIMITED"}})
+
+    assert auth.verdict is CompletionVerdict.FAILED
+    assert auth.reason_code == "auth"
+    assert "re-connect" in auth.next_action.lower()
+
+    assert rate.reason_code == "rate_limit"
+    assert "retry" in rate.next_action.lower()
+    # Different classes give genuinely different guidance.
+    assert auth.next_action != rate.next_action
 
 
 class _EvidenceRunner(FakeStreamingRunner):
