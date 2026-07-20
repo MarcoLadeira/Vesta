@@ -847,6 +847,13 @@ def handle_gui_message(
         # runner says stopped/stuck must not be labelled "Completed" just
         # because its legacy status is "answered".
         run_completed = verdict.verdict is CompletionVerdict.COMPLETED
+        # A no-change edit run whose verdict is PARTIAL only because there is no
+        # diff to verify is NOT a failed workflow — it finished cleanly and
+        # simply changed nothing. Decide "completed with no changes" vs "failed"
+        # on the canonical run outcome (did the runner finish?), not the verdict
+        # (did it meet the objective?), so an honest no-change run never reads as
+        # "The workflow failed". A genuinely stopped/stuck run still fails.
+        run_finished_cleanly = result_is_completed(payload)
         if status == "answered" and edit_intent and no_change_evidence:
             runtime.transition(
                 RuntimePhase.REVIEWING_DIFF,
@@ -857,7 +864,7 @@ def handle_gui_message(
                     "check the run's tool trace for blocked or skipped steps",
                 ),
             )
-            if run_completed:
+            if run_finished_cleanly:
                 runtime.transition(
                     RuntimePhase.COMPLETED,
                     message="Completed with no changes — there is no diff to review",
