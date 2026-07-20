@@ -94,6 +94,43 @@ def _decode_http_json(raw: bytes, headers: dict[str, str]) -> Any:
     return result
 
 
+def _error_detail_from_body(raw: bytes) -> str:
+    """Pull a human-readable message out of an OpenAI/Gemini-style error body."""
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        text = raw.decode("utf-8", errors="replace").strip()
+        return text[:300] if text else "no response body"
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict):
+            detail = error.get("message") or error.get("status") or ""
+            if detail:
+                return str(detail)[:300]
+        elif isinstance(error, str) and error:
+            return error[:300]
+    return json.dumps(body)[:300]
+
+
+def _raise_for_status(status: int, raw: bytes) -> None:
+    """Raise on a non-2xx free/local-API response instead of parsing it as an
+    answer (#219). ``http.client`` — unlike ``urllib.request`` — never raises
+    on its own for 4xx/5xx, so an invalid key, an exhausted quota, or an
+    unknown model id was previously decoded as a normal completion with an
+    empty ``choices`` list, surfacing as a generic "no answer" message no
+    matter what actually went wrong. Raising here routes the real cause
+    through the existing ``runner_error`` -> ``normalize_provider_error`` path.
+    """
+    if status < 400:
+        return
+    detail = _error_detail_from_body(raw)
+    if status == 404:
+        raise RuntimeError(f"model not found (HTTP 404): {detail}")
+    if status >= 500:
+        raise RuntimeError(f"provider unavailable (HTTP {status}): {detail}")
+    raise RuntimeError(f"HTTP {status}: {detail}")
+
+
 def _http_json_cancellable(
     url: str,
     *,
@@ -132,11 +169,13 @@ def _http_json_cancellable(
         try:
             conn.request(method, path, body=body, headers=headers)
             response = conn.getresponse()
+            status = response.status
             raw = response.read()
             response_headers = dict(response.getheaders())
         finally:
             with contextlib.suppress(Exception):
                 conn.close()
+        _raise_for_status(status, raw)
         return _decode_http_json(raw, response_headers)
 
     # Cancellable path: the blocking read runs on a worker thread while this
@@ -151,6 +190,7 @@ def _http_json_cancellable(
         try:
             conn.request(method, path, body=body, headers=headers)
             response = conn.getresponse()
+            box["status"] = response.status
             box["raw"] = response.read()
             box["headers"] = dict(response.getheaders())
         except Exception as exc:  # noqa: BLE001 - reported by the coordinator
@@ -174,6 +214,7 @@ def _http_json_cancellable(
         raise LocalRunCancelled()
     if "error" in box:
         raise box["error"]
+    _raise_for_status(int(box.get("status") or 200), box["raw"])
     return _decode_http_json(box["raw"], box.get("headers") or {})
 
 
@@ -529,6 +570,16 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         self.last_usage = self._usage(result)
         choices = result.get("choices") or [{}]
         text = str((choices[0].get("message") or {}).get("content", "")).strip()
+        if not text:
+            # HTTP 200 with an empty completion is almost always the provider's
+            # safety/content filter, not a key or quota problem (#219) — say so
+            # instead of falling through to the generic "check your key" copy.
+            finish_reason = str(choices[0].get("finish_reason") or "").strip().lower()
+            if finish_reason in {"content_filter", "safety"}:
+                raise RuntimeError(
+                    "response blocked by the provider's safety filter "
+                    f"(finish_reason={finish_reason})"
+                )
         if on_text is not None and text:  # blocking fallback still owns the emit
             with contextlib.suppress(Exception):
                 on_text(text)
