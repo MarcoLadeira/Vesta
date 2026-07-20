@@ -21,7 +21,26 @@ from opaihub.completion import (
     legacy_status_for_completion,
     objective_from_request,
     result_is_completed,
+    result_meets_objective,
 )
+
+
+def test_result_meets_objective_is_stricter_than_canonical_completion() -> None:
+    # #381: a run can be canonically completed (answered, no stop reason) yet
+    # not meet its objective (no diff evidence) — a PARTIAL verdict. Savings are
+    # gated on meeting the objective, so this run must not claim them.
+    objective = objective_from_request("Fix the bug.", mode="implement")
+    answered_no_diff = {"status": "answered", "answer": "I looked at it."}
+
+    assert result_is_completed(answered_no_diff) is True
+    assert result_meets_objective(objective, answered_no_diff) is False
+
+    verified = {
+        "status": "answered",
+        "answer": "Fixed.",
+        "changed_files": ["bug.py"],
+    }
+    assert result_meets_objective(objective, verified) is True
 
 
 def test_edit_objective_only_completes_with_diff_and_test_evidence() -> None:

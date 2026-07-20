@@ -551,6 +551,22 @@ def result_is_completed(result: Mapping[str, Any] | None) -> bool:
     return completion_state_from_legacy(result) is CompletionState.COMPLETED
 
 
+def result_meets_objective(
+    objective: ObjectiveRecord, result: Mapping[str, Any] | None
+) -> bool:
+    """True only when the completion verdict is COMPLETED (#381 savings gate).
+
+    Stricter than :func:`result_is_completed`: a run can be canonically
+    COMPLETED (answered, no stop reason) yet fail objective verification — no
+    diff for an edit, no passing tests, no answer — which is a
+    :attr:`CompletionVerdict.PARTIAL` verdict.  Savings are the product's proof,
+    so only a run that actually met its declared objective may claim them; a
+    partial/blocked/timeout run shows its actual spend with no savings claim.
+    """
+
+    return evaluate_completion(objective, result).verdict is CompletionVerdict.COMPLETED
+
+
 def legacy_status_for_completion(
     state: CompletionState | str,
     *,

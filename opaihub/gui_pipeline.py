@@ -24,6 +24,7 @@ from .completion import (
     evaluate_completion,
     objective_from_request,
     result_is_completed,
+    result_meets_objective,
 )
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
 from .cost_telemetry import (
@@ -309,6 +310,26 @@ def build_savings_receipt(
     }
 
 
+def _gate_receipt_savings(
+    receipt: dict[str, Any], *, completed: bool
+) -> dict[str, Any]:
+    """Only a run that met its objective may claim savings (#381).
+
+    Savings are OPai's proof; claiming them for a partial/blocked/timeout/failed
+    run is the differentiator becoming a liability. The gated receipt keeps its
+    actual spend (``estimated_actual_usd``) so the user still sees what the run
+    cost, but drops the savings claim with an explicit basis. Mutates and returns
+    the passed dict.
+    """
+    if completed:
+        return receipt
+    if receipt.get("estimated_savings_usd"):
+        receipt["estimated_savings_usd"] = 0.0
+    receipt["paid_call_avoided"] = False
+    receipt["savings_basis"] = "savings_claimed_only_for_completed_runs"
+    return receipt
+
+
 def last_savings_receipt(project_root: Path) -> dict[str, Any] | None:
     for event in reversed(read_events(project_root, limit=50)):
         receipt = event.get("receipt")
@@ -546,6 +567,15 @@ def handle_gui_message(
     autonomy = effective_mode(mode, prefs)
     requested_run_mode = autonomy.effective_mode
     policy = resolve_agent_policy(message, focus_hint=focus_hint)
+    # #381: savings are OPai's proof, so a route/savings event is recorded only
+    # for a run that met its declared objective. One objective per turn, shared
+    # by the route gate below and the terminal verdict in _decorate, so the
+    # aggregate ledger and the per-run receipt can never disagree.
+    turn_objective = objective_from_request(message, mode=policy.mode.value)
+
+    def _claims_savings(result_payload: Mapping[str, Any] | None) -> bool:
+        return result_meets_objective(turn_objective, result_payload)
+
     if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
         selected_mode = (
             requested_run_mode
@@ -744,8 +774,9 @@ def handle_gui_message(
             )
         # #378: declare the objective before execution, then derive exactly one
         # evidence-backed terminal verdict here.  No renderer may infer success
-        # from a provider's prose or compatibility ``status`` field.
-        objective = objective_from_request(message, mode=policy.mode.value)
+        # from a provider's prose or compatibility ``status`` field.  Reuse the
+        # turn objective so the savings gate and this verdict share one truth.
+        objective = turn_objective
         raw_terminal = payload.get("raw_result")
         raw_terminal = raw_terminal if isinstance(raw_terminal, Mapping) else {}
         evidence_payload = {
@@ -780,15 +811,15 @@ def handle_gui_message(
         )
         receipt = payload.get("receipt")
         if isinstance(receipt, Mapping) and receipt:
-            payload = {
-                **payload,
-                "receipt": {
-                    **dict(receipt),
-                    # Receipts inherit the same verdict, but never retain the
-                    # raw prompt (the objective remains in the live result).
-                    "completion_verdict": stored_verdict,
-                },
-            }
+            # Receipts inherit the same verdict (never the raw prompt) and only a
+            # completed run may claim savings (#381), so the displayed receipt can
+            # never disagree with the aggregate route/savings gate below.
+            gated = _gate_receipt_savings(
+                dict(receipt),
+                completed=verdict.verdict is CompletionVerdict.COMPLETED,
+            )
+            gated["completion_verdict"] = stored_verdict
+            payload = {**payload, "receipt": gated}
         if status == "answered" and isinstance(payload.get("receipt"), Mapping):
             # The receipt is durable only after the objective verdict exists;
             # reloaded receipts must carry the same non-upgradable truth as
@@ -1328,15 +1359,19 @@ def handle_gui_message(
         # actually answered — confirmation prompts and failures record nothing.
         free_telemetry = None
         if status == "answered":
-            _record_gui_route(
-                root,
-                message,
-                tier="L2",
-                receipt=receipt,
-                tool_trace=tool_trace,
-                model_id=selected_model,
-                mode=selected_mode,
-            )
+            # #381: only a run that met its objective records a route/savings
+            # event; a partial run still records its (estimated) cost below but
+            # claims no savings, so the aggregate matches the gated receipt.
+            if _claims_savings(result):
+                _record_gui_route(
+                    root,
+                    message,
+                    tier="L2",
+                    receipt=receipt,
+                    tool_trace=tool_trace,
+                    model_id=selected_model,
+                    mode=selected_mode,
+                )
             # Free APIs report no dollars here, so the telemetry is honestly
             # labelled estimated (#178) - never presented as a real spend.
             free_telemetry = estimated_telemetry(
@@ -1814,18 +1849,20 @@ def handle_gui_message(
         )
     final_status = status_map.get(result.get("status"), result.get("status", "error"))
     if final_status == "answered":
-        # Ledger truth (#144): record the route + savings only for a run that
-        # actually answered. "No local model" cards and runner errors used to
-        # inflate routed_tasks / estimated_savings_usd before anything ran.
-        _record_gui_route(
-            root,
-            message,
-            tier=tier,
-            receipt=receipt,
-            tool_trace=tool_trace,
-            model_id=selected_model,
-            mode=selected_mode,
-        )
+        # Ledger truth (#144/#381): record the route + savings only for a run that
+        # actually met its objective. "No local model" cards, runner errors, and
+        # answered-but-partial runs must not inflate routed_tasks /
+        # estimated_savings_usd — savings are claimed only for completed runs.
+        if _claims_savings(result):
+            _record_gui_route(
+                root,
+                message,
+                tier=tier,
+                receipt=receipt,
+                tool_trace=tool_trace,
+                model_id=selected_model,
+                mode=selected_mode,
+            )
         if result_is_completed(result):
             if policy.mode in {
                 AgentMode.IMPLEMENT,
