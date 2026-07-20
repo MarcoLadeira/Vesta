@@ -627,6 +627,178 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertEqual(result["completion_state"], "provider_blocked")
         self.assertEqual(result["blocked_reason"], "panic")
 
+    # -- #219: an HTTP error status must never be silently decoded as an -----
+    # -- empty successful completion (the "check GOOGLE_API_KEY" bug). -------
+
+    def _fake_https_connection(self, status, body_bytes, headers=None):
+        """A minimal ``http.client.HTTPSConnection`` stand-in for one request."""
+
+        class _FakeResponse:
+            def __init__(self):
+                self.status = status
+
+            def read(self):
+                return body_bytes
+
+            def getheaders(self):
+                return list((headers or {}).items())
+
+        class _FakeConnection:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def request(self, method, path, body=None, headers=None):
+                pass
+
+            def getresponse(self):
+                return _FakeResponse()
+
+            def close(self):
+                pass
+
+        return _FakeConnection
+
+    def test_transport_raises_on_401_blocking_path(self):
+        from opaihub.local_runner import _http_json_cancellable
+
+        body = json.dumps(
+            {"error": {"code": 401, "message": "API key not valid.", "status": "UNAUTHENTICATED"}}
+        ).encode("utf-8")
+        fake_conn = self._fake_https_connection(401, body)
+        with mock.patch("http.client.HTTPSConnection", fake_conn):
+            with self.assertRaises(RuntimeError) as ctx:
+                _http_json_cancellable(
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                    payload={"model": "m", "messages": []},
+                )
+        self.assertIn("401", str(ctx.exception))
+        self.assertIn("API key not valid", str(ctx.exception))
+
+    def test_transport_raises_on_429_cancellable_path(self):
+        from opaihub.local_runner import _http_json_cancellable
+        import threading
+
+        body = json.dumps(
+            {"error": {"message": "Resource has been exhausted (quota).", "status": "RESOURCE_EXHAUSTED"}}
+        ).encode("utf-8")
+        fake_conn = self._fake_https_connection(429, body)
+        with mock.patch("http.client.HTTPSConnection", fake_conn):
+            with self.assertRaises(RuntimeError) as ctx:
+                _http_json_cancellable(
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                    payload={"model": "m", "messages": []},
+                    cancel=threading.Event(),
+                )
+        self.assertIn("429", str(ctx.exception))
+
+    def test_transport_raises_model_not_found_on_404(self):
+        from opaihub.local_runner import _http_json_cancellable
+
+        body = json.dumps({"error": {"message": "models/x is not found."}}).encode("utf-8")
+        fake_conn = self._fake_https_connection(404, body)
+        with mock.patch("http.client.HTTPSConnection", fake_conn):
+            with self.assertRaises(RuntimeError) as ctx:
+                _http_json_cancellable(
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                    payload={"model": "m", "messages": []},
+                )
+        self.assertIn("model not found", str(ctx.exception))
+
+    def test_transport_still_decodes_success_response(self):
+        from opaihub.local_runner import _http_json_cancellable
+
+        body = json.dumps({"choices": [{"message": {"content": "hi"}}]}).encode("utf-8")
+        fake_conn = self._fake_https_connection(200, body)
+        with mock.patch("http.client.HTTPSConnection", fake_conn):
+            result = _http_json_cancellable(
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                payload={"model": "m", "messages": []},
+            )
+        self.assertEqual(result["choices"][0]["message"]["content"], "hi")
+
+    def test_runner_complete_propagates_real_http_error(self):
+        # Once the transport raises (fixed above), FreeAPIRunner.complete()
+        # must let that propagate rather than swallowing it into "".
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.1-flash-lite",
+            "bad-key",
+        )
+        with mock.patch(
+            "opaihub.local_runner._http_json_cancellable",
+            side_effect=RuntimeError("HTTP 401: API key not valid."),
+        ):
+            with self.assertRaises(RuntimeError):
+                runner.complete("What is 2+2?")
+
+    def test_runner_complete_raises_on_safety_block(self):
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.1-flash-lite",
+            "test-key",
+        )
+        blocked_response = {
+            "choices": [{"message": {"content": ""}, "finish_reason": "content_filter"}]
+        }
+        with mock.patch(
+            "opaihub.local_runner._http_json_cancellable",
+            return_value=blocked_response,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "safety filter"):
+                runner.complete("Some prompt")
+
+    def test_runner_complete_empty_stop_still_returns_empty_string(self):
+        # A genuinely empty-but-clean completion (finish_reason "stop") is not
+        # a safety block — preserve the prior behaviour of returning "".
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.1-flash-lite",
+            "test-key",
+        )
+        empty_response = {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]}
+        with mock.patch(
+            "opaihub.local_runner._http_json_cancellable",
+            return_value=empty_response,
+        ):
+            self.assertEqual(runner.complete("Some prompt"), "")
+
+    def test_run_explicit_model_reports_runner_error_with_real_cause(self):
+        # End-to-end: run_explicit_model must classify a real transport
+        # failure as runner_error carrying the real HTTP detail, not a blank
+        # answer (#219 - this is what let the generic "no answer" message
+        # mask every real Gemini failure).
+        from opaihub.ask import run_explicit_model
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.1-flash-lite",
+            "bad-key",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            with mock.patch(
+                "opaihub.local_runner._http_json_cancellable",
+                side_effect=RuntimeError("HTTP 401: API key not valid."),
+            ):
+                result = run_explicit_model(
+                    root,
+                    "What is 2+2?",
+                    runner=runner,
+                    selected_model_id="free:gemini:gemini-3.1-flash-lite",
+                    allow_edits=False,
+                    tool_calling_enabled=False,
+                    record=False,
+                )
+        self.assertEqual(result["status"], "runner_error")
+        self.assertIn("401", result["error"])
+
 
 class AskFreeModelTests(unittest.TestCase):
     """Tests for the ask() → _ask_free_model() dispatch path."""
