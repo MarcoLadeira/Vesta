@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from opai.activity import stage_message
+from opaihub.completion import verdict_label
 
 # Activity glyphs (stdout is forced to UTF-8 by opai.cli.main).
 _GLYPH = {
@@ -92,6 +93,23 @@ def _terminal_verdict(result: dict[str, Any]) -> tuple[str, str, str] | None:
     reason = str(raw.get("reason") or "").strip()
     next_action = str(raw.get("next_action") or "").strip()
     return (verdict, reason, next_action) if verdict else None
+
+
+def _evidence_line(result: dict[str, Any]) -> str | None:
+    """The changed-file evidence, so the CLI outcome block carries the same
+    content the GUI outcome card shows (#396). Tests/answer evidence live in the
+    verdict reason already; files are the CLI's concrete "what changed"."""
+
+    changed = [
+        str(path).strip()
+        for path in (result.get("changed_files") or ())
+        if str(path).strip()
+    ]
+    if not changed:
+        return None
+    shown = ", ".join(changed[:8])
+    more = f" (+{len(changed) - 8} more)" if len(changed) > 8 else ""
+    return f"Changed {len(changed)} file(s): {shown}{more}"
 
 
 def _consent_request(result: dict[str, Any]) -> dict[str, Any] | None:
@@ -255,11 +273,14 @@ def stream_ask(
                 if verdict == "cancelled"
                 else "!"
             )
-            label = verdict.replace("_", " ").title()
+            # #396: the same verdict vocabulary the GUI and receipt summary use.
+            label = verdict_label(verdict)
             legacy_detail = (
                 f" ({status})" if status not in ANSWERED and status != verdict else ""
             )
             _line(f"{glyph} {label}{legacy_detail} — {reason}")
+            if (evidence := _evidence_line(result)) is not None:
+                _line(f"  {evidence}")
             if next_action and verdict != "completed":
                 _line(f"  Next: {next_action}")
             _line(f"  {footer}")

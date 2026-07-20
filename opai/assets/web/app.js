@@ -1572,7 +1572,7 @@ function stripFinalize(status, r) {
   else $("#ssCost").textContent = ""; // never a fake $0 for a paid call
   const verdict = completionVerdict(r);
   if (verdict && verdict.verdict === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Cancelled"; }
-  else if (verdict && verdict.verdict !== "completed") { stripSetState("error"); $("#ssConn").textContent = verdict.verdict.replace(/\b\w/g, (c) => c.toUpperCase()); }
+  else if (verdict && verdict.verdict !== "completed") { stripSetState("error"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
   else if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
   else if (ANSWERED.includes(status)) { stripSetState("connected"); $("#ssConn").textContent = "Done"; }
   else { stripSetState("error"); $("#ssConn").textContent = "Failed"; }
@@ -1699,10 +1699,21 @@ function completionVerdict(r) {
   const verdict = String(raw.verdict || "").toLowerCase();
   return verdict ? { verdict, reason: String(raw.reason || ""), nextAction: String(raw.next_action || "") } : null;
 }
+// The one user-facing label per verdict — mirrors opaihub.completion.VERDICT_LABELS
+// (#396) so the GUI, CLI, and receipt summary never disagree ("Timed out", not
+// "Timeout"). Kept in sync by a vocabulary-parity test.
+const VERDICT_LABELS = {
+  completed: "Completed", partial: "Partial", blocked: "Blocked",
+  failed: "Failed", cancelled: "Cancelled", timeout: "Timed out",
+};
+function verdictLabel(verdict) {
+  const key = String(verdict || "").toLowerCase();
+  return VERDICT_LABELS[key] || (key.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Unknown");
+}
 function completionVerdictHtml(r) {
   const item = completionVerdict(r);
   if (!item) return "";
-  const label = item.verdict.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const label = verdictLabel(item.verdict);
   const glyph = item.verdict === "completed" ? "check" : item.verdict === "cancelled" ? "cancelled" : "warning";
   const next = item.nextAction ? `<div class="cv-next">Next: ${esc(item.nextAction)}</div>` : "";
   return `<section class="completion-verdict ${esc(item.verdict)}" role="status" aria-label="Completion verdict: ${esc(label)}">` +
