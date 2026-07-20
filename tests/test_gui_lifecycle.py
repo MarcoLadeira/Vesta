@@ -122,7 +122,12 @@ class BuildChatJobTests(unittest.TestCase):
         self.assertEqual(captured["model_id"], "auto")
         self.assertEqual(result["status"], "answered")
 
-    def test_pre_cancelled_job_returns_cancelled_and_records_nothing(self):
+    def test_pre_cancelled_job_records_only_a_terminal_verdict(self):
+        # A pre-flight cancel does no work and spends nothing, so it leaves no
+        # model_call / route / receipt / task_outcome trace. But the #402 verdict
+        # contract records exactly one terminal completion_verdict for the audit
+        # trail — the same behaviour handle_gui_message has (see
+        # test_savings_honesty.test_cancelled_before_run_records_only_a_terminal_verdict).
         from opaihub.ledger import read_events
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,7 +138,12 @@ class BuildChatJobTests(unittest.TestCase):
             events = read_events(root)
 
         self.assertEqual(result["status"], "cancelled")
-        self.assertEqual(events, [], "a cancelled run must not touch the ledger")
+        self.assertEqual(
+            [event["event_type"] for event in events],
+            ["completion_verdict"],
+            "a pre-flight cancel records only its terminal verdict, no spend",
+        )
+        self.assertEqual(events[0]["verdict"], "cancelled")
 
 
 if __name__ == "__main__":
