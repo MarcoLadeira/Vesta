@@ -5,13 +5,57 @@ import unittest
 from pathlib import Path
 
 from opaihub.budget import (
+    _backup_path,
     budget_gate,
     budget_path,
+    budget_state,
     budget_status,
     load_budget,
     set_budget,
 )
 from opaihub.ledger import record_model_call, record_route_decision, rollup_ledger
+
+
+class BudgetCorruptionRecoveryTests(unittest.TestCase):
+    """#470: a corrupt budget.json must not silently drop the user's caps."""
+
+    def test_set_budget_keeps_a_last_known_good_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_budget(root, daily_usd=1.0, monthly_usd=20.0)
+            self.assertTrue(_backup_path(root).exists())
+            self.assertEqual(budget_state(root)["state"], "ok")
+
+    def test_corrupt_primary_recovers_the_configured_cap_from_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_budget(root, daily_usd=1.0, monthly_usd=20.0)
+            budget_path(root).write_text("{ this is not json", encoding="utf-8")
+            caps = load_budget(root)
+            # The user's cap survives the corruption instead of vanishing.
+            self.assertEqual(caps["daily_usd_limit"], 1.0)
+            self.assertEqual(budget_state(root)["state"], "recovered")
+
+    def test_corrupt_primary_and_backup_fails_closed_on_paid_routes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_budget(root, daily_usd=1.0)
+            budget_path(root).write_text("{corrupt", encoding="utf-8")
+            _backup_path(root).write_text("also corrupt {", encoding="utf-8")
+            self.assertEqual(budget_state(root)["state"], "unreadable")
+            paid = budget_gate(root, next_cost_usd=0.5, tier="L3")
+            self.assertTrue(paid["denied"])
+            self.assertEqual(paid["budget_state"], "unreadable")
+            # A local/free route is not blocked by an unreadable *budget*.
+            local = budget_gate(root, next_cost_usd=0.0, tier="L1")
+            self.assertFalse(local["denied"])
+
+    def test_set_budget_leaves_no_temp_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_budget(root, daily_usd=2.0)
+            leftovers = list(budget_path(root).parent.glob("*.tmp"))
+            self.assertEqual(leftovers, [])
 
 
 class BudgetConfigTests(unittest.TestCase):
