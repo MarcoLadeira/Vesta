@@ -134,6 +134,37 @@ def run_state_for_verdict(verdict: CompletionVerdict | str) -> RunState:
     return RunState(value)
 
 
+# The GUI store (assets/web/message-state.js) and the Calm Stream (activity.py)
+# refine the active phases into a richer presentation vocabulary
+# (authenticating/sending/waiting/streaming/retrying). This adapter maps every
+# such presentation state back to its canonical run state, so a surface with a
+# finer phase language still speaks one lifecycle (#379) — it refines a canonical
+# state, it never invents a new one. Canonical and terminal states map to
+# themselves.
+_PRESENTATION_TO_CANONICAL = {
+    "retrying": RunState.QUEUED,
+    "authenticating": RunState.PREPARING,
+    "sending": RunState.RUNNING,
+    "waiting": RunState.RUNNING,
+    "streaming": RunState.RUNNING,
+}
+
+
+def canonical_for(presentation_state: RunState | str) -> RunState:
+    """Map a presentation/store state to its canonical run state.
+
+    Raises ``ValueError`` on a state that is neither a canonical run state nor a
+    known presentation refinement — an unmapped surface state is a bug, never a
+    silently-swallowed unknown.
+    """
+
+    key = str(
+        getattr(presentation_state, "value", presentation_state) or ""
+    ).strip().lower()
+    mapped = _PRESENTATION_TO_CANONICAL.get(key)
+    return mapped if mapped is not None else RunState(key)
+
+
 def label(state: RunState | str) -> str:
     """The one user-facing label for a run state, shared by every surface."""
 
