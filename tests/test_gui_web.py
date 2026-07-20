@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from _helpers import make_repo
+from _helpers import isolated_home, make_repo
 
 from opai.gui_web import (
     WEB_DIR,
@@ -23,11 +23,62 @@ from opai.gui_web import (
     settings_payload,
     web_available,
 )
+from opai.gui_web import _thread_status_for
 
 
 class WebAvailableTests(unittest.TestCase):
     def test_returns_bool(self):
         self.assertIsInstance(web_available(), bool)
+
+
+class ThreadStatusHonestyTests(unittest.TestCase):
+    """#402: the persisted thread status derives from the completion verdict, so
+    a partial/blocked/timeout run is never persisted (or resumed) as 'complete'."""
+
+    def test_verdict_overrides_answered_legacy_status(self):
+        # The exact leak #402 targets: legacy status "answered" but the verdict
+        # says the objective was not actually met.
+        self.assertEqual(
+            _thread_status_for("answered", {"verdict": "partial"}), "partial"
+        )
+        self.assertEqual(
+            _thread_status_for("answered", {"verdict": "blocked"}), "blocked"
+        )
+        self.assertEqual(
+            _thread_status_for("answered", {"verdict": "timeout"}), "timeout"
+        )
+        self.assertEqual(
+            _thread_status_for("answered", {"verdict": "completed"}), "complete"
+        )
+
+    def test_falls_back_to_legacy_buckets_without_a_verdict(self):
+        self.assertEqual(_thread_status_for("answered", None), "complete")
+        self.assertEqual(_thread_status_for("no_edits", None), "complete")
+        self.assertEqual(_thread_status_for("cancelled", None), "cancelled")
+        self.assertEqual(_thread_status_for("failed", None), "failed")
+
+    def test_partial_verdict_persists_as_partial_not_complete(self):
+        from opai.gui_recents import begin_thread_turn, load_thread
+        from opai.gui_web import _persist_turn_result
+
+        with isolated_home():
+            root = make_repo(Path(tempfile.mkdtemp()))
+            begin_thread_turn(root, request_id="r1", text="fix the bug", mode="safe-auto")
+            _persist_turn_result(
+                root,
+                "r1",
+                {
+                    "status": "answered",
+                    "answer": "I looked but changed nothing.",
+                    "completion_verdict": {"verdict": "partial"},
+                },
+                mode="safe-auto",
+            )
+            thread = load_thread(root)
+            statuses = [
+                m["status"] for m in thread["messages"] if m["role"] == "assistant"
+            ]
+            self.assertEqual(statuses, ["partial"])
 
 
 class ResolveOpenableTests(unittest.TestCase):
