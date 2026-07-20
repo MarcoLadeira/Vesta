@@ -127,22 +127,42 @@ def record_audit_event(
     return entry
 
 
-def read_audit(project_root: Path, limit: int | None = None) -> list[dict[str, Any]]:
+def _read_audit(
+    project_root: Path, limit: int | None = None
+) -> tuple[list[dict[str, Any]], int]:
+    """``(events, skipped)`` — audit events plus the count of malformed entries.
+
+    A damaged JSONL line (torn append, corruption, or a non-object value) is
+    unreadable. Dropping it silently lets it vanish from a dashboard as if it
+    never happened, so the skipped count is tracked and surfaced as an
+    integrity-degraded signal (#474) rather than hidden.
+    """
+
     path = audit_path(project_root.expanduser().resolve())
     if not path.exists():
-        return []
+        return [], 0
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     if limit is not None:
         lines = lines[-limit:]
     events: list[dict[str, Any]] = []
+    skipped = 0
     for line in lines:
         if not line.strip():
             continue
         try:
-            events.append(json.loads(line))
+            value = json.loads(line)
         except json.JSONDecodeError:
+            skipped += 1
             continue
-    return events
+        if not isinstance(value, dict):
+            skipped += 1
+            continue
+        events.append(value)
+    return events, skipped
+
+
+def read_audit(project_root: Path, limit: int | None = None) -> list[dict[str, Any]]:
+    return _read_audit(project_root, limit)[0]
 
 
 def verify_chain(project_root: Path) -> dict[str, Any]:
@@ -214,14 +234,20 @@ def verify_chain(project_root: Path) -> dict[str, Any]:
 
 
 def summarize_audit(project_root: Path) -> dict[str, Any]:
-    events = read_audit(project_root)
+    events, skipped = _read_audit(project_root)
     by_type: dict[str, int] = {}
     for event in events:
-        by_type[event["event_type"]] = by_type.get(event["event_type"], 0) + 1
+        event_type = str(event.get("event_type") or "unknown")
+        by_type[event_type] = by_type.get(event_type, 0) + 1
     return {
         "event_count": len(events),
         "by_type": dict(sorted(by_type.items())),
         "denied_actions": by_type.get(GUARD_DENY, 0) + by_type.get(POLICY_DENY, 0),
+        # #474: malformed entries must not vanish silently — a summary over a
+        # damaged log is integrity-degraded, not complete evidence.
+        "complete": skipped == 0,
+        "degraded": skipped > 0,
+        "skipped_events": skipped,
         "chain": verify_chain(project_root),
     }
 
