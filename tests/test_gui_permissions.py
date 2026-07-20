@@ -7,7 +7,11 @@ loosened this, the panel would lie about what the AI can do — these stop that.
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
+
+from _helpers import make_repo
 
 from opai.gui_permissions import (
     CAPABILITIES,
@@ -15,6 +19,7 @@ from opai.gui_permissions import (
     permission_summary,
     permissions_for,
 )
+from opaihub.gui_pipeline import request_tool_authority
 
 
 def _state(rows, cap_id):
@@ -85,6 +90,57 @@ class PermissionMappingTests(unittest.TestCase):
         self.assertIn("allowed", summary)
         self.assertIn("ask", summary)
         self.assertIn("blocked", summary)
+
+
+class AdvertisedAuthorityMatchesEnforcedTests(unittest.TestCase):
+    """#386: the permission panel must never present more authority than the
+    engine actually grants. These cross-check the advertised panel against the
+    real enforcement seam (``request_tool_authority``) rather than a copy of the
+    rules, so a future change that loosens one without the other fails here.
+
+    The runtime selected modes are ``ask``/``plan``/``safe-auto``/``full-auto``;
+    ``approve-edits`` is a preference-level alias the pipeline resolves to one of
+    those by task intent, so its enforced authority is governed by the runtime
+    mode it collapses to (reconciling that display alias is #379/#386 follow-up).
+    """
+
+    RUNTIME_MODES = ("ask", "plan", "safe-auto", "full-auto")
+    # A concrete edit-intent request (not a read-only "discovery" one), so the
+    # engine's authority reflects the mode, not the request shape.
+    EDIT_REQUEST = "fix the bug in app.py"
+
+    def _enforced_allows_edits(self, mode: str) -> bool:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            return request_tool_authority(
+                self.EDIT_REQUEST, selected_mode=mode, repo_root=root
+            ).allow_edits
+
+    def test_panel_editing_claim_matches_engine_for_every_runtime_mode(self):
+        for mode in self.RUNTIME_MODES:
+            enforced = self._enforced_allows_edits(mode)
+            edit_state = _state(permissions_for(mode), "edit")
+            advertises_editing = edit_state in {"allow", "ask"}
+            self.assertEqual(
+                advertises_editing,
+                enforced,
+                f"{mode}: panel edit={edit_state!r} but engine allow_edits={enforced}",
+            )
+
+    def test_read_only_enforcement_forbids_advertising_any_mutation(self):
+        # The dangerous direction: whenever the engine enforces read-only, the
+        # panel must advertise every mutating capability as blocked.
+        for mode in self.RUNTIME_MODES:
+            if self._enforced_allows_edits(mode):
+                continue
+            rows = permissions_for(mode)
+            for mutation in ("edit", "create", "delete"):
+                self.assertEqual(
+                    _state(rows, mutation),
+                    "block",
+                    f"{mode} is read-only but advertises {mutation} as non-block",
+                )
+            self.assertTrue(is_read_only(mode))
 
 
 if __name__ == "__main__":
