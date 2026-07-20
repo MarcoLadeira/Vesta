@@ -1,8 +1,16 @@
+import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.budget import budget_gate, budget_status, load_budget, set_budget
+from opaihub.budget import (
+    budget_gate,
+    budget_path,
+    budget_status,
+    load_budget,
+    set_budget,
+)
 from opaihub.ledger import record_model_call, record_route_decision, rollup_ledger
 
 
@@ -14,6 +22,48 @@ class BudgetConfigTests(unittest.TestCase):
             caps = load_budget(root)
         self.assertEqual(caps["daily_usd_limit"], 1.5)
         self.assertEqual(caps["monthly_usd_limit"], 20.0)
+
+
+class BudgetCapValidationTests(unittest.TestCase):
+    """#469: a NaN/infinite/negative cap must never reach a comparison — every
+    ``spent + cost > NaN`` is false, silently disabling the ceiling."""
+
+    def test_set_budget_rejects_non_finite_and_negative_caps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for bad in (float("nan"), float("inf"), float("-inf"), -0.01):
+                for kwarg in ("daily_usd", "monthly_usd", "per_task_usd"):
+                    with self.assertRaises(ValueError):
+                        set_budget(root, **{kwarg: bad})
+            # A rejected set never wrote a budget file.
+            self.assertFalse(budget_path(root).exists())
+
+    def test_persisted_budget_json_is_never_nan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_budget(root, daily_usd=2.0, monthly_usd=30.0)
+            raw = budget_path(root).read_text(encoding="utf-8")
+        self.assertNotIn("NaN", raw)
+        self.assertNotIn("Infinity", raw)
+        # And it round-trips as strict JSON.
+        json.loads(raw)  # would raise on NaN/Infinity tokens under a strict parser
+
+    def test_corrupt_nan_cap_on_disk_fails_closed_not_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = budget_path(root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # A hand-edited/legacy file with a NaN ceiling (default json emits NaN).
+            path.write_text(
+                json.dumps({"daily_usd_limit": float("nan"), "monthly_usd_limit": 100}),
+                encoding="utf-8",
+            )
+            caps = load_budget(root)
+            self.assertTrue(math.isfinite(caps["daily_usd_limit"]))
+            self.assertEqual(caps["daily_usd_limit"], 0.0)  # coerced to block
+            gate = budget_gate(root, next_cost_usd=0.5, tier="L3")
+        # The corrupt ceiling denies the paid call instead of failing open.
+        self.assertTrue(gate["denied"])
 
     def test_status_reports_spend_and_remaining(self):
         with tempfile.TemporaryDirectory() as tmp:
