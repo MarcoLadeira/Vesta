@@ -6,7 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.gui_pipeline import build_savings_receipt, handle_gui_message
+from unittest import mock
+
+from opaihub.gui_pipeline import (
+    _gate_receipt_savings,
+    build_savings_receipt,
+    handle_gui_message,
+)
 from opaihub.ledger import (
     read_events,
     record_route_decision,
@@ -14,7 +20,7 @@ from opaihub.ledger import (
 )
 from opaihub.savings import build_savings_report
 
-from tests._helpers import FakeAccountRunner, make_repo
+from tests._helpers import FakeAccountRunner, FakeLocalRunner, make_repo
 
 
 class PaidReceiptTests(unittest.TestCase):
@@ -199,6 +205,79 @@ class LegacyExclusionTests(unittest.TestCase):
         )["estimated_savings_usd"]
         self.assertGreater(legacy_claim, 0.0)
         self.assertEqual(summarize_ledger(self.root)["estimated_savings_usd"], trusted)
+
+
+class VerdictGatedSavingsTests(unittest.TestCase):
+    """#381: savings are claimed only for a run that met its objective — the
+    per-run receipt and the aggregate ledger both honour the completion verdict,
+    so no partial/blocked/timeout run can inflate savings on any surface."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _local_receipt(self):
+        return build_savings_receipt(
+            self.root,
+            task="task",
+            selected_model="auto",
+            selected_mode="ask",
+            chosen_tier="L1",
+        )
+
+    def test_gate_zeroes_savings_for_a_non_completed_run(self):
+        receipt = self._local_receipt()
+        self.assertGreater(receipt["estimated_savings_usd"], 0.0)  # a real claim
+        gated = _gate_receipt_savings(dict(receipt), completed=False)
+        self.assertEqual(gated["estimated_savings_usd"], 0.0)
+        self.assertFalse(gated["paid_call_avoided"])
+        self.assertEqual(gated["savings_basis"], "savings_claimed_only_for_completed_runs")
+        # Actual spend is preserved — the user still sees what the run cost.
+        self.assertEqual(gated["estimated_actual_usd"], receipt["estimated_actual_usd"])
+
+    def test_gate_is_a_no_op_for_a_completed_run(self):
+        receipt = self._local_receipt()
+        gated = _gate_receipt_savings(dict(receipt), completed=True)
+        self.assertEqual(gated["estimated_savings_usd"], receipt["estimated_savings_usd"])
+        self.assertEqual(gated["paid_call_avoided"], receipt["paid_call_avoided"])
+
+    def test_partial_local_run_claims_no_savings_on_any_surface(self):
+        # An edit-intent local run that answers but changes no files is PARTIAL
+        # (change_not_verified): no savings on the receipt and none in the
+        # aggregate ledger, even though the run "answered".
+        selected = FakeLocalRunner(model="qwen2.5-coder:7b", answer="I changed it.")
+
+        def partial_run_ask(root, task, **kwargs):
+            return {
+                "status": "answered_locally",
+                "answer": "I changed it.",
+                "changed_files": [],
+            }
+
+        with (
+            mock.patch(
+                "opaihub.local_runner.runner_for_model", return_value=selected
+            ),
+            mock.patch("opaihub.ask.run_ask", side_effect=partial_run_ask),
+        ):
+            res = handle_gui_message(
+                self.root,
+                "fix the bug in parser.py",
+                model_id="ollama:qwen2.5-coder:7b",
+                mode="full-auto",
+            )
+
+        self.assertEqual(res["completion_verdict"]["verdict"], "partial")
+        self.assertEqual(res["completion_verdict"]["reason_code"], "change_not_verified")
+        self.assertEqual(res["receipt"]["estimated_savings_usd"], 0.0)
+        self.assertEqual(
+            res["receipt"]["savings_basis"], "savings_claimed_only_for_completed_runs"
+        )
+        # The aggregate never counted the partial run's savings.
+        self.assertEqual(summarize_ledger(self.root)["estimated_savings_usd"], 0.0)
 
     def test_savings_report_names_the_exclusion(self):
         record_route_decision(self.root, "legacy", model_tier="CLOUD")
