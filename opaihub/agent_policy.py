@@ -88,6 +88,42 @@ _EXPLANATION_LEADER = re.compile(
     r"^(?:what|why|how|explain|describe|summari[sz]e)\b", re.IGNORECASE
 )
 
+# Pure conversational small-talk: a greeting, thanks, or pleasantry with no task
+# content. Such a message must be answered directly (EXPLAIN/chat), never forced
+# into an implement/edit task by a stale focus selector or Full Auto — a
+# greeting can never "edit something", so routing it through the edit-intent
+# tool loop makes the model reply "Hello!" and then be marked a failed run for
+# changing nothing (the "a simple 'hi' fails" bug). The pattern deliberately
+# full-matches the whole message so "hi, can you fix the login bug" is NOT
+# treated as small-talk.
+# One small-talk unit; the full signal is one-or-more units so multi-word
+# pleasantries ("hey there", "ok cool", "hi thanks") still full-match.
+_SMALLTALK_UNIT = (
+    r"(?:"
+    r"hi+|hey+|hello+|hiya|heya|yo|sup|wassup|howdy|there|everyone|folks|team|mate|man|dude|"
+    r"good\s+(?:morning|afternoon|evening|day|night)|"
+    r"how(?:'?s|\s+is|\s+are|\s+r)\s+(?:it\s+going|you|u|things|ya)|"
+    r"what'?s\s+up|"
+    r"thanks?(?:\s+(?:you|so\s+much|a\s+lot))?|thank\s+you(?:\s+so\s+much)?|"
+    r"thx|ty|tysm|cheers|much\s+appreciated|"
+    r"ok(?:ay)?|kk|cool|nice|great|awesome|perfect|sweet|got\s+it|understood|"
+    r"good\s*bye|bye+|see\s+(?:ya|you)|gn|later|take\s+care"
+    r")"
+)
+_SMALLTALK_SIGNAL = re.compile(
+    rf"^(?:{_SMALLTALK_UNIT}[\s!.,?~]*)+$", re.IGNORECASE
+)
+
+
+def is_smalltalk_request(message: str) -> bool:
+    """True when the whole message is a greeting/pleasantry with no task content.
+
+    Used to keep a bare "hi" a direct chat answer even under a Build focus hint
+    or Full Auto, instead of a failed "implement" run that changed nothing.
+    """
+
+    return bool(_SMALLTALK_SIGNAL.match(" ".join(str(message or "").split())))
+
 
 @dataclass(frozen=True)
 class AgentPolicy:
@@ -224,6 +260,10 @@ def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> Agen
     elif review_at >= explain_at and review_at >= 0:
         mode = AgentMode.REVIEW
     elif explain_at >= 0 or read_only_at >= 0:
+        mode = AgentMode.EXPLAIN
+    elif is_smalltalk_request(text):
+        # A pure greeting/pleasantry is a chat answer, not work to execute — the
+        # focus hint and Full Auto must not turn it into a failed edit task.
         mode = AgentMode.EXPLAIN
     else:
         hint = str(focus_hint or "").lower()
