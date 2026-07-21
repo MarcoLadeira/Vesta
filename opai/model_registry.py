@@ -19,7 +19,7 @@ Two provider tiers (F2, QA E2E 2026-07-17):
   CLIs. :func:`providers` and :func:`catalog` cover exactly this tier because
   the account pickers, doctor, and the derived ``accounts.py`` /
   ``provider_contract.py`` tables are account-only contracts.
-- **Free API providers** (``gemini``/``groq``/``mistral``) are registered in
+- **Free API providers** (``kimi``/``gemini``/``groq``/``mistral``) are registered in
   ``_REGISTRY`` too — with honest capability metadata — so every picker-visible
   model resolves through :func:`find` / :func:`resolve_id` / :func:`validate`
   instead of being a registry blind spot. Their *operational* spec (API base,
@@ -119,6 +119,36 @@ _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
     # model_id values — the consistency test enforces it. Capability hints
     # rank within the free tier (not against account models): the lite/small
     # models are "fast"; the 120B open model is the free tier's "balanced".
+    #
+    # Kimi (Moonshot) leads the free tier: K2.6 is "balanced" so it is the free
+    # default (default_model returns the balanced pick, and it is first in
+    # free_models.py so Auto selects it as the cheapest safe cloud fallback).
+    "kimi": (
+        ModelSpec(
+            "kimi-k2.6",
+            "Kimi K2.6",
+            "Moonshot Kimi K2.6 (free tier)",
+            "balanced",
+        ),
+        ModelSpec(
+            "kimi-k2.6-turbo",
+            "Kimi K2.6 Turbo",
+            "Moonshot Kimi K2.6 Turbo (free tier)",
+            "fast",
+        ),
+        ModelSpec(
+            "kimi-k2",
+            "Kimi K2",
+            "Moonshot Kimi K2 (free tier)",
+            "best",
+        ),
+        ModelSpec(
+            "kimi-latest",
+            "Kimi Latest",
+            "Moonshot Kimi Latest (free tier)",
+            "preview",
+        ),
+    ),
     "gemini": (
         ModelSpec(
             "gemini-3.1-flash-lite",
@@ -149,7 +179,7 @@ _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
 # API tiers. Both live in _REGISTRY, but the account pickers, doctor catalog,
 # and the derived accounts/provider_contract tables are account-only contracts.
 ACCOUNT_PROVIDERS = ("claude", "codex", "copilot")
-FREE_PROVIDERS = ("gemini", "groq", "mistral")
+FREE_PROVIDERS = ("kimi", "gemini", "groq", "mistral")
 
 
 def providers() -> tuple[str, ...]:

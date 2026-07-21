@@ -176,7 +176,7 @@ def _account_profile(provider_id: str, *, repo_editing: bool) -> ProviderProfile
 
 
 def _free_profile(provider_id: str) -> ProviderProfile:
-    """Free public-API models (gemini/groq/mistral): OPai drives edits through the
+    """Free public-API models (kimi/gemini/groq/mistral): OPai drives edits through the
     OpenAI-compatible tool loop (``complete_with_tools``), so they DO use native
     tool-calling — including the git_push/open_pr tools. No OPai-side streaming
     yet; needs an API key."""
@@ -222,6 +222,7 @@ _PROFILES: dict[str, ProviderProfile] = {
     "codex": _account_profile("codex", repo_editing=True),
     # Copilot's repository edits fail closed in OPai — the picker must say so.
     "copilot": _account_profile("copilot", repo_editing=False),
+    "kimi": _free_profile("kimi"),
     "gemini": _free_profile("gemini"),
     "groq": _free_profile("groq"),
     "mistral": _free_profile("mistral"),

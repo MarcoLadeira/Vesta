@@ -1,9 +1,14 @@
 """Free API model registry for OPai.
 
 Defines FREE_MODEL_SPECS for providers that offer verified free API tiers
-(Google Gemini, Groq, Mistral). Models appear in the picker even without a key
-— grayed with a setup hint — so users can discover free options without any
-configuration required.
+(Moonshot Kimi, Google Gemini, Groq, Mistral). Models appear in the picker even
+without a key — grayed with a setup hint — so users can discover free options
+without any configuration required.
+
+Kimi (Moonshot AI) is listed first, so its flagship K2.6 model is the free-tier
+default: it is what OPai Auto picks as the cheapest safe cloud fallback
+(``opaihub.gui_pipeline`` selects the first available free model) and what the
+picker offers at the top of the free group.
 
 Execution: free models hit public endpoints and always go through OPai's
 policy confirmation gate (``requires_confirmation=True``), consistent with how
@@ -28,6 +33,82 @@ from typing import Any
 from .credentials import CredentialStore
 
 FREE_MODEL_SPECS: list[dict[str, Any]] = [
+    {
+        "id": "free:kimi:kimi-k2.6",
+        "label": "Kimi · K2.6 (free tier)",
+        "advanced_label": (
+            "Moonshot Kimi K2.6 via Moonshot AI API "
+            "(free-tier eligible; provider limits apply)"
+        ),
+        "provider": "kimi",
+        "model_id": "kimi-k2.6",
+        "api_base": "https://api.moonshot.ai/v1",
+        "env_key": "MOONSHOT_API_KEY",
+        "group": "free",
+        "cost_level": "free-tier",
+        "kind": "free",
+        "paid": False,
+        "setup_hint": (
+            "Set MOONSHOT_API_KEY env var. Create a free-tier key at platform.moonshot.ai"
+        ),
+    },
+    {
+        "id": "free:kimi:kimi-k2.6-turbo",
+        "label": "Kimi · K2.6 Turbo (free tier)",
+        "advanced_label": (
+            "Moonshot Kimi K2.6 Turbo via Moonshot AI API "
+            "(free-tier eligible; provider limits apply)"
+        ),
+        "provider": "kimi",
+        "model_id": "kimi-k2.6-turbo",
+        "api_base": "https://api.moonshot.ai/v1",
+        "env_key": "MOONSHOT_API_KEY",
+        "group": "free",
+        "cost_level": "free-tier",
+        "kind": "free",
+        "paid": False,
+        "setup_hint": (
+            "Set MOONSHOT_API_KEY env var. Create a free-tier key at platform.moonshot.ai"
+        ),
+    },
+    {
+        "id": "free:kimi:kimi-k2",
+        "label": "Kimi · K2 (free tier)",
+        "advanced_label": (
+            "Moonshot Kimi K2 via Moonshot AI API "
+            "(free-tier eligible; provider limits apply)"
+        ),
+        "provider": "kimi",
+        "model_id": "kimi-k2",
+        "api_base": "https://api.moonshot.ai/v1",
+        "env_key": "MOONSHOT_API_KEY",
+        "group": "free",
+        "cost_level": "free-tier",
+        "kind": "free",
+        "paid": False,
+        "setup_hint": (
+            "Set MOONSHOT_API_KEY env var. Create a free-tier key at platform.moonshot.ai"
+        ),
+    },
+    {
+        "id": "free:kimi:kimi-latest",
+        "label": "Kimi · Latest (free tier)",
+        "advanced_label": (
+            "Moonshot Kimi Latest via Moonshot AI API "
+            "(free-tier eligible; provider limits apply)"
+        ),
+        "provider": "kimi",
+        "model_id": "kimi-latest",
+        "api_base": "https://api.moonshot.ai/v1",
+        "env_key": "MOONSHOT_API_KEY",
+        "group": "free",
+        "cost_level": "free-tier",
+        "kind": "free",
+        "paid": False,
+        "setup_hint": (
+            "Set MOONSHOT_API_KEY env var. Create a free-tier key at platform.moonshot.ai"
+        ),
+    },
     {
         "id": "free:gemini:gemini-3.1-flash-lite",
         "label": "Gemini · 3.1 Flash-Lite (free tier)",

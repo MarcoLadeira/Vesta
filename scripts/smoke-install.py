@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 EXTERNAL_STATE_ENV = {
+    "MOONSHOT_API_KEY",
     "GOOGLE_API_KEY",
     "GROQ_API_KEY",
     "MISTRAL_API_KEY",

@@ -252,7 +252,7 @@
         esc(d.codexConfig.message || "Invalid Codex configuration") +
         '</div></div><button class="btn" id="repairCodex">Repair Codex config</button></div>';
     }
-    var providerNames = { gemini: "Gemini", groq: "Groq", mistral: "Mistral" };
+    var providerNames = { kimi: "Kimi", gemini: "Gemini", groq: "Groq", mistral: "Mistral" };
     h += '<div class="set-head">Free model connections</div>';
     (d.credentials || []).forEach(function (credential) {
       var provider = credential.provider || "provider";

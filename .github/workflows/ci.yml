@@ -94,6 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      MOONSHOT_API_KEY: hostile-moonshot # pragma: allowlist secret
       GOOGLE_API_KEY: hostile-google # pragma: allowlist secret
       GROQ_API_KEY: hostile-groq # pragma: allowlist secret
       MISTRAL_API_KEY: hostile-mistral # pragma: allowlist secret

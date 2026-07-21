@@ -11,7 +11,7 @@ from urllib import error as urlerror
 from urllib import request as urlrequest
 
 ACCOUNT_PROVIDERS = {"claude", "codex", "copilot"}
-FREE_PROVIDERS = {"gemini", "groq", "mistral"}
+FREE_PROVIDERS = {"kimi", "gemini", "groq", "mistral"}
 LOCAL_PROVIDERS = {"ollama", "openai-compatible"}
 SUPPORTED_PROVIDERS = ACCOUNT_PROVIDERS | FREE_PROVIDERS | LOCAL_PROVIDERS
 
