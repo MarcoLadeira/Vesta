@@ -97,27 +97,80 @@
             </div>
           </div>
           <div class="composer-wrap">
-            <div class="composer">
-              <div class="composer-context" id="composerContext" aria-label="Effective task setup"></div>
-              <textarea id="input" rows="1" placeholder="Tell OPai what to build, fix, or explain…"></textarea>
-              <div class="composer-help" id="composerHelp">Enter to send · Shift+Enter for a new line</div>
-              <div class="context-controls">
-                <label class="context-label" for="contextPath">Repository context</label>
-                <input class="context-path" id="contextPath" autocomplete="off" placeholder="src/file.py" aria-describedby="contextHelp" />
-                <button class="context-add" id="addContext" type="button">Add context</button>
+            <!-- Composer Redesign: one card, three switchable directions
+                 (toolbar / single / command) chosen in Settings › Appearance.
+                 The textarea is the product; everything else is a quiet
+                 accessory revealed on demand. The native <select>/inputs below
+                 stay in the DOM (visually hidden) so the existing send, routing,
+                 mode, and context pipeline is unchanged — the toolbar popovers
+                 simply drive them. -->
+            <div class="composer" id="composer" data-composer-style="toolbar">
+              <!-- Run status header (idle → sending → working → done/error) -->
+              <div class="composer-status" id="composerStatus" role="status" aria-live="polite" hidden></div>
+
+              <!-- Context chips (only present when context has been added) -->
+              <div class="context-hints" id="contextHints" aria-label="Context references"></div>
+
+              <!-- The prompt -->
+              <textarea id="input" rows="1" placeholder="Ask OPai to build, fix, or explain…" aria-label="Prompt"></textarea>
+
+              <!-- Command-bar token accelerators (command style only) -->
+              <div class="composer-tokens" id="composerTokens" hidden>
+                <button class="ctok" type="button" data-token="#">#file</button>
+                <button class="ctok" type="button" data-token="/">/mode</button>
+                <button class="ctok" type="button" data-token="@">@model</button>
+                <span class="ctok-hint">Type <kbd>#</kbd> for files · <kbd>/</kbd> for mode · <kbd>@</kbd> for model</span>
               </div>
-              <div class="context-help" id="contextHelp">Add a repository-relative path or drop files here. OPai sends references, not file contents.</div>
-              <div class="context-hints" id="contextHints" aria-label="Repository context references"></div>
-              <div class="composer-reason" id="composerReason" aria-live="polite"></div>
-              <div class="composer-row">
-                <select class="select" id="modeSel" aria-label="Mode"></select>
+
+              <!-- Quiet toolbar -->
+              <div class="composer-toolbar">
+                <button class="ctool ctool-ctx" id="ctxBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Add files, a folder, or repository — Ctrl+/" aria-label="Add context">
+                  <span class="ctool-ico" data-icon="plus" aria-hidden="true"></span><span class="ctool-txt">Add context</span>
+                </button>
+                <button class="ctool ctool-icon" id="moreBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Composer settings" aria-label="Composer settings">
+                  <span class="ctool-ico" data-icon="settings" aria-hidden="true"></span>
+                </button>
+                <div class="ctool-spacer"></div>
                 <button class="build-pill" id="buildToggle" aria-pressed="true" hidden><span data-icon="sparkles" aria-hidden="true"></span> Build</button>
-                <div class="spacer"></div>
-                <span class="pdot" id="providerDot"></span>
-                <select class="select" id="modelSel" style="max-width:230px" aria-label="Model"></select>
+                <button class="ctool ctool-mode" id="modeBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Mode" title="How OPai handles changes">
+                  <span class="mode-dot" id="modeDot" aria-hidden="true"></span><span class="ctool-txt" id="modeBtnLabel">Ask before edits</span><span class="chev" data-icon="chevronDown" aria-hidden="true"></span>
+                </button>
+                <button class="ctool ctool-model" id="modelBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Model" title="Model and routing">
+                  <span class="ctool-txt" id="modelBtnLabel">Auto</span><span class="chev" data-icon="chevronDown" aria-hidden="true"></span>
+                </button>
                 <button class="send" id="send" type="button" aria-label="Send prompt">Send</button>
               </div>
+
+              <!-- Popovers (built by composer.js) -->
+              <div class="cpop" id="ctxPop" role="menu" hidden></div>
+              <div class="cpop" id="modePop" role="menu" hidden></div>
+              <div class="cpop" id="modelPop" role="menu" hidden></div>
+              <div class="cpop" id="morePop" role="menu" hidden></div>
+
+              <!-- Drag overlay -->
+              <div class="composer-drop" id="composerDrop" aria-hidden="true">
+                <span class="drop-ico" data-icon="plus" aria-hidden="true"></span>
+                <span>Drop files to add them as context</span>
+              </div>
+
+              <!-- Native controls: hidden, still fully functional; the redesign
+                   surfaces above drive these so backend behaviour is unchanged. -->
+              <div class="composer-native" aria-hidden="true">
+                <div class="composer-context" id="composerContext"></div>
+                <select class="select" id="modeSel" aria-label="Mode" tabindex="-1"></select>
+                <select class="select" id="modelSel" aria-label="Model" tabindex="-1"></select>
+                <span class="pdot" id="providerDot"></span>
+                <input class="context-path" id="contextPath" autocomplete="off" placeholder="src/file.py" tabindex="-1" />
+                <button class="context-add" id="addContext" type="button" tabindex="-1">Add context</button>
+              </div>
             </div>
+
+            <!-- Helper line (below the card) -->
+            <div class="composer-help-row" id="composerHelpRow">
+              <div class="composer-help" id="composerHelp">Enter to send · Shift+Enter for a new line</div>
+              <div class="composer-summary" id="composerSummary" aria-label="Effective behaviour"></div>
+            </div>
+            <div class="composer-reason" id="composerReason" aria-live="polite"></div>
           </div>
         </section>
 
@@ -175,5 +228,6 @@
   <script src="settings.js"></script>
   <script src="onboarding.js"></script>
   <script src="app.js"></script>
+  <script src="composer.js"></script>
 </body>
 </html>

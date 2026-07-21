@@ -542,6 +542,10 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             # Appearance (#241): applied to the document root at boot.
             "density": str(prefs.get("density") or "comfortable"),
             "reducedMotion": str(prefs.get("reduced_motion") or "system"),
+            # Composer layout (Composer Redesign): one of the three directions
+            # — "toolbar" (quiet toolbar, default), "single" (single line),
+            # "command" (command bar). Applied to the composer at boot and live.
+            "composerStyle": str(prefs.get("composer_style") or "toolbar"),
             # First-run onboarding (#250): show the tour until it is seen.
             "onboardingSeen": bool(prefs.get("onboarding_seen", False)),
             # Full Auto pin state (#137) so the UI can show danger styling and
@@ -1425,6 +1429,7 @@ def _run_gui(
                 "density",
                 "reduced_motion",
                 "onboarding_seen",
+                "composer_style",
             }
             if key not in allowed:
                 return

@@ -183,6 +183,8 @@ function boot() {
     renderStatus(b.status); renderAccount(); applyPanel();
     renderEmptyChips();
     syncBuildMode();
+    // Composer Redesign: apply the saved direction (toolbar / single / command).
+    if (window.OPaiComposer) window.OPaiComposer.applyBootStyle();
     switchView("chat");
     if (b.initialTask) { $("#input").value = b.initialTask; autoSize(); }
     renderResumeChoice();
@@ -610,11 +612,14 @@ function renderComposerContext() {
   if (!root || !state.boot) return;
   const modeLabel = state.mode.label || "Selected mode";
   const modelLabel = state.model.kind === "auto" ? "OPai · Auto mode" : (state.model.label || "Selected model");
+  // These legacy pills now live in the visually-hidden .composer-native block
+  // (the redesigned toolbar summarises the same state). tabindex="-1" keeps them
+  // out of the tab order so their aria-hidden container has no focusable content.
   root.innerHTML = [
-    `<button class="context-chip" type="button" data-composer-focus="mode" aria-label="Mode: ${esc(modeLabel)}">Mode · ${esc(modeLabel)}</button>`,
-    `<button class="context-chip" type="button" data-composer-focus="mode" aria-label="Autonomy: ${esc(autonomyConsequence(state.mode.id))}">${esc(autonomyConsequence(state.mode.id))}</button>`,
-    `<button class="context-chip" type="button" data-composer-focus="model" aria-label="Model: ${esc(modelLabel)}">${esc(modelLabel)}</button>`,
-    `<button class="context-chip" type="button" data-composer-focus="cost" aria-label="Cost posture: ${esc(costPosture())}">${esc(costPosture())}</button>`,
+    `<button class="context-chip" type="button" tabindex="-1" data-composer-focus="mode" aria-label="Mode: ${esc(modeLabel)}">Mode · ${esc(modeLabel)}</button>`,
+    `<button class="context-chip" type="button" tabindex="-1" data-composer-focus="mode" aria-label="Autonomy: ${esc(autonomyConsequence(state.mode.id))}">${esc(autonomyConsequence(state.mode.id))}</button>`,
+    `<button class="context-chip" type="button" tabindex="-1" data-composer-focus="model" aria-label="Model: ${esc(modelLabel)}">${esc(modelLabel)}</button>`,
+    `<button class="context-chip" type="button" tabindex="-1" data-composer-focus="cost" aria-label="Cost posture: ${esc(costPosture())}">${esc(costPosture())}</button>`,
   ].join("");
   root.querySelectorAll("[data-composer-focus]").forEach((button) => {
     button.onclick = () => {
@@ -634,6 +639,9 @@ function renderComposerContext() {
 function updateComposerAvailability() {
   const send = $("#send"), reason = $("#composerReason");
   if (!send || !reason) return;
+  // Keep the redesigned composer (labels, summary, status) in sync on every
+  // availability change (typing, mode/model change, send lifecycle).
+  if (window.OPaiComposer) window.OPaiComposer.refresh();
   const blocked = composerBlockReason();
   if (state.busy) { send.disabled = false; reason.innerHTML = ""; return; }
   send.disabled = Boolean(blocked);
@@ -2245,6 +2253,7 @@ function setBusy(on) {
   s.classList.toggle("stop", on);
   s.setAttribute("aria-label", on ? "Stop generation" : "Send prompt");
   if (!on) updateComposerAvailability();
+  if (window.OPaiComposer) window.OPaiComposer.refresh();
   updateInspectorLive(on ? "Preparing request…" : null);
 }
 
@@ -2888,5 +2897,7 @@ if (typeof window !== "undefined") {
     // sync (F16/F4) and the derived next-run agent mode preview (F21).
     applyBootSelection: (b) => applyBootSelection(b),
     derivedAgentMode: () => derivedAgentMode(),
+    // Used by the redesigned composer's overflow menu (Keyboard shortcuts).
+    runCommand: (id) => runCommand(id),
   };
 }
