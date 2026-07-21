@@ -615,8 +615,44 @@
         "</div>"
       );
     };
+    var composerStyle =
+      prefs.composerStyle === "single" || prefs.composerStyle === "command"
+        ? prefs.composerStyle
+        : "toolbar";
+    // A distinct key (not data-appearance-key) so it routes to the composer
+    // controller instead of the document-root appearance handler.
+    var composerSeg = function (current, options) {
+      return (
+        '<div class="seg" role="group" data-composer-style-key="composer_style">' +
+        options
+          .map(function (option) {
+            var active = option.id === current;
+            return (
+              '<button type="button" data-value="' +
+              esc(option.id) +
+              '" aria-pressed="' +
+              (active ? "true" : "false") +
+              '"' +
+              (active ? ' class="active"' : "") +
+              ">" +
+              esc(option.label) +
+              "</button>"
+            );
+          })
+          .join("") +
+        "</div>"
+      );
+    };
     var h = '<div class="set-head">Appearance</div>';
     h += '<div class="set-note">Applied instantly and saved for this workspace.</div>';
+    h +=
+      '<div class="appearance-row"><div class="appearance-label"><span class="k">Composer style</span><span class="hint">How the prompt box is arranged. Toolbar keeps everything one click away; Single line is the smallest footprint; Command bar is keyboard-first with #file, /mode, and @model tokens.</span></div>' +
+      composerSeg(composerStyle, [
+        { id: "toolbar", label: "Toolbar" },
+        { id: "single", label: "Single line" },
+        { id: "command", label: "Command bar" },
+      ]) +
+      "</div>";
     h +=
       '<div class="appearance-row"><div class="appearance-label"><span class="k">Density</span><span class="hint">Compact tightens spacing across the cockpit.</span></div>' +
       seg("density", density, [
@@ -1223,6 +1259,23 @@
             current[name] = active ? active.dataset.value : "";
           });
           ctx.applyAppearance(current);
+        };
+      });
+    });
+
+    // Composer style (Composer Redesign): persist per workspace and switch the
+    // live composer direction immediately.
+    page.querySelectorAll("[data-composer-style-key]").forEach(function (segment) {
+      var key = segment.dataset.composerStyleKey;
+      segment.querySelectorAll("button").forEach(function (button) {
+        button.onclick = function () {
+          segment.querySelectorAll("button").forEach(function (other) {
+            other.classList.toggle("active", other === button);
+            other.setAttribute("aria-pressed", other === button ? "true" : "false");
+          });
+          bridge.savePref(key, button.dataset.value);
+          if (ctx.d && ctx.d.prefs) ctx.d.prefs.composerStyle = button.dataset.value;
+          if (global.OPaiComposer) global.OPaiComposer.setStyle(button.dataset.value);
         };
       });
     });

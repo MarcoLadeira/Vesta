@@ -1372,3 +1372,179 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
   :root:not([data-motion="off"]) *, :root:not([data-motion="off"]) *::before, :root:not([data-motion="off"]) *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* =====================================================================
+   Composer Redesign — one card, three switchable directions.
+   The textarea is the product; the toolbar is a quiet accessory.
+   Direction is set on .composer[data-composer-style].
+   ===================================================================== */
+
+/* The card hugs its contents: 6px outer padding, the textarea and toolbar
+   carry their own inner padding so the card itself IS the field. */
+.composer { position: relative; padding: var(--space-1); }
+.composer textarea {
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  min-height: 30px; max-height: 200px; overflow-y: auto;
+}
+
+/* Native controls stay in the DOM (they drive routing/mode/context) but are
+   removed from view and the tab order. The redesigned surfaces drive them. */
+.composer-native { position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; pointer-events: none; }
+
+/* Context chips, relocated above the textarea. */
+.composer .context-hints { padding: var(--space-2) var(--space-2) 0; margin: 0; }
+.composer .context-hints:empty { display: none; }
+
+/* Status header. */
+.composer-status { display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); margin: var(--space-1) var(--space-1) 0;
+  border-bottom: 1px solid var(--border); color: var(--muted); font-size: var(--type-caption); }
+.composer-status[hidden] { display: none; }
+.cstatus-ico { display: inline-flex; color: var(--accent); }
+.cstatus-ico .ui-icon { width: 15px; height: 15px; animation: opaiSpin 1s linear infinite; }
+.cstatus-title { color: var(--ink); font-weight: var(--weight-semibold); }
+.cstatus-esc { margin-left: auto; color: var(--faint); }
+@keyframes opaiSpin { to { transform: rotate(360deg); } }
+
+/* Toolbar. */
+.composer-toolbar { display: flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-1) var(--space-1); }
+.ctool-spacer { flex: 1; }
+.ctool {
+  display: inline-flex; align-items: center; gap: var(--space-2); height: 34px;
+  padding: 0 var(--space-3); border: 1px solid transparent; border-radius: var(--r-sm);
+  background: transparent; color: var(--muted); font: inherit; font-size: var(--type-label);
+  font-weight: var(--weight-medium); cursor: pointer; white-space: nowrap;
+  transition: background 0.15s var(--ease), color 0.15s;
+}
+.ctool:hover, .ctool[aria-expanded="true"] { background: var(--glass-hi); color: var(--ink); }
+.ctool:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ctool-icon { width: 34px; padding: 0; justify-content: center; }
+.ctool .ui-icon, .ctool [data-icon] .ui-icon { width: 16px; height: 16px; }
+.ctool .chev, .ctool .chev .ui-icon { width: 13px; height: 13px; opacity: 0.6; }
+.mode-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+
+/* Send / Stop — accent identity preserved; icon via CSS so app.js can keep
+   setting the text label ("Send"/"Stop"/"Build") unchanged. */
+.composer-toolbar .send { height: 34px; border-radius: var(--r-sm); padding: 0 var(--space-4); }
+.composer-toolbar .send::before {
+  content: ""; width: 15px; height: 15px; flex: none; background: currentColor;
+  -webkit-mask: no-repeat center / contain; mask: no-repeat center / contain;
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M8 13V4M4 8l4-4 4 4'/></svg>");
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M8 13V4M4 8l4-4 4 4'/></svg>");
+}
+.composer-toolbar .send.stop::before {
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><rect x='1.5' y='1.5' width='9' height='9' rx='2.5' fill='black'/></svg>");
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><rect x='1.5' y='1.5' width='9' height='9' rx='2.5' fill='black'/></svg>");
+}
+
+/* Helper line, below the card. */
+.composer-help-row { display: flex; align-items: baseline; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) 0; }
+.composer-help { margin: 0; }
+.composer-summary { margin-left: auto; color: var(--faint); font-size: var(--type-caption); white-space: nowrap; }
+.composer-reason { padding: 0 var(--space-3); }
+
+/* Popovers — one open at a time; anchored to the toolbar. */
+.cpop {
+  position: absolute; z-index: 40; bottom: 48px; width: 288px; max-width: calc(100% - 16px);
+  background: var(--panel-2); border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  padding: var(--space-1); box-shadow: var(--shadow-lg); max-height: 340px; overflow-y: auto;
+}
+.cpop[hidden] { display: none; }
+#ctxPop { left: var(--space-1); }
+#morePop { left: var(--space-1); }
+#modePop, #modelPop { right: 48px; }
+.cpop-head, .cpop-group { font-size: var(--type-caption); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--faint); font-weight: var(--weight-semibold); padding: var(--space-2) var(--space-2) var(--space-1); }
+.cpop-group { padding-top: var(--space-2); }
+.cpop-row {
+  width: 100%; display: flex; align-items: flex-start; gap: var(--space-2); text-align: left;
+  padding: var(--space-2); border: 0; background: transparent; border-radius: var(--r-sm);
+  color: var(--ink); font: inherit; font-size: var(--type-label); cursor: pointer;
+}
+.cpop-row:hover:not([disabled]), .cpop-row:focus-visible { background: var(--glass-hi); outline: 0; }
+.cpop-row[disabled] { opacity: 0.45; cursor: not-allowed; }
+.cpop-ico { color: var(--muted); display: inline-flex; }
+.cpop-ico .ui-icon { width: 16px; height: 16px; }
+.cpop-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: var(--space-1); flex: none; }
+.cpop-body { flex: 1; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.cpop-title { font-weight: var(--weight-semibold); }
+.cpop-desc { color: var(--muted); font-size: var(--type-caption); line-height: 1.4; }
+.cpop-meta { color: var(--faint); font-size: var(--type-caption); font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
+.cpop-kbd { border: 1px solid var(--border-strong); border-radius: 5px; padding: 0 var(--space-1);
+  font-family: ui-monospace, Menlo, monospace; font-size: var(--type-caption); color: var(--faint); }
+.cpop-check { color: var(--accent); display: inline-flex; }
+.cpop-check .ui-icon { width: 15px; height: 15px; }
+.cpop-sep { height: 1px; background: var(--border); margin: var(--space-1) var(--space-2); }
+.cpop-input { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) var(--space-2);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--space-2); color: var(--faint); }
+.cpop-input input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: var(--type-caption); font-family: ui-monospace, Menlo, monospace; }
+.cpop-note { margin: var(--space-1) var(--space-2) var(--space-2); font-size: var(--type-caption);
+  line-height: 1.45; color: var(--faint); }
+.cpop-toggle { align-items: center; }
+.cpop-switch { width: 34px; height: 20px; border-radius: 999px; background: var(--border-strong);
+  flex: none; position: relative; transition: background 0.15s var(--ease); }
+.cpop-switch.on { background: var(--accent); }
+.cpop-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; transition: left 0.15s var(--ease); }
+.cpop-switch.on .cpop-knob { left: 16px; }
+.cpop-scope-label { color: var(--faint); font-size: var(--type-caption); padding: var(--space-1) var(--space-2); }
+.cpop-scope { display: flex; gap: var(--space-1); background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: var(--space-1); margin: 0 var(--space-2) var(--space-2); }
+.cpop-scope button { flex: 1; border: 0; border-radius: 6px; background: transparent; color: var(--muted);
+  font: inherit; font-size: var(--type-caption); font-weight: var(--weight-medium); padding: var(--space-2) var(--space-1); cursor: pointer; }
+.cpop-scope button.active { background: var(--glass-hi); color: var(--ink); }
+
+/* Command-bar token strip. */
+.composer-tokens { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+  padding: 0 var(--space-3) var(--space-2); }
+.composer-tokens[hidden] { display: none; }
+.ctok { border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--glass);
+  color: var(--accent); font-family: ui-monospace, Menlo, monospace; font-size: var(--type-caption);
+  padding: var(--space-1) var(--space-2); cursor: pointer; }
+.ctok:hover { border-color: var(--border-strong); }
+.ctok-hint { color: var(--faint); font-size: var(--type-caption); }
+.ctok-hint kbd { background: var(--glass); border: 1px solid var(--border); border-radius: 4px; padding: 0 var(--space-1); }
+
+/* Drag overlay. */
+.composer-drop { position: absolute; inset: 0; z-index: 45; border-radius: var(--r-xl);
+  background: rgba(6, 20, 15, 0.9); border: 1.5px dashed var(--accent); display: none;
+  flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2);
+  color: var(--accent); font-weight: var(--weight-semibold); }
+.composer.drag-over .composer-drop { display: flex; }
+.composer-drop .ui-icon { width: 26px; height: 26px; }
+
+/* ---- direction: single line (1a) ------------------------------------ */
+/* Input + send on one row; everything else behind the overflow (⚙) menu. */
+.composer[data-composer-style="single"] { display: flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-1) var(--space-2); }
+.composer[data-composer-style="single"] .composer-status,
+.composer[data-composer-style="single"] .context-hints { flex-basis: 100%; }
+.composer[data-composer-style="single"] textarea { flex: 1; order: 1; min-height: 24px; padding: var(--space-2); }
+.composer[data-composer-style="single"] .composer-toolbar { order: 2; padding: 0; gap: var(--space-1); width: auto; flex: none; }
+.composer[data-composer-style="single"] .ctool-ctx,
+.composer[data-composer-style="single"] .ctool-mode,
+.composer[data-composer-style="single"] .ctool-model,
+.composer[data-composer-style="single"] .ctool-spacer { display: none; }
+.composer[data-composer-style="single"] .composer-tokens { display: none; }
+.composer[data-composer-style="single"] ~ .composer-help-row .composer-help,
+.composer[data-composer-style="single"] ~ .composer-help-row .composer-summary { display: none; }
+
+/* ---- direction: command bar (1c) ------------------------------------ */
+/* Keyboard-first: tokens visible, mode/model/context buttons recede. */
+.composer[data-composer-style="command"] .ctool-ctx .ctool-txt,
+.composer[data-composer-style="command"] .ctool-mode .ctool-txt,
+.composer[data-composer-style="command"] .ctool-model { display: none; }
+.composer[data-composer-style="command"] ~ .composer-help-row .composer-summary { display: none; }
+
+/* ---- direction: toolbar (1b, default) shows everything (no overrides) */
+
+/* Responsive: narrow composer collapses labels to icons/dots. */
+@media (max-width: 620px) {
+  .composer[data-composer-style="toolbar"] .ctool-ctx .ctool-txt,
+  .composer[data-composer-style="toolbar"] .ctool-model .chev { display: none; }
+  .composer-summary { display: none; }
+}
