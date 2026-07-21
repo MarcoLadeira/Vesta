@@ -525,34 +525,132 @@ class PreferenceLimitTests(unittest.TestCase):
 
 
 class AutoFallbackTests(unittest.TestCase):
-    def test_auto_requests_named_confirmation_before_cloud_fallback(self) -> None:
+    @staticmethod
+    def _free(model_id: str, provider: str, label: str) -> dict:
+        return {
+            "id": model_id,
+            "label": label,
+            "provider": provider,
+            "kind": "free",
+            "available": True,
+        }
+
+    def test_auto_runs_configured_free_model_without_confirmation(self) -> None:
+        # Choosing Auto is itself consent to run the cheapest capable model, so a
+        # configured free model runs straight through — no confirmation card, no
+        # second prompt (the core "messages just work" requirement).
         from opaihub.gui_pipeline import handle_gui_message
 
-        models = {
-            "models": [
-                {
-                    "id": "free:groq:openai/gpt-oss-120b",
-                    "label": "Groq · GPT-OSS 120B (free tier)",
-                    "provider": "groq",
-                    "kind": "free",
-                    "available": True,
-                }
-            ]
-        }
+        models = {"models": [self._free("free:groq:openai/gpt-oss-120b", "groq", "Groq")]}
         no_local = {"status": "no_local_model", "hint": "none"}
+        free_answer = {
+            "status": "answered_by_free_api",
+            "answer": "Here is the explanation.",
+        }
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch("opaihub.ask.run_ask", return_value=no_local),
                 mock.patch("opai.app_state.available_models", return_value=models),
+                mock.patch("opai.app_state.ask", return_value=free_answer),
             ):
                 result = handle_gui_message(
-                    Path(tmp), "explain", model_id="auto", mode="ask"
+                    Path(tmp), "explain this repo", model_id="auto", mode="ask"
+                )
+
+        self.assertEqual(result["status"], "answered")
+        self.assertFalse(str(result["status"]).startswith("needs_"))
+        self.assertIn("explanation", result["answer"].lower())
+
+    def test_auto_falls_back_to_next_free_model_on_no_answer(self) -> None:
+        # The exact reported symptom: the first free provider returns no answer.
+        # Auto must silently move to the next configured free model, not dead-end
+        # with "the free-tier API returned no answer / set MOONSHOT_API_KEY".
+        from opaihub.gui_pipeline import handle_gui_message
+
+        models = {
+            "models": [
+                self._free("free:kimi:kimi-k2.6", "kimi", "Kimi"),
+                self._free("free:gemini:gemini-3.1-flash-lite", "gemini", "Gemini"),
+            ]
+        }
+        no_local = {"status": "no_local_model", "hint": "none"}
+        empty = {"status": "answered_by_free_api", "answer": ""}
+        answered = {"status": "answered_by_free_api", "answer": "Second model answer."}
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch("opaihub.ask.run_ask", return_value=no_local),
+                mock.patch("opai.app_state.available_models", return_value=models),
+                mock.patch(
+                    "opai.app_state.ask", side_effect=[empty, answered]
+                ) as ask_mock,
+            ):
+                result = handle_gui_message(
+                    Path(tmp), "explain this repo", model_id="auto", mode="ask"
+                )
+
+        self.assertEqual(result["status"], "answered")
+        self.assertIn("second model", result["answer"].lower())
+        self.assertNotIn("MOONSHOT_API_KEY", result["answer"])
+        self.assertEqual(ask_mock.call_count, 2)
+
+    def test_auto_escalates_to_paid_account_with_confirmation(self) -> None:
+        # When every free option fails, Auto may escalate to a connected paid
+        # account — but a paid call is real money, so it confirms first, naming
+        # the exact model instead of silently spending.
+        from opaihub.gui_pipeline import handle_gui_message
+
+        models = {
+            "models": [
+                self._free("free:groq:openai/gpt-oss-120b", "groq", "Groq"),
+                {
+                    "id": "account:claude:haiku",
+                    "label": "Claude · Haiku",
+                    "kind": "account",
+                    "available": True,
+                },
+            ]
+        }
+        no_local = {"status": "no_local_model", "hint": "none"}
+        empty = {"status": "answered_by_free_api", "answer": ""}
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch("opaihub.ask.run_ask", return_value=no_local),
+                mock.patch("opai.app_state.available_models", return_value=models),
+                mock.patch("opai.app_state.ask", return_value=empty) as ask_mock,
+            ):
+                result = handle_gui_message(
+                    Path(tmp), "explain this repo", model_id="auto", mode="ask"
                 )
 
         self.assertEqual(result["status"], "needs_auto_confirmation")
-        self.assertEqual(result["fallbackModelId"], models["models"][0]["id"])
-        self.assertIn("Groq", result["answer"])
+        self.assertEqual(result["fallbackModelId"], "account:claude:haiku")
+        self.assertIn("Claude", result["answer"])
         self.assertFalse(result["cloudStarted"])
+        # The paid account is only offered, never called, before confirmation.
+        self.assertEqual(ask_mock.call_count, 1)
+
+    def test_auto_reports_honest_error_when_nothing_can_run(self) -> None:
+        # Total provider unavailability: no local, no free, no account. Auto must
+        # return a single honest, actionable error — never a silent hang.
+        from opaihub.gui_pipeline import handle_gui_message
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.ask.run_ask",
+                    return_value={"status": "no_local_model", "hint": "none"},
+                ),
+                mock.patch(
+                    "opai.app_state.available_models", return_value={"models": []}
+                ),
+            ):
+                result = handle_gui_message(
+                    Path(tmp), "explain this repo", model_id="auto", mode="ask"
+                )
+
+        self.assertEqual(result["status"], "needs_model")
+        self.assertNotIn("fallbackModelId", result)
+        self.assertIn("Settings", result["answer"])
 
     def test_auto_ignores_catalog_entries_without_verified_availability(self) -> None:
         from opaihub.gui_pipeline import handle_gui_message

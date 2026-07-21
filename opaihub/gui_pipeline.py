@@ -564,6 +564,14 @@ def handle_gui_message(
     edit_grant = bool(allow_edits_once or allowEditsOnce)
     prefs = load_gui_preferences(root)
     selected_model = model_id or prefs.get("default_model") or "auto"
+    # Whether OPai is choosing the model (Auto mode). Set before any _decorate
+    # call so the terminal recorder can always read it. The capability/cost/
+    # reliability fallback chain is resolved later, once context is gathered.
+    auto_active = selected_model == "auto"
+    auto_chain: list[dict[str, Any]] = []
+    auto_pos = 0
+    _pending_paid: dict[str, Any] = {}
+    paid_authorized = bool(allow_cloud or allow_limit)
     # Central autonomy decision (#137): a requested/stored full-auto is honored
     # only when Full Auto is pinned; otherwise it is downgraded to Safe Auto.
     autonomy = effective_mode(mode, prefs)
@@ -1051,6 +1059,26 @@ def handle_gui_message(
                     else FAILED
                 ),
             )
+        # Provider reliability memory (Auto fallback): a genuine answer is a
+        # success for the model that produced it; a definite provider failure on
+        # a non-Auto run is recorded too, so Auto later deprioritizes it. Auto's
+        # own intermediate fallbacks are recorded as they happen (in
+        # _advance_auto), so they are not double-counted here.
+        with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
+            from . import auto_router as _ar
+            from . import provider_reliability as _rel
+
+            _prov = _ar.provider_of(selected_model)
+            if _prov:
+                if status == "answered":
+                    _rel.record_provider_outcome(root, _prov, True)
+                elif not auto_active and verdict.verdict in {
+                    CompletionVerdict.FAILED,
+                    CompletionVerdict.TIMEOUT,
+                }:
+                    _rel.record_provider_outcome(
+                        root, _prov, False, reason=str(status or "failed")
+                    )
         decorated = {
             **payload,
             "objective": objective.to_dict(),
@@ -1113,61 +1141,116 @@ def handle_gui_message(
             }
         )
 
-    def _fallback_model() -> dict[str, Any] | None:
-        from opai import app_state as app
+    # ---- Auto mode: capability/cost/reliability fallback chain (#406+) ----
+    # Auto builds an ordered chain of every available model — local-first, then
+    # configured free APIs, then (confirmed) paid accounts — ranked by recent
+    # reliability and least-recently-used so it never just hammers whichever
+    # provider happens to be first. The dispatch loop below walks this chain,
+    # advancing past any provider that fails, times out, is rate-limited,
+    # unauthenticated, or returns no answer, and only stopping to confirm before
+    # the first paid call or to report an honest error when nothing can run.
+    _auto_labels: dict[str, str] = {}
+    if auto_active:
+        from opai import app_state as _app_state
 
-        catalog = app.available_models(root, discover_local=False)
-        models = list(catalog.get("models") or [])
-        unavailable_account_statuses = {
-            "misconfigured",
-            "provider_unavailable",
-            "invalid",
-            "expired",
-            "disconnected",
+        from . import auto_router
+
+        _catalog = _app_state.available_models(root, discover_local=False)
+        _auto_labels = {
+            str(item.get("id") or ""): str(item.get("label") or item.get("id") or "")
+            for item in (_catalog.get("models") or [])
         }
-        unavailable_accounts = {
-            str(connection.get("providerId") or "")
-            for connection in list(catalog.get("connections") or [])
-            if str(connection.get("authStatus") or "").lower()
-            in unavailable_account_statuses
-        }
-
-        def _account_provider(item: dict[str, Any]) -> str:
-            provider = str(item.get("provider") or "")
-            if provider:
-                return provider
-            parts = str(item.get("id") or "").split(":", 2)
-            return parts[1] if len(parts) > 1 and parts[0] == "account" else ""
-
-        free = [
-            item
-            for item in models
-            if item.get("kind") == "free" and item.get("available") is True
-        ]
-        if free:
-            return free[0]
-        accounts = [
-            item
-            for item in models
-            if item.get("kind") == "account"
-            and item.get("available") is True
-            and _account_provider(item) not in unavailable_accounts
-        ]
-        preferred = ("haiku", "mini", "spark", "sonnet")
-        return next(
-            (
-                item
-                for suffix in preferred
-                for item in accounts
-                if suffix in str(item.get("id") or "").lower()
-            ),
-            accounts[0] if accounts else None,
+        auto_chain = auto_router.resolve_auto_chain(
+            root, message, _catalog, allow_paid=paid_authorized
+        )
+        if auto_chain:
+            selected_model = str(auto_chain[0]["id"])
+        _emit(
+            "model_selected",
+            "running",
+            "Auto is choosing the best available model",
+            metadata={"candidates": [c["id"] for c in auto_chain]},
+            channel="status",
         )
 
-    if selected_model == "auto" and allow_cloud:
-        fallback = _fallback_model()
-        if fallback is not None:
-            selected_model = str(fallback["id"])
+    def _advance_auto(*, status: str = "", error: Any = None) -> str:
+        """Move Auto to the next candidate after a retryable failure.
+
+        Returns ``"continue"`` when ``selected_model`` was advanced to the next
+        runnable candidate (the dispatch loop should re-run), ``"confirm"`` when
+        the next candidate is a paid account that needs the user's go-ahead, or
+        ``"stop"`` when the chain is exhausted (report an honest error).
+        """
+        nonlocal selected_model, auto_pos
+        if not auto_active:
+            return "stop"
+        from . import auto_router
+        from . import provider_reliability as _rel
+
+        _rel.record_provider_outcome(
+            root,
+            auto_router.provider_of(selected_model),
+            False,
+            reason=auto_router.reason_slug(status, error),
+        )
+        while auto_pos + 1 < len(auto_chain):
+            auto_pos += 1
+            candidate = auto_chain[auto_pos]
+            if candidate.get("paid") and not paid_authorized:
+                _pending_paid.clear()
+                _pending_paid.update(candidate)
+                return "confirm"
+            selected_model = str(candidate["id"])
+            _emit(
+                "model_selected",
+                "running",
+                f"Trying {candidate.get('provider') or candidate['id']}",
+                metadata={"model": selected_model, "reason": candidate.get("reason")},
+            )
+            return "continue"
+        return "stop"
+
+    def _auto_paid_card() -> dict[str, Any]:
+        """Confirmation card naming the cheapest capable paid model to escalate to."""
+        candidate = dict(_pending_paid)
+        model_id = str(candidate.get("id") or "")
+        label = _auto_labels.get(model_id) or candidate.get("provider") or model_id
+        tried_free = any(
+            auto_chain[i].get("kind") == "free" for i in range(1, auto_pos)
+        )
+        prefix = (
+            "OPai tried the free options without a usable answer. "
+            if tried_free
+            else "No free or local model is available. "
+        )
+        _phase_close("warning", "Needs your confirmation")
+        return _decorate(
+            {
+                "status": "needs_auto_confirmation",
+                "answer": (
+                    prefix
+                    + f"OPai can continue with {label}, a paid model — that call "
+                    "costs money. Confirm to continue, or switch model."
+                ),
+                "fallbackModelId": model_id,
+                "fallbackModelLabel": label,
+                "cloudStarted": False,
+                "tool_trace": tool_trace,
+                "receipt": build_savings_receipt(
+                    root,
+                    task=message,
+                    selected_model=model_id,
+                    selected_mode=selected_mode,
+                    chosen_tier="L3",
+                    confidence="blocked",
+                ),
+                "changed_files": [],
+                "warnings": [],
+                "next_actions": [
+                    "Confirm the named paid model, or pick a different model."
+                ],
+            }
+        )
 
     usage_limits = prefs.get("usage_limits") or {}
     if selected_model in usage_limits and not allow_limit:
@@ -1274,262 +1357,308 @@ def handle_gui_message(
         "full-auto",
     } and not is_discovery_request(message)
 
-    if selected_model.startswith("free:"):
-        from opai import app_state as A
+    while True:
+        if selected_model.startswith("free:"):
+            from opai import app_state as A
 
-        if _cancelled():
-            _phase_close("cancelled", "Stopped by you")
-            return _decorate(
-                _cancelled_result(message, tool_trace, selected_model, selected_mode)
-            )
-        provider = selected_model.split(":", 2)[1]
-        _phase(
-            "request_sending" if allow_cloud else "needs_confirmation",
-            "running" if allow_cloud else "warning",
-            "Sending free-tier API request"
-            if allow_cloud
-            else "Free-tier API confirmation required",
-            metadata={"provider": provider},
-        )
-        # Real Stop for free-tier (#152): thread the cancel Event so the HTTP
-        # request is aborted mid-flight, not just hidden by the stale guard.
-        # F6/F7: thread the request's tool authority down so free models get a
-        # real tool loop (read-only tools when edits are off) instead of
-        # narrating fake tool calls as prose. F17/F9: a one-shot grant from a
-        # command-approval re-send rides along verbatim.
-        authority = request_tool_authority(
-            message,
-            selected_mode=selected_mode,
-            repo_root=root,
-            focus_hint=focus_hint,
-        )
-        result = A.ask(
-            root,
-            _tool_aware_message(allow_edits),
-            selected_model,
-            allow_cloud=allow_cloud,
-            allow_edits=allow_edits,
-            tool_calling_enabled=authority.tool_calling_enabled,
-            allow_command=command_grant,
-            mode=selected_mode,
-            record_route=False,
-            cancel=cancel,
-            on_text=on_text,
-        )
-        if result.get("status") == "cancelled":
-            _phase_close("cancelled", "Stopped by you")
-            _emit("cancelled", "cancelled", "Stopped by you")
-            return _decorate(
-                _cancelled_result(message, tool_trace, selected_model, selected_mode)
-            )
-        approval = _command_approval(result)
-        if approval is not None:
-            # F17/F9: surface an actionable approval card — never a green
-            # completion and never a dead-end "approve through the prompt".
-            _phase_close("warning", "Awaiting your approval")
-            _emit(
-                "command_run",
-                "warning",
-                "Command needs your approval",
-                detail=approval["command"],
-                metadata={"command": approval["command"]},
-            )
-            reason_suffix = f" — {approval['reason']}" if approval["reason"] else ""
-            return _decorate(
-                {
-                    "status": "needs_command_approval",
-                    "answer": (
-                        "OPai needs your approval to run this command: "
-                        f"`{approval['command']}`{reason_suffix}. Approve it to "
-                        "continue, or edit your request."
-                    ),
-                    "command": approval["command"],
-                    "reason": approval["reason"],
-                    "command_approval": approval,
-                    "tool_trace": tool_trace + list(result.get("tool_trace") or []),
-                    "receipt": {},
-                    "changed_files": [],
-                    "warnings": [],
-                    "next_actions": [
-                        "Approve the exact command to let OPai run it once.",
-                        "Or edit your request to avoid the command.",
-                    ],
-                    "raw_result": result,
-                }
-            )
-        receipt = build_savings_receipt(
-            root,
-            task=message,
-            selected_model=selected_model,
-            selected_mode=selected_mode,
-            chosen_tier="L2",
-            confidence="estimated",
-        )
-        status_map = {
-            "answered_by_free_api": "answered",
-            "cache_hit": "answered",
-            "confirmation_required": "needs_free_confirmation",
-            "model_unavailable": "needs_model",
-            "runner_error": "runner_error",
-        }
-        status = status_map.get(result.get("status"), result.get("status", "error"))
-        # Ledger truth (#144): a route/savings event is only real once the task
-        # actually answered — confirmation prompts and failures record nothing.
-        free_telemetry = None
-        if status == "answered":
-            # #381: only a run that met its objective records a route/savings
-            # event; a partial run still records its (estimated) cost below but
-            # claims no savings, so the aggregate matches the gated receipt.
-            if _claims_savings(result):
-                _record_gui_route(
-                    root,
-                    message,
-                    tier="L2",
-                    receipt=receipt,
-                    tool_trace=tool_trace,
-                    model_id=selected_model,
-                    mode=selected_mode,
+            if _cancelled():
+                _phase_close("cancelled", "Stopped by you")
+                return _decorate(
+                    _cancelled_result(message, tool_trace, selected_model, selected_mode)
                 )
-            # Free APIs report no dollars here, so the telemetry is honestly
-            # labelled estimated (#178) - never presented as a real spend.
-            free_telemetry = estimated_telemetry(
-                provider,
-                tokens=int(receipt["estimated_tokens"]),
-                cost_usd=float(receipt["estimated_actual_usd"]),
-                model=selected_model,
+            provider = selected_model.split(":", 2)[1]
+            # Auto owns the cloud decision: choosing Auto is the user's consent to
+            # let OPai run the cheapest capable model, so a free model Auto picked
+            # itself runs without a second confirmation card. An explicitly picked
+            # free model still honors the one-time free-tier consent boundary.
+            free_allow_cloud = allow_cloud or auto_active
+            _phase(
+                "request_sending" if free_allow_cloud else "needs_confirmation",
+                "running" if free_allow_cloud else "warning",
+                "Sending free-tier API request"
+                if free_allow_cloud
+                else "Free-tier API confirmation required",
+                metadata={"provider": provider},
             )
-            record_workflow_cost(root, runtime.task_id, free_telemetry, task=message)
-        answer = (
-            result.get("answer")
-            or result.get("message")
-            or result.get("hint")
-            or result.get("error")
-        )
-        if not answer:
-            # Name the provider and the concrete next check instead of a
-            # generic "did not return an answer" (QA pass-2): an empty free
-            # response is nearly always a key/quota problem the user can fix.
-            from .free_models import spec_for_model_id
-
-            spec = spec_for_model_id(selected_model) or {}
-            provider_label = str(spec.get("label") or provider).split(" ·")[0]
-            env_key = str(spec.get("env_key") or "")
-            answer = (
-                f"The {provider_label} free-tier API returned no answer. "
-                + (
-                    f"Check that {env_key} is set to a valid key with remaining "
-                    "quota (Settings ▸ Providers & Connections), "
-                    if env_key
-                    else ""
-                )
-                + "or switch model."
+            # Real Stop for free-tier (#152): thread the cancel Event so the HTTP
+            # request is aborted mid-flight, not just hidden by the stale guard.
+            # F6/F7: thread the request's tool authority down so free models get a
+            # real tool loop (read-only tools when edits are off) instead of
+            # narrating fake tool calls as prose. F17/F9: a one-shot grant from a
+            # command-approval re-send rides along verbatim.
+            authority = request_tool_authority(
+                message,
+                selected_mode=selected_mode,
+                repo_root=root,
+                focus_hint=focus_hint,
             )
-        if status == "answered":
-            if result_is_completed(result):
-                if policy.mode in {
-                    AgentMode.IMPLEMENT,
-                    AgentMode.SHIP,
-                } and not _has_change_evidence(result):
-                    # F14/F24: an edit-intent run that changed nothing is not
-                    # a green completion.
-                    _phase_close("warning", "Finished with no changes")
-                    _emit("completed", "warning", "OPai finished with no changes")
-                else:
-                    _phase_close("warning", "Verifying completion evidence")
-                    _emit("verifying", "warning", "Verifying completion evidence")
-            else:
-                # Honest: text was produced but the run did not finish.
-                _phase_close("warning", "Stopped without finishing")
-                _emit("stopped", "warning", _incomplete_title(result))
-            # The runner already streamed tokens to on_text (#154); only emit the
-            # whole answer here when it did NOT stream (blocking path).
-            if on_text and answer and not result.get("streamed"):
-                on_text(answer)
-        elif status != "needs_free_confirmation":
-            _phase_close("error", "Free-tier API request failed")
-            _emit("failed", "error", "Free-tier API request failed")
-        else:
-            _phase_close("warning", "Awaiting your confirmation")
-        return _decorate(
-            {
-                "status": status,
-                "answer": answer,
-                "tool_trace": tool_trace + list(result.get("tool_trace") or []),
-                "receipt": receipt,
-                "changed_files": list(result.get("changed_files") or []),
-                "warnings": [],
-                "next_actions": ["Review provider quota and billing settings."],
-                "raw_result": result,
-                "error": result.get("error"),
-                "cost_telemetry": free_telemetry.to_dict() if free_telemetry else {},
-            }
-        )
-
-    if selected_model.startswith("account:"):
-        from opai import app_state as A
-
-        if _cancelled():
-            _phase_close("cancelled", "Stopped by you")
-            return _decorate(
-                _cancelled_result(message, tool_trace, selected_model, selected_mode)
+            result = A.ask(
+                root,
+                _tool_aware_message(allow_edits),
+                selected_model,
+                allow_cloud=free_allow_cloud,
+                allow_edits=allow_edits,
+                tool_calling_enabled=authority.tool_calling_enabled,
+                allow_command=command_grant,
+                mode=selected_mode,
+                record_route=False,
+                cancel=cancel,
+                on_text=on_text,
             )
-        provider = selected_model.split(":")[1] if ":" in selected_model else "account"
-        _phase(
-            "provider_checking",
-            "running",
-            "Checking OPai connection",
-            metadata={"provider": provider},
-        )
-        if account_runner is None:
-            from .accounts import test_account_connection
-
-            connection = test_account_connection(provider)
-            if connection["authStatus"] not in {"connected", "unknown"}:
-                from opai.provider_contract import normalize_provider_error
-
-                # Prefer the structured error the connection check already
-                # produced (e.g. CONFIG_INVALID with the "run the repair"
-                # guidance). Re-normalizing the human diagnostic string lost
-                # that classification and showed a dead-end "could not
-                # complete this request" instead.
-                error = connection.get("error")
-                if not error:
-                    status_detail = {
-                        "not_configured": "No credentials configured",
-                        "invalid": "401 Invalid authentication credentials",
-                        "expired": "OAuth token expired",
-                        "misconfigured": "Provider CLI is misconfigured",
-                        "provider_unavailable": "Provider unavailable",
-                        "disconnected": "Provider disconnected",
-                    }.get(str(connection["authStatus"]), "Provider connection failed")
-                    error = normalize_provider_error(provider, status_detail)
-                event_type = (
-                    "provider_auth_failed"
-                    if error["code"].startswith("AUTH_")
-                    else "failed"
+            if result.get("status") == "cancelled":
+                _phase_close("cancelled", "Stopped by you")
+                _emit("cancelled", "cancelled", "Stopped by you")
+                return _decorate(
+                    _cancelled_result(message, tool_trace, selected_model, selected_mode)
                 )
-                _phase(
-                    event_type,
-                    "error",
-                    error["title"],
-                    metadata={"provider": provider, "code": error["code"]},
+            approval = _command_approval(result)
+            if approval is not None:
+                # F17/F9: surface an actionable approval card — never a green
+                # completion and never a dead-end "approve through the prompt".
+                _phase_close("warning", "Awaiting your approval")
+                _emit(
+                    "command_run",
+                    "warning",
+                    "Command needs your approval",
+                    detail=approval["command"],
+                    metadata={"command": approval["command"]},
                 )
+                reason_suffix = f" — {approval['reason']}" if approval["reason"] else ""
                 return _decorate(
                     {
-                        "status": "failed",
-                        "answer": error["userMessage"],
-                        "error": error,
-                        "tool_trace": tool_trace,
+                        "status": "needs_command_approval",
+                        "answer": (
+                            "OPai needs your approval to run this command: "
+                            f"`{approval['command']}`{reason_suffix}. Approve it to "
+                            "continue, or edit your request."
+                        ),
+                        "command": approval["command"],
+                        "reason": approval["reason"],
+                        "command_approval": approval,
+                        "tool_trace": tool_trace + list(result.get("tool_trace") or []),
+                        "receipt": {},
                         "changed_files": [],
                         "warnings": [],
-                        "next_actions": list(error["recoveryActions"]),
+                        "next_actions": [
+                            "Approve the exact command to let OPai run it once.",
+                            "Or edit your request to avoid the command.",
+                        ],
+                        "raw_result": result,
                     }
                 )
-            if connection["authStatus"] == "connected":
+            receipt = build_savings_receipt(
+                root,
+                task=message,
+                selected_model=selected_model,
+                selected_mode=selected_mode,
+                chosen_tier="L2",
+                confidence="estimated",
+            )
+            status_map = {
+                "answered_by_free_api": "answered",
+                "cache_hit": "answered",
+                "confirmation_required": "needs_free_confirmation",
+                "model_unavailable": "needs_model",
+                "runner_error": "runner_error",
+            }
+            status = status_map.get(result.get("status"), result.get("status", "error"))
+            # Auto fallback (#406+): a free provider that errored or is unconfigured
+            # is not a dead end — move to the next capable model in the chain
+            # without asking the user to prompt again.
+            if auto_active and status in {"runner_error", "needs_model"}:
+                _decision = _advance_auto(status=status, error=result.get("error"))
+                if _decision == "continue":
+                    continue
+                if _decision == "confirm":
+                    return _auto_paid_card()
+            answer = (
+                result.get("answer")
+                or result.get("message")
+                or result.get("hint")
+                or result.get("error")
+            )
+            # An empty free-tier response (the classic "Kimi returned no answer")
+            # is a retryable failure under Auto: deprioritize this provider and
+            # try the next capable model instead of surfacing a dead-end error.
+            # Detect it BEFORE recording any route/cost, so a no-answer never
+            # inflates the ledger.
+            if status == "answered" and not str(answer or "").strip() and auto_active:
+                _decision = _advance_auto(status="empty", error=result.get("error"))
+                if _decision == "continue":
+                    continue
+                if _decision == "confirm":
+                    return _auto_paid_card()
+            # Ledger truth (#144): a route/savings event is only real once the task
+            # actually answered — confirmation prompts, failures, and no-answers
+            # record nothing.
+            free_telemetry = None
+            if status == "answered" and str(answer or "").strip():
+                # #381: only a run that met its objective records a route/savings
+                # event; a partial run still records its (estimated) cost below but
+                # claims no savings, so the aggregate matches the gated receipt.
+                if _claims_savings(result):
+                    _record_gui_route(
+                        root,
+                        message,
+                        tier="L2",
+                        receipt=receipt,
+                        tool_trace=tool_trace,
+                        model_id=selected_model,
+                        mode=selected_mode,
+                    )
+                # Free APIs report no dollars here, so the telemetry is honestly
+                # labelled estimated (#178) - never presented as a real spend.
+                free_telemetry = estimated_telemetry(
+                    provider,
+                    tokens=int(receipt["estimated_tokens"]),
+                    cost_usd=float(receipt["estimated_actual_usd"]),
+                    model=selected_model,
+                )
+                record_workflow_cost(root, runtime.task_id, free_telemetry, task=message)
+            if not answer:
+                # Name the provider and the concrete next check instead of a
+                # generic "did not return an answer" (QA pass-2): an empty free
+                # response is nearly always a key/quota problem the user can fix.
+                from .free_models import spec_for_model_id
+
+                spec = spec_for_model_id(selected_model) or {}
+                provider_label = str(spec.get("label") or provider).split(" ·")[0]
+                env_key = str(spec.get("env_key") or "")
+                answer = (
+                    f"The {provider_label} free-tier API returned no answer. "
+                    + (
+                        f"Check that {env_key} is set to a valid key with remaining "
+                        "quota (Settings ▸ Providers & Connections), "
+                        if env_key
+                        else ""
+                    )
+                    + "or switch model."
+                )
+            if status == "answered":
+                if result_is_completed(result):
+                    if policy.mode in {
+                        AgentMode.IMPLEMENT,
+                        AgentMode.SHIP,
+                    } and not _has_change_evidence(result):
+                        # F14/F24: an edit-intent run that changed nothing is not
+                        # a green completion.
+                        _phase_close("warning", "Finished with no changes")
+                        _emit("completed", "warning", "OPai finished with no changes")
+                    else:
+                        _phase_close("warning", "Verifying completion evidence")
+                        _emit("verifying", "warning", "Verifying completion evidence")
+                else:
+                    # Honest: text was produced but the run did not finish.
+                    _phase_close("warning", "Stopped without finishing")
+                    _emit("stopped", "warning", _incomplete_title(result))
+                # The runner already streamed tokens to on_text (#154); only emit the
+                # whole answer here when it did NOT stream (blocking path).
+                if on_text and answer and not result.get("streamed"):
+                    on_text(answer)
+            elif status != "needs_free_confirmation":
+                _phase_close("error", "Free-tier API request failed")
+                _emit("failed", "error", "Free-tier API request failed")
+            else:
+                _phase_close("warning", "Awaiting your confirmation")
+            return _decorate(
+                {
+                    "status": status,
+                    "answer": answer,
+                    "tool_trace": tool_trace + list(result.get("tool_trace") or []),
+                    "receipt": receipt,
+                    "changed_files": list(result.get("changed_files") or []),
+                    "warnings": [],
+                    "next_actions": ["Review provider quota and billing settings."],
+                    "raw_result": result,
+                    "error": result.get("error"),
+                    "cost_telemetry": free_telemetry.to_dict() if free_telemetry else {},
+                }
+            )
+
+        if selected_model.startswith("account:"):
+            from opai import app_state as A
+
+            if _cancelled():
+                _phase_close("cancelled", "Stopped by you")
+                return _decorate(
+                    _cancelled_result(message, tool_trace, selected_model, selected_mode)
+                )
+            provider = selected_model.split(":")[1] if ":" in selected_model else "account"
+            _phase(
+                "provider_checking",
+                "running",
+                "Checking OPai connection",
+                metadata={"provider": provider},
+            )
+            if account_runner is None:
+                from .accounts import test_account_connection
+
+                connection = test_account_connection(provider)
+                if connection["authStatus"] not in {"connected", "unknown"}:
+                    from opai.provider_contract import normalize_provider_error
+
+                    # Prefer the structured error the connection check already
+                    # produced (e.g. CONFIG_INVALID with the "run the repair"
+                    # guidance). Re-normalizing the human diagnostic string lost
+                    # that classification and showed a dead-end "could not
+                    # complete this request" instead.
+                    error = connection.get("error")
+                    if not error:
+                        status_detail = {
+                            "not_configured": "No credentials configured",
+                            "invalid": "401 Invalid authentication credentials",
+                            "expired": "OAuth token expired",
+                            "misconfigured": "Provider CLI is misconfigured",
+                            "provider_unavailable": "Provider unavailable",
+                            "disconnected": "Provider disconnected",
+                        }.get(str(connection["authStatus"]), "Provider connection failed")
+                        error = normalize_provider_error(provider, status_detail)
+                    event_type = (
+                        "provider_auth_failed"
+                        if error["code"].startswith("AUTH_")
+                        else "failed"
+                    )
+                    _phase(
+                        event_type,
+                        "error",
+                        error["title"],
+                        metadata={"provider": provider, "code": error["code"]},
+                    )
+                    if auto_active:
+                        _decision = _advance_auto(status="failed", error=error)
+                        if _decision == "continue":
+                            continue
+                        if _decision == "confirm":
+                            return _auto_paid_card()
+                    return _decorate(
+                        {
+                            "status": "failed",
+                            "answer": error["userMessage"],
+                            "error": error,
+                            "tool_trace": tool_trace,
+                            "changed_files": [],
+                            "warnings": [],
+                            "next_actions": list(error["recoveryActions"]),
+                        }
+                    )
+                if connection["authStatus"] == "connected":
+                    _phase(
+                        "provider_authenticated",
+                        "running",
+                        "OPai sign-in verified locally",
+                        metadata={"provider": provider},
+                    )
+                    _status_mirror(
+                        "connect",
+                        "provider_authenticated",
+                        f"Connected · {provider}",
+                        metadata={"provider": provider},
+                    )
+            else:
                 _phase(
                     "provider_authenticated",
                     "running",
-                    "OPai sign-in verified locally",
+                    "OPai sign-in detected",
                     metadata={"provider": provider},
                 )
                 _status_mirror(
@@ -1538,128 +1667,278 @@ def handle_gui_message(
                     f"Connected · {provider}",
                     metadata={"provider": provider},
                 )
-        else:
             _phase(
-                "provider_authenticated",
+                "request_sending",
                 "running",
-                "OPai sign-in detected",
+                "Sending OPai request",
                 metadata={"provider": provider},
             )
-            _status_mirror(
-                "connect",
-                "provider_authenticated",
-                f"Connected · {provider}",
-                metadata={"provider": provider},
+            # The provider stream takes over from here (its own connect/stream
+            # rows are the live surface), so the preamble row closes honestly.
+            _phase("request_sending", "success", "Request sent")
+            result = A.ask(
+                root,
+                provider_message,
+                selected_model,
+                allow_edits=allow_edits,
+                edit_grant=edit_grant,
+                account_runner=account_runner,
+                mode=selected_mode,
+                on_event=on_event,
+                on_text=on_text,
+                cancel=cancel,
             )
-        _phase(
-            "request_sending",
-            "running",
-            "Sending OPai request",
-            metadata={"provider": provider},
-        )
-        # The provider stream takes over from here (its own connect/stream
-        # rows are the live surface), so the preamble row closes honestly.
-        _phase("request_sending", "success", "Request sent")
-        result = A.ask(
+            if result.get("status") == "cancelled":
+                _emit("cancelled", "cancelled", "Stopped by you")
+                return _decorate(
+                    _cancelled_result(
+                        message,
+                        tool_trace,
+                        selected_model,
+                        selected_mode,
+                        answer=result.get("answer") or "",
+                    )
+                )
+            approval = _command_approval(result)
+            if approval is not None:
+                # F17/F9: an account-side command the executor refused is a consent
+                # request, not a completed answer.
+                _emit(
+                    "command_run",
+                    "warning",
+                    "Command needs your approval",
+                    detail=approval["command"],
+                    metadata={"provider": provider, "command": approval["command"]},
+                )
+                reason_suffix = f" — {approval['reason']}" if approval["reason"] else ""
+                return _decorate(
+                    {
+                        "status": "needs_command_approval",
+                        "answer": (
+                            "OPai needs your approval to run this command: "
+                            f"`{approval['command']}`{reason_suffix}. Approve it to "
+                            "continue, or edit your request."
+                        ),
+                        "command": approval["command"],
+                        "reason": approval["reason"],
+                        "command_approval": approval,
+                        "tool_trace": tool_trace,
+                        "receipt": {},
+                        "changed_files": [],
+                        "warnings": [],
+                        "next_actions": [
+                            "Approve the exact command to let OPai run it once.",
+                            "Or edit your request to avoid the command.",
+                        ],
+                        "raw_result": result,
+                    }
+                )
+            denied_edits = _edit_denials(result)
+            if denied_edits and selected_mode == "safe-auto" and not edit_grant:
+                # F26: Safe Auto gates edits at the provider CLI, which cannot ask
+                # interactively. Surface an actionable in-context approval card —
+                # never a prose "should I proceed?" that ends the run.
+                _phase_close("warning", "Awaiting your approval")
+                _emit(
+                    "file_edit",
+                    "warning",
+                    "Edits need your approval",
+                    detail=", ".join(denied_edits[:5]),
+                    metadata={"provider": provider, "files": denied_edits},
+                )
+                file_list = "\n".join(f"- `{path}`" for path in denied_edits[:10])
+                return _decorate(
+                    {
+                        "status": "needs_edit_approval",
+                        "answer": (
+                            "OPai needs your approval to edit these files:\n"
+                            f"{file_list}\n\nAllow edits once to let this run "
+                            "change them, or switch to Full Auto for the session."
+                        ),
+                        "edit_files": denied_edits,
+                        "edit_approval": {"files": denied_edits},
+                        "tool_trace": tool_trace,
+                        "receipt": {},
+                        "changed_files": list(result.get("changed_files") or []),
+                        "warnings": [],
+                        "next_actions": [
+                            "Allow edits once to apply the changes.",
+                            "Or switch to Full Auto (pinned) for the session.",
+                        ],
+                        "raw_result": result,
+                    }
+                )
+            if result.get("status") == "capability_mismatch":
+                if auto_active:
+                    _decision = _advance_auto(status="capability_mismatch")
+                    if _decision == "continue":
+                        continue
+                    if _decision == "confirm":
+                        return _auto_paid_card()
+                answer = str(result.get("hint") or result.get("reason") or "")
+                _phase_close("warning", "Provider cannot enforce this edit mode")
+                _emit(
+                    "capability_mismatch",
+                    "warning",
+                    "Choose a tool-capable provider",
+                    metadata={"provider": provider, "capability": "edit_files"},
+                )
+                return _decorate(
+                    {
+                        "status": "capability_mismatch",
+                        "answer": answer,
+                        "tool_trace": tool_trace,
+                        "receipt": {},
+                        "changed_files": [],
+                        "warnings": [{"reason": result.get("reason") or answer}],
+                        "next_actions": [result.get("hint") or answer],
+                        "raw_result": result,
+                    }
+                )
+            actual = result.get("cost_usd")
+            # Savings truth (#76): an account call is a real spend; the receipt
+            # records it with zero implied savings and derives its own confidence
+            # (actual > 0 measured, unknown for subscription-style $0.00,
+            # estimated when the provider reports nothing).
+            receipt = build_savings_receipt(
+                root,
+                task=message,
+                selected_model=selected_model,
+                selected_mode=selected_mode,
+                chosen_tier="L3",
+                actual_cost_usd=actual if isinstance(actual, (int, float)) else None,
+                paid_call=True,
+            )
+            # Provider cost telemetry (#178): the call actually ran, so record
+            # what the provider itself reported - claude's total_cost_usd stays
+            # "actual", codex stays honestly estimated - into the redacted
+            # workflow ledger. This observes spend; it never authorizes it.
+            account_telemetry = normalize_account_result(
+                provider, result, model=selected_model
+            )
+            record_workflow_cost(root, runtime.task_id, account_telemetry, task=message)
+            status = (
+                "answered"
+                if result.get("status") == "answered_by_account"
+                else result.get("status", "error")
+            )
+            # Ledger truth (#144): only an answered call leaves a receipt event —
+            # a failed provider call must not become the "last savings receipt".
+            # (The real spend is recorded by record_model_call on success only.)
+            if status == "answered" and result_is_completed(result):
+                if policy.mode in {
+                    AgentMode.IMPLEMENT,
+                    AgentMode.SHIP,
+                } and not _has_change_evidence(result):
+                    # F14/F24: an edit-intent run that changed nothing is not a
+                    # green completion, no matter how confident the prose sounds.
+                    _emit("completed", "warning", "OPai finished with no changes")
+                else:
+                    _emit("verifying", "warning", "Verifying completion evidence")
+            elif status == "answered":
+                _emit("stopped", "warning", _incomplete_title(result))
+            else:
+                error = result.get("error") if isinstance(result.get("error"), dict) else {}
+                code = str(error.get("code") or "UNKNOWN")
+                event_type = (
+                    "provider_auth_failed" if code.startswith("AUTH_") else "failed"
+                )
+                _emit(
+                    event_type,
+                    "error",
+                    str(error.get("title") or "OPai could not complete this request."),
+                    metadata={"provider": provider, "code": code},
+                )
+                if auto_active:
+                    _decision = _advance_auto(status=status, error=error or None)
+                    if _decision == "continue":
+                        continue
+                    if _decision == "confirm":
+                        return _auto_paid_card()
+            answer_text = (
+                result.get("answer")
+                or result.get("hint")
+                or result.get("reason")
+                or "The model didn't return anything. Try again or pick another model."
+            )
+            return _decorate(
+                {
+                    "status": status,
+                    "answer": answer_text,
+                    # Preserve provider-tool observations for the terminal verifier
+                    # and activity UI.  The route trace alone cannot prove that a
+                    # gated repository test actually passed.
+                    "tool_trace": tool_trace + list(result.get("tool_trace") or []),
+                    "receipt": receipt,
+                    "changed_files": result.get("changed_files", []),
+                    "warnings": [],
+                    "next_actions": ["Review changed files before committing."],
+                    "raw_result": result,
+                    "error": result.get("error"),
+                    "cost_telemetry": account_telemetry.to_dict(),
+                    # Structured plan (#130): steps parsed from the REAL plan-mode
+                    # answer, so the GUI can render an editable checklist and build
+                    # only the steps the user keeps. Empty when the answer isn't a
+                    # recognizable step list — never invented.
+                    "plan": _plan_payload(selected_mode, status, answer_text),
+                }
+            )
+
+        from .ask import run_ask
+        from .local_runner import runner_for_model
+
+        receipt = build_savings_receipt(
             root,
-            provider_message,
-            selected_model,
-            allow_edits=allow_edits,
-            edit_grant=edit_grant,
-            account_runner=account_runner,
-            mode=selected_mode,
-            on_event=on_event,
-            on_text=on_text,
-            cancel=cancel,
+            task=message,
+            selected_model=selected_model,
+            selected_mode=selected_mode,
+            chosen_tier=tier,
+            confidence="estimated",
         )
-        if result.get("status") == "cancelled":
+        if _cancelled():
+            _phase_close("cancelled", "Stopped by you")
             _emit("cancelled", "cancelled", "Stopped by you")
             return _decorate(
-                _cancelled_result(
-                    message,
-                    tool_trace,
-                    selected_model,
-                    selected_mode,
-                    answer=result.get("answer") or "",
-                )
+                _cancelled_result(message, tool_trace, selected_model, selected_mode)
             )
-        approval = _command_approval(result)
-        if approval is not None:
-            # F17/F9: an account-side command the executor refused is a consent
-            # request, not a completed answer.
-            _emit(
-                "command_run",
-                "warning",
-                "Command needs your approval",
-                detail=approval["command"],
-                metadata={"provider": provider, "command": approval["command"]},
-            )
-            reason_suffix = f" — {approval['reason']}" if approval["reason"] else ""
+        _phase("request_sending", "running", "Running OPai locally")
+        # Honour the picked local model (#143): a concrete "provider:model" id must
+        # run *that* model, not whatever detect_local_runner finds first. "auto"
+        # (and unknown ids) fall through to run_ask's own local-first detection.
+        picked_runner = None
+        if selected_model not in {"auto", "", None} and ":" in str(selected_model):
+            picked_runner = runner_for_model(selected_model, root)
+        # cancel threads into the local runner too (#107): Stop closes the HTTP
+        # connection mid-generation instead of only ignoring the late result.
+        result = run_ask(
+            root,
+            provider_message,
+            record=False,
+            cancel=cancel,
+            runner=picked_runner,
+            selected_model_id=selected_model if picked_runner is not None else None,
+            allow_edits=allow_edits,
+        )
+        if result.get("status") == "cancelled":
+            _phase_close("cancelled", "Stopped by you")
+            _emit("cancelled", "cancelled", "Stopped by you")
             return _decorate(
-                {
-                    "status": "needs_command_approval",
-                    "answer": (
-                        "OPai needs your approval to run this command: "
-                        f"`{approval['command']}`{reason_suffix}. Approve it to "
-                        "continue, or edit your request."
-                    ),
-                    "command": approval["command"],
-                    "reason": approval["reason"],
-                    "command_approval": approval,
-                    "tool_trace": tool_trace,
-                    "receipt": {},
-                    "changed_files": [],
-                    "warnings": [],
-                    "next_actions": [
-                        "Approve the exact command to let OPai run it once.",
-                        "Or edit your request to avoid the command.",
-                    ],
-                    "raw_result": result,
-                }
-            )
-        denied_edits = _edit_denials(result)
-        if denied_edits and selected_mode == "safe-auto" and not edit_grant:
-            # F26: Safe Auto gates edits at the provider CLI, which cannot ask
-            # interactively. Surface an actionable in-context approval card —
-            # never a prose "should I proceed?" that ends the run.
-            _phase_close("warning", "Awaiting your approval")
-            _emit(
-                "file_edit",
-                "warning",
-                "Edits need your approval",
-                detail=", ".join(denied_edits[:5]),
-                metadata={"provider": provider, "files": denied_edits},
-            )
-            file_list = "\n".join(f"- `{path}`" for path in denied_edits[:10])
-            return _decorate(
-                {
-                    "status": "needs_edit_approval",
-                    "answer": (
-                        "OPai needs your approval to edit these files:\n"
-                        f"{file_list}\n\nAllow edits once to let this run "
-                        "change them, or switch to Full Auto for the session."
-                    ),
-                    "edit_files": denied_edits,
-                    "edit_approval": {"files": denied_edits},
-                    "tool_trace": tool_trace,
-                    "receipt": {},
-                    "changed_files": list(result.get("changed_files") or []),
-                    "warnings": [],
-                    "next_actions": [
-                        "Allow edits once to apply the changes.",
-                        "Or switch to Full Auto (pinned) for the session.",
-                    ],
-                    "raw_result": result,
-                }
+                _cancelled_result(message, tool_trace, selected_model, selected_mode)
             )
         if result.get("status") == "capability_mismatch":
+            if auto_active:
+                _decision = _advance_auto(status="capability_mismatch")
+                if _decision == "continue":
+                    continue
+                if _decision == "confirm":
+                    return _auto_paid_card()
             answer = str(result.get("hint") or result.get("reason") or "")
-            _phase_close("warning", "Provider cannot enforce this edit mode")
+            _phase_close("warning", "Local model cannot enforce this edit mode")
             _emit(
                 "capability_mismatch",
                 "warning",
                 "Choose a tool-capable provider",
-                metadata={"provider": provider, "capability": "edit_files"},
+                metadata={"provider": result.get("provider") or "local"},
             )
             return _decorate(
                 {
@@ -1673,245 +1952,95 @@ def handle_gui_message(
                     "raw_result": result,
                 }
             )
-        actual = result.get("cost_usd")
-        # Savings truth (#76): an account call is a real spend; the receipt
-        # records it with zero implied savings and derives its own confidence
-        # (actual > 0 measured, unknown for subscription-style $0.00,
-        # estimated when the provider reports nothing).
-        receipt = build_savings_receipt(
-            root,
-            task=message,
-            selected_model=selected_model,
-            selected_mode=selected_mode,
-            chosen_tier="L3",
-            actual_cost_usd=actual if isinstance(actual, (int, float)) else None,
-            paid_call=True,
-        )
-        # Provider cost telemetry (#178): the call actually ran, so record
-        # what the provider itself reported - claude's total_cost_usd stays
-        # "actual", codex stays honestly estimated - into the redacted
-        # workflow ledger. This observes spend; it never authorizes it.
-        account_telemetry = normalize_account_result(
-            provider, result, model=selected_model
-        )
-        record_workflow_cost(root, runtime.task_id, account_telemetry, task=message)
-        status = (
-            "answered"
-            if result.get("status") == "answered_by_account"
-            else result.get("status", "error")
-        )
-        # Ledger truth (#144): only an answered call leaves a receipt event —
-        # a failed provider call must not become the "last savings receipt".
-        # (The real spend is recorded by record_model_call on success only.)
-        if status == "answered" and result_is_completed(result):
-            if policy.mode in {
-                AgentMode.IMPLEMENT,
-                AgentMode.SHIP,
-            } and not _has_change_evidence(result):
-                # F14/F24: an edit-intent run that changed nothing is not a
-                # green completion, no matter how confident the prose sounds.
-                _emit("completed", "warning", "OPai finished with no changes")
+        status_map = {
+            "answered_locally": "answered",
+            "cache_hit": "answered",
+            "no_local_model": "needs_model",
+            "confirmation_required": "needs_confirmation",
+        }
+        answer = result.get("answer") or result.get("hint") or result.get("reason") or ""
+        if result.get("status") == "no_local_model":
+            # Auto local-first: no local model is a retryable miss, not a dead end.
+            # Advance to the next capable configured model (free, then — with
+            # confirmation — a paid account) without asking the user to prompt again.
+            if auto_active:
+                _decision = _advance_auto(status="no_local_model")
+                if _decision == "continue":
+                    continue
+                if _decision == "confirm":
+                    return _auto_paid_card()
+            answer = (
+                "Auto has no available model. Choose a configured model, or connect "
+                "a free API, account, or local model in Settings."
+            )
+        elif result.get("status") == "confirmation_required":
+            answer = (
+                "This needs a paid model. Pick your Claude or Codex account in the model "
+                "menu to run it — OPai won't spend on a paid call automatically."
+            )
+        elif result.get("status") == "runner_error" or not answer:
+            answer = (
+                "The local model couldn't answer that. Pick your Claude or Codex account "
+                "in the model menu, or check that your local model is running."
+            )
+        final_status = status_map.get(result.get("status"), result.get("status", "error"))
+        # Auto fallback: a local runner error or a cloud-tier request from the
+        # local-first probe advances to the next capable model in the chain.
+        if auto_active and final_status in {"runner_error", "needs_confirmation", "error"}:
+            _decision = _advance_auto(
+                status=final_status,
+                error=result.get("error") if isinstance(result.get("error"), dict) else None,
+            )
+            if _decision == "continue":
+                continue
+            if _decision == "confirm":
+                return _auto_paid_card()
+        if final_status == "answered":
+            # Ledger truth (#144/#381): record the route + savings only for a run that
+            # actually met its objective. "No local model" cards, runner errors, and
+            # answered-but-partial runs must not inflate routed_tasks /
+            # estimated_savings_usd — savings are claimed only for completed runs.
+            if _claims_savings(result):
+                _record_gui_route(
+                    root,
+                    message,
+                    tier=tier,
+                    receipt=receipt,
+                    tool_trace=tool_trace,
+                    model_id=selected_model,
+                    mode=selected_mode,
+                )
+            if result_is_completed(result):
+                if policy.mode in {
+                    AgentMode.IMPLEMENT,
+                    AgentMode.SHIP,
+                } and not _has_change_evidence(result):
+                    _phase_close("warning", "Finished with no changes")
+                    _emit("completed", "warning", "OPai finished with no changes")
+                else:
+                    _phase_close("warning", "Verifying completion evidence")
+                    _emit("verifying", "warning", "Verifying completion evidence")
             else:
-                _emit("verifying", "warning", "Verifying completion evidence")
-        elif status == "answered":
-            _emit("stopped", "warning", _incomplete_title(result))
+                _phase_close("warning", "Stopped without finishing")
+                _emit("stopped", "warning", _incomplete_title(result))
+            # Skip the one-shot emit when the runner already streamed tokens (#154).
+            if on_text and answer and not result.get("streamed"):
+                on_text(answer)
         else:
-            error = result.get("error") if isinstance(result.get("error"), dict) else {}
-            code = str(error.get("code") or "UNKNOWN")
-            event_type = (
-                "provider_auth_failed" if code.startswith("AUTH_") else "failed"
-            )
-            _emit(
-                event_type,
-                "error",
-                str(error.get("title") or "OPai could not complete this request."),
-                metadata={"provider": provider, "code": code},
-            )
-        answer_text = (
-            result.get("answer")
-            or result.get("hint")
-            or result.get("reason")
-            or "The model didn't return anything. Try again or pick another model."
-        )
+            _phase_close("error", "OPai could not complete locally")
+            _emit("failed", "error", "OPai could not complete locally")
         return _decorate(
             {
-                "status": status,
-                "answer": answer_text,
-                # Preserve provider-tool observations for the terminal verifier
-                # and activity UI.  The route trace alone cannot prove that a
-                # gated repository test actually passed.
-                "tool_trace": tool_trace + list(result.get("tool_trace") or []),
-                "receipt": receipt,
-                "changed_files": result.get("changed_files", []),
-                "warnings": [],
-                "next_actions": ["Review changed files before committing."],
-                "raw_result": result,
-                "error": result.get("error"),
-                "cost_telemetry": account_telemetry.to_dict(),
-                # Structured plan (#130): steps parsed from the REAL plan-mode
-                # answer, so the GUI can render an editable checklist and build
-                # only the steps the user keeps. Empty when the answer isn't a
-                # recognizable step list — never invented.
-                "plan": _plan_payload(selected_mode, status, answer_text),
-            }
-        )
-
-    from .ask import run_ask
-    from .local_runner import runner_for_model
-
-    receipt = build_savings_receipt(
-        root,
-        task=message,
-        selected_model=selected_model,
-        selected_mode=selected_mode,
-        chosen_tier=tier,
-        confidence="estimated",
-    )
-    if _cancelled():
-        _phase_close("cancelled", "Stopped by you")
-        _emit("cancelled", "cancelled", "Stopped by you")
-        return _decorate(
-            _cancelled_result(message, tool_trace, selected_model, selected_mode)
-        )
-    _phase("request_sending", "running", "Running OPai locally")
-    # Honour the picked local model (#143): a concrete "provider:model" id must
-    # run *that* model, not whatever detect_local_runner finds first. "auto"
-    # (and unknown ids) fall through to run_ask's own local-first detection.
-    picked_runner = None
-    if selected_model not in {"auto", "", None} and ":" in str(selected_model):
-        picked_runner = runner_for_model(selected_model, root)
-    # cancel threads into the local runner too (#107): Stop closes the HTTP
-    # connection mid-generation instead of only ignoring the late result.
-    result = run_ask(
-        root,
-        provider_message,
-        record=False,
-        cancel=cancel,
-        runner=picked_runner,
-        selected_model_id=selected_model if picked_runner is not None else None,
-        allow_edits=allow_edits,
-    )
-    if result.get("status") == "cancelled":
-        _phase_close("cancelled", "Stopped by you")
-        _emit("cancelled", "cancelled", "Stopped by you")
-        return _decorate(
-            _cancelled_result(message, tool_trace, selected_model, selected_mode)
-        )
-    if result.get("status") == "capability_mismatch":
-        answer = str(result.get("hint") or result.get("reason") or "")
-        _phase_close("warning", "Local model cannot enforce this edit mode")
-        _emit(
-            "capability_mismatch",
-            "warning",
-            "Choose a tool-capable provider",
-            metadata={"provider": result.get("provider") or "local"},
-        )
-        return _decorate(
-            {
-                "status": "capability_mismatch",
+                "status": final_status,
                 "answer": answer,
                 "tool_trace": tool_trace,
-                "receipt": {},
+                "receipt": receipt,
                 "changed_files": [],
-                "warnings": [{"reason": result.get("reason") or answer}],
-                "next_actions": [result.get("hint") or answer],
+                "warnings": [],
+                "next_actions": [
+                    result.get("next_command") or "Review the savings receipt."
+                ],
                 "raw_result": result,
+                "plan": _plan_payload(selected_mode, final_status, answer),
             }
         )
-    status_map = {
-        "answered_locally": "answered",
-        "cache_hit": "answered",
-        "no_local_model": "needs_model",
-        "confirmation_required": "needs_confirmation",
-    }
-    answer = result.get("answer") or result.get("hint") or result.get("reason") or ""
-    if result.get("status") == "no_local_model":
-        fallback = _fallback_model() if selected_model == "auto" else None
-        if fallback is not None:
-            label = str(fallback.get("label") or fallback.get("id") or "a cloud model")
-            answer = (
-                f"No local model is running. OPai can continue with {label}, but "
-                "your task will leave this device. Confirm to continue."
-            )
-            _phase_close("warning", "Needs your confirmation")
-            return _decorate(
-                {
-                    "status": "needs_auto_confirmation",
-                    "answer": answer,
-                    "fallbackModelId": fallback["id"],
-                    "fallbackModelLabel": label,
-                    "cloudStarted": False,
-                    "tool_trace": tool_trace,
-                    "receipt": receipt,
-                    "changed_files": [],
-                    "warnings": [],
-                    "next_actions": [
-                        "Confirm the named fallback or connect a local model."
-                    ],
-                    "raw_result": result,
-                }
-            )
-        answer = (
-            "Auto has no available model. Choose a configured model, or connect "
-            "a free API, account, or local model in Settings."
-        )
-    elif result.get("status") == "confirmation_required":
-        answer = (
-            "This needs a paid model. Pick your Claude or Codex account in the model "
-            "menu to run it — OPai won't spend on a paid call automatically."
-        )
-    elif result.get("status") == "runner_error" or not answer:
-        answer = (
-            "The local model couldn't answer that. Pick your Claude or Codex account "
-            "in the model menu, or check that your local model is running."
-        )
-    final_status = status_map.get(result.get("status"), result.get("status", "error"))
-    if final_status == "answered":
-        # Ledger truth (#144/#381): record the route + savings only for a run that
-        # actually met its objective. "No local model" cards, runner errors, and
-        # answered-but-partial runs must not inflate routed_tasks /
-        # estimated_savings_usd — savings are claimed only for completed runs.
-        if _claims_savings(result):
-            _record_gui_route(
-                root,
-                message,
-                tier=tier,
-                receipt=receipt,
-                tool_trace=tool_trace,
-                model_id=selected_model,
-                mode=selected_mode,
-            )
-        if result_is_completed(result):
-            if policy.mode in {
-                AgentMode.IMPLEMENT,
-                AgentMode.SHIP,
-            } and not _has_change_evidence(result):
-                _phase_close("warning", "Finished with no changes")
-                _emit("completed", "warning", "OPai finished with no changes")
-            else:
-                _phase_close("warning", "Verifying completion evidence")
-                _emit("verifying", "warning", "Verifying completion evidence")
-        else:
-            _phase_close("warning", "Stopped without finishing")
-            _emit("stopped", "warning", _incomplete_title(result))
-        # Skip the one-shot emit when the runner already streamed tokens (#154).
-        if on_text and answer and not result.get("streamed"):
-            on_text(answer)
-    else:
-        _phase_close("error", "OPai could not complete locally")
-        _emit("failed", "error", "OPai could not complete locally")
-    return _decorate(
-        {
-            "status": final_status,
-            "answer": answer,
-            "tool_trace": tool_trace,
-            "receipt": receipt,
-            "changed_files": [],
-            "warnings": [],
-            "next_actions": [
-                result.get("next_command") or "Review the savings receipt."
-            ],
-            "raw_result": result,
-            "plan": _plan_payload(selected_mode, final_status, answer),
-        }
-    )

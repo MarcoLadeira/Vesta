@@ -232,7 +232,14 @@ class LocalRouteContractTests(_Base):
         self.assertIn("Haiku", res["answer"])
 
     def test_confirmation_required_guides_to_account(self):
-        res = self._run({"status": "confirmation_required", "reason": "cloud tier"})
+        # With no configured free model or connected account, Auto cannot
+        # escalate, so a local "needs a paid tier" result guides the user to
+        # connect one. (Pin an empty catalog so the test is independent of any
+        # account connected on the host running it.)
+        with mock.patch(
+            "opai.app_state.available_models", return_value={"models": []}
+        ):
+            res = self._run({"status": "confirmation_required", "reason": "cloud tier"})
         self.assertEqual(res["status"], "needs_confirmation")
         self.assertClean(res["answer"])
         self.assertIn("account", res["answer"].lower())
