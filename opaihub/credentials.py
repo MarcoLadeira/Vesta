@@ -13,6 +13,7 @@ from typing import Any
 
 SERVICE_NAME = "OPai/free-model-api"
 PROVIDER_ENV = {
+    "kimi": "MOONSHOT_API_KEY",
     "gemini": "GOOGLE_API_KEY",
     "groq": "GROQ_API_KEY",
     "mistral": "MISTRAL_API_KEY",

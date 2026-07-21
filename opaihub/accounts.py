@@ -746,6 +746,7 @@ def provider_connection_doctor(
     else:
         credential_items = list(credentials)
     labels = {
+        "kimi": "Kimi",
         "gemini": "Gemini",
         "groq": "Groq",
         "mistral": "Mistral",

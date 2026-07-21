@@ -16,6 +16,7 @@ from opaihub import loader
 
 ROOT = Path(__file__).resolve().parents[1]
 PROVIDER_ENV = {
+    "MOONSHOT_API_KEY",
     "GOOGLE_API_KEY",
     "GROQ_API_KEY",
     "MISTRAL_API_KEY",
