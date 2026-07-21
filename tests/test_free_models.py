@@ -877,6 +877,42 @@ class AskFreeModelTests(unittest.TestCase):
         )
         self.assertTrue(run_explicit.call_args.kwargs["record"])
 
+    def test_ask_free_forwards_allow_cloud_to_run_explicit_model(self):
+        # #219: _ask_free_model already gates the whole dispatch on
+        # allow_cloud (returning confirmation_required above when it's
+        # False), but was never forwarding that already-granted consent into
+        # run_explicit_model's own allow_cloud kwarg. That left every per-turn
+        # ExecutionGuard check inside the tool loop defaulting to
+        # allow_cloud=False, so it re-demanded consent it had no way to
+        # collect and every free-tier tool-calling run dead-ended as
+        # "needs_consent" with a blank answer — which then rendered as the
+        # generic, misleading "check GOOGLE_API_KEY" message.
+        from pathlib import Path
+        from opai.app_state import ask
+
+        fake_result = {
+            "status": "answered_locally",
+            "answer": "4",
+            "source": "local_model",
+        }
+        with (
+            mock.patch(
+                "opaihub.ask.run_explicit_model", return_value=fake_result
+            ) as run_explicit,
+            mock.patch.dict(
+                os.environ,
+                {"GOOGLE_API_KEY": "sk-test"},  # pragma: allowlist secret
+            ),
+        ):
+            ask(
+                Path("/tmp"),
+                "What is 2+2?",
+                model_choice="free:gemini:gemini-3.1-flash-lite",
+                allow_cloud=True,
+            )
+
+        self.assertTrue(run_explicit.call_args.kwargs["allow_cloud"])
+
     def test_editable_explicit_free_model_bypasses_auto_route_and_cache(self):
         from opai.app_state import ask
 
