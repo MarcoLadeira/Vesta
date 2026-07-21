@@ -66,6 +66,12 @@ and privacy-preserving by default; nothing new phones home.
   Auto chose itself run without a confirmation card; only the first *paid* call
   still asks. A local `provider_reliability` memory (no prompts, no secrets)
   deprioritizes recently-failing providers. See `docs/AUTO_MODE_ROUTING.md`.
+- **A bare greeting is answered, not failed.** A conversational message ("hi",
+  "hello", "thanks") is now always treated as a direct chat answer, even under
+  a Build focus or Full Auto. Previously the focus hint forced "hi" into an
+  *implement* run, the model replied "Hello!", changed nothing, and the run was
+  marked failed — so free models looked broken on a simple message. Greetings
+  now route read-only and complete cleanly.
 - **Stop** now genuinely cancels across account CLIs, free-tier API requests, and
   local generation, terminating the whole process tree (no orphaned children
   that keep spending after you quit or close the window).

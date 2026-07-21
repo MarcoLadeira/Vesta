@@ -288,6 +288,78 @@ class DiscoveryDetectionTests(unittest.TestCase):
             self.assertFalse(is_discovery_request(message), message)
 
 
+class SmallTalkRoutingTests(unittest.TestCase):
+    """A bare greeting must be answered as chat, never forced into an edit run."""
+
+    def test_greetings_and_pleasantries_are_smalltalk(self):
+        from opaihub.agent_policy import is_smalltalk_request
+
+        for message in (
+            "hi",
+            "hello",
+            "hey there",
+            "yo",
+            "thanks",
+            "thanks so much",
+            "ok cool",
+            "good morning",
+            "bye",
+        ):
+            self.assertTrue(is_smalltalk_request(message), message)
+
+    def test_real_requests_are_not_smalltalk(self):
+        from opaihub.agent_policy import is_smalltalk_request
+
+        for message in (
+            "hi can you fix the login bug",
+            "add a feature",
+            "update the readme",
+            "there is a bug in app.py",
+            "cool now add tests",
+            "explain the auth flow",
+        ):
+            self.assertFalse(is_smalltalk_request(message), message)
+
+    def test_greeting_under_build_focus_is_explain_not_implement(self):
+        # The exact reported bug: a Build focus (or Full Auto) turned "hi" into
+        # an implement run that changed nothing and was marked failed.
+        from opaihub.agent_policy import AgentMode, resolve_agent_policy
+
+        self.assertIs(
+            resolve_agent_policy("hi", focus_hint="build").mode, AgentMode.EXPLAIN
+        )
+        # A real instruction under the same focus still implements.
+        self.assertIs(
+            resolve_agent_policy("the login form", focus_hint="build").mode,
+            AgentMode.IMPLEMENT,
+        )
+
+    def test_greeting_in_full_auto_answers_read_only_without_edit_failure(self):
+        # End to end: "hi" in Full Auto with a Build focus is answered directly
+        # (read-only), not run as an edit task that fails for changing nothing.
+        with mock.patch(
+            "opaihub.ask.run_ask",
+            return_value={"status": "answered_locally", "answer": "Hello! How can I help?"},
+        ):
+            res = handle_gui_message(
+                self.root,
+                "hi",
+                model_id="auto",
+                mode="full-auto",
+                focus_hint="build",
+            )
+        self.assertEqual(res["status"], "answered")
+        self.assertEqual(res["agent_policy"]["mode"], "explain")
+        self.assertNotEqual(res["run_state"], "failed")
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+
 class DiscoveryReadOnlyRoutingTests(unittest.TestCase):
     """Task 6: a discovery request gets read tools, never mutation tools."""
 

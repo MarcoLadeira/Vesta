@@ -104,6 +104,23 @@ attempt never bills or inflates the savings ledger.
   A failing provider is *deprioritized*, never refused: if it is the only option
   left, Auto still uses it.
 
+## Conversational messages ("hi") are answered, not failed
+
+A separate but closely-related defect made free models *look* broken on a
+trivial message: with a **Build** focus (or Full Auto), a signal-less message
+like `hi` was classified as an **implement** task. The model replied "Hello!",
+edited nothing, and the honesty invariant ("an edit run that changed nothing is
+not complete") correctly but unhelpfully marked the run **failed**
+(`stuck_no_progress`).
+
+Fix: `agent_policy.is_smalltalk_request()` detects a message that is *entirely* a
+greeting/pleasantry and routes it to **Explain** (a direct chat answer),
+overriding the focus hint. It full-matches the whole message, so
+`hi, can you fix the login bug` stays an implement task — only a pure `hi` /
+`thanks` / `hey there` becomes chat. This pairs with the fallback chain: the
+same `hi` on a suspended/rate-limited provider (e.g. a Moonshot account out of
+balance) still fails over to the next configured model instead of dead-ending.
+
 ## Diagnostics
 
 `auto_router.routing_diagnostics()` returns a compact, secret-free view of how
