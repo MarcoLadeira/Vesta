@@ -16,6 +16,18 @@
   uncommitted local change — and a **Restart now** action to relaunch on the
   new version. `opai update` / `opai update --apply` do the same from a
   terminal.
+- Added a **Model Usage** settings page: a per-provider dashboard of each AI
+  tool's real usage window — Claude's rolling 5-hour session, free-tier daily
+  request limits, prepaid credit, weekly/monthly plan allowances — using the
+  period each service actually enforces rather than one fixed shape. Official
+  figures come straight from the provider (the rate-limit headers your calls
+  return, a safe prompt-free metadata check, or the balance API) with a live
+  reset countdown; OPai's own local activity counts are shown separately and
+  never presented as the provider's figure. When exact usage can't be
+  retrieved (the account CLIs expose none), the card says so plainly, shows
+  the verified window definition, and links to the provider's official usage
+  page — never a fabricated percentage. One unavailable provider never breaks
+  the rest of the page.
 
 ## 0.2.0 Alpha.2
 

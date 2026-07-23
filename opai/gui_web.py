@@ -987,6 +987,11 @@ def settings_payload(root: Path) -> dict[str, Any]:
         # only — no network in the payload build; the page triggers a live
         # (TTL-guarded) refresh through the refreshBalances slot after render.
         "providerBalances": provider_balances_payload(root, models, probe=False),
+        # Per-provider *account usage* (rate/allowance windows) for the Model
+        # Usage page. Cache only — reads the local ledger's observed quota, no
+        # network in the payload build; the page triggers a live (TTL-guarded)
+        # header probe through the refreshUsage slot after render.
+        "providerUsage": provider_usage_payload(root, models, probe=False),
         # GitHub connection + push readiness for the Settings connect flow (#300).
         "github": github_status(),
         "about": {
@@ -1055,6 +1060,60 @@ def provider_balances_payload(
             {"provider": provider, "kind": "free", "configured": configured}
         )
     return balance_overview(root, providers, probe=probe, force=force)
+
+
+def _usage_providers(root: Path, models: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The connected/known providers to show on the Model Usage page.
+
+    Account providers come from the live connection list; free providers from
+    the credential store — the same assembly used for balances, so the two
+    pages can never disagree about what is connected."""
+    from opaihub.credentials import CredentialStore
+    from opaihub.free_models import FREE_MODEL_SPECS
+    from opaihub.provider_usage import USAGE_MODELS
+
+    if models is None:
+        models = _models(root, discover_local=False)
+    providers: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for connection in models.get("connections") or []:
+        provider = str(connection.get("providerId") or "")
+        if provider in USAGE_MODELS and provider not in seen:
+            seen.add(provider)
+            providers.append(
+                {
+                    "provider": provider,
+                    "configured": str(connection.get("authStatus") or "")
+                    in {"connected", "unknown"},
+                }
+            )
+    store = CredentialStore()
+    for spec in FREE_MODEL_SPECS:
+        provider = str(spec.get("provider") or "")
+        if provider not in USAGE_MODELS or provider in seen:
+            continue
+        seen.add(provider)
+        try:
+            configured = bool(store.get(provider))
+        except Exception:  # noqa: BLE001 - keychain trouble must not break Settings
+            configured = False
+        providers.append({"provider": provider, "configured": configured})
+    return providers
+
+
+def provider_usage_payload(
+    root: Path,
+    models: dict[str, Any] | None = None,
+    *,
+    probe: bool = False,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Per-provider account-usage snapshots for the Model Usage page."""
+    from opaihub.provider_usage import usage_overview
+
+    return usage_overview(
+        root, _usage_providers(root, models), probe=probe, force=force
+    )
 
 
 def _recents(root: Path) -> list[str]:
@@ -1405,6 +1464,22 @@ def _run_gui(
                     {
                         "ok": True,
                         "balances": provider_balances_payload(
+                            self.root, probe=True, force=True
+                        ),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 - never crash the page
+                return json.dumps({"ok": False, "error": str(exc)})
+
+        @QtCore.Slot(result=str)
+        def refreshUsage(self) -> str:
+            """Force-refresh live provider usage (safe header probes) and return
+            the full overview. Never crashes the page."""
+            try:
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "usage": provider_usage_payload(
                             self.root, probe=True, force=True
                         ),
                     }

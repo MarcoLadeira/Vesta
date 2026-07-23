@@ -355,6 +355,23 @@ class SettingsPayloadTests(unittest.TestCase):
             self.assertIn(
                 item["status"], {"ok", "low", "out", "unknown", "not_configured"}
             )
+        # Model Usage: one per-provider usage-window snapshot for accounts and
+        # free APIs, each with a verifiable window + honest official status.
+        self.assertIn("providerUsage", payload)
+        usage_providers = {item["provider"] for item in payload["providerUsage"]}
+        for provider in ("claude", "codex", "copilot", "kimi", "gemini", "groq", "mistral"):
+            self.assertIn(provider, usage_providers)
+        for item in payload["providerUsage"]:
+            self.assertIn(
+                item["status"],
+                {"live", "stale", "unavailable", "not_configured", "unsupported"},
+            )
+            self.assertIn("window", item)
+            self.assertIn("official", item)
+            # Official usage is never fabricated: an unavailable card carries no
+            # invented percentage.
+            if not item["official"].get("available"):
+                self.assertIsNone(item["official"].get("percent"))
         json.dumps(payload)
 
     def test_settings_exposes_one_capability_truth(self):

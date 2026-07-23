@@ -1275,6 +1275,9 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .balance-pill.out { border-color: rgba(242,118,138,.38); color: var(--red); }
 .balance-amount { color: var(--ink); font-size: var(--type-heading); font-weight: 750; margin-top: var(--space-2); }
 .balance-amount .balance-left { color: var(--faint); font-size: var(--type-caption); font-weight: 600; margin-left: var(--space-1); }
+/* A text state ("Not tracked", "No credit balance") is not a real figure —
+   toned down so it never reads as a dollar amount at a glance. */
+.balance-amount.balance-amount-text { color: var(--muted); font-size: var(--type-body); font-weight: 650; }
 .balance-track.ok span { background: var(--green, #34d399); }
 .balance-track.low span { background: var(--amber, #fbbf24); }
 .balance-track.out span { background: var(--red, #f2768a); }
@@ -1287,6 +1290,56 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 
 /* Exact remaining credit chip in the model picker rows */
 .cpop-balance { color: var(--green); font-size: var(--type-caption); font-weight: 650; white-space: nowrap; margin-left: auto; padding-right: var(--space-2); }
+
+/* ---------- Model Usage (provider allowance windows) ---------- */
+.usage2-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-3); margin-top: var(--space-3); }
+.usage2-card {
+  background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: var(--space-4); box-shadow: var(--inset-hi); display: flex; flex-direction: column; gap: var(--space-3);
+}
+.usage2-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.usage2-titles { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.usage2-name { color: var(--ink); font-size: var(--type-body); font-weight: 750; }
+.usage2-window { color: var(--faint); font-size: var(--type-caption); }
+.usage2-pill { flex: none; border: 1px solid var(--border-strong); border-radius: 999px; font-size: var(--type-caption); font-weight: 700; padding: var(--space-1) var(--space-2); white-space: nowrap; }
+.usage2-pill.ok { border-color: rgba(52, 211, 153, 0.35); color: var(--green); }
+.usage2-pill.warn { border-color: rgba(230, 177, 94, 0.4); color: var(--amber); }
+.usage2-pill.bad { border-color: rgba(242, 118, 138, 0.4); color: var(--red); }
+.usage2-pill.muted { color: var(--muted); }
+/* One consistent headline + subtext + optional bar, for every provider
+   regardless of whether the number is a real percentage, a credit amount, or
+   OPai's own tracked count — same size/weight/color, only the tone modifier
+   (credit/tracked) shifts color, never scale. This is the fix for the two
+   states that used to look like different products (a Kimi-style credit
+   figure vs. a bare "N calls tracked" line): both are now the same headline. */
+.usage2-headline-row { display: flex; align-items: baseline; }
+.usage2-headline { color: var(--ink); font-size: var(--type-heading); font-weight: 750; letter-spacing: -0.01em; }
+.usage2-headline.credit { color: var(--green); }
+.usage2-headline.tracked { color: var(--ink); }
+.usage2-subtext { color: var(--muted); font-size: var(--type-caption); }
+.usage2-subtext [data-usage-countdown] { color: var(--ink); font-weight: 650; }
+/* The progress bar mirrors the Claude reference: rounded, brand-filled. */
+.usage2-track { height: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.usage2-track span { display: block; height: 100%; background: var(--brand-gradient); border-radius: inherit; transition: width 0.3s var(--ease); }
+/* OPai-tracked caption: one consistent small row wherever it appears
+   (alongside a real bar or a credit figure) — never the headline itself
+   there, so it can never be mistaken for the provider's own number. */
+.usage2-tracked { display: flex; align-items: center; gap: var(--space-2); color: var(--faint); font-size: var(--type-caption); flex-wrap: wrap; }
+.usage2-tracked-tag {
+  border: 1px solid var(--border); border-radius: 999px; padding: 0 var(--space-2);
+  font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; font-size: var(--type-caption); color: var(--muted);
+}
+.usage2-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: auto; padding-top: var(--space-1); }
+.usage2-detail { color: var(--faint); font-size: var(--type-caption); line-height: var(--leading-normal); }
+/* Explicit color/decoration on every state (link/visited/active/hover) so it
+   never falls back to the browser's default UA link colors (which include a
+   jarring red on :active). */
+.usage2-link, .usage2-link:link, .usage2-link:visited, .usage2-link:active {
+  flex: none; font-size: var(--type-caption); font-weight: 650; white-space: nowrap;
+  color: var(--accent); text-decoration: none;
+}
+.usage2-link:hover { color: var(--accent-2); text-decoration: underline; }
+.density-compact .usage2-card { padding: var(--space-3); gap: var(--space-2); }
 
 /* ---------- workspace switcher popover ---------- */
 .ws-switch-wrap { position: relative; }
