@@ -897,6 +897,171 @@
     return h;
   }
 
+  // ---- Model Usage (official provider allowance windows) ----------------- //
+  // Distinct from the Cost Firewall's per-model token budgets: this shows each
+  // provider's own rate/usage window (Claude's 5-hour session, Gemini's daily
+  // requests, Kimi's prepaid credit, …) from the most reliable available
+  // source — never a fabricated number.
+  var USAGE_STATUS = {
+    live: { label: "Live", tone: "ok" },
+    stale: { label: "Stale", tone: "warn" },
+    unavailable: { label: "Usage unavailable", tone: "muted" },
+    not_configured: { label: "Not connected", tone: "muted" },
+    unsupported: { label: "Unsupported", tone: "muted" },
+    loading: { label: "Refreshing…", tone: "muted" },
+    error: { label: "Couldn't load", tone: "bad" },
+  };
+
+  function fmtCount(value) {
+    return Number(value || 0).toLocaleString();
+  }
+
+  // Human, timezone-safe countdown from a seconds value (reset windows).
+  function fmtDuration(seconds) {
+    if (seconds == null || !isFinite(seconds) || seconds < 0) return "";
+    var s = Math.floor(seconds);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = s % 60;
+    if (h > 0) return h + " hr " + m + " min";
+    if (m > 0) return m + " min " + sec + " sec";
+    return sec + " sec";
+  }
+
+  // One provider's usage card. The markup is data-attribute driven so the live
+  // countdown ticker and the Refresh handler can update a single card in place.
+  function usageCardHtml(esc, u) {
+    var official = u.official || {};
+    var status = u.status || "unavailable";
+    var meta = USAGE_STATUS[status] || USAGE_STATUS.unavailable;
+    var window = u.window || {};
+    var hasBar = official.available && official.percent != null;
+    var pct = hasBar ? Math.max(0, Math.min(100, +official.percent)) : 0;
+
+    var h =
+      '<article class="usage2-card" data-usage-provider="' +
+      esc(u.provider) +
+      '" data-usage-supports-refresh="' +
+      (u.supportsRefresh ? "1" : "0") +
+      '">';
+    // Head: provider name + window chip + status pill.
+    h +=
+      '<div class="usage2-head"><div class="usage2-titles"><span class="usage2-name">' +
+      esc(u.displayName || u.provider) +
+      '</span><span class="usage2-window">' +
+      esc(window.label || "") +
+      '</span></div><span class="usage2-pill ' +
+      meta.tone +
+      '" data-usage-pill>' +
+      esc(meta.label) +
+      "</span></div>";
+
+    if (hasBar) {
+      // The reference card: "Current session · N% used · resets in …".
+      var used = official.used;
+      var limit = official.limit;
+      var metric = official.metric || window.metric || "";
+      var line =
+        official.metric === "credit"
+          ? "Prepaid credit"
+          : used != null && limit != null
+            ? fmtCount(used) + " / " + fmtCount(limit) + " " + esc(metric) + " used"
+            : Math.round(pct) + "% used";
+      h +=
+        '<div class="usage2-track" role="progressbar" aria-label="' +
+        esc((u.displayName || u.provider) + " usage") +
+        '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' +
+        Math.round(pct) +
+        '"><span style="width:' +
+        pct +
+        '%"></span></div>' +
+        '<div class="usage2-figures"><span data-usage-primary>' +
+        esc(line) +
+        '</span><span class="usage2-pct">' +
+        Math.round(pct) +
+        "% used</span></div>";
+      if (official.resetsAt) {
+        h +=
+          '<div class="usage2-reset" data-usage-resets-at="' +
+          esc(official.resetsAt) +
+          '">Resets in <span data-usage-countdown>' +
+          esc(fmtDuration(official.resetsInSeconds)) +
+          "</span></div>";
+      }
+    } else if (official.metric === "credit" && official.remaining != null) {
+      // Kimi-style prepaid credit: remaining amount, no fixed limit/percent.
+      h +=
+        '<div class="usage2-figures"><span class="usage2-credit" data-usage-primary>' +
+        esc(fmtCount(official.remaining)) +
+        " " +
+        esc(official.currency || "") +
+        ' left</span></div>';
+    } else {
+      // Honest unavailable/not-connected state — never a fake bar.
+      h += '<div class="usage2-unavailable" data-usage-primary>' + esc(u.detail || "") + "</div>";
+    }
+
+    // OPai-tracked activity in the window — clearly separated from official.
+    var tracked = u.opaiTracked;
+    if (tracked && (tracked.calls || tracked.tasks)) {
+      h +=
+        '<div class="usage2-tracked"><span class="usage2-tracked-tag">OPai tracked</span>' +
+        esc(
+          fmtCount(tracked.calls) +
+            " call" +
+            (tracked.calls === 1 ? "" : "s") +
+            (tracked.tasks
+              ? " · " + fmtCount(tracked.tasks) + " task" + (tracked.tasks === 1 ? "" : "s")
+              : "") +
+            (tracked.tokens ? " · " + fmtCount(tracked.tokens) + " tokens" : "") +
+            " · " +
+            (tracked.windowLabel || "recent")
+        ) +
+        "</div>";
+    }
+
+    // Footer: source detail + optional "check official usage" link + refresh.
+    h += '<div class="usage2-foot">';
+    h += '<span class="usage2-detail" data-usage-detail>' + esc(u.detail || "") + "</span>";
+    if (u.checkUrl && !hasBar) {
+      h +=
+        '<a class="usage2-link" href="' +
+        esc(u.checkUrl) +
+        '" target="_blank" rel="noreferrer noopener">Check official usage</a>';
+    }
+    h += "</div></article>";
+    return h;
+  }
+
+  function modelUsageHtml(d, ctx) {
+    var esc = ctx.esc;
+    var usage = Array.isArray(d.providerUsage) ? d.providerUsage : [];
+    var h = heroHtml(
+      esc,
+      "Model Usage",
+      "How much of each provider's own usage window you've used — Claude's 5-hour session, daily free-tier limits, prepaid credit, and more. Official figures come straight from the provider; OPai never invents a number.",
+      ["local"]
+    );
+    if (!usage.length) {
+      h +=
+        '<div class="callout-card"><div class="callout-body">No providers connected yet. Connect Claude, Codex, Gemini, Kimi, or another provider under ' +
+        "Providers &amp; Connections, and their usage windows will appear here.</div></div>";
+      return h;
+    }
+    h +=
+      '<div class="set-note">Official usage is read from the provider (your calls’ rate-limit headers, or a safe metadata check). OPai-tracked counts are OPai’s own local tally, shown separately and never presented as the provider’s figure.</div>';
+    h += '<div class="usage2-grid" id="modelUsageGrid">';
+    usage.forEach(function (u) {
+      h += usageCardHtml(esc, u);
+    });
+    h += "</div>";
+    h +=
+      '<div class="actions"><button class="btn" id="usageRefresh">Refresh live usage</button></div>';
+    h +=
+      '<div class="set-note">Live usage is cached for a few minutes and refreshed safely (no prompt is ever sent). Providers without a machine-readable usage endpoint link out to their official usage page.</div>';
+    return h;
+  }
+
   function permissionsHtml(d, ctx) {
     var esc = ctx.esc;
     var activeMode = MODE_LABELS[d.prefs.default_mode] || d.prefs.default_mode;
@@ -1157,6 +1322,7 @@
     balance: svg('<circle cx="12" cy="12" r="9"/><path d="M8.5 10.5a2 2 0 0 1 2-2h1a2 2 0 1 1 0 4h-1a2 2 0 1 0 0 4h1a2 2 0 0 0 2-2M12 7v1.2M12 15.8V17"/>'),
     models: svg('<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 6H14a4 4 0 0 1 0 8H9.8"/>'),
     firewall: svg('<path d="M12 3 5 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z"/><path d="M12.5 8.2h-2a1.3 1.3 0 0 0 0 2.6h1.5a1.3 1.3 0 0 1 0 2.6h-2"/>'),
+    usage: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'),
     permissions: svg('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
     privacy: svg('<path d="M12 3 5 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>'),
     appearance: svg('<path d="M4 8h9M4 16h3M17 16h3"/><circle cx="16" cy="8" r="2.4"/><circle cx="10" cy="16" r="2.4"/>'),
@@ -1199,6 +1365,13 @@
       group: "Spend & safety",
       keywords: "cost firewall panic budget spend cloud gate profile",
       render: firewallHtml,
+    },
+    {
+      id: "usage",
+      title: "Model Usage",
+      group: "Spend & safety",
+      keywords: "usage limit rate window reset session quota remaining requests tokens weekly daily monthly claude codex gemini kimi",
+      render: modelUsageHtml,
     },
     {
       id: "permissions",
@@ -1758,6 +1931,79 @@
       if (Date.now() - probedAt > 15 * 60 * 1000) {
         if (state) state._balanceProbeAt = Date.now();
         bridge.refreshBalances(function (json2) {
+          var result = {};
+          try {
+            result = JSON.parse(json2);
+          } catch (_e) {
+            /* keep {} */
+          }
+          if (result.ok) refresh();
+        });
+      }
+    }
+    // ---- Model Usage: refresh + live reset countdown ---------------------- //
+    // A single 1-second ticker updates every reset countdown on screen (pure
+    // UI math, no network). Re-running wire() clears the prior ticker so it
+    // never doubles up; when the page has no countdowns it does nothing.
+    if (state && state._usageTicker) {
+      clearInterval(state._usageTicker);
+      state._usageTicker = null;
+    }
+    function tickUsageCountdowns() {
+      var nodes = document.querySelectorAll("[data-usage-resets-at]");
+      if (!nodes.length) return;
+      var nowSec = Date.now() / 1000;
+      nodes.forEach(function (node) {
+        var resetsAt = parseFloat(node.getAttribute("data-usage-resets-at"));
+        var out = node.querySelector("[data-usage-countdown]");
+        if (!out || !isFinite(resetsAt)) return;
+        var remaining = resetsAt - nowSec;
+        if (remaining <= 0) {
+          out.textContent = "moments";
+          var card = node.closest(".usage2-card");
+          var pill = card && card.querySelector("[data-usage-pill]");
+          if (pill && !pill.classList.contains("warn")) {
+            pill.className = "usage2-pill warn";
+            pill.textContent = "Stale";
+          }
+        } else {
+          out.textContent = fmtDuration(remaining);
+        }
+      });
+    }
+    if (page.querySelector("[data-usage-resets-at]") && state) {
+      state._usageTicker = setInterval(tickUsageCountdowns, 1000);
+    }
+    var usageRefresh = q("#usageRefresh");
+    if (usageRefresh)
+      usageRefresh.onclick = function () {
+        if (!bridge.refreshUsage) {
+          toast("Live usage refresh is unavailable in this build.");
+          return;
+        }
+        usageRefresh.disabled = true;
+        usageRefresh.textContent = "Refreshing…";
+        bridge.refreshUsage(function (json2) {
+          var result = {};
+          try {
+            result = JSON.parse(json2);
+          } catch (_e) {
+            /* keep {} */
+          }
+          usageRefresh.disabled = false;
+          usageRefresh.textContent = "Refresh live usage";
+          if (result.ok) refresh();
+          else toast(result.error || "Could not refresh usage");
+        });
+      };
+    // Cache-only payload on render; providers with a live usage source get one
+    // background probe per TTL window so the page shows current numbers without
+    // a click. Timestamp-guarded so the follow-up refresh() cannot loop.
+    if (bridge.refreshUsage && page.querySelector(".usage2-card[data-usage-supports-refresh='1']")) {
+      var usageProbedAt = (state && state._usageProbeAt) || 0;
+      if (Date.now() - usageProbedAt > 5 * 60 * 1000) {
+        if (state) state._usageProbeAt = Date.now();
+        bridge.refreshUsage(function (json2) {
           var result = {};
           try {
             result = JSON.parse(json2);

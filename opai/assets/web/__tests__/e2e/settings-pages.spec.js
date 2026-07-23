@@ -22,6 +22,7 @@ test("the rail lists every page and Overview is the default", async ({ page }) =
     "Providers & Connections",
     "Models & Routing",
     "Cost Firewall",
+    "Model Usage",
     "Permissions & Safety",
     "Privacy & Data",
     "Appearance",

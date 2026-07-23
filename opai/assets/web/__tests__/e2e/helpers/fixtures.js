@@ -261,6 +261,53 @@ export const SETTINGS = {
     ],
   },
   accounts: CONNECTED_ACCOUNTS,
+  // Model Usage: one provider per state so the page's variety is exercised.
+  providerUsage: [
+    {
+      provider: "claude", displayName: "Claude", kind: "account", configured: true,
+      status: "unavailable",
+      window: { type: "rolling", label: "5-hour session window", seconds: 18000, metric: "session" },
+      official: { available: false },
+      opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "Last 5 hours" },
+      detail: "Claude subscriptions meter a rolling 5-hour session window; the exact percentage is only visible in Claude directly.",
+      checkUrl: "https://claude.ai/settings/usage", supportsRefresh: false,
+    },
+    {
+      provider: "gemini", displayName: "Gemini", kind: "free", configured: true,
+      status: "live",
+      window: { type: "daily", label: "Daily requests (free tier)", seconds: 86400, metric: "requests" },
+      official: {
+        available: true, source: "provider", metric: "requests",
+        limit: 1500, remaining: 1230, used: 270, percent: 18,
+        resetsAt: 4102444800, resetsInSeconds: 7200, observedAt: 4102437600, stale: false,
+      },
+      opaiTracked: { calls: 270, tokens: 120000, tasks: 33, windowLabel: "Today" },
+      detail: "Reported by the provider on your recent calls.",
+      checkUrl: "https://aistudio.google.com", supportsRefresh: true,
+    },
+    {
+      provider: "kimi", displayName: "Kimi (Moonshot)", kind: "free", configured: true,
+      status: "live",
+      window: { type: "balance", label: "Prepaid credit", seconds: null, metric: "credit" },
+      official: {
+        available: false, source: "provider", metric: "credit",
+        limit: null, remaining: 8.42, used: null, percent: null, currency: "USD",
+        resetsAt: null, resetsInSeconds: null, observedAt: 4102437600, stale: false,
+      },
+      opaiTracked: { calls: 5, tokens: 9000, tasks: 2, windowLabel: "All time" },
+      detail: "Prepaid credit remaining, reported by the provider.",
+      checkUrl: "https://platform.moonshot.ai", supportsRefresh: true,
+    },
+    {
+      provider: "groq", displayName: "Groq", kind: "free", configured: false,
+      status: "not_configured",
+      window: { type: "daily", label: "Daily requests (free tier)", seconds: 86400, metric: "requests" },
+      official: { available: false },
+      opaiTracked: { calls: 0, tokens: 0, tasks: 0, windowLabel: "Today" },
+      detail: "Not connected. Connect Groq to see usage.",
+      checkUrl: "https://console.groq.com/settings/limits", supportsRefresh: true,
+    },
+  ],
   about: {
     version: "0.2.0a1",
     release_stage: "alpha.1",

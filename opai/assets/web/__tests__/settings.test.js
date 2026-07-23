@@ -127,6 +127,7 @@ describe("section registry (#236)", () => {
       "balance",
       "models",
       "firewall",
+      "usage",
       "permissions",
       "privacy",
       "appearance",
@@ -241,6 +242,86 @@ describe("About page: update status (mandatory-update system)", () => {
   it("degrades gracefully when the payload predates the update field", () => {
     const html = section().render({ about: base }, ctx);
     expect(html).toContain('id="settingsCheckUpdate"');
+    expect(html).not.toContain("undefined");
+  });
+});
+
+describe("Model Usage section", () => {
+  const esc = (s) =>
+    String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const ctx = { esc, state: { boot: {} } };
+  const section = () => OPaiSettings.sections.find((s) => s.id === "usage");
+
+  const live = {
+    provider: "gemini", displayName: "Gemini", kind: "free", configured: true, status: "live",
+    window: { type: "daily", label: "Daily requests (free tier)", seconds: 86400, metric: "requests" },
+    official: { available: true, source: "provider", metric: "requests", limit: 1500, remaining: 1230, used: 270, percent: 18, resetsAt: 4102444800, resetsInSeconds: 7200, observedAt: 4102437600, stale: false },
+    opaiTracked: { calls: 270, tokens: 120000, tasks: 33, windowLabel: "Today" },
+    detail: "Reported by the provider on your recent calls.", checkUrl: "https://aistudio.google.com", supportsRefresh: true,
+  };
+  const claude = {
+    provider: "claude", displayName: "Claude", kind: "account", configured: true, status: "unavailable",
+    window: { type: "rolling", label: "5-hour session window", seconds: 18000, metric: "session" },
+    official: { available: false },
+    opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "Last 5 hours" },
+    detail: "Claude subscriptions meter a rolling 5-hour session window.",
+    checkUrl: "https://claude.ai/settings/usage", supportsRefresh: false,
+  };
+  const credit = {
+    provider: "kimi", displayName: "Kimi (Moonshot)", kind: "free", configured: true, status: "live",
+    window: { type: "balance", label: "Prepaid credit", seconds: null, metric: "credit" },
+    official: { available: false, metric: "credit", remaining: 8.42, currency: "USD", percent: null },
+    opaiTracked: { calls: 5, tokens: 9000, tasks: 2, windowLabel: "All time" },
+    detail: "Prepaid credit remaining, reported by the provider.", checkUrl: "https://platform.moonshot.ai", supportsRefresh: true,
+  };
+
+  it("renders a real progress bar and reset countdown for a live-limit provider", () => {
+    const html = section().render({ providerUsage: [live] }, ctx);
+    expect(html).toContain('data-usage-provider="gemini"');
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-valuenow="18"');
+    expect(html).toContain("270 / 1,500 requests used");
+    expect(html).toContain('data-usage-resets-at="4102444800"');
+    expect(html).toContain("2 hr 0 min"); // 7200s countdown
+  });
+
+  it("shows an honest unavailable state (no fake bar) for account providers, with the official link", () => {
+    const html = section().render({ providerUsage: [claude] }, ctx);
+    expect(html).toContain("5-hour session window");
+    expect(html).not.toContain('role="progressbar"');
+    expect(html).toContain("Check official usage");
+    expect(html).toContain("claude.ai/settings/usage");
+    // OPai-tracked activity is present but clearly labelled, not official.
+    expect(html).toContain("OPai tracked");
+    expect(html).toContain("12 calls");
+  });
+
+  it("shows remaining prepaid credit without inventing a percentage", () => {
+    const html = section().render({ providerUsage: [credit] }, ctx);
+    expect(html).toContain("8.42 USD left");
+    expect(html).not.toContain('aria-valuenow'); // no bar without a known limit
+  });
+
+  it("never confuses OPai-tracked counts with the official figure", () => {
+    const html = section().render({ providerUsage: [live] }, ctx);
+    expect(html).toContain("OPai tracked");
+    expect(html).toContain("270 calls");
+  });
+
+  it("renders a discoverable empty state when nothing is connected", () => {
+    const html = section().render({ providerUsage: [] }, ctx);
+    expect(html).toContain("Model Usage");
+    expect(html).toContain("No providers connected yet");
+    expect(html).not.toContain("undefined");
+  });
+
+  it("degrades gracefully when the payload predates providerUsage", () => {
+    const html = section().render({}, ctx);
+    expect(html).toContain("Model Usage");
     expect(html).not.toContain("undefined");
   });
 });

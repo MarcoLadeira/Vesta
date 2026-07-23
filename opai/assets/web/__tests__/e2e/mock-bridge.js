@@ -184,6 +184,11 @@
       window.__mock.savedUsageLimits.push([model, metric, +limit, windowName]);
       cb(JSON.stringify({ ok: true }));
     },
+    refreshUsage: function (cb) {
+      window.__mock.usageRefreshes++;
+      var usage = scenario.refreshedUsage || (settings && settings.providerUsage) || [];
+      cb(JSON.stringify({ ok: true, usage: usage }));
+    },
     refreshModels: function (cb) { cb(JSON.stringify({ models: boot.models })); },
     discoverModels: function () {
       if (scenario.discoveredModels && !scenario.deferDiscovery) setTimeout(function () {
@@ -423,7 +428,7 @@
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
     dashboardRequests: [], settingsRequests: [], statusRequests: [],
-    updateChecks: [], updateApplies: 0, updateRestarts: 0,
+    updateChecks: [], updateApplies: 0, updateRestarts: 0, usageRefreshes: 0,
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },
