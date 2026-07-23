@@ -12,6 +12,7 @@ from .agent_policy import (
     AgentMode,
     build_capability_contract,
     is_discovery_request,
+    is_smalltalk_request,
     resolve_agent_policy,
 )
 from .agent_runtime import AgentRuntime, RuntimePhase
@@ -179,21 +180,34 @@ def request_tool_authority(
     nature: it gets read tools plus ``github_search_issues`` and never the
     mutation tools, even under an editing mode. This keeps "go find work" from
     silently editing the repository before the user has chosen what to do.
+
+    A pure greeting/pleasantry ("hi") never needs tools at all: offering them
+    anyway invites a free/weak model to attempt an unrelated tool call (e.g.
+    poking at repo files), have it fail, and have the tool loop's grounding
+    check (``verify_completion``) mark an otherwise-good "hi" reply
+    ``STUCK_NO_PROGRESS`` — a FAILED verdict even though the model genuinely
+    answered. Smalltalk skips the tool loop entirely and gets a plain
+    completion instead, so it can never fail this way.
     """
 
     from .provider_tools import available_tool_names
 
     discovery = is_discovery_request(message)
+    smalltalk = is_smalltalk_request(message)
     allow_edits = (selected_mode in _EDITING_MODES) and not discovery
     allow_github_public_read = True if (discovery or github_public_read) else None
-    tool_names = available_tool_names(
-        repo_root,
-        allow_edits=allow_edits,
-        allow_github_public_read=allow_github_public_read,
+    tool_names = (
+        ()
+        if smalltalk
+        else available_tool_names(
+            repo_root,
+            allow_edits=allow_edits,
+            allow_github_public_read=allow_github_public_read,
+        )
     )
     return RequestToolAuthority(
         allow_edits=allow_edits,
-        tool_calling_enabled=True,
+        tool_calling_enabled=not smalltalk,
         is_discovery=discovery,
         tool_names=tuple(tool_names),
     )
