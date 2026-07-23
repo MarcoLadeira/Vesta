@@ -1275,6 +1275,9 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .balance-pill.out { border-color: rgba(242,118,138,.38); color: var(--red); }
 .balance-amount { color: var(--ink); font-size: var(--type-heading); font-weight: 750; margin-top: var(--space-2); }
 .balance-amount .balance-left { color: var(--faint); font-size: var(--type-caption); font-weight: 600; margin-left: var(--space-1); }
+/* A text state ("Not tracked", "No credit balance") is not a real figure —
+   toned down so it never reads as a dollar amount at a glance. */
+.balance-amount.balance-amount-text { color: var(--muted); font-size: var(--type-body); font-weight: 650; }
 .balance-track.ok span { background: var(--green, #34d399); }
 .balance-track.low span { background: var(--amber, #fbbf24); }
 .balance-track.out span { background: var(--red, #f2768a); }
@@ -1313,6 +1316,15 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .usage2-reset { color: var(--muted); font-size: var(--type-caption); }
 .usage2-reset [data-usage-countdown] { color: var(--ink); font-weight: 650; }
 .usage2-unavailable { color: var(--muted); font-size: var(--type-caption); line-height: var(--leading-normal); }
+/* Headline stat for the no-official-usage case: OPai's own tally standing in
+   for the missing official figure — same visual weight as a real number, so
+   the card never reads as empty, but still unmistakably not "official". Its
+   own row (not .usage2-figures) since that rule's :first-child styling was
+   written for the opposite pairing (muted label, bold percent). */
+.usage2-headline-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.usage2-tracked-headline { color: var(--ink); font-size: var(--type-heading); font-weight: 750; }
+.usage2-tracked-sub { color: var(--muted); font-size: var(--type-caption); }
+.usage2-note { color: var(--faint); font-size: var(--type-caption); line-height: var(--leading-normal); }
 .usage2-tracked { display: flex; align-items: center; gap: var(--space-2); color: var(--faint); font-size: var(--type-caption); flex-wrap: wrap; }
 .usage2-tracked-tag {
   border: 1px solid var(--border); border-radius: 999px; padding: 0 var(--space-2);
@@ -1320,7 +1332,14 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 }
 .usage2-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: auto; padding-top: var(--space-1); }
 .usage2-detail { color: var(--faint); font-size: var(--type-caption); line-height: var(--leading-normal); }
-.usage2-link { flex: none; font-size: var(--type-caption); font-weight: 650; white-space: nowrap; }
+/* Explicit color/decoration on every state (link/visited/active/hover) so it
+   never falls back to the browser's default UA link colors (which include a
+   jarring red on :active). */
+.usage2-link, .usage2-link:link, .usage2-link:visited, .usage2-link:active {
+  flex: none; font-size: var(--type-caption); font-weight: 650; white-space: nowrap;
+  color: var(--accent); text-decoration: none;
+}
+.usage2-link:hover { color: var(--accent-2); text-decoration: underline; }
 .density-compact .usage2-card { padding: var(--space-3); gap: var(--space-2); }
 
 /* ---------- workspace switcher popover ---------- */

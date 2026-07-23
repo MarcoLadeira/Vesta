@@ -603,7 +603,33 @@
             : known && b.amount > 0
               ? 100
               : 0;
-      var amountText = known ? fmtMoney(b.amount, b.currency) : "Unknown";
+      // "Unknown" is honest but unhelpful — three real, distinct situations
+      // hide behind it. Tell them apart so nothing reads as a generic failure:
+      //   1. Subscription plans (Claude/Codex/Copilot) have no spendable
+      //      balance to meter at all — that's Model Usage's job, not this page.
+      //   2. A provider with a live balance API (Kimi) just hasn't been
+      //      checked yet — a real number is one Refresh away.
+      //   3. A free-tier API with no balance API and nothing entered — the
+      //      user can track their own number, or leave it be.
+      var unknownPill = "Balance unknown";
+      var unknownAmount = "Unknown";
+      var unknownSource = "No balance data yet";
+      if (!known && status === "unknown") {
+        if (b.kind === "account") {
+          unknownPill = "No credit balance";
+          unknownAmount = "No credit balance";
+          unknownSource = "Subscription plan — see Model Usage for rate limits";
+        } else if (b.supportsLiveBalance) {
+          unknownPill = "Not checked yet";
+          unknownAmount = "Not checked yet";
+          unknownSource = "Press Refresh to fetch your live balance";
+        } else {
+          unknownPill = "Not tracked";
+          unknownAmount = "Not tracked";
+          unknownSource = "No balance API for this provider — enter one below if you track it yourself";
+        }
+      }
+      var amountText = known ? fmtMoney(b.amount, b.currency) : unknownAmount;
       var checked = b.checkedAt
         ? new Date(Number(b.checkedAt) * 1000).toLocaleString()
         : null;
@@ -614,7 +640,7 @@
             ? "Entered by you"
             : b.source === "observed"
               ? "Observed from a refused call"
-              : "No balance data yet";
+              : unknownSource;
       if (checked) sourceLine += " · " + checked;
       h +=
         '<div class="balance-card" data-balance-provider="' +
@@ -624,21 +650,27 @@
         '</span><span class="balance-pill ' +
         esc(status) +
         '">' +
-        esc(BALANCE_STATUS_LABEL[status] || status) +
+        (status === "unknown" ? esc(unknownPill) : esc(BALANCE_STATUS_LABEL[status] || status)) +
         "</span></div>" +
-        '<div class="balance-amount" data-balance-amount>' +
+        '<div class="balance-amount' +
+        (known ? "" : " balance-amount-text") +
+        '" data-balance-amount>' +
         esc(amountText) +
         (known ? '<span class="balance-left"> left</span>' : "") +
         "</div>" +
-        '<div class="usage-track balance-track ' +
-        esc(status) +
-        '" role="progressbar" aria-label="' +
-        esc((b.displayName || b.provider) + " remaining credit") +
-        '" aria-valuemin="0" aria-valuemax="100"' +
-        (known ? ' aria-valuenow="' + pct + '"' : "") +
-        '><span style="width:' +
-        pct +
-        '%"></span></div>' +
+        // A bar implies a known quantity — never rendered for an honestly
+        // unknown amount (that would misread as "empty"/"out").
+        (known
+          ? '<div class="usage-track balance-track ' +
+            esc(status) +
+            '" role="progressbar" aria-label="' +
+            esc((b.displayName || b.provider) + " remaining credit") +
+            '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' +
+            pct +
+            '"><span style="width:' +
+            pct +
+            '%"></span></div>'
+          : "") +
         '<div class="balance-meta">' +
         esc(sourceLine) +
         "</div>" +
@@ -902,10 +934,13 @@
   // provider's own rate/usage window (Claude's 5-hour session, Gemini's daily
   // requests, Kimi's prepaid credit, …) from the most reliable available
   // source — never a fabricated number.
+  // "Usage unavailable" reads like an error; it isn't one — it's an honest,
+  // permanent capability boundary for account CLIs (no usage API exists).
+  // "No usage API" says the same thing without implying something is broken.
   var USAGE_STATUS = {
     live: { label: "Live", tone: "ok" },
     stale: { label: "Stale", tone: "warn" },
-    unavailable: { label: "Usage unavailable", tone: "muted" },
+    unavailable: { label: "No usage API", tone: "muted" },
     not_configured: { label: "Not connected", tone: "muted" },
     unsupported: { label: "Unsupported", tone: "muted" },
     loading: { label: "Refreshing…", tone: "muted" },
@@ -998,15 +1033,40 @@
         esc(official.currency || "") +
         ' left</span></div>';
     } else {
-      // Honest unavailable/not-connected state — never a fake bar. The body
-      // already carries the detail, so the footer omits it (no duplicate).
-      h += '<div class="usage2-unavailable" data-usage-primary>' + esc(u.detail || "") + "</div>";
+      // No official figure exists for this provider (an account CLI with no
+      // usage API). Rather than lead with an empty-feeling "unavailable"
+      // message, OPai's own local tally becomes the headline stat — still
+      // clearly labeled as OPai-tracked, never presented as official — so the
+      // card reads as informative rather than broken.
+      var noOfficialTracked = u.opaiTracked;
+      if (noOfficialTracked && (noOfficialTracked.calls || noOfficialTracked.tasks)) {
+        h +=
+          '<div class="usage2-headline-row"><span class="usage2-tracked-headline" data-usage-primary>' +
+          esc(
+            fmtCount(noOfficialTracked.calls) +
+              " call" +
+              (noOfficialTracked.calls === 1 ? "" : "s") +
+              " tracked by OPai"
+          ) +
+          '</span><span class="usage2-tracked-sub">' +
+          esc(
+            (noOfficialTracked.tasks
+              ? fmtCount(noOfficialTracked.tasks) + " task" + (noOfficialTracked.tasks === 1 ? "" : "s") + " · "
+              : "") + (noOfficialTracked.windowLabel || "recent")
+          ) +
+          "</span></div>";
+      } else {
+        h +=
+          '<div class="usage2-unavailable" data-usage-primary>No activity tracked yet in this window.</div>';
+      }
+      h += '<div class="usage2-note">' + esc(u.detail || "") + "</div>";
       bodyShowsDetail = true;
     }
 
     // OPai-tracked activity in the window — clearly separated from official.
+    // (Skipped for the no-official-usage case above: it's already the headline.)
     var tracked = u.opaiTracked;
-    if (tracked && (tracked.calls || tracked.tasks)) {
+    if (!bodyShowsDetail && tracked && (tracked.calls || tracked.tasks)) {
       h +=
         '<div class="usage2-tracked"><span class="usage2-tracked-tag">OPai tracked</span>' +
         esc(
@@ -1031,10 +1091,13 @@
       (bodyShowsDetail ? "" : esc(u.detail || "")) +
       "</span>";
     if (u.checkUrl && !hasBar) {
+      // data-ext (not target=_blank): the app intercepts these document-wide
+      // and opens them via the native bridge (QDesktopServices) — a direct
+      // navigation is blocked by the page's CSP and would silently no-op.
       h +=
         '<a class="usage2-link" href="' +
         esc(u.checkUrl) +
-        '" target="_blank" rel="noreferrer noopener">Check official usage</a>';
+        '" data-ext="1">Check official usage</a>';
     }
     h += "</div></article>";
     return h;

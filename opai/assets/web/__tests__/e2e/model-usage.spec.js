@@ -31,17 +31,34 @@ test("a live-limit provider renders a real progress bar and a ticking reset coun
   await expect(card.locator("[data-usage-countdown]")).toContainText(/\d+ (hr|min|sec)/);
 });
 
-test("account providers show an honest unavailable state with the official-usage link, never a fake bar", async ({ page }) => {
+test("account providers show a calm no-usage-API state with the official-usage link, never a fake bar", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "usage");
   const card = page.locator('.usage2-card[data-usage-provider="claude"]');
   await expect(card).toContainText("5-hour session window", seen);
+  await expect(card.locator("[data-usage-pill]")).toHaveText("No usage API");
   await expect(card.locator('[role="progressbar"]')).toHaveCount(0);
-  await expect(card.locator("a.usage2-link")).toHaveAttribute("href", "https://claude.ai/settings/usage");
-  // OPai-tracked activity is shown but clearly separated from official usage.
-  // (The tag is CSS-uppercased, so match case-insensitively.)
-  await expect(card).toContainText(/opai tracked/i, seen);
-  await expect(card).toContainText("12 calls", seen);
+  // The official link uses the app's data-ext convention (routed through the
+  // native bridge), never a bare target=_blank — direct navigation is blocked
+  // by the page's CSP and would silently no-op.
+  const link = card.locator("a.usage2-link");
+  await expect(link).toHaveAttribute("href", "https://claude.ai/settings/usage");
+  await expect(link).toHaveAttribute("data-ext", "1");
+  await expect(link).not.toHaveAttribute("target", "_blank");
+  // With no official figure, OPai's own tracked count is the headline stat —
+  // clearly labelled, never presented as the provider's number.
+  await expect(card).toContainText("12 calls tracked by OPai", seen);
+});
+
+test("Check official usage opens through the native bridge, not a direct (CSP-blocked) navigation", async ({ page }) => {
+  await openApp(page);
+  await openSettings(page, "usage");
+  await page.locator('.usage2-card[data-usage-provider="claude"] a.usage2-link').click();
+  await expect
+    .poll(() => page.evaluate(() => window.__mock.externalUrls))
+    .toEqual(["https://claude.ai/settings/usage"]);
+  // Clicking never actually navigates the settings page away.
+  await expect(page.locator("#view-settings")).toBeVisible();
 });
 
 test("prepaid credit shows the remaining amount without inventing a percentage", async ({ page }) => {

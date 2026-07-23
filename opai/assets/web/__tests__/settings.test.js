@@ -158,6 +158,8 @@ describe("Credits & Balance section", () => {
       { provider: "claude", displayName: "Claude", status: "ok", amount: 85, currency: "EUR", percent: 100, source: "manual", supportsLiveBalance: false, checkedAt: null, rechargeHint: "x", configured: true },
       { provider: "kimi", displayName: "Kimi (Moonshot)", status: "out", amount: 0, currency: "USD", percent: 0, source: "observed", supportsLiveBalance: true, checkedAt: null, rechargeHint: "Top up at platform.moonshot.ai (Billing).", configured: true },
       { provider: "gemini", displayName: "Gemini", status: "unknown", amount: null, currency: "USD", percent: null, source: "none", supportsLiveBalance: false, checkedAt: null, rechargeHint: "x", configured: true },
+      { provider: "codex", displayName: "Codex (OpenAI)", status: "unknown", amount: null, currency: "USD", percent: null, source: "none", supportsLiveBalance: false, checkedAt: null, rechargeHint: "x", configured: true, kind: "account" },
+      { provider: "groq", displayName: "Groq", status: "unknown", amount: null, currency: "USD", percent: null, source: "none", supportsLiveBalance: true, checkedAt: null, rechargeHint: "x", configured: true, kind: "free" },
     ],
   });
 
@@ -176,9 +178,16 @@ describe("Credits & Balance section", () => {
     expect(html).toContain("Top up at platform.moonshot.ai");
   });
 
-  it("never invents a number for an unknown balance", () => {
+  it("never invents a number, and tells apart the three real 'no amount' cases", () => {
     const html = section().render(sample(), ctx);
-    expect(html).toContain("Unknown");
+    // A free-tier API with no balance API and nothing entered.
+    expect(html).toContain("Not tracked");
+    // A subscription/account provider — there is no spendable balance to meter.
+    expect(html).toContain("No credit balance");
+    expect(html).toContain("Model Usage");
+    // A provider with a live balance API that just hasn't been probed yet.
+    expect(html).toContain("Not checked yet");
+    expect(html).not.toContain(">Unknown<");
   });
 
   it("offers manual entry and a live refresh action", () => {
@@ -289,15 +298,20 @@ describe("Model Usage section", () => {
     expect(html).toContain("2 hr 0 min"); // 7200s countdown
   });
 
-  it("shows an honest unavailable state (no fake bar) for account providers, with the official link", () => {
+  it("shows an honest no-usage-API state (no fake bar) for account providers, with the official link", () => {
     const html = section().render({ providerUsage: [claude] }, ctx);
     expect(html).toContain("5-hour session window");
+    expect(html).toContain("No usage API");
     expect(html).not.toContain('role="progressbar"');
-    expect(html).toContain("Check official usage");
+    // The official link uses the app's external-link convention (data-ext,
+    // routed through the native bridge), never a plain target=_blank — a
+    // direct navigation is blocked by the page's CSP and silently no-ops.
+    expect(html).toContain('data-ext="1"');
+    expect(html).not.toContain("target=\"_blank\"");
     expect(html).toContain("claude.ai/settings/usage");
-    // OPai-tracked activity is present but clearly labelled, not official.
-    expect(html).toContain("OPai tracked");
-    expect(html).toContain("12 calls");
+    // With no official figure, OPai's own tracked count becomes the headline
+    // stat — clearly labelled, never presented as the provider's number.
+    expect(html).toContain("12 calls tracked by OPai");
   });
 
   it("shows remaining prepaid credit without inventing a percentage", () => {
