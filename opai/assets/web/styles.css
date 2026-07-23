@@ -44,6 +44,12 @@ body {
 
 /* Every control speaks the same typeface — no Arial fallbacks (BUG-QA-010). */
 button, input, select, textarea, kbd, code, pre { font-family: inherit; }
+/* Every <select>'s closed-box text is styled for the dark theme (muted grays
+   on a near-black background), but the OPEN option list is native-rendered by
+   the OS/engine with its own default background — Chromium's is white — and
+   only the color is inherited, so every dropdown across the app rendered
+   near-illegible pale-gray-on-white once opened. Force the popup itself dark. */
+select option { background: var(--surface-2); color: var(--ink); }
 code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace; }
 
 ::selection { background: rgba(52, 211, 153, 0.28); }
