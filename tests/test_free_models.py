@@ -1188,6 +1188,85 @@ class FreeToolCallingTests(unittest.TestCase):
         self.assertEqual(result["completion_state"], "completed")
         self.assertTrue(result_is_completed(result))
 
+    def test_smalltalk_authority_skips_the_tool_loop(self):
+        """A bare greeting must never be offered tools at all (kimi 'hi' bug).
+
+        Regression for a real run receipt: "hi" through an explicit free model
+        with tools offered could have the model attempt an irrelevant tool call
+        that fails, so the tool loop's grounding check (verify_completion) marks
+        an otherwise-good "hi" reply STUCK_NO_PROGRESS -> a FAILED verdict even
+        though ``answer`` was non-empty ("Provider returned a non-empty
+        response" evidence next to a "Failed" verdict). Smalltalk must resolve
+        to a plain completion, never the tool loop, so this can't happen.
+        """
+        from opaihub.gui_pipeline import request_tool_authority
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            authority = request_tool_authority(
+                "hi", selected_mode="ask", repo_root=root
+            )
+
+        self.assertFalse(authority.tool_calling_enabled)
+        self.assertEqual(authority.tool_names, ())
+
+    def test_smalltalk_run_never_touches_a_failing_tool_loop(self):
+        """End to end: with the tool loop offered, a runner whose tool attempt
+        fails would report STUCK_NO_PROGRESS despite a real answer. Threading
+        the smalltalk authority's ``tool_calling_enabled=False`` down to
+        ``run_explicit_model`` must route "hi" through the plain completion
+        path instead, so ``complete_with_tools`` is never even called."""
+        from opaihub.ask import run_explicit_model
+        from opaihub.completion import result_is_completed
+        from opaihub.gui_pipeline import request_tool_authority
+
+        class UnreliableToolRunner:
+            name = "free-api"
+            model = "kimi-k2.6"
+            last_usage = {}
+
+            def __init__(self):
+                self.tool_loop_calls: list[dict] = []
+
+            def available(self):
+                return True
+
+            def complete_with_tools(self, prompt, **kwargs):
+                # Simulates the real bug: the model attempts an unrelated tool,
+                # it fails, and the loop reports STUCK_NO_PROGRESS even though
+                # it still produced a real final answer.
+                self.tool_loop_calls.append(kwargs)
+                return {
+                    "text": "Hi there! How can I help?",
+                    "tool_trace": [{"tool": "read_file", "ok": False}],
+                    "completion_state": "stuck_no_progress",
+                    "stopped_reason": "stuck_no_progress",
+                }
+
+            def complete(self, prompt, **kwargs):
+                return "Hi there! How can I help?"
+
+        runner = UnreliableToolRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            authority = request_tool_authority(
+                "hi", selected_mode="ask", repo_root=root
+            )
+            result = run_explicit_model(
+                root,
+                "hi",
+                runner=runner,
+                selected_model_id="free:kimi:kimi-k2.6",
+                allow_edits=False,
+                tool_calling_enabled=authority.tool_calling_enabled,
+                record=False,
+            )
+
+        self.assertEqual(runner.tool_loop_calls, [])
+        self.assertEqual(result["answer"], "Hi there! How can I help?")
+        self.assertEqual(result["completion_state"], "completed")
+        self.assertTrue(result_is_completed(result))
+
     def test_ask_free_threads_tool_calling_enabled_to_explicit_run(self):
         """app_state.ask must pass the pipeline's tool authority down (F6/F7)."""
         from opai.app_state import ask
