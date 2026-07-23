@@ -1,12 +1,12 @@
 import { test, expect } from "@playwright/test";
 
 import { DISCONNECTED_ACCOUNTS } from "./helpers/fixtures.js";
-import { expectNoUiSentinels, openApp, openNav } from "./helpers/app.js";
+import { expectNoUiSentinels, openApp, openSettings } from "./helpers/app.js";
 
 
 test("settings renders defaults, firewall, accounts, privacy, and version", async ({ page }) => {
   await openApp(page);
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   const settings = page.locator("#settingsPage");
   await expect(settings).toContainText("Default model");
   await expect(settings).toContainText("Safe Auto");
@@ -23,7 +23,7 @@ test("the Providers page opens with an honest health summary that tracks live ch
   await openApp(page, {
     providerTestResponses: { claude: { provider: "claude", authStatus: "expired", safeDiagnostic: "Sign-in expired." } },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   const summary = page.locator("[data-doctor-summary]");
   await expect(summary).toContainText("All 3 connections look good");
   await expect(summary).toHaveClass(/ok/);
@@ -40,7 +40,7 @@ test("test connection on a connected account reports the live truth, not the cac
   await openApp(page, {
     providerTestResponses: { claude: { authStatus: "invalid", safeDiagnostic: "Session expired.", loginHint: "Run `claude` once and sign in to connect your account." } },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   const row = page.locator('[data-account-row="claude"]');
   await expect(row).toContainText("connected");
   await page.locator('[data-test-account="claude"]').click();
@@ -50,7 +50,7 @@ test("test connection on a connected account reports the live truth, not the cac
 
 test("test connection on a genuinely healthy account confirms connected", async ({ page }) => {
   await openApp(page, { providerTestResponses: { claude: { authStatus: "connected" } } });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await page.locator('[data-test-account="claude"]').click();
   await expect(page.locator('[data-account-status="claude"]')).toHaveText("connected");
 });
@@ -59,7 +59,7 @@ test("disconnect asks with a styled inline confirm, then signs out and updates t
   let dialogs = 0;
   page.on("dialog", async (dialog) => { dialogs += 1; await dialog.dismiss(); });
   await openApp(page);
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await page.locator('[data-disconnect-account="claude"]').click();
   // Confirmation is an in-place card, never a native dialog (#151).
   await expect(page.locator(".inline-confirm").first()).toBeVisible();
@@ -73,7 +73,7 @@ test("disconnect asks with a styled inline confirm, then signs out and updates t
 
 test("cancelling the disconnect confirmation leaves the account untouched", async ({ page }) => {
   await openApp(page);
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await page.locator('[data-disconnect-account="claude"]').click();
   await page.locator('.inline-confirm [data-ic="cancel"]').first().click();
   expect(await page.evaluate(() => window.__mock.disconnects)).toEqual([]);
@@ -84,14 +84,14 @@ test("cancelling the disconnect confirmation leaves the account untouched", asyn
 
 test("settings renders disconnected accounts without crashing", async ({ page }) => {
   await openApp(page, { settings: { accounts: DISCONNECTED_ACCOUNTS } });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await expect(page.locator("#settingsPage")).toContainText("not connected");
   await expectNoUiSentinels(page, page.locator("#settingsPage"));
 });
 
 test("connect accounts action delegates to the safe native tool", async ({ page }) => {
   await openApp(page);
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await page.getByRole("button", { name: "Connect accounts" }).click();
   expect(await page.evaluate(() => window.__mock.runTools)).toEqual(["connect"]);
   await expect(page.locator("#view-chat")).toBeVisible();
@@ -99,7 +99,7 @@ test("connect accounts action delegates to the safe native tool", async ({ page 
 
 test("panic action delegates without performing a provider call", async ({ page }) => {
   await openApp(page);
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
   await page.getByRole("button", { name: "Enable panic" }).click();
   expect(await page.evaluate(() => window.__mock.runTools)).toEqual(["panic"]);
@@ -123,7 +123,7 @@ test("sparse settings data produces honest empty values, never broken sentinels"
       permissions: [], accounts: [], about: { version: null, release_stage: null },
     },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await expect(page.locator("#settingsPage")).toContainText("$0.00");
   await expectNoUiSentinels(page, page.locator("#settingsPage"));
 });
@@ -138,7 +138,7 @@ test("settings connects a free provider without retaining the secret in the DOM"
       usage: [],
     },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   const input = page.getByLabel("Groq API key");
   await input.fill("temporary-super-secret");
   await page.getByRole("button", { name: "Connect Groq" }).click();
@@ -156,7 +156,7 @@ test("settings tests a free provider connection without sending a prompt", async
     },
     providerTestResponses: { groq: { provider: "groq", connected: true, configured: true } },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await page.getByRole("button", { name: "Test Groq" }).click();
   expect(await page.evaluate(() => window.__mock.providerTests)).toEqual(["groq"]);
   await expect(page.locator('[data-provider="groq"]')).toContainText("Connection verified");
@@ -173,7 +173,7 @@ test("settings shows an accessible usage bar and saves a soft limit", async ({ p
       usage: [{ modelId, provider: "claude", source: "opai", metric: "tokens", used: 2500, limit: 5000, remaining: 2500, percent: 50, window: "month", confidence: "measured" }],
     },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   // Usage limits live on the Cost Firewall page (#238).
   await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
   const card = page.locator(`[data-model-id="${modelId}"]`);
@@ -192,7 +192,7 @@ test("known invalid Codex tier is repaired only after confirmation", async ({ pa
       codexConfig: { repairable: true, code: "CODEX_INVALID_SERVICE_TIER", message: "Codex service_tier 'default' is invalid." },
     },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   let dialogs = 0;
   page.on("dialog", async (dialog) => { dialogs += 1; await dialog.dismiss(); });
   await page.getByRole("button", { name: "Repair Codex config" }).click();

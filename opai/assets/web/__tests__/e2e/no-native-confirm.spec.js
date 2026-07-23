@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, openNav } from "./helpers/app.js";
+import { openApp, openSettings } from "./helpers/app.js";
 
 // #151: the approval-card system owns every confirmation. If any flow ever
 // falls back to a native window.confirm, this trap fires and fails the test.
@@ -25,7 +25,7 @@ test("Full Auto uses the styled card, never window.confirm", async ({ page }) =>
 test("account disconnect uses the styled card, never window.confirm", async ({ page }) => {
   await trapNativeConfirm(page);
   await openApp(page);
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await page.locator('[data-disconnect-account="claude"]').click();
   await expect(page.locator(".inline-confirm").first()).toBeVisible();
   expect(await page.evaluate(() => window.__nativeConfirmCalls)).toBe(0);

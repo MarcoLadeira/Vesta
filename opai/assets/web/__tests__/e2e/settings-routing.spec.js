@@ -52,7 +52,8 @@ test("budgets render caps, spend, and remaining honestly", async ({ page }) => {
   await expect(settings).toContainText("$2.00 · $1.58 left", seen);
   await expect(settings).toContainText("Monthly cap", seen);
   await expect(settings).toContainText("No cap set", seen); // monthly is unset in fixtures
-  await expect(settings).toContainText("Spent this month", seen);
+  // Stat-tile labels render uppercase via CSS, so match case-insensitively.
+  await expect(settings).toContainText(/spent this month/i, seen);
   await expect(settings).toContainText("$3.10", seen);
 });
 
