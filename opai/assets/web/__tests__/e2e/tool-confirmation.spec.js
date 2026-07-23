@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, openNav } from "./helpers/app.js";
+import { openApp, openNav, openSettings } from "./helpers/app.js";
 
 
 const MUTATING_TOOL = {
@@ -58,8 +58,8 @@ test("read-only tool result renders without any approval gate", async ({ page })
   });
   let dialogOpened = false;
   page.on("dialog", async (dialog) => { dialogOpened = true; await dialog.dismiss(); });
-  await openNav(page, "Settings");
-  // "Connect accounts" lives on the default Providers & Connections page.
+  await openSettings(page, "providers");
+  // "Connect accounts" lives on the Providers & Connections page.
   await page.getByRole("button", { name: "Connect accounts" }).click();
   await expect(page.locator(".tool-card")).toContainText("Claude connected");
   await expect(page.locator(".approval-card")).toHaveCount(0);
