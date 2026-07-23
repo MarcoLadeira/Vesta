@@ -84,7 +84,8 @@ opai guard action "git push"     # fail-closed: denied without --confirm
 | `opai models eval` | Offline routing scorecard |
 | `opai guard list\|check\|action` | Guarded-workflow contract |
 | `opai slim --clean` | Strip generated context bloat |
-| `opai update` / `opai uninstall` | Update or cleanly remove OPai |
+| `opai update` / `opai update --apply` | Check for an update, or fetch/fast-forward/reinstall it |
+| `opai uninstall` | Cleanly remove OPai |
 
 Troubleshooting PATH, Superpowers discovery, and aliases is covered in
 [INSTALL_PROOF.md](INSTALL_PROOF.md).

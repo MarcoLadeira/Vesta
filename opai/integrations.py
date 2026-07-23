@@ -869,9 +869,24 @@ def _strip_block(text: str, start_marker: str, end_marker: str) -> str:
 
 
 def update_opai_source(home: Path | None = None, timeout: int = 120) -> dict[str, Any]:
-    """Update the installed OPai checkout under ~/.opai/source (issue #28)."""
-    user_home = (home or Path.home()).expanduser().resolve()
-    source = opai_home(user_home) / "source"
+    """Update the OPai checkout that is actually running (issue #28).
+
+    Most installs live under ``~/.opai/source`` (what ``install.ps1``/
+    ``install.sh`` create); running ``install.ps1`` from inside an existing
+    dev clone instead points the editable install straight at that clone.
+    With no explicit ``home``, this resolves the real running location
+    (``opai.updater.install_root()``) rather than assuming the former, so
+    ``opai update`` fixes the checkout that is actually in use. Passing
+    ``home`` explicitly (as tests do) keeps the exact ``home/.opai/source``
+    behavior.
+    """
+    if home is not None:
+        user_home = home.expanduser().resolve()
+        source = opai_home(user_home) / "source"
+    else:
+        from opai.updater import install_root
+
+        source = install_root()
     git = shutil.which("git")
     if not source.exists():
         return {

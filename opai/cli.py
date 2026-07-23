@@ -607,10 +607,26 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_update(args: argparse.Namespace) -> int:
-    from opai.integrations import update_opai_source
+    """Check for, or apply, an OPai update — the desktop Settings button's CLI twin.
 
-    print_json(update_opai_source())
-    return 0
+    Operates on OPai's own running source checkout, never the project passed
+    to other commands with ``--project``. Bare ``opai update`` checks and
+    reports; ``opai update --apply`` fetches, fast-forwards, and reinstalls —
+    refusing outright on any uncommitted local change.
+    """
+    from opai.updater import apply_update, check_for_update, install_root
+
+    root = install_root()
+    if getattr(args, "apply", False):
+        result = apply_update(root)
+        print_json(result)
+        return 0 if result.get("ok") else 1
+
+    result = check_for_update(root, force=not getattr(args, "cached", False))
+    print_json(result)
+    if not result.get("checked"):
+        return 0
+    return 0 if result.get("up_to_date") else 3
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
@@ -2875,7 +2891,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_doctor)
 
     p = sub.add_parser(
-        "update", help="Update the installed OPai source (~/.opai/source)"
+        "update",
+        help="Check whether a newer OPai is available, or apply it with --apply",
+    )
+    p.add_argument(
+        "--apply",
+        action="store_true",
+        help="Fetch, fast-forward, and reinstall (refuses on uncommitted local changes)",
+    )
+    p.add_argument(
+        "--cached",
+        action="store_true",
+        help="Reuse the last check (within an hour) instead of hitting the network again",
     )
     p.set_defaults(func=cmd_update)
 

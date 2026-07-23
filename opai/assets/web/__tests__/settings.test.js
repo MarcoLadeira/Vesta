@@ -190,3 +190,57 @@ describe("Credits & Balance section", () => {
     expect(section().render({}, ctx)).toBe("");
   });
 });
+
+describe("About page: update status (mandatory-update system)", () => {
+  const esc = (s) =>
+    String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const ctx = { esc, state: { boot: {} } };
+  const section = () => OPaiSettings.sections.find((s) => s.id === "about");
+  const base = { version: "0.2.1a1", release_stage: "alpha.1" };
+
+  it("shows an up-to-date state with a Check for updates button", () => {
+    const html = section().render(
+      { about: { ...base, update: { checked: true, up_to_date: true } } },
+      ctx
+    );
+    expect(html).toContain('data-update-status="up-to-date"');
+    expect(html).toContain("latest version");
+    expect(html).toContain('id="settingsCheckUpdate"');
+  });
+
+  it("shows an available state with the target version and an Update now button", () => {
+    const html = section().render(
+      {
+        about: {
+          ...base,
+          update: { checked: true, up_to_date: false, latest_version: "0.3.0", commits_behind: 5, branch: "main" },
+        },
+      },
+      ctx
+    );
+    expect(html).toContain('data-update-status="available"');
+    expect(html).toContain("0.3.0");
+    expect(html).toContain("5 changes behind");
+    expect(html).toContain('id="settingsApplyUpdate"');
+  });
+
+  it("never claims up to date when the check itself failed", () => {
+    const html = section().render(
+      { about: { ...base, update: { checked: false, reason: "You may be offline." } } },
+      ctx
+    );
+    expect(html).toContain('data-update-status="unknown"');
+    expect(html).toContain("You may be offline.");
+    expect(html).not.toContain('data-update-status="up-to-date"');
+  });
+
+  it("degrades gracefully when the payload predates the update field", () => {
+    const html = section().render({ about: base }, ctx);
+    expect(html).toContain('id="settingsCheckUpdate"');
+    expect(html).not.toContain("undefined");
+  });
+});

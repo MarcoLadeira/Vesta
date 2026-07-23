@@ -47,7 +47,7 @@ Every step is a real command with an observable result.
 | A client shows `broken`/`missing` | `opai activate --repair` |
 | Moved the repo and discovery broke | `opai doctor` reports `stale_paths`; run `opai activate --repair` |
 | Superpowers not discovered | `opai activate --install-superpowers` |
-| Update the install | `opai update` (ff-only pull of `~/.opai/source`) |
+| Update the install | `opai update` checks (add `--apply` to fetch, fast-forward, and reinstall); the desktop Settings › About page has the same check + Update now |
 
 When every box is checked, OPai is installed, every client is wired, and the
 cost firewall is producing real, private savings numbers.

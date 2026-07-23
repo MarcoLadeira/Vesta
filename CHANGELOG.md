@@ -9,6 +9,13 @@
   navigation rail with icons, and per-page hero copy with factual scope chips
   (App-wide / This project / Local only). Every number shown is bound to the
   real settings payload — no invented data.
+- Added a self-update system: a Settings › About card and a shell-wide banner
+  honestly report whether a newer OPai is available (checked against
+  `origin/main`, cached for an hour), with an **Update now** button that
+  fetches, fast-forwards, and reinstalls — refusing outright on any
+  uncommitted local change — and a **Restart now** action to relaunch on the
+  new version. `opai update` / `opai update --apply` do the same from a
+  terminal.
 
 ## 0.2.0 Alpha.2
 
