@@ -552,6 +552,7 @@ def handle_gui_message(
     def _phase(etype: str, status: str, title: str, **kw: Any) -> None:
         _phase_state["open"] = status == "running"
         _phase_state["etype"] = etype
+        _phase_state["status"] = status
         _emit(etype, status, title, event_id=_phase_id, request_id=turn_id, **kw)
 
     def _phase_close(status: str, title: str) -> None:
@@ -824,6 +825,16 @@ def handle_gui_message(
             if verdict.verdict in {CompletionVerdict.FAILED, CompletionVerdict.TIMEOUT}
             else "warning"
         )
+        if (
+            verdict.verdict is CompletionVerdict.COMPLETED
+            and _phase_state.get("status") == "warning"
+        ):
+            # The dispatch paths close the phase row with an amber "Verifying
+            # completion evidence" placeholder before this verdict exists. Once
+            # the objective actually verified, re-close that same row green — a
+            # genuinely completed run must never end on an amber phase (#225).
+            # A row already closed green (e.g. "Request sent") keeps its title.
+            _phase(_phase_state["etype"], "success", "Completed — objective verified")
         _emit(
             "completion_verdict",
             verdict_event_status,
@@ -1199,14 +1210,21 @@ def handle_gui_message(
         if not auto_active:
             return "stop"
         from . import auto_router
+        from . import provider_balance as _bal
         from . import provider_reliability as _rel
 
+        failed_provider = auto_router.provider_of(selected_model)
         _rel.record_provider_outcome(
             root,
-            auto_router.provider_of(selected_model),
+            failed_provider,
             False,
             reason=auto_router.reason_slug(status, error),
         )
+        # Out-of-credit is a fact, not a heuristic: remember it so the very
+        # next chain build (and the model picker) exclude this provider
+        # outright instead of re-trying a guaranteed refusal.
+        if isinstance(error, dict) and error.get("code") == "PROVIDER_QUOTA_EXHAUSTED":
+            _bal.record_exhausted(root, failed_provider)
         while auto_pos + 1 < len(auto_chain):
             auto_pos += 1
             candidate = auto_chain[auto_pos]

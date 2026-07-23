@@ -543,8 +543,17 @@ function renderComposerSelects() {
     { id: "local",   label: "Local models" },
   ];
   const allModels = state.boot.models || [];
+  // Out-of-credit models are removed from selection entirely (the redesigned
+  // picker popover shows the explanation). If the current selection just ran
+  // out of credit, fall back to Auto — never leave a dead model selected.
+  const selectable = allModels.filter((m) => !m.out_of_credit);
+  const currentEntry = allModels.find((m) => m.id === state.model.id);
+  if (currentEntry && currentEntry.out_of_credit) {
+    state.model = { id: "auto", label: "OPai · Auto mode", kind: "auto", provider: "" };
+    bridge.savePref("default_model", "auto");
+  }
   const grouped = {};
-  allModels.forEach((m) => {
+  selectable.forEach((m) => {
     const g = m.group || "routing";
     if (!grouped[g]) grouped[g] = [];
     grouped[g].push(m);
@@ -565,7 +574,7 @@ function renderComposerSelects() {
   });
   // Append any models with unknown groups directly (backward compat)
   const knownGroups = new Set(PICKER_GROUPS.map((g) => g.id));
-  allModels.filter((m) => m.group && !knownGroups.has(m.group)).forEach((m) => {
+  selectable.filter((m) => m.group && !knownGroups.has(m.group)).forEach((m) => {
     const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; o.title = m.advanced_label || m.badge || "";
     if (m.available === false) { o.disabled = true; o.title = m.disabled_reason || "Not available"; }
     if (m.id === state.model.id) o.selected = true; modelSel.appendChild(o);
@@ -2899,5 +2908,9 @@ if (typeof window !== "undefined") {
     derivedAgentMode: () => derivedAgentMode(),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).
     runCommand: (id) => runCommand(id),
+    // The model picker's "Manage models" action opens the providers settings —
+    // the single real home for connecting/reconnecting a provider, kept out of
+    // the selection list itself.
+    openSettings: () => switchView("settings"),
   };
 }

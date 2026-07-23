@@ -643,6 +643,53 @@ def available_models(
             }
         )
 
+    # Health signal for the model picker (#redesign): a model is "proven
+    # working" only when it is configured/reachable (``available``) AND its
+    # provider is not in a reliability cooldown from recent failures. This is
+    # what lets the picker show only models that actually work — e.g. a
+    # free-tier key that is set but whose account is suspended (it keeps
+    # failing) is marked unhealthy so the picker can gray it out honestly.
+    # Purely local: reads the reliability memory, makes no network call.
+    from opaihub import provider_balance as _bal
+    from opaihub import provider_reliability as _rel
+
+    for option in options:
+        provider = str(option.get("provider") or "")
+        if not provider or option.get("kind") in {"auto", "local"}:
+            # The Auto card and on-device local models have no remote provider
+            # reliability to consult; treat them as healthy.
+            option["healthy"] = True
+            option["health_reason"] = None
+            option["balance"] = None
+            option["out_of_credit"] = False
+            continue
+        cooldown = _rel.in_cooldown(project_root, provider)
+        penalty = _rel.reliability_penalty(project_root, provider)
+        healthy = not cooldown and penalty < 0.5
+        option["healthy"] = healthy
+        option["health_reason"] = (
+            None
+            if healthy
+            else "Recently unavailable — OPai will retry it automatically."
+        )
+        # Balance truth for the picker (cache-only — no network call during
+        # enumeration): the exact remaining amount when known, and a hard
+        # "out of credit" verdict that removes the model from selection with
+        # an explanation instead of leaving a dead entry the user can click.
+        balance = _bal.balance_snapshot(project_root, provider)
+        option["balance"] = balance
+        out_of_credit = balance["status"] == "out"
+        option["out_of_credit"] = out_of_credit
+        if out_of_credit:
+            option["available"] = False
+            option["healthy"] = False
+            reason = (
+                f"{balance['displayName']} is out of credit. "
+                f"{balance['rechargeHint']}"
+            )
+            option["disabled_reason"] = reason
+            option["health_reason"] = reason
+
     if accounts or local:
         hint = None
     else:
@@ -840,6 +887,12 @@ def _ask_free_model(
         )
         result["error"] = error
         result["answer"] = error["userMessage"]
+    # Balance truth: a refused-for-credit call marks the provider out of
+    # credit (picker + Auto skip it); a genuinely completed call proves credit
+    # exists and clears any stale exhaustion. Best-effort, never raises.
+    _note_provider_balance(
+        project_root, str((spec or {}).get("provider") or ""), result
+    )
     if result.get("status") == "answered_locally":
         result["status"] = "answered_by_free_api"
         result["source"] = "free_api"
@@ -873,6 +926,33 @@ def _ask_free_model(
     result["model_id"] = model_id
     result["free_tier"] = True
     return result
+
+
+def _note_provider_balance(
+    project_root: Path, provider: str, result: dict[str, Any]
+) -> None:
+    """Feed the provider-balance memory from a real run's outcome.
+
+    Out-of-credit evidence comes from either the normalized error code or the
+    raw transport error a tool-loop run carries in ``last_error`` (the loop
+    reports ``provider_error`` without normalizing). A completed run clears
+    the flag. Best-effort: balance memory is an optimization, never a
+    dependency of the run result.
+    """
+    if not provider:
+        return
+    with contextlib.suppress(Exception):
+        from opai.provider_contract import classify_error_code
+        from opaihub import provider_balance
+
+        error = result.get("error")
+        code = str(error.get("code") or "") if isinstance(error, dict) else ""
+        if not code and result.get("last_error"):
+            code = classify_error_code(result.get("last_error"))
+        if code == "PROVIDER_QUOTA_EXHAUSTED":
+            provider_balance.record_exhausted(project_root, provider)
+        elif str(result.get("completion_state") or "") == "completed":
+            provider_balance.record_success(project_root, provider)
 
 
 def _changed_files(root: Path) -> list[str]:
@@ -1089,6 +1169,7 @@ def _ask_account(
 
         error = normalize_provider_error(account_id, str(exc), model=model)
         _invalidate_stale_auth_cache(account_id, error)
+        _note_provider_balance(root, account_id, {"error": error})
         return _fail(error)
 
     # User stopped it mid-flight: return the partial cleanly (not an error).
@@ -1115,6 +1196,7 @@ def _ask_account(
             )
         )
         _invalidate_stale_auth_cache(account_id, error)
+        _note_provider_balance(root, account_id, {"error": error})
         return _fail(error)
 
     # A long agentic run that hit the time limit: stop cleanly, guide the user.
@@ -1171,6 +1253,7 @@ def _ask_account(
     # F24: completion truth comes from the provider's own terminal signals,
     # not from the fact that prose exists.
     completion_state, stopped_reason = _account_completion(result, answer)
+    _note_provider_balance(root, account_id, {"completion_state": completion_state})
 
     # Honest firewall accounting: a paid account call is a real spend, not a
     # saving. Use the runner's real cost when available (claude returns

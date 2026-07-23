@@ -414,8 +414,10 @@ class EditIntentHonestyTests(unittest.TestCase):
                 on_event=events.append,
             )
 
-        titles = [str(e.get("title") or "") for e in events]
-        self.assertIn("OPai completed", titles)
+        # #378: the green marker is the evidence-backed completion verdict.
+        verdicts = [e for e in events if e.get("type") == "completion_verdict"]
+        self.assertTrue(verdicts, [e.get("type") for e in events])
+        self.assertEqual(verdicts[-1]["status"], "success")
         self.assertEqual(result["completion_note"], "")
         self.assertEqual(result["workflow"]["phase"], "reviewing_diff")
         self.assertTrue(result["changed_files"])
@@ -435,8 +437,10 @@ class EditIntentHonestyTests(unittest.TestCase):
                 on_event=events.append,
             )
 
-        titles = [str(e.get("title") or "") for e in events]
-        self.assertIn("OPai completed", titles)
+        # #378: the green marker is the evidence-backed completion verdict.
+        verdicts = [e for e in events if e.get("type") == "completion_verdict"]
+        self.assertTrue(verdicts, [e.get("type") for e in events])
+        self.assertEqual(verdicts[-1]["status"], "success")
         self.assertEqual(result["completion_note"], "")
         self.assertEqual(result["workflow"]["phase"], "completed")
 
