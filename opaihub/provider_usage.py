@@ -73,7 +73,8 @@ USAGE_MODELS: dict[str, dict[str, Any]] = {
             "Claude subscriptions meter a rolling ~5-hour session window. OPai "
             "signs in through the Claude CLI, which does not expose a "
             "machine-readable usage figure, so the exact percentage is only "
-            "visible in Claude directly."
+            "visible in Claude directly. OPai's own count below only includes "
+            "messages sent through OPai's chat — not the claude CLI used directly."
         ),
     },
     "codex": {
@@ -87,7 +88,9 @@ USAGE_MODELS: dict[str, dict[str, Any]] = {
         "note": (
             "Codex runs on your ChatGPT plan, which enforces weekly message "
             "limits. The plan does not publish a usage endpoint OPai can read, "
-            "so official usage is shown in ChatGPT."
+            "so official usage is shown in ChatGPT. OPai's own count below only "
+            "includes messages sent through OPai's chat — not the codex CLI "
+            "used directly."
         ),
     },
     "copilot": {
@@ -100,7 +103,9 @@ USAGE_MODELS: dict[str, dict[str, Any]] = {
         "checkUrl": "https://github.com/settings/copilot",
         "note": (
             "Copilot meters premium requests monthly. GitHub reports usage in "
-            "your account billing page rather than through an API OPai can call."
+            "your account billing page rather than through an API OPai can call. "
+            "OPai's own count below only includes messages sent through OPai's "
+            "chat — not GitHub Copilot used directly in your editor."
         ),
     },
     "gemini": {
@@ -422,16 +427,37 @@ def _window_start(window_type: str, window_seconds: int | None, now: float) -> f
 def _opai_tracked(
     events: list[dict[str, Any]], provider: str, model: dict[str, Any], *, now: float
 ) -> dict[str, Any]:
-    """OPai's own local activity count for ``provider`` in its window."""
+    """OPai's own local activity count for ``provider``.
 
-    start = _window_start(str(model.get("windowType")), model.get("windowSeconds"), now)
+    Account CLIs (Claude/Codex/Copilot) have no official window OPai can
+    verify the real boundaries of — mimicking a tight rolling window (e.g.
+    Claude's actual ~5 hours) against events timestamped by *OPai's* clock
+    would almost always read as empty, since most usage of these tools
+    happens through the CLI directly and never touches OPai's ledger at all.
+    For these, count all-time activity instead, with a "last used" freshness
+    readout — an honest, always-useful signal rather than a technically
+    precise but practically always-zero one. Free-tier APIs with a real
+    calendar window (daily/weekly/monthly) keep matching that window, since
+    "today"/"this week" are independently verifiable regardless of what the
+    provider's own reset clock reads.
+    """
+
+    verified_window = str(model.get("windowType")) in {"daily", "weekly", "monthly"}
+    start = (
+        _window_start(str(model.get("windowType")), model.get("windowSeconds"), now)
+        if verified_window
+        else None
+    )
     calls = 0
     tokens = 0
     tasks = 0
+    last_used: float | None = None
     for event in events:
         if _provider_of(event) != provider:
             continue
         when = _event_time(event)
+        if last_used is None or (when is not None and when > last_used):
+            last_used = when
         if start is not None and (when is None or when < start):
             continue
         tasks += 1
@@ -440,7 +466,7 @@ def _opai_tracked(
         raw_tokens = event.get("tokens")
         tokens += int(raw_tokens) if isinstance(raw_tokens, (int, float)) else 0
     labels = {
-        "rolling": "Last 5 hours",
+        "rolling": "All time via OPai",
         "daily": "Today",
         "weekly": "This week",
         "monthly": "This month",
@@ -449,6 +475,7 @@ def _opai_tracked(
     return {
         "calls": calls,
         "tokens": tokens,
+        "lastUsedAt": last_used,
         "tasks": tasks,
         "windowLabel": labels.get(str(model.get("windowType")), "Recent"),
     }

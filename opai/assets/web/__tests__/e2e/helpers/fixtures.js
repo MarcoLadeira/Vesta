@@ -268,8 +268,8 @@ export const SETTINGS = {
       status: "unavailable",
       window: { type: "rolling", label: "5-hour session window", seconds: 18000, metric: "session" },
       official: { available: false },
-      opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "Last 5 hours" },
-      detail: "Claude subscriptions meter a rolling 5-hour session window; the exact percentage is only visible in Claude directly.",
+      opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via OPai", lastUsedAt: Date.now() / 1000 - 18 * 24 * 3600 },
+      detail: "Claude subscriptions meter a rolling 5-hour session window; the exact percentage is only visible in Claude directly. OPai's own count below only includes messages sent through OPai's chat — not the claude CLI used directly.",
       checkUrl: "https://claude.ai/settings/usage", supportsRefresh: false,
     },
     {

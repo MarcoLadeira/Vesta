@@ -51,6 +51,14 @@ test("account providers show a calm no-usage-API state with the official-usage l
   // labelled, never presented as the provider's number.
   await expect(card.locator("[data-usage-primary]")).toHaveText("12 calls tracked");
   await expect(card.locator(".usage2-headline")).toHaveClass(/tracked/);
+  // All-time, not window-bound — Claude's rolling 5-hour window almost never
+  // has OPai-routed activity in it, since most usage goes through the bare
+  // CLI directly (which OPai's ledger never sees). A "last used" freshness
+  // readout and an explicit clarification prevent the count from being
+  // mistaken for real Claude usage.
+  await expect(card).toContainText("All time via OPai", seen);
+  await expect(card).toContainText(/last used \d+ d ago/, seen);
+  await expect(card).toContainText("not the claude CLI used directly", seen);
 });
 
 test("Check official usage opens through the native bridge, not a direct (CSP-blocked) navigation", async ({ page }) => {

@@ -188,6 +188,32 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(tracked["tokens"], 150)
         self.assertEqual(tracked["windowLabel"], "Today")
 
+    def test_account_provider_tracked_count_is_all_time_not_window_bound(self):
+        # Regression: Claude's rolling 5-hour window almost never has any
+        # OPai-routed activity in it (most usage goes through the bare CLI,
+        # which never touches OPai's ledger) — so bounding the *tracked*
+        # count to that same narrow window made it read as "no activity"
+        # for real users with real historical activity. Account providers
+        # now count all-time instead, since OPai can't verify the real
+        # window boundaries for them anyway.
+        now = 1_784_800_000.0
+        eighteen_days_ago = now - 18 * 24 * 3600
+        events = [
+            _model_call("claude", created_at=_iso(eighteen_days_ago), calls=1, tokens=53),
+            _model_call("claude", created_at=_iso(eighteen_days_ago + 3600), calls=1, tokens=76),
+        ]
+        with _Root() as root:
+            snap = pu.usage_snapshot(root, "claude", events=events, now=now)
+        tracked = snap["opaiTracked"]
+        self.assertEqual(tracked["calls"], 2)
+        self.assertEqual(tracked["tasks"], 2)
+        self.assertEqual(tracked["windowLabel"], "All time via OPai")
+        self.assertAlmostEqual(tracked["lastUsedAt"], eighteen_days_ago + 3600, delta=1)
+
+    def test_account_provider_note_clarifies_opai_only_counts_its_own_routing(self):
+        model = pu.usage_model("claude")
+        self.assertIn("not the claude CLI used directly", model["note"])
+
     def test_kimi_credit_uses_the_balance_snapshot(self):
         now = 1_784_800_000.0
         with _Root() as root:

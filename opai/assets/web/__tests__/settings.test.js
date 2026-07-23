@@ -276,8 +276,12 @@ describe("Model Usage section", () => {
     provider: "claude", displayName: "Claude", kind: "account", configured: true, status: "unavailable",
     window: { type: "rolling", label: "5-hour session window", seconds: 18000, metric: "session" },
     official: { available: false },
-    opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "Last 5 hours" },
-    detail: "Claude subscriptions meter a rolling 5-hour session window.",
+    // 18 days old (relative to real wall-clock, since fmtAgo compares against
+    // Date.now()): the real-world case that motivated switching the tracked
+    // count to all-time — a window-bound count would show zero here even
+    // though there's real historical activity.
+    opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via OPai", lastUsedAt: Date.now() / 1000 - 18 * 24 * 3600 },
+    detail: "Claude subscriptions meter a rolling 5-hour session window. OPai's own count below only includes messages sent through OPai's chat — not the claude CLI used directly.",
     checkUrl: "https://claude.ai/settings/usage", supportsRefresh: false,
   };
   const credit = {
@@ -315,6 +319,14 @@ describe("Model Usage section", () => {
     // presented as the provider's number.
     expect(html).toContain('class="usage2-headline tracked"');
     expect(html).toContain("12 calls tracked");
+    // All-time, not window-bound (Claude's rolling 5hr window almost never
+    // has OPai-routed activity in it), with a "last used" freshness readout
+    // so 18-day-old activity never masquerades as fresh.
+    expect(html).toContain("All time via OPai");
+    expect(html).toMatch(/last used \d+ d ago/);
+    // The clarification that OPai only counts its own routing, not the bare
+    // CLI, is surfaced so the count is never mistaken for real Claude usage.
+    expect(html).toContain("not the claude CLI used directly");
   });
 
   it("gives the no-official-usage headline the exact same size/weight as a real percentage or credit figure", () => {

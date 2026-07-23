@@ -1020,11 +1020,16 @@
       // No official figure exists yet. OPai's own local tally becomes the
       // headline — same size/weight as a real number — so the card reads as
       // informative rather than broken. Still unmistakably not official.
+      // A freshness readout matters here: "12 calls" alone could be from
+      // weeks ago (OPai only sees traffic it personally routed — activity
+      // through the bare CLI never touches this count at all).
       headline = fmtCount(tracked.calls) + " call" + (tracked.calls === 1 ? "" : "s") + " tracked";
       headlineTone = "tracked";
+      var lastUsedAgo = fmtAgo(tracked.lastUsedAt);
       subtext =
         (tracked.tasks ? fmtCount(tracked.tasks) + " task" + (tracked.tasks === 1 ? "" : "s") + " · " : "") +
-        (tracked.windowLabel || "recent");
+        (tracked.windowLabel || "recent") +
+        (lastUsedAgo ? " · last used " + lastUsedAgo : "");
       showTrackedRow = false; // already the headline — don't repeat it below
     } else {
       headline = "No activity yet";
