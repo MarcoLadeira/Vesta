@@ -25,7 +25,8 @@ test("a live-limit provider renders a real progress bar and a ticking reset coun
   const card = page.locator('.usage2-card[data-usage-provider="gemini"]');
   await expect(card).toBeVisible();
   await expect(card.locator('[role="progressbar"]')).toHaveAttribute("aria-valuenow", "18");
-  await expect(card).toContainText("270 / 1,500 requests used", seen);
+  await expect(card.locator("[data-usage-primary]")).toHaveText("18% used");
+  await expect(card).toContainText("270 / 1,500 requests", seen);
   await expect(card.locator("[data-usage-pill]")).toHaveText("Live");
   // The countdown is present and formatted as a duration.
   await expect(card.locator("[data-usage-countdown]")).toContainText(/\d+ (hr|min|sec)/);
@@ -46,8 +47,10 @@ test("account providers show a calm no-usage-API state with the official-usage l
   await expect(link).toHaveAttribute("data-ext", "1");
   await expect(link).not.toHaveAttribute("target", "_blank");
   // With no official figure, OPai's own tracked count is the headline stat —
-  // clearly labelled, never presented as the provider's number.
-  await expect(card).toContainText("12 calls tracked by OPai", seen);
+  // same size/weight class as a real percentage or credit figure — clearly
+  // labelled, never presented as the provider's number.
+  await expect(card.locator("[data-usage-primary]")).toHaveText("12 calls tracked");
+  await expect(card.locator(".usage2-headline")).toHaveClass(/tracked/);
 });
 
 test("Check official usage opens through the native bridge, not a direct (CSP-blocked) navigation", async ({ page }) => {

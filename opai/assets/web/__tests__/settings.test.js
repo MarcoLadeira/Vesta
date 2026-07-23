@@ -293,7 +293,8 @@ describe("Model Usage section", () => {
     expect(html).toContain('data-usage-provider="gemini"');
     expect(html).toContain('role="progressbar"');
     expect(html).toContain('aria-valuenow="18"');
-    expect(html).toContain("270 / 1,500 requests used");
+    expect(html).toContain("18% used"); // the headline stat
+    expect(html).toContain("270 / 1,500 requests"); // the subtext figures
     expect(html).toContain('data-usage-resets-at="4102444800"');
     expect(html).toContain("2 hr 0 min"); // 7200s countdown
   });
@@ -310,8 +311,21 @@ describe("Model Usage section", () => {
     expect(html).not.toContain("target=\"_blank\"");
     expect(html).toContain("claude.ai/settings/usage");
     // With no official figure, OPai's own tracked count becomes the headline
-    // stat — clearly labelled, never presented as the provider's number.
-    expect(html).toContain("12 calls tracked by OPai");
+    // stat — same size/weight as a real number — clearly labelled, never
+    // presented as the provider's number.
+    expect(html).toContain('class="usage2-headline tracked"');
+    expect(html).toContain("12 calls tracked");
+  });
+
+  it("gives the no-official-usage headline the exact same size/weight as a real percentage or credit figure", () => {
+    const barHtml = section().render({ providerUsage: [live] }, ctx);
+    const creditHtml = section().render({ providerUsage: [credit] }, ctx);
+    const trackedHtml = section().render({ providerUsage: [claude] }, ctx);
+    // Every headline uses the same base class regardless of data source —
+    // only a tone modifier (credit/tracked) may differ, never the scale.
+    for (const html of [barHtml, creditHtml, trackedHtml]) {
+      expect(html).toMatch(/class="usage2-headline\b[^"]*"/);
+    }
   });
 
   it("shows remaining prepaid credit without inventing a percentage", () => {

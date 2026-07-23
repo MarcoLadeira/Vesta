@@ -963,16 +963,75 @@
     return sec + " sec";
   }
 
-  // One provider's usage card. The markup is data-attribute driven so the live
-  // countdown ticker and the Refresh handler can update a single card in place.
+  // "Checked N ago" from a unix-seconds timestamp, for the "last refreshed"
+  // freshness readout the credit/no-bar cards use instead of a reset clock.
+  function fmtAgo(unixSeconds) {
+    if (unixSeconds == null || !isFinite(unixSeconds)) return "";
+    var ago = Date.now() / 1000 - unixSeconds;
+    if (ago < 0) return "just now";
+    if (ago < 60) return "just now";
+    if (ago < 3600) return Math.floor(ago / 60) + " min ago";
+    if (ago < 86400) return Math.floor(ago / 3600) + " hr ago";
+    return Math.floor(ago / 86400) + " d ago";
+  }
+
+  // One consistent card skeleton for every provider, regardless of which of
+  // the three real data shapes it has (a bounded percentage, a remaining
+  // credit amount, or nothing official at all): the same head row, one
+  // headline stat at the same size/weight/position, one subtext line, an
+  // optional bar, an optional OPai-tracked caption, and the same footer.
+  // Only the *content* of each slot changes — never the layout — so a
+  // provider without official data never looks like a different product.
   function usageCardHtml(esc, u) {
     var official = u.official || {};
     var status = u.status || "unavailable";
     var meta = USAGE_STATUS[status] || USAGE_STATUS.unavailable;
     var win = u.window || {};
+    var tracked = u.opaiTracked;
     var hasBar = official.available && official.percent != null;
+    var hasCredit = !hasBar && official.metric === "credit" && official.remaining != null;
     var pct = hasBar ? Math.max(0, Math.min(100, +official.percent)) : 0;
-    var bodyShowsDetail = false;
+
+    // Resolve the one headline stat + its subtext, in the same shape either way.
+    // subtextHtml carries pre-escaped markup only when a live countdown span
+    // is needed (hasBar); every other case is plain text, escaped at render.
+    var headline, headlineTone, subtext, subtextHtml, showTrackedRow;
+    if (hasBar) {
+      var used = official.used;
+      var limit = official.limit;
+      var metric = official.metric || win.metric || "";
+      headline = Math.round(pct) + "% used";
+      headlineTone = "";
+      var figures = used != null && limit != null ? fmtCount(used) + " / " + fmtCount(limit) + " " + metric : "";
+      subtextHtml = official.resetsAt
+        ? esc(figures ? figures + " · resets in " : "resets in ") +
+          '<span data-usage-countdown>' + esc(fmtDuration(official.resetsInSeconds)) + "</span>"
+        : esc(figures);
+      showTrackedRow = true;
+    } else if (hasCredit) {
+      headline = fmtCount(official.remaining) + " " + (official.currency || "") + " left";
+      headlineTone = "credit";
+      // Reuse the footer's detail sentence for *what* this is; the subtext's
+      // job here is freshness ("last refreshed"), not a repeat of the detail.
+      var ago = fmtAgo(official.observedAt);
+      subtext = ago ? "Checked " + ago : "";
+      showTrackedRow = true;
+    } else if (tracked && (tracked.calls || tracked.tasks)) {
+      // No official figure exists yet. OPai's own local tally becomes the
+      // headline — same size/weight as a real number — so the card reads as
+      // informative rather than broken. Still unmistakably not official.
+      headline = fmtCount(tracked.calls) + " call" + (tracked.calls === 1 ? "" : "s") + " tracked";
+      headlineTone = "tracked";
+      subtext =
+        (tracked.tasks ? fmtCount(tracked.tasks) + " task" + (tracked.tasks === 1 ? "" : "s") + " · " : "") +
+        (tracked.windowLabel || "recent");
+      showTrackedRow = false; // already the headline — don't repeat it below
+    } else {
+      headline = "No activity yet";
+      headlineTone = "tracked";
+      subtext = win.label || "";
+      showTrackedRow = false;
+    }
 
     var h =
       '<article class="usage2-card" data-usage-provider="' +
@@ -992,17 +1051,23 @@
       esc(meta.label) +
       "</span></div>";
 
+    // Headline + subtext: identical structure and typography for every state.
+    h +=
+      '<div class="usage2-headline-row"><span class="usage2-headline ' +
+      headlineTone +
+      '" data-usage-primary>' +
+      esc(headline) +
+      "</span></div>";
+    var subtextInner = subtextHtml != null ? subtextHtml : esc(subtext || "");
+    if (subtextInner) {
+      h +=
+        '<div class="usage2-subtext"' +
+        (hasBar && official.resetsAt ? ' data-usage-resets-at="' + esc(official.resetsAt) + '"' : "") +
+        ">" +
+        subtextInner +
+        "</div>";
+    }
     if (hasBar) {
-      // The reference card: "Current session · N% used · resets in …".
-      var used = official.used;
-      var limit = official.limit;
-      var metric = official.metric || win.metric || "";
-      var line =
-        official.metric === "credit"
-          ? "Prepaid credit"
-          : used != null && limit != null
-            ? fmtCount(used) + " / " + fmtCount(limit) + " " + esc(metric) + " used"
-            : Math.round(pct) + "% used";
       h +=
         '<div class="usage2-track" role="progressbar" aria-label="' +
         esc((u.displayName || u.provider) + " usage") +
@@ -1010,63 +1075,12 @@
         Math.round(pct) +
         '"><span style="width:' +
         pct +
-        '%"></span></div>' +
-        '<div class="usage2-figures"><span data-usage-primary>' +
-        esc(line) +
-        '</span><span class="usage2-pct">' +
-        Math.round(pct) +
-        "% used</span></div>";
-      if (official.resetsAt) {
-        h +=
-          '<div class="usage2-reset" data-usage-resets-at="' +
-          esc(official.resetsAt) +
-          '">Resets in <span data-usage-countdown>' +
-          esc(fmtDuration(official.resetsInSeconds)) +
-          "</span></div>";
-      }
-    } else if (official.metric === "credit" && official.remaining != null) {
-      // Kimi-style prepaid credit: remaining amount, no fixed limit/percent.
-      h +=
-        '<div class="usage2-figures"><span class="usage2-credit" data-usage-primary>' +
-        esc(fmtCount(official.remaining)) +
-        " " +
-        esc(official.currency || "") +
-        ' left</span></div>';
-    } else {
-      // No official figure exists for this provider (an account CLI with no
-      // usage API). Rather than lead with an empty-feeling "unavailable"
-      // message, OPai's own local tally becomes the headline stat — still
-      // clearly labeled as OPai-tracked, never presented as official — so the
-      // card reads as informative rather than broken.
-      var noOfficialTracked = u.opaiTracked;
-      if (noOfficialTracked && (noOfficialTracked.calls || noOfficialTracked.tasks)) {
-        h +=
-          '<div class="usage2-headline-row"><span class="usage2-tracked-headline" data-usage-primary>' +
-          esc(
-            fmtCount(noOfficialTracked.calls) +
-              " call" +
-              (noOfficialTracked.calls === 1 ? "" : "s") +
-              " tracked by OPai"
-          ) +
-          '</span><span class="usage2-tracked-sub">' +
-          esc(
-            (noOfficialTracked.tasks
-              ? fmtCount(noOfficialTracked.tasks) + " task" + (noOfficialTracked.tasks === 1 ? "" : "s") + " · "
-              : "") + (noOfficialTracked.windowLabel || "recent")
-          ) +
-          "</span></div>";
-      } else {
-        h +=
-          '<div class="usage2-unavailable" data-usage-primary>No activity tracked yet in this window.</div>';
-      }
-      h += '<div class="usage2-note">' + esc(u.detail || "") + "</div>";
-      bodyShowsDetail = true;
+        '%"></span></div>';
     }
 
-    // OPai-tracked activity in the window — clearly separated from official.
-    // (Skipped for the no-official-usage case above: it's already the headline.)
-    var tracked = u.opaiTracked;
-    if (!bodyShowsDetail && tracked && (tracked.calls || tracked.tasks)) {
+    // OPai-tracked caption — always the same small row, whenever it isn't
+    // already the headline above, so it's never presented as official.
+    if (showTrackedRow && tracked && (tracked.calls || tracked.tasks)) {
       h +=
         '<div class="usage2-tracked"><span class="usage2-tracked-tag">OPai tracked</span>' +
         esc(
@@ -1083,13 +1097,9 @@
         "</div>";
     }
 
-    // Footer: source detail (unless the body already showed it) + optional
-    // "check official usage" link.
+    // Footer: explanatory detail + optional "check official usage" link.
     h += '<div class="usage2-foot">';
-    h +=
-      '<span class="usage2-detail" data-usage-detail>' +
-      (bodyShowsDetail ? "" : esc(u.detail || "")) +
-      "</span>";
+    h += '<span class="usage2-detail" data-usage-detail>' + esc(u.detail || "") + "</span>";
     if (u.checkUrl && !hasBar) {
       // data-ext (not target=_blank): the app intercepts these document-wide
       // and opens them via the native bridge (QDesktopServices) — a direct
