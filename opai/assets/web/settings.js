@@ -934,7 +934,7 @@
     var official = u.official || {};
     var status = u.status || "unavailable";
     var meta = USAGE_STATUS[status] || USAGE_STATUS.unavailable;
-    var window = u.window || {};
+    var win = u.window || {};
     var hasBar = official.available && official.percent != null;
     var pct = hasBar ? Math.max(0, Math.min(100, +official.percent)) : 0;
     var bodyShowsDetail = false;
@@ -950,7 +950,7 @@
       '<div class="usage2-head"><div class="usage2-titles"><span class="usage2-name">' +
       esc(u.displayName || u.provider) +
       '</span><span class="usage2-window">' +
-      esc(window.label || "") +
+      esc(win.label || "") +
       '</span></div><span class="usage2-pill ' +
       meta.tone +
       '" data-usage-pill>' +
@@ -961,7 +961,7 @@
       // The reference card: "Current session · N% used · resets in …".
       var used = official.used;
       var limit = official.limit;
-      var metric = official.metric || window.metric || "";
+      var metric = official.metric || win.metric || "";
       var line =
         official.metric === "credit"
           ? "Prepaid credit"
