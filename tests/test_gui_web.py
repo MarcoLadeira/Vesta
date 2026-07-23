@@ -340,11 +340,21 @@ class SettingsPayloadTests(unittest.TestCase):
             self.assertNotIn("cli_path", connection)
         self.assertIn("connectionDoctor", payload)
         self.assertEqual(
-            # github joined via the git/PR connector credential (GITHUB_TOKEN).
-            {"claude", "codex", "copilot", "gemini", "groq", "mistral", "github"},
+            # github joined via the git/PR connector credential (GITHUB_TOKEN);
+            # kimi joined with its Moonshot free-tier credential.
+            {"claude", "codex", "copilot", "kimi", "gemini", "groq", "mistral", "github"},
             {item["providerId"] for item in payload["connectionDoctor"]},
         )
         self.assertNotIn("cli_path", json.dumps(payload["connectionDoctor"]))
+        # Credits & Balance: one snapshot per AI tool, accounts and free APIs.
+        self.assertIn("providerBalances", payload)
+        balance_providers = {item["provider"] for item in payload["providerBalances"]}
+        for provider in ("claude", "codex", "copilot", "kimi", "gemini", "groq", "mistral"):
+            self.assertIn(provider, balance_providers)
+        for item in payload["providerBalances"]:
+            self.assertIn(
+                item["status"], {"ok", "low", "out", "unknown", "not_configured"}
+            )
         json.dumps(payload)
 
     def test_settings_exposes_one_capability_truth(self):

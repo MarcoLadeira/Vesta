@@ -43,7 +43,9 @@ class AccountStreamingTests(unittest.TestCase):
         self.assertIn("provider_authenticated", types)
         self.assertIn("request_sending", types)
         self.assertIn("file_read", types)  # from the runner's scripted events
-        self.assertEqual(types[-1], "completed")
+        # #378: the evidence-backed completion verdict closes the stream.
+        self.assertEqual(types[-1], "completion_verdict")
+        self.assertEqual(events[-1]["status"], "success")
         self.assertEqual(result["status"], "answered")
 
         authenticated = next(
@@ -176,13 +178,16 @@ class LocalStreamingTests(unittest.TestCase):
                 )
         types = [e["type"] for e in events]
         self.assertIn("request_sending", types)
-        self.assertEqual(types[-1], "completed")
+        # #378: the evidence-backed completion verdict closes the stream.
+        self.assertEqual(types[-1], "completion_verdict")
+        self.assertEqual(events[-1]["status"], "success")
         self.assertEqual(result["answer"], "local answer")
         self.assertIn("local answer", "".join(texts))
-        # #225: the local phase row closes on completion, never left spinning.
+        # #225: the local phase row closes on completion, never left spinning
+        # (or amber) — the verified verdict re-closes it green.
         phased = [e for e in events if str(e["id"]).endswith(":phase")]
         self.assertEqual(phased[-1]["status"], "success")
-        self.assertEqual(phased[-1]["title"], "Answered locally")
+        self.assertEqual(phased[-1]["title"], "Completed — objective verified")
 
 
 if __name__ == "__main__":

@@ -979,6 +979,10 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "codexConfig": codex_config_issue(),
         # One capability truth for the picker, settings, doctor, and router (#168).
         "providerProfiles": all_provider_profiles(),
+        # Per-provider credit/balance for the Credits & Balance page. Cache
+        # only — no network in the payload build; the page triggers a live
+        # (TTL-guarded) refresh through the refreshBalances slot after render.
+        "providerBalances": provider_balances_payload(root, models, probe=False),
         # GitHub connection + push readiness for the Settings connect flow (#300).
         "github": github_status(),
         "about": {
@@ -986,6 +990,54 @@ def settings_payload(root: Path) -> dict[str, Any]:
             "release_stage": overview.get("release_stage"),
         },
     }
+
+
+def provider_balances_payload(
+    root: Path,
+    models: dict[str, Any] | None = None,
+    *,
+    probe: bool = False,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Balance snapshots for every AI tool the user could route to.
+
+    Accounts (Claude/Codex/Copilot) come from the live connection list; free
+    API providers from the credential store. Each entry carries whether the
+    tool is configured so the UI can separate "no credit" from "not set up".
+    """
+    from opaihub.credentials import CredentialStore
+    from opaihub.free_models import FREE_MODEL_SPECS
+    from opaihub.provider_balance import balance_overview
+
+    if models is None:
+        models = _models(root, discover_local=False)
+    providers: list[dict[str, Any]] = []
+    for connection in models.get("connections") or []:
+        provider = str(connection.get("providerId") or "")
+        if provider:
+            providers.append(
+                {
+                    "provider": provider,
+                    "kind": "account",
+                    "configured": str(connection.get("authStatus") or "")
+                    in {"connected", "unknown"},
+                }
+            )
+    store = CredentialStore()
+    seen_free: set[str] = set()
+    for spec in FREE_MODEL_SPECS:
+        provider = str(spec.get("provider") or "")
+        if not provider or provider in seen_free:
+            continue
+        seen_free.add(provider)
+        try:
+            configured = bool(store.get(provider))
+        except Exception:  # noqa: BLE001 - keychain trouble must not break Settings
+            configured = False
+        providers.append(
+            {"provider": provider, "kind": "free", "configured": configured}
+        )
+    return balance_overview(root, providers, probe=probe, force=force)
 
 
 def _recents(root: Path) -> list[str]:
@@ -1314,6 +1366,34 @@ def _run_gui(
         @QtCore.Slot(result=str)
         def refreshModels(self) -> str:
             return json.dumps(A.available_models(self.root, discover_local=True))
+
+        @QtCore.Slot(str, str, str, result=str)
+        def setProviderBalance(self, provider: str, amount: str, currency: str) -> str:
+            """Store a user-entered balance for a provider without a balance API."""
+            from opaihub.provider_balance import set_manual_balance
+
+            try:
+                snapshot = set_manual_balance(
+                    self.root, provider, float(amount), currency=currency
+                )
+                return json.dumps({"ok": True, "balance": snapshot})
+            except (TypeError, ValueError) as exc:
+                return json.dumps({"ok": False, "error": str(exc)})
+
+        @QtCore.Slot(result=str)
+        def refreshBalances(self) -> str:
+            """Force-refresh live balances and return the full overview."""
+            try:
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "balances": provider_balances_payload(
+                            self.root, probe=True, force=True
+                        ),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 - never crash the page
+                return json.dumps({"ok": False, "error": str(exc)})
 
         @QtCore.Slot(str, str, str, str, result=str)
         def saveUsageLimit(

@@ -65,6 +65,24 @@ and privacy-preserving by default; nothing new phones home.
 
 ### Reliability
 
+- **Per-provider credit balances (Credits & Balance).** Settings now shows how
+  much credit is left on every configured AI tool, each with a status bar:
+  live from the provider's balance API where one exists (Moonshot/Kimi),
+  observed from a real refused-for-credit call, or entered manually for
+  subscription tools with no balance API (e.g. Claude extra-usage credits).
+  The model picker shows the exact remaining amount next to each model; a tool
+  that is **out of credit is removed from the picker** (with a note explaining
+  why, and the selection falls back to Auto) and **skipped by Auto routing**
+  outright instead of burning a fallback step on a guaranteed refusal. The
+  verdict expires after a few hours and is cleared by any successful call or a
+  recharge, so tools come back automatically. Out-of-credit refusals (e.g.
+  Moonshot's "suspended due to insufficient balance" 429) are now classified
+  as quota exhaustion, not a transient rate limit. Balances are stored only on
+  this machine and never transmitted.
+- **A completed run's progress row now closes green.** Previously a verified,
+  completed run could leave its last phase row on an amber "Verifying
+  completion evidence" placeholder; the evidence-backed verdict now re-closes
+  the same row as "Completed — objective verified".
 - **Auto mode is now capability-, cost-, and reliability-aware.** OPai Auto
   builds an ordered fallback chain across every configured model — local first,
   then the cheapest configured free APIs, then (with confirmation) connected

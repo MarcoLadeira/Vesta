@@ -566,6 +566,116 @@
     return h;
   }
 
+  // ---- Credits & Balance (per-provider credit truth) --------------------- //
+  var CURRENCY_SYMBOLS = { USD: "$", EUR: "€", GBP: "£", CNY: "¥", JPY: "¥" };
+  function fmtMoney(amount, currency) {
+    if (amount == null || isNaN(amount)) return "Unknown";
+    var symbol = CURRENCY_SYMBOLS[currency];
+    var value = Number(amount).toFixed(2);
+    return symbol ? symbol + value : value + " " + (currency || "");
+  }
+  var BALANCE_STATUS_LABEL = {
+    ok: "Credit available",
+    low: "Running low",
+    out: "Out of credit",
+    unknown: "Balance unknown",
+    not_configured: "Not connected",
+  };
+
+  function balanceHtml(d, ctx) {
+    var esc = ctx.esc;
+    var balances = Array.isArray(d.providerBalances) ? d.providerBalances : [];
+    if (!balances.length) return "";
+    var h = '<div class="set-head">Credits &amp; balance</div>';
+    h +=
+      '<div class="set-note">How much credit is left on every AI tool you have set up. ' +
+      "A tool that is out of credit is removed from the model picker and skipped by Auto " +
+      "until it has credit again. Live balances come from the provider; for tools without " +
+      "a balance API, enter what your provider console shows.</div>";
+    balances.forEach(function (b) {
+      var status = b.status || "unknown";
+      var known = b.amount != null;
+      var pct =
+        status === "out"
+          ? 0
+          : b.percent != null
+            ? Math.max(0, Math.min(100, +b.percent))
+            : known && b.amount > 0
+              ? 100
+              : 0;
+      var amountText = known ? fmtMoney(b.amount, b.currency) : "Unknown";
+      var checked = b.checkedAt
+        ? new Date(Number(b.checkedAt) * 1000).toLocaleString()
+        : null;
+      var sourceLine =
+        b.source === "provider"
+          ? "Live from " + (b.displayName || b.provider)
+          : b.source === "manual"
+            ? "Entered by you"
+            : b.source === "observed"
+              ? "Observed from a refused call"
+              : "No balance data yet";
+      if (checked) sourceLine += " · " + checked;
+      h +=
+        '<div class="balance-card" data-balance-provider="' +
+        esc(b.provider) +
+        '"><div class="balance-head"><span class="balance-name">' +
+        esc(b.displayName || b.provider) +
+        '</span><span class="balance-pill ' +
+        esc(status) +
+        '">' +
+        esc(BALANCE_STATUS_LABEL[status] || status) +
+        "</span></div>" +
+        '<div class="balance-amount" data-balance-amount>' +
+        esc(amountText) +
+        (known ? '<span class="balance-left"> left</span>' : "") +
+        "</div>" +
+        '<div class="usage-track balance-track ' +
+        esc(status) +
+        '" role="progressbar" aria-label="' +
+        esc((b.displayName || b.provider) + " remaining credit") +
+        '" aria-valuemin="0" aria-valuemax="100"' +
+        (known ? ' aria-valuenow="' + pct + '"' : "") +
+        '><span style="width:' +
+        pct +
+        '%"></span></div>' +
+        '<div class="balance-meta">' +
+        esc(sourceLine) +
+        "</div>" +
+        (status === "out"
+          ? '<div class="balance-recharge">' + esc(b.rechargeHint || "") + "</div>"
+          : "") +
+        '<div class="balance-form"><input type="number" min="0" step="0.01" ' +
+        'aria-label="' +
+        esc((b.displayName || b.provider) + " balance") +
+        '" placeholder="Enter balance"' +
+        (b.source === "manual" && known ? ' value="' + esc(b.amount) + '"' : "") +
+        '><select aria-label="Currency">' +
+        ["EUR", "USD", "GBP", "CNY"]
+          .map(function (code) {
+            return (
+              '<option value="' +
+              code +
+              '"' +
+              ((b.currency || "USD") === code ? " selected" : "") +
+              ">" +
+              code +
+              "</option>"
+            );
+          })
+          .join("") +
+        '</select><button class="btn ghost" data-save-balance="' +
+        esc(b.provider) +
+        '">Save</button><span class="usage-error" data-balance-error hidden></span></div>' +
+        "</div>";
+    });
+    h +=
+      '<div class="actions"><button class="btn" id="balanceRefresh">Refresh live balances</button></div>';
+    h +=
+      '<div class="set-note">Balances are stored only on this machine. OPai never sends them anywhere.</div>';
+    return h;
+  }
+
   // Usage-limit cards (shared markup; lives on the Cost Firewall page, #238).
   function usageCardsHtml(d, ctx) {
     var esc = ctx.esc;
@@ -997,6 +1107,7 @@
   var ICONS = {
     overview: svg('<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9h17M9 9v11.5"/>'),
     providers: svg('<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
+    balance: svg('<circle cx="12" cy="12" r="9"/><path d="M8.5 10.5a2 2 0 0 1 2-2h1a2 2 0 1 1 0 4h-1a2 2 0 1 0 0 4h1a2 2 0 0 0 2-2M12 7v1.2M12 15.8V17"/>'),
     models: svg('<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 6H14a4 4 0 0 1 0 8H9.8"/>'),
     firewall: svg('<path d="M12 3 5 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z"/><path d="M12.5 8.2h-2a1.3 1.3 0 0 0 0 2.6h1.5a1.3 1.3 0 0 1 0 2.6h-2"/>'),
     permissions: svg('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
@@ -1020,6 +1131,13 @@
       group: "Connect",
       keywords: "provider account api key github connection doctor sign in credential codex",
       render: providersHtml,
+    },
+    {
+      id: "balance",
+      title: "Credits & Balance",
+      group: "Connect",
+      keywords: "balance credit usage remaining left top up recharge funds money euro dollar",
+      render: balanceHtml,
     },
     {
       id: "models",
@@ -1525,6 +1643,84 @@
           });
       };
     });
+    // Credits & Balance: save a manually-entered balance, refresh live ones.
+    page.querySelectorAll("[data-save-balance]").forEach(function (button) {
+      button.onclick = function () {
+        var card = button.closest(".balance-card");
+        var input = card.querySelector('input[type="number"]');
+        var currency = card.querySelector("select");
+        var error = card.querySelector("[data-balance-error]");
+        var value = input.value.trim();
+        if (value === "" || isNaN(+value) || +value < 0) {
+          if (error) {
+            error.textContent = "Enter a number of at least 0.";
+            error.hidden = false;
+          }
+          return;
+        }
+        if (error) error.hidden = true;
+        if (!bridge.setProviderBalance) {
+          toast("Balance entry is unavailable in this build.");
+          return;
+        }
+        bridge.setProviderBalance(
+          button.dataset.saveBalance,
+          value,
+          currency ? currency.value : "USD",
+          function (json2) {
+            var result = {};
+            try {
+              result = JSON.parse(json2);
+            } catch (_e) {
+              /* keep {} */
+            }
+            toast(result.ok ? "Balance saved" : result.error || "Could not save balance");
+            if (result.ok) refresh();
+          }
+        );
+      };
+    });
+    var balanceRefresh = q("#balanceRefresh");
+    if (balanceRefresh)
+      balanceRefresh.onclick = function () {
+        if (!bridge.refreshBalances) {
+          toast("Live balance refresh is unavailable in this build.");
+          return;
+        }
+        balanceRefresh.disabled = true;
+        balanceRefresh.textContent = "Refreshing…";
+        bridge.refreshBalances(function (json2) {
+          var result = {};
+          try {
+            result = JSON.parse(json2);
+          } catch (_e) {
+            /* keep {} */
+          }
+          balanceRefresh.disabled = false;
+          balanceRefresh.textContent = "Refresh live balances";
+          if (result.ok) refresh();
+          else toast(result.error || "Could not refresh balances");
+        });
+      };
+    // The payload itself is cache-only (no network on render); providers with
+    // a live balance API get one background refresh per 15-minute window so
+    // the page shows current numbers without the user pressing anything.
+    // The timestamp guard makes the follow-up refresh() re-render loop-proof.
+    if (bridge.refreshBalances && page.querySelector(".balance-card")) {
+      var probedAt = (state && state._balanceProbeAt) || 0;
+      if (Date.now() - probedAt > 15 * 60 * 1000) {
+        if (state) state._balanceProbeAt = Date.now();
+        bridge.refreshBalances(function (json2) {
+          var result = {};
+          try {
+            result = JSON.parse(json2);
+          } catch (_e) {
+            /* keep {} */
+          }
+          if (result.ok) refresh();
+        });
+      }
+    }
     page.querySelectorAll("[data-save-limit]").forEach(function (button) {
       button.onclick = function () {
         var form = button.closest(".usage-limit-form");
