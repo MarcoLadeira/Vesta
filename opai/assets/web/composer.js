@@ -201,55 +201,184 @@
     });
   }
 
-  var PICKER_GROUPS = [
-    { id: "claude", label: "Claude" },
-    { id: "codex", label: "Codex" },
-    { id: "copilot", label: "Copilot" },
-    { id: "free", label: "Free models" },
-    { id: "routing", label: "OPai routing" },
-    { id: "local", label: "Local models" },
-  ];
+  // Local UI state for the picker (never persisted — see docs/design/
+  // opai-model-picker-redesign.md §14 "State ownership"). Selection itself
+  // still lives in the app's real store, driven via setModel().
+  var pickerQuery = "";
+
+  // A model is shown in the picker only when it is a real, configured provider
+  // model (not the Auto card, not the routing group) — implementing the
+  // redesign's core rule: unconfigured/placeholder providers never appear here,
+  // only in Manage models. `available === false` means not configured / not
+  // authenticated (a free key that isn't set, an expired account); those are
+  // fully excluded. A configured model whose provider is currently failing
+  // (`healthy === false`, e.g. a suspended free-tier account) is *shown but
+  // disabled* with a reason, so it is never silently missing.
+  function pickerModels() {
+    return (boot().models || []).filter(function (m) {
+      return m && m.kind !== "auto" && m.group !== "routing";
+    });
+  }
+  function isConfigured(m) { return m.available !== false; }
+  function isWorking(m) { return m.available !== false && m.healthy !== false; }
+  function modelShortProvider(m) {
+    if (m.provider) return m.provider.charAt(0).toUpperCase() + m.provider.slice(1);
+    if (m.kind === "local") return "Local";
+    return "";
+  }
+  function modelName(m) {
+    // Strip the "OPai · " / "Provider · " prefix and the "(free tier)" suffix so
+    // the flat row reads as a clean model name; the provider is its own column.
+    return String(m.label || "")
+      .replace(/^OPai\s*·\s*/, "")
+      .replace(/\s*\(free tier\)\s*$/i, "")
+      .trim() || (m.id || "Model");
+  }
+  // Exact remaining credit for a model's provider, when OPai knows it —
+  // "€85.00 left" from a live balance, the user's manual entry, or an
+  // observed refusal. Unknown balances show nothing (never a made-up number).
+  var BALANCE_SYMBOLS = { USD: "$", EUR: "€", GBP: "£", CNY: "¥", JPY: "¥" };
+  function balanceLabel(m) {
+    var b = m && m.balance;
+    if (!b || b.amount == null || isNaN(b.amount)) return "";
+    var symbol = BALANCE_SYMBOLS[b.currency];
+    var value = Number(b.amount).toFixed(2);
+    return (symbol ? symbol + value : value + " " + (b.currency || "")) + " left";
+  }
+  // Out-of-credit models are removed from selection entirely; this builds the
+  // one-line explanation of what was hidden and why (per provider, deduped).
+  function outOfCreditNote(models) {
+    var names = [];
+    models.forEach(function (m) {
+      if (!m.out_of_credit) return;
+      var b = m.balance || {};
+      var name = b.displayName || modelShortProvider(m) || m.provider || "A provider";
+      if (names.indexOf(name) < 0) names.push(name);
+    });
+    if (!names.length) return "";
+    return (
+      names.join(", ") +
+      (names.length === 1 ? " is" : " are") +
+      " hidden — out of credit. Top up or update the balance in Settings › Credits & Balance."
+    );
+  }
+
   function buildModelPop() {
     var st = state();
-    var models = boot().models || [];
     var cur = (st.model && st.model.id) || "";
-    var grouped = {};
-    models.forEach(function (m) { (grouped[m.group || "routing"] = grouped[m.group || "routing"] || []).push(m); });
-    var html = '<div class="cpop-head">Model</div>';
-    PICKER_GROUPS.forEach(function (g) {
-      var members = grouped[g.id];
-      if (!members || !members.length) return;
-      html += '<div class="cpop-group">' + esc(g.label) + "</div>";
-      members.forEach(function (m) {
-        html += menuRow({
-          role: "menuitemradio",
-          title: m.label,
-          desc: m.advanced_label || m.badge || "",
-          active: m.id === cur,
-          disabled: m.available === false,
-          meta: m.available === false ? (m.disabled_reason || "Unavailable") : "",
-        }).replace('class="cpop-row', 'data-id="' + esc(m.id) + '" class="cpop-row');
-      });
-    });
-    // Local-first toggle (the former "routes local first"). Mapping is honest:
-    // OPai's Auto model IS local-first routing, so enabling this selects Auto.
+    var all = pickerModels();
+
+    // Configured models split into working (selectable) and configured-but-
+    // currently-failing (shown disabled, never hidden). Unconfigured models are
+    // excluded entirely — they live only in Manage models.
+    var configured = all.filter(isConfigured);
+    var q = pickerQuery.trim().toLowerCase();
+    function matches(m) {
+      return !q || modelName(m).toLowerCase().indexOf(q) >= 0 ||
+        modelShortProvider(m).toLowerCase().indexOf(q) >= 0;
+    }
+    var working = configured.filter(isWorking).filter(matches);
+    var failing = configured.filter(function (m) { return !isWorking(m); }).filter(matches);
+
+    var autoSelected = !cur || cur === "auto";
+    // A previously chosen model that is no longer configured/working: fall the
+    // display back to Auto and tell the user why — never a silent switch.
+    var selectedModel = all.find(function (m) { return m.id === cur; });
+    var selectedUnavailable = !!(cur && cur !== "auto" && (!selectedModel || !isWorking(selectedModel)));
+    if (selectedUnavailable) autoSelected = true;
+
+    var totalConfigured = configured.length;
+    var showSearch = totalConfigured > 4;
+    var emptyConfigured = totalConfigured === 0;
+
+    var html = "";
+
+    // Selection-unavailable / empty notes (calm amber).
+    if (selectedUnavailable && selectedModel) {
+      html += '<div class="cpop-note cpop-note-warn">' + esc(modelName(selectedModel)) +
+        " is unavailable right now — using Auto for this chat.</div>";
+    } else if (emptyConfigured) {
+      html += '<div class="cpop-note">No models set up yet — Auto will use a local model if one is running.</div>';
+    }
+    // Out-of-credit models are removed (available=false), never shown as dead
+    // rows — but their absence is always explained, never silent.
+    var creditNote = outOfCreditNote(all);
+    if (creditNote) {
+      html += '<div class="cpop-note cpop-note-warn" data-credit-note>' + esc(creditNote) + "</div>";
+    }
+
+    // 1. Auto card, pinned on top (never inside the scroll region).
+    html +=
+      '<button type="button" role="menuitemradio" aria-checked="' + (autoSelected ? "true" : "false") +
+      '" data-id="auto" class="cpop-row cpop-auto' + (autoSelected ? " active" : "") + '">' +
+      '<span class="cpop-body"><span class="cpop-autohead"><span class="cpop-title">Auto</span>' +
+      '<span class="cpop-tag">Recommended</span></span>' +
+      '<span class="cpop-desc">Automatically picks the best working model for quality, reliability and cost.</span></span>' +
+      (autoSelected ? '<span class="cpop-check">' + CHECK_SVG + "</span>" : "") +
+      "</button>";
+
+    // 2. Routing preference — a toggle directly under Auto, never a model row.
     var local = routesLocal(st.model);
     html +=
-      '<div class="cpop-sep"></div>' +
       '<button type="button" role="menuitemcheckbox" aria-checked="' + (local ? "true" : "false") + '" id="localToggle" class="cpop-row cpop-toggle">' +
-      '<span class="cpop-body"><span class="cpop-title">Keep work on this machine</span><span class="cpop-desc">Prefer local models when they can do the job.</span></span>' +
+      '<span class="cpop-body"><span class="cpop-title">Keep work on this machine</span></span>' +
       '<span class="cpop-switch' + (local ? " on" : "") + '"><span class="cpop-knob"></span></span></button>';
+
+    // 3. Search — only once there are enough models to warrant it.
+    if (showSearch) {
+      html += '<div class="cpop-search"><input id="modelSearch" type="text" placeholder="Search models or providers" ' +
+        'aria-label="Search models" value="' + esc(pickerQuery) + '"/></div>';
+    }
+
+    // 4. Bounded, scrollable list of configured models.
+    if (!emptyConfigured) {
+      html += '<div class="cpop-scroll">';
+      if (!working.length && !failing.length && q) {
+        html += '<div class="cpop-empty">No models match "' + esc(pickerQuery) + '"</div>';
+      }
+      working.concat(failing).forEach(function (m) {
+        var disabled = !isWorking(m);
+        var credit = balanceLabel(m);
+        html +=
+          '<button type="button" role="menuitemradio" aria-checked="' + (m.id === cur ? "true" : "false") +
+          '" data-id="' + esc(m.id) + '" class="cpop-row cpop-model' + (m.id === cur && !selectedUnavailable ? " active" : "") + '"' +
+          (disabled ? ' disabled aria-disabled="true" title="' + esc(m.health_reason || m.disabled_reason || "Unavailable") + '"' : "") + ">" +
+          '<span class="cpop-body"><span class="cpop-title">' + esc(modelName(m)) + "</span>" +
+          (disabled ? '<span class="cpop-desc">' + esc(m.health_reason || "Currently unavailable") + "</span>" : "") +
+          "</span>" +
+          (credit ? '<span class="cpop-balance" data-balance>' + esc(credit) + "</span>" : "") +
+          '<span class="cpop-prov">' + esc(modelShortProvider(m)) + "</span>" +
+          (m.id === cur && !selectedUnavailable ? '<span class="cpop-check">' + CHECK_SVG + "</span>" : "") +
+          "</button>";
+      });
+      html += "</div>";
+    }
+
+    // 5. Footer — the single home for provider setup, kept out of selection.
+    html += '<button type="button" role="menuitem" id="manageModels" class="cpop-row cpop-manage">Manage models</button>';
+
     els.modelPop.innerHTML = html;
+
     els.modelPop.querySelectorAll("[data-id]").forEach(function (row) {
       if (row.disabled) return;
-      row.onclick = function () { setModel(row.dataset.id); closePopovers(); };
+      row.onclick = function () { pickerQuery = ""; setModel(row.dataset.id); closePopovers(); };
     });
     var toggle = els.modelPop.querySelector("#localToggle");
     if (toggle) toggle.onclick = function () {
       if (!routesLocal(state().model)) setModel("auto");
       closePopovers();
     };
+    var search = els.modelPop.querySelector("#modelSearch");
+    if (search) {
+      search.oninput = function () { pickerQuery = search.value; var s = search.selectionStart; buildModelPop(); var again = els.modelPop.querySelector("#modelSearch"); if (again) { again.focus(); try { again.setSelectionRange(s, s); } catch (_e) { /* ignore */ } } };
+    }
+    var manage = els.modelPop.querySelector("#manageModels");
+    if (manage) manage.onclick = function () {
+      closePopovers();
+      if (global.__opai && global.__opai.openSettings) global.__opai.openSettings();
+    };
   }
+  var CHECK_SVG = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.5 3.5L13 5"/></svg>';
 
   function buildMorePop() {
     var st = state();

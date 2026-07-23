@@ -123,6 +123,7 @@ describe("section registry (#236)", () => {
   it("exposes the target taxonomy in order", () => {
     expect(OPaiSettings.sections.map((s) => s.id)).toEqual([
       "providers",
+      "balance",
       "models",
       "firewall",
       "permissions",
@@ -138,5 +139,53 @@ describe("section registry (#236)", () => {
       expect(section.keywords).toBeTruthy();
       expect(typeof section.render).toBe("function");
     }
+  });
+});
+
+describe("Credits & Balance section", () => {
+  const esc = (s) =>
+    String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const ctx = { esc, state: { boot: {} } };
+  const section = () => OPaiSettings.sections.find((s) => s.id === "balance");
+  const sample = () => ({
+    providerBalances: [
+      { provider: "claude", displayName: "Claude", status: "ok", amount: 85, currency: "EUR", percent: 100, source: "manual", supportsLiveBalance: false, checkedAt: null, rechargeHint: "x", configured: true },
+      { provider: "kimi", displayName: "Kimi (Moonshot)", status: "out", amount: 0, currency: "USD", percent: 0, source: "observed", supportsLiveBalance: true, checkedAt: null, rechargeHint: "Top up at platform.moonshot.ai (Billing).", configured: true },
+      { provider: "gemini", displayName: "Gemini", status: "unknown", amount: null, currency: "USD", percent: null, source: "none", supportsLiveBalance: false, checkedAt: null, rechargeHint: "x", configured: true },
+    ],
+  });
+
+  it("renders one card per provider with the exact amount and a progress bar", () => {
+    const html = section().render(sample(), ctx);
+    expect(html).toContain("€85.00");
+    expect(html).toContain('data-balance-provider="claude"');
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-valuenow="100"');
+  });
+
+  it("shows the out-of-credit state with its recharge hint", () => {
+    const html = section().render(sample(), ctx);
+    expect(html).toContain("Out of credit");
+    expect(html).toContain("balance-track out");
+    expect(html).toContain("Top up at platform.moonshot.ai");
+  });
+
+  it("never invents a number for an unknown balance", () => {
+    const html = section().render(sample(), ctx);
+    expect(html).toContain("Unknown");
+  });
+
+  it("offers manual entry and a live refresh action", () => {
+    const html = section().render(sample(), ctx);
+    expect(html).toContain('data-save-balance="claude"');
+    expect(html).toContain('id="balanceRefresh"');
+  });
+
+  it("renders nothing when the payload has no balances (older backend)", () => {
+    expect(section().render({}, ctx)).toBe("");
   });
 });

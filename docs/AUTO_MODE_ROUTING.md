@@ -121,10 +121,34 @@ overriding the focus hint. It full-matches the whole message, so
 same `hi` on a suspended/rate-limited provider (e.g. a Moonshot account out of
 balance) still fails over to the next configured model instead of dead-ending.
 
+## Credit balances: out-of-credit tools are excluded, not deprioritized
+
+`opaihub.provider_balance` keeps a local, secret-free record of how much
+credit each provider has left, from three honest sources (in trust order):
+
+1. **provider** — a live balance API (Moonshot/Kimi exposes one; the registry
+   makes adding more a one-entry change),
+2. **observed** — a real call was refused for insufficient balance/quota
+   (Moonshot's "suspended due to insufficient balance" HTTP 429 is now
+   classified `PROVIDER_QUOTA_EXHAUSTED`, not a transient rate limit), or a
+   call succeeded, which proves credit exists and clears the flag,
+3. **manual** — the amount the user typed in Settings › Credits & Balance for
+   subscription tools with no balance API (Claude/Codex/Copilot).
+
+Unlike the reliability cooldown (a heuristic that only *deprioritizes*),
+exhaustion is observed fact: an out-of-credit provider **cannot** answer, so
+`resolve_auto_chain` excludes it outright, the model picker removes its models
+(with a note explaining why and a fall-back of the selection to Auto), and the
+Settings page shows the state with a recharge hint. The verdict expires after
+`EXHAUSTED_TTL_SECONDS` (6 h) and is cleared by any successful call, a manual
+balance above zero, or a live probe showing credit — so a recharge made
+outside OPai is rediscovered automatically.
+
 ## Diagnostics
 
 `auto_router.routing_diagnostics()` returns a compact, secret-free view of how
-Auto ordered its candidates (task type, chain, per-provider reliability) for
+Auto ordered its candidates (task type, chain, per-provider reliability, and
+`skipped_out_of_credit` — the providers excluded for having no credit) for
 internal troubleshooting — it is not surfaced as noise to normal users.
 
 ## Tests

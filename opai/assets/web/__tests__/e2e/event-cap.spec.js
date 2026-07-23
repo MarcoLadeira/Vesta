@@ -25,7 +25,9 @@ test("a run past the cap shows an honest truncation marker, ledger stays whole",
   const marker = page.locator(".timeline .tl-truncation");
   await expect(marker).toHaveCount(1);
   await expect(marker).toContainText("earlier steps hidden");
-  await expect(marker).toContainText("ledger");
+  // #390: the marker no longer claims an itemized "ledger" view (none exists);
+  // it honestly says the rows were dropped for performance.
+  await expect(marker).toContainText("dropped to stay fast");
 
   const { kept, truncated } = await page.evaluate(() => ({
     kept: window.__opai.state.store.list().length,

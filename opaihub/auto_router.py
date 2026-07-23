@@ -30,6 +30,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from . import provider_balance as balance
 from . import provider_reliability as reliability
 from .model_intelligence import classify_task
 
@@ -176,10 +177,23 @@ def resolve_auto_chain(
     models = list(catalog.get("models") or [])
     unavailable = unavailable_account_providers(catalog)
 
+    # A provider known to be out of credit cannot answer no matter how it is
+    # ranked — calling it only burns a fallback step on a guaranteed refusal.
+    # Unlike a reliability cooldown (a heuristic that only *deprioritizes*),
+    # exhaustion is observed fact, so these are excluded outright. The verdict
+    # expires (provider_balance.EXHAUSTED_TTL_SECONDS) so a recharge made
+    # outside OPai is rediscovered automatically.
+    def has_credit(item: dict[str, Any]) -> bool:
+        if item.get("out_of_credit") is True:
+            return False
+        return not balance.is_exhausted(root, _provider_of_entry(item), now=now)
+
     free = [
         item
         for item in models
-        if item.get("kind") == "free" and item.get("available") is True
+        if item.get("kind") == "free"
+        and item.get("available") is True
+        and has_credit(item)
     ]
     accounts = [
         item
@@ -187,6 +201,7 @@ def resolve_auto_chain(
         if item.get("kind") == "account"
         and item.get("available") is True
         and _provider_of_entry(item) not in unavailable
+        and has_credit(item)
     ]
 
     classification = classify_task(root, task)
@@ -237,6 +252,19 @@ def routing_diagnostics(
     normal user, but available when a route needs explaining.
     """
     chain = resolve_auto_chain(project_root, task, catalog, now=now)
+    root = project_root.expanduser().resolve()
+    skipped = sorted(
+        {
+            _provider_of_entry(item)
+            for item in catalog.get("models") or []
+            if item.get("kind") in {"free", "account"}
+            and (
+                item.get("out_of_credit") is True
+                or balance.is_exhausted(root, _provider_of_entry(item), now=now)
+            )
+        }
+        - {""}
+    )
     return {
         "task_type": classify_task(project_root, task).get("task_type"),
         "chain": [
@@ -244,4 +272,7 @@ def routing_diagnostics(
             for c in chain
         ],
         "reliability": reliability.reliability_snapshot(project_root, now=now),
+        # Providers Auto refused to call because they are out of credit — the
+        # explanation surface for "why isn't X in the chain?".
+        "skipped_out_of_credit": skipped,
     }

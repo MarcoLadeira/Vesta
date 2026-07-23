@@ -214,11 +214,24 @@ def classify_error_code(
     if timed_out:
         return "PROVIDER_TIMEOUT"
     low = str(detail or "").lower()
-    # Quota exhaustion may be wrapped in an HTTP 403 by Copilot. Classify the
-    # specific, actionable provider diagnosis before the generic auth status.
+    # Quota exhaustion may be wrapped in an HTTP 403 by Copilot, and an
+    # out-of-credit refusal in an HTTP 429 by Moonshot ("suspended due to
+    # insufficient balance, please recharge"). Classify the specific,
+    # actionable provider diagnosis before the generic auth/rate statuses —
+    # a billing exhaustion never fixes itself by waiting a moment.
     if any(
         phrase in low
-        for phrase in ("quota exceeded", "exceeded your monthly quota")
+        for phrase in (
+            "quota exceeded",
+            "exceeded your monthly quota",
+            "insufficient balance",
+            "insufficient credit",
+            "insufficient_quota",
+            "insufficient funds",
+            "credit balance is too low",
+            "recharge your account",
+            "out of credit",
+        )
     ):
         return "PROVIDER_QUOTA_EXHAUSTED"
     if "expired" in low and any(

@@ -54,18 +54,46 @@ test("mode popover offers every autonomy level with plain-language descriptions"
   ]);
 });
 
-test("model popover groups providers and exposes the keep-work-local toggle", async ({ page }) => {
-  await openApp(page);
+test("model popover shows working models, balances, and explains removals", async ({ page }) => {
+  // Redesigned picker contract: the Auto card is pinned on top; only
+  // configured models appear (unconfigured ones live in Manage models);
+  // a configured-but-failing model is shown disabled with its reason; an
+  // out-of-credit model is REMOVED with an explanatory note; models with a
+  // known balance show the exact remaining amount.
+  await openApp(page, {
+    boot: {
+      models: [
+        { id: "account:claude:opus", label: "OPai · Powerful mode", kind: "account", group: "claude", provider: "claude", available: true, healthy: true, balance: { provider: "claude", displayName: "Claude", status: "ok", amount: 85, currency: "EUR", percent: 100, source: "manual" } },
+        { id: "free:gemini:gemini-3.1-flash-lite", label: "Gemini · 3.1 Flash-Lite (free tier)", kind: "free", group: "free", provider: "gemini", available: true, healthy: false, health_reason: "Recently unavailable — OPai will retry it automatically." },
+        { id: "free:groq:openai/gpt-oss-120b", label: "Groq · GPT-OSS 120B (free tier)", kind: "free", group: "free", provider: "groq", available: false, disabled_reason: "Set GROQ_API_KEY to enable Groq" },
+        { id: "free:kimi:kimi-k2.6", label: "Kimi · K2.6 (free tier)", kind: "free", group: "free", provider: "kimi", available: false, out_of_credit: true, disabled_reason: "Kimi (Moonshot) is out of credit.", balance: { provider: "kimi", displayName: "Kimi (Moonshot)", status: "out", amount: 0, currency: "USD", percent: 0, source: "provider" } },
+        { id: "ollama:qwen2.5-coder", label: "Qwen 2.5 Coder · local", kind: "local", group: "local", provider: "ollama", available: true, healthy: true },
+        { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing" },
+      ],
+      selectedModel: "auto",
+    },
+  });
   await page.locator("#modelBtn").click();
   const menu = page.locator("#modelPop");
-  await expect(menu).toContainText("Claude");
-  await expect(menu).toContainText("Free models");
-  await expect(menu).toContainText("Local models");
-  // Unavailable models are shown but disabled with the reason.
-  const groq = menu.getByRole("menuitemradio", { name: /Groq · GPT-OSS/ });
-  await expect(groq).toBeDisabled();
+  // Auto stays pinned and recommended.
+  await expect(menu.getByRole("menuitemradio", { name: /Auto/ }).first()).toBeVisible();
+  await expect(menu).toContainText("Recommended");
+  // A working model with a known balance shows the exact remaining amount.
+  await expect(menu.getByRole("menuitemradio", { name: /Powerful/ })).toContainText("€85.00 left");
+  // A configured-but-failing model is shown disabled with the reason.
+  const gemini = menu.getByRole("menuitemradio", { name: /Gemini/ });
+  await expect(gemini).toBeDisabled();
+  await expect(gemini).toContainText("Recently unavailable");
+  // Unconfigured models never appear in selection — only in Manage models.
+  await expect(menu.getByRole("menuitemradio", { name: /Groq/ })).toHaveCount(0);
+  // Out-of-credit models are removed AND their absence is explained.
+  await expect(menu.getByRole("menuitemradio", { name: /Kimi/ })).toHaveCount(0);
+  await expect(menu.locator("[data-credit-note]")).toContainText("Kimi (Moonshot)");
+  await expect(menu.locator("[data-credit-note]")).toContainText("out of credit");
   // The local-first toggle is the former "routes local first" preference.
   await expect(menu.getByRole("menuitemcheckbox", { name: /Keep work on this machine/ })).toHaveAttribute("aria-checked", "true");
+  // Provider setup lives behind one footer action, out of the selection list.
+  await expect(menu.getByRole("menuitem", { name: "Manage models" })).toBeVisible();
 });
 
 test("context is added on demand and sent as a path-only reference", async ({ page }) => {
