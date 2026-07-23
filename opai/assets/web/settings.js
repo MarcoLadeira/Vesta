@@ -937,6 +937,7 @@
     var window = u.window || {};
     var hasBar = official.available && official.percent != null;
     var pct = hasBar ? Math.max(0, Math.min(100, +official.percent)) : 0;
+    var bodyShowsDetail = false;
 
     var h =
       '<article class="usage2-card" data-usage-provider="' +
@@ -997,8 +998,10 @@
         esc(official.currency || "") +
         ' left</span></div>';
     } else {
-      // Honest unavailable/not-connected state — never a fake bar.
+      // Honest unavailable/not-connected state — never a fake bar. The body
+      // already carries the detail, so the footer omits it (no duplicate).
       h += '<div class="usage2-unavailable" data-usage-primary>' + esc(u.detail || "") + "</div>";
+      bodyShowsDetail = true;
     }
 
     // OPai-tracked activity in the window — clearly separated from official.
@@ -1020,9 +1023,13 @@
         "</div>";
     }
 
-    // Footer: source detail + optional "check official usage" link + refresh.
+    // Footer: source detail (unless the body already showed it) + optional
+    // "check official usage" link.
     h += '<div class="usage2-foot">';
-    h += '<span class="usage2-detail" data-usage-detail>' + esc(u.detail || "") + "</span>";
+    h +=
+      '<span class="usage2-detail" data-usage-detail>' +
+      (bodyShowsDetail ? "" : esc(u.detail || "")) +
+      "</span>";
     if (u.checkUrl && !hasBar) {
       h +=
         '<a class="usage2-link" href="' +
