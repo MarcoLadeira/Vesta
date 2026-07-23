@@ -182,6 +182,7 @@ function boot() {
     renderSidebar(); renderWorkspace(); renderComposerSelects(); renderComposerContext(); renderInspector();
     renderStatus(b.status); renderAccount(); applyPanel();
     renderEmptyChips();
+    renderUpdateBanner(b.update);
     syncBuildMode();
     // Composer Redesign: apply the saved direction (toolbar / single / command).
     if (window.OPaiComposer) window.OPaiComposer.applyBootStyle();
@@ -251,6 +252,33 @@ function applyBrand(brand) {
   if (eyebrow && brand.tagline) eyebrow.textContent = brand.name + " · " + brand.tagline;
 }
 
+// Shell-wide update nudge (mandatory-update system): a cache-only signal from
+// boot (never a fresh network call on its own), so it can appear before the
+// user ever opens Settings. Honest states only — never shown unless the
+// check actually succeeded and found OPai behind; settings.js's About page
+// re-calls this after a live check or a completed update.
+function renderUpdateBanner(update) {
+  const banner = $("#updateBanner");
+  if (!banner) return;
+  const available = !!(update && update.checked && !update.up_to_date);
+  banner.hidden = !available;
+  if (!available) return;
+  const text = $("#updateBannerText");
+  if (text) {
+    text.textContent = update.latest_version
+      ? `OPai ${update.latest_version} is available.`
+      : "An update is available.";
+  }
+  const action = $("#updateBannerAction");
+  if (action && !action.dataset.wired) {
+    action.dataset.wired = "1";
+    action.onclick = () => {
+      try { window.history.replaceState(null, "", "#settings/about"); } catch (_e) { /* best-effort deep link */ }
+      switchView("settings");
+    };
+  }
+}
+
 function rebootFromState() {
   const b = state.boot;
   state.accounts = b.accounts || [];
@@ -259,6 +287,7 @@ function rebootFromState() {
   applyBootSelection(b);
   renderSidebar(); renderWorkspace(); renderComposerSelects(); renderComposerContext(); renderInspector();
   renderStatus(b.status); renderAccount(); renderEmptyChips();
+  renderUpdateBanner(b.update);
   syncBuildMode();
   clearChat(); switchView("chat"); renderResumeChoice();
   // The inspector payload is deferred like at boot; refresh it for the new
@@ -2912,5 +2941,8 @@ if (typeof window !== "undefined") {
     // the single real home for connecting/reconnecting a provider, kept out of
     // the selection list itself.
     openSettings: () => switchView("settings"),
+    // Settings' About page re-reports the update banner after a live check
+    // or a completed update, so the shell-wide nudge never lags behind it.
+    renderUpdateBanner: (update) => renderUpdateBanner(update),
   };
 }

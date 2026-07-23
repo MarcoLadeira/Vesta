@@ -59,6 +59,15 @@
       </div>
     </header>
 
+    <!-- Update nudge (mandatory-update system): shown whenever the cached
+         boot check found a newer version. Hidden by default; app.js reveals
+         it and fills in the target version. -->
+    <div class="update-banner" id="updateBanner" role="status" hidden>
+      <span class="update-dot" aria-hidden="true"></span>
+      <span id="updateBannerText">An update is available.</span>
+      <button class="btn primary" id="updateBannerAction">Update now</button>
+    </div>
+
     <!-- sidebar -->
     <aside class="sidebar">
       <button class="new-chat" id="newChat"><span data-icon="plus" aria-hidden="true"></span> New chat</button>

@@ -1080,6 +1080,48 @@
     return h;
   }
 
+  // Update status card (Settings redesign): honest states only — never a
+  // fabricated "up to date" when the check itself failed (offline, no git
+  // checkout). `updateHtml` is also used to build the shell-wide nudge, so
+  // wording can never drift between the two.
+  function updateStatusHtml(esc, update) {
+    var u = update || {};
+    if (!u.checked) {
+      var reason = u.reason || "Update status is unknown right now.";
+      return (
+        '<div class="update-card unknown" data-update-status="unknown">' +
+        '<div class="update-head"><span class="update-title">Update status unknown</span></div>' +
+        '<div class="update-desc">' +
+        esc(reason) +
+        "</div>" +
+        '<div class="actions"><button class="btn" id="settingsCheckUpdate">Check for updates</button></div>' +
+        "</div>"
+      );
+    }
+    if (u.up_to_date) {
+      return (
+        '<div class="update-card ok" data-update-status="up-to-date">' +
+        '<div class="update-head"><span class="update-dot"></span><span class="update-title">You\'re on the latest version</span></div>' +
+        '<div class="actions"><button class="btn ghost" id="settingsCheckUpdate">Check for updates</button></div>' +
+        "</div>"
+      );
+    }
+    return (
+      '<div class="update-card available" data-update-status="available">' +
+      '<div class="update-head"><span class="update-dot"></span><span class="update-title">Update available' +
+      (u.latest_version ? ": " + esc(u.latest_version) : "") +
+      "</span></div>" +
+      '<div class="update-desc">' +
+      esc(
+        (u.commits_behind ? u.commits_behind + " change" + (u.commits_behind === 1 ? "" : "s") + " behind. " : "") +
+          "OPai fetches, fast-forwards, and reinstalls — nothing is discarded, and it refuses if you have uncommitted local changes."
+      ) +
+      "</div>" +
+      '<div class="actions"><button class="btn primary" id="settingsApplyUpdate">Update now</button><button class="btn ghost" id="settingsCheckUpdate">Check again</button></div>' +
+      "</div>"
+    );
+  }
+
   function aboutHtml(d, ctx) {
     var esc = ctx.esc;
     if (!(d.about && d.about.version)) return "";
@@ -1090,7 +1132,12 @@
       statTile(esc, { label: "Version", value: d.about.version, mono: true }) +
       statTile(esc, { label: "Release stage", value: d.about.release_stage || "—" }) +
       "</div>" +
+      '<div class="set-head">Updates</div>' +
+      '<div id="settingsUpdateCard">' +
+      updateStatusHtml(esc, d.about.update) +
+      "</div>" +
       // Replay the first-run tour on demand (#250).
+      '<div class="set-head">Tour</div>' +
       '<div class="set-note">New here, or want a refresher? Replay the three-step welcome tour.</div>' +
       '<div class="actions"><button class="btn" id="settingsReplayTour">Replay tour</button></div>'
     );
@@ -1749,6 +1796,83 @@
         );
       };
     });
+    // Check for updates / Update now (mandatory-update system): a live check
+    // always bypasses the cache (force=true) — a click is explicit intent to
+    // know right now, never served stale. Applying an update mutates the
+    // working tree (fetch, fast-forward, reinstall), so it goes through the
+    // same styled inline confirm every other mutating settings action uses.
+    var updateCard = q("#settingsUpdateCard");
+    function wireUpdateButtons() {
+      var checkBtn = q("#settingsCheckUpdate");
+      if (checkBtn)
+        checkBtn.onclick = function () {
+          checkBtn.disabled = true;
+          checkBtn.textContent = "Checking…";
+          bridge.checkForUpdates(true, function (json2) {
+            var result = {};
+            try {
+              result = JSON.parse(json2);
+            } catch (_e) {
+              /* keep {} */
+            }
+            if (updateCard) updateCard.innerHTML = updateStatusHtml(esc, result);
+            wireUpdateButtons();
+            if (global.__opai && global.__opai.renderUpdateBanner) global.__opai.renderUpdateBanner(result);
+            if (result.checked && !result.up_to_date)
+              toast("Update available: " + (result.latest_version || result.branch));
+            else if (result.checked) toast("You're on the latest version");
+            else toast(result.reason || "Could not check for updates");
+          });
+        };
+      var applyBtn = q("#settingsApplyUpdate");
+      if (applyBtn)
+        applyBtn.onclick = function () {
+          var host = applyBtn.closest(".update-card") || applyBtn.parentElement;
+          applyBtn.disabled = true;
+          ctx
+            .inlineConfirm(host, {
+              title: "Update OPai now?",
+              body: "OPai fetches the latest version, fast-forwards to it, and reinstalls. It refuses if you have uncommitted local changes — nothing is ever discarded.",
+              confirmLabel: "Update now",
+            })
+            .then(function (ok) {
+              if (!ok) {
+                applyBtn.disabled = false;
+                return;
+              }
+              applyBtn.textContent = "Updating…";
+              bridge.applyUpdate(function (json2) {
+                var result = {};
+                try {
+                  result = JSON.parse(json2);
+                } catch (_e) {
+                  /* keep {} */
+                }
+                if (!result.ok) {
+                  applyBtn.disabled = false;
+                  applyBtn.textContent = "Update now";
+                  toast(result.error || "Could not update OPai");
+                  return;
+                }
+                if (updateCard)
+                  updateCard.innerHTML =
+                    '<div class="update-card ok" data-update-status="restart"><div class="update-head"><span class="update-dot"></span><span class="update-title">Updated to ' +
+                    esc(result.installed_version || "the latest version") +
+                    ' — restart to finish</span></div><div class="actions"><button class="btn primary" id="settingsRestartOpai">Restart now</button></div></div>';
+                if (global.__opai && global.__opai.renderUpdateBanner)
+                  global.__opai.renderUpdateBanner({ checked: true, up_to_date: true });
+                var restartBtn = q("#settingsRestartOpai");
+                if (restartBtn)
+                  restartBtn.onclick = function () {
+                    restartBtn.disabled = true;
+                    restartBtn.textContent = "Restarting…";
+                    bridge.restartOPai();
+                  };
+              });
+            });
+        };
+    }
+    wireUpdateButtons();
     // Replay the first-run tour (#250) — reuses the real onboarding overlay.
     var replayBtn = q("#settingsReplayTour");
     if (replayBtn && ctx.replayTour)

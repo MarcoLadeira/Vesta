@@ -1245,6 +1245,26 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .density-compact .stat-tile, .density-compact .quick-tile, .density-compact .panic-card,
 .density-compact .mode-hero, .density-compact .callout-card, .density-compact .danger-zone { padding: var(--space-3); }
 
+/* ---------- Update status (mandatory-update system) ---------- */
+.update-card { border-radius: var(--r-md); border: 1px solid var(--border); background: var(--glass); padding: var(--space-4); margin-top: var(--space-2); }
+.update-card.available { border-color: rgba(52, 211, 153, 0.4); background: linear-gradient(180deg, rgba(52, 211, 153, 0.08), var(--glass)); }
+.update-card.unknown { border-color: var(--border-strong); }
+.update-head { display: flex; align-items: center; gap: var(--space-2); }
+.update-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); flex: none; }
+.update-card.unknown .update-dot { background: var(--faint); box-shadow: none; }
+.update-title { font-size: var(--type-body); font-weight: 750; color: var(--ink); }
+.update-desc { font-size: var(--type-label); color: var(--muted); margin-top: var(--space-2); line-height: var(--leading-normal); }
+.update-card .actions { margin-top: var(--space-3); }
+/* Shell-wide nudge (header banner) — same honest states as the About card. */
+.update-banner {
+  display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4);
+  background: linear-gradient(180deg, rgba(52, 211, 153, 0.1), rgba(52, 211, 153, 0.04));
+  border-bottom: 1px solid rgba(52, 211, 153, 0.28); font-size: var(--type-label); color: var(--ink);
+}
+.update-banner .update-dot { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+.update-banner button { margin-left: auto; }
+.update-banner[hidden] { display: none; }
+
 /* ---------- Credits & Balance (per-provider credit truth) ---------- */
 .balance-card { background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--space-3) var(--space-3); margin: var(--space-2) 0; }
 .balance-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }

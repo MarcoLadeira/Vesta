@@ -577,6 +577,10 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             {"id": tool["id"], "label": tool["label"], "desc": tool["desc"]}
             for tool in A.TOOLS
         ],
+        # Cache-only (no network at boot): lets the shell show an "update
+        # available" nudge immediately, without the user opening Settings.
+        # A live (TTL-guarded) check happens when the About page renders.
+        "update": _cached_update_check(),
     }
     _STARTUP.mark("boot:done")
     return payload
@@ -988,8 +992,21 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "about": {
             "version": overview.get("version"),
             "release_stage": overview.get("release_stage"),
+            # Cache only — no network in the payload build; the About page
+            # triggers a live (TTL-guarded) check through checkForUpdates
+            # after render, same pattern as providerBalances above.
+            "update": _cached_update_check(),
         },
     }
+
+
+def _cached_update_check() -> dict[str, Any]:
+    from opai.updater import check_for_update, install_root
+
+    try:
+        return check_for_update(install_root(), force=False)
+    except Exception:  # noqa: BLE001 - the About page must never fail to render
+        return {"checked": False, "up_to_date": True, "reason": None}
 
 
 def provider_balances_payload(
@@ -1394,6 +1411,57 @@ def _run_gui(
                 )
             except Exception as exc:  # noqa: BLE001 - never crash the page
                 return json.dumps({"ok": False, "error": str(exc)})
+
+        @QtCore.Slot(bool, result=str)
+        def checkForUpdates(self, force: bool) -> str:
+            """Compare the running version against origin/main; never raises.
+
+            Checks OPai's own source checkout, not ``self.root`` (the user's
+            active project) — those are different directories entirely.
+            """
+            from opai.updater import check_for_update, install_root
+
+            try:
+                return json.dumps(check_for_update(install_root(), force=bool(force)))
+            except Exception as exc:  # noqa: BLE001 - never crash the page
+                return json.dumps({"checked": False, "up_to_date": True, "reason": str(exc)})
+
+        @QtCore.Slot(result=str)
+        def applyUpdate(self) -> str:
+            """Fetch, fast-forward, and reinstall — the same steps install.ps1 runs."""
+            from opai.updater import apply_update, install_root
+
+            try:
+                return json.dumps(apply_update(install_root()))
+            except Exception as exc:  # noqa: BLE001 - never crash the page
+                return json.dumps({"ok": False, "error": str(exc)})
+
+        @QtCore.Slot()
+        def restartOPai(self) -> None:
+            """Relaunch OPai on the updated code, then quit this process.
+
+            Spawns a fresh, detached ``opai gui`` for the same project so the
+            new window opens with the just-installed version, then closes the
+            current window — never leaves the user without a running app.
+            """
+            import subprocess
+            import sys
+
+            try:
+                creationflags = 0
+                if sys.platform.startswith("win"):
+                    creationflags = (
+                        subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                    )
+                subprocess.Popen(  # nosec B603 - fixed argv, no shell
+                    [sys.executable, "-m", "opai", "gui", "--project", str(self.root)],
+                    creationflags=creationflags,
+                    close_fds=True,
+                    start_new_session=not sys.platform.startswith("win"),
+                )
+            except OSError:
+                return
+            QtCore.QTimer.singleShot(150, QtWidgets.QApplication.quit)
 
         @QtCore.Slot(str, str, str, str, result=str)
         def saveUsageLimit(

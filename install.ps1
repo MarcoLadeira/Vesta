@@ -116,8 +116,10 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+$InstalledVersion = (& $Python -m opai version 2>$null)
+if (-not $InstalledVersion) { $InstalledVersion = "OPai installed" }
 Write-Host ""
-Write-Host "OPai 0.1.1 pre-alpha installed permanently."
+Write-Host "$InstalledVersion installed permanently."
 Write-Host "Source: $Root"
 Write-Host "Activated project: $ProjectRoot"
 Write-Host "Restart terminals and AI clients once so aliases and skills reload."

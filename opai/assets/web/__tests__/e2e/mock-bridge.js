@@ -27,6 +27,10 @@
   var defaultBoot = {
     workspace: { label: "demo", root: "/demo", name: "demo", branch: "main", file_count: 3, recents: [{ path: "/other/proj", label: "other/proj" }] },
     recents: ["summarize my changes"],
+    update: {
+      current_version: "0.2.1a1", checked: true, up_to_date: true,
+      latest_version: "0.2.1a1", commits_behind: 0, branch: "main", reason: null,
+    },
     brand: {
       name: "OPai",
       tagline: "Every step visible. Every dollar accounted.",
@@ -189,6 +193,22 @@
     repairCodexConfig: function (cb) {
       window.__mock.codexRepairs++;
       cb(JSON.stringify({ repaired: true, backupPath: "/tmp/config.toml.bak" }));
+    },
+    checkForUpdates: function (force, cb) {
+      window.__mock.updateChecks.push(!!force);
+      cb(JSON.stringify(scenario.updateCheckResponse || {
+        current_version: "0.2.1a1", checked: true, up_to_date: true,
+        latest_version: "0.2.1a1", commits_behind: 0, branch: "main", reason: null,
+      }));
+    },
+    applyUpdate: function (cb) {
+      window.__mock.updateApplies++;
+      cb(JSON.stringify(scenario.applyUpdateResponse || {
+        ok: true, restart_required: true, installed_version: "0.3.0",
+      }));
+    },
+    restartOPai: function () {
+      window.__mock.updateRestarts++;
     },
     disconnectAccount: function (provider, cb) {
       window.__mock.disconnects.push(provider);
@@ -403,6 +423,7 @@
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
     dashboardRequests: [], settingsRequests: [], statusRequests: [],
+    updateChecks: [], updateApplies: 0, updateRestarts: 0,
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },

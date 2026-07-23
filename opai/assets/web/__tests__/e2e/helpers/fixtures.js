@@ -261,7 +261,14 @@ export const SETTINGS = {
     ],
   },
   accounts: CONNECTED_ACCOUNTS,
-  about: { version: "0.2.0a1", release_stage: "alpha.1" },
+  about: {
+    version: "0.2.0a1",
+    release_stage: "alpha.1",
+    update: {
+      current_version: "0.2.0a1", checked: true, up_to_date: true,
+      latest_version: "0.2.0a1", commits_behind: 0, branch: "main", reason: null,
+    },
+  },
 };
 
 function merge(base, override) {
