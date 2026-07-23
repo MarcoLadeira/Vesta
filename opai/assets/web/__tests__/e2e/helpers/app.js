@@ -137,6 +137,13 @@ export async function emitScenarioBatch(page, requestId, events) {
   return events;
 }
 
+// Settings lands on the Overview page (settings redesign); specs that target a
+// specific page open it through the rail, exactly like a user.
+export async function openSettings(page, id) {
+  await page.locator("#headerSettings").click();
+  if (id) await page.locator(`.settings-rail-item[data-rail-target="${id}"]`).click();
+}
+
 export async function openNav(page, label) {
   if (label === "Settings") {
     await page.locator("#headerSettings").click();

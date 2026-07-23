@@ -341,7 +341,7 @@ OPai writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAUD
 ## OPai Commands
 
 ```text
-opai version          show OPai 0.2.0a2 alpha.2
+opai version          show OPai 0.2.1a1 alpha.1
 op version            same as opai version
 op activate           attach current project and ensure Superpowers/AI instructions
 op status             show activation, Superpowers, wrappers, and project state

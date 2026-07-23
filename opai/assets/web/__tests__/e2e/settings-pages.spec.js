@@ -15,9 +15,10 @@ test.beforeEach(async ({ page }) => {
 const railItem = (page, id) => page.locator(`.settings-rail-item[data-rail-target="${id}"]`);
 const seen = { useInnerText: true };
 
-test("the rail lists every page and Providers & Connections is the default", async ({ page }) => {
+test("the rail lists every page and Overview is the default", async ({ page }) => {
   const labels = await page.locator(".settings-rail-item .settings-rail-label").allInnerTexts();
   expect(labels).toEqual([
+    "Overview",
     "Providers & Connections",
     "Models & Routing",
     "Cost Firewall",
@@ -26,9 +27,28 @@ test("the rail lists every page and Providers & Connections is the default", asy
     "Appearance",
     "About",
   ]);
-  await expect(railItem(page, "providers")).toHaveAttribute("aria-current", "page");
-  await expect(page.locator("#settingsPage")).toContainText("Connection Doctor", seen);
+  await expect(railItem(page, "overview")).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("#settingsPage")).toContainText("OPai status", seen);
+  await expect(page.locator("#settingsPage")).not.toContainText("Connection Doctor", seen);
   await expect(page.locator("#settingsPage")).not.toContainText("Cost firewall", seen);
+});
+
+test("the Overview status card reflects the real payload", async ({ page }) => {
+  const settings = page.locator("#settingsPage");
+  // Fixtures: cloud gate on, solo-balanced profile, 3 healthy accounts.
+  await expect(settings).toContainText("Cloud gate: confirm", seen);
+  await expect(settings).toContainText("solo-balanced", seen);
+  await expect(settings).toContainText("3 connected", seen);
+  await expect(settings).toContainText("Safe Auto", seen);
+  // All connections are healthy, so the attention list is honestly calm.
+  await expect(settings).toContainText("Nothing needs your attention right now", seen);
+});
+
+test("Overview quick controls navigate to the target page", async ({ page }) => {
+  await page.locator('.quick-tile[data-go-page="firewall"]').click();
+  await expect(railItem(page, "firewall")).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("#settingsPage")).toContainText("Panic mode", seen);
+  expect(page.url()).toContain("#settings/firewall");
 });
 
 test("clicking a rail page switches to that page only", async ({ page }) => {

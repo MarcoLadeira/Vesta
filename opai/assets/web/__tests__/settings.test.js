@@ -122,6 +122,7 @@ describe("doctorSummary (#237)", () => {
 describe("section registry (#236)", () => {
   it("exposes the target taxonomy in order", () => {
     expect(OPaiSettings.sections.map((s) => s.id)).toEqual([
+      "overview",
       "providers",
       "balance",
       "models",

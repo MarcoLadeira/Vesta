@@ -82,26 +82,63 @@
     );
   }
 
-  // One honest sentence for the top of the Providers page (#237). Shared by
-  // the render path and app.js's live updater so the wording can never drift.
-  function doctorSummary(healths) {
-    var attention = healths.filter(function (health) {
-      return (
-        ["failed", "degraded", "not_installed", "not_configured"].indexOf(health) >= 0
-      );
-    }).length;
-    var text = !healths.length
-      ? "No providers detected yet"
-      : attention === 0
-        ? "All " + healths.length + " connections look good"
-        : attention + " of " + healths.length + " connections need attention";
-    return { attention: attention, text: text };
+  // ---- Settings redesign (OPai Settings design doc) ----------------------- //
+  // Every page opens with its own title, a one-sentence purpose, and scope
+  // chips that state where the setting lives. Chips are facts, not marketing:
+  // blue = app-wide, accent = this project, muted = stored locally only.
+  var HERO_CHIPS = {
+    app: { label: "App-wide", tone: "blue" },
+    project: { label: "This project", tone: "accent" },
+    local: { label: "Local only", tone: "muted" },
+    instant: { label: "Saved instantly", tone: "accent" },
+  };
+
+  function heroHtml(esc, title, desc, chips) {
+    var h = '<div class="pane-hero"><div class="pane-title">' + esc(title) + "</div>";
+    if (desc) h += '<div class="pane-desc">' + esc(desc) + "</div>";
+    if (chips && chips.length) {
+      h +=
+        '<div class="pane-chips">' +
+        chips
+          .map(function (id) {
+            var chip = HERO_CHIPS[id];
+            return (
+              '<span class="pane-chip ' +
+              chip.tone +
+              '"><span class="pane-chip-dot" aria-hidden="true"></span>' +
+              esc(chip.label) +
+              "</span>"
+            );
+          })
+          .join("") +
+        "</div>";
+    }
+    return h + "</div>";
   }
 
-  function providersHtml(d, ctx) {
-    var esc = ctx.esc;
-    var connectionHealthLabel = ctx.connectionHealthLabel;
-    var doctorItems = Array.isArray(d.connectionDoctor)
+  // A small uppercase-label stat tile. `tone` colours the sub line so status
+  // is always colour + a word, never colour alone.
+  function statTile(esc, opts) {
+    return (
+      '<div class="stat-tile"><div class="stat-label">' +
+      esc(opts.label) +
+      '</div><div class="stat-value' +
+      (opts.mono ? " mono" : "") +
+      '">' +
+      esc(opts.value) +
+      "</div>" +
+      (opts.sub
+        ? '<div class="stat-sub' + (opts.tone ? " " + opts.tone : "") + '">' + esc(opts.sub) + "</div>"
+        : "") +
+      "</div>"
+    );
+  }
+
+  // Connection Doctor items, from the rich payload when present or derived
+  // from the plain accounts list otherwise. Shared by the Providers page and
+  // the Overview status card so their counts can never disagree.
+  function doctorItemsOf(d) {
+    return Array.isArray(d.connectionDoctor)
       ? d.connectionDoctor
       : (d.accounts || []).map(function (a) {
           return {
@@ -127,6 +164,187 @@
               : ["sign_in"],
           };
         });
+  }
+
+  // Overview (Settings redesign): the landing page answers "am I safe,
+  // connected, and able to keep working?" from the same payload the other
+  // pages render — nothing here is invented or cached separately.
+  function overviewHtml(d, ctx) {
+    var esc = ctx.esc;
+    var firewall = d.firewall || {};
+    var prefs = d.prefs || {};
+    var doctorItems = doctorItemsOf(d);
+    var summary = doctorSummary(
+      doctorItems.map(function (item) {
+        return item.health;
+      })
+    );
+    var connected = doctorItems.filter(function (item) {
+      return item.health === "verified" || item.health === "detected";
+    }).length;
+    var root = (ctx.state.boot.workspace && ctx.state.boot.workspace.root) || "";
+
+    var h = heroHtml(
+      esc,
+      "Settings",
+      "Control how OPai routes work, spends, and keeps you safe — without getting in your way.",
+      ["app", "project", "local"]
+    );
+    if (root) h += '<div class="pane-meta mono">' + esc(root) + "</div>";
+
+    h += '<div class="set-head">OPai status</div>';
+    h += '<div class="stat-grid">';
+    h += statTile(esc, {
+      label: "Protection",
+      value: firewall.panic
+        ? "Panic — local only"
+        : firewall.cloud_gate
+          ? "Cloud gate: confirm"
+          : "Cloud gate: open",
+      sub: firewall.panic ? "Cloud calls refused" : "Firewall active",
+      tone: firewall.panic ? "red" : "green",
+    });
+    h += statTile(esc, {
+      label: "Routing profile",
+      value: firewall.profile || "—",
+      sub: "Local-first",
+    });
+    h += statTile(esc, {
+      label: "Providers",
+      value: connected + " connected",
+      sub: !doctorItems.length
+        ? "None detected yet"
+        : summary.attention
+          ? summary.attention + " need" + (summary.attention === 1 ? "s" : "") + " attention"
+          : "All look good",
+      tone: !doctorItems.length ? "" : summary.attention ? "amber" : "green",
+    });
+    h += statTile(esc, {
+      label: "Default run mode",
+      value: MODE_LABELS[prefs.default_mode] || prefs.default_mode || "—",
+      sub: "For new tasks",
+    });
+    h += "</div>";
+
+    // Honest attention items only: each one is derived from a real signal in
+    // the payload and links to the page where it can be acted on.
+    var attention = [];
+    if (summary.attention) {
+      attention.push({
+        tone: "warn",
+        title:
+          summary.attention +
+          " connection" +
+          (summary.attention === 1 ? "" : "s") +
+          " need" +
+          (summary.attention === 1 ? "s" : "") +
+          " attention",
+        body: "A provider is unavailable, not signed in, or not configured. Routing works around it where it can.",
+        go: "providers",
+        action: "Review connections",
+      });
+    }
+    if (firewall.panic) {
+      attention.push({
+        tone: "warn",
+        title: "Panic mode is on — every cloud call is refused",
+        body: "Routing is local-only until you disable panic mode.",
+        go: "firewall",
+        action: "Review",
+      });
+    }
+    if (d.codexConfig && d.codexConfig.repairable) {
+      attention.push({
+        tone: "warn",
+        title: "Codex configuration needs repair",
+        body: d.codexConfig.message || "Invalid Codex configuration detected.",
+        go: "providers",
+        action: "Repair",
+      });
+    }
+    (d.usage || []).forEach(function (usage) {
+      if (usage.limit != null && +usage.percent >= 90) {
+        attention.push({
+          tone: "warn",
+          title: "A model is near its usage limit",
+          body: Math.round(+usage.percent) + "% of the soft limit for this window is used.",
+          go: "firewall",
+          action: "Review usage",
+        });
+      }
+    });
+    h += '<div class="set-head">Needs attention</div>';
+    if (attention.length) {
+      h += attention
+        .map(function (item) {
+          return (
+            '<div class="attn-item ' +
+            item.tone +
+            '"><div class="attn-body"><div class="attn-title">' +
+            esc(item.title) +
+            '</div><div class="attn-text">' +
+            esc(item.body) +
+            "</div></div>" +
+            '<button class="btn ghost" type="button" data-go-page="' +
+            esc(item.go) +
+            '">' +
+            esc(item.action) +
+            "</button></div>"
+          );
+        })
+        .join("");
+    } else {
+      h +=
+        '<div class="attn-item ok"><div class="attn-body"><div class="attn-title">Nothing needs your attention right now</div>' +
+        '<div class="attn-text">Anything that does — a failing connection, a tripped safety switch, a usage limit — will appear here, never hidden.</div></div></div>';
+    }
+
+    h += '<div class="set-head">Quick controls</div>';
+    var quick = [
+      { go: "models", title: "Models & routing", sub: "Default model, run mode, local-first order" },
+      { go: "firewall", title: "Budgets & usage", sub: "Caps, spend, per-model limits" },
+      { go: "permissions", title: "Permissions & safety", sub: "What OPai may do on its own" },
+      { go: "providers", title: "Connections", sub: "Accounts, API keys & health checks" },
+    ];
+    h +=
+      '<div class="quick-grid">' +
+      quick
+        .map(function (tile) {
+          return (
+            '<button class="quick-tile" type="button" data-go-page="' +
+            esc(tile.go) +
+            '"><span class="quick-body"><span class="quick-title">' +
+            esc(tile.title) +
+            '</span><span class="quick-sub">' +
+            esc(tile.sub) +
+            "</span></span></button>"
+          );
+        })
+        .join("") +
+      "</div>";
+    return h;
+  }
+
+  // One honest sentence for the top of the Providers page (#237). Shared by
+  // the render path and app.js's live updater so the wording can never drift.
+  function doctorSummary(healths) {
+    var attention = healths.filter(function (health) {
+      return (
+        ["failed", "degraded", "not_installed", "not_configured"].indexOf(health) >= 0
+      );
+    }).length;
+    var text = !healths.length
+      ? "No providers detected yet"
+      : attention === 0
+        ? "All " + healths.length + " connections look good"
+        : attention + " of " + healths.length + " connections need attention";
+    return { attention: attention, text: text };
+  }
+
+  function providersHtml(d, ctx) {
+    var esc = ctx.esc;
+    var connectionHealthLabel = ctx.connectionHealthLabel;
+    var doctorItems = doctorItemsOf(d);
     var checkedLabel = function (value) {
       return value ? new Date(Number(value)).toLocaleString() : "Never checked";
     };
@@ -136,7 +354,13 @@
         return item.health;
       })
     );
-    var h =
+    var h = heroHtml(
+      esc,
+      "Providers & Connections",
+      "Keep your model providers healthy. Connection Doctor tests each one safely — it never reads or shows a secret.",
+      ["app", "local"]
+    );
+    h +=
       '<div class="doctor-summary ' +
       (summary.attention ? "warn" : "ok") +
       '" data-doctor-summary role="status"><span class="doctor-summary-dot" aria-hidden="true"></span><span class="doctor-summary-text">' +
@@ -334,6 +558,11 @@
       }
       h += "</div>";
     }
+    h += '<div class="set-head">What OPai can access</div>';
+    h +=
+      '<div class="callout-card"><div class="callout-body">OPai sends only the files and context you attach to a task, to the provider you route to. ' +
+      "Credentials live in your OS keychain or the provider's own CLI — OPai reads a connection <b>status</b>, never the secret itself. " +
+      "Connection tests and health checks stay on this device.</div></div>";
     return h;
   }
 
@@ -575,7 +804,13 @@
     var formatOptions = (boot.outputFormats || []).map(function (m) {
       return { id: m.id, label: m.label };
     });
-    var h = '<div class="set-head">Defaults</div>';
+    var h = heroHtml(
+      esc,
+      "Models & Routing",
+      "Defaults for new tasks and the order OPai tries routes. Changes reflect in the composer instantly.",
+      ["project"]
+    );
+    h += '<div class="set-head">Defaults</div>';
     h += selectRow("Default model", "default_model", modelOptions, prefs.default_model || "auto");
     h += selectRow(
       "Default run mode",
@@ -611,10 +846,33 @@
       if (money(cap) && left != null) value += " · " + money(left) + " left";
       return row(esc, label, value);
     };
-    var h = '<div class="set-head">Cost firewall</div>';
-    h += row(esc, "Profile", firewall.profile || "—");
-    h += row(esc, "Spent today", money(firewall.spent_today || 0));
-    h += row(esc, "Spent this month", money(firewall.spent_month || 0));
+    var h = heroHtml(
+      esc,
+      "Cost Firewall",
+      "See what you've spent and where the limits are. Spend is estimated locally from the usage ledger; nothing is transmitted.",
+      ["project", "local"]
+    );
+    h += '<div class="set-head">Cost firewall</div>';
+    h += '<div class="stat-grid">';
+    h += statTile(esc, {
+      label: "Spent today",
+      value: money(firewall.spent_today || 0),
+      sub: "OPai tracked",
+      mono: true,
+    });
+    h += statTile(esc, {
+      label: "Spent this month",
+      value: money(firewall.spent_month || 0),
+      sub: "OPai tracked",
+      mono: true,
+    });
+    h += statTile(esc, {
+      label: "Profile",
+      value: firewall.profile || "—",
+      sub: firewall.panic ? "Panic — local only" : "Guarding spend",
+      tone: firewall.panic ? "red" : "green",
+    });
+    h += "</div>";
     h += '<div class="set-head">Budgets</div>';
     h += capRow("Daily cap", caps.daily_usd_limit, remaining.today_usd);
     h += capRow("Monthly cap", caps.monthly_usd_limit, remaining.month_usd);
@@ -623,22 +881,42 @@
     h += '<div class="set-head">Model usage limits</div>';
     h += usageCardsHtml(d, ctx);
     h += '<div class="set-head">Safety switches</div>';
-    h += row(esc, "Panic mode", firewall.panic ? "ON (local-only)" : "off");
-    h += '<div class="cb">• Panic mode refuses every cloud call and forces local-only routing until you disable it.</div>';
-    h += row(esc, "Cloud gate", firewall.cloud_gate ? "confirm" : "open");
-    h += '<div class="cb">• Confirm asks before each paid cloud call; open sends without a per-call confirmation.</div>';
     h +=
-      '<div class="actions"><button class="btn" id="setPanic">' +
+      '<div class="panic-card' +
+      (firewall.panic ? " on" : "") +
+      '"><div class="panic-body"><div class="panic-title">' +
+      (firewall.panic ? "Panic mode is ON — cloud calls paused" : "Panic mode is off") +
+      "</div>" +
+      '<div class="panic-desc">Panic mode refuses every cloud call and forces local-only routing until you disable it. Local models keep working.</div>' +
+      '<div class="panic-facts"><span>Pauses: all paid cloud calls</span><span>Keeps: local models, saved work, history</span></div></div>' +
+      '<button class="btn danger" id="setPanic">' +
       (firewall.panic ? "Disable panic" : "Enable panic") +
       "</button></div>";
+    h += row(esc, "Cloud gate", firewall.cloud_gate ? "confirm" : "open");
+    h += '<div class="cb">• Confirm asks before each paid cloud call; open sends without a per-call confirmation.</div>';
     return h;
   }
 
   function permissionsHtml(d, ctx) {
     var esc = ctx.esc;
     var activeMode = MODE_LABELS[d.prefs.default_mode] || d.prefs.default_mode;
-    var h =
-      '<div class="set-head">Tool permissions · ' + esc(activeMode) + "</div>";
+    var active = (d.modePermissions || []).filter(function (mode) {
+      return mode.active;
+    })[0];
+    var h = heroHtml(
+      esc,
+      "Permissions & Safety",
+      "Choose how much OPai can do on its own. Every step up the ladder grants more authority — you can change it any time.",
+      ["project"]
+    );
+    h +=
+      '<div class="mode-hero"><div class="mode-hero-body"><div class="mode-hero-label">Current mode for this project</div>' +
+      '<div class="mode-hero-value">' +
+      esc(activeMode) +
+      "</div></div>" +
+      (active ? '<div class="mode-hero-summary">' + esc(active.summary) + "</div>" : "") +
+      "</div>";
+    h += '<div class="set-head">Tool permissions · ' + esc(activeMode) + "</div>";
     h +=
       '<div class="set-note">What OPai may do this turn under your current run mode. Allow = does it without asking; Ask = pauses for your OK; Blocked = refused.</div>';
     (d.permissions || []).forEach(function (p) {
@@ -654,15 +932,21 @@
     });
     // Per-mode comparison (#239): how the five run modes differ, derived from
     // the same permission rules (not re-invented). The active mode is marked.
+    // The meter is presentational: authority grows down the ladder.
     if ((d.modePermissions || []).length) {
+      var METER = { ask: 20, plan: 36, "safe-auto": 56, "approve-edits": 76, "full-auto": 100 };
       h += '<div class="set-head">Run modes</div>';
       h +=
         '<div class="set-note">Switch modes from the composer. Full Auto acts without asking and must be pinned there with an acknowledgement.</div>';
       d.modePermissions.forEach(function (mode) {
+        var width = METER[mode.id] || 20;
         h +=
           '<div class="mode-row' +
           (mode.active ? " active" : "") +
-          '"><span class="k">' +
+          (mode.id === "full-auto" ? " highest" : "") +
+          '"><span class="mode-meter" aria-hidden="true"><span style="width:' +
+          width +
+          '%"></span></span><span class="k">' +
           esc(mode.label) +
           (mode.active ? ' <span class="mode-active">current</span>' : "") +
           '</span><span class="mode-summary">' +
@@ -681,15 +965,23 @@
       "Raw prompts are never stored; the local ledger keeps one-way task hashes and counts only.",
       "Local-first routing; cloud only on confirmation.",
     ];
-    var h = '<div class="set-head">Privacy &amp; data</div>';
+    var h = heroHtml(esc, "Privacy & Data", "Local by default. No telemetry unless you enable it.", [
+      "local",
+    ]);
+    h +=
+      '<div class="callout-card accent"><div class="callout-title">Data stays on this device</div>' +
+      '<div class="callout-body">Prompts, the ledger, and audit history are kept locally, per workspace.</div></div>';
+    h += '<div class="set-head">Privacy &amp; data</div>';
     statements.forEach(function (t) {
       h += '<div class="cb">• ' + esc(t) + "</div>";
     });
     h += '<div class="set-head">Saved chat &amp; recents</div>';
     h +=
-      '<div class="set-note">Saved chat is stored redacted on this machine, per workspace. Clearing it is immediate and cannot be undone.</div>';
+      '<div class="set-note">Saved chat is stored redacted on this machine, per workspace.</div>';
     h +=
-      '<div class="actions"><button class="btn danger" id="settingsClearRecents">Clear saved chat &amp; recents</button></div>';
+      '<div class="danger-zone"><div class="danger-body"><strong>Clear saved chat &amp; recents</strong>' +
+      '<div class="set-note">Immediate and cannot be undone.</div></div>' +
+      '<button class="btn danger" id="settingsClearRecents">Clear saved chat</button></div>';
     return h;
   }
 
@@ -753,8 +1045,13 @@
         "</div>"
       );
     };
-    var h = '<div class="set-head">Appearance</div>';
-    h += '<div class="set-note">Applied instantly and saved for this workspace.</div>';
+    var h = heroHtml(
+      esc,
+      "Appearance",
+      "Tune the cockpit to your eyes. These are low-risk — they apply instantly and are saved for this workspace.",
+      ["app", "instant"]
+    );
+    h += '<div class="set-head">Appearance</div>';
     h +=
       '<div class="appearance-row"><div class="appearance-label"><span class="k">Composer style</span><span class="hint">How the prompt box is arranged. Toolbar keeps everything one click away; Single line is the smallest footprint; Command bar is keyboard-first with #file, /mode, and @model tokens.</span></div>' +
       composerSeg(composerStyle, [
@@ -787,60 +1084,103 @@
     var esc = ctx.esc;
     if (!(d.about && d.about.version)) return "";
     return (
+      heroHtml(esc, "About", "Version and release information for this build.", null) +
       '<div class="set-head">About</div>' +
-      row(esc, "Version", d.about.version) +
-      row(esc, "Release stage", d.about.release_stage || "—") +
+      '<div class="stat-grid two">' +
+      statTile(esc, { label: "Version", value: d.about.version, mono: true }) +
+      statTile(esc, { label: "Release stage", value: d.about.release_stage || "—" }) +
+      "</div>" +
       // Replay the first-run tour on demand (#250).
       '<div class="set-note">New here, or want a refresher? Replay the three-step welcome tour.</div>' +
       '<div class="actions"><button class="btn" id="settingsReplayTour">Replay tour</button></div>'
     );
   }
 
-  // The registry: rail label + keywords + the section's content builder.
+  // Rail icons (static, self-authored SVG — the one trusted-html escape hatch).
+  var svg = function (paths) {
+    return (
+      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+      paths +
+      "</svg>"
+    );
+  };
+  var ICONS = {
+    overview: svg('<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9h17M9 9v11.5"/>'),
+    providers: svg('<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
+    balance: svg('<circle cx="12" cy="12" r="9"/><path d="M8.5 10.5a2 2 0 0 1 2-2h1a2 2 0 1 1 0 4h-1a2 2 0 1 0 0 4h1a2 2 0 0 0 2-2M12 7v1.2M12 15.8V17"/>'),
+    models: svg('<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 6H14a4 4 0 0 1 0 8H9.8"/>'),
+    firewall: svg('<path d="M12 3 5 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z"/><path d="M12.5 8.2h-2a1.3 1.3 0 0 0 0 2.6h1.5a1.3 1.3 0 0 1 0 2.6h-2"/>'),
+    permissions: svg('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
+    privacy: svg('<path d="M12 3 5 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>'),
+    appearance: svg('<path d="M4 8h9M4 16h3M17 16h3"/><circle cx="16" cy="8" r="2.4"/><circle cx="10" cy="16" r="2.4"/>'),
+    about: svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6h.01"/>'),
+  };
+
+  // The registry: rail label + group + keywords + the section's content
+  // builder. Groups become uppercase labels in the rail (Settings redesign).
   var sections = [
+    {
+      id: "overview",
+      title: "Overview",
+      keywords: "overview status attention quick spend providers protection run mode",
+      render: overviewHtml,
+    },
     {
       id: "providers",
       title: "Providers & Connections",
+      group: "Connect",
       keywords: "provider account api key github connection doctor sign in credential codex",
       render: providersHtml,
     },
     {
       id: "balance",
       title: "Credits & Balance",
+      group: "Connect",
       keywords: "balance credit usage remaining left top up recharge funds money euro dollar",
       render: balanceHtml,
     },
     {
       id: "models",
       title: "Models & Routing",
+      group: "Connect",
       keywords: "model usage limit default routing focus format",
       render: modelsHtml,
     },
     {
       id: "firewall",
       title: "Cost Firewall",
+      group: "Spend & safety",
       keywords: "cost firewall panic budget spend cloud gate profile",
       render: firewallHtml,
     },
     {
       id: "permissions",
       title: "Permissions & Safety",
+      group: "Spend & safety",
       keywords: "permission tool safety mode approve",
       render: permissionsHtml,
     },
     {
       id: "privacy",
       title: "Privacy & Data",
+      group: "System",
       keywords: "privacy data telemetry redacted local",
       render: privacyHtml,
     },
     {
       id: "appearance",
       title: "Appearance",
+      group: "System",
       keywords: "theme density motion animation compact reduced dark",
       render: appearanceHtml,
     },
-    { id: "about", title: "About", keywords: "about version release", render: aboutHtml },
+    {
+      id: "about",
+      title: "About",
+      group: "System",
+      keywords: "about version release",
+      render: aboutHtml,
+    },
   ];
 
   // ---- search + paned pages ---------------------------------------------- //
@@ -877,10 +1217,9 @@
       return !!html;
     });
 
+    // Each pane carries its own hero title (Settings redesign), so the shared
+    // header is just the global search.
     var header =
-      '<div class="page-title">Settings</div><div class="page-sub">Project: ' +
-      esc((ctx.state.boot.workspace && ctx.state.boot.workspace.root) || "") +
-      "</div>" +
       '<div class="settings-toolbar"><input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false"><span class="settings-noresults" id="settingsNoResults" hidden>No settings match your search.</span></div>';
 
     var panesHtml = present
@@ -901,14 +1240,23 @@
       })
       .join("");
 
+    var lastGroup = null;
     var rail =
       '<nav class="settings-rail" aria-label="Settings pages">' +
       present
         .map(function (section) {
+          var groupLabel =
+            section.group && section.group !== lastGroup
+              ? '<div class="settings-rail-group">' + esc(section.group) + "</div>"
+              : "";
+          if (section.group) lastGroup = section.group;
           return (
+            groupLabel +
             '<button class="settings-rail-item" type="button" data-rail-target="' +
             esc(section.id) +
-            '"><span class="settings-rail-label">' +
+            '"><span class="settings-rail-icon" aria-hidden="true">' +
+            (ICONS[section.id] || "") +
+            '</span><span class="settings-rail-label">' +
             esc(section.title) +
             "</span></button>"
           );
@@ -1008,6 +1356,20 @@
         }
       };
     }
+
+    // Overview quick controls and attention items navigate between panes the
+    // same way the rail does (Settings redesign).
+    content.querySelectorAll("[data-go-page]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        if (search && search.value) {
+          search.value = "";
+          applySearch("");
+        }
+        activate(button.dataset.goPage);
+        var scroller = page.closest(".scroll");
+        if (scroller) scroller.scrollTop = 0;
+      });
+    });
 
     // Deep link (#settings/<id>) opens that page; otherwise the first page.
     var hash = (global.location && global.location.hash) || "";

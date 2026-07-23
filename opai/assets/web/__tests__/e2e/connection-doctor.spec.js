@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { finishRequest, openApp, openNav, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, sendPrompt, openSettings } from "./helpers/app.js";
 
 
 const doctorEntries = [
@@ -32,7 +32,7 @@ test("Connection Doctor shows complete safe provider evidence in one view", asyn
       models: [], usage: [], about: {}, connectionDoctor: doctorEntries,
     },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
 
   const doctor = page.getByRole("region", { name: "Connection Doctor" });
   const claude = doctor.locator('[data-doctor-provider="claude"]');
@@ -64,7 +64,7 @@ test("Settings guided sign-in updates health without sending a prompt", async ({
       },
     },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
 
   await page.getByRole("button", { name: "Sign in to Claude" }).click();
   await expect.poll(() => page.evaluate(() => window.__mock.providerLogins.map((x) => x.provider))).toEqual(["claude"]);
@@ -82,7 +82,7 @@ test("Connection Doctor fills CLI versions from the non-blocking refresh", async
     },
     refreshedDoctorEntries: [{ providerId: "claude", cliVersion: "Claude Code 9.8.7" }],
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
 
   await expect(page.locator('[data-doctor-provider="claude"] [data-doctor-cli]')).toHaveText("Claude Code 9.8.7");
 });

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opai"
-version = "0.2.0a2"
+version = "0.2.1a1"
 description = "OPai alpha: the local-first AI coding cost firewall for routing, benchmarks, governance, and safe project workflows."
 requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0.2,<7"]

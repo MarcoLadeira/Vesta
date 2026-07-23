@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, openNav } from "./helpers/app.js";
+import { openApp, openSettings } from "./helpers/app.js";
 
 
 // GUI GitHub connect + consent (#300): the only in-GUI path to let agents push
@@ -9,7 +9,7 @@ import { openApp, openNav } from "./helpers/app.js";
 
 test("a disconnected workspace shows the connect form", async ({ page }) => {
   await openApp(page);
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   const settings = page.locator("#settingsPage");
   await expect(settings).toContainText("GitHub");
   await expect(page.locator("[data-github-status]")).toContainText("Not connected");
@@ -18,7 +18,7 @@ test("a disconnected workspace shows the connect form", async ({ page }) => {
 
 test("pasting a token connects and never leaves the secret on the page", async ({ page }) => {
   await openApp(page);
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await page.locator("[data-github-token]").fill("ghp_secret_pat_value");
   await page.locator("[data-github-connect]").click();
 
@@ -35,7 +35,7 @@ test("enabling pushes on a connected account reports ready", async ({ page }) =>
   await openApp(page, {
     github: { connected: true, login: "octocat", allow_push: false, ready_for_push: false, readiness_reason: "consent_off" },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await expect(page.locator("[data-github-allowpush]")).toBeVisible();
   await page.locator("[data-github-allowpush]").click();
 
@@ -47,7 +47,7 @@ test("disconnect revokes the connection", async ({ page }) => {
   await openApp(page, {
     github: { connected: true, login: "octocat", allow_push: true, ready_for_push: true, readiness_reason: "ready" },
   });
-  await openNav(page, "Settings");
+  await openSettings(page, "providers");
   await page.locator("[data-github-disconnect]").click();
   expect(await page.evaluate(() => window.__mock.githubDisconnects)).toBe(1);
   await expect(page.locator("[data-github-status]")).toContainText("Not connected");

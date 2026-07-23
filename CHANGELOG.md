@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1 Alpha.1
+
+### Desktop app
+
+- Redesigned the **Settings** surface: a new Overview landing page (status
+  stat-tiles, an honest needs-attention list, and quick controls), a grouped
+  navigation rail with icons, and per-page hero copy with factual scope chips
+  (App-wide / This project / Local only). Every number shown is bound to the
+  real settings payload — no invented data.
+
 ## 0.2.0 Alpha.2
 
 A security, reliability, and desktop-polish patch. Every change is local-first
