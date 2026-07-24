@@ -245,7 +245,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         self.assertIn("Do not retry", _reason_of(result))
 
     def test_tool_name_matching_is_case_insensitive(self):
-        with _hermetic_hub():
+        with _hermetic_hub(), _push_consent(False):
             result = claude_pre_tool_decision(_hook_payload("git push", tool="BASH"))
         self.assertEqual(_decision_of(result), "deny")
 

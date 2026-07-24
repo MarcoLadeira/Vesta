@@ -140,6 +140,35 @@ class ProviderConnectionTests(unittest.TestCase):
 
         self.assertEqual(connection["authStatus"], "connected")
 
+    def test_outdated_codex_cli_is_rejected_during_connection_preflight(self):
+        calls: list[list[str]] = []
+
+        def run(argv):
+            calls.append(argv)
+            if "--version" in argv:
+                return _Completed(0, "codex-cli 0.128.0")
+            return _Completed(0, "Logged in using ChatGPT")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".codex").mkdir()
+            (home / ".codex" / "auth.json").touch()
+            with mock.patch("opaihub.accounts._which", return_value="/bin/codex"):
+                connection = check_account_connection(
+                    "codex", home=home, run=run, force=True
+                )
+
+        self.assertEqual(connection["authStatus"], "misconfigured")
+        self.assertEqual(connection["lastErrorCode"], "PROVIDER_CLI_OUTDATED")
+        self.assertIn("@openai/codex", connection["safeDiagnostic"])
+        self.assertEqual(
+            calls,
+            [
+                ["/bin/codex", "login", "status"],
+                ["/bin/codex", "--version"],
+            ],
+        )
+
     def test_codex_account_type_is_derived_from_safe_status_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -192,6 +221,33 @@ class ProviderConnectionTests(unittest.TestCase):
         self.assertIn(
             "account:codex:gpt-5.6", [option["id"] for option in api_key]
         )
+
+    def test_codex_picker_disables_a_known_outdated_cli(self):
+        account = {
+            "id": "codex",
+            "label": "Codex",
+            "vendor": "OpenAI Codex CLI",
+            "cli": "codex",
+            "cli_path": "/bin/codex",
+            "cli_present": True,
+            "authenticated": True,
+            "connected": True,
+            "login_hint": "",
+        }
+
+        with mock.patch(
+            "opaihub.accounts._account_cli_version",
+            return_value="codex-cli 0.128.0",
+        ):
+            options = account_models(
+                accounts=[account],
+                account_types={"codex": "chatgpt"},
+                inspect_cli_capabilities=True,
+            )
+
+        self.assertEqual(len(options), 1)
+        self.assertFalse(options[0]["available"])
+        self.assertIn("Update Codex CLI", options[0]["disabled_reason"])
 
     def test_codex_picker_treats_unrecognized_account_type_as_unknown(self):
         account = {

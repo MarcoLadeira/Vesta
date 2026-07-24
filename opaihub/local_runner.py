@@ -37,6 +37,10 @@ _LOCAL_MODELS_CACHE: list[dict[str, Any]] = []
 _LOCAL_DISCOVERY_COMPLETE = False
 
 
+class IncompleteStreamError(RuntimeError):
+    """The provider closed a response after emitting only a partial stream."""
+
+
 def cache_local_models(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
     global _LOCAL_DISCOVERY_COMPLETE, _LOCAL_MODELS_CACHE
     with _LOCAL_MODELS_LOCK:
@@ -250,6 +254,7 @@ def _stream_chat(
     path = (parsed.path or "/") + (("?" + parsed.query) if parsed.query else "")
     chunks: list[str] = []
     usage: dict[str, Any] = {}
+    terminal_seen = False
     try:
         conn.request("POST", path, body=body, headers=headers)
         response = conn.getresponse()
@@ -270,12 +275,15 @@ def _stream_chat(
                 continue
             data = line[len(b"data:") :].strip()
             if data == b"[DONE]":
+                terminal_seen = True
                 break
             try:
                 obj = json.loads(data)
             except ValueError:
                 continue
             choice = (obj.get("choices") or [{}])[0]
+            if str(choice.get("finish_reason") or "").strip():
+                terminal_seen = True
             delta = str((choice.get("delta") or {}).get("content") or "")
             if delta:
                 chunks.append(delta)
@@ -286,6 +294,10 @@ def _stream_chat(
     finally:
         with contextlib.suppress(Exception):
             conn.close()
+    if not terminal_seen:
+        raise IncompleteStreamError(
+            "incomplete stream: response ended before a terminal marker"
+        )
     return "".join(chunks), usage
 
 
@@ -387,6 +399,11 @@ class OpenAICompatibleRunner(LocalRunner):
                 on_delta=on_text,
             )
         except LocalRunCancelled:
+            raise
+        except IncompleteStreamError:
+            # A partial stream may already be visible in the UI. Reissuing the
+            # request would duplicate content, spend, and side effects while
+            # hiding the provider interruption as a clean completion.
             raise
         except Exception:  # noqa: BLE001 - any streaming failure falls back
             return None

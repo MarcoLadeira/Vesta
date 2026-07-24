@@ -162,7 +162,7 @@ function applyBootSelection(b) {
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
-  if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
+  if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
   if (md) state.mode = md;
 }
@@ -610,7 +610,7 @@ function renderComposerSelects() {
   });
   modelSel.onchange = () => {
     const m = state.boot.models.find((x) => x.id === modelSel.value);
-    if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
+    if (m) state.model = { ...m, advancedLabel: m.advanced_label };
     setProviderDot(); renderComposerContext(); bridge.savePref("default_model", state.model.id); refreshInspector(); refreshStatus();
   };
   setProviderDot();
@@ -1619,6 +1619,7 @@ function stripFinalize(status, r) {
   const verdict = completionVerdict(r);
   if (verdict && verdict.verdict === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Cancelled"; }
   else if (verdict && verdict.verdict !== "completed") { stripSetState("error"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
+  else if (verdict && verdict.reasonCode === "answer_delivered") { stripSetState("connected"); $("#ssConn").textContent = "Response received"; }
   else if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
   else if (ANSWERED.includes(status)) { stripSetState("connected"); $("#ssConn").textContent = "Done"; }
   else { stripSetState("error"); $("#ssConn").textContent = "Failed"; }
@@ -1776,7 +1777,12 @@ function completionVerdict(r) {
   const raw = r && r.completion_verdict;
   if (!raw || typeof raw !== "object") return null;
   const verdict = String(raw.verdict || "").toLowerCase();
-  return verdict ? { verdict, reason: String(raw.reason || ""), nextAction: String(raw.next_action || "") } : null;
+  return verdict ? {
+    verdict,
+    reasonCode: String(raw.reason_code || "").toLowerCase(),
+    reason: String(raw.reason || ""),
+    nextAction: String(raw.next_action || ""),
+  } : null;
 }
 // The one user-facing label per verdict — mirrors opaihub.completion.VERDICT_LABELS
 // (#396) so the GUI, CLI, and receipt summary never disagree ("Timed out", not
@@ -1796,7 +1802,9 @@ const RETRYABLE_VERDICTS = new Set(["failed", "partial", "timeout"]);
 function completionVerdictHtml(r) {
   const item = completionVerdict(r);
   if (!item) return "";
-  const label = verdictLabel(item.verdict);
+  const label = item.reasonCode === "answer_delivered"
+    ? "Response received"
+    : verdictLabel(item.verdict);
   const glyph = item.verdict === "completed" ? "check" : item.verdict === "cancelled" ? "cancelled" : "warning";
   const next = item.nextAction ? `<div class="cv-next">Next: ${esc(item.nextAction)}</div>` : "";
   // Bug 8: pair the "Next: retry…" guidance with an actual button so the user
@@ -2157,7 +2165,11 @@ function finalize(status, r) {
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
   let html = roleHeader(label, color) + activitySummaryHtml() + completionVerdictHtml(r) + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];
-  if (changed.length) html += filesCardHtml(changed);
+  // A changeset card (below, via workflowCardHtml) already shows every file in
+  // flow.diff_review with real diff evidence; the flat chip list is only useful
+  // as a fallback when no such evidence exists (e.g. non-edit-intent modes).
+  const flowFiles = (r && r.workflow && r.workflow.diff_review && r.workflow.diff_review.files) || [];
+  if (changed.length && !flowFiles.length) html += filesCardHtml(changed);
   if (r && (r.workflow || r.agent_policy)) html += workflowCardHtml(r);
   const planSteps = (r && r.plan && r.plan.steps) || [];
   if (planSteps.length) html += planCardHtml(planSteps);
@@ -2167,67 +2179,251 @@ function finalize(status, r) {
   wireFilesCard(el);
   wireReceipt(el, sel, r);
   wirePlanCard(el, sel);
-  wireDiffReview(el);
+  wireChangesetCard(el);
   enhanceCodeBlocks(el);
   const cvRetry = el.querySelector('.completion-verdict [data-a="retry"]');
   if (cvRetry) cvRetry.onclick = () => retry();
 }
 
-function diffReviewHtml(review, testsStatus) {
+// Diff evidence, rendered as GitHub-style numbered lines. `bounded preview`
+// rows mark where the backend truncated a hunk (opaihub/diff_review.py).
+function diffHunkLinesHtml(hunk) {
+  let o = Number(hunk.old_start) || 0;
+  let n = Number(hunk.new_start) || 0;
+  const blankRow = (text) => `<div class="dline note"><span class="dl-num dl-old"></span><span class="dl-num dl-new"></span><span class="dl-sign"></span><span class="dl-text">${esc(text)}</span></div>`;
+  const rows = (hunk.lines || []).map((raw) => {
+    const line = String(raw);
+    if (line.startsWith("\\")) return blankRow(line);
+    const marker = line.slice(0, 1);
+    const text = line.slice(1);
+    let cls = "ctx", sign = " ", oldn = "", newn = "";
+    if (marker === "+") { cls = "add"; sign = "+"; newn = n++; }
+    else if (marker === "-") { cls = "del"; sign = "−"; oldn = o++; }
+    else { oldn = o++; newn = n++; }
+    return `<div class="dline ${cls}"><span class="dl-num dl-old">${oldn}</span><span class="dl-num dl-new">${newn}</span><span class="dl-sign">${sign}</span><span class="dl-text">${esc(text) || "&nbsp;"}</span></div>`;
+  }).join("");
+  return rows + (hunk.truncated ? blankRow("… bounded preview") : "");
+}
+
+function diffHunksHtml(file) {
+  const hunks = file.hunks || [];
+  if (!hunks.length) return '<div class="diff-empty">No textual hunk available.</div>';
+  return hunks.map((h) => `<div class="diff-hunk">
+      <div class="diff-hunk-head">@@ -${esc(h.old_start)},${esc(h.old_count)} +${esc(h.new_start)},${esc(h.new_count)} @@${h.heading ? " " + esc(h.heading) : ""}</div>
+      <div class="diff-hunk-body">${diffHunkLinesHtml(h)}</div>
+    </div>`).join("");
+}
+
+// git status --short prefixes (also stripped by cleanPath for the flat chip
+// list) tell us Modified/Added/Deleted/Renamed far more reliably than
+// guessing from hunk shape alone.
+function diffStatusMap(changedFiles) {
+  const map = {};
+  (changedFiles || []).forEach((raw) => {
+    const line = String(raw);
+    const code = line.slice(0, 2);
+    const path = cleanPath(line);
+    if (!path) return;
+    if (code.includes("D")) map[path] = "D";
+    else if (code === "??" || code.includes("A")) map[path] = "A";
+    else if (code.includes("R")) map[path] = "R";
+    else map[path] = "M";
+  });
+  return map;
+}
+function diffFileLetter(file, statusMap) {
+  return (statusMap && statusMap[file.path]) || (file.untracked ? "A" : "M");
+}
+
+function diffPathHtml(path) {
+  const p = String(path || "");
+  const idx = p.lastIndexOf("/");
+  if (idx < 0) return `<span class="df-name">${esc(p)}</span>`;
+  return `<span class="df-dir">${esc(p.slice(0, idx + 1))}</span><span class="df-name">${esc(p.slice(idx + 1))}</span>`;
+}
+
+// Decisions here only record human sign-off (opaihub/diff_review.py never
+// mutates source files) — a rejected file blocks merge, it doesn't "skip"
+// an edit that already happened. Keep the copy honest about that.
+function diffDecisionCopy(info) {
+  if (info.decision === "approved") return "Approved — cleared for merge";
+  if (info.decision === "rejected") return "Rejected — blocks merge until resolved";
+  if (info.risky) return info.riskReasons ? `Touches ${info.riskReasons} — review carefully` : "Review carefully before approving";
+  return "Awaiting review";
+}
+function diffDecisionButtonsHtml(decision) {
+  if (decision === "pending") {
+    return `<button type="button" class="btn ghost" data-diff-decision="rejected">Reject</button><button type="button" class="btn primary" data-diff-decision="approved">${uiIcon("check")}Approve</button>`;
+  }
+  return `<button type="button" class="btn ghost" data-diff-decision="pending">Undo</button>`;
+}
+
+function diffFileCardHtml(file, opts) {
+  const letter = opts.letter;
+  const hasHunks = !!(file.hunks && file.hunks.length);
+  const flag = letter === "A" ? '<span class="df-flag df-flag-new">new file</span>'
+    : letter === "D" ? '<span class="df-flag df-flag-del">deleted</span>' : "";
+  const riskReasons = (file.risk_reasons || []).join(", ");
+  const risks = (file.risk_reasons || []).map((reason) => `<span class="diff-risk">${esc(reason)}</span>`).join("");
+  const decision = file.decision || "pending";
+  const actionsRow = opts.actionable
+    ? `<div class="df-decision-row" data-df-decision-row>
+        <span class="df-decision-label" data-df-decision-label>${esc(diffDecisionCopy({ decision, risky: file.risky, riskReasons }))}</span>
+        <span class="spacer"></span>
+        <span class="df-decision-actions" data-df-decision-actions>${diffDecisionButtonsHtml(decision)}</span>
+      </div>`
+    : "";
+  return `<details class="diff-file2" data-diff-index="${opts.index}" data-diff-path="${esc(file.path)}" data-diff-decision-state="${esc(decision)}" data-diff-risky="${file.risky ? "1" : "0"}" data-diff-risk-reasons="${esc(riskReasons)}" ${opts.open ? "open" : ""}>
+    <summary class="diff-file-summary">
+      <span class="diff-chevron" aria-hidden="true">${uiIcon("chevronRight")}</span>
+      <span class="df-type df-type-${letter}">${letter}</span>
+      <span class="df-path">${diffPathHtml(file.path)}</span>
+      ${flag}${risks}
+      <span class="spacer"></span>
+      <span class="df-stat df-add">+${esc(file.additions || 0)}</span>
+      <span class="df-stat df-del">−${esc(file.deletions || 0)}</span>
+      <span class="df-actions">
+        <button type="button" class="df-icon" data-df-copy-path title="Copy path" aria-label="Copy path for ${esc(file.path)}">${uiIcon("copy")}</button>
+        ${hasHunks ? `<button type="button" class="df-icon" data-df-copy-diff title="Copy diff" aria-label="Copy diff for ${esc(file.path)}">${uiIcon("copyDiff")}</button>` : ""}
+        <button type="button" class="df-icon" data-df-open title="Open in editor" aria-label="Open ${esc(file.path)}">${uiIcon("file")}</button>
+      </span>
+    </summary>
+    <div class="diff-hunks">${diffHunksHtml(file)}</div>
+    ${actionsRow}
+  </details>`;
+}
+
+// Everything OPai knows about a code change lives here — whether it's already
+// on disk and verified, or held (via "Ask before edits") for review before it
+// can ship. Both states reuse the same evidence and row markup; only the
+// "reviewing_diff" phase gets approve/reject actions.
+function changesetCardHtml(review, phase, testsStatus, statusMap) {
   const files = (review && review.files) || [];
   if (!files.length) return "";
   const summary = review.summary || {};
-  const panels = files.map((file, index) => {
-    const risks = (file.risk_reasons || []).map((reason) => `<span class="diff-risk">${esc(reason)}</span>`).join("");
-    const hunks = (file.hunks || []).map((hunk) => {
-      const lines = (hunk.lines || []).map((line) => `<code>${esc(line)}</code>`).join("");
-      return `<section class="diff-hunk"><div class="diff-hunk-head">@@ -${esc(hunk.old_start)},${esc(hunk.old_count)} +${esc(hunk.new_start)},${esc(hunk.new_count)} @@ ${esc(hunk.heading || "")}</div><pre>${lines}${hunk.truncated ? "<code>… bounded preview</code>" : ""}</pre></section>`;
-    }).join("");
-    return `<article class="diff-file" data-diff-index="${index}" data-diff-path="${esc(file.path)}" ${index ? "hidden" : ""}>
-      <div class="diff-file-head"><strong>${esc(file.path)}</strong><span class="diff-decision">${esc(file.decision || "pending")}</span></div>
-      <div class="diff-stats"><span>+${esc(file.additions || 0)}</span><span>−${esc(file.deletions || 0)}</span>${file.untracked ? "<span>untracked</span>" : ""}${risks}</div>
-      ${hunks || '<div class="diff-empty">No textual hunk available.</div>'}
-      <div class="diff-actions"><button class="btn ghost" data-diff-decision="rejected">Reject</button><button class="btn primary" data-diff-decision="approved">Approve</button></div>
-    </article>`;
-  }).join("");
-  return `<section class="diff-review" aria-label="Changed-file review">
-    <div class="diff-review-head"><div><strong>Review changes</strong><small><span data-diff-counts>${esc(summary.files || files.length)} files · ${esc(summary.pending || 0)} pending${summary.risky ? ` · ${esc(summary.risky)} risky` : ""}</span> · Tests: ${esc(String(testsStatus || "not run").replaceAll("_", " "))}</small></div><div class="diff-nav"><button class="btn ghost" data-diff-nav="prev" aria-label="Previous changed file">${uiIcon("arrowLeft")}</button><span data-diff-position>1 / ${files.length}</span><button class="btn ghost" data-diff-nav="next" aria-label="Next changed file">${uiIcon("arrowRight")}</button></div></div>
-    ${panels}
+  const actionable = phase === "reviewing_diff";
+  const pending = files.filter((f) => (f.decision || "pending") === "pending").length;
+  const badge = actionable
+    ? `<span class="cs-badge cs-badge-amber">${uiIcon("pending")}Proposed</span>`
+    : `<span class="cs-badge cs-badge-green">${uiIcon("check")}Applied</span>`;
+  const bulk = actionable
+    ? `<span class="cs-bulk-wrap">
+        <button type="button" class="btn ghost" data-diff-bulk="rejected" ${pending ? "" : "hidden"}>Reject all</button>
+        <button type="button" class="btn primary" data-diff-bulk="approved" ${pending ? "" : "hidden"}>${uiIcon("check")}Approve all</button>
+        <span class="cs-reviewed" data-cs-reviewed ${pending ? "hidden" : ""}>All reviewed</span>
+      </span>`
+    : "";
+  const reviewNote = actionable ? `<span class="cs-review-note" data-cs-review-note>${pending} of ${files.length} pending review</span>` : "";
+  const filesHtml = files.map((file, index) => diffFileCardHtml(file, {
+    actionable, index, open: index === 0, letter: diffFileLetter(file, statusMap),
+  })).join("");
+  return `<section class="changeset-card ${actionable ? "changeset-proposed" : "changeset-applied"}" aria-label="Code changes" data-diff-actionable="${actionable ? "1" : "0"}">
+    <div class="cs-head">
+      ${badge}
+      <span class="cs-count">${files.length} file${files.length === 1 ? "" : "s"} changed</span>
+      <span class="cs-stats">+${esc(summary.additions || 0)} −${esc(summary.deletions || 0)}</span>
+      ${reviewNote}
+      <span class="spacer"></span>
+      <span class="cs-tests">Tests: ${esc(String(testsStatus || "not run").replaceAll("_", " "))}</span>
+      ${bulk}
+    </div>
+    ${filesHtml}
   </section>`;
 }
 
-function wireDiffReview(el) {
-  const review = el.querySelector(".diff-review");
-  if (!review) return;
-  const files = Array.from(review.querySelectorAll(".diff-file"));
-  let active = 0;
-  const show = (index) => {
-    active = (index + files.length) % files.length;
-    files.forEach((file, item) => { file.hidden = item !== active; });
-    review.querySelector("[data-diff-position]").textContent = `${active + 1} / ${files.length}`;
-  };
-  review.querySelector('[data-diff-nav="prev"]').onclick = () => show(active - 1);
-  review.querySelector('[data-diff-nav="next"]').onclick = () => show(active + 1);
-  review.querySelectorAll("[data-diff-decision]").forEach((button) => {
-    button.onclick = () => {
-      const file = button.closest(".diff-file");
-      const decision = button.dataset.diffDecision;
-      if (!bridge.reviewDiff) return;
-      button.disabled = true;
-      bridge.reviewDiff(file.dataset.diffPath, decision, (raw) => {
-        button.disabled = false;
-        let result = {};
-        try { result = JSON.parse(raw || "{}"); } catch (_) { result = {}; }
-        if (!result.ok) { toast("Could not save the diff decision"); return; }
-        file.querySelector(".diff-decision").textContent = decision;
-        const pending = files.filter((item) => item.querySelector(".diff-decision").textContent === "pending").length;
-        const approved = files.filter((item) => item.querySelector(".diff-decision").textContent === "approved").length;
-        const rejected = files.filter((item) => item.querySelector(".diff-decision").textContent === "rejected").length;
-        review.querySelector("[data-diff-counts]").textContent = `${files.length} files · ${pending} pending · ${approved} approved · ${rejected} rejected`;
-        refreshInspector();
-        toast(`Marked ${file.dataset.diffPath} ${decision}`);
+function wireChangesetCard(el) {
+  const card = el.querySelector(".changeset-card");
+  if (!card) return;
+  const files = Array.from(card.querySelectorAll(".diff-file2"));
+
+  // Reconstructed from the same bounded evidence that's on screen — never a
+  // second source of truth, so "Copy diff" can never show something the user
+  // didn't already see.
+  const patchText = (file) => {
+    const path = file.dataset.diffPath;
+    const hunks = Array.from(file.querySelectorAll(".diff-hunk"));
+    if (!hunks.length) return path;
+    const body = hunks.map((hunk) => {
+      const head = hunk.querySelector(".diff-hunk-head").textContent.trim();
+      const lines = Array.from(hunk.querySelectorAll(".dline:not(.note)")).map((row) => {
+        const prefix = row.classList.contains("add") ? "+" : row.classList.contains("del") ? "-" : " ";
+        return prefix + row.querySelector(".dl-text").textContent.replace(/ /g, "");
       });
-    };
+      return [head, ...lines].join("\n");
+    }).join("\n");
+    return `--- a/${path}\n+++ b/${path}\n${body}`;
+  };
+
+  files.forEach((file) => {
+    const path = file.dataset.diffPath;
+    const copyPathBtn = file.querySelector("[data-df-copy-path]");
+    if (copyPathBtn) copyPathBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); copyText(path); toast("Copied " + path); };
+    const copyDiffBtn = file.querySelector("[data-df-copy-diff]");
+    if (copyDiffBtn) copyDiffBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); copyText(patchText(file)); toast("Diff copied to clipboard"); };
+    const openBtn = file.querySelector("[data-df-open]");
+    if (openBtn) openBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if (bridge.openPath) bridge.openPath(path); };
+  });
+
+  if (card.dataset.diffActionable !== "1" || !bridge.reviewDiff) return;
+
+  const updateHeader = () => {
+    const pendingCount = files.filter((f) => f.dataset.diffDecisionState === "pending").length;
+    const note = card.querySelector("[data-cs-review-note]");
+    if (note) note.textContent = pendingCount ? `${pendingCount} of ${files.length} pending review` : "All reviewed";
+    card.querySelectorAll("[data-diff-bulk]").forEach((b) => { b.hidden = pendingCount === 0; });
+    const reviewed = card.querySelector("[data-cs-reviewed]");
+    if (reviewed) reviewed.hidden = pendingCount !== 0;
+  };
+
+  const setDecision = (file, decision, done) => {
+    bridge.reviewDiff(file.dataset.diffPath, decision, (raw) => {
+      let result = {};
+      try { result = JSON.parse(raw || "{}"); } catch (_e) { result = {}; }
+      if (!result.ok) { toast("Could not save the diff decision"); done(false); return; }
+      file.dataset.diffDecisionState = decision;
+      const label = file.querySelector("[data-df-decision-label]");
+      if (label) {
+        label.textContent = diffDecisionCopy({
+          decision, risky: file.dataset.diffRisky === "1", riskReasons: file.dataset.diffRiskReasons || "",
+        });
+      }
+      const actions = file.querySelector("[data-df-decision-actions]");
+      if (actions) actions.innerHTML = diffDecisionButtonsHtml(decision);
+      done(true);
+    });
+  };
+
+  card.addEventListener("click", (e) => {
+    const single = e.target.closest("[data-diff-decision]");
+    if (single && card.contains(single)) {
+      e.preventDefault(); e.stopPropagation();
+      const file = single.closest(".diff-file2");
+      const decision = single.dataset.diffDecision;
+      single.disabled = true;
+      setDecision(file, decision, (ok) => {
+        updateHeader();
+        if (ok) { refreshInspector(); toast(`Marked ${file.dataset.diffPath} ${decision}`); }
+      });
+      return;
+    }
+    const bulk = e.target.closest("[data-diff-bulk]");
+    if (bulk && card.contains(bulk)) {
+      e.preventDefault(); e.stopPropagation();
+      const decision = bulk.dataset.diffBulk;
+      const pendingFiles = files.filter((f) => f.dataset.diffDecisionState === "pending");
+      if (!pendingFiles.length) return;
+      bulk.disabled = true;
+      let remaining = pendingFiles.length;
+      pendingFiles.forEach((file) => setDecision(file, decision, () => {
+        remaining -= 1;
+        if (remaining === 0) {
+          bulk.disabled = false;
+          updateHeader();
+          refreshInspector();
+          toast(decision === "approved" ? "Approved all pending files" : "Rejected all pending files");
+        }
+      }));
+    }
   });
 }
 
@@ -2261,7 +2457,7 @@ function workflowCardHtml(result) {
     ${blockers}
     ${actions ? `<div class="wf-subhead">Next actions</div><ul class="wf-actions">${actions}</ul>` : ""}
     ${history ? `<details class="wf-history"><summary>Timeline · ${(flow.history || []).length} events</summary>${history}</details>` : ""}
-    ${diffReviewHtml(flow.diff_review, flow.tests_status)}
+    ${changesetCardHtml(flow.diff_review, flow.phase, flow.tests_status, diffStatusMap(result.changed_files))}
   </div>`;
 }
 

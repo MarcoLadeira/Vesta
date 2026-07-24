@@ -522,6 +522,11 @@ def evaluate_completion(
     if canonical is not CompletionState.COMPLETED:
         failure = classify_failure_reason(result)
         reason_text, next_action = _FAILURE_COPY[failure]
+        error = result.get("error")
+        if isinstance(error, Mapping):
+            actionable = str(error.get("userMessage") or "").strip()
+            if actionable:
+                reason_text = actionable
         return _verdict(
             CompletionVerdict.FAILED,
             failure.value,
@@ -588,6 +593,15 @@ def evaluate_completion(
             objective,
             evidence,
             "Retry, or ask for the specific output you need.",
+        )
+    if AcceptanceRequirement.ANSWER_PRESENT in objective.acceptance:
+        return _verdict(
+            CompletionVerdict.COMPLETED,
+            "answer_delivered",
+            "Provider returned a complete response; its content was not independently verified.",
+            objective,
+            evidence,
+            "Review the response and its cited evidence.",
         )
     return _verdict(
         CompletionVerdict.COMPLETED,

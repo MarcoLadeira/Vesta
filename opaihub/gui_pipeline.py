@@ -909,6 +909,11 @@ def handle_gui_message(
             if verdict.verdict in {CompletionVerdict.FAILED, CompletionVerdict.TIMEOUT}
             else "warning"
         )
+        verdict_event_title = (
+            "Response received — content not independently verified"
+            if verdict.reason_code == "answer_delivered"
+            else f"{verdict.verdict.value.replace('_', ' ').title()} — {verdict.reason}"
+        )
         if (
             verdict.verdict is CompletionVerdict.COMPLETED
             and _phase_state.get("status") == "warning"
@@ -918,11 +923,11 @@ def handle_gui_message(
             # the objective actually verified, re-close that same row green — a
             # genuinely completed run must never end on an amber phase (#225).
             # A row already closed green (e.g. "Request sent") keeps its title.
-            _phase(_phase_state["etype"], "success", "Completed — objective verified")
+            _phase(_phase_state["etype"], "success", verdict_event_title)
         _emit(
             "completion_verdict",
             verdict_event_status,
-            f"{verdict.verdict.value.replace('_', ' ').title()} — {verdict.reason}",
+            verdict_event_title,
             metadata={
                 "verdict": verdict.verdict.value,
                 "reason_code": verdict.reason_code,

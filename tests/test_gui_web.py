@@ -18,6 +18,7 @@ from _helpers import isolated_home, make_repo
 
 from opai.gui_web import (
     WEB_DIR,
+    asset_build_identity,
     boot_payload,
     resolve_openable,
     settings_payload,
@@ -134,6 +135,16 @@ class BootPayloadTests(unittest.TestCase):
             self.assertIn(key, payload)
         self.assertEqual(payload["initialTask"], "fix login")
         self.assertGreater(len(blob), 100)
+
+    def test_boot_identifies_the_exact_hosted_asset_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            payload = self._boot(root)
+
+        self.assertEqual(payload["build"], asset_build_identity())
+        self.assertRegex(payload["build"]["assetFingerprint"], r"^[0-9a-f]{64}$")
+        self.assertGreater(payload["build"]["assetCount"], 0)
+        self.assertIn(payload["build"]["runtimeSource"], {"source_checkout", "installed_package"})
 
     def test_nav_groups_are_simple_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -305,6 +316,18 @@ class BootPayloadTests(unittest.TestCase):
 
 
 class WebAssetsTests(unittest.TestCase):
+    def test_asset_fingerprint_changes_when_a_hosted_asset_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            assets = Path(tmp)
+            (assets / "index.html").write_text("<script src='app.js'></script>", encoding="utf-8")
+            (assets / "app.js").write_text("window.build = 1;", encoding="utf-8")
+            first = asset_build_identity(assets)
+            (assets / "app.js").write_text("window.build = 2;", encoding="utf-8")
+            second = asset_build_identity(assets)
+
+        self.assertNotEqual(first["assetFingerprint"], second["assetFingerprint"])
+        self.assertEqual(first["assetCount"], 2)
+        self.assertEqual(second["assetCount"], 2)
     def test_core_assets_exist(self):
         for name in ("index.html", "design-tokens.css", "design-tokens-preview.html", "icons.js", "styles.css", "app.js"):
             self.assertTrue((WEB_DIR / name).exists(), name)
@@ -345,6 +368,13 @@ class WebAssetsTests(unittest.TestCase):
 
 
 class SettingsPayloadTests(unittest.TestCase):
+    def test_about_exposes_the_same_asset_build_identity_as_boot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            payload = settings_payload(root)
+
+        self.assertEqual(payload["about"]["build"], asset_build_identity())
+
     def test_settings_exposes_normalized_connections(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))

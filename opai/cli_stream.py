@@ -156,7 +156,12 @@ def stream_ask(
     events: list[dict[str, Any]] = []
     # One lock so activity lines, streamed text, and heartbeats never interleave.
     out_lock = threading.Lock()
-    state = {"streaming": False, "last_line_open": False, "stream_line": False}
+    state = {
+        "streaming": False,
+        "last_line_open": False,
+        "stream_line": False,
+        "stream_finished": False,
+    }
 
     def _line(text: str) -> None:
         with out_lock:
@@ -183,10 +188,20 @@ def stream_ask(
             # one at completion — the answer text itself already streams to
             # stdout, so the intermediate char-count lines are pure noise.
             if status in {"success", "error", "cancelled"}:
+                state["stream_finished"] = True
                 _line(f"{glyph} {title}" + (f"  ({detail})" if detail else ""))
             elif not state["stream_line"]:
                 state["stream_line"] = True
                 _line(f"{glyph} {title}")
+            return
+        if (
+            event.get("type") == "completion_verdict"
+            and (event.get("metadata") or {}).get("reason_code") == "answer_delivered"
+            and state["stream_finished"]
+        ):
+            # The provider's stream row already printed "Response received".
+            # Do not print the answer-delivery verdict as a second identical
+            # terminal line; the structured result still retains the verdict.
             return
         _line(f"{glyph} {title}" + (f"  ({detail})" if detail else ""))
 

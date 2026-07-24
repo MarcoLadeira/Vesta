@@ -68,6 +68,51 @@ class SseParserTests(unittest.TestCase):
         self.assertEqual(text, "Hello")
         self.assertEqual(usage, {"total_tokens": 5})
 
+    def test_eof_before_terminal_marker_rejects_partial_text(self):
+        """A dropped stream must never promote its last token to a full answer."""
+
+        lines = [
+            b'data: {"choices":[{"delta":{"content":"G"}}]}\n',
+            b"",
+        ]
+        conn = _FakeConn(_FakeResponse(lines))
+        seen: list[str] = []
+        with mock.patch.object(
+            local_runner.http.client, "HTTPConnection", return_value=conn
+        ):
+            with self.assertRaisesRegex(RuntimeError, "before a terminal marker"):
+                _stream_chat(
+                    "http://localhost:1234/v1/chat/completions",
+                    payload={"model": "m", "messages": []},
+                    timeout=5.0,
+                    cancel=None,
+                    extra_headers=None,
+                    on_delta=seen.append,
+                )
+        self.assertEqual(seen, ["G"])
+
+    def test_finish_reason_is_a_terminal_marker_when_done_is_omitted(self):
+        """Compatible servers may finish with finish_reason before closing."""
+
+        lines = [
+            b'data: {"choices":[{"delta":{"content":"Four"}}]}\n',
+            b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+            b"",
+        ]
+        conn = _FakeConn(_FakeResponse(lines))
+        with mock.patch.object(
+            local_runner.http.client, "HTTPConnection", return_value=conn
+        ):
+            text, _usage = _stream_chat(
+                "http://localhost:1234/v1/chat/completions",
+                payload={"model": "m", "messages": []},
+                timeout=5.0,
+                cancel=None,
+                extra_headers=None,
+                on_delta=lambda _text: None,
+            )
+        self.assertEqual(text, "Four")
+
     def test_http_error_raises_so_caller_can_fall_back(self):
         conn = _FakeConn(_FakeResponse([b""], status=500))
         with mock.patch.object(
@@ -119,6 +164,34 @@ class RunnerStreamingTests(unittest.TestCase):
         self.assertEqual(answer, "blocking answer")
         # Blocking path still owns the emit — exactly once, the whole answer.
         self.assertEqual(seen, ["blocking answer"])
+
+    def test_incomplete_stream_is_not_silently_reissued(self):
+        """A partial answer is evidence of a broken stream, not a retry trigger."""
+
+        runner = OpenAICompatibleRunner("http://localhost:1234/v1", "m")
+        conn = _FakeConn(
+            _FakeResponse(
+                [
+                    b'data: {"choices":[{"delta":{"content":"G"}}]}\n',
+                    b"",
+                ]
+            )
+        )
+        with (
+            mock.patch.object(
+                local_runner.http.client, "HTTPConnection", return_value=conn
+            ),
+            mock.patch.object(
+                local_runner,
+                "_http_json_cancellable",
+                return_value={
+                    "choices": [{"message": {"content": "unexpected retry"}}]
+                },
+            ) as blocking,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "before a terminal marker"):
+                runner.complete("What is 2+2?", on_text=lambda _text: None)
+        blocking.assert_not_called()
 
     def test_no_on_text_uses_the_blocking_path_unchanged(self):
         runner = OpenAICompatibleRunner("http://localhost:1234/v1", "m")

@@ -262,8 +262,12 @@ class HonestCompletionTests(unittest.TestCase):
             }
         )
         titles = [str(e.get("title") or "") for e in events]
-        self.assertTrue(any(title.startswith("Completed") for title in titles))
+        self.assertTrue(any(title.startswith("Response received") for title in titles))
+        self.assertFalse(any("objective verified" in title.lower() for title in titles))
         self.assertEqual(result["completion_verdict"]["verdict"], "completed")
+        self.assertEqual(
+            result["completion_verdict"]["reason_code"], "answer_delivered"
+        )
         self.assertEqual(result["checkpoint"]["completion_state"], "read_only")
 
 

@@ -187,6 +187,28 @@ class CopilotModelPickerTests(unittest.TestCase):
 # Command construction (the heart of the connector)
 # --------------------------------------------------------------------------- #
 class CopilotBuildCommandTests(unittest.TestCase):
+    def test_scoped_permission_probe_requires_every_bounded_cli_flag(self):
+        full_help = _FakeProc(
+            stdout=(
+                "--available-tools --allow-tool --deny-tool --add-dir "
+                "-C, --cwd"
+            )
+        )
+        legacy_help = _FakeProc(stdout="--allow-all-tools --no-ask-user")
+
+        self.assertTrue(
+            accounts._copilot_supports_scoped_permissions(
+                {"id": "copilot", "cli_path": "/usr/bin/copilot"},
+                run=lambda argv: full_help,
+            )
+        )
+        self.assertFalse(
+            accounts._copilot_supports_scoped_permissions(
+                {"id": "copilot", "cli_path": "/usr/bin/copilot"},
+                run=lambda argv: legacy_help,
+            )
+        )
+
     def test_ask_mode_is_read_only(self):
         runner = _copilot_runner(model="gpt-5.4")
         cmd = runner.build_command("refactor the parser", mode="ask")
@@ -198,17 +220,26 @@ class CopilotBuildCommandTests(unittest.TestCase):
         self.assertIn("Do not modify files", cmd[-1])
         self.assertIn("refactor the parser", cmd[-1])
 
-    def test_safe_auto_command_never_enables_unbounded_tools(self):
+    def test_safe_auto_command_uses_only_workspace_scoped_edit_tools(self):
         runner = _copilot_runner()
-        cmd = runner.build_command("ship it", mode="safe-auto")
+        root = Path("/work/repo").resolve()
+        cmd = runner.build_command(
+            "ship it", mode="safe-auto", project_root=root
+        )
         self.assertNotIn("--allow-all-tools", cmd)
-        self.assertIn("Do not modify files", cmd[-1])
+        self.assertIn("--available-tools=view,grep,glob,edit", cmd)
+        self.assertIn("--allow-tool=edit", cmd)
+        self.assertIn("-C", cmd)
+        self.assertIn(str(root), cmd)
+        self.assertNotIn("Do not modify files", cmd[-1])
 
     def test_full_auto_command_never_enables_unbounded_tools(self):
         runner = _copilot_runner()
         cmd = runner.build_command("build a feature", mode="full-auto")
         self.assertNotIn("--allow-all-tools", cmd)
-        self.assertIn("Do not modify files", cmd[-1])
+        self.assertIn("--available-tools=view,grep,glob,edit", cmd)
+        self.assertIn("--allow-tool=edit", cmd)
+        self.assertNotIn("Do not modify files", cmd[-1])
 
     def test_model_flag_is_passed_through(self):
         runner = _copilot_runner(model="claude-sonnet-4.6")
@@ -400,6 +431,24 @@ class CopilotAppStateAskTests(unittest.TestCase):
         self.assertEqual(result["capability"], "edit_files")
         self.assertEqual(fake.calls, [])
         self.assertEqual(read_events(self.root), [])
+
+    def test_scoped_capable_copilot_can_run_an_edit_request(self):
+        from opai import app_state as A
+
+        fake = FakeAccountRunner(account_id="copilot", text="edited")
+        fake.supports_scoped_editing = lambda: True
+        result = A.ask(
+            self.root,
+            "Fix app.py",
+            "account:copilot:gpt-5.4",
+            allow_edits=True,
+            mode="safe-auto",
+            account_runner=fake,
+        )
+
+        self.assertEqual(result["status"], "answered_by_account")
+        self.assertEqual(len(fake.calls), 1)
+        self.assertTrue(fake.calls[0]["allow_edits"])
 
     def test_gui_copilot_edit_mismatch_is_blocked_without_receipt_or_spend(self):
         fake = FakeAccountRunner(account_id="copilot", text="should not run")

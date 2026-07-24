@@ -92,6 +92,42 @@ def test_answer_objective_requires_a_real_answer_before_completion() -> None:
     assert completed.verdict is CompletionVerdict.COMPLETED
 
 
+def test_answer_delivery_does_not_claim_independent_objective_verification() -> None:
+    objective = objective_from_request("What is 2+2?", mode="explain")
+
+    result = evaluate_completion(
+        objective,
+        {"status": "answered", "answer": "Four", "completion_state": "completed"},
+    )
+
+    assert result.verdict is CompletionVerdict.COMPLETED
+    assert result.reason_code == "answer_delivered"
+    assert "not independently verified" in result.reason.lower()
+    assert "objective verified" not in result.reason.lower()
+
+
+def test_typed_provider_failure_preserves_its_actionable_user_message() -> None:
+    objective = objective_from_request("Explain the repository.", mode="explain")
+    message = (
+        "Claude says you've hit your monthly spend limit. Wait for it to reset, "
+        "raise it at https://claude.ai/settings/usage, or switch model."
+    )
+
+    result = evaluate_completion(
+        objective,
+        {
+            "status": "failed",
+            "error": {
+                "code": "PROVIDER_QUOTA_EXHAUSTED",
+                "userMessage": message,
+            },
+        },
+    )
+
+    assert result.verdict is CompletionVerdict.FAILED
+    assert result.reason == message
+
+
 @pytest.mark.parametrize(
     ("payload", "verdict", "reason_code"),
     [
@@ -165,6 +201,7 @@ def test_terminal_verdicts_have_typed_reason_codes(
         ("STREAM_ABORTED", FailureReason.PROVIDER),
         ("CONTEXT_TOO_LARGE", FailureReason.PROVIDER),
         ("CONFIG_INVALID", FailureReason.INTERNAL),
+        ("PROVIDER_CLI_OUTDATED", FailureReason.PROVIDER),
     ],
 )
 def test_failure_reason_maps_every_provider_error_code(

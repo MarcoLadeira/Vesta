@@ -58,6 +58,26 @@ test("an unverified run renders a partial verdict instead of success", async ({ 
   await expect(page.locator(".msg.bot")).not.toContainText("✓ Completed");
 });
 
+test("answer delivery is not labelled independently verified", async ({ page }) => {
+  const id = await sendPrompt(page, "What is 2+2?");
+  await finishRequest(page, id, {
+    status: "answered",
+    answer: "Four",
+    completion_verdict: {
+      verdict: "completed",
+      reason_code: "answer_delivered",
+      reason: "Provider returned a complete response; its content was not independently verified.",
+      next_action: "Review the response and its cited evidence.",
+      evidence: [{ kind: "answer", summary: "Provider returned a non-empty response" }],
+    },
+  });
+
+  await expect(page.locator(".completion-verdict")).toContainText("Response received");
+  await expect(page.locator(".completion-verdict")).not.toContainText("Completed");
+  await expect(page.locator(".completion-verdict")).toContainText("not independently verified");
+  await expect(page.locator("#ssConn")).toHaveText("Response received");
+});
+
 test("cancelled request never becomes failed or completed", async ({ page }) => {
   await sendPrompt(page);
   await page.locator(".gen-stop").click();
