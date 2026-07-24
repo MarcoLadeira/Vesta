@@ -257,6 +257,31 @@ class BootPayloadTests(unittest.TestCase):
         self.assertEqual(ws["root"], str(root.resolve()))
         self.assertIsInstance(ws["recents"], list)
 
+    def test_workspace_state_reflects_a_commit_made_after_boot(self):
+        # Round 2: the "N uncommitted" badge is built from the boot payload,
+        # which is computed once per window — so it kept showing the startup
+        # count after a run committed the files. The GUI now re-reads this on
+        # every finished turn, so it has to see the post-commit truth.
+        import subprocess
+
+        from opai.gui_web import _workspace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            (root / "leftover.txt").write_text("work\n", encoding="utf-8")
+            before = _workspace(root)
+
+            for argv in (
+                ["git", "add", "leftover.txt"],
+                ["git", "commit", "-m", "chore: commit the leftover file"],
+            ):
+                subprocess.run(argv, cwd=root, check=True, capture_output=True)
+
+            after = _workspace(root)
+
+        self.assertIn("leftover.txt", before["dirty_paths"])
+        self.assertNotIn("leftover.txt", after["dirty_paths"])
+
     def test_status_line_is_a_string(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))

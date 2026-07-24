@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 import sys
@@ -744,10 +745,112 @@ _HOOK_SHELL_TOOLS = frozenset({"bash", "shell", "sh", "powershell", "pwsh", "cmd
 
 _HOOK_BLOCK_REASON = (
     "OPai safety gate: this command is classified as destructive or "
-    "confirmation-only ({detail}). It needs explicit user confirmation in the "
-    "OPai UI. Do not retry it or work around the block; continue with safe, "
-    "read-only steps only."
+    "confirmation-only ({detail}). It is blocked in autonomous runs and OPai "
+    "will not run it for you. To proceed, run it yourself in a terminal. Do not "
+    "retry it or work around the block; continue with safe, read-only steps only."
 )
+
+# git push is a common, legitimate next step, so its block must point at the
+# real control instead of implying a per-command approval dialog that does not
+# exist (Bug 2): pushes are enabled once, in Settings, and then OPai performs
+# them through its own consent-aware GitHub tool — never as a raw shell push.
+# Round 2: only say this when the control is actually still off. When consent is
+# already granted the sentence was actively harmful — it sent users hunting for
+# an "Enable pushes & PRs" button that, once enabled, reads "Disable pushes &
+# PRs" — so a consented plain push is now allowed outright (see
+# ``_push_consent_state``) and this text is reserved for the not-yet-enabled case.
+_HOOK_BLOCK_REASON_PUSH = (
+    "OPai safety gate: pushing is not enabled yet, so OPai will not run this "
+    "`git push` ({detail}). Enable it once in Settings -> Providers & "
+    "Connections, in the \"GitHub · pushes & pull requests\" card: connect a "
+    "GitHub token, then click \"Enable pushes & PRs\". After that OPai can push "
+    "this branch itself. Or push yourself in a terminal. Do not retry this push "
+    "until it is enabled; continue with safe, read-only steps only."
+)
+
+# A push OPai still refuses even with consent: force/mirror/delete forms rewrite
+# or destroy remote history, which consent to "push branches and open PRs" does
+# not cover. Say exactly that instead of pointing at a toggle that is already on.
+_HOOK_BLOCK_REASON_FORCE_PUSH = (
+    "OPai safety gate: pushes are enabled, but this is a force/delete/mirror "
+    "push ({detail}), which rewrites or removes remote history. OPai never runs "
+    "those autonomously regardless of consent. Run it yourself in a terminal if "
+    "you intend it, or push without the force/delete flags."
+)
+
+_PUSH_COMMAND = re.compile(r"\bgit\s+push\b", re.IGNORECASE)
+
+# One whole command that is exactly a `git push`, with no shell chaining,
+# redirection, substitution, or a second command hidden behind an operator. The
+# consent allowance below applies only to this shape, so consent can never be
+# used to smuggle `git push && rm -rf .` past the gate.
+_PLAIN_PUSH_COMMAND = re.compile(
+    r"""^\s*(?:git(?:\.exe)?)\s+push(?P<rest>(?:\s+[^\s;&|<>`$()]+)*)\s*$""",
+    re.IGNORECASE,
+)
+
+# Flags that make a push destructive to remote history. `-f`/`--force`,
+# `--force-with-lease`, `--mirror`, `--delete`/`-d`, and a leading `+` in a
+# refspec (`git push origin +main`) all rewrite or drop remote refs.
+# `--receive-pack`/`--exec` name a program to run on the remote end, which is
+# code execution, not a push — consent to push never covers that.
+_FORCE_PUSH_FLAG = re.compile(
+    r"(?:^|\s)(?:-f|-d|--force(?:-with-lease|-if-includes)?|--delete|--mirror|--prune"
+    r"|--receive-pack|--exec|\+[\w./-]+:)",
+    re.IGNORECASE,
+)
+
+# An explicit remote URL rather than a configured remote name. Consent means
+# "push my branches to my repository", so an autonomous run may not use it to
+# send the repository to an arbitrary host.
+_PUSH_REMOTE_URL = re.compile(r"(?:^|\s)(?:[a-z][a-z0-9+.-]*://|[\w.-]+@[\w.-]+:)", re.IGNORECASE)
+
+
+def _push_consent_state() -> tuple[bool, str]:
+    """Whether the user has already granted OPai push consent, and why not.
+
+    Consent is the same persisted pair the GUI toggle and OPai's own
+    ``git_push`` tool read: ``opai github allow-push on`` plus a connected
+    token. Fails closed — any lookup problem is treated as "not consented" so
+    the gate can only ever become stricter on error.
+    """
+    try:
+        from opaihub.github_connector import push_allowed, stored_github_token
+
+        if not push_allowed():
+            return False, "push consent is off"
+        if not stored_github_token()[0]:
+            return False, "no GitHub token is connected"
+        return True, ""
+    except Exception:  # noqa: BLE001 - consent lookup must fail closed
+        return False, "push consent could not be verified"
+
+
+def _is_plain_push(command: str) -> bool:
+    """True for a lone, non-force ``git push`` to a named remote, nothing else."""
+    match = _PLAIN_PUSH_COMMAND.match(str(command or ""))
+    if match is None:
+        return False
+    rest = match.group("rest") or ""
+    return not _FORCE_PUSH_FLAG.search(rest) and not _PUSH_REMOTE_URL.search(rest)
+
+
+def _hook_block_reason(command: str, detail: str) -> str:
+    """The honest block explanation for a denied autonomous command (Bug 2).
+
+    For a push, the explanation depends on *why* it is still blocked: consent
+    not granted yet points at the real Settings control; a force/delete push
+    says plainly that no toggle unlocks it. Everything else says the user must
+    run it themselves — never that a per-command UI dialog will appear.
+    """
+    text = str(command or "")
+    if _PUSH_COMMAND.search(text):
+        consented, _ = _push_consent_state()
+        template = (
+            _HOOK_BLOCK_REASON_FORCE_PUSH if consented else _HOOK_BLOCK_REASON_PUSH
+        )
+        return template.format(detail=detail)
+    return _HOOK_BLOCK_REASON.format(detail=detail)
 
 
 def _hook_allow() -> dict[str, Any]:
@@ -782,6 +885,15 @@ def claude_pre_tool_decision(
     uses: ``sandbox.classify_command`` (deny/confirm rules) plus
     ``safety_gates.is_destructive_command``. Anything not provably safe is
     denied with an explanation; non-shell tools pass through untouched.
+
+    One exception, and only one: a lone, non-force ``git push`` runs when the
+    user has already granted push consent. ``git push`` sits in the *confirm*
+    class, and this hook has no interactive channel, so a confirm verdict here
+    is a hard deny — which meant push could never complete through the GUI even
+    with consent granted and a token connected (Round 2 headline). Consent
+    granted in Settings *is* the explicit approval the confirm class asks for,
+    so it is honoured here rather than re-asked through a channel that cannot
+    ask. Force/delete/mirror pushes and anything chained onto a push stay denied.
     """
     from opaihub.safety_gates import is_destructive_command
     from opaihub.sandbox import classify_command
@@ -798,6 +910,8 @@ def claude_pre_tool_decision(
         return _hook_deny(
             _HOOK_BLOCK_REASON.format(detail="no inspectable command in payload")
         )
+    if _is_plain_push(command) and _push_consent_state()[0]:
+        return _hook_allow()
     verdict = classify_command(command, project_root)
     if (
         verdict.get("denied")
@@ -805,7 +919,7 @@ def claude_pre_tool_decision(
         or is_destructive_command([command])
     ):
         detail = str(verdict.get("reason") or "destructive command policy")
-        return _hook_deny(_HOOK_BLOCK_REASON.format(detail=detail))
+        return _hook_deny(_hook_block_reason(command, detail))
     return _hook_allow()
 
 

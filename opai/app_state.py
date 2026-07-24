@@ -1379,7 +1379,9 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
         data = available_models(root)
         lines = [
             "Connect your AI accounts — OPai routes through the CLIs you are "
-            "already signed into. No API keys, no credentials stored.",
+            "already signed into, so these accounts need no API key. (API "
+            "providers like GitHub or Gemini keep their keys in your OS "
+            "credential store — see Settings → Providers & Connections.)",
             "",
         ]
         for account in data["accounts"]:

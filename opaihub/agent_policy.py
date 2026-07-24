@@ -67,7 +67,17 @@ _IMPLEMENT_SIGNAL = re.compile(
     # "Solve GitHub issue #219" / "fix ticket #42" / "implement issue #7": the
     # verb may be separated from issue/bug/ticket by a qualifier (F5/F10).
     r"(?:resolve|solve|fix|implement)\b[^.\n]{0,40}?\b(?:issue|bug|ticket)s?\b|"
-    r"create\s+(?:a\s+)?(?:new\s+)?(?:file|module|component|config)|add\s+(?:a\s+)?feature|"
+    r"create\s+(?:a\s+)?(?:new\s+)?(?:file\b|module|component|config|[^\s.]+\.\w+)|add\s+(?:a\s+)?feature|"
+    # Git-mutation and file-delete verbs are edit intent, not read-only
+    # explanation (Bug 1): "run git add and git commit for X" or "delete X.md"
+    # must route to IMPLEMENT so the model is granted the mutation tools (a
+    # read-only contract makes it refuse) and so a refusal that produces no diff
+    # is scored PARTIAL, never a green "Completed" read-only answer. Specific
+    # git commands and staged/commit phrasing only — bare "commit"/"delete" in a
+    # question is still caught read-only by the explanation leader above.
+    r"git\s+(?:add|commit|stage|rm|mv)\b|"
+    r"(?:commit|stage)\s+(?:and\s+\w+\s+)?(?:the|my|all|these|this|it|them|file|files|change|changes|staged)\b|"
+    r"delete\s+(?:the\s+)?(?:file\b|[^\s.]+\.\w+)|"
     r"change\s+(?:the\s+)?code|edit\s+(?:the\s+)?files?|improve|update|upgrade|rename|remove|replace)\b",
     re.IGNORECASE,
 )
@@ -371,15 +381,18 @@ def build_capability_contract(
         if "open_pr" in tool_names:
             lines.append(
                 "- You may push with git_push and open a pull request with "
-                "open_pr — the user has explicitly enabled GitHub operations."
+                "open_pr — the user has explicitly enabled GitHub operations. "
+                "Use those tools; do not claim a Settings toggle is missing."
             )
         elif "git_commit" in tool_names:
             lines.append(
-                "- Pushing and PRs are disabled this turn. If asked to push or "
-                "open a PR, commit locally and tell the user to run "
-                "`opai github status` to see what's missing — pushes need BOTH a "
-                "connected token (opai github connect) AND consent (opai github "
-                "allow-push on). Do not tell them to only re-run allow-push."
+                "- Pushing and PRs are off this turn. If asked to push or open a "
+                "PR, commit locally, then say exactly this: pushing is enabled in "
+                "Settings -> Providers & Connections, in the \"GitHub · pushes & "
+                "pull requests\" card — connect a GitHub token, then click "
+                "\"Enable pushes & PRs\". Both are needed. Never invent a "
+                "different button, page, or setting name, and never claim a "
+                "control exists that you have not been told about here."
             )
     if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
         lines.append(

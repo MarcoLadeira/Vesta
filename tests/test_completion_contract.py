@@ -512,3 +512,123 @@ def test_checkpoint_rejects_non_json_mutable_leaves(mutable: object) -> None:
             state=CompletionState.STUCK_NO_PROGRESS,
             checkpoint={"unsafe": mutable},
         )
+
+
+# ---------------------------------------------------------------------------
+# Round 2 (2026-07-24) status-honesty fixes: the verdict was wrong in BOTH
+# directions — a real commit read "Partial", and a refusal read "Completed".
+# ---------------------------------------------------------------------------
+def test_commit_made_outside_opais_tools_counts_as_change_evidence() -> None:
+    # A provider CLI commits through its own shell, and committing CLEARS the
+    # dirty paths the run created — so a genuinely successful commit arrived
+    # with no changed_files and no diff_review, and was stamped PARTIAL. The
+    # pipeline measures the repository across the run and reports it here.
+    objective = objective_from_request(
+        "Stage and commit the two leftover files.", mode="implement"
+    )
+    committed = {
+        "status": "answered",
+        "answer": "Committed the two files.",
+        "changed_files": [],
+        "repo_change": {
+            "changed": True,
+            "kind": "commit",
+            "detail": "New commit on this branch (530766d)",
+        },
+    }
+
+    verdict = evaluate_completion(objective, committed)
+
+    assert verdict.verdict is CompletionVerdict.COMPLETED
+    assert any(item.kind == "diff" for item in verdict.evidence)
+
+
+def test_unchanged_repository_still_fails_the_edit_evidence_gate() -> None:
+    # The honesty gate must not be weakened: no repo movement, no evidence.
+    objective = objective_from_request("Fix the parser bug.", mode="implement")
+
+    verdict = evaluate_completion(
+        objective,
+        {
+            "status": "answered",
+            "answer": "Done!",
+            "changed_files": [],
+            "repo_change": {"changed": False},
+        },
+    )
+
+    assert verdict.verdict is CompletionVerdict.PARTIAL
+    assert verdict.reason_code == "change_not_verified"
+
+
+def test_answer_that_declines_the_request_is_not_completed() -> None:
+    # The other direction: an Explain-mode turn whose whole answer is "that is
+    # outside my capabilities" satisfied ANSWER_PRESENT and was stamped
+    # Completed. A declined request is not a met objective.
+    objective = objective_from_request("Show me the current git state.", mode="explain")
+
+    verdict = evaluate_completion(
+        objective,
+        {
+            "status": "answered",
+            "answer": "I noted that git log execution is outside of my tool capabilities.",
+        },
+    )
+
+    assert verdict.verdict is CompletionVerdict.PARTIAL
+    assert verdict.reason_code == "provider_declined"
+
+
+def test_gemini_capability_refusal_is_not_completed() -> None:
+    objective = objective_from_request(
+        "Run git fetch and compare this branch with origin.", mode="explain"
+    )
+
+    verdict = evaluate_completion(
+        objective,
+        {
+            "status": "answered",
+            "answer": (
+                "I do not have the capability to execute git commands directly. "
+                "My authorized capabilities are limited to inspect_git, read_files, "
+                "and search_code."
+            ),
+        },
+    )
+
+    assert verdict.verdict is CompletionVerdict.PARTIAL
+    assert verdict.reason_code == "provider_declined"
+
+
+def test_declining_prose_alongside_real_tool_work_still_completes() -> None:
+    # Prose alone never decides this. A run that actually called a tool and
+    # merely narrated a limitation is a completed answer, not a refusal.
+    objective = objective_from_request("Show me the current git state.", mode="explain")
+
+    verdict = evaluate_completion(
+        objective,
+        {
+            "status": "answered",
+            "answer": (
+                "HEAD is 530766d. I cannot execute arbitrary shell commands, "
+                "but git_status covered what you asked for."
+            ),
+            "tool_trace": [{"tool": "git_status", "ok": True}],
+        },
+    )
+
+    assert verdict.verdict is CompletionVerdict.COMPLETED
+
+
+def test_ordinary_answer_is_never_mistaken_for_a_refusal() -> None:
+    objective = objective_from_request("Explain what this module does.", mode="explain")
+
+    verdict = evaluate_completion(
+        objective,
+        {
+            "status": "answered",
+            "answer": "It parses the config file and validates each key in turn.",
+        },
+    )
+
+    assert verdict.verdict is CompletionVerdict.COMPLETED

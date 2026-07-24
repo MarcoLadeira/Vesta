@@ -99,6 +99,16 @@ def permissions_for(
         note = _STATE_NOTE[state]
         if cap_id == "run_safe" and state == "allow" and allow_cmds:
             note = "e.g. " + ", ".join(allow_cmds)
+        # Bug 9: a command that deletes files (rm/del/Remove-Item/unlink/…) is
+        # gated by the "Delete files" rule even when "Run any command" is Allow,
+        # so the command channel cannot silently bypass the delete confirmation.
+        # Say so where the two rows would otherwise look contradictory.
+        if (
+            cap_id == "run_any"
+            and state == "allow"
+            and rules.get("delete", "block") != "allow"
+        ):
+            note = note + "; commands that delete files still follow Delete files"
         rows.append({"id": cap_id, "label": label, "state": state, "note": note})
     return rows
 

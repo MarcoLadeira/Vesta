@@ -49,9 +49,9 @@ export const MODELS = [
     badge: "fast · high · $$",
   },
   {
-    id: "account:copilot:gpt-5.2",
-    label: "Copilot · GPT-5.2",
-    advanced_label: "Copilot GPT-5.2 (fast · high · $$)",
+    id: "account:copilot:gpt-5.4",
+    label: "Copilot · GPT-5.4",
+    advanced_label: "Copilot GPT-5.4 (fast · high · $$)",
     kind: "account",
     group: "copilot",
     provider: "copilot",

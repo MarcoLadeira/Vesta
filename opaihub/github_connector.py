@@ -21,6 +21,7 @@ import json
 import os
 import re
 import subprocess  # nosec B404 - fixed git argv, never a shell
+import time
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlencode
@@ -305,6 +306,72 @@ def github_status() -> dict[str, Any]:
         "readiness_reason": readiness["reason"],
         "hint": readiness["next_step"]
         or "GitHub is connected and pushes/PRs are enabled.",
+    }
+
+
+def verify_github_connection(*, http: HttpFn = _default_http) -> dict[str, Any]:
+    """Live-check the stored GitHub token for the Connection Doctor (Bug 5).
+
+    GitHub is not an AI-provider adapter, so the generic ``testProvider`` probe
+    could only ever return a bare "Unsupported AI provider" with no reason. This
+    read-only check reuses the stored token, validates it against the pinned
+    ``/user`` endpoint, and shapes its result like the provider probes
+    (``connected`` + ``authStatus`` + ``safeDiagnostic`` + ``lastCheckedAt``) so
+    the doctor card always shows a concrete, actionable reason. Never stores or
+    mutates the token, and the token value never appears in the result.
+    """
+    token, source = stored_github_token()
+    base: dict[str, Any] = {
+        "provider": PROVIDER,
+        "lastCheckedAt": int(time.time() * 1000),
+    }
+    if not token:
+        return {
+            **base,
+            "connected": False,
+            "authStatus": "not_configured",
+            "safeDiagnostic": (
+                "No GitHub token connected. Add a personal access token with "
+                "repo scope (or set GITHUB_TOKEN), then test again."
+            ),
+        }
+    try:
+        status_code, body = http("GET", f"{API_ROOT}/user", token, None)
+    except OSError:
+        return {
+            **base,
+            "connected": False,
+            "authStatus": "provider_unavailable",
+            "safeDiagnostic": (
+                "Couldn't reach api.github.com — check your network and retry."
+            ),
+        }
+    if status_code == 200 and isinstance(body, dict) and body.get("login"):
+        login = str(body["login"])
+        return {
+            **base,
+            "connected": True,
+            "authStatus": "connected",
+            "login": login,
+            "safeDiagnostic": (
+                f"Token valid — signed in as {login} (source: {source})."
+            ),
+        }
+    if status_code in (401, 403):
+        return {
+            **base,
+            "connected": False,
+            "authStatus": "invalid",
+            "safeDiagnostic": (
+                "GitHub rejected the stored token (it may be expired or missing "
+                "repo scope). Reconnect a valid personal access token."
+            ),
+        }
+    return {
+        **base,
+        "connected": False,
+        "authStatus": "provider_unavailable",
+        "safeDiagnostic": f"GitHub check failed (HTTP {status_code}). Try again shortly.",
     }
 
 

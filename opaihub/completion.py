@@ -351,6 +351,44 @@ def _has_successful_test(payload: Mapping[str, Any]) -> bool:
     return False
 
 
+# An explicit "I cannot do this" — the model naming its own inability to run,
+# execute, access, or perform the thing that was asked. Deliberately narrow: it
+# must be a first-person incapability about *doing*, not a passing caveat, and
+# it only ever downgrades a run that produced no tool evidence either.
+_DECLINE_PATTERNS = (
+    r"\b(?:is|are|was|were)\s+(?:outside|beyond|not\s+(?:part|within))\s+(?:of\s+)?"
+    r"(?:my|its|our|the)\s+(?:current\s+)?(?:tool\s+)?(?:capabilit|abilit|scope|permission)",
+    r"\bi\s*(?:'m|\s+am)\s+(?:not\s+able|unable)\s+to\s+(?:run|execute|access|perform|open|read|fetch|check|verify)",
+    r"\bi\s+(?:can(?:no|')t|could\s+not|cannot)\s+(?:run|execute|access|perform|open|fetch|verify)\b",
+    r"\bi\s+do(?:n'|\s+no)t\s+have\s+(?:the\s+)?"
+    r"(?:abilit(?:y|ies)|capabilit(?:y|ies)|access|permission|tools?)\s+to\b",
+    r"\bnot\s+something\s+i\s+(?:can|am\s+able\s+to)\s+(?:do|run|execute)\b",
+    r"\bno\s+tool\s+(?:is\s+)?available\s+to\b",
+)
+_DECLINE = re.compile("|".join(_DECLINE_PATTERNS), re.IGNORECASE)
+
+
+def _declines_the_request(answer: str) -> bool:
+    """True when the answer's substance is "I could not do what you asked"."""
+
+    return bool(_DECLINE.search(str(answer or "")))
+
+
+def _has_successful_tool_call(payload: Mapping[str, Any]) -> bool:
+    """True when at least one tool in the trace actually ran and succeeded."""
+
+    for item in payload.get("tool_trace") or ():
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("ok") is True or _normalized(item.get("status")) in {
+            "success",
+            "passed",
+            "ok",
+        }:
+            return True
+    return False
+
+
 def _evidence_from_payload(payload: Mapping[str, Any]) -> tuple[EvidenceRef, ...]:
     refs: list[EvidenceRef] = []
     files = [
@@ -366,6 +404,20 @@ def _evidence_from_payload(payload: Mapping[str, Any]) -> tuple[EvidenceRef, ...
         if isinstance(summary, Mapping) and int(summary.get("files_changed") or 0) > 0:
             refs.append(
                 EvidenceRef("diff", f"{int(summary['files_changed'])} file(s) changed")
+            )
+    # A provider CLI runs git in its own shell, and committing *clears* the dirty
+    # paths a run created — so a genuinely successful commit produced no changed
+    # files and no diff review, and was stamped PARTIAL ("no changed-file or diff
+    # evidence") on real work. The pipeline measures the repository across the
+    # run and reports it here; a moved HEAD is proof the commit landed.
+    if not refs:
+        repo_change = payload.get("repo_change")
+        if isinstance(repo_change, Mapping) and repo_change.get("changed"):
+            refs.append(
+                EvidenceRef(
+                    "diff",
+                    str(repo_change.get("detail") or "Repository changed during this run"),
+                )
             )
     if _has_successful_test(payload):
         refs.append(EvidenceRef("tests", "Repository tests passed"))
@@ -515,6 +567,27 @@ def evaluate_completion(
             objective,
             evidence,
             "Retry the request.",
+        )
+    # Round 2, the other direction of the status bug: an answer-only run whose
+    # answer *is* "I can't do that" was stamped Completed, because a non-empty
+    # response satisfied the only requirement. A declined request is not a met
+    # objective. Prose alone never decides this — the downgrade applies only when
+    # the run also produced no successful tool call, so a model that actually did
+    # the work and merely narrated a limitation still verifies as Completed.
+    if (
+        AcceptanceRequirement.ANSWER_PRESENT in objective.acceptance
+        and kinds <= {"answer"}
+        and _declines_the_request(str(result.get("answer") or ""))
+        and not _has_successful_tool_call(result)
+    ):
+        return _verdict(
+            CompletionVerdict.PARTIAL,
+            "provider_declined",
+            "OPai replied, but said it could not carry out the request — the "
+            "objective is not verified.",
+            objective,
+            evidence,
+            "Retry, or ask for the specific output you need.",
         )
     return _verdict(
         CompletionVerdict.COMPLETED,

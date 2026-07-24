@@ -33,7 +33,7 @@ class NormalizeModelTests(unittest.TestCase):
             normalize_model_choice("codex:gpt-5.5"), "account:codex:gpt-5.5"
         )
         self.assertEqual(
-            normalize_model_choice("copilot:gpt-5.2"), "account:copilot:gpt-5.2"
+            normalize_model_choice("copilot:gpt-5.4"), "account:copilot:gpt-5.4"
         )
 
     def test_full_and_local_ids_pass_through(self):

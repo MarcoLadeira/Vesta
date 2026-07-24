@@ -1692,7 +1692,7 @@ function updateGenStage(sel) {
     rEl.innerHTML = (sm.reassurance ? esc(sm.reassurance) : "") + (sm.suggestFaster ? ` <a class="gen-switch">Switch to a faster model</a>` : "");
     rEl.classList.toggle("warn", sm.severity === "warning");
     const sw = rEl.querySelector(".gen-switch");
-    if (sw) sw.onclick = () => { $("#modelSel").focus(); };
+    if (sw) sw.onclick = () => openModelPicker();
   }
   updateInspectorLive(sm.stage);
 }
@@ -1707,7 +1707,40 @@ function stop() {
   finalize("cancelled", { answer: state.streamedText || "" });
   setBusy(false);
 }
-function retry() { send(state.lastSend); }
+function retry() {
+  if (!state.lastSend) return;
+  const modelChanged = state.lastSend.model !== state.model.id;
+  const payload = {
+    ...state.lastSend,
+    model: state.model.id,
+    modelKind: state.model.kind,
+    modelLabel: state.model.label,
+    modelProvider: state.model.provider,
+  };
+  // Consent/limit overrides apply to the route the user reviewed. A newly
+  // selected provider must pass its own gates instead of inheriting them.
+  if (modelChanged) {
+    delete payload.allowCloud;
+    delete payload.allowLimit;
+  }
+  send(payload);
+}
+
+function openModelPicker() {
+  // Failed-card and palette clicks originate outside the composer. Defer until
+  // their click has finished bubbling, otherwise the composer's outside-click
+  // listener closes the popover in the same event that opened it.
+  setTimeout(() => {
+    if (window.OPaiComposer && typeof window.OPaiComposer.openModel === "function") {
+      window.OPaiComposer.openModel();
+      return;
+    }
+    // Backward compatibility for an older composer bundle.
+    const button = $("#modelBtn");
+    if (button) button.click();
+    else $("#modelSel").focus();
+  }, 0);
+}
 
 function scrollBottom(force) {
   const sc = $("#chatScroll");
@@ -1756,14 +1789,23 @@ function verdictLabel(verdict) {
   const key = String(verdict || "").toLowerCase();
   return VERDICT_LABELS[key] || (key.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Unknown");
 }
+// Verdicts a one-click Retry can actually help. A completed run has nothing to
+// retry; a cancelled one is the user's own choice; a blocked one needs the user
+// to resolve an approval/input first, so retry alone would just re-block.
+const RETRYABLE_VERDICTS = new Set(["failed", "partial", "timeout"]);
 function completionVerdictHtml(r) {
   const item = completionVerdict(r);
   if (!item) return "";
   const label = verdictLabel(item.verdict);
   const glyph = item.verdict === "completed" ? "check" : item.verdict === "cancelled" ? "cancelled" : "warning";
   const next = item.nextAction ? `<div class="cv-next">Next: ${esc(item.nextAction)}</div>` : "";
+  // Bug 8: pair the "Next: retry…" guidance with an actual button so the user
+  // doesn't have to retype the prompt when a run fails.
+  const retryBtn = RETRYABLE_VERDICTS.has(item.verdict) && state.lastSend
+    ? `<div class="cv-actions"><button class="btn" data-a="retry">Retry</button></div>`
+    : "";
   return `<section class="completion-verdict ${esc(item.verdict)}" role="status" aria-label="Completion verdict: ${esc(label)}">` +
-    `<div class="cv-title">${uiIcon(glyph)} ${esc(label)}</div><div class="cv-reason">${esc(item.reason)}</div>${next}</section>`;
+    `<div class="cv-title">${uiIcon(glyph)} ${esc(label)}</div><div class="cv-reason">${esc(item.reason)}</div>${next}${retryBtn}</section>`;
 }
 function metaFooter(r, sel, durMs) {
   const rc = (r && r.receipt) || {};
@@ -1823,7 +1865,12 @@ function redactSecrets(text) {
 }
 
 function providerName(provider) {
-  return ({ claude: "Claude", codex: "Codex", copilot: "Copilot" })[provider] || String(provider || "Provider");
+  // Named providers keep their exact brand casing; anything else is title-cased
+  // so a live "Test" button never resets its label to a lowercase id like
+  // "Test github" (Bug 5).
+  const known = { claude: "Claude", codex: "Codex", copilot: "Copilot", github: "GitHub", gemini: "Gemini", kimi: "Kimi", groq: "Groq", openrouter: "OpenRouter" };
+  const key = String(provider || "").toLowerCase();
+  return known[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : "Provider");
 }
 
 function connectionHealth(result) {
@@ -1848,6 +1895,14 @@ function updateDoctorCard(provider, result) {
   if (status) status.textContent = signedIn ? "connected" : (result.authStatus || result.status || "needs attention").replaceAll("_", " ");
   if (health) { health.textContent = connectionHealthLabel(healthValue); health.className = `doctor-health ${healthValue}`; }
   if (diagnostic) diagnostic.textContent = (result.connection && result.connection.safeDiagnostic) || result.safeDiagnostic || result.message || diagnostic.textContent;
+  // Bug 4: the check just ran, so "Last checked" must reflect it in place — a
+  // fresh timestamp from the result when present, otherwise "Just now" — instead
+  // of staying "Never checked" until the page is re-rendered.
+  const checked = card.querySelector("[data-doctor-last-checked]");
+  if (checked) {
+    const at = Number(result.lastCheckedAt || (result.connection && result.connection.lastCheckedAt));
+    checked.textContent = at ? new Date(at).toLocaleString() : "Just now";
+  }
   refreshDoctorSummary();
 }
 
@@ -2045,7 +2100,7 @@ function renderErrorCard(el, status, r, sel) {
     send(Object.assign({}, state.lastSend || {}, { allowLimit: true }));
   };
   const settings = el.querySelector('[data-a="settings"]'); if (settings) settings.onclick = () => switchView("settings");
-  el.querySelector('[data-a="switch"]').onclick = () => { $("#modelSel").focus(); };
+  el.querySelector('[data-a="switch"]').onclick = () => openModelPicker();
   const details = el.querySelector('[data-a="details"]'); if (details) details.onclick = () => {
     const panel = el.querySelector(".ec-details"); if (panel) panel.open = !panel.open;
   };
@@ -2114,6 +2169,8 @@ function finalize(status, r) {
   wirePlanCard(el, sel);
   wireDiffReview(el);
   enhanceCodeBlocks(el);
+  const cvRetry = el.querySelector('.completion-verdict [data-a="retry"]');
+  if (cvRetry) cvRetry.onclick = () => retry();
 }
 
 function diffReviewHtml(review, testsStatus) {
@@ -2280,7 +2337,23 @@ function onReply(json) {
   state.currentRequest = null;
   setBusy(false);
   finalize(backendStatus, d.result || {});
-  refreshStatus(); refreshInspector();
+  refreshStatus(); refreshInspector(); refreshWorkspaceBadge();
+}
+
+// The header's "N uncommitted" badge came from the boot payload and was never
+// recomputed, so it kept showing the startup count after a run committed files
+// (Round 2). Re-read the real git state whenever a turn ends. Best-effort: an
+// older host without the slot, or a malformed reply, leaves the badge as-is
+// rather than blanking a branch name we can no longer verify.
+function refreshWorkspaceBadge() {
+  if (!bridge || !bridge.workspaceState) return;
+  bridge.workspaceState((json) => {
+    let ws = null;
+    try { ws = JSON.parse(json); } catch (_e) { return; }
+    if (!ws || typeof ws !== "object" || typeof ws.root !== "string") return;
+    state.boot.workspace = ws;
+    renderWorkspace();
+  });
 }
 
 function setBusy(on) {
@@ -2759,7 +2832,7 @@ function runCommand(id) {
     case "prompts": switchView("prompts"); break;
     case "inspector": togglePanel(); break;
     case "workspace": bridge.openWorkspace(); break;
-    case "change_model": $("#modelSel").focus(); break;
+    case "change_model": openModelPicker(); break;
     case "savings": switchView("home"); break;
     case "firewall": switchView("firewall"); break;
     case "settings": switchView("settings"); break;
@@ -2909,7 +2982,7 @@ function wire() {
     else if (c && e.key === "i") { e.preventDefault(); togglePanel(); }
     else if (c && e.key === "o") { e.preventDefault(); bridge.openWorkspace(); }
     else if (c && e.key === "l") { e.preventDefault(); switchView("chat"); $("#input").focus(); }
-    else if (c && e.key === "m") { e.preventDefault(); $("#modelSel").focus(); }
+    else if (c && e.key === "m") { e.preventDefault(); openModelPicker(); }
     else if (c && e.key === "b") { e.preventDefault(); toggleSidebar(); }
     else if (e.key === "?" && !isTypingTarget(e.target)) { e.preventDefault(); runCommand("shortcuts"); }
     else if (e.key === "Escape" && state.busy) { e.preventDefault(); stop(); }

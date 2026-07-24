@@ -13,7 +13,11 @@ from unittest import mock
 
 from _helpers import FakeAccountRunner, FakeLocalRunner, make_repo
 
-from opaihub.gui_pipeline import handle_gui_message, request_tool_authority
+from opaihub.gui_pipeline import (
+    handle_gui_message,
+    repo_fingerprint,
+    request_tool_authority,
+)
 from opaihub.intent_router import safety_warnings
 
 
@@ -320,6 +324,33 @@ class SmallTalkRoutingTests(unittest.TestCase):
         ):
             self.assertFalse(is_smalltalk_request(message), message)
 
+    def test_git_mutation_requests_route_to_implement_not_explain(self):
+        # Bug 1: "run git add and git commit" / "delete X.md" were classified
+        # read-only EXPLAIN, so the model was given a read-only contract, refused
+        # the mutation, and the refusal answer was scored a green "Completed".
+        # A git-mutation or file-delete request is edit intent.
+        from opaihub.agent_policy import AgentMode, resolve_agent_policy
+
+        for message in (
+            "Run git add and git commit for opai-test-notes.md",
+            "commit the changes",
+            "stage all files and commit them",
+            "delete opai-test-notes.md",
+            "Create opai-test-notes.md with the text 'Hello from OPai QA test'",
+        ):
+            self.assertIs(
+                resolve_agent_policy(message).mode, AgentMode.IMPLEMENT, message
+            )
+        # Read-only questions that merely mention git are still EXPLAIN.
+        for message in (
+            "explain the last commit",
+            "what does this commit do?",
+            "show me the commit history",
+        ):
+            self.assertIs(
+                resolve_agent_policy(message).mode, AgentMode.EXPLAIN, message
+            )
+
     def test_greeting_under_build_focus_is_explain_not_implement(self):
         # The exact reported bug: a Build focus (or Full Auto) turned "hi" into
         # an implement run that changed nothing and was marked failed.
@@ -400,6 +431,47 @@ class DiscoveryReadOnlyRoutingTests(unittest.TestCase):
             )
         self.assertFalse(authority.allow_edits)
         self.assertNotIn("apply_patch", authority.tool_names)
+
+
+class RepoFingerprintTests(unittest.TestCase):
+    """Round 2: proof a run changed the repo, for changes OPai cannot see.
+
+    An account provider CLI runs git in its own shell, so a real commit left no
+    ``changed_files`` and no OPai tool_trace entry — and committing *clears* the
+    dirty paths the run created, so a genuinely successful commit was stamped
+    "Partial — no changed-file or diff evidence" on verified work.
+    """
+
+    def test_fingerprint_moves_when_a_commit_lands(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            before = repo_fingerprint(root)
+            (root / "app.py").write_text("value = 2\n", encoding="utf-8")
+            dirty = repo_fingerprint(root)
+            for argv in (
+                ["git", "add", "app.py"],
+                ["git", "commit", "-m", "fix: bump the value"],
+            ):
+                subprocess.run(argv, cwd=root, check=True, capture_output=True)
+            after = repo_fingerprint(root)
+
+        # An edit alone moves it (dirty set), and so does the commit (HEAD).
+        self.assertNotEqual(before, dirty)
+        self.assertNotEqual(dirty, after)
+        self.assertNotEqual(before[0], after[0])
+
+    def test_untouched_repository_fingerprints_identically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            self.assertEqual(repo_fingerprint(root), repo_fingerprint(root))
+
+    def test_non_repository_yields_the_empty_fingerprint(self):
+        # The empty fingerprint compares equal to itself, so a non-repo can only
+        # ever withhold evidence — it can never manufacture it.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(repo_fingerprint(Path(tmp)), ("", ()))
 
 
 if __name__ == "__main__":

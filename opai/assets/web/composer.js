@@ -559,6 +559,7 @@
     setStyle: setStyle,
     currentStyle: currentStyle,
     applyBootStyle: function () { setStyle((boot().prefs || {}).composerStyle || DEFAULT_STYLE); },
+    openModel: openModel,
     closePopovers: closePopovers,
   };
 })(typeof window !== "undefined" ? window : this);

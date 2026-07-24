@@ -96,6 +96,16 @@
     replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
     dashboardReady: Sig(), settingsReady: Sig(), toolApplied: Sig(), statusReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
+    // Round 2: the header's "N uncommitted" badge came from the boot payload
+    // and was never recomputed, so it stayed stale after a run committed. The
+    // app now re-reads the workspace when a turn ends; a scenario can supply
+    // the post-run state via scenario.workspaceAfterRun.
+    workspaceState: function (cb) {
+      window.__mock.workspaceStateCalls += 1;
+      var after = scenario.workspaceAfterRun;
+      if (after) boot.workspace = merge(boot.workspace || {}, after);
+      cb(JSON.stringify(boot.workspace));
+    },
     inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
     statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
     requestStatus: function (sel, requestId) {
@@ -429,6 +439,7 @@
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
     dashboardRequests: [], settingsRequests: [], statusRequests: [],
     updateChecks: [], updateApplies: 0, updateRestarts: 0, usageRefreshes: 0,
+    workspaceStateCalls: 0,
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
     },

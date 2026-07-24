@@ -281,11 +281,15 @@ class SchemaAndContractTests(unittest.TestCase):
         self.assertIn("Callable tools this turn:", contract)
         self.assertIn("write_file", contract)
         self.assertIn("do not claim edits are not permitted", contract)
-        # Push disabled -> the model is told the BOTH gates (token + consent),
-        # not just to re-run allow-push, and pointed at `opai github status`.
-        self.assertIn("allow-push on", contract)
-        self.assertIn("opai github connect", contract)
-        self.assertIn("opai github status", contract)
+        # Push disabled -> the model is told BOTH gates (token + consent) and
+        # pointed at the control a GUI user can actually see. Round 2: the old
+        # text named CLI commands (`opai github allow-push on`) to a GUI-only
+        # user, who then invented their own plausible-sounding Settings path.
+        # The contract now dictates the exact wording and forbids improvising.
+        self.assertIn("Providers & Connections", contract)
+        self.assertIn("Enable pushes & PRs", contract)
+        self.assertIn("connect a GitHub token", contract)
+        self.assertIn("Never invent a different button", contract)
 
     def test_contract_announces_pr_ability_when_enabled(self):
         policy = resolve_agent_policy("Implement the new sync feature and open a PR")

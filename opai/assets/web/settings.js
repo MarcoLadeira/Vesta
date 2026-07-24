@@ -403,7 +403,7 @@
         (item.credentialEnvironmentName
           ? "<span>Variable <b>" + esc(item.credentialEnvironmentName) + "</b></span>"
           : "") +
-        "<span>Last checked <b>" +
+        "<span>Last checked <b data-doctor-last-checked>" +
         esc(checkedLabel(item.lastCheckedAt)) +
         "</b></span></div>" +
         '<div class="doctor-diagnostic" data-doctor-diagnostic>' +
@@ -463,7 +463,7 @@
         "</div></article>";
     });
     h += "</div></section>";
-    h += '<div class="actions"><button class="btn primary" id="setConnect">Connect accounts</button></div>';
+    h += '<div class="actions"><button class="btn primary" id="setConnect">Connect CLI accounts…</button><span class="set-note">Opens a guided sign-in in Chat for CLI accounts (Claude, Codex, Copilot). API-key providers are managed above.</span></div>';
     if (
       d.codexConfig &&
       d.codexConfig.repairable &&
@@ -476,8 +476,60 @@
         esc(d.codexConfig.message || "Invalid Codex configuration") +
         '</div></div><button class="btn" id="repairCodex">Repair Codex config</button></div>';
     }
+    // Round 2: this card used to sit *below* the free-provider key list, and
+    // once push consent was on its only affordance read "Disable pushes & PRs".
+    // A user told to find "Enable pushes & PRs" therefore found nothing — the
+    // phrase was absent and the card was off-screen. It now leads the page,
+    // states On/Off in words, and always names the setting so Settings search
+    // finds it in either state.
+    if (d.github) {
+      var gh = d.github;
+      var ghConnected = !!gh.connected;
+      var ghReady = !!gh.ready_for_push;
+      h += '<div class="set-head">GitHub · pushes &amp; pull requests</div>';
+      h +=
+        '<div class="set-note">Controls whether OPai may run <b>git push</b> and open pull requests for you. This is the only place pushes &amp; PRs are enabled — there is no other push or git setting.</div>';
+      h += '<div class="provider-key-card github-card" data-github-card>';
+      h +=
+        '<div class="provider-key-head"><span>GitHub' +
+        (gh.login ? " · " + esc(gh.login) : "") +
+        '</span><span class="provider-key-status" data-github-status>' +
+        (ghConnected
+          ? ghReady
+            ? "Connected · pushes &amp; PRs ON"
+            : "Connected · pushes &amp; PRs OFF"
+          : "Not connected") +
+        "</span></div>";
+      if (!ghConnected) {
+        h +=
+          '<div class="provider-key-form"><input type="password" autocomplete="off" spellcheck="false" aria-label="GitHub personal access token" placeholder="Paste a GitHub token (PAT)" data-github-token>' +
+          '<button class="btn" data-github-connect>Connect GitHub</button></div>';
+        h += '<div class="set-note">Step 1 of 2 — connect a token, then the <b>Enable pushes &amp; PRs</b> button appears here. Create a token at github.com/settings/tokens with <b>repo</b> scope (classic) or Contents + Pull requests read/write (fine-grained). Stored only in your OS keychain — never shown again.</div>';
+      } else {
+        h +=
+          '<div class="provider-key-form">' +
+          '<button class="btn ' +
+          (gh.allow_push ? "primary" : "") +
+          '" data-github-allowpush="' +
+          (gh.allow_push ? "off" : "on") +
+          '">' +
+          (gh.allow_push ? "Disable pushes &amp; PRs" : "Enable pushes &amp; PRs") +
+          '</button><button class="btn ghost" data-github-disconnect>Disconnect</button></div>';
+        h += ghReady
+          ? '<div class="set-note">Pushes &amp; PRs are <b>already enabled</b> — this is the "Enable pushes &amp; PRs" setting, now on. OPai can push branches and open pull requests. Use the button above to turn it back off.</div>'
+          : '<div class="set-note" data-github-hint>' +
+            esc(gh.hint || "Pushes & PRs are off. Click Enable pushes & PRs above.") +
+            "</div>";
+      }
+      h += "</div>";
+    }
     var providerNames = { kimi: "Kimi", gemini: "Gemini", groq: "Groq", mistral: "Mistral" };
-    h += '<div class="set-head">Free model connections</div>';
+    // Bug 7: this section and Connection Doctor above both list the free
+    // providers, which reads as duplicate UI. Name the split by role — Doctor
+    // shows health and runs a Test; this is where you paste/replace/remove the
+    // actual API key — and point back up so it's clearly one flow, not two.
+    h += '<div class="set-head">Free model API keys</div>';
+    h += '<div class="set-note">Add, replace, or remove the API key for each free provider here. Their live health and the Test button are in Connection Doctor above.</div>';
     (d.credentials || []).forEach(function (credential) {
       var provider = credential.provider || "provider";
       var label = providerNames[provider] || provider;
@@ -519,45 +571,6 @@
         "</div></div>";
     });
     h += '<div class="set-note">Keys are stored only in the operating-system credential store. Environment variables override keychain values.</div>';
-    if (d.github) {
-      var gh = d.github;
-      var ghConnected = !!gh.connected;
-      var ghReady = !!gh.ready_for_push;
-      h += '<div class="set-head">GitHub · pushes &amp; pull requests</div>';
-      h += '<div class="provider-key-card github-card" data-github-card>';
-      h +=
-        '<div class="provider-key-head"><span>GitHub' +
-        (gh.login ? " · " + esc(gh.login) : "") +
-        '</span><span class="provider-key-status" data-github-status>' +
-        (ghConnected
-          ? ghReady
-            ? "Connected · ready to push &amp; open PRs"
-            : "Connected · pushes off"
-          : "Not connected") +
-        "</span></div>";
-      if (!ghConnected) {
-        h +=
-          '<div class="provider-key-form"><input type="password" autocomplete="off" spellcheck="false" aria-label="GitHub personal access token" placeholder="Paste a GitHub token (PAT)" data-github-token>' +
-          '<button class="btn" data-github-connect>Connect GitHub</button></div>';
-        h += '<div class="set-note">Create a token at github.com/settings/tokens with <b>repo</b> scope (classic) or Contents + Pull requests read/write (fine-grained). Stored only in your OS keychain — never shown again.</div>';
-      } else {
-        h +=
-          '<div class="provider-key-form">' +
-          '<button class="btn ' +
-          (gh.allow_push ? "primary" : "") +
-          '" data-github-allowpush="' +
-          (gh.allow_push ? "off" : "on") +
-          '">' +
-          (gh.allow_push ? "Disable pushes &amp; PRs" : "Enable pushes &amp; PRs") +
-          '</button><button class="btn ghost" data-github-disconnect>Disconnect</button></div>';
-        h += ghReady
-          ? '<div class="set-note">Agents can now push branches and open pull requests on your GitHub repos.</div>'
-          : '<div class="set-note" data-github-hint>' +
-            esc(gh.hint || "Enable pushes above to let agents open PRs.") +
-            "</div>";
-      }
-      h += "</div>";
-    }
     h += '<div class="set-head">What OPai can access</div>';
     h +=
       '<div class="callout-card"><div class="callout-body">OPai sends only the files and context you attach to a task, to the provider you route to. ' +

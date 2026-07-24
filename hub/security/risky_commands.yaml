@@ -23,7 +23,13 @@ deny:
   - "cmd.exe /c del *"
 confirm:
   - "git push"
-  - "git commit"
+  # git commit is intentionally NOT confirm-gated: it is local and undoable
+  # (git reset --soft HEAD~1), matching is_destructive_command which excludes
+  # it. Gating it here left Full Auto unable to commit at all — the PreToolUse
+  # hook hard-denies confirm-only commands with no interactive approval — so a
+  # create+commit workflow could never complete through the GUI (Bug 2). Push,
+  # merge, rebase, reset --hard, clean, branch delete, and gh mutations stay
+  # gated because they touch shared/remote state or are hard to undo.
   - "git merge"
   - "git rebase"
   - "git reset --hard"

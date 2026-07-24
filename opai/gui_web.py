@@ -1260,6 +1260,18 @@ def _run_gui(
             self._resume_context_active = bool(context)
             return json.dumps({"activated": self._resume_context_active})
 
+        @QtCore.Slot(result=str)
+        def workspaceState(self) -> str:
+            """Re-read branch + uncommitted paths for the header badge.
+
+            The workspace block ships inside the boot payload, which is built
+            once per window. The "N uncommitted" badge next to the branch name
+            therefore froze at its startup value and kept showing a stale count
+            after a run committed files (Round 2). This recomputes it from git
+            on demand; the front end calls it whenever a turn finishes.
+            """
+            return json.dumps(_workspace(self.root))
+
         @QtCore.Slot(str, result=str)
         def inspector(self, sel_json: str) -> str:
             try:
@@ -1430,6 +1442,27 @@ def _run_gui(
 
         @QtCore.Slot(str, result=str)
         def testProvider(self, provider: str) -> str:
+            # GitHub is not an AI-provider adapter; it has its own connector, so
+            # route its test there for a real diagnostic instead of a bare
+            # "Unsupported AI provider" (Bug 5).
+            if str(provider or "").strip().lower() == "github":
+                from opaihub.github_connector import verify_github_connection
+
+                try:
+                    return json.dumps(verify_github_connection())
+                except (OSError, RuntimeError, ValueError) as exc:
+                    return json.dumps(
+                        {
+                            "provider": "github",
+                            "connected": False,
+                            "authStatus": "provider_unavailable",
+                            "safeDiagnostic": (
+                                "GitHub connection check failed unexpectedly. "
+                                "Try again shortly."
+                            ),
+                            "error": str(exc),
+                        }
+                    )
             from opaihub.provider_adapters import adapter_for
 
             try:

@@ -86,14 +86,54 @@ _CHANGE_EVIDENCE_TOOLS = frozenset(
 )
 
 
-def _has_change_evidence(result: Mapping[str, Any] | None) -> bool:
+def repo_fingerprint(root: Path) -> tuple[str, tuple[str, ...]]:
+    """A cheap, read-only snapshot of repository state: (HEAD sha, dirty paths).
+
+    Used to tell "this run really changed the repository" from "this run only
+    said it did", for runs whose changes OPai cannot see in its own tool trace.
+    Returns ``("", ())`` for a non-repo or any git failure, which compares equal
+    to itself and so can only ever *withhold* evidence, never invent it.
+    """
+
+    from .repo_context import resolve_repo_context
+
+    try:
+        context = resolve_repo_context(root)
+        if not context.is_git:
+            return "", ()
+        head = _run_git_text(context.path, ["rev-parse", "HEAD"])
+        return head, tuple(context.dirty_paths)
+    except Exception:  # noqa: BLE001 - a probe must never break the run
+        return "", ()
+
+
+def _run_git_text(root: Path, argv: list[str]) -> str:
+    from .repo_context import _git_text
+
+    return _git_text(root, argv)
+
+
+def _has_change_evidence(
+    result: Mapping[str, Any] | None,
+    *,
+    repo_changed: bool = False,
+) -> bool:
     """True only when a run produced verifiable evidence of a change.
 
     The honesty gate for F14/F24: an edit-intent run may not be celebrated as
     "OPai completed" when nothing actually changed — no changed files and no
     successful mutating tool call in the trace.
+
+    ``repo_changed`` closes the other half of the gap (Round 2): an account
+    provider CLI does its own git work through its own shell, so a real commit
+    left no ``changed_files`` and no OPai tool_trace entry, and a genuinely
+    successful commit was stamped "Partial — no changed-file or diff evidence".
+    A moved HEAD or a changed working tree, measured across the run, is exactly
+    the verifiable evidence this gate asks for — so it counts.
     """
 
+    if repo_changed:
+        return True
     if not isinstance(result, Mapping):
         return False
     if list(result.get("changed_files") or []):
@@ -572,6 +612,42 @@ def handle_gui_message(
         )
 
     root = project_root.expanduser().resolve()
+    # Baseline for the change-evidence gate, taken before any provider runs.
+    # A provider CLI commits through its own shell, so the only proof OPai can
+    # trust for those runs is the repository itself moving (Round 2).
+    _repo_baseline = repo_fingerprint(root)
+
+    def _repo_changed() -> bool:
+        """True when this turn actually moved HEAD or the working tree."""
+        if _repo_baseline == ("", ()):
+            return False
+        return repo_fingerprint(root) != _repo_baseline
+
+    def _repo_change_evidence(current: Any) -> dict[str, Any]:
+        """Describe how the repository moved during this turn, for the verdict.
+
+        ``current`` is the already-resolved post-run repo context, so this costs
+        one extra ``rev-parse`` rather than a second full status scan.
+        """
+        baseline_head, baseline_dirty = _repo_baseline
+        if not baseline_head:
+            return {"changed": False}
+        head = _run_git_text(current.path, ["rev-parse", "HEAD"])
+        if head and head != baseline_head:
+            return {
+                "changed": True,
+                "kind": "commit",
+                "detail": f"New commit on this branch ({head[:7]})",
+            }
+        dirty = tuple(current.dirty_paths)
+        if dirty != baseline_dirty:
+            return {
+                "changed": True,
+                "kind": "worktree",
+                "detail": "Working tree changed during this run",
+            }
+        return {"changed": False}
+
     _phase("request_prepare", "running", "Preparing request")
     # One-shot exact-command grant from a command-approval re-send (F17/F9).
     command_grant = str(allow_command or allowCommand or "").strip() or None
@@ -804,10 +880,18 @@ def handle_gui_message(
         objective = turn_objective
         raw_terminal = payload.get("raw_result")
         raw_terminal = raw_terminal if isinstance(raw_terminal, Mapping) else {}
+        # Round 2: committing clears the dirty paths a run created, so an
+        # edit-intent turn that genuinely committed ended with zero changed
+        # files, zero attributed paths, and a "Partial — no changed-file or diff
+        # evidence" banner on real, verified work. Measure the repository itself
+        # instead: a moved HEAD is proof a commit landed, and a changed dirty set
+        # is proof the tree moved, whichever shell did the work.
+        repo_change = _repo_change_evidence(current_repo)
         evidence_payload = {
             **payload,
             "changed_files": list(attributed_paths),
             "diff_review": diff_review,
+            "repo_change": repo_change,
             "completion_state": payload.get("completion_state")
             or raw_terminal.get("completion_state"),
             "stopped_reason": payload.get("stopped_reason")
@@ -875,7 +959,9 @@ def handle_gui_message(
             status == "answered"
             and edit_intent
             and not attributed_paths
-            and not _has_change_evidence(payload)
+            and not _has_change_evidence(
+                payload, repo_changed=bool(repo_change.get("changed"))
+            )
         )
         # Canonical completion for phase labels (QA pass-2): a run that the
         # runner says stopped/stuck must not be labelled "Completed" just
@@ -1571,7 +1657,7 @@ def handle_gui_message(
                     if policy.mode in {
                         AgentMode.IMPLEMENT,
                         AgentMode.SHIP,
-                    } and not _has_change_evidence(result):
+                    } and not _has_change_evidence(result, repo_changed=_repo_changed()):
                         # F14/F24: an edit-intent run that changed nothing is not
                         # a green completion.
                         _phase_close("warning", "Finished with no changes")
@@ -1861,7 +1947,7 @@ def handle_gui_message(
                 if policy.mode in {
                     AgentMode.IMPLEMENT,
                     AgentMode.SHIP,
-                } and not _has_change_evidence(result):
+                } and not _has_change_evidence(result, repo_changed=_repo_changed()):
                     # F14/F24: an edit-intent run that changed nothing is not a
                     # green completion, no matter how confident the prose sounds.
                     _emit("completed", "warning", "OPai finished with no changes")

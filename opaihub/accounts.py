@@ -1263,6 +1263,47 @@ def _guard_int_env(name: str, default: int) -> int:
     return value if value >= 0 else default
 
 
+def _codex_safety_preamble() -> str:
+    """The Full Auto safety gate spelled out for `codex exec` (F23, Round 2).
+
+    Codex exec has no PreToolUse hook, so this prompt IS the gate. It must also
+    be honest about *why* a push is refused: telling a user whose push consent
+    is already granted to go click "Enable pushes & PRs" sends them hunting for
+    a button that now reads "Disable pushes & PRs" — the exact wrong-directions
+    failure the 2026-07-24 retest caught. So the push sentence tracks the real
+    consent state, and the model is told not to invent an alternative.
+    """
+    try:
+        from .github_connector import push_allowed, stored_github_token
+
+        consented = bool(push_allowed()) and bool(stored_github_token()[0])
+    except Exception:  # noqa: BLE001 - fail closed to the "not enabled" wording
+        consented = False
+    push_guidance = (
+        (
+            "For a git push: pushes ARE already enabled for this user, but this "
+            "runner still may not shell out to `git push`. Say that OPai will "
+            "push through its own GitHub tool, or that they can push from a "
+            "terminal. Do NOT tell them to enable anything in Settings — it is "
+            "already on."
+        )
+        if consented
+        else (
+            "For a git push: tell the user to enable pushes once in Settings -> "
+            "Providers & Connections (connect a GitHub token, then click "
+            "\"Enable pushes & PRs\") so OPai can push via its GitHub tool."
+        )
+    )
+    return (
+        "Safety: destructive or external-mutating commands (git push, gh "
+        "issue/pr mutations, rm -rf, deploys) are denied in this mode. Do not "
+        "attempt them. " + push_guidance + " For anything else, tell them to "
+        "run it themselves in a terminal. Do not claim a per-command approval "
+        "dialog will appear, and never invent a Settings button, page, or "
+        "toggle you were not told about here.\n\n"
+    )
+
+
 class AccountRunner:
     """Run one task through a logged-in CLI. Paid/cloud; read-only by default."""
 
@@ -1375,13 +1416,7 @@ class AccountRunner:
             if selected_mode == "full-auto":
                 # No hook protocol exists to enforce this, so make the gate
                 # explicit to the agent as well (defense in depth for F23).
-                prompt = (
-                    "Safety: destructive or external-mutating commands "
-                    "(git push, gh issue/pr mutations, rm -rf, deploys) are "
-                    "denied in this mode. Do not attempt them; report that "
-                    "they need explicit user confirmation in the OPai UI."
-                    "\n\n" + prompt
-                )
+                prompt = _codex_safety_preamble() + prompt
             cmd.append(prompt)
             return cmd
         if self.account_id == "copilot":
