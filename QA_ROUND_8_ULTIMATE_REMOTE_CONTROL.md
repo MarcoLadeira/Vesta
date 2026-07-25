@@ -198,6 +198,27 @@ An awaiting-confirmation result must show no spend and no savings. Estimates may
 
 The Auto confirmation result attaches a normal estimated savings receipt. `stripFinalize()` renders any positive `estimated_actual_usd` from that receipt as `spent`, without considering that the terminal state is awaiting input and made zero model calls.
 
+### QAR8-07 — confirmation cards offer a dead-end Retry action
+
+**Severity:** Medium — the first action on a blocked card loops instead of resolving the blocker.
+
+**Steps:**
+
+1. Trigger the named Auto cloud-confirmation card.
+2. Compare the available actions.
+
+**Observed:**
+
+The card offered `Retry`, `Confirm Gemini`, `Open Settings`, and `Switch model`. Retrying with the same unapproved Auto request can only repeat the same confirmation gate.
+
+**Expected:**
+
+Cards with a dedicated confirmation action must not offer a generic Retry. The user should confirm the named action, change configuration, or switch models.
+
+**Root-cause evidence:**
+
+`renderErrorCard()` enables Retry for every status except `needs_model`; it does not exclude the three statuses that already render dedicated confirm/continue buttons.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -243,6 +264,13 @@ The Auto confirmation result attaches a normal estimated savings receipt. `strip
 - Awaiting-confirmation results now carry an empty receipt because no provider call, spend, or saving exists yet.
 - Red evidence: the live blocked turn displayed `$0.0002 spent`; the regression then received a populated estimated receipt instead of `{}` while `cloudStarted` was false.
 - Green evidence: the Auto/routing safety set passed 32/32, including the no-receipt assertion, and the cloud-confirmation browser test passed.
+- Live retest: after a source-build restart, the same blocked Gemini card displayed no cost in the status strip. The inspector retained the real daily total from the earlier provider call and did not add a charge for this blocked turn.
+
+### QAR8-07
+
+- Generic Retry is now hidden for model setup, free-cloud confirmation, Auto cloud confirmation, and usage-limit confirmation states. Their dedicated confirm/configure/switch actions remain.
+- Red evidence: the cloud-confirmation browser test found one Retry button.
+- Green evidence: the focused assertion passed as part of 30/30 chat, error-recovery, and provider-auth browser tests.
 - Live retest: pending after the next source-build restart.
 
 ## Session notes

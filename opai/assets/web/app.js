@@ -2062,9 +2062,15 @@ function onConnectionDoctorReady(json) {
 
 function renderErrorCard(el, status, r, sel) {
   const error = r && r.error && typeof r.error === "object" ? r.error : {};
-  // Retrying Auto with no eligible provider only reproduces the same setup
-  // card. Keep recovery concrete: choose a model or configure one first.
-  const canRetry = status !== "needs_model";
+  // Awaiting-input cards already provide the exact action that can unblock the
+  // run. A generic retry only reproduces the same gate and makes the safest
+  // path harder to recognize.
+  const canRetry = ![
+    "needs_model",
+    "needs_free_confirmation",
+    "needs_auto_confirmation",
+    "needs_limit_confirmation",
+  ].includes(status);
   const title = error.title || ERROR_TITLES[status] || "OPai could not complete this request.";
   const what = error.userMessage || (typeof (r && r.answer) === "string" && r.answer) || "Retry, or open Settings if the problem continues.";
   const raw = redactSecrets(
