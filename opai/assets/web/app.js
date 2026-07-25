@@ -1865,6 +1865,10 @@ function retry() {
 }
 
 function openModelPicker() {
+  // The picker lives in the Chat composer, but Ctrl+M and the command palette
+  // are global. Move to its owning view first so the advertised shortcut
+  // never opens an invisible popover behind Prompt Library or Settings.
+  switchView("chat");
   // Failed-card and palette clicks originate outside the composer. Defer until
   // their click has finished bubbling, otherwise the composer's outside-click
   // listener closes the popover in the same event that opened it.

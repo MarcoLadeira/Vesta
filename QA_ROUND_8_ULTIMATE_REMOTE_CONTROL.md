@@ -456,6 +456,27 @@ Repository context must mean the active workspace root (`./`), identify that wor
 
 The composer preferred `workspace.name` (the enclosing Git repository) over `workspace.label`, then constructed the context path by appending `/` to that name. The metadata span had no width or overflow rule.
 
+### QAR8-18 — the advertised global model shortcut is a no-op outside Chat
+
+**Severity:** Medium — a documented keyboard path silently fails on primary pages.
+
+**Steps:**
+
+1. Open Prompt Library.
+2. Press `Ctrl+M`, advertised in the command palette as `Change model`.
+
+**Observed:**
+
+Nothing visible happened. The hidden Chat composer opened its model popover behind Prompt Library, so the user remained on the same page with no picker.
+
+**Expected:**
+
+The global shortcut and command-palette action must navigate to the model picker's owning Chat view and open the picker visibly.
+
+**Root-cause evidence:**
+
+Both entry points called `openModelPicker()` directly. That function toggled the composer popover but never switched to Chat first.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -597,6 +618,13 @@ The composer preferred `workspace.name` (the enclosing Git repository) over `wor
 - Red evidence: the nested-workspace regression received parent label `sandbox`, parent path semantics, and CSS `text-overflow: clip`.
 - Green evidence: the focused nested-workspace test passed after receiving `sandbox/generated-app`, `@./`, and `text-overflow: ellipsis`; the complete composer suite passed 15/15.
 - Live retest: the restarted source build's row named `OPai-QA-Sandbox-513/a-tiny-offline-quote-pack-web-app-with-add-favor`, kept the long metadata inside the menu with an ellipsis, and inserted the exact `@./` chip for the active generated app.
+
+### QAR8-18
+
+- The shared model-picker entry point now switches to Chat before deferring the popover open, so both `Ctrl+M` and the command palette work from every view.
+- Red evidence: the new Prompt Library regression timed out because `#view-chat` remained hidden.
+- Green evidence: the focused browser regression passed after Chat became visible, the model popover opened, and its trigger reported `aria-expanded=true`; the complete composer suite passed 16/16 and the surrounding shell/Prompt Library suites passed 12/12.
+- Live retest: relaunched the source against the nested generated app, opened Prompt Library, pressed `Ctrl+M`, and observed an immediate switch to Chat with the complete Auto/model picker visible. No model was selected and no provider call was made.
 
 ## Session notes
 

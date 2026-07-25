@@ -143,6 +143,18 @@ test("model popover shows working models, balances, and explains removals", asyn
   await expect(menu.getByRole("menuitem", { name: "Manage models" })).toBeVisible();
 });
 
+test("Ctrl+M opens the model picker from outside Chat", async ({ page }) => {
+  await openApp(page);
+  await openNav(page, "Prompt Library");
+  await expect(page.locator("#view-prompts")).toBeVisible();
+
+  await page.keyboard.press("Control+m");
+
+  await expect(page.locator("#view-chat")).toBeVisible();
+  await expect(page.locator("#modelPop")).toBeVisible();
+  await expect(page.locator("#modelBtn")).toHaveAttribute("aria-expanded", "true");
+});
+
 test("context is added on demand and sent as a path-only reference", async ({ page }) => {
   await openApp(page);
   await page.locator("#ctxBtn").click();
