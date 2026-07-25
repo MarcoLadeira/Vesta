@@ -970,6 +970,10 @@ def _run_gui(
                 self._switch_view("chat")
                 self._run_tool("ignores")
                 return
+            if aid == "benchmark_run":
+                self._switch_view("chat")
+                self._run_tool("benchmark_run")
+                return
             if aid == "benchmark_gate":
                 self._switch_view("chat")
                 self._run_tool("benchmark")

@@ -62,3 +62,44 @@ test("production benchmark gate action renders its local result in app", async (
   await expect(page.locator(".tool-card")).toContainText("Gate: PASS");
   await expect.poll(() => page.evaluate(() => window.__mock.runTools)).toEqual(["benchmark"]);
 });
+
+test("local benchmark action is runnable in app and gated before writing proof", async ({ page }) => {
+  await openApp(page, {
+    dashboards: {
+      benchmark: {
+        title: "Benchmark Proof",
+        kpis: [],
+        cards: [],
+        actions: [
+          { id: "benchmark_run", label: "Run local benchmark" },
+          { id: "benchmark_gate", label: "Check latest gate" },
+        ],
+      },
+    },
+    toolResponses: {
+      benchmark_run: {
+        title: "Run local benchmark",
+        text: "Run the offline 16-task benchmark and save privacy-safe proof.",
+        needs_confirm: true,
+        apply: "benchmark_run",
+      },
+    },
+    applyToolResponses: {
+      benchmark_run: {
+        text: "Benchmark complete. Effectiveness index: 99.4",
+      },
+    },
+  });
+  await openNav(page, "Benchmark");
+  await page.getByRole("button", { name: "Run local benchmark" }).click();
+
+  const card = page.getByRole("group", { name: "Approval required" });
+  await expect(card).toContainText("Local evidence write");
+  await expect(card).toContainText(".opaihub");
+  await expect.poll(() => page.evaluate(() => window.__mock.appliedTools)).toEqual([]);
+
+  await card.getByRole("button", { name: "Approve once" }).click();
+  await expect(page.locator(".tool-card")).toContainText("Benchmark complete");
+  await expect.poll(() => page.evaluate(() => window.__mock.runTools)).toEqual(["benchmark_run"]);
+  await expect.poll(() => page.evaluate(() => window.__mock.appliedTools)).toEqual(["benchmark_run"]);
+});

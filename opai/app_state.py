@@ -532,6 +532,22 @@ def run_benchmark_gate(
     )
 
 
+def run_local_benchmark(project_root: Path) -> dict[str, Any]:
+    """Run the offline max suite and persist privacy-safe benchmark evidence."""
+    from opaihub.benchmark import run_benchmark
+
+    report = run_benchmark(project_root, suite="max", mode="both")
+    score = report.get("efficiency_score", {})
+    return {
+        "run_id": report.get("run_id"),
+        "effectiveness_index": score.get("opai_effectiveness_index"),
+        "context_reduction_ratio": min(
+            50.0, float(score.get("context_reduction_ratio", 0) or 0)
+        ),
+        "paid_calls_avoided": score.get("paid_calls_avoided"),
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Chat surface: model picker, ask, and the tool dispatcher (powers the GUI)
 # --------------------------------------------------------------------------- #
@@ -1495,6 +1511,23 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
             "apply": ("ignores", None),
         }
 
+    if tool == "benchmark_run":
+        return {
+            "ok": True,
+            "title": "Run local benchmark",
+            "text": (
+                "Run the offline max benchmark and save privacy-safe evidence "
+                "under .opaihub. No model provider is contacted."
+            ),
+            "mutates": True,
+            "confirm": (
+                "Run the local benchmark and write its privacy-safe evidence "
+                "under .opaihub? No raw prompts or secrets are stored, and no "
+                "cloud model is contacted."
+            ),
+            "apply": ("benchmark_run", None),
+        }
+
     if tool == "benchmark":
         gate = run_benchmark_gate(
             root, min_effectiveness_index=0.0, require_risk_blocks=False
@@ -1591,6 +1624,18 @@ def apply_tool(project_root: Path, apply: tuple[str, Any]) -> dict[str, Any]:
             "text": (
                 f"Updated {count} ignore file{'s' if count != 1 else ''}. "
                 "Existing user rules were preserved; no source files were deleted."
+            ),
+        }
+    if name == "benchmark_run":
+        result = run_local_benchmark(project_root)
+        return {
+            "ok": True,
+            "text": (
+                "Benchmark complete.\n"
+                f"Effectiveness index: {result.get('effectiveness_index')}\n"
+                f"Context reduction: {result.get('context_reduction_ratio')}x\n"
+                f"Paid calls avoided: {result.get('paid_calls_avoided')}\n"
+                "Privacy-safe evidence was saved under .opaihub."
             ),
         }
     if name in {"proof_json", "proof_markdown"}:

@@ -712,6 +712,30 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 - Green evidence: the complete New app suite passed 9/9, including empty validation, deterministic scaffolding, Enter submission, workspace handoff, preview command, failure recovery, cancellation, and command-palette launch.
 - Live retest: restarted the nested source app, opened New app, selected Cancel, and confirmed the app card disappeared while the welcome headline and all three starter actions returned. No model call or file scaffold was started.
 
+### QAR8-22
+
+- Benchmark Proof no longer presents hard-coded `50x`, `16`, and `0` values as measured evidence while its hero simultaneously says `Not run yet`.
+- Before a local benchmark has completed, all three benchmark KPI cards now use an unavailable placeholder and neutral styling. Completed benchmark data still renders its real measured values.
+- Red evidence: the new zero-state contract received `50x`, `16`, and `0` from an unrun repository because the view model used those figures as fallback values.
+- Green evidence: the zero-state and premium-view contracts plus the complete benchmark backend suite passed 12/12.
+- Live retest: after a source-build restart, the same unrun Benchmark Proof page kept its `Not run yet` hero and rendered an unavailable dash for Context reduction, Paid calls avoided, and Risk blocks. No benchmark or provider call was started.
+
+### QAR8-23
+
+- An unrun workspace no longer dead-ends behind a `Run benchmark gate` button that only says to use the terminal.
+- Benchmark Proof now offers `Run local benchmark` and `Check latest gate` as two honest, separate actions. The local run enters the shared one-time approval card before writing privacy-safe evidence under `.opaihub`; it stores no raw prompts and contacts no model provider.
+- Money Saved chooses `Run local benchmark` for an unrun workspace and `Check latest benchmark gate` once proof exists.
+- Red evidence: the live `Run benchmark gate` action rendered `No run yet. opai benchmark run --suite max --mode both` and performed no run; the new backend contract could not find `benchmark_run`, the premium action contract lacked it, and the browser regression could not find an approval card.
+- Green evidence: all 62 desktop GUI and benchmark backend tests passed; all 6 Benchmark browser tests passed, including exact approval scope, no pre-approval write, one-time application, and the existing read-only gate action; Ruff passed.
+- Live retest: after a source-build restart, Benchmark Proof showed separate `Run local benchmark` and `Check latest gate` actions. The run disclosed its exact `.opaihub` evidence scope and no-cloud/no-raw-prompt guarantees, then stopped at one-time approval. Approving produced a real offline max-suite result (`100` effectiveness, `50x` reduction, `16` paid calls avoided), refreshed the dashboard to measured proof with `6` risk blocks, and made the independent gate action return PASS. No provider call or spend occurred.
+
+### QAR8-24
+
+- Shared local-action approval cards now transition from `Approved — applying…` to `Approved — applied.` when the asynchronous result arrives.
+- Red evidence: the live completed benchmark result appeared below an approval card that remained indefinitely in the applying state; the shared tool-confirmation regression timed out on the same stale copy.
+- Green evidence: all 11 combined tool-confirmation and Benchmark browser tests passed, including exact-once application, denial, keyboard operation, local benchmark approval, and final applied-state copy.
+- Live retest: after a source-build restart, approved a second offline benchmark run. The card showed `Approved — applying…` only while the worker was active, then changed to `Approved — applied.` at the same moment the completed result appeared.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.

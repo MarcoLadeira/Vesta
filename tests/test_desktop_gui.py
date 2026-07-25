@@ -283,6 +283,34 @@ class SafetyAndActionTests(unittest.TestCase):
         self.assertTrue(applied["ok"])
         self.assertIn(".opaihub/proof-bundle.json", applied["text"])
 
+    def test_local_benchmark_runs_in_app_only_after_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            request = A.run_tool(root, "benchmark_run")
+
+            self.assertFalse(A.benchmark_proof(root)["has_run"])
+            with mock.patch.object(
+                A,
+                "run_local_benchmark",
+                return_value={
+                    "effectiveness_index": 99.4,
+                    "context_reduction_ratio": 50.0,
+                    "paid_calls_avoided": 16,
+                },
+            ) as run:
+                applied = A.apply_tool(root, request["apply"])
+
+        self.assertTrue(request["mutates"])
+        self.assertEqual(request["apply"], ("benchmark_run", None))
+        self.assertIn("local benchmark", request["confirm"].lower())
+        self.assertIn("no raw prompts", request["confirm"].lower())
+        run.assert_called_once_with(root)
+        self.assertTrue(applied["ok"])
+        self.assertIn("99.4", applied["text"])
+        self.assertIn("50", applied["text"])
+        self.assertIn("16", applied["text"])
+
     def test_set_panic_toggles_and_records_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -432,6 +460,7 @@ class PremiumGuiContractTests(unittest.TestCase):
             "safe_repair",
             "panic_toggle",
             "cleanup_preview",
+            "benchmark_run",
             "benchmark_gate",
         ]:
             self.assertIn(expected, actions)
@@ -477,6 +506,25 @@ class PremiumGuiContractTests(unittest.TestCase):
             cost["description"],
             "Not money spent — projection for uncompressed context.",
         )
+
+    def test_benchmark_zero_state_does_not_present_fixture_results_as_proof(self):
+        from opai.gui_view_model import build_view_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            vm = build_view_model(root)
+
+        benchmark = next(
+            section for section in vm["sections"] if section["id"] == "benchmark"
+        )
+        self.assertEqual(benchmark["hero"]["headline"], "Not run yet")
+        self.assertEqual(
+            [kpi["value"] for kpi in benchmark["kpis"]],
+            ["—", "—", "—"],
+        )
+        self.assertNotIn("50x", json.dumps(benchmark))
+        self.assertNotIn('"16"', json.dumps(benchmark))
 
     def test_view_model_does_not_expose_raw_prompts_or_secrets(self):
         from opai.gui_view_model import build_view_model
