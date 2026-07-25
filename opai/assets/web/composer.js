@@ -389,7 +389,7 @@
     var manage = els.modelPop.querySelector("#manageModels");
     if (manage) manage.onclick = function () {
       closePopovers();
-      if (global.__opai && global.__opai.openSettings) global.__opai.openSettings();
+      if (global.__opai && global.__opai.openSettings) global.__opai.openSettings("models");
     };
   }
   var CHECK_SVG = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.5 3.5L13 5"/></svg>';

@@ -1884,6 +1884,12 @@ function openModelPicker() {
   }, 0);
 }
 
+function openSettingsPage(pageId = "overview") {
+  const target = String(pageId || "overview").replace(/[^\w-]/g, "") || "overview";
+  try { window.history.replaceState(null, "", `#settings/${target}`); } catch (_e) { /* best-effort deep link */ }
+  switchView("settings");
+}
+
 function scrollBottom(force) {
   const sc = $("#chatScroll");
   if (force || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 96) sc.scrollTop = sc.scrollHeight;
@@ -3430,10 +3436,8 @@ if (typeof window !== "undefined") {
       else if (done) done(JSON.stringify({ paths: [], rejected: 0 }));
     },
     notify: (message) => toast(message),
-    // The model picker's "Manage models" action opens the providers settings —
-    // the single real home for connecting/reconnecting a provider, kept out of
-    // the selection list itself.
-    openSettings: () => switchView("settings"),
+    // Composer actions deep-link to the Settings page that owns the control.
+    openSettings: (pageId) => openSettingsPage(pageId),
     // Settings' About page re-reports the update banner after a live check
     // or a completed update, so the shell-wide nudge never lags behind it.
     renderUpdateBanner: (update) => renderUpdateBanner(update),

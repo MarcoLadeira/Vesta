@@ -140,7 +140,12 @@ test("model popover shows working models, balances, and explains removals", asyn
   // The local-first toggle is the former "routes local first" preference.
   await expect(menu.getByRole("menuitemcheckbox", { name: /Keep work on this machine/ })).toHaveAttribute("aria-checked", "true");
   // Provider setup lives behind one footer action, out of the selection list.
-  await expect(menu.getByRole("menuitem", { name: "Manage models" })).toBeVisible();
+  const manageModels = menu.getByRole("menuitem", { name: "Manage models" });
+  await expect(manageModels).toBeVisible();
+  await manageModels.click();
+  await expect(page.locator("#view-settings")).toBeVisible();
+  await expect(page.locator('.settings-pane[data-pane="models"]')).toHaveClass(/active/);
+  await expect(page.locator('.settings-rail-item[data-rail-target="models"]')).toHaveAttribute("aria-current", "page");
 });
 
 test("Ctrl+M opens the model picker from outside Chat", async ({ page }) => {

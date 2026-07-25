@@ -477,6 +477,28 @@ The global shortcut and command-palette action must navigate to the model picker
 
 Both entry points called `openModelPicker()` directly. That function toggled the composer popover but never switched to Chat first.
 
+### QAR8-19 — “Manage models” opens generic Settings Overview
+
+**Severity:** Medium — a labelled destination drops the user at the wrong page.
+
+**Steps:**
+
+1. Open the model picker.
+2. Scroll the populated model list to its footer.
+3. Select `Manage models`.
+
+**Observed:**
+
+OPai opened Settings Overview. The user still had to discover and select Models & Routing manually.
+
+**Expected:**
+
+The action must open the existing Models & Routing page directly.
+
+**Root-cause evidence:**
+
+The composer called a no-argument `openSettings()` bridge helper, and that helper only switched the top-level view. It supplied no Settings deep link.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -625,6 +647,13 @@ Both entry points called `openModelPicker()` directly. That function toggled the
 - Red evidence: the new Prompt Library regression timed out because `#view-chat` remained hidden.
 - Green evidence: the focused browser regression passed after Chat became visible, the model popover opened, and its trigger reported `aria-expanded=true`; the complete composer suite passed 16/16 and the surrounding shell/Prompt Library suites passed 12/12.
 - Live retest: relaunched the source against the nested generated app, opened Prompt Library, pressed `Ctrl+M`, and observed an immediate switch to Chat with the complete Auto/model picker visible. No model was selected and no provider call was made.
+
+### QAR8-19
+
+- Added one shared Settings deep-link helper and made the model footer request the `models` page explicitly.
+- Red evidence: the extended model-picker regression opened Settings but found `.settings-pane[data-pane="models"]` inactive.
+- Green evidence: the focused regression passed with Models & Routing active and its rail item marked `aria-current=page`; the complete composer suite passed 16/16 and the Settings page/routing/search suites passed 20/20.
+- Live retest: relaunched the nested generated app, opened and scrolled the populated model picker, selected `Manage models`, and landed directly on Models & Routing with `Default model`, run mode, task focus, output format, and local-first routing visible. No preference was changed and no provider call was made.
 
 ## Session notes
 
