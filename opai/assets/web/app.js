@@ -154,9 +154,7 @@ function onboardingCtx() {
     openProviders: () => { switchView("settings"); }, // Providers is the default settings page
     sendPrompt: (text) => {
       switchView("chat");
-      const input = $("#input");
-      input.value = text;
-      if (typeof autoSize === "function") autoSize();
+      setComposerDraft(text);
       send();
     },
     markSeen: () => {
@@ -199,7 +197,7 @@ function boot() {
     // Composer Redesign: apply the saved direction (toolbar / single / command).
     if (window.OPaiComposer) window.OPaiComposer.applyBootStyle();
     switchView("chat");
-    if (b.initialTask) { $("#input").value = b.initialTask; autoSize(); }
+    if (b.initialTask) setComposerDraft(b.initialTask);
     renderResumeChoice();
     // F16: if this workspace requests Full Auto but has no pin, surface the
     // acknowledgement even though no dropdown change event fired.
@@ -412,7 +410,7 @@ function renderRecents() {
     b.className = "recent";
     b.textContent = text.length > 34 ? text.slice(0, 33) + "…" : text;
     b.title = text;
-    b.onclick = () => { switchView("chat"); $("#input").value = text; autoSize(); $("#input").focus(); };
+    b.onclick = () => { switchView("chat"); setComposerDraft(text, { focus: true }); };
     rec.appendChild(b);
   });
   // Privacy control (#145): history is per-workspace and deletable in one click.
@@ -989,7 +987,7 @@ function renderEmptyChips() {
     ? brandBody || "Your AI connection is ready · OPai picks the cheapest safe path."
     : "Connect your Claude, Codex, or Copilot account in Settings, then just type.";
   $("#chips").innerHTML = chips.map((c) => `<button class="chip" data-p="${esc(c[1])}">${esc(c[0])}</button>`).join("");
-  $$("#chips .chip").forEach((b) => (b.onclick = () => { $("#input").value = b.dataset.p; send(); }));
+  $$("#chips .chip").forEach((b) => (b.onclick = () => { setComposerDraft(b.dataset.p); send(); }));
 }
 function clearChat() {
   const t = $("#thread");
@@ -1211,7 +1209,7 @@ function sendBuild(text) {
   if (state.busy) return;
   text = (text || $("#input").value).trim();
   if (!text) return;
-  $("#input").value = ""; autoSize();
+  setComposerDraft("");
   appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
   const sel = {
     text, model: state.model.id, modelKind: state.model.kind,
@@ -1352,7 +1350,7 @@ function send(retryOf) {
   // Slash commands run local OPai tools ("/panic", "/savings", "/connect") —
   // they must NEVER be sent to a paid model as a prompt.
   if (!retryOf && text.startsWith("/")) {
-    $("#input").value = ""; autoSize();
+    setComposerDraft("");
     const name = text.slice(1).trim().split(/\s+/)[0].toLowerCase();
     if (name) {
       appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
@@ -1372,7 +1370,7 @@ function send(retryOf) {
   if (sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
     sel.allowCloud = true;
   }
-  if (!retryOf) { $("#input").value = ""; autoSize(); }
+  if (!retryOf) setComposerDraft("");
   state.lastSend = sel;
   if (!retryOf) {
     appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
@@ -2196,7 +2194,7 @@ function finalize(status, r) {
       `<div class="sc-sub">You can edit the prompt, retry, or switch model.</div>` +
       `<div class="sc-actions"><button class="btn" data-a="retry">Retry</button><button class="btn ghost" data-a="edit">Edit prompt</button></div></div>`;
     el.querySelector('[data-a="retry"]').onclick = () => retry();
-    el.querySelector('[data-a="edit"]').onclick = () => { $("#input").value = sel.text || ""; switchView("chat"); $("#input").focus(); };
+    el.querySelector('[data-a="edit"]').onclick = () => { switchView("chat"); setComposerDraft(sel.text || "", { focus: true }); };
     return;
   }
   if (!ANSWERED.includes(status)) {
@@ -2583,7 +2581,7 @@ function wirePlanCard(el, sel) {
     const text = "Implement this plan, in order. Stop and ask if a step becomes impossible:\n" +
       kept.map((s, i) => `${i + 1}. ${s}`).join("\n");
     // Through the normal composer path: user bubble, recents, live activity.
-    $("#input").value = text; autoSize();
+    setComposerDraft(text);
     send();
   };
 }
@@ -2788,7 +2786,7 @@ function usePrompt(id) {
     const p = JSON.parse(json);
     if (!p.id) return;
     if (p.mode) { state.focus = p.mode; bridge.savePref("default_task_mode", p.mode); }
-    switchView("chat"); $("#input").value = p.template; autoSize(); $("#input").focus(); refreshInspector();
+    switchView("chat"); setComposerDraft(p.template, { focus: true }); refreshInspector();
   });
 }
 
@@ -3191,6 +3189,14 @@ function toast(msg) {
 }
 function autoSize() {
   const i = $("#input"); i.style.height = "auto"; i.style.height = Math.min(180, i.scrollHeight) + "px";
+}
+function setComposerDraft(value, options = {}) {
+  const input = $("#input");
+  if (!input) return;
+  input.value = String(value == null ? "" : value);
+  autoSize();
+  updateComposerAvailability();
+  if (options.focus) input.focus();
 }
 
 function wire() {

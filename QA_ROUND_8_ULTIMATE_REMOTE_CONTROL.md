@@ -31,8 +31,8 @@ Every reproducible product defect belongs in this file before it is fixed. Each 
 | Area | Novice journey | Status | Evidence / finding |
 |---|---|---:|---|
 | Launch and workspace | Open OPai, identify current project and branch, switch projects | Pending | |
-| Navigation | Chat, Prompt Library, Insights, Settings, Inspector, sidebar controls | Pending | |
-| Composer | Empty prompt, multiline input, context, attachments, send/stop controls | Pending | |
+| Navigation | Chat, Prompt Library, Insights, Settings, Inspector, sidebar controls | Prompt Library fix verified; deeper coverage pending | QAR8-02 |
+| Composer | Empty prompt, multiline input, context, attachments, send/stop controls | Draft-loading fix verified; deeper coverage pending | QAR8-02 |
 | Run modes | Ask, Plan only, Ask before edits, Approve edits, Auto-apply, Full Auto | Fix verified; deeper coverage pending | QAR8-01 |
 | Models and routing | Account, API, free/local choices, unavailable-provider recovery | Pending | |
 | Coding workflow | Explain, plan, edit files, review diffs, accept/reject changes | Pending | |
@@ -74,6 +74,30 @@ Primary GUI surfaces must use one novice-facing name for the active mode. Intern
 
 `app.js` paints the header from the engine-provided `state.mode.label`, while `composer.js` owns a separate plain-language `MODE_LABEL` map. There is no shared presentation-label function, so the two surfaces drift by construction.
 
+### QAR8-02 — Prompt Library templates leave Send disabled
+
+**Severity:** High — the primary curated onboarding path becomes a dead end.
+
+**Steps:**
+
+1. Open Prompt Library.
+2. Choose `Use prompt` on any template.
+3. Observe the populated composer, Send button, and footer reason.
+
+**Observed:**
+
+- The template text was loaded and the prompt field received focus.
+- Send remained disabled.
+- The footer continued to say `Write a prompt before sending.`
+
+**Expected:**
+
+Loading a non-empty template must immediately enable Send and clear the empty-prompt warning without requiring the user to type an extra character.
+
+**Root-cause evidence:**
+
+The normal input event calls `updateComposerAvailability()`, but `usePrompt()` assigns `#input.value` programmatically and only resizes/focuses the field. Other programmatic draft-loading paths repeat the same incomplete sequence, so availability state can become stale whenever text is inserted without a keyboard event.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -82,6 +106,14 @@ Primary GUI surfaces must use one novice-facing name for the active mode. Intern
 - Red evidence: the focused Playwright case received `Auto · Safe Auto · ...` while the composer read `Ask before edits`.
 - Green evidence: the new case and the existing Full Auto-to-Ask synchronization regression both passed.
 - Live retest: relaunched the desktop app in the original Full Auto workspace. The top bar, composer control, and composer summary all displayed `Auto-apply`; the CLI mirror correctly retained the technical `--mode full-auto` argument.
+
+### QAR8-02
+
+- Added one `setComposerDraft()` path that updates the text, height, availability, warning, and optional focus together.
+- Routed templates, recent chats, starter chips, initial tasks, stopped-request editing, slash-command clearing, send clearing, build prompts, and plan handoff through it.
+- Red evidence: the populated template case timed out because `#send` remained disabled.
+- Green evidence: all five Prompt Library Playwright cases passed, including immediate Send enablement and warning removal.
+- Live retest: relaunched OPai, selected `Explain this repo`, and observed a focused populated prompt, enabled Send control, and no empty-prompt warning.
 
 ## Session notes
 
