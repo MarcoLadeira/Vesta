@@ -499,6 +499,27 @@ The action must open the existing Models & Routing page directly.
 
 The composer called a no-argument `openSettings()` bridge helper, and that helper only switched the top-level view. It supplied no Settings deep link.
 
+### QAR8-20 — “Run connection doctor” does not reveal the doctor
+
+**Severity:** Medium — a command-palette action silently lands on an unrelated Settings page.
+
+**Steps:**
+
+1. Leave Settings on Models & Routing or another non-provider page.
+2. Open the command palette and run `Run connection doctor`.
+
+**Observed:**
+
+OPai stayed on the previously selected Settings pane. The Connection Doctor and its provider results were not visible.
+
+**Expected:**
+
+The command must open Providers & Connections, whose render path refreshes and displays Connection Doctor results.
+
+**Root-cause evidence:**
+
+The `doctor` command only called `switchView("settings")`, so the existing Settings hash chose whichever pane was active previously.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -654,6 +675,13 @@ The composer called a no-argument `openSettings()` bridge helper, and that helpe
 - Red evidence: the extended model-picker regression opened Settings but found `.settings-pane[data-pane="models"]` inactive.
 - Green evidence: the focused regression passed with Models & Routing active and its rail item marked `aria-current=page`; the complete composer suite passed 16/16 and the Settings page/routing/search suites passed 20/20.
 - Live retest: relaunched the nested generated app, opened and scrolled the populated model picker, selected `Manage models`, and landed directly on Models & Routing with `Default model`, run mode, task focus, output format, and local-first routing visible. No preference was changed and no provider call was made.
+
+### QAR8-20
+
+- Routed the doctor palette command through the shared Settings deep-link helper to `providers`.
+- Red evidence: the extended shell regression opened Settings but left the Providers & Connections pane inactive.
+- Green evidence: the focused palette regression passed with Providers & Connections active and the `Connection Doctor` region visible; the complete shell suite passed 7/7 and the combined Connection Doctor/settings-connections run passed 21/21. That broader run also exposed and corrected one stale test assertion for the intentionally renamed `Ask before edits` mode label.
+- Live retest: relaunched the nested app, ran `Run connection doctor` from the palette, and landed directly on Providers & Connections with the eight-provider doctor, attention count, detected/not-configured states, safe credential-source labels, and local test/sign-in controls visible. No sign-in, provider test, disconnect, or model call was started.
 
 ## Session notes
 

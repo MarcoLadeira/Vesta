@@ -3243,7 +3243,7 @@ function runCommand(id) {
     case "savings": switchView("home"); break;
     case "firewall": switchView("firewall"); break;
     case "settings": switchView("settings"); break;
-    case "doctor": switchView("settings"); break;
+    case "doctor": openSettingsPage("providers"); break;
     case "connect": switchView("chat"); bridge.runTool("connect"); break;
     case "shortcuts": toast("Ctrl+K palette · Ctrl+N new · Ctrl+L focus · Ctrl+P prompts · Ctrl+I panel · Ctrl+O folder · Ctrl+M model · Ctrl+B sidebar · Esc stop · ? shortcuts"); break;
   }
