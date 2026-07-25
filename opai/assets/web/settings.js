@@ -831,6 +831,7 @@
               esc(option.id) +
               '"' +
               (option.id === selected ? " selected" : "") +
+              (option.disabled ? " disabled" : "") +
               ">" +
               esc(option.label) +
               "</option>"
@@ -859,6 +860,16 @@
     var modeOptions = ["ask", "plan", "safe-auto", "approve-edits"].map(function (id) {
       return { id: id, label: modePresentationLabel(id, MODE_LABELS[id]) };
     });
+    // A pinned Auto-apply default must remain visible and truthful here, but
+    // disabled so this page cannot become an alternate path around the
+    // composer's acknowledgement gate.
+    if (prefs.default_mode === "full-auto") {
+      modeOptions.push({
+        id: "full-auto",
+        label: modePresentationLabel("full-auto", MODE_LABELS["full-auto"]),
+        disabled: true,
+      });
+    }
     var focusOptions = (boot.taskModes || []).map(function (m) {
       return { id: m.id, label: m.label };
     });

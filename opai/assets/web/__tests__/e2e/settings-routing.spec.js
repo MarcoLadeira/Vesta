@@ -34,6 +34,21 @@ test("the run-mode select never offers Full Auto", async ({ page }) => {
   await expect(page.locator("#settingsPage")).toContainText("Auto-apply can only be pinned from the composer", seen);
 });
 
+test("a pinned Auto-apply default is shown truthfully without making it selectable", async ({ page }) => {
+  await openApp(page, {
+    settings: { prefs: { default_model: "auto", default_mode: "full-auto" } },
+  });
+  await openNav(page, "Settings");
+  await railItem(page, "models").click();
+
+  const select = page.locator('select[data-default-pref="default_mode"]');
+  await expect(select).toHaveValue("full-auto");
+  const current = select.locator('option[value="full-auto"]');
+  await expect(current).toHaveText("Auto-apply");
+  await expect(current).toBeDisabled();
+  expect(await page.evaluate(() => window.__mock.savedPrefs)).toEqual([]);
+});
+
 test("the routing explainer states the honest local-first order", async ({ page }) => {
   await openApp(page);
   await openNav(page, "Settings");

@@ -100,6 +100,31 @@ Loading a non-empty template must immediately enable Send and clear the empty-pr
 
 The normal input event calls `updateComposerAvailability()`, but `usePrompt()` assigns `#input.value` programmatically and only resizes/focuses the field. Other programmatic draft-loading paths repeat the same incomplete sequence, so availability state can become stale whenever text is inserted without a keyboard event.
 
+### QAR8-03 — Models & Routing lies about a pinned Auto-apply default
+
+**Severity:** High — a Settings control reports a safer default than the one the app will actually use.
+
+**Steps:**
+
+1. Pin Auto-apply in a workspace.
+2. Confirm the header, composer, and Settings Overview display `Auto-apply`.
+3. Open Settings → Models & Routing.
+4. Compare the `Default run mode` select with the other active-mode signals.
+
+**Observed:**
+
+- Header, composer, and Overview displayed `Auto-apply`.
+- The `Default run mode` select displayed `Ask`.
+- The helper copy below it simultaneously said Auto-apply can only be pinned from the composer.
+
+**Expected:**
+
+The control must truthfully display the current `Auto-apply` default without allowing Settings to select or silently persist that privileged mode. Users must still pin Auto-apply only through the composer acknowledgement.
+
+**Root-cause evidence:**
+
+The Settings select deliberately omits `full-auto` from its options. When the persisted value is `full-auto`, HTML falls back to the first available option (`ask`), so the displayed selection becomes a lie even though the safety restriction is working.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -117,6 +142,13 @@ The normal input event calls `updateComposerAvailability()`, but `usePrompt()` a
 - Red evidence: the populated template case timed out because `#send` remained disabled.
 - Green evidence: all five Prompt Library Playwright cases passed, including immediate Send enablement and warning removal.
 - Live retest: relaunched OPai, selected `Explain this repo`, and observed a focused populated prompt, enabled Send control, and no empty-prompt warning.
+
+### QAR8-03
+
+- When `full-auto` is the persisted default, Models & Routing now adds a selected, disabled `Auto-apply` option solely to report the current truth. Unpinned workspaces still do not offer Auto-apply in this Settings picker.
+- Red evidence: the new pinned-default case received select value `ask` instead of `full-auto`.
+- Green evidence: all seven Models & Routing / budget cases passed. The regression asserts `Auto-apply` is selected, its option is disabled, and opening the page saves nothing.
+- Live retest: after a full desktop restart, header, composer, Overview, and the Models & Routing `Default run mode` control all displayed `Auto-apply`. No setting was changed during verification.
 
 ## Session notes
 
