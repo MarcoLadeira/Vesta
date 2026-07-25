@@ -1523,6 +1523,25 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
             f"Export: {ps['command']}",
         }
 
+    if tool in {"proof_json", "proof_markdown"}:
+        fmt = "markdown" if tool == "proof_markdown" else "json"
+        filename = "proof-bundle.md" if fmt == "markdown" else "proof-bundle.json"
+        relative = f".opaihub/{filename}"
+        return {
+            "ok": True,
+            "title": "Export proof bundle",
+            "text": (
+                f"Write a redacted, locally signed {fmt.upper()} proof bundle "
+                f"to {relative}."
+            ),
+            "mutates": True,
+            "confirm": (
+                f"Export the redacted proof bundle to {relative}? "
+                "Raw prompts and secrets are excluded."
+            ),
+            "apply": (tool, None),
+        }
+
     if tool == "panic":
         cf = cost_firewall(root)
         want_on = not cf["panic"] if not arg else arg.lower() in {"on", "true", "1"}
@@ -1572,6 +1591,18 @@ def apply_tool(project_root: Path, apply: tuple[str, Any]) -> dict[str, Any]:
             "text": (
                 f"Updated {count} ignore file{'s' if count != 1 else ''}. "
                 "Existing user rules were preserved; no source files were deleted."
+            ),
+        }
+    if name in {"proof_json", "proof_markdown"}:
+        fmt = "markdown" if name == "proof_markdown" else "json"
+        filename = "proof-bundle.md" if fmt == "markdown" else "proof-bundle.json"
+        target = project_root / ".opaihub" / filename
+        result = export_proof(project_root, target, fmt=fmt)
+        return {
+            "ok": result.get("status") == "exported",
+            "text": (
+                f"Exported a redacted, locally signed proof bundle to "
+                f".opaihub/{filename}."
             ),
         }
     return {"ok": False, "text": "Nothing to apply."}

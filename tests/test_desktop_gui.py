@@ -255,6 +255,34 @@ class SafetyAndActionTests(unittest.TestCase):
         self.assertTrue(applied["ok"])
         self.assertIn("2 ignore files", applied["text"])
 
+    def test_proof_exports_are_scoped_and_only_write_after_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            json_request = A.run_tool(root, "proof_json")
+            markdown_request = A.run_tool(root, "proof_markdown")
+
+            with mock.patch.object(
+                A,
+                "export_proof",
+                return_value={"status": "exported"},
+            ) as export:
+                applied = A.apply_tool(root, json_request["apply"])
+
+        self.assertTrue(json_request["mutates"])
+        self.assertEqual(json_request["apply"], ("proof_json", None))
+        self.assertIn(".opaihub/proof-bundle.json", json_request["confirm"])
+        self.assertTrue(markdown_request["mutates"])
+        self.assertEqual(markdown_request["apply"], ("proof_markdown", None))
+        self.assertIn(".opaihub/proof-bundle.md", markdown_request["confirm"])
+        export.assert_called_once_with(
+            root,
+            root / ".opaihub" / "proof-bundle.json",
+            fmt="json",
+        )
+        self.assertTrue(applied["ok"])
+        self.assertIn(".opaihub/proof-bundle.json", applied["text"])
+
     def test_set_panic_toggles_and_records_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -420,6 +448,12 @@ class PremiumGuiContractTests(unittest.TestCase):
         self.assertEqual(
             proof["subtitle"], "Local signed evidence for alpha users and teams."
         )
+        workflows = next(
+            section for section in vm["sections"] if section["id"] == "workflows"
+        )
+        workflow_action = workflows["actions"][0]
+        self.assertEqual(workflow_action["label"], "Copy workflow list command")
+        self.assertEqual(workflow_action["command"], "opai guard list")
         home = next(section for section in vm["sections"] if section["id"] == "home")
         benchmark_kpi = next(
             kpi for kpi in home["kpis"] if kpi["label"] == "Benchmark proof"

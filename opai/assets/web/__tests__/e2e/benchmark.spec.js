@@ -37,3 +37,28 @@ test("benchmark command can be copied without starting a run", async ({ page }) 
   await expect(page.locator("#toast")).toContainText("opai benchmark run --suite max --mode both");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
 });
+
+test("production benchmark gate action renders its local result in app", async ({ page }) => {
+  await openApp(page, {
+    dashboards: {
+      benchmark: {
+        title: "Benchmark Proof",
+        kpis: [],
+        cards: [],
+        actions: [{ id: "benchmark_gate", label: "Run benchmark gate" }],
+      },
+    },
+    toolResponses: {
+      benchmark: {
+        title: "Benchmark",
+        text: "Effectiveness index: 100\nGate: PASS",
+        needs_confirm: false,
+      },
+    },
+  });
+  await openNav(page, "Benchmark");
+  await page.getByRole("button", { name: "Run benchmark gate" }).click();
+
+  await expect(page.locator(".tool-card")).toContainText("Gate: PASS");
+  await expect.poll(() => page.evaluate(() => window.__mock.runTools)).toEqual(["benchmark"]);
+});

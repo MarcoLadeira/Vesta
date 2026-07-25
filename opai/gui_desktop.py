@@ -973,6 +973,18 @@ def _run_gui(
                 self._switch_view("chat")
                 self._run_tool("ignores")
                 return
+            if aid == "benchmark_gate":
+                self._switch_view("chat")
+                self._run_tool("benchmark")
+                return
+            if aid == "export_proof_json":
+                self._switch_view("chat")
+                self._run_tool("proof_json")
+                return
+            if aid == "export_proof_markdown":
+                self._switch_view("chat")
+                self._run_tool("proof_markdown")
+                return
             cmd = act.get("command")
             if cmd:
                 QtWidgets.QApplication.clipboard().setText(str(cmd))

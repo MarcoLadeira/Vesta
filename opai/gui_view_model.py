@@ -561,7 +561,12 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "subtitle": "Repeatable, approval-aware workflows for real development risk.",
         "cards": workflow_cards,
         "actions": [
-            _action("copy_workflow_command", "Copy selected command", icon="copy"),
+            _action(
+                "copy_workflow_command",
+                "Copy workflow list command",
+                icon="copy",
+                command="opai guard list",
+            ),
         ],
     }
 

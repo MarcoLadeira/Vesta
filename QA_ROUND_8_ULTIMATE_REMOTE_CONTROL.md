@@ -268,6 +268,30 @@ The durable workflow keeps the exact selected provider, but `restoreSession()` r
 
 The dashboard view model exposes `cleanup_preview` and `generate_ignores`, and `app_state` already implements both operations, but `runAction()` only dispatches panic and repair. Every other action without a shell command falls through to a generic terminal toast. The classic desktop action dispatcher has the same gap.
 
+### QAR8-10 — Benchmark, proof export, and workflow actions are also inert
+
+**Severity:** High for proof export; Medium for benchmark/workflows — advertised primary actions do not perform their named operation.
+
+**Steps:**
+
+1. Open Insights → Benchmark and select `Run benchmark gate`.
+2. Open Insights → Proof Bundle and select `Export JSON`.
+3. Open Insights → Workflows and inspect `Copy selected command`.
+
+**Observed:**
+
+- The benchmark gate and proof export both fell through to `Run it from your terminal` without showing a command or result.
+- Proof export never displayed its required local-file confirmation and never called the existing redacted export function.
+- Workflows offered a `Copy selected command` action even though the page has no selectable workflow state; clicking it had no useful target.
+
+**Expected:**
+
+The benchmark gate should render the local read-only result in OPai. JSON and Markdown proof exports should name their exact local paths and require one-time approval before writing. The workflow action should copy an unambiguous valid command.
+
+**Root-cause evidence:**
+
+These production action IDs were not handled by either dashboard dispatcher. The backend already implements the benchmark gate and proof writer, but no GUI tool requests exposed the two export formats. The workflow action was created without a `command`, guaranteeing the generic fallback.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -339,6 +363,16 @@ The dashboard view model exposes `cleanup_preview` and `generate_ignores`, and `
 - Red evidence: two Python contracts failed because both tool names were unknown, and the live app only displayed `Run it from your terminal.`
 - Green evidence: the desktop GUI module passed 49/49 tests. The focused browser regression passed and proved preview dispatch, in-app output, a visible approval card, and zero apply calls after Deny.
 - Live retest: after a source-build restart, `Preview cleanup` rendered the full local analysis in chat with an explicit no-deletion note. `Generate ignore files` opened a scoped `Config change` approval card; choosing Deny reported `nothing was changed` and did not invoke the generator.
+
+### QAR8-10
+
+- Connected `Run benchmark gate` to the local benchmark tool so its result renders in chat without starting a model request.
+- Added separate JSON and Markdown proof-export tools. Each names its exact `.opaihub/proof-bundle.*` target, excludes raw prompts/secrets, and enters the shared one-time approval flow before any file write.
+- Replaced the impossible `Copy selected command` workflow action with `Copy workflow list command` and the valid `opai guard list` command.
+- Applied the same action dispatch to the web and classic desktop surfaces.
+- Red evidence: the live benchmark and proof buttons only produced the generic terminal toast; two focused browser cases could not find a tool result or approval card; the backend export names were unknown; the workflow view-model assertion received a commandless action.
+- Green evidence: desktop GUI tests passed 50/50; the combined Benchmark, Proof Bundle, and Agents/Workflows browser sweep passed 13 existing cases plus both new production-action cases after correcting a strict test locator; Ruff and diff checks passed.
+- Live retest: pending after restarting the source-build app with this fix.
 
 ## Session notes
 

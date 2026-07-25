@@ -2824,6 +2824,9 @@ function runAction(aid, cmd) {
   if (aid === "safe_repair") { switchView("chat"); bridge.runTool("repair"); return; }
   if (aid === "cleanup_preview") { switchView("chat"); bridge.runTool("context_preview"); return; }
   if (aid === "generate_ignores") { switchView("chat"); bridge.runTool("ignores"); return; }
+  if (aid === "benchmark_gate") { switchView("chat"); bridge.runTool("benchmark"); return; }
+  if (aid === "export_proof_json") { switchView("chat"); bridge.runTool("proof_json"); return; }
+  if (aid === "export_proof_markdown") { switchView("chat"); bridge.runTool("proof_markdown"); return; }
   if (cmd) { copyText(cmd); toast("Copied: " + cmd); }
   else toast("Run it from your terminal.");
 }
@@ -2968,6 +2971,8 @@ const APPROVAL_SCOPE = {
   panic: { risk: "Config change", scope: "Routing policy for this project (reversible)" },
   repair: { risk: "Config change", scope: "OPai client integration files (additive, no source deleted)" },
   ignores: { risk: "Config change", scope: "Supported AI ignore files (additive; user rules preserved)" },
+  proof_json: { risk: "Local file write", scope: ".opaihub/proof-bundle.json (redacted and locally signed)" },
+  proof_markdown: { risk: "Local file write", scope: ".opaihub/proof-bundle.md (redacted and locally signed)" },
 };
 
 // Styled inline confirmation (#151) — the in-app replacement for native
