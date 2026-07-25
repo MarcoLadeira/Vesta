@@ -35,6 +35,15 @@ test("Safe Auto is default and Full Auto is never silently selected", async ({ p
   await expect(page.locator("#modeSel")).not.toHaveValue("full-auto");
 });
 
+test("the header and composer use the same novice-facing run-mode name", async ({ page }) => {
+  await openApp(page);
+
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Ask before edits");
+  await expect(page.locator("#statusLine")).toContainText("Ask before edits");
+  await expect(page.locator("#statusLine")).not.toContainText("Safe Auto");
+  await expect(page.locator(".insp-row", { hasText: "Run mode" })).toContainText("Ask before edits");
+});
+
 test("leaving Full Auto immediately updates the header as well as the composer", async ({ page }) => {
   await openApp(page, {
     boot: {

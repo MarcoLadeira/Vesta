@@ -23,15 +23,6 @@
   var STYLES = ["toolbar", "single", "command"];
   var DEFAULT_STYLE = "toolbar";
 
-  // Plain-language mode labels + descriptions, keyed by the app's mode ids.
-  // Falls back to the mode's own label when an id is unknown (forward compat).
-  var MODE_LABEL = {
-    ask: "Ask",
-    plan: "Plan only",
-    "safe-auto": "Ask before edits",
-    "approve-edits": "Approve edits",
-    "full-auto": "Auto-apply",
-  };
   var MODE_DESC = {
     ask: "Answer questions without changing files.",
     plan: "Describe the changes without touching files.",
@@ -71,8 +62,10 @@
     return !!m && (m.kind === "auto" || m.kind === "local" || m.kind === "free");
   }
   function modeLabelOf(mode) {
-    if (!mode) return "Ask before edits";
-    return MODE_LABEL[mode.id] || mode.label || "Mode";
+    if (typeof global.OPaiModePresentationLabel === "function") {
+      return global.OPaiModePresentationLabel(mode);
+    }
+    return (mode && mode.label) || "Mode";
   }
   function dotVar(kind) {
     return kind === "caution" ? "var(--amber)" : kind === "muted" ? "var(--faint)" : "var(--accent)";
@@ -195,7 +188,7 @@
         var editMode = ["safe-auto", "approve-edits", "full-auto"].indexOf(m.id) >= 0;
         return menuRow({
           role: "menuitemradio",
-          title: MODE_LABEL[m.id] || m.label,
+          title: modeLabelOf(m),
           desc: MODE_DESC[m.id] || "",
           active: m.id === cur,
           dot: dotVar(MODE_DOT[m.id] || "accent"),

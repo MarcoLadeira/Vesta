@@ -11,6 +11,18 @@ const esc = (s) =>
 const uiIcon = (name, options) => window.OPaiIcons.icon(name, options);
 
 const PROVIDER_COLOR = { claude: "#e0937a", codex: "#6cc1e8", auto: "#98a2b0", local: "#34d399" };
+const MODE_PRESENTATION_LABELS = {
+  ask: "Ask",
+  plan: "Plan only",
+  "safe-auto": "Ask before edits",
+  "approve-edits": "Approve edits",
+  "full-auto": "Auto-apply",
+};
+const modePresentationLabel = (mode) => {
+  if (!mode) return "Ask before edits";
+  return MODE_PRESENTATION_LABELS[mode.id] || mode.label || "Mode";
+};
+if (typeof window !== "undefined") window.OPaiModePresentationLabel = modePresentationLabel;
 
 const PALETTE = [
   { id: "new_chat", label: "New chat", hint: "Ctrl+N" },
@@ -656,7 +668,7 @@ function composerBlockReason() {
 function renderComposerContext() {
   const root = $("#composerContext");
   if (!root || !state.boot) return;
-  const modeLabel = state.mode.label || "Selected mode";
+  const modeLabel = modePresentationLabel(state.mode);
   const modelLabel = state.model.kind === "auto" ? "OPai · Auto mode" : (state.model.label || "Selected model");
   // These legacy pills now live in the visually-hidden .composer-native block
   // (the redesigned toolbar summarises the same state). tabindex="-1" keeps them
@@ -852,6 +864,7 @@ function renderInspector(data) {
   const preview = derivedAgentMode();
   let sawAgentRow = false;
   const rowData = (data.rows || []).map((r) => {
+    if (r.label === "Run mode") return { label: r.label, value: modePresentationLabel(state.mode) };
     if (r.label !== "Agent mode") return r;
     sawAgentRow = true;
     return (preview && r.value !== preview) ? { label: r.label, value: preview + " (next run)" } : r;
@@ -932,7 +945,7 @@ function renderStatus(st) {
   // savings) is supplied by the backend. Keep the only immediately knowable
   // value authoritative even if a queued status response was generated before
   // the user changed modes.
-  if (segments.length >= 2 && state.mode && state.mode.label) segments[1] = state.mode.label;
+  if (segments.length >= 2 && state.mode) segments[1] = modePresentationLabel(state.mode);
   $("#statusLine").innerHTML = esc(segments.join(" · ")).replace(/^([^·]+)/, "<b>$1</b>");
 }
 
