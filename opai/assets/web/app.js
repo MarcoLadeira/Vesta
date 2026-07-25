@@ -1113,6 +1113,7 @@ function renderResumedPendingAction(resume, action, messages) {
     modelLabel: action.modelLabel,
     modelProvider: provider,
     contextHints: [],
+    build: String(((resume.thread || {}).mode) || "") === "build",
   };
   // Restoring the inert selection does not grant authority. renderErrorCard's
   // named Confirm button is still the only path that adds allowCloud: true.
@@ -1276,16 +1277,26 @@ function renderNewAppSuccess(el, result) {
    cheap, verified targeted diff. Reuses the whole activity/timeline/status
    machinery — same request lifecycle as send() — but calls bridge.build and
    renders a build result card instead of a chat answer. */
-function sendBuild(text) {
+function sendSelection(payload) {
+  if (payload && payload.build) sendBuild(payload);
+  else send(payload);
+}
+
+function sendBuild(value) {
   if (state.busy) return;
-  text = (text || $("#input").value).trim();
+  const retryOf = value && typeof value === "object" ? value : null;
+  const text = String(retryOf ? retryOf.text : (value || $("#input").value)).trim();
   if (!text) return;
   setComposerDraft("");
-  appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
-  const sel = {
+  if (!retryOf) appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
+  const sel = retryOf || {
     text, model: state.model.id, modelKind: state.model.kind,
     modelLabel: state.model.label, modelProvider: state.model.provider, build: true,
   };
+  sel.build = true;
+  if (sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
+    sel.allowCloud = true;
+  }
   state.lastSend = sel;
   const requestId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "r" + Date.now() + Math.random();
   state.currentRequest = requestId;
@@ -1298,14 +1309,22 @@ function sendBuild(text) {
   stripReset(sel);
   startTimer(sel);
   setBusy(true);
-  bridge.build(JSON.stringify({ requestId, text, model: sel.model, strict: false }));
+  bridge.build(JSON.stringify({
+    requestId, text, model: sel.model, strict: false,
+    allowCloud: sel.allowCloud === true,
+    allowLimit: sel.allowLimit === true,
+  }));
 }
 
 function onBuildReply(json) {
   const d = JSON.parse(json);
   if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale reply ignored
   const r = d.result || {};
-  state.message = OPaiMessageState.transition(state.message, r.ok ? "answered" : "failed");
+  const backendStatus = r.status || "failed";
+  state.message = OPaiMessageState.transition(
+    state.message,
+    OPaiMessageState.fromBackendStatus(backendStatus, r.completion_verdict),
+  );
   state.currentRequest = null;
   setBusy(false);
   finalizeBuild(r);
@@ -1314,6 +1333,16 @@ function onBuildReply(json) {
 
 function finalizeBuild(r) {
   stopTimer();
+  const status = String(r.status || "error");
+  if (["needs_model", "needs_free_confirmation", "needs_auto_confirmation", "needs_limit_confirmation"].includes(status)) {
+    stripFinalize(status, r);
+    const gated = state.pending;
+    if (!gated) return;
+    state.pending = null;
+    state.lastFailedRequestId = state.message && state.message.requestId;
+    renderErrorCard(gated, status, r, state.lastSend || {});
+    return;
+  }
   const kind = r.ok ? "answered" : (r.status === "rolled_back" ? "cancelled" : "error");
   stripFinalize(kind, r);
   const el = state.pending;
@@ -1832,7 +1861,7 @@ function retry() {
     delete payload.allowCloud;
     delete payload.allowLimit;
   }
-  send(payload);
+  sendSelection(payload);
 }
 
 function openModelPicker() {
@@ -2109,7 +2138,7 @@ function onProviderLoginReady(json) {
   updateDoctorCard(pending.provider, result);
   if (!result.signedIn) { toast(result.message || "Sign-in was not verified"); return; }
   toast(result.message || `${providerName(pending.provider)} sign-in verified`);
-  if (pending.retryPayload && !state.busy && (!pending.retryRequestId || (state.message && state.message.requestId === pending.retryRequestId))) send(pending.retryPayload);
+  if (pending.retryPayload && !state.busy && (!pending.retryRequestId || (state.message && state.message.requestId === pending.retryRequestId))) sendSelection(pending.retryPayload);
 }
 
 function onConnectionDoctorReady(json) {
@@ -2156,7 +2185,7 @@ function renderErrorCard(el, status, r, sel) {
     : String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
-  el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
+  el.innerHTML = roleHeader(sel && sel.build ? "OPai Build" : "OPai", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card" role="alert"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     `<div class="ec-actions">` +
     (canRetry ? `<button class="btn" data-a="retry">Retry</button>` : "") +
@@ -2232,7 +2261,7 @@ function renderErrorCard(el, status, r, sel) {
         try { bridge.grantFreeConsent(id, () => {}); } catch (_e) { /* ignore */ }
       }
     }
-    send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
+    sendSelection(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
   };
   const fallback = el.querySelector('[data-a="fallback"]'); if (fallback) fallback.onclick = () => {
     // Preserve the reviewed route. Re-sending Auto here would recompute a
@@ -2240,13 +2269,13 @@ function renderErrorCard(el, status, r, sel) {
     // user was shown on the confirmation card.
     const fallbackModelId = String(r.fallbackModelId || "").trim();
     if (!fallbackModelId) { switchView("settings"); return; }
-    send(Object.assign({}, state.lastSend || {}, {
+    sendSelection(Object.assign({}, state.lastSend || {}, {
       model: fallbackModelId,
       allowCloud: true,
     }));
   };
   const limit = el.querySelector('[data-a="limit"]'); if (limit) limit.onclick = () => {
-    send(Object.assign({}, state.lastSend || {}, { allowLimit: true }));
+    sendSelection(Object.assign({}, state.lastSend || {}, { allowLimit: true }));
   };
   const settings = el.querySelector('[data-a="settings"]'); if (settings) settings.onclick = () => switchView("settings");
   el.querySelector('[data-a="switch"]').onclick = () => openModelPicker();

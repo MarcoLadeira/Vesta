@@ -366,6 +366,32 @@ An OPai Build manifest identifies the generated directory as an intentional work
 
 Every GUI launch/switch passed the selected path through `active_repo_context()`, which always collapses a nested folder to the enclosing Git top level. `_workspace()` also looked for the Build manifest at that top level instead of the selected directory.
 
+### QAR8-14 — Build-mode cloud confirmation is a dead end and loses status truth
+
+**Severity:** High — the generated-app workflow cannot continue safely when no local model is available.
+
+**Steps:**
+
+1. Open a scaffolded app in Build mode with Auto selected.
+2. Ask for a file change while no capable local model is available.
+3. Inspect the result, then close and resume the blocked Build.
+
+**Observed:**
+
+- The shared pipeline correctly stopped before Gemini, but the Build result rendered as a non-actionable `Build failed` card.
+- No confirmation button was available.
+- An intermediate repair produced a generic `Confirm cloud fallback` button because the Build wrapper dropped the exact model metadata.
+- The top strip said `Failed` while the inspector and pipeline said `Blocked`.
+- On resume, the approval could be reconstructed, but its selection had no durable Build-channel identity and could continue through ordinary Chat instead of `bridge.build`.
+
+**Expected:**
+
+The Build card must name the exact cloud model, remain visibly Blocked, and resend on the Build channel with a one-turn grant only after the user clicks confirmation. A closed/reopened blocked Build must preserve the same channel and exact provider without persisting cloud authority.
+
+**Root-cause evidence:**
+
+`run_build_request()` hard-coded `allow_cloud=False`, discarded the pipeline's safe confirmation fields and completion verdict, and returned only a generic error subset. The web Build sender had no retry selection or consent fields, and `onBuildReply()` collapsed every non-OK result to Failed. Durable thread persistence preferred the nested agent intent (`explain`) over the outer `build` execution channel, while resume reconstructed every approval as normal Chat.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -472,6 +498,17 @@ Every GUI launch/switch passed the selected path through `active_repo_context()`
 - Red evidence: the new Python test could not import the resolver, and a nested-scaffold boot contract resolved its workspace root to the parent Git repository.
 - Green evidence: 51 focused workspace/web-GUI tests passed, including nested-scaffold selection and Build detection; Ruff passed.
 - Live retest: launched the generated quote app directly from patched source. The window title and header named the nested app, onboarding identified that exact directory, its recents were empty instead of restoring the parent's blocked task, and the composer changed to the green `Build` action after finishing the tour.
+
+### QAR8-14
+
+- Threaded explicit `allowCloud` and `allowLimit` values from the Build confirmation resend through the web bridge and `run_build_request()` into the shared pipeline.
+- Build retries now retain `build: true`, use `bridge.build`, and preserve the exact reviewed fallback model instead of recomputing Auto or switching to Chat.
+- Build confirmation cards reuse the shared actionable error UI under an `OPai Build` header. Persisted free-model consent is also honored by Build.
+- Whitelisted safe gate metadata now survives the Build wrapper: exact model ID/label, cloud-started flag, usage gate, receipt, completion verdict, and user-facing recovery fields. Raw provider/tool internals remain excluded.
+- Blocked Build threads persist `mode: build` even when the nested agent policy says Explain, so resume reconstructs a Build approval without storing authority.
+- Red evidence: the backend rejected an `allow_cloud` argument, the live Build produced a dead-end failure, and the focused browser test could not find the named confirmation. The first live repair then exposed the dropped label and Failed/Blocked disagreement.
+- Green evidence: 60 backend Build/resume tests plus 3 subtests passed; all 11 Build-mode browser tests passed; dedicated blocked-Build persistence and resumed-Build browser regressions passed; Ruff passed.
+- Live retest: a fresh Build stopped before Gemini with an amber `Blocked` strip, `OPai Build` header, exact `Confirm Gemini · 3.1 Flash-Lite (free tier)` action, no Retry, and no provider call. Closing and relaunching restored the same named action under `OPai Build`; confirmation was deliberately not clicked.
 
 ## Session notes
 

@@ -482,6 +482,34 @@ class _EditingRunner(FakeStreamingRunner):
 
 
 class RunBuildRequestTests(unittest.TestCase):
+    def test_cloud_confirmation_grant_is_forwarded_to_the_shared_pipeline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(_scaffold(tmp).root)
+            blocked = {
+                "status": "needs_auto_confirmation",
+                "answer": "Confirm the named cloud model.",
+                "fallbackModelId": "free:gemini:flash",
+                "fallbackModelLabel": "Gemini Flash",
+                "cloudStarted": False,
+                "completion_verdict": {"verdict": "blocked"},
+            }
+            with mock.patch(
+                "opaihub.gui_pipeline.handle_gui_message", return_value=blocked
+            ) as handle:
+                report = run_build_request(
+                    root,
+                    "add search",
+                    model="free:gemini:flash",
+                    allow_cloud=True,
+                )
+
+            self.assertEqual(report["status"], "needs_auto_confirmation")
+            self.assertTrue(handle.call_args.kwargs["allow_cloud"])
+            self.assertEqual(report["fallbackModelId"], "free:gemini:flash")
+            self.assertEqual(report["fallbackModelLabel"], "Gemini Flash")
+            self.assertFalse(report["cloudStarted"])
+            self.assertEqual(report["completion_verdict"]["verdict"], "blocked")
+
     def test_linked_build_log_fails_before_provider_or_edit_side_effects(self):
         answer = "```file:app.js\nconsole.log('must not land');\n```"
         with tempfile.TemporaryDirectory() as tmp:

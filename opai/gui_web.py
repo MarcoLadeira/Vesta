@@ -821,7 +821,10 @@ def _persist_turn_result(
             answer=answer,
             status=thread_status,
             task_id=str(workflow.get("task_id") or request_id),
-            mode=str(workflow.get("mode") or mode),
+            # Build is a UI execution channel, not the agent intent reported by
+            # the nested chat pipeline. Preserve it so a blocked cloud handoff
+            # resumes through bridge.build instead of silently becoming Chat.
+            mode=str(mode if build else (workflow.get("mode") or mode)),
             checkpoint_id=str(result.get("checkpoint_id") or ""),
             plan=plan,
             changed_files=changed_files,
@@ -1927,6 +1930,8 @@ def _run_gui(
                     on_text=emit_text,
                     cancel=cancel,
                     resume_context=resume_context,
+                    allow_cloud=bool(payload.get("allowCloud", False)),
+                    allow_limit=bool(payload.get("allowLimit", False)),
                 )
 
             worker = Worker(job)

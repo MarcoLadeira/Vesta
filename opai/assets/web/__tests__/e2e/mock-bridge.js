@@ -336,7 +336,14 @@
       var m = window.__mock;
       m.lastBuild = JSON.parse(p);
       m.buildCount++;
-      var result = scenario.buildResult || {
+      var result = scenario.buildCloudGate && !m.lastBuild.allowCloud ? {
+        ok: false,
+        status: "needs_auto_confirmation",
+        answer: "Confirm the named cloud model.",
+        fallbackModelId: "free:gemini:gemini-3.1-flash-lite-preview",
+        fallbackModelLabel: "Gemini · 3.1 Flash-Lite (free tier)",
+        completion_verdict: { verdict: "blocked", reasonCode: "approval_required" },
+      } : scenario.buildResult || {
         ok: true, status: "applied",
         applied: [{ path: "styles.css", action: "updated", added: 2, removed: 1 }],
         rejected: [], verify: { ok: true, passed: 3, failed: 0 },

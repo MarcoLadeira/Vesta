@@ -860,6 +860,8 @@ def run_build_request(
     on_text: Callable[[str], None] | None = None,
     cancel: Any = None,
     resume_context: dict[str, Any] | None = None,
+    allow_cloud: bool = False,
+    allow_limit: bool = False,
 ) -> dict[str, Any]:
     """One turn of the customization loop against a scaffolded app.
 
@@ -943,7 +945,8 @@ def run_build_request(
         on_event=on_event,
         on_text=on_text,
         cancel=cancel,
-        allow_cloud=False,
+        allow_cloud=allow_cloud,
+        allow_limit=allow_limit,
         resume_context=resume_context,
     )
     status = str(result.get("status") or "error")
@@ -1036,12 +1039,37 @@ def run_build_request(
         "answered_locally",
     }
     if not answered:
+        # Build is a presentation wrapper around the shared chat pipeline. Keep
+        # the pipeline's safe, structured gate metadata intact so the GUI can
+        # render the exact reviewed model/limit and the same honest Blocked
+        # verdict. Never forward the raw provider payload or tool internals.
+        gate_fields = {
+            key: result[key]
+            for key in (
+                "fallbackModelId",
+                "fallbackModelLabel",
+                "cloudStarted",
+                "usage",
+                "receipt",
+                "completion_verdict",
+                "agent_policy",
+                "next_actions",
+                "warnings",
+            )
+            if key in result
+        }
+        model_id = str(result.get("model_id") or "").strip()
+        if not model_id and isinstance(result.get("raw_result"), dict):
+            model_id = str(result["raw_result"].get("model_id") or "").strip()
+        if model_id:
+            gate_fields["model_id"] = model_id
         return {
             "ok": False,
             "status": status,
             "answer": answer,
             "error": result.get("error"),
             "context": context_stats,
+            **gate_fields,
             **_continuity(),
         }
     edits = parse_file_blocks(answer)

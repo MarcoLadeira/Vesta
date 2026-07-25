@@ -594,9 +594,32 @@ class ThreadLifecycleTests(unittest.TestCase):
                 build=True,
             )
             raw = gui_recents.thread_path(root).read_text(encoding="utf-8")
+            thread = gui_recents.load_thread(root)
 
         self.assertIn("Applied and verified 1 change", raw)
         self.assertNotIn("private source", raw)
+        self.assertEqual(thread["mode"], "build")
+
+    def test_blocked_build_preserves_its_channel_over_nested_agent_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gui_web._persist_turn_start(root, "build-gate", "add search", "build")
+            gui_web._persist_turn_result(
+                root,
+                "build-gate",
+                {
+                    "status": "needs_auto_confirmation",
+                    "answer": "Confirm the named cloud model.",
+                    "workflow": {"mode": "explain", "task_id": "build-gate"},
+                },
+                mode="build",
+                build=True,
+            )
+
+            thread = gui_recents.load_thread(root)
+
+        self.assertEqual(thread["mode"], "build")
+        self.assertEqual(thread["messages"][-1]["status"], "failed")
 
     def test_explicit_resume_context_reaches_provider_and_never_loads_implicitly(self):
         class ContextRunner(FakeStreamingRunner):
