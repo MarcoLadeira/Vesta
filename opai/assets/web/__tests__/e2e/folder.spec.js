@@ -61,13 +61,27 @@ test("chat history: recents render and reload into the composer", async ({ page 
   await expect(page.locator("#input")).toHaveValue("summarize my changes");
 });
 
-test("chat history can be cleared in one click (#145)", async ({ page }) => {
+test("chat history clear requires explicit confirmation (#145)", async ({ page }) => {
   await expect(page.locator("#recents .recent").first()).toContainText("summarize my changes");
   await page.click("#clearRecents");
+  const confirm = page.locator("#recents .inline-confirm");
+  await expect(confirm).toContainText("cannot be undone");
+  expect(await page.evaluate(() => window.__mock.clearedRecents)).toBe(0);
+  await confirm.locator('[data-ic="ok"]').click();
   expect(await page.evaluate(() => window.__mock.clearedRecents)).toBe(1);
   await expect(page.locator("#clearRecents")).toHaveCount(0);
   await expect(page.locator("#recents")).toContainText("No saved chats yet");
   await expect(page.locator("#recents").getByRole("button", { name: "New chat" })).toBeVisible();
+});
+
+test("cancelling chat history clear preserves chats and recovery state", async ({ page }) => {
+  await page.click("#clearRecents");
+  const confirm = page.locator("#recents .inline-confirm");
+  await confirm.locator('[data-ic="cancel"]').click();
+
+  expect(await page.evaluate(() => window.__mock.clearedRecents)).toBe(0);
+  await expect(page.locator("#recents .recent").first()).toContainText("summarize my changes");
+  await expect(page.locator("#clearRecents")).toBeVisible();
 });
 
 test("sending a prompt saves it to history", async ({ page }) => {

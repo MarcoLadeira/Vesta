@@ -167,6 +167,7 @@ test("failed clear history does not hide resumable work", async ({ page }) => {
   await openApp(page, { boot: { resume }, clearRecentsResult: failure });
 
   await page.click("#clearRecents");
+  await page.locator("#recents .inline-confirm [data-ic='ok']").click();
 
   await expect(page.getByRole("group", { name: "Resume previous work" })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("could not clear");

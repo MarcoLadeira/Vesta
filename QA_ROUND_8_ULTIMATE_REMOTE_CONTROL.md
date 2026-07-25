@@ -292,6 +292,31 @@ The benchmark gate should render the local read-only result in OPai. JSON and Ma
 
 These production action IDs were not handled by either dashboard dispatcher. The backend already implements the benchmark gate and proof writer, but no GUI tool requests exposed the two export formats. The workflow action was created without a `command`, guaranteeing the generic fallback.
 
+### QAR8-11 — sidebar Clear history destroys saved work without confirmation
+
+**Severity:** High — a single accidental click irreversibly removes both recent chats and durable recovery state.
+
+**Steps:**
+
+1. Keep a blocked resumable task and several recent chats in the workspace.
+2. Select `Clear history` in the sidebar.
+3. Observe the chat list and recovery card.
+
+**Observed:**
+
+- OPai immediately called the clear bridge.
+- All recent chats disappeared.
+- The pending recovery session and its Resume choice were also removed.
+- No confirmation or Cancel action appeared.
+
+**Expected:**
+
+The sidebar must disclose that both saved chats and recovery data will be deleted, state that the action cannot be undone, and require explicit confirmation. Cancel must preserve both datasets.
+
+**Root-cause evidence:**
+
+`renderRecents()` described the control as `deletable in one click` and called `bridge.clearRecents()` directly. Settings → Privacy already used the shared styled confirmation for the same destructive operation, so the two entry points had contradictory safety behavior.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -373,6 +398,15 @@ These production action IDs were not handled by either dashboard dispatcher. The
 - Red evidence: the live benchmark and proof buttons only produced the generic terminal toast; two focused browser cases could not find a tool result or approval card; the backend export names were unknown; the workflow view-model assertion received a commandless action.
 - Green evidence: desktop GUI tests passed 50/50; the combined Benchmark, Proof Bundle, and Agents/Workflows browser sweep passed 13 existing cases plus both new production-action cases after correcting a strict test locator; Ruff and diff checks passed.
 - Live retest: after a source-build restart, the benchmark gate rendered the real local `Gate: PASS` result in chat without a model request. JSON proof export named `.opaihub/proof-bundle.json`, disclosed redaction/signing, and stopped at one-time approval; Deny wrote nothing. The workflow action copied the valid `opai guard list` command.
+
+### QAR8-11
+
+- Routed the sidebar clear through the same styled inline confirmation primitive used by Settings.
+- The confirmation now says it deletes all saved chats and recovery data for the current workspace and cannot be undone.
+- The clear bridge is not called until the user selects `Clear history` inside that confirmation; Cancel leaves recents and recovery untouched.
+- Red evidence: three browser regressions could not find a confirmation because the first click immediately cleared state; the live app erased the complete sidebar history and blocked-session recovery in one click.
+- Green evidence: focused confirmation/cancel/failure coverage passed 3/3; the full Folder, Session Resume, and Permissions & Privacy browser sweep passed 21/21.
+- Live retest: pending after restarting the source-build app and creating a new disposable recent entry.
 
 ## Session notes
 

@@ -421,7 +421,9 @@ function renderRecents() {
     b.onclick = () => { switchView("chat"); setComposerDraft(text, { focus: true }); };
     rec.appendChild(b);
   });
-  // Privacy control (#145): history is per-workspace and deletable in one click.
+  // Privacy control (#145): history is per-workspace and deletable only after
+  // an explicit confirmation. Clearing also removes durable recovery state, so
+  // an accidental sidebar click must never destroy it.
   const clear = document.createElement("button");
   clear.className = "recent";
   clear.id = "clearRecents";
@@ -429,22 +431,31 @@ function renderRecents() {
   clear.textContent = "Clear history";
   clear.title = "Delete this workspace's stored chat history";
   clear.onclick = () => {
-    if (!bridge || !bridge.clearRecents) {
-      showSessionClearFailure(clearFailure("Saved history could not be cleared."));
-      return;
-    }
-    bridge.clearRecents((raw) => {
-      const response = parseClearResponse(raw);
-      if (!Array.isArray(response) && response.ok === false) {
-        showSessionClearFailure(response);
+    inlineConfirm(rec, {
+      title: "Clear saved chat history?",
+      body: "Delete all saved chats and recovery data for this workspace? This cannot be undone.",
+      confirmLabel: "Clear history",
+      cancelLabel: "Cancel",
+      danger: true,
+    }).then((confirmed) => {
+      if (!confirmed) return;
+      if (!bridge || !bridge.clearRecents) {
+        showSessionClearFailure(clearFailure("Saved history could not be cleared."));
         return;
       }
-      state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
-      state.boot.resume = (!Array.isArray(response) && response.resume)
-        ? response.resume : { available: false, requires_choice: false };
-      setResumeGate(false);
-      clearChat();
-      renderRecents();
+      bridge.clearRecents((raw) => {
+        const response = parseClearResponse(raw);
+        if (!Array.isArray(response) && response.ok === false) {
+          showSessionClearFailure(response);
+          return;
+        }
+        state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
+        state.boot.resume = (!Array.isArray(response) && response.resume)
+          ? response.resume : { available: false, requires_choice: false };
+        setResumeGate(false);
+        clearChat();
+        renderRecents();
+      });
     });
   };
   rec.appendChild(clear);
