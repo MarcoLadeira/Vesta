@@ -242,6 +242,7 @@ export const SETTINGS = {
   permissions: [
     { label: "Read files", state: "allow", note: "Anywhere in the repo" },
     { label: "Edit files", state: "ask", note: "Pauses for your OK" },
+    { label: "Push to a remote", state: "ask", note: "Asks every time, even in Full Auto" },
     { label: "Network / web", state: "block" },
   ],
   modePermissions: [

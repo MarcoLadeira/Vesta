@@ -30,8 +30,8 @@ test("the run-mode select never offers Full Auto", async ({ page }) => {
   await openNav(page, "Settings");
   await railItem(page, "models").click();
   const options = await page.locator('select[data-default-pref="default_mode"] option').allTextContents();
-  expect(options).toEqual(["Ask", "Plan", "Safe Auto", "Approve Edits"]);
-  await expect(page.locator("#settingsPage")).toContainText("Full Auto can only be pinned from the composer", seen);
+  expect(options).toEqual(["Ask", "Plan only", "Ask before edits", "Approve edits"]);
+  await expect(page.locator("#settingsPage")).toContainText("Auto-apply can only be pinned from the composer", seen);
 });
 
 test("the routing explainer states the honest local-first order", async ({ page }) => {

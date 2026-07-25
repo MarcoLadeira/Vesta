@@ -110,7 +110,8 @@ test("selecting Full Auto shows a styled in-chat confirm, no native dialog (#151
   await page.selectOption("#modeSel", "full-auto");
   // The confirmation is an in-chat card, never a native window.confirm.
   await expect(page.locator(".inline-confirm")).toBeVisible();
-  await expect(page.locator(".inline-confirm .ic-title")).toContainText("Pin Full Auto");
+  await expect(page.locator(".inline-confirm .ic-title")).toContainText("Pin Auto-apply");
+  await expect(page.locator(".inline-confirm")).not.toContainText("Full Auto");
   expect(dialogs).toBe(0);
   // Round 5 finding 1: the copy must promise only what the gate does. Pushing
   // asks every time; deploys and destructive commands are refused outright — the

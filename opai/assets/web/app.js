@@ -22,7 +22,15 @@ const modePresentationLabel = (mode) => {
   if (!mode) return "Ask before edits";
   return MODE_PRESENTATION_LABELS[mode.id] || mode.label || "Mode";
 };
-if (typeof window !== "undefined") window.OPaiModePresentationLabel = modePresentationLabel;
+const modePresentationCopy = (value) =>
+  String(value == null ? "" : value)
+    .replace(/\bSafe Auto\b/g, MODE_PRESENTATION_LABELS["safe-auto"])
+    .replace(/\bApprove Edits\b/g, MODE_PRESENTATION_LABELS["approve-edits"])
+    .replace(/\bFull Auto\b/g, MODE_PRESENTATION_LABELS["full-auto"]);
+if (typeof window !== "undefined") {
+  window.OPaiModePresentationLabel = modePresentationLabel;
+  window.OPaiModePresentationCopy = modePresentationCopy;
+}
 
 const PALETTE = [
   { id: "new_chat", label: "New chat", hint: "Ctrl+N" },
@@ -744,13 +752,13 @@ function renderContextHints() {
 function offerFullAutoPinAck() {
   state.fullAutoAckOpen = true;
   chatConfirm({
-    title: "Pin Full Auto?",
+    title: "Pin Auto-apply?",
     // Round 5 finding 1: the old copy promised confirmation for "push, deploy, and
     // destructive actions" as one group, but only pushing actually asks — deploys
     // and destructive commands are refused outright, not queued for approval. Say
     // which is which, so the dialog matches what the gate does.
-    body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Pushing to a remote still asks for your approval each time, and destructive actions — force-push, deletes, deploys — are refused rather than run.",
-    confirmLabel: "Pin Full Auto",
+    body: "Auto-apply lets OPai edit files and run commands without asking first. It stays on until you unpin it. Pushing to a remote still asks for your approval each time, and destructive actions — force-push, deletes, deploys — are refused rather than run.",
+    confirmLabel: "Pin Auto-apply",
     cancelLabel: "Keep current mode",
     danger: true,
   }).then((ok) => {
@@ -2558,7 +2566,7 @@ function planCardHtml(steps) {
     ${rows}
     <div class="pc-actions">
       <button class="btn primary" data-plan="build">Build this plan</button>
-      <span class="pc-note">runs in Safe Auto — edits gated by the usual approvals</span>
+      <span class="pc-note">runs in Ask before edits — edits gated by the usual approvals</span>
     </div></div>`;
 }
 function wirePlanCard(el, sel) {
@@ -3013,7 +3021,7 @@ function appendCard(title, text) {
 // is re-sent.
 function renderCommandApprovalCard(el, r, sel) {
   const command = String((r && r.command) || "");
-  const reason = String((r && r.reason) || "The current run mode blocks this command.");
+  const reason = modePresentationCopy((r && r.reason) || "The current run mode blocks this command.");
   el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
     `<div class="approval-card command-approval" role="group" aria-label="Command approval required">
        <div class="ap-head"><span class="ap-badge">Command blocked</span><span class="ap-risk">One-time approval</span></div>
@@ -3062,7 +3070,7 @@ function renderEditApprovalCard(el, r, sel) {
     `<div class="approval-card edit-approval" role="group" aria-label="Edit approval required">
        <div class="ap-head"><span class="ap-badge">Edits blocked</span><span class="ap-risk">One-time approval</span></div>
        <div class="ap-title">Allow OPai to edit these files once?</div>
-       <div class="ap-why">Safe Auto asks before changing files. Commands and destructive actions stay gated.</div>
+       <div class="ap-why">In Ask before edits, OPai asks before changing files. Commands and destructive actions stay gated.</div>
        <div class="ap-scope"><span class="k">Files</span><span class="v"><ul class="ap-files">${rows || "<li>(paths unavailable)</li>"}</ul></span></div>
        <div class="ap-actions">
          <button class="btn primary" data-ap="approve">Allow edits once</button>

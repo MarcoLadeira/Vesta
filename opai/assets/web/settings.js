@@ -71,6 +71,22 @@
     "approve-edits": "Approve Edits",
     "full-auto": "Full Auto",
   };
+  function modePresentationLabel(id, fallback) {
+    var raw = fallback || MODE_LABELS[id] || id || "Mode";
+    if (typeof global.OPaiModePresentationLabel === "function") {
+      return global.OPaiModePresentationLabel({ id: id, label: raw });
+    }
+    return raw;
+  }
+  function modePresentationCopy(value) {
+    if (typeof global.OPaiModePresentationCopy === "function") {
+      return global.OPaiModePresentationCopy(value);
+    }
+    return String(value || "")
+      .replace(/\bSafe Auto\b/g, modePresentationLabel("safe-auto"))
+      .replace(/\bApprove Edits\b/g, modePresentationLabel("approve-edits"))
+      .replace(/\bFull Auto\b/g, modePresentationLabel("full-auto"));
+  }
 
   function row(esc, k, v) {
     return (
@@ -221,7 +237,7 @@
     });
     h += statTile(esc, {
       label: "Default run mode",
-      value: MODE_LABELS[prefs.default_mode] || prefs.default_mode || "—",
+      value: modePresentationLabel(prefs.default_mode, MODE_LABELS[prefs.default_mode]),
       sub: "For new tasks",
     });
     h += "</div>";
@@ -841,7 +857,7 @@
     // composer with an explicit acknowledgement (#137); a bare savePref for it
     // is downgraded server-side.
     var modeOptions = ["ask", "plan", "safe-auto", "approve-edits"].map(function (id) {
-      return { id: id, label: MODE_LABELS[id] };
+      return { id: id, label: modePresentationLabel(id, MODE_LABELS[id]) };
     });
     var focusOptions = (boot.taskModes || []).map(function (m) {
       return { id: m.id, label: m.label };
@@ -862,7 +878,7 @@
       "default_mode",
       modeOptions,
       MODE_LABELS[prefs.default_mode] ? prefs.default_mode : "safe-auto",
-      "Full Auto can only be pinned from the composer, with an explicit acknowledgement."
+      "Auto-apply can only be pinned from the composer, with an explicit acknowledgement."
     );
     h += selectRow("Task focus", "default_task_mode", focusOptions, ctx.state.focus);
     h += selectRow("Output format", "default_output_format", formatOptions, ctx.state.format);
@@ -1162,7 +1178,7 @@
 
   function permissionsHtml(d, ctx) {
     var esc = ctx.esc;
-    var activeMode = MODE_LABELS[d.prefs.default_mode] || d.prefs.default_mode;
+    var activeMode = modePresentationLabel(d.prefs.default_mode, MODE_LABELS[d.prefs.default_mode]);
     var active = (d.modePermissions || []).filter(function (mode) {
       return mode.active;
     })[0];
@@ -1186,7 +1202,7 @@
       h +=
         '<div class="perm"><span class="k">' +
         esc(p.label) +
-        (p.note ? '<span class="perm-note">' + esc(p.note) + "</span>" : "") +
+        (p.note ? '<span class="perm-note">' + esc(modePresentationCopy(p.note)) + "</span>" : "") +
         '</span><span class="s ' +
         p.state +
         '">' +
@@ -1200,7 +1216,7 @@
       var METER = { ask: 20, plan: 36, "safe-auto": 56, "approve-edits": 76, "full-auto": 100 };
       h += '<div class="set-head">Run modes</div>';
       h +=
-        '<div class="set-note">Switch modes from the composer. Full Auto acts without asking and must be pinned there with an acknowledgement.</div>';
+        '<div class="set-note">Switch modes from the composer. Auto-apply acts without asking and must be pinned there with an acknowledgement.</div>';
       d.modePermissions.forEach(function (mode) {
         var width = METER[mode.id] || 20;
         h +=
@@ -1210,7 +1226,7 @@
           '"><span class="mode-meter" aria-hidden="true"><span style="width:' +
           width +
           '%"></span></span><span class="k">' +
-          esc(mode.label) +
+          esc(modePresentationLabel(mode.id, mode.label)) +
           (mode.active ? ' <span class="mode-active">current</span>' : "") +
           '</span><span class="mode-summary">' +
           esc(mode.summary) +

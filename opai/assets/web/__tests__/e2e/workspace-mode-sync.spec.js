@@ -73,13 +73,15 @@ test("composer, header, and inspector follow the fresh payload after a workspace
 
   await page.evaluate(() => window.__mock.switchWorkspace("/repo/opai"));
 
-  // The stale "Full Auto" display was the bug: everything must repaint Safe Auto.
+  // The stale "Auto-apply" display was the bug: everything must repaint the
+  // novice-facing Ask before edits label for the new workspace.
   await expect(page.locator("#modeSel")).toHaveValue("safe-auto");
-  await expect(page.locator("#statusLine")).toContainText("Safe Auto");
+  await expect(page.locator("#statusLine")).toContainText("Ask before edits");
+  await expect(page.locator("#statusLine")).not.toContainText("Safe Auto");
   await expect(page.locator("#statusLine")).not.toContainText("Full Auto");
   await expect(page.locator("#wsLabel")).toHaveText("opai");
   const runModeRow = page.locator(".insp-row", { hasText: "Run mode" });
-  await expect(runModeRow).toContainText("Safe Auto");
+  await expect(runModeRow).toContainText("Ask before edits");
   // No pin ack is offered when the new workspace doesn't request Full Auto.
   await expect(page.locator(".inline-confirm")).toHaveCount(0);
 });
@@ -104,7 +106,8 @@ test("the pin ack is re-offered after switching to a workspace requesting unpinn
   // …and the ack is offered even though no dropdown change event fired.
   const ack = page.locator(".inline-confirm");
   await expect(ack).toBeVisible();
-  await expect(ack.locator(".ic-title")).toContainText("Pin Full Auto");
+  await expect(ack.locator(".ic-title")).toContainText("Pin Auto-apply");
+  await expect(ack).not.toContainText("Full Auto");
 
   await ack.locator('[data-ic="ok"]').click();
   expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(1);

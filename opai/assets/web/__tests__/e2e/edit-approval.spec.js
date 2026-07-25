@@ -26,6 +26,8 @@ test("blocked edits render an approval card naming the exact files; Allow edits 
 
   const card = page.locator(".approval-card.edit-approval");
   await expect(card).toBeVisible();
+  await expect(card.locator(".ap-why")).toContainText("In Ask before edits, OPai asks before changing files.");
+  await expect(card.locator(".ap-why")).not.toContainText("Safe Auto");
   // The exact file paths are listed verbatim — never paraphrased.
   for (const file of FILES) {
     await expect(card.locator(".ap-files")).toContainText(file);

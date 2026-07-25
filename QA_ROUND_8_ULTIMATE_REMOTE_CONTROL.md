@@ -63,6 +63,8 @@ Every reproducible product defect belongs in this file before it is fixed. Each 
 
 - The top bar displayed `Full Auto`.
 - The composer control and summary displayed `Auto-apply`.
+- Settings repeated `Full Auto` in the Overview card and Permissions copy.
+- Approval cards and plan handoff repeated `Full Auto` / `Safe Auto` while the surrounding controls used `Auto-apply` / `Ask before edits`.
 - The CLI mirror used the internal `--mode full-auto` identifier.
 - The same split exists for the engine label `Safe Auto` versus the novice-facing label `Ask before edits`.
 
@@ -102,10 +104,11 @@ The normal input event calls `updateComposerAvailability()`, but `usePrompt()` a
 
 ### QAR8-01
 
-- Added one shared novice-facing mode-label function and used it in the header, composer context, composer menu, composer summary, and inspector run-mode row.
-- Red evidence: the focused Playwright case received `Auto · Safe Auto · ...` while the composer read `Ask before edits`.
-- Green evidence: the new case and the existing Full Auto-to-Ask synchronization regression both passed.
-- Live retest: relaunched the desktop app in the original Full Auto workspace. The top bar, composer control, and composer summary all displayed `Auto-apply`; the CLI mirror correctly retained the technical `--mode full-auto` argument.
+- Added shared novice-facing mode-label and mode-copy functions. Header, composer, inspector, Settings, confirmation cards, command/edit approvals, and plan handoff now use them.
+- Red evidence: the focused header case received `Auto · Safe Auto · ...` while the composer read `Ask before edits`; five additional approval/plan cases then proved the remaining raw labels were still visible.
+- Green evidence: the model-mode suite passed 10/10, the Settings regression set passed 17/17, and the six focused approval/plan/workspace cases passed 6/6.
+- Broader regression evidence: 40 unaffected cases passed in the combined approval/plan/Settings/workspace run; the one stale old-label assertion was corrected and its full workspace suite then passed 4/4. JavaScript unit tests passed 74/74, design-token checks passed 2/2, and the Python UI honesty sweep passed 10 tests plus 19 subtests.
+- Live retest: relaunched the desktop app repeatedly in the original Full Auto workspace. The top bar, composer control, composer summary, Settings Overview, Permissions heading, current-mode card, and push-approval note all displayed `Auto-apply`; no raw `Full Auto` remained on those live screens. The CLI mirror correctly retained the technical `--mode full-auto` argument.
 
 ### QAR8-02
 
