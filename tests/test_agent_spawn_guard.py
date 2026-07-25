@@ -203,6 +203,50 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
                     self.assertIsNotNone(pending)
                     self.assertEqual(pending["command"], command.strip())
 
+    def test_pr_comment_asks_for_one_time_approval(self):
+        """A direct PR comment is outward-facing, but not a dead-end block."""
+
+        command = (
+            "gh pr comment 511 --repo MarcoLadeira/OPai "
+            "--body-file .pr511-comment.md"
+        )
+        with _hermetic_hub(), _consent_store():
+            from opaihub import command_consent
+
+            result = claude_pre_tool_decision(_hook_payload(command))
+            self.assertEqual(_decision_of(result), "deny")
+            self.assertIn("one-time approval", _reason_of(result))
+            pending = command_consent.take_pending()
+            self.assertIsNotNone(pending)
+            self.assertEqual(pending["command"], command)
+
+    def test_quoted_push_words_in_pr_comment_are_not_a_force_push(self):
+        """Only the invoked command, never its comment text, drives push policy."""
+
+        command = 'gh pr comment 511 --body "Verified git push origin feature/x"'
+        with _hermetic_hub(), _consent_store():
+            from opaihub import command_consent
+
+            result = claude_pre_tool_decision(_hook_payload(command))
+            self.assertEqual(_decision_of(result), "deny")
+            reason = _reason_of(result)
+            self.assertIn("one-time approval", reason)
+            self.assertNotIn("force/delete/mirror", reason)
+            self.assertEqual(command_consent.take_pending()["command"], command)
+
+    def test_approved_pr_comment_runs_once_and_only_once(self):
+        command = "gh pr comment 511 --body-file .pr511-comment.md"
+        with _hermetic_hub(), _consent_store():
+            from opaihub import command_consent
+
+            command_consent.begin_turn(command)
+            self.assertEqual(
+                _decision_of(claude_pre_tool_decision(_hook_payload(command))), "allow"
+            )
+            self.assertEqual(
+                _decision_of(claude_pre_tool_decision(_hook_payload(command))), "deny"
+            )
+
     def test_approved_plain_push_runs_once_and_only_once(self):
         # The other half of the handshake: "Approve once" arms a one-shot grant,
         # the hook spends it, and the very next push has to ask again.

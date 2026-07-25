@@ -793,6 +793,18 @@ _HOOK_BLOCK_REASON_PUSH_APPROVAL = (
 )
 
 _PUSH_COMMAND = re.compile(r"\bgit\s+push\b", re.IGNORECASE)
+_DIRECT_PR_COMMENT_COMMAND = re.compile(
+    r"^\s*gh(?:\.exe)?\s+pr\s+comment(?:\s|$)", re.IGNORECASE
+)
+_SHELL_OPERATORS = re.compile(r"[|&;<>`]|\$\(|\$\{")
+
+_HOOK_BLOCK_REASON_COMMAND_APPROVAL = (
+    "OPai safety gate: this outward-facing command needs the user's one-time "
+    "approval ({detail}). OPai has recorded this exact command and will ask "
+    "them to approve it as soon as this turn ends. Stop here and report that "
+    "the command is awaiting approval. Do NOT retry it, do not try another way "
+    "to perform the action, and do not claim it completed."
+)
 
 
 def _is_plain_push(command: str) -> bool:
@@ -801,6 +813,22 @@ def _is_plain_push(command: str) -> bool:
     from opaihub.command_consent import is_plain_push
 
     return is_plain_push(command)
+
+
+def _is_direct_pr_comment(command: str) -> bool:
+    """True for a direct, unchained ``gh pr comment`` shell invocation.
+
+    The provider hook receives the entire shell string, including quoted comment
+    bodies. Looking for ``git push`` anywhere in that string therefore treats
+    ordinary prose as a push. Keep this deliberately narrow: only a command
+    whose executable is ``gh pr comment`` and which carries no shell operators
+    may enter the one-shot approval channel.
+    """
+
+    text = str(command or "")
+    return bool(_DIRECT_PR_COMMENT_COMMAND.match(text)) and not bool(
+        _SHELL_OPERATORS.search(text)
+    )
 
 
 def _push_consent_state() -> tuple[bool, str]:
@@ -903,6 +931,21 @@ def claude_pre_tool_decision(
         return _hook_deny(
             _HOOK_BLOCK_REASON.format(detail="no inspectable command in payload")
         )
+    # A PR comment is outward-facing, but an explicit one-shot approval is the
+    # right boundary — a terminal destructive block leaves a requested comment
+    # impossible to complete through the GUI. Check the actual invoked command
+    # before scanning broader policy text so a quoted ``git push`` in the
+    # comment body cannot be mistaken for a push operation.
+    if _is_direct_pr_comment(command):
+        if command_consent.consume_grant(command):
+            return _hook_allow()
+        reason = _HOOK_BLOCK_REASON_COMMAND_APPROVAL.format(
+            detail="posting a comment changes the pull request conversation"
+        )
+        command_consent.record_pending(
+            command, "Posting this comment changes the pull request conversation."
+        )
+        return _hook_deny(reason)
     if _is_plain_push(command) and _push_consent_state()[0]:
         if command_consent.consume_grant(command):
             return _hook_allow()

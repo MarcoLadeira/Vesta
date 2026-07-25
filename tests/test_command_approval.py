@@ -313,6 +313,23 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
         # The model's contradicting success claim is not what the user is shown.
         self.assertNotIn("successfully pushed", result["answer"])
 
+    def test_pr_comment_refusal_cannot_complete_from_an_unrelated_local_change(self):
+        """A blocked GitHub comment remains blocked even if the run wrote a file."""
+
+        command = "gh pr comment 511 --repo MarcoLadeira/OPai --body-file .comment.md"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            result = self._run(
+                root,
+                "I saved the comment locally, so the pull request is updated.",
+                refuses=command,
+            )
+
+        self.assertEqual(result["status"], "needs_command_approval")
+        self.assertEqual(result["command"], command)
+        self.assertEqual(result["completion_verdict"]["verdict"], "blocked")
+        self.assertNotIn("pull request is updated", result["answer"])
+
     def test_a_grant_is_armed_where_the_hook_can_read_it(self):
         from opaihub import command_consent
 
