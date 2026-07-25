@@ -217,6 +217,38 @@ def resolve_openable(root: Path, target: str) -> Path | None:
     return candidate
 
 
+def context_picker_payload(root: Path, selected: list[str]) -> dict[str, Any]:
+    """Return safe, workspace-relative context paths from a native picker.
+
+    The browser must never receive an arbitrary absolute path selected by the
+    host.  Existing files and folders inside the active workspace are reduced
+    to portable relative paths; everything else is counted as rejected.
+    """
+    try:
+        workspace = root.expanduser().resolve()
+    except (OSError, ValueError, RuntimeError):
+        return {"paths": [], "rejected": len(selected)}
+
+    paths: list[str] = []
+    rejected = 0
+    for raw in selected:
+        try:
+            target = Path(raw).expanduser().resolve()
+            relative = target.relative_to(workspace)
+        except (OSError, ValueError, RuntimeError):
+            rejected += 1
+            continue
+        if not target.exists() or relative == Path("."):
+            rejected += 1
+            continue
+        value = relative.as_posix()
+        if target.is_dir():
+            value = value.rstrip("/") + "/"
+        if value not in paths:
+            paths.append(value)
+    return {"paths": paths, "rejected": rejected}
+
+
 # --------------------------------------------------------------------------- #
 # Overview cache: the status hot path must not rescan an unchanged repo (#146)
 # --------------------------------------------------------------------------- #
@@ -2041,6 +2073,32 @@ def _run_gui(
             )
             if chosen and is_valid_workspace(chosen):
                 self._switch(chosen)
+
+        @QtCore.Slot(result=str)
+        def pickContextFiles(self) -> str:
+            """Let the user select context files without exposing host paths."""
+            self.window.raise_()
+            self.window.activateWindow()
+            chosen, _filter = QtWidgets.QFileDialog.getOpenFileNames(
+                self.window,
+                "Attach files",
+                str(self.root),
+            )
+            return json.dumps(context_picker_payload(self.root, chosen))
+
+        @QtCore.Slot(result=str)
+        def pickContextFolder(self) -> str:
+            """Let the user select one context folder inside the workspace."""
+            self.window.raise_()
+            self.window.activateWindow()
+            chosen = QtWidgets.QFileDialog.getExistingDirectory(
+                self.window,
+                "Add a folder",
+                str(self.root),
+                QtWidgets.QFileDialog.Option.ShowDirsOnly,
+            )
+            selected = [chosen] if chosen else []
+            return json.dumps(context_picker_payload(self.root, selected))
 
         @QtCore.Slot(str)
         def switchWorkspace(self, path: str) -> None:

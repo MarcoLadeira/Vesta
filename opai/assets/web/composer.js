@@ -94,9 +94,9 @@
     add.click();
   }
   function useRepo() {
-    var ws = boot().workspace || {};
-    var name = ws.name || ws.label || "";
-    if (name) addPath(name + "/");
+    // Context hints are relative to the active workspace root. Using the Git
+    // repository name is wrong for generated apps nested inside a parent repo.
+    addPath("./");
   }
 
   /* ---------- popovers ---------- */
@@ -148,22 +148,19 @@
 
   function buildContextPop() {
     var ws = boot().workspace || {};
-    var repo = ws.name || ws.label || "this project";
+    var repo = ws.label || ws.name || "this project";
     var pop = els.ctxPop;
     pop.innerHTML =
       '<div class="cpop-head">Add context</div>' +
       '<button type="button" role="menuitem" class="cpop-row" data-act="file"><span class="cpop-ico">' + icon("file") + '</span><span class="cpop-body"><span class="cpop-title">Attach files…</span></span></button>' +
       '<button type="button" role="menuitem" class="cpop-row" data-act="folder"><span class="cpop-ico">' + icon("folder") + '</span><span class="cpop-body"><span class="cpop-title">Add a folder…</span></span></button>' +
-      '<button type="button" role="menuitem" class="cpop-row" data-act="repo"><span class="cpop-ico">' + icon("workspace") + '</span><span class="cpop-body"><span class="cpop-title">Use this repository</span></span><span class="cpop-meta">' + esc(repo) + "</span></button>" +
+      '<button type="button" role="menuitem" class="cpop-row" data-act="repo"><span class="cpop-ico">' + icon("workspace") + '</span><span class="cpop-body"><span class="cpop-title">Use this repository</span></span><span class="cpop-meta" title="' + esc(repo) + '">' + esc(repo) + "</span></button>" +
       '<div class="cpop-sep"></div>' +
       '<div class="cpop-input"><span>›</span><input id="ctxPathDraft" placeholder="Type a path and press Enter" aria-label="Add a path" autocomplete="off" /></div>' +
       '<p class="cpop-note">OPai links to your files — it sends their location, not their contents.</p>';
     pop.querySelector('[data-act="repo"]').onclick = function () { useRepo(); closePopovers(); };
-    // Attaching files/folders through a picker is owned by the host; when no
-    // bridge picker is present we focus the path input so the capability is
-    // never a dead end.
-    pop.querySelector('[data-act="file"]').onclick = function () { focusDraft(); };
-    pop.querySelector('[data-act="folder"]').onclick = function () { focusDraft(); };
+    pop.querySelector('[data-act="file"]').onclick = function () { pickContext("file"); };
+    pop.querySelector('[data-act="folder"]').onclick = function () { pickContext("folder"); };
     var draft = pop.querySelector("#ctxPathDraft");
     draft.onkeydown = function (e) {
       if (e.key === "Enter") {
@@ -173,6 +170,21 @@
       }
     };
     function focusDraft() { try { draft.focus(); } catch (_e) { /* ignore */ } }
+    function pickContext(kind) {
+      var api = global.__opai || {};
+      var pick = kind === "file" ? api.pickContextFiles : api.pickContextFolder;
+      if (typeof pick !== "function") { focusDraft(); return; }
+      pick(function (raw) {
+        var result = {};
+        try { result = JSON.parse(raw || "{}"); } catch (_e) { result = {}; }
+        var paths = Array.isArray(result.paths) ? result.paths : [];
+        paths.forEach(addPath);
+        if (Number(result.rejected || 0) > 0 && typeof api.notify === "function") {
+          api.notify("Only files and folders inside this workspace can be attached.");
+        }
+        closePopovers();
+      });
+    }
   }
 
   function buildModePop() {

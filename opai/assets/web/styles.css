@@ -1791,7 +1791,9 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .cpop-body { flex: 1; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 .cpop-title { font-weight: var(--weight-semibold); }
 .cpop-desc { color: var(--muted); font-size: var(--type-caption); line-height: 1.4; }
-.cpop-meta { color: var(--faint); font-size: var(--type-caption); font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
+.cpop-meta { color: var(--faint); font-size: var(--type-caption); font-family: ui-monospace, Menlo, monospace;
+  white-space: nowrap; max-width: 52%; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.cpop-row[data-act="repo"] .cpop-title { white-space: nowrap; }
 .cpop-kbd { border: 1px solid var(--border-strong); border-radius: 5px; padding: 0 var(--space-1);
   font-family: ui-monospace, Menlo, monospace; font-size: var(--type-caption); color: var(--faint); }
 .cpop-check { color: var(--accent); display: inline-flex; }

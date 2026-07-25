@@ -2749,7 +2749,10 @@ function setBusy(on) {
   s.textContent = on ? "Stop" : ((state.buildMode && state.buildApp) ? "Build" : "Send");
   s.classList.toggle("stop", on);
   s.setAttribute("aria-label", on ? "Stop generation" : "Send prompt");
-  if (!on) updateComposerAvailability();
+  // Clearing the sent draft disables Send just before the request starts.
+  // Re-evaluate availability in both directions so the same control becomes
+  // an enabled Stop button while a request is active.
+  updateComposerAvailability();
   if (window.OPaiComposer) window.OPaiComposer.refresh();
   updateInspectorLive(on ? "Preparing request…" : null);
 }
@@ -3412,6 +3415,17 @@ if (typeof window !== "undefined") {
     derivedAgentMode: () => derivedAgentMode(),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).
     runCommand: (id) => runCommand(id),
+    // Context picker actions stay native so Chromium never receives arbitrary
+    // host paths. The bridge returns only workspace-relative paths.
+    pickContextFiles: (done) => {
+      if (bridge && bridge.pickContextFiles) bridge.pickContextFiles(done);
+      else if (done) done(JSON.stringify({ paths: [], rejected: 0 }));
+    },
+    pickContextFolder: (done) => {
+      if (bridge && bridge.pickContextFolder) bridge.pickContextFolder(done);
+      else if (done) done(JSON.stringify({ paths: [], rejected: 0 }));
+    },
+    notify: (message) => toast(message),
     // The model picker's "Manage models" action opens the providers settings —
     // the single real home for connecting/reconnecting a provider, kept out of
     // the selection list itself.

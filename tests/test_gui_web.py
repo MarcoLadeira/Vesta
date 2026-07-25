@@ -542,6 +542,35 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
             self.assertEqual(ws["build_app_name"], created["name"])
 
 
+class ContextPickerPayloadTests(unittest.TestCase):
+    def test_picker_returns_only_workspace_relative_paths(self):
+        from opai.gui_web import context_picker_payload
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as other:
+            root = Path(tmp).resolve()
+            inside = root / "src" / "app.js"
+            inside.parent.mkdir()
+            inside.write_text("x", encoding="utf-8")
+            outside = Path(other).resolve() / "secret.txt"
+            outside.write_text("secret", encoding="utf-8")
+
+            payload = context_picker_payload(root, [str(inside), str(outside)])
+
+        self.assertEqual(payload["paths"], ["src/app.js"])
+        self.assertEqual(payload["rejected"], 1)
+
+    def test_folder_paths_keep_a_trailing_slash(self):
+        from opai.gui_web import context_picker_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            folder = root / "src"
+            folder.mkdir()
+
+            payload = context_picker_payload(root, [str(folder)])
+
+        self.assertEqual(payload["paths"], ["src/"])
+
 class FirewallSettingsPayloadTests(unittest.TestCase):
     """Budgets in settings (#238): straight from budget_status, no duplicates."""
 

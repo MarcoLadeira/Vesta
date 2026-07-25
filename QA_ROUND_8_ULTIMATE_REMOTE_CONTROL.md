@@ -392,6 +392,70 @@ The Build card must name the exact cloud model, remain visibly Blocked, and rese
 
 `run_build_request()` hard-coded `allow_cloud=False`, discarded the pipeline's safe confirmation fields and completion verdict, and returned only a generic error subset. The web Build sender had no retry selection or consent fields, and `onBuildReply()` collapsed every non-OK result to Failed. Durable thread persistence preferred the nested agent intent (`explain`) over the outer `build` execution channel, while resume reconstructed every approval as normal Chat.
 
+### QAR8-15 — Context picker actions are labelled but do nothing
+
+**Severity:** Medium — a primary novice workflow is a dead control.
+
+**Steps:**
+
+1. Open `Add context`.
+2. Select `Attach files…` or `Add a folder…`.
+
+**Observed:**
+
+Both actions merely focused the manual path field. No picker opened and no context was added.
+
+**Expected:**
+
+Each ellipsis action must open the corresponding native picker and add only workspace-relative context chips. Host paths outside the active workspace must never reach the browser.
+
+**Root-cause evidence:**
+
+Both click handlers called only `focusDraft()`. The Qt bridge had no file/folder picker slots and the context composer had no host-picker API.
+
+### QAR8-16 — Stop is visible but disabled during an active request
+
+**Severity:** High — users can lose control of an in-flight task.
+
+**Steps:**
+
+1. Enter a prompt and select Send/Build.
+2. Try to click the control after it changes to `Stop`.
+
+**Observed:**
+
+The button had the `Stop generation` accessible name and stop styling but retained the disabled state from the now-empty prompt.
+
+**Expected:**
+
+The active request's Stop control must always be enabled.
+
+**Root-cause evidence:**
+
+Submitting cleared the draft and disabled Send before `setBusy(true)`. The busy transition changed the label and styling but only recomputed availability when leaving busy state.
+
+### QAR8-17 — “Use this repository” targets the enclosing repo, not the active app
+
+**Severity:** Medium — nested Build workspaces receive a bogus context reference.
+
+**Steps:**
+
+1. Open a generated app nested inside a parent Git repository.
+2. Open `Add context`.
+3. Inspect and select `Use this repository`.
+
+**Observed:**
+
+The row named the parent sandbox and added `<parent-name>/`, interpreted relative to the generated app root where that path does not exist. After correcting the scope, the long exact workspace label overflowed into the action title.
+
+**Expected:**
+
+Repository context must mean the active workspace root (`./`), identify that workspace, and truncate a long visual label without hiding its full accessible text.
+
+**Root-cause evidence:**
+
+The composer preferred `workspace.name` (the enclosing Git repository) over `workspace.label`, then constructed the context path by appending `/` to that name. The metadata span had no width or overflow rule.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -509,6 +573,30 @@ The Build card must name the exact cloud model, remain visibly Blocked, and rese
 - Red evidence: the backend rejected an `allow_cloud` argument, the live Build produced a dead-end failure, and the focused browser test could not find the named confirmation. The first live repair then exposed the dropped label and Failed/Blocked disagreement.
 - Green evidence: 60 backend Build/resume tests plus 3 subtests passed; all 11 Build-mode browser tests passed; dedicated blocked-Build persistence and resumed-Build browser regressions passed; Ruff passed.
 - Live retest: a fresh Build stopped before Gemini with an amber `Blocked` strip, `OPai Build` header, exact `Confirm Gemini · 3.1 Flash-Lite (free tier)` action, no Retry, and no provider call. Closing and relaunching restored the same named action under `OPai Build`; confirmation was deliberately not clicked.
+
+### QAR8-15
+
+- Added native Qt file and folder picker slots and exposed them through the browser bridge.
+- Added a Qt-free confinement helper that converts existing selections inside the active workspace to portable relative paths, retains a trailing slash for folders, rejects the workspace root and outside/nonexistent paths, and reports rejection without exposing absolute paths.
+- The composer now adds every safe picker result as a context chip and explains when a selection was outside the workspace.
+- Red evidence: the Python contract could not import the missing helper and the browser action test received no context chips.
+- Green evidence: the confinement helper passed 2/2 focused tests; the native-action browser regression passed; the complete web-GUI Python module passed 46/46; the composer suite passed 15/15; Ruff passed.
+- Live retest: relaunched the patched source, opened the real Windows `Attach files` dialog at the exact generated-app directory, selected `index.html`, and observed `@index.html`. Created a disposable `qa-assets` subfolder, selected it through the real `Add a folder` dialog, and observed `@qa-assets/`. No absolute host path appeared in either chip.
+
+### QAR8-16
+
+- Busy transitions now recompute composer availability in both directions, making the relabelled Stop button enabled even though the sent draft was cleared.
+- Red evidence: the existing cancellation browser regression failed 3/3 because `#send` was visibly Stop but disabled.
+- Green evidence: the focused cancellation regression passed 3/3 after the fix and the complete composer suite passed 15/15.
+- Live retest boundary: a real local-first Build reached the safe Gemini confirmation block in roughly two seconds, too quickly for a stable manual Stop click; no cloud confirmation was approved. The deterministic browser bridge holds the request open and verifies both enabled clicking and cancellation dispatch.
+
+### QAR8-17
+
+- `Use this repository` now adds `./`, the active workspace root, instead of synthesizing a child path from the enclosing Git repository's name.
+- The row identifies the selected workspace label. Its metadata now has a bounded ellipsis treatment with the complete value retained in DOM text and the title attribute.
+- Red evidence: the nested-workspace regression received parent label `sandbox`, parent path semantics, and CSS `text-overflow: clip`.
+- Green evidence: the focused nested-workspace test passed after receiving `sandbox/generated-app`, `@./`, and `text-overflow: ellipsis`; the complete composer suite passed 15/15.
+- Live retest: the restarted source build's row named `OPai-QA-Sandbox-513/a-tiny-offline-quote-pack-web-app-with-add-favor`, kept the long metadata inside the menu with an ellipsis, and inserted the exact `@./` chip for the active generated app.
 
 ## Session notes
 

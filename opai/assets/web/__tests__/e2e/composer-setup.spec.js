@@ -54,6 +54,24 @@ test("mode popover offers every autonomy level with plain-language descriptions"
   ]);
 });
 
+test("Attach files and Add a folder use the native picker results", async ({ page }) => {
+  await openApp(page, {
+    contextPickedFiles: ["index.html", "app.js"],
+    contextPickedFolders: ["styles/"],
+  });
+
+  await page.locator("#ctxBtn").click();
+  await page.getByRole("menuitem", { name: "Attach files…" }).click();
+  await expect(page.locator("#contextHints")).toContainText("@index.html");
+  await expect(page.locator("#contextHints")).toContainText("@app.js");
+
+  await page.locator("#ctxBtn").click();
+  await page.getByRole("menuitem", { name: "Add a folder…" }).click();
+  await expect(page.locator("#contextHints")).toContainText("@styles/");
+  expect(await page.evaluate(() => window.__mock.contextFilePicks)).toBe(1);
+  expect(await page.evaluate(() => window.__mock.contextFolderPicks)).toBe(1);
+});
+
 test("edit modes are disabled when the selected CLI lacks scoped edit controls", async ({ page }) => {
   await openApp(page, {
     boot: {
@@ -144,11 +162,25 @@ test("context is added on demand and sent as a path-only reference", async ({ pa
   );
 });
 
-test("Use this repository attaches the project as a context chip", async ({ page }) => {
-  await openApp(page);
+test("Use this repository targets the active workspace, not its parent repo", async ({ page }) => {
+  await openApp(page, {
+    boot: {
+      workspace: {
+        root: "/sandbox/generated-app",
+        repo_root: "/sandbox",
+        name: "sandbox",
+        label: "sandbox/generated-app",
+        build_app: true,
+        build_app_name: "generated-app",
+      },
+    },
+  });
   await page.locator("#ctxBtn").click();
-  await page.getByRole("menuitem", { name: /Use this repository/ }).click();
-  await expect(page.locator("#contextHints")).not.toBeEmpty();
+  const useWorkspace = page.getByRole("menuitem", { name: /Use this repository/ });
+  await expect(useWorkspace).toContainText("sandbox/generated-app");
+  await expect(useWorkspace.locator(".cpop-meta")).toHaveCSS("text-overflow", "ellipsis");
+  await useWorkspace.click();
+  await expect(page.locator("#contextHints")).toContainText("@./");
 });
 
 test("the context path input rejects Windows absolute paths", async ({ page }) => {
