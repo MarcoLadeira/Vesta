@@ -71,12 +71,23 @@ class ProviderChildEnvTests(unittest.TestCase):
         self.assertIn("GH_TOKEN", env)
 
     def test_copilot_and_unknown_providers_strip_nothing(self):
+        from opaihub.command_consent import consent_dir
+        from opaihub.proc import COMMAND_CONSENT_DIR_ENV
+
         for provider in ("copilot", "mystery", ""):
             env, removed = provider_child_env(provider, self._base())
             self.assertEqual(removed, [])
-            # Nothing is stripped; the one addition is the recursion-guard
-            # session marker every provider child env now carries (F12).
-            self.assertEqual(env, {**self._base(), AGENT_SESSION_ENV: "1"})
+            # Nothing is stripped; the additions are the recursion-guard session
+            # marker (F12) and the pinned approval-handshake directory the child's
+            # PreToolUse hook reads the one-shot push grant from (Round 5).
+            self.assertEqual(
+                env,
+                {
+                    **self._base(),
+                    AGENT_SESSION_ENV: "1",
+                    COMMAND_CONSENT_DIR_ENV: str(consent_dir()),
+                },
+            )
 
     def test_default_base_reads_current_environment(self):
         with mock.patch.dict(

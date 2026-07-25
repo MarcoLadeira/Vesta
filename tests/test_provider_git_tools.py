@@ -23,9 +23,12 @@ from opaihub.provider_tools import (
 from tests._helpers import make_repo
 
 
-def _executor(root: Path, *, allow_edits=True, allow_git_ops=False):
+def _executor(root: Path, *, allow_edits=True, allow_git_ops=False, allow_command=None):
     return RepositoryToolExecutor(
-        root, allow_edits=allow_edits, allow_git_ops=allow_git_ops
+        root,
+        allow_edits=allow_edits,
+        allow_git_ops=allow_git_ops,
+        allow_command=allow_command,
     )
 
 
@@ -145,7 +148,11 @@ class GitToolTests(unittest.TestCase):
     def test_open_pr_uses_the_connector(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
-            executor = _executor(root, allow_git_ops=True)
+            executor = _executor(
+                root,
+                allow_git_ops=True,
+                allow_command="gh pr create --head feat/pr --base main",
+            )
             executor.invoke("git_create_branch", {"name": "feat/pr"})
             with mock.patch(
                 "opaihub.github_connector.create_pull_request",
@@ -155,6 +162,80 @@ class GitToolTests(unittest.TestCase):
             self.assertTrue(result["ok"], result)
             self.assertIn("/pull/1", result["data"]["url"])
             self.assertEqual(fake.call_args.kwargs["head"], "feat/pr")
+
+
+class OutwardActionApprovalTests(unittest.TestCase):
+    """Round 5 finding 1: consent enables pushing; approval authorizes THIS push.
+
+    Settings consent (``allow_git_ops``) decides whether these tools exist at
+    all. Before this round, existing was the whole gate — so Full Auto ran a push
+    with no confirmation UI while its own dialog promised one. Each outward action
+    now needs the user's one-shot approval as well, delivered through the same
+    ``COMMAND_NEEDS_APPROVAL`` -> approval-card flow blocked commands already use.
+    """
+
+    def test_push_asks_before_it_runs_and_never_touches_git(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = _executor(root, allow_git_ops=True)
+            executor.invoke("git_create_branch", {"name": "feat/push"})
+            with mock.patch.object(executor, "_git") as git:
+                result = executor.invoke("git_push", {"branch": "feat/push"})
+            self.assertFalse(result["ok"], result)
+            self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL")
+            self.assertEqual(result["command"], "git push -u origin feat/push")
+            self.assertIn("remote", result["approval_reason"])
+            # The refusal must come before any git invocation, not after.
+            git.assert_not_called()
+
+    def test_an_approved_push_runs_exactly_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = _executor(
+                root,
+                allow_git_ops=True,
+                allow_command="git push -u origin feat/push",
+            )
+            executor.invoke("git_create_branch", {"name": "feat/push"})
+            with mock.patch.object(
+                executor, "_git", return_value={"ok": True, "output": ""}
+            ) as git:
+                first = executor.invoke("git_push", {"branch": "feat/push"})
+                second = executor.invoke("git_push", {"branch": "feat/push"})
+            self.assertTrue(first["ok"], first)
+            self.assertFalse(second["ok"])
+            self.assertEqual(second["error_code"], "COMMAND_NEEDS_APPROVAL")
+            self.assertEqual(git.call_count, 1)
+
+    def test_github_writes_ask_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = RepositoryToolExecutor(
+                root, allow_edits=False, allow_github_write=True
+            )
+            comment = executor.invoke("github_comment", {"number": 5, "body": "hi"})
+            review = executor.invoke(
+                "github_request_review", {"number": 7, "reviewers": ["alice"]}
+            )
+        for result in (comment, review):
+            self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL")
+            self.assertTrue(result["command"])
+
+    def test_a_comment_approval_shows_the_words_that_would_be_posted(self):
+        # The Round 5 report's headline was a fabricated "comment posted" claim.
+        # An approval is only meaningful if the user sees the actual text first,
+        # so the reason the card renders carries a preview of the body.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = RepositoryToolExecutor(
+                root, allow_edits=False, allow_github_write=True
+            )
+            result = executor.invoke(
+                "github_comment",
+                {"number": 5, "body": "QA round 5:\n  the push gate is missing."},
+            )
+        self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL")
+        self.assertIn("the push gate is missing", result["approval_reason"])
 
 
 class GithubReadToolTests(unittest.TestCase):
@@ -220,7 +301,10 @@ class GithubReadToolTests(unittest.TestCase):
             self.assertNotIn("github_comment", no_consent)
 
             executor = RepositoryToolExecutor(
-                root, allow_edits=False, allow_github_write=True
+                root,
+                allow_edits=False,
+                allow_github_write=True,
+                allow_command="gh pr comment 5",
             )
             self.assertIn(
                 "github_comment", {s["function"]["name"] for s in executor.schemas()}
@@ -239,7 +323,10 @@ class GithubReadToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             executor = RepositoryToolExecutor(
-                root, allow_edits=False, allow_github_write=True
+                root,
+                allow_edits=False,
+                allow_github_write=True,
+                allow_command="gh pr edit 7 --add-reviewer alice",
             )
             empty = executor.invoke(
                 "github_request_review", {"number": 7, "reviewers": []}

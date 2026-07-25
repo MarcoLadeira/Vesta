@@ -757,8 +757,8 @@ _HOOK_BLOCK_REASON = (
 # Round 2: only say this when the control is actually still off. When consent is
 # already granted the sentence was actively harmful — it sent users hunting for
 # an "Enable pushes & PRs" button that, once enabled, reads "Disable pushes &
-# PRs" — so a consented plain push is now allowed outright (see
-# ``_push_consent_state``) and this text is reserved for the not-yet-enabled case.
+# PRs" — so this text is reserved for the not-yet-enabled case; a consented push
+# goes to the per-push approval card instead (see ``opaihub.command_consent``).
 _HOOK_BLOCK_REASON_PUSH = (
     "OPai safety gate: pushing is not enabled yet, so OPai will not run this "
     "`git push` ({detail}). Enable it once in Settings -> Providers & "
@@ -778,32 +778,29 @@ _HOOK_BLOCK_REASON_FORCE_PUSH = (
     "you intend it, or push without the force/delete flags."
 )
 
+# A push that IS enabled and IS a safe shape, refused only because the user has
+# not approved this particular push yet. Unlike every other block reason this one
+# is not a dead end: the hook records the request, the pipeline turns it into the
+# GUI's approval card, and "Approve once" re-runs the turn with the grant armed
+# (Round 5 finding 1). Telling the model to stop and report is what lets that
+# card be the next thing the user sees.
+_HOOK_BLOCK_REASON_PUSH_APPROVAL = (
+    "OPai safety gate: pushing is enabled, but each push needs the user's "
+    "one-time approval ({detail}). OPai has recorded this exact command and will "
+    "ask them to approve it as soon as this turn ends. Stop here and report that "
+    "the push is awaiting their approval. Do NOT retry the push, do not try "
+    "another way to push, and do not claim the branch was pushed."
+)
+
 _PUSH_COMMAND = re.compile(r"\bgit\s+push\b", re.IGNORECASE)
 
-# One whole command that is exactly a `git push`, with no shell chaining,
-# redirection, substitution, or a second command hidden behind an operator. The
-# consent allowance below applies only to this shape, so consent can never be
-# used to smuggle `git push && rm -rf .` past the gate.
-_PLAIN_PUSH_COMMAND = re.compile(
-    r"""^\s*(?:git(?:\.exe)?)\s+push(?P<rest>(?:\s+[^\s;&|<>`$()]+)*)\s*$""",
-    re.IGNORECASE,
-)
 
-# Flags that make a push destructive to remote history. `-f`/`--force`,
-# `--force-with-lease`, `--mirror`, `--delete`/`-d`, and a leading `+` in a
-# refspec (`git push origin +main`) all rewrite or drop remote refs.
-# `--receive-pack`/`--exec` name a program to run on the remote end, which is
-# code execution, not a push — consent to push never covers that.
-_FORCE_PUSH_FLAG = re.compile(
-    r"(?:^|\s)(?:-f|-d|--force(?:-with-lease|-if-includes)?|--delete|--mirror|--prune"
-    r"|--receive-pack|--exec|\+[\w./-]+:)",
-    re.IGNORECASE,
-)
+def _is_plain_push(command: str) -> bool:
+    """True for a lone, non-force ``git push`` to a named remote, nothing else."""
 
-# An explicit remote URL rather than a configured remote name. Consent means
-# "push my branches to my repository", so an autonomous run may not use it to
-# send the repository to an arbitrary host.
-_PUSH_REMOTE_URL = re.compile(r"(?:^|\s)(?:[a-z][a-z0-9+.-]*://|[\w.-]+@[\w.-]+:)", re.IGNORECASE)
+    from opaihub.command_consent import is_plain_push
+
+    return is_plain_push(command)
 
 
 def _push_consent_state() -> tuple[bool, str]:
@@ -824,15 +821,6 @@ def _push_consent_state() -> tuple[bool, str]:
         return True, ""
     except Exception:  # noqa: BLE001 - consent lookup must fail closed
         return False, "push consent could not be verified"
-
-
-def _is_plain_push(command: str) -> bool:
-    """True for a lone, non-force ``git push`` to a named remote, nothing else."""
-    match = _PLAIN_PUSH_COMMAND.match(str(command or ""))
-    if match is None:
-        return False
-    rest = match.group("rest") or ""
-    return not _FORCE_PUSH_FLAG.search(rest) and not _PUSH_REMOTE_URL.search(rest)
 
 
 def _hook_block_reason(command: str, detail: str) -> str:
@@ -887,14 +875,19 @@ def claude_pre_tool_decision(
     denied with an explanation; non-shell tools pass through untouched.
 
     One exception, and only one: a lone, non-force ``git push`` runs when the
-    user has already granted push consent. ``git push`` sits in the *confirm*
-    class, and this hook has no interactive channel, so a confirm verdict here
-    is a hard deny — which meant push could never complete through the GUI even
-    with consent granted and a token connected (Round 2 headline). Consent
-    granted in Settings *is* the explicit approval the confirm class asks for,
-    so it is honoured here rather than re-asked through a channel that cannot
-    ask. Force/delete/mirror pushes and anything chained onto a push stay denied.
+    user has already granted push consent in Settings AND approved this specific
+    push for this turn. ``git push`` sits in the *confirm* class, and this hook
+    has no interactive channel of its own, so a confirm verdict used to be a hard
+    deny — push could never complete through the GUI even with consent granted
+    (Round 2 headline) — and then, once auto-allowed, it completed with no
+    confirmation at all despite Full Auto promising one (Round 5 finding 1).
+    Neither is honest. ``opaihub.command_consent`` supplies the missing channel:
+    an unapproved push is refused *and recorded*, so the pipeline can raise the
+    GUI's approval card, and "Approve once" arms the one-shot grant consumed
+    here. Force/delete/mirror pushes and anything chained onto a push stay
+    denied outright — no approval unlocks those.
     """
+    from opaihub import command_consent
     from opaihub.safety_gates import is_destructive_command
     from opaihub.sandbox import classify_command
 
@@ -911,7 +904,15 @@ def claude_pre_tool_decision(
             _HOOK_BLOCK_REASON.format(detail="no inspectable command in payload")
         )
     if _is_plain_push(command) and _push_consent_state()[0]:
-        return _hook_allow()
+        if command_consent.consume_grant(command):
+            return _hook_allow()
+        reason = _HOOK_BLOCK_REASON_PUSH_APPROVAL.format(
+            detail="no approval has been given for this push yet"
+        )
+        command_consent.record_pending(
+            command, "Pushing sends this branch to the remote."
+        )
+        return _hook_deny(reason)
     verdict = classify_command(command, project_root)
     if (
         verdict.get("denied")

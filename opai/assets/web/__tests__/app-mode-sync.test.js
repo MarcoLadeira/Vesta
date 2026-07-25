@@ -9,7 +9,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 let opai;
 
 beforeAll(async () => {
-  globalThis.window = { addEventListener: () => {} };
+  // OPaiIcons is a sibling browser script; stub it so the HTML builders under
+  // test (which inline an icon) are callable in the node environment.
+  globalThis.window = { addEventListener: () => {}, OPaiIcons: { icon: () => "<svg/>" } };
   await import("../app.js");
   opai = globalThis.window.__opai;
 });
@@ -93,5 +95,33 @@ describe("derivedAgentMode (F21: live agent-mode preview)", () => {
     expect(derive("safe-auto", "general")).toBe("");
     expect(derive("safe-auto", "coding")).toBe("");
     expect(derive("safe-auto", "")).toBe("");
+  });
+});
+
+describe("unverifiedClaimHtml (Round 5: pill and prose must not disagree)", () => {
+  const verdict = (v, conflicts) => ({
+    completion_verdict: { verdict: v, reason_code: "provider_failed", reason: "r", answer_conflicts: conflicts },
+  });
+
+  it("labels a success claim the run could not verify", () => {
+    // The live failure: a red "Failed" pill directly above "has been
+    // successfully pushed to the origin remote".
+    const html = opai.unverifiedClaimHtml(verdict("failed", true));
+    expect(html).toContain("could not verify");
+    expect(html).toContain("Failed");
+  });
+
+  it("names the verdict it disagrees with, using the shared label", () => {
+    expect(opai.unverifiedClaimHtml(verdict("timeout", true))).toContain("Timed out");
+  });
+
+  it("stays silent when the engine found no disagreement", () => {
+    expect(opai.unverifiedClaimHtml(verdict("failed", false))).toBe("");
+    expect(opai.unverifiedClaimHtml(verdict("completed", false))).toBe("");
+  });
+
+  it("stays silent without a verdict at all", () => {
+    expect(opai.unverifiedClaimHtml(null)).toBe("");
+    expect(opai.unverifiedClaimHtml({})).toBe("");
   });
 });

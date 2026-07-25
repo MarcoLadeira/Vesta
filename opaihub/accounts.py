@@ -1411,25 +1411,27 @@ def _codex_safety_preamble() -> str:
     push_guidance = (
         (
             "For a git push: pushes ARE already enabled for this user, but this "
-            "runner still may not shell out to `git push`. Say that OPai will "
-            "push through its own GitHub tool, or that they can push from a "
-            "terminal. Do NOT tell them to enable anything in Settings — it is "
-            "already on."
+            "runner may not shell out to `git push`. Say plainly that you cannot "
+            "push from this run and that they can push from a terminal. Do NOT "
+            "tell them to enable anything in Settings — it is already on — and do "
+            "not tell them an approval prompt is waiting for them, because this "
+            "runner does not raise one."
         )
         if consented
         else (
             "For a git push: tell the user to enable pushes once in Settings -> "
             "Providers & Connections (connect a GitHub token, then click "
-            "\"Enable pushes & PRs\") so OPai can push via its GitHub tool."
+            "\"Enable pushes & PRs\"). After that OPai can push, and will ask "
+            "them to approve each push."
         )
     )
     return (
         "Safety: destructive or external-mutating commands (git push, gh "
         "issue/pr mutations, rm -rf, deploys) are denied in this mode. Do not "
         "attempt them. " + push_guidance + " For anything else, tell them to "
-        "run it themselves in a terminal. Do not claim a per-command approval "
-        "dialog will appear, and never invent a Settings button, page, or "
-        "toggle you were not told about here.\n\n"
+        "run it themselves in a terminal. Never invent a Settings button, page, "
+        "or toggle you were not told about here, and never report an action as "
+        "done when it was denied.\n\n"
     )
 
 

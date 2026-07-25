@@ -37,7 +37,9 @@
     plan: "Describe the changes without touching files.",
     "safe-auto": "Review each change before it is applied.",
     "approve-edits": "Apply edits; ask before running commands.",
-    "full-auto": "Apply changes and run commands. You can undo anything.",
+    // Round 5 finding 1: "You can undo anything" is not true of a push, and this
+    // row sits next to the mode the user is choosing — so it names the exception.
+    "full-auto": "Apply changes and run commands. Pushing still asks first.",
   };
   // Dot colour: teal accent for calm modes, amber caution for the autonomous
   // ones, muted for plan-only. Never red — informative, not alarming.

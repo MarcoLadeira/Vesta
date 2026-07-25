@@ -246,6 +246,174 @@ class GuiApprovalReplyTests(unittest.TestCase):
         self.assertIsNone(ask_mock.call_args.kwargs["allow_command"])
 
 
+class ProviderCliPushApprovalTests(unittest.TestCase):
+    """Round 5 finding 1+2: a push the hook refused becomes an approval card.
+
+    A provider CLI runs git in its own shell, so its blocked push is refused by
+    the out-of-process PreToolUse hook, which cannot put anything into the run
+    result. It records the refusal through ``opaihub.command_consent`` instead.
+    Without reading that back, the turn ended on the model's own prose — which in
+    the live session claimed the branch "has been successfully pushed" while the
+    status pill read Failed. These pin both halves of the fix.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        patcher = mock.patch.dict(
+            os.environ, {"OPAI_COMMAND_CONSENT_DIR": self._tmp.name}
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _run(self, root, answer, *, refuses=None, **kwargs):
+        """One turn whose provider optionally hits the hook's push gate mid-run.
+
+        ``refuses`` is the command the out-of-process hook denied, recorded from
+        inside the provider call — the only point at which it can happen, since
+        the pipeline clears stale refusals before the run starts.
+        """
+        from opaihub import command_consent
+        from opaihub.gui_pipeline import handle_gui_message
+
+        def _provider(*_args, **_kwargs):
+            if refuses:
+                command_consent.record_pending(
+                    refuses, "Pushing sends this branch to the remote."
+                )
+            return {
+                "status": "answered_by_account",
+                "answer": answer,
+                "completion_state": "completed",
+                "stopped_reason": "",
+                "tool_trace": [],
+            }
+
+        with mock.patch("opai.app_state.ask", side_effect=_provider):
+            return handle_gui_message(
+                root,
+                "Push the current branch",
+                model_id="account:claude:sonnet",
+                mode="full-auto",
+                **kwargs,
+            )
+
+    def test_a_hook_refusal_becomes_an_approval_card_not_a_success_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            result = self._run(
+                root,
+                "The current branch has been successfully pushed to the origin remote.",
+                refuses="git push origin main",
+            )
+
+        self.assertEqual(result["status"], "needs_command_approval")
+        self.assertEqual(result["command"], "git push origin main")
+        self.assertIn("git push origin main", result["answer"])
+        # The model's contradicting success claim is not what the user is shown.
+        self.assertNotIn("successfully pushed", result["answer"])
+
+    def test_a_grant_is_armed_where_the_hook_can_read_it(self):
+        from opaihub import command_consent
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            armed = {}
+
+            def _capture(*_args, **_kwargs):
+                # Sampled while the provider "runs", which is when the hook reads it.
+                armed["command"] = command_consent.granted_command()
+                return {
+                    "status": "answered_by_account",
+                    "answer": "Pushed.",
+                    "completion_state": "completed",
+                    "stopped_reason": "",
+                    "tool_trace": [],
+                }
+
+            from opaihub.gui_pipeline import handle_gui_message
+
+            with mock.patch("opai.app_state.ask", side_effect=_capture):
+                handle_gui_message(
+                    root,
+                    "Push the current branch",
+                    model_id="account:claude:sonnet",
+                    mode="full-auto",
+                    allowCommand="git push origin main",
+                )
+
+        self.assertEqual(armed["command"], "git push origin main")
+        # And it does not outlive the turn.
+        self.assertEqual(command_consent.granted_command(), "")
+
+    def test_a_refusal_from_a_previous_turn_is_not_resurfaced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            first = self._run(root, "Pushed.", refuses="git push")
+            self.assertEqual(first["status"], "needs_command_approval")
+            # The next turn asks nothing of the gate, so it must not inherit the
+            # previous turn's approval card.
+            second = self._run(root, "Here is the branch state.")
+
+        self.assertNotEqual(second["status"], "needs_command_approval")
+
+    def test_success_prose_under_a_non_completed_verdict_is_marked_unverified(self):
+        from opaihub.gui_pipeline import handle_gui_message
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch(
+                "opai.app_state.ask",
+                return_value={
+                    "status": "answered_by_account",
+                    "answer": (
+                        "The current branch has been successfully pushed to the "
+                        "origin remote."
+                    ),
+                    "completion_state": "failed",
+                    "stopped_reason": "provider_failed",
+                    "tool_trace": [],
+                },
+            ):
+                result = handle_gui_message(
+                    root,
+                    "Push the current branch",
+                    model_id="account:claude:sonnet",
+                    mode="full-auto",
+                )
+
+        verdict = result["completion_verdict"]
+        self.assertNotEqual(verdict["verdict"], "completed")
+        # The flag the renderer reads: pill and prose can no longer disagree
+        # silently, because the claim is labelled unverified where it is written.
+        self.assertTrue(verdict["answer_conflicts"])
+
+    def test_a_verified_run_carries_no_conflict_flag(self):
+        from opaihub.gui_pipeline import handle_gui_message
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch(
+                "opai.app_state.ask",
+                return_value={
+                    "status": "answered_by_account",
+                    "answer": "The branch has been successfully pushed to origin.",
+                    "completion_state": "completed",
+                    "stopped_reason": "",
+                    "tool_trace": [],
+                },
+            ):
+                result = handle_gui_message(
+                    root,
+                    "What does app.py do?",
+                    model_id="account:claude:sonnet",
+                    mode="ask",
+                )
+
+        self.assertEqual(result["completion_verdict"]["verdict"], "completed")
+        self.assertFalse(result["completion_verdict"]["answer_conflicts"])
+
+
 class AccountCompletionTruthTests(unittest.TestCase):
     """F24: _ask_account emits canonical completion truth from runner signals."""
 

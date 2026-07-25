@@ -16,6 +16,7 @@ from unittest import mock
 
 from _helpers import isolated_home, make_repo
 
+from opai import gui_permissions
 from opai.gui_web import (
     WEB_DIR,
     asset_build_identity,
@@ -192,7 +193,9 @@ class BootPayloadTests(unittest.TestCase):
         labels = {r["label"] for r in ins["rows"]}
         for needed in ("Model", "Run mode", "Workspace", "Permissions"):
             self.assertIn(needed, labels)
-        self.assertEqual(len(ins["permissions"]), 8)
+        # One row per capability the panel reports on, including the per-push
+        # approval row added for Round 5 finding 1.
+        self.assertEqual(len(ins["permissions"]), len(gui_permissions.CAPABILITIES))
         self.assertTrue(ins["privacy"])
         self.assertIn("pct", ins["budget"])
 

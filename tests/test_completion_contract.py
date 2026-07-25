@@ -17,6 +17,7 @@ from opaihub.completion import (
     CompletionVerdict,
     FailureReason,
     ProviderBlockedReason,
+    answer_contradicts_verdict,
     classify_failure_reason,
     completion_state_from_legacy,
     evaluate_completion,
@@ -669,3 +670,125 @@ def test_ordinary_answer_is_never_mistaken_for_a_refusal() -> None:
     )
 
     assert verdict.verdict is CompletionVerdict.COMPLETED
+
+
+# --- Round 5 finding 3: a claim of retrieval standing in for the data ---------
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Retrieved and printed the requested git status and git log output.",
+        "Retrieved details for PR 511 via GitHub API.",
+        "I have fetched the raw API response for the pull request details.",
+        "Printed the requested log output above.",
+    ],
+)
+def test_claiming_output_without_showing_it_is_not_completed(answer: str) -> None:
+    # The live failure: asked for raw `git status`/`git log` and for PR details,
+    # the model twice answered with only a claim of success and zero data, and the
+    # run was stamped Completed because the claim itself is non-empty text.
+    objective = objective_from_request(
+        "Print the raw output of git status and git log.", mode="explain"
+    )
+
+    verdict = evaluate_completion(objective, {"status": "answered", "answer": answer})
+
+    assert verdict.verdict is CompletionVerdict.PARTIAL
+    assert verdict.reason_code == "claimed_output_missing"
+    assert "raw output" in verdict.next_action
+
+
+def test_a_claim_that_actually_carries_the_output_completes() -> None:
+    objective = objective_from_request("Print the raw git status.", mode="explain")
+
+    verdict = evaluate_completion(
+        objective,
+        {
+            "status": "answered",
+            "answer": (
+                "Retrieved the requested git status output:\n\n"
+                "```\nOn branch main\nnothing to commit, working tree clean\n```"
+            ),
+        },
+    )
+
+    assert verdict.verdict is CompletionVerdict.COMPLETED
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Ran the command; it returned no output.",
+        "The requested git log produced no commits for that range.",
+        "Nothing to show — the status output was empty.",
+    ],
+)
+def test_reporting_an_empty_result_is_a_complete_answer(answer: str) -> None:
+    # Saying "there was no output" is honest reporting, not a hidden deliverable —
+    # it must not be downgraded just because it matches the claim shape.
+    objective = objective_from_request("Print the raw git log.", mode="explain")
+
+    verdict = evaluate_completion(objective, {"status": "answered", "answer": answer})
+
+    assert verdict.verdict is CompletionVerdict.COMPLETED
+
+
+def test_a_real_explanation_is_never_flagged_as_a_bare_claim() -> None:
+    # The false-positive direction. A substantive answer that happens to mention
+    # reading something is an answer, not a bare claim, and must not be downgraded.
+    objective = objective_from_request("What does the router do?", mode="explain")
+
+    verdict = evaluate_completion(
+        objective,
+        {
+            "status": "answered",
+            "answer": (
+                "I read the routing module. It scores each candidate model on "
+                "capability, then cost, then recent reliability, and returns the "
+                "first that can run the task locally. When nothing local qualifies "
+                "it walks the same ordering across configured free providers, and "
+                "only then does it consider a paid account, which always needs "
+                "explicit confirmation before the call is made."
+            ),
+        },
+    )
+
+    assert verdict.verdict is CompletionVerdict.COMPLETED
+
+
+# --- Round 5 finding 2: pill and prose must not say opposite things ----------
+
+
+def test_success_prose_under_a_failed_verdict_is_flagged_as_conflicting() -> None:
+    # The live failure: a red "Failed" pill directly above "The current branch has
+    # been successfully pushed to the origin remote."
+    assert answer_contradicts_verdict(
+        "The current branch has been successfully pushed to the origin remote.",
+        CompletionVerdict.FAILED,
+    )
+    assert answer_contradicts_verdict(
+        "I pushed the branch and opened a PR.", CompletionVerdict.PARTIAL
+    )
+    assert answer_contradicts_verdict(
+        "The commit was successful.", CompletionVerdict.BLOCKED
+    )
+
+
+def test_a_verified_run_is_never_annotated_as_conflicting() -> None:
+    # The flag exists to reconcile disagreement. A completed (or user-cancelled)
+    # run has nothing to reconcile, so the same prose must not be marked.
+    for verdict in (CompletionVerdict.COMPLETED, CompletionVerdict.CANCELLED):
+        assert not answer_contradicts_verdict(
+            "The current branch has been successfully pushed to origin.", verdict
+        )
+
+
+def test_prose_without_a_success_claim_is_not_flagged() -> None:
+    for answer in (
+        "The push is awaiting your approval.",
+        "I could not push: the remote rejected the credentials.",
+        "Here is what the diff would change.",
+        "",
+    ):
+        assert not answer_contradicts_verdict(answer, CompletionVerdict.FAILED)

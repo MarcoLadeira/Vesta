@@ -727,7 +727,11 @@ function offerFullAutoPinAck() {
   state.fullAutoAckOpen = true;
   chatConfirm({
     title: "Pin Full Auto?",
-    body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Push, deploy, and destructive actions still ask for confirmation.",
+    // Round 5 finding 1: the old copy promised confirmation for "push, deploy, and
+    // destructive actions" as one group, but only pushing actually asks — deploys
+    // and destructive commands are refused outright, not queued for approval. Say
+    // which is which, so the dialog matches what the gate does.
+    body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Pushing to a remote still asks for your approval each time, and destructive actions — force-push, deletes, deploys — are refused rather than run.",
     confirmLabel: "Pin Full Auto",
     cancelLabel: "Keep current mode",
     danger: true,
@@ -758,9 +762,12 @@ function offerFullAutoPinAck() {
       maybeOfferFullAutoPin();
     });
     state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
-    const modeSel = $("#modeSel");
-    if (modeSel) modeSel.value = "full-auto";
-    refreshInspector(); refreshStatus();
+    // Round 5 finding 4: setting the hidden <select> is not enough. The composer's
+    // own run-mode button reads its label from state on refresh(), so pinning left
+    // the top bar saying "Full Auto" and the composer still saying "Ask" until the
+    // next send happened to refresh it. Repaint every mode surface here, the same
+    // way the decline path above already does.
+    renderComposerSelects(); refreshInspector(); refreshStatus();
   });
 }
 
@@ -1618,6 +1625,11 @@ function stripFinalize(status, r) {
   else $("#ssCost").textContent = ""; // never a fake $0 for a paid call
   const verdict = completionVerdict(r);
   if (verdict && verdict.verdict === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Cancelled"; }
+  // Round 5 finding 2: every non-completed verdict painted the strip red, so a
+  // "Partial" run (answered, some evidence missing) looked identical to a hard
+  // failure — the dot said one thing, the verdict card another. Partial/Blocked
+  // are amber warnings; only Failed/Timed out are red.
+  else if (verdict && (verdict.verdict === "partial" || verdict.verdict === "blocked")) { stripSetState("warning"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
   else if (verdict && verdict.verdict !== "completed") { stripSetState("error"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
   else if (verdict && verdict.reasonCode === "answer_delivered") { stripSetState("connected"); $("#ssConn").textContent = "Response received"; }
   else if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
@@ -1782,6 +1794,9 @@ function completionVerdict(r) {
     reasonCode: String(raw.reason_code || "").toLowerCase(),
     reason: String(raw.reason || ""),
     nextAction: String(raw.next_action || ""),
+    // Round 5 finding 2: the engine flags a reply that asserts success the
+    // verdict could not confirm ("successfully pushed" under a Failed pill).
+    answerConflicts: raw.answer_conflicts === true,
   } : null;
 }
 // The one user-facing label per verdict — mirrors opaihub.completion.VERDICT_LABELS
@@ -1814,6 +1829,21 @@ function completionVerdictHtml(r) {
     : "";
   return `<section class="completion-verdict ${esc(item.verdict)}" role="status" aria-label="Completion verdict: ${esc(label)}">` +
     `<div class="cv-title">${uiIcon(glyph)} ${esc(label)}</div><div class="cv-reason">${esc(item.reason)}</div>${next}${retryBtn}</section>`;
+}
+
+// Round 5 finding 2: one push turn showed a red "Failed" pill directly above the
+// words "has been successfully pushed to the origin remote". Whichever was wrong,
+// the two surfaces sent opposite messages and a user who glanced at only one drew
+// the opposite conclusion. OPai cannot tell from prose which is right — so it
+// refuses to let the claim read as settled, and says so where the claim is.
+function unverifiedClaimHtml(r) {
+  const item = completionVerdict(r);
+  if (!item || !item.answerConflicts) return "";
+  return `<div class="unverified-claim" role="note">${uiIcon("warning")} ` +
+    `<span><strong>OPai could not verify this.</strong> The response below says the ` +
+    `work succeeded, but this run ended as <em>${esc(verdictLabel(item.verdict))}</em> ` +
+    `and OPai found no evidence the action completed. Treat the claim as unconfirmed ` +
+    `and check the result yourself before relying on it.</span></div>`;
 }
 function metaFooter(r, sel, durMs) {
   const rc = (r && r.receipt) || {};
@@ -2163,7 +2193,8 @@ function finalize(status, r) {
     : "OPai";
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
-  let html = roleHeader(label, color) + activitySummaryHtml() + completionVerdictHtml(r) + `<div class="body">${mdToHtml(answer)}</div>`;
+  let html = roleHeader(label, color) + activitySummaryHtml() + completionVerdictHtml(r) +
+    unverifiedClaimHtml(r) + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];
   // A changeset card (below, via workflowCardHtml) already shows every file in
   // flow.diff_review with real diff evidence; the flat chip list is only useful
@@ -3213,5 +3244,8 @@ if (typeof window !== "undefined") {
     // Settings' About page re-reports the update banner after a live check
     // or a completed update, so the shell-wide nudge never lags behind it.
     renderUpdateBanner: (update) => renderUpdateBanner(update),
+    // Round 5 finding 2: the banner that stops the answer prose and the status
+    // pill from telling the user opposite things.
+    unverifiedClaimHtml: (r) => unverifiedClaimHtml(r),
   };
 }

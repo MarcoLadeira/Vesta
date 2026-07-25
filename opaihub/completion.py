@@ -389,6 +389,102 @@ def _has_successful_tool_call(payload: Mapping[str, Any]) -> bool:
     return False
 
 
+# Round 5 finding 3: asked to print raw `git status`/`git log`, and to fetch PR
+# details from the GitHub API, the model twice replied with only a claim —
+# "Retrieved and printed the requested git status…" — and no data whatsoever.
+# That is the false-completion pattern applied to data retrieval, and it is
+# detectable: a claim to have produced output, with no output present.
+_OUTPUT_CLAIM = re.compile(
+    r"(?:^|\b)(?:retrieved|fetched|printed|displayed|output|outputted|dumped|listed|"
+    r"shown|showed|returned)\b[^.\n]{0,80}\b(?:output|status|log|details?|data|"
+    r"response|result|contents?|diff|json|api)\b"
+    r"|\bhere\s+(?:is|are)\s+the\s+(?:raw\s+)?(?:output|status|log|contents?|data)\b"
+    r"|\b(?:i|opai)\s+(?:have\s+)?(?:retrieved|fetched|printed|displayed|ran|run)\b"
+    r"[^.\n]{0,80}\b(?:output|status|log|details?|data|response|command)\b",
+    re.IGNORECASE,
+)
+
+# What actual output looks like in a reply: a fenced block, an indented block, or
+# a quoted line. Any of these means the model showed *something*, so the claim is
+# not bare and this gate stays out of the way.
+_OUTPUT_EVIDENCE = re.compile(r"```|~~~|(?:^|\n)(?: {4}|\t)\S|(?:^|\n)>\s*\S")
+
+# A bare claim is short by nature — one or two sentences of "done". A long reply
+# with prose analysis is a different thing (possibly a summary the user wanted),
+# and this gate does not judge it.
+_BARE_CLAIM_MAX_CHARS = 400
+_BARE_CLAIM_MAX_LINES = 3
+
+# "The command returned no output." is an honest, complete answer that happens to
+# match the claim shape above. Reporting an absence is not hiding data, so a reply
+# that says the output was empty is never treated as a missing one.
+_EMPTY_OUTPUT_REPORT = re.compile(
+    r"\b(?:no|empty|zero|nothing|none)\b[^.\n]{0,40}"
+    r"\b(?:output|results?|matches|lines?|changes|commits?|entries)\b"
+    r"|\b(?:output|result|log|status)\b[^.\n]{0,40}\b(?:was|is)\s+empty\b"
+    r"|\bnothing\s+(?:to\s+(?:show|report|print)|was\s+returned)\b"
+    r"|\b(?:returned|produced|printed)\s+(?:no|nothing|zero|an?\s+empty)\b",
+    re.IGNORECASE,
+)
+
+
+def claims_output_without_showing_it(answer: str) -> bool:
+    """True when a reply claims it produced output but contains none.
+
+    Deliberately narrow, because the cost of a false positive is telling a user
+    their good answer is unverified: the reply must claim output *and* be a short,
+    block-free note. A reply that includes any fenced/indented/quoted output, or
+    that is long enough to be real content, is never flagged.
+    """
+
+    text = str(answer or "").strip()
+    if not text or len(text) > _BARE_CLAIM_MAX_CHARS:
+        return False
+    if _OUTPUT_EVIDENCE.search(text) or _EMPTY_OUTPUT_REPORT.search(text):
+        return False
+    lines = [line for line in text.splitlines() if line.strip()]
+    if len(lines) > _BARE_CLAIM_MAX_LINES:
+        return False
+    return bool(_OUTPUT_CLAIM.search(text))
+
+
+# First-person assertions that the requested work landed. Used only to detect
+# disagreement with a non-completed verdict — never to award a completion.
+_SUCCESS_CLAIM = re.compile(
+    r"\b(?:has|have|was|were|is|been)\s+(?:successfully\s+)?"
+    r"(?:pushed|committed|merged|created|deleted|updated|applied|deployed|posted|opened)\b"
+    r"|\b(?:successfully|already)\s+"
+    r"(?:pushed|committed|merged|created|deleted|updated|applied|deployed|posted|opened)\b"
+    r"|\bi\s+(?:have\s+)?(?:pushed|committed|merged|posted|deployed|opened\s+a\s+pr)\b"
+    r"|\b(?:push|commit|merge|deployment|pull\s+request)\s+(?:was\s+)?"
+    r"(?:succeeded|successful|complete[d]?)\b",
+    re.IGNORECASE,
+)
+
+
+def answer_contradicts_verdict(answer: str, verdict: Any) -> bool:
+    """True when the reply asserts success that the verdict could not confirm.
+
+    Round 5 finding 2: one push turn showed a red "Failed" pill above the words
+    "has been successfully pushed to the origin remote". A user reading the pill
+    and a user reading the prose walked away with opposite conclusions. OPai
+    cannot know which is right from prose alone — but it can refuse to present
+    the claim as settled, which is what this flag drives in the UI.
+
+    Only ever set alongside a non-completed, non-cancelled verdict, so a genuinely
+    verified run is never annotated.
+    """
+
+    value = str(getattr(verdict, "value", verdict) or "").strip().lower()
+    if value in {
+        CompletionVerdict.COMPLETED.value,
+        CompletionVerdict.CANCELLED.value,
+        "",
+    }:
+        return False
+    return bool(_SUCCESS_CLAIM.search(str(answer or "")))
+
+
 def _evidence_from_payload(payload: Mapping[str, Any]) -> tuple[EvidenceRef, ...]:
     refs: list[EvidenceRef] = []
     files = [
@@ -593,6 +689,25 @@ def evaluate_completion(
             objective,
             evidence,
             "Retry, or ask for the specific output you need.",
+        )
+    # Round 5 finding 3: "Retrieved and printed the requested git status…" with
+    # no git status in the message is a claim, not an answer, and it was stamped
+    # Completed because the claim itself is non-empty text. A reply whose entire
+    # substance is "I produced the output you asked for", with the output absent,
+    # has not delivered the answer — say so, and tell the user the one phrasing
+    # that reliably fixes it.
+    if (
+        AcceptanceRequirement.ANSWER_PRESENT in objective.acceptance
+        and claims_output_without_showing_it(str(result.get("answer") or ""))
+    ):
+        return _verdict(
+            CompletionVerdict.PARTIAL,
+            "claimed_output_missing",
+            "OPai said it retrieved the requested output, but the response does "
+            "not contain any of it.",
+            objective,
+            evidence,
+            "Ask again for the data itself: \"reply with only the raw output\".",
         )
     if AcceptanceRequirement.ANSWER_PRESENT in objective.acceptance:
         return _verdict(

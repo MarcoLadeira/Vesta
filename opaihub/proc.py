@@ -91,6 +91,9 @@ _ENV_DENY_PREFIXES: dict[str, tuple[str, ...]] = {
 # AGENTS.md "run `opai route ...`" recipe) inherits it and can refuse the
 # recursive self-invocation (F12). See opai.cli._refuse_if_nested_agent_session.
 AGENT_SESSION_ENV = "OPAI_AGENT_SESSION"
+# Where the one-shot command-approval handshake lives, pinned for every provider
+# child so a CLI's PreToolUse hook reads the same directory OPai wrote to.
+COMMAND_CONSENT_DIR_ENV = "OPAI_COMMAND_CONSENT_DIR"
 
 
 def provider_child_env(
@@ -108,9 +111,16 @@ def provider_child_env(
     the environment unchanged apart from the agent-session marker below.
 
     Every child env also carries ``OPAI_AGENT_SESSION`` so a nested `opai`
-    invocation from inside the agent can detect and refuse recursion (F12).
+    invocation from inside the agent can detect and refuse recursion (F12), and
+    ``OPAI_COMMAND_CONSENT_DIR`` so the PreToolUse hook the child launches reads
+    the *same* approval handshake directory this process wrote (Round 5 finding
+    1). Both resolve that path from the temp dir by default, but pinning it
+    explicitly means a child with a different TMP can never silently miss the
+    grant — which would put pushing back to the dead end it used to be.
     An inherited session id is preserved when no explicit one is given.
     """
+    from .command_consent import consent_dir
+
     source = dict(os.environ if base_env is None else base_env)
     exact = _ENV_DENY_EXACT.get(str(provider or "").lower(), frozenset())
     prefixes = _ENV_DENY_PREFIXES.get(str(provider or "").lower(), ())
@@ -122,4 +132,5 @@ def provider_child_env(
             continue
         env[name] = value
     env[AGENT_SESSION_ENV] = session_id or source.get(AGENT_SESSION_ENV) or "1"
+    env[COMMAND_CONSENT_DIR_ENV] = str(consent_dir())
     return env, sorted(removed)
