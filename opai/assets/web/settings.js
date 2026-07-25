@@ -1260,7 +1260,7 @@
     ]);
     h +=
       '<div class="callout-card accent"><div class="callout-title">Data stays on this device</div>' +
-      '<div class="callout-body">Prompts, the ledger, and audit history are kept locally, per workspace.</div></div>';
+      '<div class="callout-body">Redacted saved chat, the ledger, and audit history are kept locally, per workspace.</div></div>';
     h += '<div class="set-head">Privacy &amp; data</div>';
     statements.forEach(function (t) {
       h += '<div class="cb">• ' + esc(t) + "</div>";

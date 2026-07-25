@@ -125,6 +125,30 @@ The control must truthfully display the current `Auto-apply` default without all
 
 The Settings select deliberately omits `full-auto` from its options. When the persisted value is `full-auto`, HTML falls back to the first available option (`ask`), so the displayed selection becomes a lie even though the safety restriction is working.
 
+### QAR8-04 — Privacy summary says prompts are stored while the policy says they are not
+
+**Severity:** Medium — contradictory privacy copy makes the local-data guarantee difficult to trust.
+
+**Steps:**
+
+1. Open Settings → Privacy & Data.
+2. Read the `Data stays on this device` summary.
+3. Compare it with the first detailed privacy statements below.
+
+**Observed:**
+
+- The summary said `Prompts, the ledger, and audit history are kept locally`.
+- The detail said `Raw prompts are never stored; the local ledger keeps one-way task hashes and counts only`.
+- A separate statement clarified that saved chat is redacted and kept locally.
+
+**Expected:**
+
+The summary must distinguish redacted saved chat from raw prompts and agree with the detailed policy.
+
+**Root-cause evidence:**
+
+The summary is a separate static string from the payload-backed privacy statements. It used the broad word `Prompts` even though the implementation and detailed copy describe redacted chat plus one-way ledger hashes.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -149,6 +173,13 @@ The Settings select deliberately omits `full-auto` from its options. When the pe
 - Red evidence: the new pinned-default case received select value `ask` instead of `full-auto`.
 - Green evidence: all seven Models & Routing / budget cases passed. The regression asserts `Auto-apply` is selected, its option is disabled, and opening the page saves nothing.
 - Live retest: after a full desktop restart, header, composer, Overview, and the Models & Routing `Default run mode` control all displayed `Auto-apply`. No setting was changed during verification.
+
+### QAR8-04
+
+- Changed the Privacy summary to say `Redacted saved chat, the ledger, and audit history are kept locally`, matching the detailed no-raw-prompt policy.
+- Red evidence: the factual-privacy case received the old `Prompts ... are kept locally` summary.
+- Green evidence: the full Permissions & Privacy suite passed 4/4, including both cancel and confirm paths for the styled saved-chat clear.
+- Live retest: after a full desktop restart, the summary explicitly said `Redacted saved chat` while the detailed statement continued to say `Raw prompts are never stored`.
 
 ## Session notes
 

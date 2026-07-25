@@ -35,6 +35,8 @@ test("Privacy page states the factual data stance", async ({ page }) => {
   await expect(settings).toContainText("Raw prompts are never stored", seen);
   await expect(settings).toContainText("one-way task hashes", seen);
   await expect(settings).toContainText("No telemetry", seen);
+  await expect(settings).toContainText("Redacted saved chat, the ledger, and audit history are kept locally", seen);
+  await expect(settings).not.toContainText("Prompts, the ledger, and audit history are kept locally", seen);
 });
 
 test("clearing saved chat requires the styled confirm; cancel keeps data", async ({ page }) => {
