@@ -46,6 +46,10 @@ class AccountStreamingTests(unittest.TestCase):
         # #378: the evidence-backed completion verdict closes the stream.
         self.assertEqual(types[-1], "completion_verdict")
         self.assertEqual(events[-1]["status"], "success")
+        self.assertEqual(
+            events[-1]["title"],
+            "Response received — content not independently verified",
+        )
         self.assertEqual(result["status"], "answered")
 
         authenticated = next(
@@ -183,11 +187,17 @@ class LocalStreamingTests(unittest.TestCase):
         self.assertEqual(events[-1]["status"], "success")
         self.assertEqual(result["answer"], "local answer")
         self.assertIn("local answer", "".join(texts))
-        # #225: the local phase row closes on completion, never left spinning
-        # (or amber) — the verified verdict re-closes it green.
+        # An answer-only turn closes green but must not claim independent
+        # objective verification merely because non-empty prose arrived.
         phased = [e for e in events if str(e["id"]).endswith(":phase")]
         self.assertEqual(phased[-1]["status"], "success")
-        self.assertEqual(phased[-1]["title"], "Completed — objective verified")
+        self.assertEqual(
+            phased[-1]["title"],
+            "Response received — content not independently verified",
+        )
+        self.assertEqual(
+            result["completion_verdict"]["reason_code"], "answer_delivered"
+        )
 
 
 if __name__ == "__main__":

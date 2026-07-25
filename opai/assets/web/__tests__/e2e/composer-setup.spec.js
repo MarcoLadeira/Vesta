@@ -54,6 +54,35 @@ test("mode popover offers every autonomy level with plain-language descriptions"
   ]);
 });
 
+test("edit modes are disabled when the selected CLI lacks scoped edit controls", async ({ page }) => {
+  await openApp(page, {
+    boot: {
+      models: [
+        {
+          id: "account:copilot:gpt-5.4",
+          label: "Copilot · GPT-5.4",
+          kind: "account",
+          group: "copilot",
+          provider: "copilot",
+          available: true,
+          healthy: true,
+          repo_editing: false,
+        },
+      ],
+      selectedModel: "account:copilot:gpt-5.4",
+    },
+  });
+
+  await page.locator("#modeBtn").click();
+  const menu = page.locator("#modePop");
+  await expect(menu).toContainText("Update this provider CLI to enable scoped edits");
+  await expect(menu.locator('[data-id="ask"]')).toBeEnabled();
+  await expect(menu.locator('[data-id="plan"]')).toBeEnabled();
+  await expect(menu.locator('[data-id="safe-auto"]')).toBeDisabled();
+  await expect(menu.locator('[data-id="approve-edits"]')).toBeDisabled();
+  await expect(menu.locator('[data-id="full-auto"]')).toBeDisabled();
+});
+
 test("model popover shows working models, balances, and explains removals", async ({ page }) => {
   // Redesigned picker contract: the Auto card is pinned on top; only
   // configured models appear (unconfigured ones live in Manage models);

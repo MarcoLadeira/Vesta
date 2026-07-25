@@ -1388,6 +1388,9 @@
   function aboutHtml(d, ctx) {
     var esc = ctx.esc;
     if (!(d.about && d.about.version)) return "";
+    var build = d.about.build || {};
+    var fingerprint = String(build.assetFingerprint || "");
+    var runtimeSource = String(build.runtimeSource || "").replace(/_/g, " ");
     return (
       heroHtml(esc, "About", "Version and release information for this build.", null) +
       '<div class="set-head">About</div>' +
@@ -1395,6 +1398,25 @@
       statTile(esc, { label: "Version", value: d.about.version, mono: true }) +
       statTile(esc, { label: "Release stage", value: d.about.release_stage || "—" }) +
       "</div>" +
+      '<div class="set-head">Hosted build</div>' +
+      '<div class="stat-grid two">' +
+      statTile(esc, {
+        label: "Asset build",
+        value: fingerprint ? fingerprint.slice(0, 12) : "unknown",
+        mono: true,
+      }) +
+      statTile(esc, {
+        label: "Runtime source",
+        value: runtimeSource || "unknown",
+      }) +
+      "</div>" +
+      (fingerprint
+        ? '<div class="set-note">Full asset fingerprint: <span class="mono">' +
+          esc(fingerprint) +
+          "</span> · " +
+          esc(build.assetCount || 0) +
+          " hosted files</div>"
+        : "") +
       '<div class="set-head">Updates</div>' +
       '<div id="settingsUpdateCard">' +
       updateStatusHtml(esc, d.about.update) +
@@ -1496,7 +1518,7 @@
       id: "about",
       title: "About",
       group: "System",
-      keywords: "about version release",
+      keywords: "about version release asset build fingerprint runtime source",
       render: aboutHtml,
     },
   ];

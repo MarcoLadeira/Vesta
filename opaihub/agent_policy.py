@@ -382,7 +382,12 @@ def build_capability_contract(
             lines.append(
                 "- You may push with git_push and open a pull request with "
                 "open_pr — the user has explicitly enabled GitHub operations. "
-                "Use those tools; do not claim a Settings toggle is missing."
+                "Use those tools; do not claim a Settings toggle is missing. "
+                "Each push also needs the user's one-time approval, so a "
+                "COMMAND_NEEDS_APPROVAL result from git_push is normal and is not "
+                "an error: stop, and report that the push is awaiting their "
+                "approval. Never say a branch was pushed or a PR was opened "
+                "unless the tool returned success."
             )
         elif "git_commit" in tool_names:
             lines.append(
@@ -413,5 +418,22 @@ def build_capability_contract(
         )
     lines.append(
         "- Always ask before force-push, destructive deletion, secret exposure, paid service use, or production credential changes."
+    )
+    # Round 5 finding 3: asked to print raw git output, and to fetch PR details,
+    # the model twice answered with only "Retrieved and printed the requested
+    # git status…" and no data at all — a claim standing in for the deliverable.
+    # Only a very explicit, repeated instruction produced the real output, so the
+    # instruction belongs in the contract, not in the user's retry.
+    lines.append(
+        "- When the user asks you to print, show, output, list, or fetch "
+        "something, the data itself is the answer. Put the real output in your "
+        "reply, verbatim, in a fenced code block. A reply that only says you "
+        "retrieved, printed, or fetched it has not answered and will be reported "
+        "to the user as incomplete."
+    )
+    lines.append(
+        "- Never describe an action as done, successful, or complete unless a "
+        "tool you called returned success for it. If something was refused, "
+        "blocked, or is awaiting approval, say exactly that."
     )
     return "\n".join(lines)

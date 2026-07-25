@@ -56,6 +56,99 @@ test("an unverified run renders a partial verdict instead of success", async ({ 
   await expect(page.locator(".completion-verdict")).toContainText("no changed-file or diff evidence");
   await expect(page.locator("#ssConn")).toHaveText("Partial");
   await expect(page.locator(".msg.bot")).not.toContainText("✓ Completed");
+  // Round 5 finding 2: an honest partial is amber, not the same red as a hard
+  // failure — the dot and the verdict card must grade the run the same way.
+  await expect(page.locator("#statusStrip")).toHaveClass(/ss-warning/);
+  // No success claim in the prose, so no unverified-claim banner either.
+  await expect(page.locator(".unverified-claim")).toHaveCount(0);
+});
+
+test("workflow summary uses the authoritative verdict instead of a stale completed phase", async ({ page }) => {
+  // Round 6: a verified push could show a Partial pill while the card below it
+  // still read "Implement · Completed". The workflow runtime tracks process
+  // progress, but the verdict is the user-facing outcome for this turn.
+  const id = await sendPrompt(page, "Push the current branch.");
+  await finishRequest(page, id, {
+    status: "answered",
+    answer: "The branch was pushed successfully.",
+    completion_verdict: {
+      verdict: "partial",
+      reason_code: "change_not_verified",
+      reason: "OPai could not verify the requested objective.",
+      next_action: "Check the remote branch, then retry verification.",
+      evidence: [],
+    },
+    workflow: {
+      mode: "implement",
+      phase: "completed",
+      message: "Read-only task completed",
+      tests_status: "not_run",
+      merge_status: "not_requested",
+      history: [{ phase: "completed", message: "Read-only task completed" }],
+    },
+  });
+
+  const workflow = page.locator(".workflow-card");
+  await expect(workflow.locator(".wf-head")).toContainText("Partial");
+  await expect(workflow.locator(".wf-head")).not.toContainText("Completed");
+  await expect(workflow.locator(".wf-message")).toHaveText("OPai could not verify the requested objective.");
+  await expect(workflow.locator(".wf-actions")).toContainText("Check the remote branch, then retry verification.");
+  await workflow.locator(".wf-history summary").click();
+  await expect(workflow.locator(".wf-history")).toContainText("Partial");
+  await expect(workflow.locator(".wf-history")).not.toContainText("Read-only task completed");
+});
+
+test("a success claim the run could not verify is labelled where it is written", async ({ page }) => {
+  // Round 5 finding 2, the live failure: a red "Failed" pill sat directly above
+  // "The current branch has been successfully pushed to the origin remote." A
+  // user reading only the pill and a user reading only the prose drew opposite
+  // conclusions. The claim itself now carries the caveat.
+  const id = await sendPrompt(page, "Push the current branch.");
+  await finishRequest(page, id, {
+    status: "answered",
+    answer: "The current branch has been successfully pushed to the origin remote.",
+    completion_verdict: {
+      verdict: "failed",
+      reason_code: "provider_failed",
+      reason: "The provider failed before OPai could verify the objective.",
+      next_action: "Retry the run, or switch to another provider.",
+      evidence: [],
+      answer_conflicts: true,
+    },
+  });
+
+  const banner = page.locator(".unverified-claim");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("could not verify");
+  // It names the same verdict the pill shows, so the two surfaces agree.
+  await expect(banner).toContainText("Failed");
+  await expect(page.locator("#ssConn")).toHaveText("Failed");
+  // And it is placed above the answer body, not buried after it.
+  expect(await page.evaluate(() => {
+    const bot = document.querySelector(".msg.bot");
+    return bot.querySelector(".unverified-claim")
+      .compareDocumentPosition(bot.querySelector(".body")) & Node.DOCUMENT_POSITION_FOLLOWING;
+  })).toBeTruthy();
+});
+
+test("answer delivery is not labelled independently verified", async ({ page }) => {
+  const id = await sendPrompt(page, "What is 2+2?");
+  await finishRequest(page, id, {
+    status: "answered",
+    answer: "Four",
+    completion_verdict: {
+      verdict: "completed",
+      reason_code: "answer_delivered",
+      reason: "Provider returned a complete response; its content was not independently verified.",
+      next_action: "Review the response and its cited evidence.",
+      evidence: [{ kind: "answer", summary: "Provider returned a non-empty response" }],
+    },
+  });
+
+  await expect(page.locator(".completion-verdict")).toContainText("Response received");
+  await expect(page.locator(".completion-verdict")).not.toContainText("Completed");
+  await expect(page.locator(".completion-verdict")).toContainText("not independently verified");
+  await expect(page.locator("#ssConn")).toHaveText("Response received");
 });
 
 test("cancelled request never becomes failed or completed", async ({ page }) => {

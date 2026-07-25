@@ -158,7 +158,7 @@ class ProviderProfile:
 
 def _account_profile(provider_id: str, *, repo_editing: bool) -> ProviderProfile:
     """Signed-in CLI providers (claude/codex/copilot): native tools + streaming,
-    OAuth via their CLI. Editing depends on the provider (Copilot fails closed)."""
+    OAuth via their CLI. Runtime probes can still fail closed on old CLIs."""
     return ProviderProfile(
         provider_id=provider_id,
         kind="account",
@@ -220,8 +220,8 @@ def _local_profile(provider_id: str) -> ProviderProfile:
 _PROFILES: dict[str, ProviderProfile] = {
     "claude": _account_profile("claude", repo_editing=True),
     "codex": _account_profile("codex", repo_editing=True),
-    # Copilot's repository edits fail closed in OPai — the picker must say so.
-    "copilot": _account_profile("copilot", repo_editing=False),
+    # Copilot edits use a runtime-gated, workspace-scoped named tool set.
+    "copilot": _account_profile("copilot", repo_editing=True),
     "kimi": _free_profile("kimi"),
     "gemini": _free_profile("gemini"),
     "groq": _free_profile("groq"),

@@ -447,7 +447,10 @@ class RepositoryToolExecutor:
             schemas.append(
                 _schema(
                     "git_push",
-                    "Push the current branch to origin (never force).",
+                    "Push the current branch to origin (never force). The user "
+                    "approves each push once in the OPai window; if this returns "
+                    "COMMAND_NEEDS_APPROVAL, stop and report that the push is "
+                    "awaiting their approval — never claim it was pushed.",
                     {"branch": {"type": "string"}},
                 )
             )
@@ -651,6 +654,12 @@ class RepositoryToolExecutor:
         name = _valid_branch(branch) if branch else self._current_branch()
         if not name:
             return _error("INVALID_BRANCH_NAME", "No valid branch to push")
+        approval = self._needs_approval(
+            f"git push -u origin {name}",
+            "Pushing sends this branch to the remote.",
+        )
+        if approval is not None:
+            return approval
         result = self._git(["push", "-u", "origin", name], timeout=120.0)
         return Observation(
             "git_push",
@@ -669,12 +678,19 @@ class RepositoryToolExecutor:
         head = self._current_branch()
         if not head:
             return _error("GIT_PR_FAILED", "Could not resolve the current branch")
+        base = str(arguments.get("base") or "main")
+        # Deliberately NOT gated behind a second approval. A PR can only be opened
+        # from a branch that reached the remote, and that push went through the
+        # approval card — so the outward step the user was shown is the push. An
+        # extra card here would split "push and open a PR" across two turns, and
+        # since approval re-runs the whole turn, the second pass would have to redo
+        # a branch/commit chain that has already landed. One approval, one turn.
         result = create_pull_request(
             self.repo_root,
             title=title,
             body=str(arguments.get("body") or ""),
             head=head,
-            base=str(arguments.get("base") or "main"),
+            base=base,
         )
         if not result.get("ok"):
             return _error("GIT_PR_FAILED", str(result.get("error") or "PR failed"))
@@ -771,11 +787,34 @@ class RepositoryToolExecutor:
         self._allowed_once = value or None
 
     def _consume_one_shot_grant(self, raw: str) -> bool:
+        from .command_consent import grant_permits
+
         grant = self._allowed_once
-        if grant and grant == raw:
+        if grant and grant_permits(grant, raw):
             self._allowed_once = None  # single-use: exactly this command, once
             return True
         return False
+
+    def _needs_approval(self, command: str, reason: str) -> dict[str, Any] | None:
+        """Gate one outward-facing action behind the user's one-time approval.
+
+        Returns ``None`` when the user has already approved this exact action for
+        this turn (the grant is spent), otherwise the ``COMMAND_NEEDS_APPROVAL``
+        observation the tool loop converts into the GUI's approval card.
+
+        Round 5 finding 1: ``git_push`` and the GitHub write tools existed only
+        when Settings consent existed, and then ran with no further ask — so Full
+        Auto's "Push, deploy, and destructive actions still ask for confirmation"
+        was false through this channel too. Settings consent decides whether the
+        tool exists at all; this decides whether *this* call happens now.
+        """
+
+        if self._consume_one_shot_grant(command):
+            return None
+        blocked = _error("COMMAND_NEEDS_APPROVAL", f"{reason} Command: {command}")
+        blocked["command"] = command
+        blocked["approval_reason"] = reason
+        return blocked
 
     def _run_command(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Run one canonical local Git read without a shell.
@@ -938,6 +977,18 @@ class RepositoryToolExecutor:
         body = str(arguments.get("body") or "").strip()
         if not body:
             return _error("INVALID_TOOL_ARGUMENTS", "A comment body is required")
+        # The approval card shows this reason verbatim, so it carries a preview of
+        # the actual text: the Round 5 report's headline was a *fabricated* claim
+        # of having posted a comment, and seeing the words before they go out is
+        # what makes an approval meaningful rather than a rubber stamp.
+        preview = " ".join(body.split())[:200]
+        approval = self._needs_approval(
+            f"gh pr comment {number}",
+            "Commenting posts publicly on GitHub under your account. It will say: "
+            f"“{preview}{'…' if len(body) > len(preview) else ''}”",
+        )
+        if approval is not None:
+            return approval
         from .github_connector import add_comment
 
         result = add_comment(self.repo_root, number, body)
@@ -959,6 +1010,12 @@ class RepositoryToolExecutor:
         reviewers = [item for item in reviewers if item]
         if not reviewers:
             return _error("INVALID_TOOL_ARGUMENTS", "At least one reviewer is required")
+        approval = self._needs_approval(
+            f"gh pr edit {number} --add-reviewer " + ",".join(sorted(reviewers)),
+            "Requesting a review notifies those people on GitHub.",
+        )
+        if approval is not None:
+            return approval
         from .github_connector import request_reviewers
 
         result = request_reviewers(self.repo_root, number, reviewers)

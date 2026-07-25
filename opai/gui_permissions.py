@@ -29,6 +29,7 @@ CAPABILITIES: list[tuple[str, str]] = [
     ("edit", "Edit files"),
     ("create", "Create files"),
     ("run_any", "Run any command"),
+    ("push", "Push to a remote"),
     ("delete", "Delete files"),
     ("network", "Network / web"),
 ]
@@ -48,6 +49,7 @@ _MODE_RULES: dict[str, dict[str, str]] = {
         # F17: an arbitrary command is confirmable in-context (the same
         # approval flow as edits), not a hard block with no way forward.
         "run_any": "ask",
+        "push": "ask",
         "delete": "block",
         "network": "block",
     },
@@ -58,6 +60,7 @@ _MODE_RULES: dict[str, dict[str, str]] = {
         "edit": "ask",
         "create": "ask",
         "run_any": "ask",
+        "push": "ask",
         "delete": "block",
         "network": "block",
     },
@@ -68,6 +71,11 @@ _MODE_RULES: dict[str, dict[str, str]] = {
         "edit": "allow",
         "create": "allow",
         "run_any": "allow",
+        # Round 5 finding 1: pushing is the one outward-facing action Full Auto
+        # still stops for, every time — never "allow", even with Settings consent
+        # granted. The Pin Full Auto dialog makes this promise; this row is the
+        # same promise on the permissions surface.
+        "push": "ask",
         "delete": "ask",
         "network": "ask",
     },
@@ -109,6 +117,17 @@ def permissions_for(
             and rules.get("delete", "block") != "allow"
         ):
             note = note + "; commands that delete files still follow Delete files"
+        # Round 5 finding 1: "Run any command: Runs without asking" read as a way
+        # around the per-push approval. Name the exception where the contradiction
+        # would otherwise be, exactly as the Delete files note above does.
+        if (
+            cap_id == "run_any"
+            and state == "allow"
+            and rules.get("push", "block") == "ask"
+        ):
+            note = note + "; pushing still asks every time"
+        if cap_id == "push" and state == "ask":
+            note = "Asks every time, even in Full Auto"
         rows.append({"id": cap_id, "label": label, "state": state, "note": note})
     return rows
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from . import command_consent
 from .agent_policy import (
     AgentMode,
     build_capability_contract,
@@ -21,6 +22,7 @@ from .checkpoints import create_run_checkpoint, finalize_run_checkpoint
 from .completion import (
     CompletionVerdict,
     CompletionState,
+    answer_contradicts_verdict,
     completion_state_from_legacy,
     evaluate_completion,
     objective_from_request,
@@ -154,6 +156,9 @@ def _command_approval(result: Mapping[str, Any] | None) -> dict[str, str] | None
     carrying ``{"command", "reason"}``. ``opaihub.ask.run_explicit_model``
     normalizes that into ``result["command_approval"]``; the trace error code
     is the fallback for results that did not pass through that normalization.
+
+    Consuming: the out-of-process fallback below *clears* the record it reads, so
+    call this once per provider run — which is what every dispatch path does.
     """
 
     if not isinstance(result, Mapping):
@@ -175,7 +180,12 @@ def _command_approval(result: Mapping[str, Any] | None) -> dict[str, str] | None
         if command:
             reason = str(item.get("reason") or item.get("message") or "").strip()
             return {"command": command, "reason": reason}
-    return None
+    # Round 5 finding 1: a provider CLI runs git in its own shell, so its gated
+    # commands are refused by the PreToolUse hook — a separate process that has no
+    # way to put anything into this result. It records the refusal on disk
+    # instead; reading it here is what turns "the push silently didn't happen"
+    # into the same approval card every other channel gets.
+    return command_consent.take_pending()
 
 
 def _edit_denials(result: Mapping[str, Any] | None) -> list[str]:
@@ -651,6 +661,11 @@ def handle_gui_message(
     _phase("request_prepare", "running", "Preparing request")
     # One-shot exact-command grant from a command-approval re-send (F17/F9).
     command_grant = str(allow_command or allowCommand or "").strip() or None
+    # Arm (or clear) the cross-process handshake for this turn. Clearing matters
+    # most: a refusal recorded by the previous turn must not resurface as this
+    # turn's approval card, and a grant the user issued earlier must not
+    # authorize a push they were never asked about (Round 5 finding 1).
+    command_consent.begin_turn(command_grant)
     # One-shot edit grant from an edit-approval re-send (F26).
     edit_grant = bool(allow_edits_once or allowEditsOnce)
     prefs = load_gui_preferences(root)
@@ -900,6 +915,14 @@ def handle_gui_message(
         verdict = evaluate_completion(objective, evidence_payload)
         verdict_payload = verdict.to_dict()
         stored_verdict = verdict.to_dict(include_objective_text=False)
+        # Round 5 finding 2: the same turn showed a red "Failed" pill and prose
+        # reading "has been successfully pushed to the origin remote". OPai cannot
+        # tell from prose which one is right, so it must not let the claim stand
+        # unqualified — the renderer reads this flag and marks the claim
+        # unverified, so pill and prose can no longer say opposite things.
+        verdict_payload["answer_conflicts"] = answer_contradicts_verdict(
+            str(payload.get("answer") or ""), verdict.verdict
+        )
         verdict_event_status = (
             "success"
             if verdict.verdict is CompletionVerdict.COMPLETED
@@ -908,6 +931,11 @@ def handle_gui_message(
             else "error"
             if verdict.verdict in {CompletionVerdict.FAILED, CompletionVerdict.TIMEOUT}
             else "warning"
+        )
+        verdict_event_title = (
+            "Response received — content not independently verified"
+            if verdict.reason_code == "answer_delivered"
+            else f"{verdict.verdict.value.replace('_', ' ').title()} — {verdict.reason}"
         )
         if (
             verdict.verdict is CompletionVerdict.COMPLETED
@@ -918,11 +946,11 @@ def handle_gui_message(
             # the objective actually verified, re-close that same row green — a
             # genuinely completed run must never end on an amber phase (#225).
             # A row already closed green (e.g. "Request sent") keeps its title.
-            _phase(_phase_state["etype"], "success", "Completed — objective verified")
+            _phase(_phase_state["etype"], "success", verdict_event_title)
         _emit(
             "completion_verdict",
             verdict_event_status,
-            f"{verdict.verdict.value.replace('_', ' ').title()} — {verdict.reason}",
+            verdict_event_title,
             metadata={
                 "verdict": verdict.verdict.value,
                 "reason_code": verdict.reason_code,
@@ -1220,6 +1248,10 @@ def handle_gui_message(
         # here, from the assembled record, so the GUI copy action and any other
         # surface export identical content (never a display-side recomputation).
         decorated["run_summary"] = build_run_summary(decorated)
+        # The turn is over: an approval the user granted for it must not survive
+        # into the next one. (A needs_command_approval turn returns here too — its
+        # grant was already spent, or was never armed.)
+        command_consent.end_turn()
         return decorated
 
     if policy.requires_confirmation:
@@ -1820,7 +1852,10 @@ def handle_gui_message(
             approval = _command_approval(result)
             if approval is not None:
                 # F17/F9: an account-side command the executor refused is a consent
-                # request, not a completed answer.
+                # request, not a completed answer. Round 5: the same is true of a
+                # push the PreToolUse hook refused out-of-process — and a Full Auto
+                # run may well have edited files before reaching it, so the real
+                # changed files ride along rather than being reported as none.
                 _emit(
                     "command_run",
                     "warning",
@@ -1842,7 +1877,7 @@ def handle_gui_message(
                         "command_approval": approval,
                         "tool_trace": tool_trace,
                         "receipt": {},
-                        "changed_files": [],
+                        "changed_files": list(result.get("changed_files") or []),
                         "warnings": [],
                         "next_actions": [
                             "Approve the exact command to let OPai run it once.",

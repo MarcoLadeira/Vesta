@@ -19,6 +19,7 @@ import contextlib
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess  # nosec B404 - we invoke the user's own logged-in AI CLIs
 import sys
@@ -45,6 +46,8 @@ _CONNECTION_HISTORY_LIMIT = 64
 # without removing the local auth artifact.
 _ACCOUNT_TYPE_HISTORY_TTL_MS = int(_CONNECTION_CACHE_TTL * 1000)
 _CLI_VERSION_CACHE: dict[str, str] = {}
+_CLI_CAPABILITY_CACHE: dict[str, bool] = {}
+_CODEX_CURRENT_DEFAULT_MIN_VERSION = (0, 143, 0)
 
 _INVALID_CODEX_TIER = 'service_tier = "default"'
 
@@ -565,6 +568,29 @@ def test_account_connection(
     )
     if returncode == 0 and not status_failed:
         account_type = _account_type_from_status(account_id, detail)
+        if account_id == "codex":
+            cli_version = _account_cli_version(account, run=run)
+            if not _codex_cli_supports_current_default(cli_version):
+                error = normalize_provider_error(
+                    account_id,
+                    (
+                        f"Codex CLI {cli_version} requires an update. "
+                        "The current account-default model requires a newer version "
+                        "of the Codex CLI."
+                    ),
+                )
+                return _remember_connection(
+                    account_id,
+                    connection_for_account(
+                        account,
+                        auth_status="misconfigured",
+                        last_checked_at=checked_at,
+                        error=error,
+                        env_overrides_removed=env_removed,
+                        account_type=account_type,
+                    ),
+                    home=home,
+                )
         result = connection_for_account(
             account,
             auth_status="connected",
@@ -665,6 +691,65 @@ def _account_cli_version(
     if run is None:
         _CLI_VERSION_CACHE[cli_path] = version
     return version
+
+
+def _semantic_version(raw: str) -> tuple[int, int, int] | None:
+    """Extract a three-part CLI version without trusting surrounding text."""
+
+    match = re.search(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)", str(raw or ""))
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
+def _codex_cli_supports_current_default(raw_version: str) -> bool:
+    """Fail only when a parseable Codex version is known to be too old."""
+
+    parsed = _semantic_version(raw_version)
+    return parsed is None or parsed >= _CODEX_CURRENT_DEFAULT_MIN_VERSION
+
+
+def _copilot_supports_scoped_permissions(
+    account: dict[str, Any],
+    *,
+    run: Callable[[list[str]], Any] | None = None,
+) -> bool:
+    """Whether this Copilot CLI can expose only bounded workspace edit tools."""
+
+    cli_path = str(account.get("cli_path") or "")
+    if not cli_path:
+        return False
+    if run is None and cli_path in _CLI_CAPABILITY_CACHE:
+        return _CLI_CAPABILITY_CACHE[cli_path]
+    child_env, _removed = provider_child_env("copilot")
+    execute = run or (
+        lambda argv: _hidden_run(argv, cwd=None, timeout=0.75, env=child_env)
+    )
+    try:
+        result = execute([cli_path, "--help"])
+    except (OSError, subprocess.SubprocessError):
+        supported = False
+    else:
+        output = "\n".join(
+            str(part or "")
+            for part in (
+                getattr(result, "stdout", ""),
+                getattr(result, "stderr", ""),
+            )
+        )
+        required = (
+            "--available-tools",
+            "--allow-tool",
+            "--deny-tool",
+            "--add-dir",
+        )
+        supported = (
+            int(getattr(result, "returncode", 0) or 0) == 0
+            and all(flag in output for flag in required)
+        )
+    if run is None:
+        _CLI_CAPABILITY_CACHE[cli_path] = supported
+    return supported
 
 
 def provider_connection_doctor(
@@ -1048,7 +1133,12 @@ COPILOT_MODELS: list[tuple[str, str, str]] = [
 
 
 def _account_options(
-    account: dict[str, Any], *, connected: bool, account_type: str | None = None
+    account: dict[str, Any],
+    *,
+    connected: bool,
+    account_type: str | None = None,
+    cli_version: str = "",
+    copilot_scoped_editing: bool | None = None,
 ) -> list[dict[str, Any]]:
     from opai.provider_contract import provider_display_name
 
@@ -1068,10 +1158,19 @@ def _account_options(
                 "connected": connected,
                 "available": connected,
                 "disabled_reason": disabled_reason,
+                "repo_editing": True,
             }
             for alias, label in CLAUDE_MODELS
         ]
     if account["id"] == "codex":
+        codex_compatible = _codex_cli_supports_current_default(cli_version)
+        codex_available = connected and codex_compatible
+        codex_disabled_reason = disabled_reason
+        if connected and not codex_compatible:
+            codex_disabled_reason = (
+                "Update Codex CLI to use the current account-default model "
+                "(npm install -g @openai/codex)."
+            )
         normalized_account_type = str(account_type or "").lower()
         if account_type is not None and normalized_account_type != "api_key":
             return [
@@ -1094,8 +1193,10 @@ def _account_options(
                     "vendor": account["vendor"],
                     "speed": "balanced",
                     "connected": connected,
-                    "available": connected,
-                    "disabled_reason": disabled_reason,
+                    "available": codex_available,
+                    "disabled_reason": codex_disabled_reason,
+                    "repo_editing": codex_compatible,
+                    "cli_version": cli_version,
                 }
             ]
         return [
@@ -1111,8 +1212,10 @@ def _account_options(
                 "vendor": account["vendor"],
                 "speed": speed,
                 "connected": connected,
-                "available": connected,
-                "disabled_reason": disabled_reason,
+                "available": codex_available,
+                "disabled_reason": codex_disabled_reason,
+                "repo_editing": codex_compatible,
+                "cli_version": cli_version,
             }
             for model_id, label, speed in CODEX_MODELS
         ]
@@ -1134,6 +1237,11 @@ def _account_options(
                 "connected": connected,
                 "available": connected,
                 "disabled_reason": disabled_reason,
+                "repo_editing": (
+                    True
+                    if copilot_scoped_editing is None
+                    else bool(copilot_scoped_editing)
+                ),
             }
             for model_id, label, speed in COPILOT_MODELS
         ]
@@ -1151,6 +1259,7 @@ def _account_options(
             "connected": connected,
             "available": connected,
             "disabled_reason": disabled_reason,
+            "repo_editing": True,
         }
     ]
 
@@ -1161,6 +1270,7 @@ def account_models(
     include_unavailable: bool = False,
     accounts: list[dict[str, Any]] | None = None,
     account_types: dict[str, str] | None = None,
+    inspect_cli_capabilities: bool = False,
 ) -> list[dict[str, Any]]:
     """Picker options for connected accounts (paid, run via the user's CLI).
 
@@ -1178,8 +1288,27 @@ def account_models(
             if account_types is not None
             else None
         )
+        cli_version = ""
+        copilot_scoped_editing: bool | None = None
+        cli_path = str(account.get("cli_path") or "")
+        if account["id"] == "codex":
+            if inspect_cli_capabilities:
+                cli_version = _account_cli_version(account)
+            else:
+                cli_version = _CLI_VERSION_CACHE.get(cli_path, "")
+        if account["id"] == "copilot":
+            if inspect_cli_capabilities:
+                copilot_scoped_editing = _copilot_supports_scoped_permissions(account)
+            else:
+                copilot_scoped_editing = _CLI_CAPABILITY_CACHE.get(cli_path)
         options.extend(
-            _account_options(account, connected=connected, account_type=account_type)
+            _account_options(
+                account,
+                connected=connected,
+                account_type=account_type,
+                cli_version=cli_version,
+                copilot_scoped_editing=copilot_scoped_editing,
+            )
         )
     return options
 
@@ -1282,25 +1411,27 @@ def _codex_safety_preamble() -> str:
     push_guidance = (
         (
             "For a git push: pushes ARE already enabled for this user, but this "
-            "runner still may not shell out to `git push`. Say that OPai will "
-            "push through its own GitHub tool, or that they can push from a "
-            "terminal. Do NOT tell them to enable anything in Settings — it is "
-            "already on."
+            "runner may not shell out to `git push`. Say plainly that you cannot "
+            "push from this run and that they can push from a terminal. Do NOT "
+            "tell them to enable anything in Settings — it is already on — and do "
+            "not tell them an approval prompt is waiting for them, because this "
+            "runner does not raise one."
         )
         if consented
         else (
             "For a git push: tell the user to enable pushes once in Settings -> "
             "Providers & Connections (connect a GitHub token, then click "
-            "\"Enable pushes & PRs\") so OPai can push via its GitHub tool."
+            "\"Enable pushes & PRs\"). After that OPai can push, and will ask "
+            "them to approve each push."
         )
     )
     return (
         "Safety: destructive or external-mutating commands (git push, gh "
         "issue/pr mutations, rm -rf, deploys) are denied in this mode. Do not "
         "attempt them. " + push_guidance + " For anything else, tell them to "
-        "run it themselves in a terminal. Do not claim a per-command approval "
-        "dialog will appear, and never invent a Settings button, page, or "
-        "toggle you were not told about here.\n\n"
+        "run it themselves in a terminal. Never invent a Settings button, page, "
+        "or toggle you were not told about here, and never report an action as "
+        "done when it was denied.\n\n"
     )
 
 
@@ -1324,6 +1455,13 @@ class AccountRunner:
     def available(self) -> bool:
         return bool(self.cli_path) and Path(self.cli_path).exists()
 
+    def supports_scoped_editing(self) -> bool:
+        if self.account_id != "copilot":
+            return True
+        return _copilot_supports_scoped_permissions(
+            {"id": self.account_id, "cli_path": self.cli_path}
+        )
+
     def build_command(
         self,
         prompt: str,
@@ -1333,6 +1471,7 @@ class AccountRunner:
         mode: str | None = None,
         stream: bool = False,
         edit_grant: bool = False,
+        project_root: Path | None = None,
     ) -> list[str]:
         """Construct the CLI argv. Pure + side-effect free so tests can assert it.
 
@@ -1425,10 +1564,28 @@ class AccountRunner:
             cmd = [self.cli_path, "-s", "--no-ask-user"]
             if self.model:
                 cmd += [f"--model={self.model}"]
-            prompt = (
-                "Do not modify files or run mutating commands. "
-                "Return an answer or patch plan only.\n\n" + prompt
-            )
+            edit_mode = selected_mode in {
+                "safe-auto",
+                "approve-edits",
+                "full-auto",
+            }
+            if edit_mode:
+                # Current Copilot CLIs can expose a named tool subset. Shell,
+                # web, and unbounded tools are absent, while edits are confined
+                # to the selected repository. Older CLIs are rejected by the
+                # capability preflight before this command is launched.
+                cmd += [
+                    "--available-tools=view,grep,glob,edit",
+                    "--allow-tool=edit",
+                ]
+                if project_root is not None:
+                    scoped_root = str(project_root.expanduser().resolve())
+                    cmd += ["-C", scoped_root, "--add-dir", scoped_root]
+            else:
+                prompt = (
+                    "Do not modify files or run mutating commands. "
+                    "Return an answer or patch plan only.\n\n" + prompt
+                )
             # `-p` consumes the next argument as the prompt, so it must be last.
             cmd += ["-p", prompt]
             return cmd
@@ -1464,7 +1621,11 @@ class AccountRunner:
             ) as handle:
                 out_path = handle.name
             cmd = self.build_command(
-                prompt, allow_edits=allow_edits, out_file=out_path, mode=mode
+                prompt,
+                allow_edits=allow_edits,
+                out_file=out_path,
+                mode=mode,
+                project_root=project_root,
             )
             try:
                 proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
@@ -1506,7 +1667,11 @@ class AccountRunner:
                 "returncode": returncode,
             }
         cmd = self.build_command(
-            prompt, allow_edits=allow_edits, mode=mode, edit_grant=edit_grant
+            prompt,
+            allow_edits=allow_edits,
+            mode=mode,
+            edit_grant=edit_grant,
+            project_root=project_root,
         )
         if "--settings" in cmd:
             # Claude Full Auto: the PreToolUse hook settings file must exist
@@ -1636,6 +1801,7 @@ class AccountRunner:
             mode=mode,
             stream=structured,
             edit_grant=edit_grant,
+            project_root=project_root,
         )
         if "--settings" in cmd:
             # Claude Full Auto: the PreToolUse hook settings file must exist

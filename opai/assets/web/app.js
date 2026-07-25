@@ -162,7 +162,7 @@ function applyBootSelection(b) {
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
-  if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
+  if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
   if (md) state.mode = md;
 }
@@ -610,7 +610,7 @@ function renderComposerSelects() {
   });
   modelSel.onchange = () => {
     const m = state.boot.models.find((x) => x.id === modelSel.value);
-    if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
+    if (m) state.model = { ...m, advancedLabel: m.advanced_label };
     setProviderDot(); renderComposerContext(); bridge.savePref("default_model", state.model.id); refreshInspector(); refreshStatus();
   };
   setProviderDot();
@@ -727,7 +727,11 @@ function offerFullAutoPinAck() {
   state.fullAutoAckOpen = true;
   chatConfirm({
     title: "Pin Full Auto?",
-    body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Push, deploy, and destructive actions still ask for confirmation.",
+    // Round 5 finding 1: the old copy promised confirmation for "push, deploy, and
+    // destructive actions" as one group, but only pushing actually asks — deploys
+    // and destructive commands are refused outright, not queued for approval. Say
+    // which is which, so the dialog matches what the gate does.
+    body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Pushing to a remote still asks for your approval each time, and destructive actions — force-push, deletes, deploys — are refused rather than run.",
     confirmLabel: "Pin Full Auto",
     cancelLabel: "Keep current mode",
     danger: true,
@@ -758,9 +762,12 @@ function offerFullAutoPinAck() {
       maybeOfferFullAutoPin();
     });
     state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
-    const modeSel = $("#modeSel");
-    if (modeSel) modeSel.value = "full-auto";
-    refreshInspector(); refreshStatus();
+    // Round 5 finding 4: setting the hidden <select> is not enough. The composer's
+    // own run-mode button reads its label from state on refresh(), so pinning left
+    // the top bar saying "Full Auto" and the composer still saying "Ask" until the
+    // next send happened to refresh it. Repaint every mode surface here, the same
+    // way the decline path above already does.
+    renderComposerSelects(); refreshInspector(); refreshStatus();
   });
 }
 
@@ -1618,7 +1625,13 @@ function stripFinalize(status, r) {
   else $("#ssCost").textContent = ""; // never a fake $0 for a paid call
   const verdict = completionVerdict(r);
   if (verdict && verdict.verdict === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Cancelled"; }
+  // Round 5 finding 2: every non-completed verdict painted the strip red, so a
+  // "Partial" run (answered, some evidence missing) looked identical to a hard
+  // failure — the dot said one thing, the verdict card another. Partial/Blocked
+  // are amber warnings; only Failed/Timed out are red.
+  else if (verdict && (verdict.verdict === "partial" || verdict.verdict === "blocked")) { stripSetState("warning"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
   else if (verdict && verdict.verdict !== "completed") { stripSetState("error"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
+  else if (verdict && verdict.reasonCode === "answer_delivered") { stripSetState("connected"); $("#ssConn").textContent = "Response received"; }
   else if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
   else if (ANSWERED.includes(status)) { stripSetState("connected"); $("#ssConn").textContent = "Done"; }
   else { stripSetState("error"); $("#ssConn").textContent = "Failed"; }
@@ -1776,7 +1789,15 @@ function completionVerdict(r) {
   const raw = r && r.completion_verdict;
   if (!raw || typeof raw !== "object") return null;
   const verdict = String(raw.verdict || "").toLowerCase();
-  return verdict ? { verdict, reason: String(raw.reason || ""), nextAction: String(raw.next_action || "") } : null;
+  return verdict ? {
+    verdict,
+    reasonCode: String(raw.reason_code || "").toLowerCase(),
+    reason: String(raw.reason || ""),
+    nextAction: String(raw.next_action || ""),
+    // Round 5 finding 2: the engine flags a reply that asserts success the
+    // verdict could not confirm ("successfully pushed" under a Failed pill).
+    answerConflicts: raw.answer_conflicts === true,
+  } : null;
 }
 // The one user-facing label per verdict — mirrors opaihub.completion.VERDICT_LABELS
 // (#396) so the GUI, CLI, and receipt summary never disagree ("Timed out", not
@@ -1796,7 +1817,7 @@ const RETRYABLE_VERDICTS = new Set(["failed", "partial", "timeout"]);
 function completionVerdictHtml(r) {
   const item = completionVerdict(r);
   if (!item) return "";
-  const label = verdictLabel(item.verdict);
+  const label = completionVerdictLabel(item);
   const glyph = item.verdict === "completed" ? "check" : item.verdict === "cancelled" ? "cancelled" : "warning";
   const next = item.nextAction ? `<div class="cv-next">Next: ${esc(item.nextAction)}</div>` : "";
   // Bug 8: pair the "Next: retry…" guidance with an actual button so the user
@@ -1806,6 +1827,32 @@ function completionVerdictHtml(r) {
     : "";
   return `<section class="completion-verdict ${esc(item.verdict)}" role="status" aria-label="Completion verdict: ${esc(label)}">` +
     `<div class="cv-title">${uiIcon(glyph)} ${esc(label)}</div><div class="cv-reason">${esc(item.reason)}</div>${next}${retryBtn}</section>`;
+}
+
+// The verdict owns the user-facing outcome everywhere. Runtime phases describe
+// internal progress and can legitimately end "completed" after a provider
+// returned, even when OPai could not verify the user's objective. Rendering a
+// runtime phase as the final status reintroduced the Round 6 contradiction:
+// "Partial" above "Implement · Completed" below.
+function completionVerdictLabel(item) {
+  return item && item.reasonCode === "answer_delivered"
+    ? "Response received"
+    : verdictLabel(item && item.verdict);
+}
+
+// Round 5 finding 2: one push turn showed a red "Failed" pill directly above the
+// words "has been successfully pushed to the origin remote". Whichever was wrong,
+// the two surfaces sent opposite messages and a user who glanced at only one drew
+// the opposite conclusion. OPai cannot tell from prose which is right — so it
+// refuses to let the claim read as settled, and says so where the claim is.
+function unverifiedClaimHtml(r) {
+  const item = completionVerdict(r);
+  if (!item || !item.answerConflicts) return "";
+  return `<div class="unverified-claim" role="note">${uiIcon("warning")} ` +
+    `<span><strong>OPai could not verify this.</strong> The response below says the ` +
+    `work succeeded, but this run ended as <em>${esc(verdictLabel(item.verdict))}</em> ` +
+    `and OPai found no evidence the action completed. Treat the claim as unconfirmed ` +
+    `and check the result yourself before relying on it.</span></div>`;
 }
 function metaFooter(r, sel, durMs) {
   const rc = (r && r.receipt) || {};
@@ -2155,7 +2202,8 @@ function finalize(status, r) {
     : "OPai";
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
-  let html = roleHeader(label, color) + activitySummaryHtml() + completionVerdictHtml(r) + `<div class="body">${mdToHtml(answer)}</div>`;
+  let html = roleHeader(label, color) + activitySummaryHtml() + completionVerdictHtml(r) +
+    unverifiedClaimHtml(r) + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];
   // A changeset card (below, via workflowCardHtml) already shows every file in
   // flow.diff_review with real diff evidence; the flat chip list is only useful
@@ -2425,20 +2473,39 @@ function workflowCardHtml(result) {
   const mode = policy.label || policy.mode || flow.mode || "—";
   const pretty = (value) => String(value || "—").replaceAll("_", " ");
   const title = (value) => { const text = pretty(value); return text.charAt(0).toUpperCase() + text.slice(1); };
+  const verdict = completionVerdict(result);
+  const outcomeOverridesRuntime = verdict && verdict.verdict !== "completed";
+  // A workflow's persisted phase remains useful internal provenance, but the
+  // summary directly under the answer must say whether the objective was met.
+  // The same verdict powers the pill and receipt, so these signals cannot drift.
+  const displayedPhase = verdict ? completionVerdictLabel(verdict) : title(flow.phase);
+  const displayedMessage = verdict && verdict.reason ? verdict.reason : flow.message;
+  const displayedActions = verdict && verdict.nextAction
+    ? [verdict.nextAction]
+    : (flow.next_actions || []);
   const blockerItems = [...(flow.blockers || [])];
   if (flow.blocker && !blockerItems.includes(flow.blocker)) blockerItems.push(flow.blocker);
   const blockers = blockerItems.map((item) => `<div class="wf-blocker">${esc(item)}</div>`).join("");
-  const actions = (flow.next_actions || []).map((item) => `<li>${esc(item)}</li>`).join("");
-  const history = (flow.history || []).slice(-5).map((item) =>
-    `<div class="wf-event"><span>${esc(title(item.phase))}</span><small>${esc(item.message || "")}</small></div>`
+  const actions = displayedActions.map((item) => `<li>${esc(item)}</li>`).join("");
+  const history = (flow.history || []).slice(-5).map((item) => {
+    // Do not leave a hidden contradictory "Completed" terminal state in the
+    // expandable timeline when the outcome verdict is non-completed.
+    const phase = outcomeOverridesRuntime && String(item.phase || "").toLowerCase() === "completed"
+      ? displayedPhase
+      : title(item.phase);
+    const message = outcomeOverridesRuntime && String(item.phase || "").toLowerCase() === "completed"
+      ? displayedMessage
+      : item.message || "";
+    return `<div class="wf-event"><span>${esc(phase)}</span><small>${esc(message)}</small></div>`;
+  }
   ).join("");
   const provider = flow.provider || {};
   const cost = flow.cost || {};
   const gates = flow.safety_gates || {};
   const failedGates = gates.failed || [];
   return `<div class="workflow-card">
-    <div class="wf-head"><span>${esc(mode)}</span><span>${esc(title(flow.phase))}</span></div>
-    ${flow.message ? `<div class="wf-message">${esc(flow.message)}</div>` : ""}
+    <div class="wf-head"><span>${esc(mode)}</span><span>${esc(displayedPhase)}</span></div>
+    ${displayedMessage ? `<div class="wf-message">${esc(displayedMessage)}</div>` : ""}
     <div class="wf-row"><span>Tests</span><strong>${esc(pretty(flow.tests_status))}</strong></div>
     <div class="wf-row"><span>PR</span><strong>${esc(flow.pr_url || "not opened")}</strong></div>
     <div class="wf-row"><span>Merge</span><strong>${esc(pretty(flow.merge_status))}</strong></div>
@@ -3205,5 +3272,8 @@ if (typeof window !== "undefined") {
     // Settings' About page re-reports the update banner after a live check
     // or a completed update, so the shell-wide nudge never lags behind it.
     renderUpdateBanner: (update) => renderUpdateBanner(update),
+    // Round 5 finding 2: the banner that stops the answer prose and the status
+    // pill from telling the user opposite things.
+    unverifiedClaimHtml: (r) => unverifiedClaimHtml(r),
   };
 }
