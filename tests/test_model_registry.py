@@ -69,6 +69,8 @@ class ResolveAndDisplayTests(unittest.TestCase):
         self.assertEqual(
             reg.display_map("copilot")["claude-sonnet-4.6"], "Claude Sonnet"
         )
+        self.assertEqual(reg.display_map("copilot")["gpt-5.4"], "GPT-5.4")
+        self.assertNotIn("gpt-5.2", reg.display_map("copilot"))
 
 
 class ValidationTests(unittest.TestCase):

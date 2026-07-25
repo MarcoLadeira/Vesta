@@ -59,6 +59,19 @@ class ProviderErrorContractTests(unittest.TestCase):
                 self.assertIn("switch model", error["userMessage"].lower())
                 self.assertFalse(error["retryable"])
 
+    def test_claude_monthly_spend_limit_is_visible_and_actionable(self):
+        error = normalize_provider_error(
+            "claude",
+            "You've hit your monthly spend limit · raise it at "
+            "claude.ai/settings/usage?from=cc_cli_limit_message",
+        )
+
+        self.assertEqual(error["code"], "PROVIDER_QUOTA_EXHAUSTED")
+        self.assertIn("monthly spend limit", error["userMessage"].lower())
+        self.assertIn("reset", error["userMessage"].lower())
+        self.assertIn("claude.ai/settings/usage", error["userMessage"])
+        self.assertFalse(error["retryable"])
+
     def test_secret_values_are_redacted(self):
         text = (
             "Authorization: Bearer sk-live-secret123456 "
@@ -117,7 +130,7 @@ class ProviderErrorContractTests(unittest.TestCase):
             "Copilot · Claude Sonnet",
         )
         self.assertEqual(
-            provider_display_name("copilot", "gpt-5.2"), "Copilot · GPT-5.2"
+            provider_display_name("copilot", "gpt-5.4"), "Copilot · GPT-5.4"
         )
         self.assertEqual(
             provider_display_name("copilot", "claude-haiku-4.5"),
@@ -128,6 +141,42 @@ class ProviderErrorContractTests(unittest.TestCase):
         self.assertEqual(provider_display_name("auto"), "OPai · Auto mode")
         self.assertEqual(provider_display_name(""), "OPai · Auto mode")
         self.assertEqual(provider_display_name("local"), "OPai · Local mode")
+
+
+class OutdatedProviderCliTests(unittest.TestCase):
+    """A stale provider CLI is a one-command fix, not an UNKNOWN failure.
+
+    Round 2 (2026-07-24) found Codex unusable as a fallback because its real
+    diagnostic — "The 'gpt-5.6-terra' model requires a newer version of Codex"
+    — classified as UNKNOWN and surfaced as "OPai could not complete this
+    request", hiding the actual remedy.
+    """
+
+    CODEX_400 = (
+        'Codex reported: {"type":"error","status":400,"error":'
+        '{"type":"invalid_request_error","message":"The \'gpt-5.6-terra\' model '
+        'requires a newer version of Codex. Please upgrade to the latest one or '
+        'CLI and try again."}}'
+    )
+
+    def test_codex_version_mismatch_is_named_and_actionable(self):
+        error = normalize_provider_error("codex", self.CODEX_400, model="gpt-5.6-terra")
+        self.assertEqual(error["code"], "PROVIDER_CLI_OUTDATED")
+        self.assertIn("out of date", error["title"].lower())
+        self.assertIn("@openai/codex", error["userMessage"])
+        # Retrying the same stale CLI cannot succeed, so Auto must move on
+        # rather than burn attempts on it.
+        self.assertFalse(error["retryable"])
+
+    def test_unrelated_model_errors_keep_their_own_classification(self):
+        self.assertEqual(
+            normalize_provider_error("codex", "unknown model: gpt-9")["code"],
+            "MODEL_UNAVAILABLE",
+        )
+        self.assertEqual(
+            normalize_provider_error("codex", "401 invalid authentication")["code"],
+            "AUTH_INVALID",
+        )
 
 
 if __name__ == "__main__":

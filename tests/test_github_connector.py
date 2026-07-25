@@ -96,6 +96,44 @@ class ConnectTests(unittest.TestCase):
         self.assertTrue(gc.public_read_allowed())
         self.assertTrue(gc.github_status()["allow_public_read"])
 
+    def test_verify_without_token_explains_the_gap(self):
+        # Bug 5: a doctor test with no token must give a concrete reason, not a
+        # bare failure.
+        result = gc.verify_github_connection(http=_http_ok())
+        self.assertFalse(result["connected"])
+        self.assertEqual(result["authStatus"], "not_configured")
+        self.assertIn("No GitHub token", result["safeDiagnostic"])
+        self.assertIn("lastCheckedAt", result)
+
+    def test_verify_with_valid_token_reports_login(self):
+        gc.connect_github("ghp_test", http=_http_ok("frist"))
+        result = gc.verify_github_connection(http=_http_ok("frist"))
+        self.assertTrue(result["connected"])
+        self.assertEqual(result["authStatus"], "connected")
+        self.assertIn("frist", result["safeDiagnostic"])
+        # The token value must never leak into the diagnostic.
+        self.assertNotIn("ghp_test", result["safeDiagnostic"])
+
+    def test_verify_with_rejected_token_names_the_cause(self):
+        gc.connect_github("ghp_test", http=_http_ok())
+        result = gc.verify_github_connection(
+            http=lambda m, u, t, p: (401, {"message": "Bad credentials"})
+        )
+        self.assertFalse(result["connected"])
+        self.assertEqual(result["authStatus"], "invalid")
+        self.assertIn("rejected", result["safeDiagnostic"])
+
+    def test_verify_survives_a_network_error(self):
+        gc.connect_github("ghp_test", http=_http_ok())
+
+        def boom(method, url, token, payload):
+            raise OSError("no network")
+
+        result = gc.verify_github_connection(http=boom)
+        self.assertFalse(result["connected"])
+        self.assertEqual(result["authStatus"], "provider_unavailable")
+        self.assertIn("api.github.com", result["safeDiagnostic"])
+
         disabled = gc.set_public_read_allowed(False)
         self.assertFalse(disabled["allow_public_read"])
         self.assertFalse(gc.public_read_allowed())

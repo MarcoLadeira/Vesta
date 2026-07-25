@@ -37,7 +37,9 @@
     plan: "Describe the changes without touching files.",
     "safe-auto": "Review each change before it is applied.",
     "approve-edits": "Apply edits; ask before running commands.",
-    "full-auto": "Apply changes and run commands. You can undo anything.",
+    // Round 5 finding 1: "You can undo anything" is not true of a push, and this
+    // row sits next to the mode the user is choosing — so it names the exception.
+    "full-auto": "Apply changes and run commands. Pushing still asks first.",
   };
   // Dot colour: teal accent for calm modes, amber caution for the autonomous
   // ones, muted for plan-only. Never red — informative, not alarming.
@@ -184,18 +186,25 @@
     var st = state();
     var modes = boot().modes || [];
     var cur = (st.mode && st.mode.id) || "";
+    var selectedModel = st.model || {};
+    var editsUnavailable = selectedModel.repo_editing === false;
     var pop = els.modePop;
     pop.innerHTML =
       '<div class="cpop-head">When OPai makes changes</div>' +
       modes.map(function (m) {
+        var editMode = ["safe-auto", "approve-edits", "full-auto"].indexOf(m.id) >= 0;
         return menuRow({
           role: "menuitemradio",
           title: MODE_LABEL[m.id] || m.label,
           desc: MODE_DESC[m.id] || "",
           active: m.id === cur,
           dot: dotVar(MODE_DOT[m.id] || "accent"),
+          disabled: editsUnavailable && editMode,
         }).replace('class="cpop-row', 'data-id="' + esc(m.id) + '" class="cpop-row');
-      }).join("");
+      }).join("") +
+      (editsUnavailable
+        ? '<p class="cpop-note cpop-note-warn">Update this provider CLI to enable scoped edits. Ask and Plan remain available.</p>'
+        : "");
     pop.querySelectorAll("[data-id]").forEach(function (row) {
       row.onclick = function () { setMode(row.dataset.id); closePopovers(); };
     });
@@ -559,6 +568,7 @@
     setStyle: setStyle,
     currentStyle: currentStyle,
     applyBootStyle: function () { setStyle((boot().prefs || {}).composerStyle || DEFAULT_STYLE); },
+    openModel: openModel,
     closePopovers: closePopovers,
   };
 })(typeof window !== "undefined" ? window : this);

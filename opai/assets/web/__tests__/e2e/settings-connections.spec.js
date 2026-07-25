@@ -92,7 +92,9 @@ test("settings renders disconnected accounts without crashing", async ({ page })
 test("connect accounts action delegates to the safe native tool", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "providers");
-  await page.getByRole("button", { name: "Connect accounts" }).click();
+  // Bug 7: the button is "Connect CLI accounts…" now — it opens a guided
+  // sign-in for the CLI accounts only, which the API-key section above does not.
+  await page.locator("#setConnect").click();
   expect(await page.evaluate(() => window.__mock.runTools)).toEqual(["connect"]);
   await expect(page.locator("#view-chat")).toBeVisible();
 });

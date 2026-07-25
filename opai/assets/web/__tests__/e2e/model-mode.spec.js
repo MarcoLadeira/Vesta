@@ -35,6 +35,27 @@ test("Safe Auto is default and Full Auto is never silently selected", async ({ p
   await expect(page.locator("#modeSel")).not.toHaveValue("full-auto");
 });
 
+test("leaving Full Auto immediately updates the header as well as the composer", async ({ page }) => {
+  await openApp(page, {
+    boot: {
+      prefs: { mode: "full-auto", fullAutoPinned: true },
+      autonomy: {
+        requested_mode: "full-auto", effective_mode: "full-auto",
+        full_auto_pinned: true, downgraded: false, reason: "",
+      },
+      status: { on: true, line: "Claude · Full Auto · $0.00 today · $0.00 saved" },
+    },
+  });
+  await expect(page.locator("#modeSel")).toHaveValue("full-auto");
+
+  await page.selectOption("#modeSel", "ask");
+
+  await expect(page.locator("#modeSel")).toHaveValue("ask");
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Ask");
+  await expect(page.locator("#statusLine")).toContainText("Ask");
+  await expect(page.locator("#statusLine")).not.toContainText("Full Auto");
+});
+
 test("model selection updates the provider signal and CLI mirror", async ({ page }) => {
   await openApp(page);
   await page.selectOption("#modelSel", "account:codex:gpt-5.5");
@@ -82,6 +103,11 @@ test("selecting Full Auto shows a styled in-chat confirm, no native dialog (#151
   await expect(page.locator(".inline-confirm")).toBeVisible();
   await expect(page.locator(".inline-confirm .ic-title")).toContainText("Pin Full Auto");
   expect(dialogs).toBe(0);
+  // Round 5 finding 1: the copy must promise only what the gate does. Pushing
+  // asks every time; deploys and destructive commands are refused outright — the
+  // old wording lumped all three together as "still ask for confirmation".
+  await expect(page.locator(".inline-confirm")).toContainText("asks for your approval each time");
+  await expect(page.locator(".inline-confirm")).toContainText("refused");
   // Cancelling keeps the current mode and does not pin (#137).
   await page.click('.inline-confirm [data-ic="cancel"]');
   await expect(page.locator("#modeSel")).toHaveValue("safe-auto");
@@ -91,10 +117,17 @@ test("selecting Full Auto shows a styled in-chat confirm, no native dialog (#151
 test("confirming the Full Auto card pins it via the dedicated bridge slot (#137/#151)", async ({ page }) => {
   await openApp(page);
   page.on("dialog", async (dialog) => { await dialog.accept(); });
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Ask before edits");
   await page.selectOption("#modeSel", "full-auto");
   await page.click('.inline-confirm [data-ic="ok"]');
   expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(1);
   await expect(page.locator("#modeSel")).toHaveValue("full-auto");
+  // Round 5 finding 4: pinning repainted the top bar but left the composer's own
+  // run-mode control reading "Ask" until the next message was sent. Every mode
+  // surface must agree immediately, with no send in between.
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Auto-apply");
+  await expect(page.locator("#composerSummary")).toContainText("Auto-apply");
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
   // A plain savePref for full-auto must never be used to persist it.
   const savedFullAuto = await page.evaluate(() =>
     window.__mock.savedPrefs.filter((p) => p[0] === "default_mode" && p[1] === "full-auto").length

@@ -82,14 +82,43 @@
     );
   }
 
+  // Bug 11: the first task runs against whatever project is currently open,
+  // reading its real uncommitted changes. Name that project so the user knows
+  // exactly what "Run this task now" will read — pure and exported so the
+  // transparency contract is unit-testable.
+  function firstTaskTarget(ctx) {
+    var ws = (ctx && ctx.boot && ctx.boot.workspace) || {};
+    var name = ws.label || ws.name || "the current project";
+    var dirty = (ws.dirty_paths || []).length;
+    var e = (ctx && ctx.esc) || function (v) { return String(v); };
+    return (
+      "This reads <b>" +
+      e(name) +
+      "</b>" +
+      (dirty
+        ? " (" + dirty + " uncommitted change" + (dirty === 1 ? "" : "s") + ")"
+        : "") +
+      " — it only summarizes, it never edits."
+    );
+  }
+
   function taskStep(ctx) {
+    // The footer's default/primary button finishes the tour (see STEPS), not
+    // runs a task, so a brand-new user reflexively clicking the primary CTA on
+    // their real work folder never kicks off a run. Sending is a deliberate,
+    // clearly-labelled opt-in below.
+    var target = firstTaskTarget(ctx);
     return (
       '<div class="ob-eyebrow">Step 3 of 3</div>' +
       '<h2 class="ob-title">Earn your first receipt</h2>' +
-      '<p class="ob-body">Run a first task. OPai plans it, routes it locally when it can, and hands you a receipt showing exactly what it cost — and what it saved.</p>' +
+      '<p class="ob-body">Try a first task whenever you\'re ready. OPai plans it, routes it locally when it can, and hands you a receipt showing exactly what it cost — and what it saved.</p>' +
       '<div class="ob-task" data-ob="task">' +
       ctx.esc(SUGGESTED_TASK) +
       "</div>" +
+      '<p class="ob-note">' +
+      target +
+      "</p>" +
+      '<button class="btn" type="button" data-ob="send">Run this task now</button>' +
       '<p class="ob-note">Runs through the same cost firewall as always — a paid model always asks first.</p>'
     );
   }
@@ -97,7 +126,7 @@
   var STEPS = [
     { render: connectStep, primary: null },
     { render: modelStep, primary: null },
-    { render: taskStep, primary: { action: "send", label: "Send my first task" } },
+    { render: taskStep, primary: { action: "finish", label: "Finish" } },
   ];
 
   // ---- overlay lifecycle ------------------------------------------------- #
@@ -178,6 +207,9 @@
       model.onchange = function () {
         if (ctx.pickModel) ctx.pickModel(model.value);
       };
+    on("finish", function () {
+      _seenAndClose(ctx);
+    });
     on("send", function () {
       _seenAndClose(ctx);
       if (ctx.sendPrompt) ctx.sendPrompt(SUGGESTED_TASK);
@@ -213,6 +245,13 @@
     maybeStart: maybeStart,
     replay: replay,
     connectedCount: connectedCount,
+    firstTaskTarget: firstTaskTarget,
+    // The last step's footer primary action — "finish", never "send", so the
+    // reflexive primary click can't run a task on real work (Bug 11).
+    lastStepPrimaryAction: function () {
+      var last = STEPS[TOTAL_STEPS - 1];
+      return (last && last.primary && last.primary.action) || "";
+    },
     SUGGESTED_TASK: SUGGESTED_TASK,
     TOTAL_STEPS: TOTAL_STEPS,
   };

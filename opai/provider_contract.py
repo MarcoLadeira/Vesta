@@ -37,6 +37,7 @@ ERROR_CODES = (
     "NETWORK_ERROR",
     "MODEL_UNAVAILABLE",
     "CONFIG_INVALID",
+    "PROVIDER_CLI_OUTDATED",
     "CONTEXT_TOO_LARGE",
     "STREAM_ABORTED",
     "USER_CANCELLED",
@@ -132,6 +133,22 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
         "actions": ["repair_config", "open_settings", "show_details"],
         "retryable": False,
     },
+    # The installed provider CLI is too old for the model it was asked to run —
+    # e.g. Codex answering `The 'gpt-5.6-terra' model requires a newer version
+    # of Codex`. This used to fall through to UNKNOWN ("OPai could not complete
+    # this request"), which hid a one-command fix and made Codex look broken as
+    # a fallback provider. Not retryable: retrying the same CLI cannot succeed.
+    "PROVIDER_CLI_OUTDATED": {
+        "authStatus": "misconfigured",
+        "title": "This provider's CLI is out of date.",
+        "userMessage": (
+            "The installed CLI is too old for the model it was asked to run. "
+            "Update it, then retry — for Codex: npm install -g @openai/codex "
+            "(or `brew upgrade codex`). Until then, pick another model."
+        ),
+        "actions": ["change_mode", "open_settings", "show_details"],
+        "retryable": False,
+    },
     "CONTEXT_TOO_LARGE": {
         "authStatus": "connected",
         "title": "This request contains too much context.",
@@ -224,6 +241,7 @@ def classify_error_code(
         for phrase in (
             "quota exceeded",
             "exceeded your monthly quota",
+            "monthly spend limit",
             "insufficient balance",
             "insufficient credit",
             "insufficient_quota",
@@ -280,6 +298,15 @@ def classify_error_code(
         "unknown variant" in low and "expected" in low
     ):
         return "CONFIG_INVALID"
+    # The CLI itself is too old for the requested model. Classify before
+    # MODEL_UNAVAILABLE: the model exists and the account may well have access —
+    # what is stale is the locally installed CLI, and only upgrading fixes it.
+    if "requires a newer version" in low or (
+        ("upgrade" in low or "update" in low)
+        and "cli" in low
+        and ("newer version" in low or "latest version" in low)
+    ):
+        return "PROVIDER_CLI_OUTDATED"
     if any(
         word in low
         for word in ("unknown model", "model not found", "model unavailable")
@@ -323,11 +350,24 @@ def normalize_provider_error(
     safe_detail = dedupe_error_text(redact_secrets(detail))
     code = classify_error_code(safe_detail, returncode=returncode, timed_out=timed_out)
     spec = _ERROR_SPECS[code]
+    user_message = spec["userMessage"]
+    if (
+        code == "PROVIDER_QUOTA_EXHAUSTED"
+        and str(provider or "").lower() == "claude"
+        and "monthly spend limit" in safe_detail.lower()
+    ):
+        # Claude's CLI puts this actionable billing diagnosis in its raw stream.
+        # Keep the raw diagnostic in technicalMessage, but make the safe remedy
+        # visible without requiring a first-time user to discover Show details.
+        user_message = (
+            "Claude says you've hit your monthly spend limit. Wait for it to "
+            "reset, raise it at https://claude.ai/settings/usage, or switch model."
+        )
     return {
         "code": code,
         "authStatus": spec["authStatus"],
         "title": spec["title"],
-        "userMessage": spec["userMessage"],
+        "userMessage": user_message,
         "recoveryActions": list(spec["actions"]),
         "technicalMessage": safe_detail,
         "provider": str(provider or "unknown"),

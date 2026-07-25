@@ -30,4 +30,22 @@ describe("onboarding gating (#250)", () => {
     expect(typeof OPaiOnboarding.SUGGESTED_TASK).toBe("string");
     expect(OPaiOnboarding.SUGGESTED_TASK.length).toBeGreaterThan(0);
   });
+
+  it("names the project the first task will read (Bug 11 transparency)", () => {
+    const ctx = {
+      esc: (v) => String(v),
+      boot: { workspace: { label: "MarcoLadeiraWebsite", dirty_paths: ["a", "b", "c", "d", "e"] } },
+    };
+    const target = OPaiOnboarding.firstTaskTarget(ctx);
+    expect(target).toContain("MarcoLadeiraWebsite");
+    expect(target).toContain("5 uncommitted changes");
+    expect(target).toContain("never edits");
+  });
+
+  it("keeps the first task opt-in: the primary CTA finishes, never sends (Bug 11)", () => {
+    // A brand-new user reflexively clicking the emphasized primary button must
+    // not run a task against their real work folder.
+    expect(OPaiOnboarding.lastStepPrimaryAction()).toBe("finish");
+    expect(OPaiOnboarding.lastStepPrimaryAction()).not.toBe("send");
+  });
 });

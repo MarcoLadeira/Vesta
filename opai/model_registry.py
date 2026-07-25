@@ -110,7 +110,9 @@ _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
         ModelSpec(
             "claude-sonnet-4.6", "Claude Sonnet", "Claude Sonnet 4.6", "balanced"
         ),
-        ModelSpec("gpt-5.2", "GPT-5.2", "GPT-5.2", "best"),
+        # Copilot CLI 1.0.74 documents gpt-5.4 as its OpenAI model example and
+        # rejects the old picker entry gpt-5.2 as unavailable.
+        ModelSpec("gpt-5.4", "GPT-5.4", "GPT-5.4", "best"),
         ModelSpec("claude-haiku-4.5", "Claude Haiku", "Claude Haiku 4.5", "fast"),
     ),
     # Free API tier (F2): picker-visible free models are registered here too,

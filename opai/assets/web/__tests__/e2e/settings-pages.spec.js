@@ -61,6 +61,14 @@ test("clicking a rail page switches to that page only", async ({ page }) => {
   await expect(railItem(page, "providers")).not.toHaveAttribute("aria-current", "page");
 });
 
+test("About shows the exact hosted asset build identity", async ({ page }) => {
+  await railItem(page, "about").click();
+  const settings = page.locator("#settingsPage");
+  await expect(settings).toContainText("ASSET BUILD", seen);
+  await expect(settings).toContainText("7ac9f12b4e88", seen);
+  await expect(settings).toContainText("source checkout", seen);
+});
+
 test("choosing a page writes a deep link that survives leaving settings", async ({ page }) => {
   await railItem(page, "privacy").click();
   expect(page.url()).toContain("#settings/privacy");

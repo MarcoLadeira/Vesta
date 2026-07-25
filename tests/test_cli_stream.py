@@ -33,7 +33,7 @@ class NormalizeModelTests(unittest.TestCase):
             normalize_model_choice("codex:gpt-5.5"), "account:codex:gpt-5.5"
         )
         self.assertEqual(
-            normalize_model_choice("copilot:gpt-5.2"), "account:copilot:gpt-5.2"
+            normalize_model_choice("copilot:gpt-5.4"), "account:copilot:gpt-5.4"
         )
 
     def test_full_and_local_ids_pass_through(self):
@@ -118,6 +118,24 @@ class StreamAskTests(unittest.TestCase):
         self.assertIn("Partial —", joined)
         self.assertIn("no changed-file or diff evidence", joined)
         self.assertNotIn("✓ done in", joined)
+        # No success claim in the streamed prose, so no contradiction note.
+        self.assertNotIn("treat the claim as unconfirmed", joined)
+
+    def test_a_success_claim_the_verdict_denies_is_called_out(self):
+        # Round 5 finding 2 in the CLI's own two surfaces: the streamed prose
+        # claims the push landed, the outcome block says the run did not verify.
+        # The block has to name the disagreement, not leave the reader to spot it.
+        code, lines = self._run(
+            FakeStreamingRunner(
+                chunks=["The branch has been successfully pushed to origin."]
+            ),
+            task="Fix parser.py and push it.",
+            mode="safe-auto",
+        )
+
+        joined = "\n".join(lines)
+        self.assertEqual(code, 2)
+        self.assertIn("treat the claim as unconfirmed", joined)
 
     def test_json_output_is_machine_readable(self):
         buf = io.StringIO()

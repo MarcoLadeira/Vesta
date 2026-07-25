@@ -102,9 +102,28 @@ class DestructiveGateGhMutationTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertFalse(is_destructive_command(command.split()), command)
 
+    def test_single_file_delete_is_destructive(self):
+        # Bug 9: deleting a file through the command channel must hit the same
+        # destructive gate as the "Delete files" permission, so "Run any
+        # command: Allow" cannot silently bypass "Delete files: Ask". Not just
+        # the recursive spellings — a plain single-file delete counts.
+        for command in (
+            "rm opai-test-notes.md",
+            "rm -f notes.md",
+            "del notes.md",
+            "erase notes.md",
+            "unlink notes.md",
+            "Remove-Item notes.md",
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(is_destructive_command(command.split()), command)
+        self.assertTrue(
+            is_destructive_command(["bash", "-c", "rm opai-test-notes.md"])
+        )
+
     def test_git_commit_is_not_destructive(self):
-        # Local and undoable: confirm-only in the YAML policy, never a hard
-        # destructive block.
+        # Local and undoable: never a hard destructive block (and, since Bug 2,
+        # not confirm-gated either — see ConfirmPolicyGhMutationTests).
         self.assertFalse(is_destructive_command(["git", "commit", "-m", "msg"]))
 
     def test_local_git_reads_are_not_destructive(self):
@@ -144,9 +163,17 @@ class ConfirmPolicyGhMutationTests(unittest.TestCase):
                 with self.subTest(command=command):
                     self._confirm(command, root)
 
-    def test_git_commit_and_plain_git_push_require_confirmation(self):
-        self._confirm("git commit -m 'wip'", REPO_ROOT)
+    def test_plain_git_push_requires_confirmation(self):
         self._confirm("git push origin main", REPO_ROOT)
+
+    def test_local_git_commit_is_allowed_not_confirmed(self):
+        # Bug 2: a local commit is undoable and must run autonomously in Full
+        # Auto, so it is no longer confirm-gated (the hook hard-denies
+        # confirm-only commands non-interactively, which blocked committing at
+        # all). Push and the gh mutations stay gated.
+        with mock.patch.dict(os.environ, {"OPAI_HUB_ROOT": ""}):
+            result = classify_command("git commit -m 'wip'", REPO_ROOT)
+        self.assertEqual(result["decision"], "allow", result)
 
     def test_shell_wrapped_gh_mutation_requires_confirmation(self):
         self._confirm("bash -c 'gh issue close 219'", REPO_ROOT)
@@ -173,7 +200,6 @@ class ConfirmPolicyGhMutationTests(unittest.TestCase):
 
     def test_both_yaml_copies_carry_every_gh_rule(self):
         required = (
-            "git commit",
             "gh issue close",
             "gh issue comment",
             "gh issue create",

@@ -54,6 +54,35 @@ test("mode popover offers every autonomy level with plain-language descriptions"
   ]);
 });
 
+test("edit modes are disabled when the selected CLI lacks scoped edit controls", async ({ page }) => {
+  await openApp(page, {
+    boot: {
+      models: [
+        {
+          id: "account:copilot:gpt-5.4",
+          label: "Copilot · GPT-5.4",
+          kind: "account",
+          group: "copilot",
+          provider: "copilot",
+          available: true,
+          healthy: true,
+          repo_editing: false,
+        },
+      ],
+      selectedModel: "account:copilot:gpt-5.4",
+    },
+  });
+
+  await page.locator("#modeBtn").click();
+  const menu = page.locator("#modePop");
+  await expect(menu).toContainText("Update this provider CLI to enable scoped edits");
+  await expect(menu.locator('[data-id="ask"]')).toBeEnabled();
+  await expect(menu.locator('[data-id="plan"]')).toBeEnabled();
+  await expect(menu.locator('[data-id="safe-auto"]')).toBeDisabled();
+  await expect(menu.locator('[data-id="approve-edits"]')).toBeDisabled();
+  await expect(menu.locator('[data-id="full-auto"]')).toBeDisabled();
+});
+
 test("model popover shows working models, balances, and explains removals", async ({ page }) => {
   // Redesigned picker contract: the Auto card is pinned on top; only
   // configured models appear (unconfigured ones live in Manage models);
@@ -161,6 +190,13 @@ test("empty prompts are explained instead of silently discarded", async ({ page 
   await expect(page.locator("#composerReason")).toContainText("Write a prompt before sending");
   await page.locator("#input").fill("Check the project setup");
   await expect(page.locator("#send")).toBeEnabled();
+});
+
+test("an empty prompt never offers connection settings for an already connected account", async ({ page }) => {
+  await openApp(page);
+  await page.locator("#modelSel").selectOption("account:claude:opus");
+  await expect(page.locator("#composerReason")).toContainText("Write a prompt before sending");
+  await expect(page.getByRole("button", { name: "Open Settings" })).toHaveCount(0);
 });
 
 test("Shift+Enter adds a line while Enter sends and the hint explains both", async ({ page }) => {

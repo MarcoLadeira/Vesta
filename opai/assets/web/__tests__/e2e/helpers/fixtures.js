@@ -49,9 +49,9 @@ export const MODELS = [
     badge: "fast · high · $$",
   },
   {
-    id: "account:copilot:gpt-5.2",
-    label: "Copilot · GPT-5.2",
-    advanced_label: "Copilot GPT-5.2 (fast · high · $$)",
+    id: "account:copilot:gpt-5.4",
+    label: "Copilot · GPT-5.4",
+    advanced_label: "Copilot GPT-5.4 (fast · high · $$)",
     kind: "account",
     group: "copilot",
     provider: "copilot",
@@ -311,6 +311,11 @@ export const SETTINGS = {
   about: {
     version: "0.2.0a1",
     release_stage: "alpha.1",
+    build: {
+      assetFingerprint: "7ac9f12b4e88aabbccddeeff00112233445566778899aabbccddeeff00112233",
+      assetCount: 9,
+      runtimeSource: "source_checkout",
+    },
     update: {
       current_version: "0.2.0a1", checked: true, up_to_date: true,
       latest_version: "0.2.0a1", commits_behind: 0, branch: "main", reason: null,

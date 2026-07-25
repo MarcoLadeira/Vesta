@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from . import command_consent
 from .agent_policy import (
     AgentMode,
     build_capability_contract,
@@ -21,6 +22,7 @@ from .checkpoints import create_run_checkpoint, finalize_run_checkpoint
 from .completion import (
     CompletionVerdict,
     CompletionState,
+    answer_contradicts_verdict,
     completion_state_from_legacy,
     evaluate_completion,
     objective_from_request,
@@ -86,14 +88,54 @@ _CHANGE_EVIDENCE_TOOLS = frozenset(
 )
 
 
-def _has_change_evidence(result: Mapping[str, Any] | None) -> bool:
+def repo_fingerprint(root: Path) -> tuple[str, tuple[str, ...]]:
+    """A cheap, read-only snapshot of repository state: (HEAD sha, dirty paths).
+
+    Used to tell "this run really changed the repository" from "this run only
+    said it did", for runs whose changes OPai cannot see in its own tool trace.
+    Returns ``("", ())`` for a non-repo or any git failure, which compares equal
+    to itself and so can only ever *withhold* evidence, never invent it.
+    """
+
+    from .repo_context import resolve_repo_context
+
+    try:
+        context = resolve_repo_context(root)
+        if not context.is_git:
+            return "", ()
+        head = _run_git_text(context.path, ["rev-parse", "HEAD"])
+        return head, tuple(context.dirty_paths)
+    except Exception:  # noqa: BLE001 - a probe must never break the run
+        return "", ()
+
+
+def _run_git_text(root: Path, argv: list[str]) -> str:
+    from .repo_context import _git_text
+
+    return _git_text(root, argv)
+
+
+def _has_change_evidence(
+    result: Mapping[str, Any] | None,
+    *,
+    repo_changed: bool = False,
+) -> bool:
     """True only when a run produced verifiable evidence of a change.
 
     The honesty gate for F14/F24: an edit-intent run may not be celebrated as
     "OPai completed" when nothing actually changed — no changed files and no
     successful mutating tool call in the trace.
+
+    ``repo_changed`` closes the other half of the gap (Round 2): an account
+    provider CLI does its own git work through its own shell, so a real commit
+    left no ``changed_files`` and no OPai tool_trace entry, and a genuinely
+    successful commit was stamped "Partial — no changed-file or diff evidence".
+    A moved HEAD or a changed working tree, measured across the run, is exactly
+    the verifiable evidence this gate asks for — so it counts.
     """
 
+    if repo_changed:
+        return True
     if not isinstance(result, Mapping):
         return False
     if list(result.get("changed_files") or []):
@@ -114,6 +156,9 @@ def _command_approval(result: Mapping[str, Any] | None) -> dict[str, str] | None
     carrying ``{"command", "reason"}``. ``opaihub.ask.run_explicit_model``
     normalizes that into ``result["command_approval"]``; the trace error code
     is the fallback for results that did not pass through that normalization.
+
+    Consuming: the out-of-process fallback below *clears* the record it reads, so
+    call this once per provider run — which is what every dispatch path does.
     """
 
     if not isinstance(result, Mapping):
@@ -135,7 +180,12 @@ def _command_approval(result: Mapping[str, Any] | None) -> dict[str, str] | None
         if command:
             reason = str(item.get("reason") or item.get("message") or "").strip()
             return {"command": command, "reason": reason}
-    return None
+    # Round 5 finding 1: a provider CLI runs git in its own shell, so its gated
+    # commands are refused by the PreToolUse hook — a separate process that has no
+    # way to put anything into this result. It records the refusal on disk
+    # instead; reading it here is what turns "the push silently didn't happen"
+    # into the same approval card every other channel gets.
+    return command_consent.take_pending()
 
 
 def _edit_denials(result: Mapping[str, Any] | None) -> list[str]:
@@ -572,9 +622,50 @@ def handle_gui_message(
         )
 
     root = project_root.expanduser().resolve()
+    # Baseline for the change-evidence gate, taken before any provider runs.
+    # A provider CLI commits through its own shell, so the only proof OPai can
+    # trust for those runs is the repository itself moving (Round 2).
+    _repo_baseline = repo_fingerprint(root)
+
+    def _repo_changed() -> bool:
+        """True when this turn actually moved HEAD or the working tree."""
+        if _repo_baseline == ("", ()):
+            return False
+        return repo_fingerprint(root) != _repo_baseline
+
+    def _repo_change_evidence(current: Any) -> dict[str, Any]:
+        """Describe how the repository moved during this turn, for the verdict.
+
+        ``current`` is the already-resolved post-run repo context, so this costs
+        one extra ``rev-parse`` rather than a second full status scan.
+        """
+        baseline_head, baseline_dirty = _repo_baseline
+        if not baseline_head:
+            return {"changed": False}
+        head = _run_git_text(current.path, ["rev-parse", "HEAD"])
+        if head and head != baseline_head:
+            return {
+                "changed": True,
+                "kind": "commit",
+                "detail": f"New commit on this branch ({head[:7]})",
+            }
+        dirty = tuple(current.dirty_paths)
+        if dirty != baseline_dirty:
+            return {
+                "changed": True,
+                "kind": "worktree",
+                "detail": "Working tree changed during this run",
+            }
+        return {"changed": False}
+
     _phase("request_prepare", "running", "Preparing request")
     # One-shot exact-command grant from a command-approval re-send (F17/F9).
     command_grant = str(allow_command or allowCommand or "").strip() or None
+    # Arm (or clear) the cross-process handshake for this turn. Clearing matters
+    # most: a refusal recorded by the previous turn must not resurface as this
+    # turn's approval card, and a grant the user issued earlier must not
+    # authorize a push they were never asked about (Round 5 finding 1).
+    command_consent.begin_turn(command_grant)
     # One-shot edit grant from an edit-approval re-send (F26).
     edit_grant = bool(allow_edits_once or allowEditsOnce)
     prefs = load_gui_preferences(root)
@@ -804,10 +895,18 @@ def handle_gui_message(
         objective = turn_objective
         raw_terminal = payload.get("raw_result")
         raw_terminal = raw_terminal if isinstance(raw_terminal, Mapping) else {}
+        # Round 2: committing clears the dirty paths a run created, so an
+        # edit-intent turn that genuinely committed ended with zero changed
+        # files, zero attributed paths, and a "Partial — no changed-file or diff
+        # evidence" banner on real, verified work. Measure the repository itself
+        # instead: a moved HEAD is proof a commit landed, and a changed dirty set
+        # is proof the tree moved, whichever shell did the work.
+        repo_change = _repo_change_evidence(current_repo)
         evidence_payload = {
             **payload,
             "changed_files": list(attributed_paths),
             "diff_review": diff_review,
+            "repo_change": repo_change,
             "completion_state": payload.get("completion_state")
             or raw_terminal.get("completion_state"),
             "stopped_reason": payload.get("stopped_reason")
@@ -816,6 +915,14 @@ def handle_gui_message(
         verdict = evaluate_completion(objective, evidence_payload)
         verdict_payload = verdict.to_dict()
         stored_verdict = verdict.to_dict(include_objective_text=False)
+        # Round 5 finding 2: the same turn showed a red "Failed" pill and prose
+        # reading "has been successfully pushed to the origin remote". OPai cannot
+        # tell from prose which one is right, so it must not let the claim stand
+        # unqualified — the renderer reads this flag and marks the claim
+        # unverified, so pill and prose can no longer say opposite things.
+        verdict_payload["answer_conflicts"] = answer_contradicts_verdict(
+            str(payload.get("answer") or ""), verdict.verdict
+        )
         verdict_event_status = (
             "success"
             if verdict.verdict is CompletionVerdict.COMPLETED
@@ -824,6 +931,11 @@ def handle_gui_message(
             else "error"
             if verdict.verdict in {CompletionVerdict.FAILED, CompletionVerdict.TIMEOUT}
             else "warning"
+        )
+        verdict_event_title = (
+            "Response received — content not independently verified"
+            if verdict.reason_code == "answer_delivered"
+            else f"{verdict.verdict.value.replace('_', ' ').title()} — {verdict.reason}"
         )
         if (
             verdict.verdict is CompletionVerdict.COMPLETED
@@ -834,11 +946,11 @@ def handle_gui_message(
             # the objective actually verified, re-close that same row green — a
             # genuinely completed run must never end on an amber phase (#225).
             # A row already closed green (e.g. "Request sent") keeps its title.
-            _phase(_phase_state["etype"], "success", "Completed — objective verified")
+            _phase(_phase_state["etype"], "success", verdict_event_title)
         _emit(
             "completion_verdict",
             verdict_event_status,
-            f"{verdict.verdict.value.replace('_', ' ').title()} — {verdict.reason}",
+            verdict_event_title,
             metadata={
                 "verdict": verdict.verdict.value,
                 "reason_code": verdict.reason_code,
@@ -875,7 +987,9 @@ def handle_gui_message(
             status == "answered"
             and edit_intent
             and not attributed_paths
-            and not _has_change_evidence(payload)
+            and not _has_change_evidence(
+                payload, repo_changed=bool(repo_change.get("changed"))
+            )
         )
         # Canonical completion for phase labels (QA pass-2): a run that the
         # runner says stopped/stuck must not be labelled "Completed" just
@@ -1134,6 +1248,10 @@ def handle_gui_message(
         # here, from the assembled record, so the GUI copy action and any other
         # surface export identical content (never a display-side recomputation).
         decorated["run_summary"] = build_run_summary(decorated)
+        # The turn is over: an approval the user granted for it must not survive
+        # into the next one. (A needs_command_approval turn returns here too — its
+        # grant was already spent, or was never armed.)
+        command_consent.end_turn()
         return decorated
 
     if policy.requires_confirmation:
@@ -1571,7 +1689,7 @@ def handle_gui_message(
                     if policy.mode in {
                         AgentMode.IMPLEMENT,
                         AgentMode.SHIP,
-                    } and not _has_change_evidence(result):
+                    } and not _has_change_evidence(result, repo_changed=_repo_changed()):
                         # F14/F24: an edit-intent run that changed nothing is not
                         # a green completion.
                         _phase_close("warning", "Finished with no changes")
@@ -1734,7 +1852,10 @@ def handle_gui_message(
             approval = _command_approval(result)
             if approval is not None:
                 # F17/F9: an account-side command the executor refused is a consent
-                # request, not a completed answer.
+                # request, not a completed answer. Round 5: the same is true of a
+                # push the PreToolUse hook refused out-of-process — and a Full Auto
+                # run may well have edited files before reaching it, so the real
+                # changed files ride along rather than being reported as none.
                 _emit(
                     "command_run",
                     "warning",
@@ -1756,7 +1877,7 @@ def handle_gui_message(
                         "command_approval": approval,
                         "tool_trace": tool_trace,
                         "receipt": {},
-                        "changed_files": [],
+                        "changed_files": list(result.get("changed_files") or []),
                         "warnings": [],
                         "next_actions": [
                             "Approve the exact command to let OPai run it once.",
@@ -1861,7 +1982,7 @@ def handle_gui_message(
                 if policy.mode in {
                     AgentMode.IMPLEMENT,
                     AgentMode.SHIP,
-                } and not _has_change_evidence(result):
+                } and not _has_change_evidence(result, repo_changed=_repo_changed()):
                     # F14/F24: an edit-intent run that changed nothing is not a
                     # green completion, no matter how confident the prose sounds.
                     _emit("completed", "warning", "OPai finished with no changes")

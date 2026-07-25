@@ -46,6 +46,18 @@ def is_destructive_command(command: Iterable[str]) -> bool:
         r"\brmdir\s+/s\b",
         r"\bremove-item\b[^\r\n]*-recurse\b",
         r"\bdel\s+/[sq]\b",
+        # Bug 9: deleting files is exactly what the "Delete files" permission
+        # gates, so a plain single-file delete through the command channel must
+        # be destructive too — otherwise "Run any command: Allow" silently
+        # bypasses "Delete files: Ask". Any rm/del/erase/unlink/Remove-Item with
+        # a target, not only the recursive spellings already listed above.
+        r"\brm\s+\S",
+        r"\bdel\s+\S",
+        r"\berase\s+\S",
+        r"\bunlink\s+\S",
+        r"\bremove-item\s+\S",
+        r"\bshutil\.rmtree\b",
+        r"\bos\.(?:remove|unlink)\b",
     )
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
 

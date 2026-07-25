@@ -1407,8 +1407,9 @@ def _run_gui(
             box.setText("Pin Full Auto?")
             box.setInformativeText(
                 "Full Auto lets OPai edit files and run commands without asking "
-                "first. It stays on until you unpin it. Push, deploy, and "
-                "destructive actions still ask for confirmation."
+                "first. It stays on until you unpin it. Pushing to a remote still "
+                "asks for your approval each time, and destructive actions — "
+                "force-push, deletes, deploys — are refused rather than run."
             )
             pin_btn = box.addButton(
                 "Pin Full Auto", QtWidgets.QMessageBox.ButtonRole.AcceptRole

@@ -10,6 +10,12 @@ import { openApp, openNav, finishRequest } from "./helpers/app.js";
 const fresh = { boot: { prefs: { onboardingSeen: false } } };
 const overlay = (page) => page.locator("#onboarding");
 const step = (page, action) => page.locator(`#onboarding .ob-footer [data-ob="${action}"]`);
+// Bug 11: sending the first task against the user's real folder is no longer
+// the footer's primary CTA — a brand-new user reflexively clicking "next,
+// next, primary" must not kick off a run on their working tree. The footer
+// finishes the tour; running the task is a deliberate, labelled opt-in in the
+// step body.
+const runFirstTask = (page) => page.locator('#onboarding [data-ob="send"]');
 
 test("a fresh profile is walked through all three steps and ends on a receipt", async ({ page }) => {
   await openApp(page, fresh);
@@ -25,7 +31,7 @@ test("a fresh profile is walked through all three steps and ends on a receipt", 
   await expect(overlay(page)).toContainText("Step 3 of 3");
   await expect(overlay(page)).toContainText("Summarize my uncommitted changes");
 
-  await step(page, "send").click();
+  await runFirstTask(page).click();
   // The tour got out of the way and the first task was actually sent.
   await expect(overlay(page)).toHaveCount(0);
   const req = await page.evaluate(() => window.__mock.lastRequest);
@@ -68,12 +74,30 @@ test("onboarding cannot force a cloud call — it sends through the normal gate"
   await openApp(page, fresh);
   await step(page, "next").click();
   await step(page, "next").click();
-  await step(page, "send").click();
+  await runFirstTask(page).click();
   // The first task is sent with allowCloud=false, so the pipeline still gates
   // any paid/free-model call behind the usual confirmation — onboarding cannot
   // silently reach the cloud.
   const req = await page.evaluate(() => window.__mock.lastRequest);
   expect(req.allowCloud).toBe(false);
+});
+
+test("finishing the tour does not run anything against the user's folder", async ({ page }) => {
+  // Bug 11: the footer's primary CTA used to be "Send my first task", so
+  // clicking through the tour on a real work folder started a run nobody asked
+  // for. It finishes the tour now, and the step names the project it would read.
+  await openApp(page, fresh);
+  await step(page, "next").click();
+  await step(page, "next").click();
+  await expect(overlay(page)).toContainText("it only summarizes, it never edits");
+  await step(page, "finish").click();
+
+  await expect(overlay(page)).toHaveCount(0);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
+  expect(await page.evaluate(() => window.__mock.savedPrefs)).toContainEqual([
+    "onboarding_seen",
+    "true",
+  ]);
 });
 
 test("picking a model in step 2 persists the default", async ({ page }) => {

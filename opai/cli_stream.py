@@ -95,6 +95,19 @@ def _terminal_verdict(result: dict[str, Any]) -> tuple[str, str, str] | None:
     return (verdict, reason, next_action) if verdict else None
 
 
+def _answer_conflicts(result: dict[str, Any]) -> bool:
+    """Whether the streamed answer claims success the verdict could not confirm.
+
+    Round 5 finding 2 was a GUI report — a red "Failed" pill above "successfully
+    pushed" — but the CLI has the same two surfaces: the streamed prose, then the
+    outcome block. The engine sets one flag; both surfaces must honour it, or the
+    CLI reproduces the bug the GUI just fixed.
+    """
+
+    raw = result.get("completion_verdict")
+    return isinstance(raw, dict) and raw.get("answer_conflicts") is True
+
+
 def _evidence_line(result: dict[str, Any]) -> str | None:
     """The changed-file evidence, so the CLI outcome block carries the same
     content the GUI outcome card shows (#396). Tests/answer evidence live in the
@@ -156,7 +169,12 @@ def stream_ask(
     events: list[dict[str, Any]] = []
     # One lock so activity lines, streamed text, and heartbeats never interleave.
     out_lock = threading.Lock()
-    state = {"streaming": False, "last_line_open": False, "stream_line": False}
+    state = {
+        "streaming": False,
+        "last_line_open": False,
+        "stream_line": False,
+        "stream_finished": False,
+    }
 
     def _line(text: str) -> None:
         with out_lock:
@@ -183,10 +201,20 @@ def stream_ask(
             # one at completion — the answer text itself already streams to
             # stdout, so the intermediate char-count lines are pure noise.
             if status in {"success", "error", "cancelled"}:
+                state["stream_finished"] = True
                 _line(f"{glyph} {title}" + (f"  ({detail})" if detail else ""))
             elif not state["stream_line"]:
                 state["stream_line"] = True
                 _line(f"{glyph} {title}")
+            return
+        if (
+            event.get("type") == "completion_verdict"
+            and (event.get("metadata") or {}).get("reason_code") == "answer_delivered"
+            and state["stream_finished"]
+        ):
+            # The provider's stream row already printed "Response received".
+            # Do not print the answer-delivery verdict as a second identical
+            # terminal line; the structured result still retains the verdict.
             return
         _line(f"{glyph} {title}" + (f"  ({detail})" if detail else ""))
 
@@ -279,6 +307,14 @@ def stream_ask(
                 f" ({status})" if status not in ANSWERED and status != verdict else ""
             )
             _line(f"{glyph} {label}{legacy_detail} — {reason}")
+            if _answer_conflicts(result):
+                # Round 5 finding 2: the streamed answer above claims the work
+                # succeeded. Say plainly that this verdict disagrees, so the two
+                # halves of the output cannot be read as opposite conclusions.
+                _line(
+                    "  Note: the response above claims this succeeded. OPai could "
+                    "not verify that — treat the claim as unconfirmed."
+                )
             if (evidence := _evidence_line(result)) is not None:
                 _line(f"  {evidence}")
             if next_action and verdict != "completed":

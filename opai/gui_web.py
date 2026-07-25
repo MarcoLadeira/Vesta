@@ -20,6 +20,7 @@ of truth for both surfaces.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import json
 import os
@@ -68,6 +69,43 @@ WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
 _RUNTIME_INDEX = ".runtime-index.html"
 
 _ASSET_REF = re.compile(r'(href|src)="([^"]+)"')
+
+
+def asset_build_identity(asset_dir: Path = WEB_DIR) -> dict[str, Any]:
+    """Identify the exact UI assets served by this Python host.
+
+    The package version alone cannot distinguish a stale installed GUI from a
+    source checkout carrying newer web assets. Hashing the production asset set
+    gives support, QA, and users a stable value they can compare directly.
+    """
+
+    root = asset_dir.expanduser().resolve()
+    candidates = sorted(
+        (
+            path
+            for path in root.rglob("*")
+            if path.is_file()
+            and "__tests__" not in path.relative_to(root).parts
+            and path.name != _RUNTIME_INDEX
+            and path.suffix.lower() in {".css", ".html", ".js", ".svg"}
+        ),
+        key=lambda path: path.relative_to(root).as_posix(),
+    )
+    digest = hashlib.sha256()
+    for path in candidates:
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        digest.update(relative)
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    source_root = Path(__file__).resolve().parents[1]
+    return {
+        "assetFingerprint": digest.hexdigest(),
+        "assetCount": len(candidates),
+        "runtimeSource": (
+            "source_checkout" if (source_root / ".git").exists() else "installed_package"
+        ),
+    }
 
 
 def _runtime_index_url(web_dir: Path) -> "Any":
@@ -573,6 +611,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "initialTask": initial_task or "",
         "recents": _recents(root),
         "brand": _brand(),
+        "build": asset_build_identity(),
         "tools": [
             {"id": tool["id"], "label": tool["label"], "desc": tool["desc"]}
             for tool in A.TOOLS
@@ -997,6 +1036,7 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "about": {
             "version": overview.get("version"),
             "release_stage": overview.get("release_stage"),
+            "build": asset_build_identity(),
             # Cache only — no network in the payload build; the About page
             # triggers a live (TTL-guarded) check through checkForUpdates
             # after render, same pattern as providerBalances above.
@@ -1260,6 +1300,18 @@ def _run_gui(
             self._resume_context_active = bool(context)
             return json.dumps({"activated": self._resume_context_active})
 
+        @QtCore.Slot(result=str)
+        def workspaceState(self) -> str:
+            """Re-read branch + uncommitted paths for the header badge.
+
+            The workspace block ships inside the boot payload, which is built
+            once per window. The "N uncommitted" badge next to the branch name
+            therefore froze at its startup value and kept showing a stale count
+            after a run committed files (Round 2). This recomputes it from git
+            on demand; the front end calls it whenever a turn finishes.
+            """
+            return json.dumps(_workspace(self.root))
+
         @QtCore.Slot(str, result=str)
         def inspector(self, sel_json: str) -> str:
             try:
@@ -1430,6 +1482,27 @@ def _run_gui(
 
         @QtCore.Slot(str, result=str)
         def testProvider(self, provider: str) -> str:
+            # GitHub is not an AI-provider adapter; it has its own connector, so
+            # route its test there for a real diagnostic instead of a bare
+            # "Unsupported AI provider" (Bug 5).
+            if str(provider or "").strip().lower() == "github":
+                from opaihub.github_connector import verify_github_connection
+
+                try:
+                    return json.dumps(verify_github_connection())
+                except (OSError, RuntimeError, ValueError) as exc:
+                    return json.dumps(
+                        {
+                            "provider": "github",
+                            "connected": False,
+                            "authStatus": "provider_unavailable",
+                            "safeDiagnostic": (
+                                "GitHub connection check failed unexpectedly. "
+                                "Try again shortly."
+                            ),
+                            "error": str(exc),
+                        }
+                    )
             from opaihub.provider_adapters import adapter_for
 
             try:

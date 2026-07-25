@@ -23,6 +23,8 @@
     minimize: '<path d="M6 12h12"/>',
     maximize: '<rect x="6" y="6" width="12" height="12" rx="1"/>',
     workspace: '<path d="M4 5h16v14H4z"/><path d="M4 10h16M8 5v5"/>',
+    copy: '<rect x="9" y="9" width="10" height="10" rx="2"/><path d="M15 5H6a1 1 0 0 0-1 1v9"/>',
+    copyDiff: '<path d="M8 4v10M8 4 5 7M8 4l3 3M16 20V10m0 10 3-3m-3 3-3-3"/>',
   };
 
   function icon(name, options) {

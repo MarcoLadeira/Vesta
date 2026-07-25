@@ -292,7 +292,6 @@ class RunCommandToolTests(unittest.TestCase):
                 "cmd /c git push",
                 "powershell -Command git push",
                 "git push origin main",
-                "git commit -m wip",
                 "gh issue close 219 --comment done",
                 "gh pr merge 5 --squash",
                 "gh api -X DELETE /repos/o/r",
@@ -303,6 +302,15 @@ class RunCommandToolTests(unittest.TestCase):
                     result["error_code"], "COMMAND_NEEDS_APPROVAL", command
                 )
                 self.assertFalse(result["ok"], command)
+
+            # Bug 2: a raw `git commit` is no longer confirm-gated, so the
+            # tool-loop's run_command no longer offers it an approval path —
+            # it points to the dedicated, structured git_commit tool instead.
+            commit_result = executor.invoke(
+                "run_command", {"command": "git commit -m wip"}
+            )
+            self.assertEqual(commit_result["error_code"], "COMMAND_BLOCKED")
+            self.assertFalse(commit_result["ok"])
 
         self.assertEqual(aci.calls, [])
 

@@ -38,9 +38,10 @@ class ProfileTruthTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             provider_profile("totally-made-up")
 
-    def test_copilot_cannot_edit_but_claude_and_codex_can(self):
-        # The picker must tell the truth: Copilot edits fail closed in OPai.
-        self.assertFalse(provider_profile("copilot").repo_editing)
+    def test_account_providers_expose_repo_editing_with_runtime_gates(self):
+        # Copilot is version-gated at runtime; supported CLIs get bounded tools
+        # and legacy CLIs fail closed before launch.
+        self.assertTrue(provider_profile("copilot").repo_editing)
         self.assertTrue(provider_profile("claude").repo_editing)
         self.assertTrue(provider_profile("codex").repo_editing)
 
@@ -189,7 +190,7 @@ class CanonicalHealthMappingTests(unittest.TestCase):
 class AdapterIntegrationTests(unittest.TestCase):
     def test_adapter_exposes_profile(self):
         self.assertTrue(adapter_for("claude").profile.repo_editing)
-        self.assertFalse(adapter_for("copilot").profile.repo_editing)
+        self.assertTrue(adapter_for("copilot").profile.repo_editing)
         self.assertEqual(adapter_for("gemini").profile.kind, "free")
 
     def test_adapter_health_is_pure_over_status(self):
@@ -266,10 +267,10 @@ class DoctorWiringTests(unittest.TestCase):
         for entry in entries:
             self.assertIn(entry["healthState"], valid)
 
-        # Copilot has no CLI installed -> not_installed, and it still truthfully
-        # reports that it cannot edit.
+        # Copilot has no CLI installed -> not_installed. The profile describes
+        # the adapter capability; its installed CLI is gated separately.
         self.assertEqual(by_id["copilot"]["healthState"], "not_installed")
-        self.assertFalse(
+        self.assertTrue(
             by_id["copilot"]["capabilities"]["capabilities"]["repo_editing"]
         )
 

@@ -121,7 +121,15 @@ class FreeRunnerPushPrLoopTests(unittest.TestCase):
                 ) as fake_pr,
             ):
                 result = runner.complete_with_tools(
-                    "Create a file and open a PR", project_root=root, allow_edits=True
+                    "Create a file and open a PR",
+                    project_root=root,
+                    allow_edits=True,
+                    # Round 5 finding 1: the push now needs the user's one-time
+                    # approval as well as Settings consent, so the end-to-end
+                    # proof runs with that approval armed — exactly what the GUI
+                    # threads back when the user clicks "Approve once". Opening
+                    # the PR rides on the approved push, in the same turn.
+                    allow_command="git push -u origin feat/loop",
                 )
 
             trace = {t["tool"]: t for t in result["tool_trace"]}
@@ -168,6 +176,44 @@ class FreeRunnerPushPrLoopTests(unittest.TestCase):
             self.assertFalse(push["ok"])
             self.assertEqual(push["error_code"], "TOOL_NOT_ALLOWED")
             fake_pr.assert_not_called()
+
+    def test_the_loop_stops_for_approval_when_consent_alone_is_granted(self):
+        # Round 5 finding 1: Settings consent exposes the push tool; it is not a
+        # standing approval to push. Without the one-shot grant the loop stops and
+        # asks — the confirmation the Pin Full Auto dialog promises — and nothing
+        # reaches the remote.
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repo_with_local_remote(tmp)
+            runner = FreeAPIRunner("https://api.example.test/v1", "gemini-x", "k")
+            script = [
+                _tool_turn([("git_create_branch", {"name": "feat/ask"})]),
+                _tool_turn([("git_push", {})]),
+                _final_turn("done"),
+            ]
+            with (
+                mock.patch.object(runner, "_chat", side_effect=script),
+                mock.patch("opaihub.github_connector.create_pull_request") as fake_pr,
+            ):
+                result = runner.complete_with_tools(
+                    "push it", project_root=root, allow_edits=True
+                )
+            push = next(t for t in result["tool_trace"] if t["tool"] == "git_push")
+            self.assertFalse(push["ok"])
+            self.assertEqual(push["error_code"], "COMMAND_NEEDS_APPROVAL")
+            fake_pr.assert_not_called()
+            # The branch never reached the remote.
+            branches = subprocess.run(  # nosec B603
+                ["git", "branch", "-a"],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            self.assertNotIn("origin/feat/ask", branches)
+            # And the loop surfaced it as a consent stop, not a completion.
+            self.assertEqual(result.get("stopped_reason"), "approval_required")
 
 
 if __name__ == "__main__":

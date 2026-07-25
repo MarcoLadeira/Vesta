@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -574,7 +575,8 @@ def available_models(
         for provider, health in account_health.items()
     }
     accounts = account_models(
-        accounts=detected_accounts, account_types=account_types
+        accounts=detected_accounts,
+        account_types=account_types,
     )
     account_catalog = account_models(
         include_unavailable=True,
@@ -613,6 +615,8 @@ def available_models(
                     if known_unavailable
                     else account.get("disabled_reason")
                 ),
+                "repo_editing": account.get("repo_editing"),
+                "cli_version": account.get("cli_version", ""),
             }
         )
 
@@ -1102,21 +1106,6 @@ def _ask_account(
             "reason": "Panic mode is on (local-only). Turn panic off to use a paid account.",
         }
 
-    if account_id == "copilot" and allow_edits:
-        return {
-            "status": "capability_mismatch",
-            "provider": "copilot",
-            "capability": "edit_files",
-            "reason": (
-                "OPai cannot safely grant Copilot edit access because its "
-                "non-interactive CLI currently exposes only an all-tools bypass."
-            ),
-            "hint": (
-                "Switch to Ask or Plan, or choose a provider with enforceable "
-                "workspace-scoped edit controls."
-            ),
-        }
-
     from opaihub.accounts import runner_for_account
 
     run = runner if runner is not None else runner_for_account(account_id, model=model)
@@ -1126,6 +1115,26 @@ def _ask_account(
             "provider": account_id,
             "hint": f"Connect your {account_id} account: run `{account_id}` once and sign in.",
         }
+    if account_id == "copilot" and allow_edits:
+        capability_check = getattr(run, "supports_scoped_editing", None)
+        try:
+            scoped_editing = bool(capability_check()) if callable(capability_check) else False
+        except (OSError, subprocess.SubprocessError):
+            scoped_editing = False
+        if not scoped_editing:
+            return {
+                "status": "capability_mismatch",
+                "provider": "copilot",
+                "capability": "edit_files",
+                "reason": (
+                    "This Copilot CLI cannot expose a bounded edit-tool set, so "
+                    "OPai refused to launch it with repository write access."
+                ),
+                "hint": (
+                    "Update GitHub Copilot CLI, or switch to Ask or Plan until "
+                    "scoped tool permissions are available."
+                ),
+            }
     want_stream = (
         on_event is not None or on_text is not None or cancel is not None
     ) and hasattr(run, "stream")
@@ -1379,7 +1388,9 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
         data = available_models(root)
         lines = [
             "Connect your AI accounts — OPai routes through the CLIs you are "
-            "already signed into. No API keys, no credentials stored.",
+            "already signed into, so these accounts need no API key. (API "
+            "providers like GitHub or Gemini keep their keys in your OS "
+            "credential store — see Settings → Providers & Connections.)",
             "",
         ]
         for account in data["accounts"]:

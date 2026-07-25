@@ -599,9 +599,12 @@ class RecordAfterOutcomeTests(unittest.TestCase):
         self.assertEqual(summarize_ledger(self.root)["estimated_savings_usd"], 0)
 
     def test_runner_error_records_nothing(self):
-        with mock.patch(
-            "opaihub.ask.run_ask",
-            return_value={"status": "runner_error", "error": "boom"},
+        with (
+            mock.patch(
+                "opaihub.ask.run_ask",
+                return_value={"status": "runner_error", "error": "boom"},
+            ),
+            self._no_accounts(),
         ):
             result = handle_gui_message(self.root, "task", model_id="auto", mode="ask")
         self.assertNotEqual(result["status"], "answered")

@@ -65,6 +65,14 @@ class PermissionMappingTests(unittest.TestCase):
         self.assertEqual(_state(rows, "run_any"), "allow")
         self.assertEqual(_state(rows, "delete"), "ask")
 
+    def test_full_auto_run_any_note_points_to_delete_rule(self):
+        # Bug 9: "Run any command: Allow" must not read as a way around
+        # "Delete files: Ask" — the note says file-deleting commands still
+        # follow the Delete files rule (enforced by is_destructive_command).
+        rows = permissions_for("full-auto")
+        note = next(r["note"] for r in rows if r["id"] == "run_any")
+        self.assertIn("Delete files", note)
+
     def test_unknown_mode_degrades_to_read_only(self):
         rows = permissions_for("mystery")
         self.assertEqual(_state(rows, "edit"), "block")

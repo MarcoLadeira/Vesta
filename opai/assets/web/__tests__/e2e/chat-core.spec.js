@@ -107,7 +107,9 @@ test("Auto with no eligible provider directs model selection without retrying", 
 
   await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
   await page.getByRole("button", { name: "Switch model" }).click();
-  await expect(page.locator("#modelSel")).toBeFocused();
+  await expect(page.getByRole("button", { name: "Model: Auto" })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.getByRole("menuitemradio", { name: /Auto/ })).toBeFocused();
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
 });
 

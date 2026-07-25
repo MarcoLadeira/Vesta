@@ -422,7 +422,7 @@ class UsageSnapshotTests(unittest.TestCase):
         from opaihub.ledger import record_model_call
         from opaihub.usage import build_usage_snapshots
 
-        model_id = "account:copilot:gpt-5.2"
+        model_id = "account:copilot:gpt-5.4"
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for task in ("one", "two"):
