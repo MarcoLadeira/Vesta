@@ -55,6 +55,7 @@ from opai.gui_workspace import (
     add_recent_workspace,
     is_valid_workspace,
     load_recent_workspaces,
+    resolve_gui_workspace,
     workspace_label,
 )
 from opai.message_render import render_message_html
@@ -379,9 +380,7 @@ def _run_gui(
     # Keep Qt's internal warnings out of the launching terminal so nothing ever
     # appears to "print to the console" - it all renders in the UI.
     QtCore.qInstallMessageHandler(lambda *_a: None)
-    from opaihub.repo_context import active_repo_context
-
-    root = active_repo_context(project_root).path
+    root = resolve_gui_workspace(project_root)
     from opaihub.gui_preferences import (
         DEFAULT_MODE,
         MODES,
@@ -607,9 +606,7 @@ def _run_gui(
             if not is_valid_workspace(path):
                 self._toast("That folder is no longer available.")
                 return
-            from opaihub.repo_context import active_repo_context
-
-            self.root = active_repo_context(Path(path)).path
+            self.root = resolve_gui_workspace(Path(path))
             add_recent_workspace(self.root)
             self._preferences = load_gui_preferences(self.root)
             self.setWindowTitle(f"OPai · {self.root.name}")

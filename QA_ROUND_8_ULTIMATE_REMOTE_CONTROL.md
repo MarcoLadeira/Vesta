@@ -317,6 +317,55 @@ The sidebar must disclose that both saved chats and recovery data will be delete
 
 `renderRecents()` described the control as `deletable in one click` and called `bridge.clearRecents()` directly. Settings → Privacy already used the shared styled confirmation for the same destructive operation, so the two entry points had contradictory safety behavior.
 
+### QAR8-12 — first-run onboarding understates the cloud confirmation boundary
+
+**Severity:** Medium — safety copy contradicts the actual all-cloud consent rule.
+
+**Steps:**
+
+1. Open OPai with a fresh workspace profile.
+2. Advance to onboarding steps 2 and 3.
+3. Compare their cost-firewall wording with a default Auto task.
+
+**Observed:**
+
+- Step 2 said OPai only asks before a `paid cloud model`.
+- Step 3 said `a paid model always asks first`.
+- A free-tier Gemini handoff correctly required confirmation, so the tutorial taught a narrower boundary than the product enforced.
+
+**Expected:**
+
+Onboarding must say every cloud model requires confirmation, regardless of price, matching the live privacy card and the PR #511-priority safety behavior.
+
+**Root-cause evidence:**
+
+Both strings were hard-coded before the all-cloud gate was strengthened and had no regression assertion tying tutorial copy to the current consent contract.
+
+### QAR8-13 — Open app workspace does not open a scaffold nested in a Git repo
+
+**Severity:** High — the primary handoff from app creation reports success but leaves Build mode unavailable.
+
+**Steps:**
+
+1. Create a deterministic New app inside an existing Git workspace.
+2. Select `Open app workspace`.
+3. Inspect the header, recovery card, and composer.
+
+**Observed:**
+
+- OPai displayed `Workspace switched`.
+- The header remained on the parent repository.
+- The parent repository's blocked recovery session reappeared.
+- The generated app's Build-mode composer was not activated.
+
+**Expected:**
+
+An OPai Build manifest identifies the generated directory as an intentional workspace boundary. Opening it must keep that exact directory selected, isolate its workspace history, and activate Build mode even when an enclosing Git worktree exists.
+
+**Root-cause evidence:**
+
+Every GUI launch/switch passed the selected path through `active_repo_context()`, which always collapses a nested folder to the enclosing Git top level. `_workspace()` also looked for the Build manifest at that top level instead of the selected directory.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -407,6 +456,22 @@ The sidebar must disclose that both saved chats and recovery data will be delete
 - Red evidence: three browser regressions could not find a confirmation because the first click immediately cleared state; the live app erased the complete sidebar history and blocked-session recovery in one click.
 - Green evidence: focused confirmation/cancel/failure coverage passed 3/3; the full Folder, Session Resume, and Permissions & Privacy browser sweep passed 21/21.
 - Live retest: after a source-build restart, created `Disposable history safety test` and stopped at the named Gemini confirmation without approving cloud use. Sidebar Clear history displayed the styled warning and exact recovery-data consequence. Cancel kept the recent chat; after closing and relaunching OPai, both the recent entry and `Resume work` recovery card were still present.
+
+### QAR8-12
+
+- Updated both first-run statements to describe the real rule: OPai only uses a cloud model after confirmation, and a cloud model always asks first.
+- Red evidence: the new browser contract still found `paid cloud model` and `a paid model always asks first`.
+- Green evidence: the focused onboarding Playwright regression passed and Ruff passed.
+- Live retest: relaunched a fresh profile from the patched source. Steps 2 and 3 displayed the all-cloud wording; no task or provider call was started.
+
+### QAR8-13
+
+- Added a GUI workspace resolver that preserves a directory carrying an OPai Build manifest while retaining the existing Git-top-level behavior for ordinary nested folders.
+- Web and classic desktop launch/switch paths now share that resolver.
+- Workspace payloads use the exact selected directory for identity and Build-mode detection while separately reporting the enclosing `repo_root` for Git context.
+- Red evidence: the new Python test could not import the resolver, and a nested-scaffold boot contract resolved its workspace root to the parent Git repository.
+- Green evidence: 51 focused workspace/web-GUI tests passed, including nested-scaffold selection and Build detection; Ruff passed.
+- Live retest: launched the generated quote app directly from patched source. The window title and header named the nested app, onboarding identified that exact directory, its recents were empty instead of restoring the parent's blocked task, and the composer changed to the green `Build` action after finishing the tour.
 
 ## Session notes
 

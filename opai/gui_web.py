@@ -58,6 +58,7 @@ from opai.gui_workspace import (
     add_recent_workspace,
     is_valid_workspace,
     load_recent_workspaces,
+    resolve_gui_workspace,
     workspace_label,
 )
 
@@ -320,11 +321,12 @@ def _workspace(root: Path) -> dict[str, Any]:
         ws = {"name": root.name, "branch": "", "file_count": 0}
     from opaihub.build_loop import load_app_manifest
 
-    build_manifest = load_app_manifest(context.path)
+    build_manifest = load_app_manifest(root)
     return {
         "label": workspace_label(root),
         "name": ws["name"],
-        "root": str(context.path),
+        "root": str(root.expanduser().resolve()),
+        "repo_root": str(context.path),
         "branch": context.branch or ws.get("branch", ""),
         "remote": context.remote,
         "dirty": bool(context.dirty_paths),
@@ -1214,9 +1216,7 @@ def _run_gui(
     from PySide6.QtWebEngineWidgets import QWebEngineView
 
     QtCore.qInstallMessageHandler(lambda *_a: None)
-    from opaihub.repo_context import active_repo_context
-
-    root = active_repo_context(project_root).path
+    root = resolve_gui_workspace(project_root)
     from opaihub.gui_pipeline import handle_gui_message
     from opaihub.gui_preferences import save_gui_preferences
 
@@ -2078,9 +2078,7 @@ def _run_gui(
             return json.dumps(result)
 
         def _switch(self, path: str) -> None:
-            from opaihub.repo_context import active_repo_context
-
-            self.root = active_repo_context(Path(path)).path
+            self.root = resolve_gui_workspace(Path(path))
             self._resume_context_active = False
             self._session_epoch.invalidate()
             add_recent_workspace(self.root)

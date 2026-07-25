@@ -82,6 +82,17 @@ test("onboarding cannot force a cloud call — it sends through the normal gate"
   expect(req.allowCloud).toBe(false);
 });
 
+test("onboarding describes the confirmation boundary for every cloud model", async ({ page }) => {
+  await openApp(page, fresh);
+  await step(page, "next").click();
+  await expect(overlay(page)).toContainText("only uses a cloud model after you confirm");
+  await expect(overlay(page)).not.toContainText("paid cloud model");
+
+  await step(page, "next").click();
+  await expect(overlay(page)).toContainText("a cloud model always asks first");
+  await expect(overlay(page)).not.toContainText("a paid model always asks first");
+});
+
 test("finishing the tour does not run anything against the user's folder", async ({ page }) => {
   // Bug 11: the footer's primary CTA used to be "Send my first task", so
   // clicking through the tour on a real work folder started a run nobody asked

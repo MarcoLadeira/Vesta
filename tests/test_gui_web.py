@@ -523,6 +523,24 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
             self.assertTrue(ws["build_app"])
             self.assertEqual(ws["build_app_name"], created["name"])
 
+    def test_nested_scaffold_is_the_workspace_even_inside_a_parent_repo(self):
+        from _helpers import make_repo
+
+        from opai.gui_web import boot_payload, scaffold_app_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            created = scaffold_app_payload(
+                repo, json.dumps({"description": "a nested notes app"})
+            )
+            app = Path(created["root"]).resolve()
+
+            ws = boot_payload(app)["workspace"]
+
+            self.assertEqual(ws["root"], str(app))
+            self.assertTrue(ws["build_app"])
+            self.assertEqual(ws["build_app_name"], created["name"])
+
 
 class FirewallSettingsPayloadTests(unittest.TestCase):
     """Budgets in settings (#238): straight from budget_status, no duplicates."""

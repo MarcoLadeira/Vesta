@@ -16,8 +16,10 @@ from opai.gui_workspace import (
     add_recent_workspace,
     is_valid_workspace,
     load_recent_workspaces,
+    resolve_gui_workspace,
     workspace_label,
 )
+from opaihub.app_scaffold import scaffold_app
 
 
 class ValidationTests(unittest.TestCase):
@@ -32,6 +34,25 @@ class ValidationTests(unittest.TestCase):
 
     def test_label_uses_parent_and_name(self):
         self.assertEqual(workspace_label("/home/me/project"), "me/project")
+
+    def test_scaffolded_app_remains_selected_inside_an_enclosing_git_repo(self):
+        from _helpers import make_repo
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            app = Path(scaffold_app(repo, "a notes app").root)
+
+            self.assertEqual(resolve_gui_workspace(app), app.resolve())
+
+    def test_ordinary_nested_folder_still_resolves_to_the_git_workspace(self):
+        from _helpers import make_repo
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp))
+            nested = repo / "packages" / "plain"
+            nested.mkdir(parents=True)
+
+            self.assertEqual(resolve_gui_workspace(nested), repo.resolve())
 
 
 class RecentsTests(unittest.TestCase):

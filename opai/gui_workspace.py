@@ -26,6 +26,25 @@ def is_valid_workspace(path: str | Path) -> bool:
         return False
 
 
+def resolve_gui_workspace(path: str | Path) -> Path:
+    """Resolve a selected folder without swallowing a nested OPai Build app.
+
+    Ordinary folders keep the existing active-repository behaviour: selecting
+    somewhere inside a Git worktree opens that worktree.  A scaffolded OPai
+    Build app is intentionally its own workspace, even when it was created
+    inside a parent repository, because Build mode and its per-app history live
+    at that exact directory.
+    """
+    selected = Path(path).expanduser().resolve()
+    from opaihub.build_loop import load_app_manifest
+
+    if load_app_manifest(selected) is not None:
+        return selected
+    from opaihub.repo_context import active_repo_context
+
+    return active_repo_context(selected).path
+
+
 def load_recent_workspaces() -> list[str]:
     try:
         data = json.loads(recents_path().read_text(encoding="utf-8"))
