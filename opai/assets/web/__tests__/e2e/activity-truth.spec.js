@@ -63,6 +63,41 @@ test("an unverified run renders a partial verdict instead of success", async ({ 
   await expect(page.locator(".unverified-claim")).toHaveCount(0);
 });
 
+test("workflow summary uses the authoritative verdict instead of a stale completed phase", async ({ page }) => {
+  // Round 6: a verified push could show a Partial pill while the card below it
+  // still read "Implement · Completed". The workflow runtime tracks process
+  // progress, but the verdict is the user-facing outcome for this turn.
+  const id = await sendPrompt(page, "Push the current branch.");
+  await finishRequest(page, id, {
+    status: "answered",
+    answer: "The branch was pushed successfully.",
+    completion_verdict: {
+      verdict: "partial",
+      reason_code: "change_not_verified",
+      reason: "OPai could not verify the requested objective.",
+      next_action: "Check the remote branch, then retry verification.",
+      evidence: [],
+    },
+    workflow: {
+      mode: "implement",
+      phase: "completed",
+      message: "Read-only task completed",
+      tests_status: "not_run",
+      merge_status: "not_requested",
+      history: [{ phase: "completed", message: "Read-only task completed" }],
+    },
+  });
+
+  const workflow = page.locator(".workflow-card");
+  await expect(workflow.locator(".wf-head")).toContainText("Partial");
+  await expect(workflow.locator(".wf-head")).not.toContainText("Completed");
+  await expect(workflow.locator(".wf-message")).toHaveText("OPai could not verify the requested objective.");
+  await expect(workflow.locator(".wf-actions")).toContainText("Check the remote branch, then retry verification.");
+  await workflow.locator(".wf-history summary").click();
+  await expect(workflow.locator(".wf-history")).toContainText("Partial");
+  await expect(workflow.locator(".wf-history")).not.toContainText("Read-only task completed");
+});
+
 test("a success claim the run could not verify is labelled where it is written", async ({ page }) => {
   // Round 5 finding 2, the live failure: a red "Failed" pill sat directly above
   // "The current branch has been successfully pushed to the origin remote." A

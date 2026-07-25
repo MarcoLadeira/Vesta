@@ -1817,9 +1817,7 @@ const RETRYABLE_VERDICTS = new Set(["failed", "partial", "timeout"]);
 function completionVerdictHtml(r) {
   const item = completionVerdict(r);
   if (!item) return "";
-  const label = item.reasonCode === "answer_delivered"
-    ? "Response received"
-    : verdictLabel(item.verdict);
+  const label = completionVerdictLabel(item);
   const glyph = item.verdict === "completed" ? "check" : item.verdict === "cancelled" ? "cancelled" : "warning";
   const next = item.nextAction ? `<div class="cv-next">Next: ${esc(item.nextAction)}</div>` : "";
   // Bug 8: pair the "Next: retry…" guidance with an actual button so the user
@@ -1829,6 +1827,17 @@ function completionVerdictHtml(r) {
     : "";
   return `<section class="completion-verdict ${esc(item.verdict)}" role="status" aria-label="Completion verdict: ${esc(label)}">` +
     `<div class="cv-title">${uiIcon(glyph)} ${esc(label)}</div><div class="cv-reason">${esc(item.reason)}</div>${next}${retryBtn}</section>`;
+}
+
+// The verdict owns the user-facing outcome everywhere. Runtime phases describe
+// internal progress and can legitimately end "completed" after a provider
+// returned, even when OPai could not verify the user's objective. Rendering a
+// runtime phase as the final status reintroduced the Round 6 contradiction:
+// "Partial" above "Implement · Completed" below.
+function completionVerdictLabel(item) {
+  return item && item.reasonCode === "answer_delivered"
+    ? "Response received"
+    : verdictLabel(item && item.verdict);
 }
 
 // Round 5 finding 2: one push turn showed a red "Failed" pill directly above the
@@ -2464,20 +2473,39 @@ function workflowCardHtml(result) {
   const mode = policy.label || policy.mode || flow.mode || "—";
   const pretty = (value) => String(value || "—").replaceAll("_", " ");
   const title = (value) => { const text = pretty(value); return text.charAt(0).toUpperCase() + text.slice(1); };
+  const verdict = completionVerdict(result);
+  const outcomeOverridesRuntime = verdict && verdict.verdict !== "completed";
+  // A workflow's persisted phase remains useful internal provenance, but the
+  // summary directly under the answer must say whether the objective was met.
+  // The same verdict powers the pill and receipt, so these signals cannot drift.
+  const displayedPhase = verdict ? completionVerdictLabel(verdict) : title(flow.phase);
+  const displayedMessage = verdict && verdict.reason ? verdict.reason : flow.message;
+  const displayedActions = verdict && verdict.nextAction
+    ? [verdict.nextAction]
+    : (flow.next_actions || []);
   const blockerItems = [...(flow.blockers || [])];
   if (flow.blocker && !blockerItems.includes(flow.blocker)) blockerItems.push(flow.blocker);
   const blockers = blockerItems.map((item) => `<div class="wf-blocker">${esc(item)}</div>`).join("");
-  const actions = (flow.next_actions || []).map((item) => `<li>${esc(item)}</li>`).join("");
-  const history = (flow.history || []).slice(-5).map((item) =>
-    `<div class="wf-event"><span>${esc(title(item.phase))}</span><small>${esc(item.message || "")}</small></div>`
+  const actions = displayedActions.map((item) => `<li>${esc(item)}</li>`).join("");
+  const history = (flow.history || []).slice(-5).map((item) => {
+    // Do not leave a hidden contradictory "Completed" terminal state in the
+    // expandable timeline when the outcome verdict is non-completed.
+    const phase = outcomeOverridesRuntime && String(item.phase || "").toLowerCase() === "completed"
+      ? displayedPhase
+      : title(item.phase);
+    const message = outcomeOverridesRuntime && String(item.phase || "").toLowerCase() === "completed"
+      ? displayedMessage
+      : item.message || "";
+    return `<div class="wf-event"><span>${esc(phase)}</span><small>${esc(message)}</small></div>`;
+  }
   ).join("");
   const provider = flow.provider || {};
   const cost = flow.cost || {};
   const gates = flow.safety_gates || {};
   const failedGates = gates.failed || [];
   return `<div class="workflow-card">
-    <div class="wf-head"><span>${esc(mode)}</span><span>${esc(title(flow.phase))}</span></div>
-    ${flow.message ? `<div class="wf-message">${esc(flow.message)}</div>` : ""}
+    <div class="wf-head"><span>${esc(mode)}</span><span>${esc(displayedPhase)}</span></div>
+    ${displayedMessage ? `<div class="wf-message">${esc(displayedMessage)}</div>` : ""}
     <div class="wf-row"><span>Tests</span><strong>${esc(pretty(flow.tests_status))}</strong></div>
     <div class="wf-row"><span>PR</span><strong>${esc(flow.pr_url || "not opened")}</strong></div>
     <div class="wf-row"><span>Merge</span><strong>${esc(pretty(flow.merge_status))}</strong></div>
