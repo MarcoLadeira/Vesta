@@ -192,6 +192,13 @@ test("empty prompts are explained instead of silently discarded", async ({ page 
   await expect(page.locator("#send")).toBeEnabled();
 });
 
+test("an empty prompt never offers connection settings for an already connected account", async ({ page }) => {
+  await openApp(page);
+  await page.locator("#modelSel").selectOption("account:claude:opus");
+  await expect(page.locator("#composerReason")).toContainText("Write a prompt before sending");
+  await expect(page.getByRole("button", { name: "Open Settings" })).toHaveCount(0);
+});
+
 test("Shift+Enter adds a line while Enter sends and the hint explains both", async ({ page }) => {
   await openApp(page);
   await expect(page.locator("#composerHelp")).toContainText("Enter to send · Shift+Enter for a new line");

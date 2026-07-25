@@ -663,6 +663,15 @@ kbd {
 .context-help, .composer-help { margin-top: var(--space-1); }
 .composer-reason { min-height: 0; margin-top: var(--space-2); color: var(--warn, #e9c46a); }
 .composer-reason:empty { display: none; }
+.reason-action {
+  appearance: none; margin-left: var(--space-1); padding: var(--space-1) var(--space-2);
+  border: 1px solid rgba(233, 196, 106, 0.48); border-radius: var(--r-sm);
+  background: rgba(233, 196, 106, 0.1); color: var(--warn, #e9c46a);
+  font: inherit; font-size: inherit; font-weight: var(--weight-semibold); line-height: 1.35;
+  cursor: pointer; vertical-align: baseline; transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.reason-action:hover { background: rgba(233, 196, 106, 0.17); border-color: rgba(233, 196, 106, 0.74); }
+.reason-action:focus-visible { outline: 2px solid var(--warn, #e9c46a); outline-offset: 2px; }
 .context-hints { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
 .context-hint { display: inline-flex; align-items: center; gap: var(--space-1); border-radius: 999px; background: var(--glass); border: 1px solid var(--border); color: var(--muted); padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2); font-size: var(--type-caption); }
 .context-remove { padding: var(--space-1) var(--space-1); cursor: pointer; color: var(--muted); }

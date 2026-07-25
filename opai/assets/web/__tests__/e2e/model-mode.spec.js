@@ -35,6 +35,27 @@ test("Safe Auto is default and Full Auto is never silently selected", async ({ p
   await expect(page.locator("#modeSel")).not.toHaveValue("full-auto");
 });
 
+test("leaving Full Auto immediately updates the header as well as the composer", async ({ page }) => {
+  await openApp(page, {
+    boot: {
+      prefs: { mode: "full-auto", fullAutoPinned: true },
+      autonomy: {
+        requested_mode: "full-auto", effective_mode: "full-auto",
+        full_auto_pinned: true, downgraded: false, reason: "",
+      },
+      status: { on: true, line: "Claude · Full Auto · $0.00 today · $0.00 saved" },
+    },
+  });
+  await expect(page.locator("#modeSel")).toHaveValue("full-auto");
+
+  await page.selectOption("#modeSel", "ask");
+
+  await expect(page.locator("#modeSel")).toHaveValue("ask");
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Ask");
+  await expect(page.locator("#statusLine")).toContainText("Ask");
+  await expect(page.locator("#statusLine")).not.toContainText("Full Auto");
+});
+
 test("model selection updates the provider signal and CLI mirror", async ({ page }) => {
   await openApp(page);
   await page.selectOption("#modelSel", "account:codex:gpt-5.5");

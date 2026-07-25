@@ -559,6 +559,11 @@ function renderComposerSelects() {
       state.boot.autonomy.effective_mode = state.mode.id;
       state.boot.autonomy.downgraded = false;
     }
+    // The run mode is a local, explicit user selection. Paint it in the header
+    // immediately, then let the asynchronous status refresh fill in its
+    // independently computed spend and savings values. This avoids showing the
+    // previous (potentially more permissive) mode while that refresh is in flight.
+    renderStatus({ line: $("#statusLine").textContent });
     renderComposerContext(); refreshInspector(); refreshStatus();
   };
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
@@ -633,13 +638,16 @@ function costPosture() {
   return "May spend within your limits";
 }
 
+function selectedAccountNeedsConnection() {
+  if (state.model.kind !== "account") return false;
+  const account = (state.accounts || []).find((item) => item.id === state.model.provider);
+  return !account || !(account.connected || account.authenticated);
+}
+
 function composerBlockReason() {
   if (state.resumePending) return "Choose how to continue this saved session before sending.";
-  if (state.model.kind === "account") {
-    const account = (state.accounts || []).find((item) => item.id === state.model.provider);
-    if (!account || !(account.connected || account.authenticated)) {
-      return `Connect ${state.model.provider ? providerName(state.model.provider) : "this provider"} before sending.`;
-    }
+  if (selectedAccountNeedsConnection()) {
+    return `Connect ${state.model.provider ? providerName(state.model.provider) : "this provider"} before sending.`;
   }
   if (!$("#input").value.trim()) return "Write a prompt before sending.";
   return "";
@@ -685,7 +693,7 @@ function updateComposerAvailability() {
   send.disabled = Boolean(blocked);
   send.setAttribute("aria-label", (state.buildMode && state.buildApp) ? "Start build" : "Send prompt");
   if (!blocked) { reason.innerHTML = ""; send.removeAttribute("aria-describedby"); return; }
-  const action = !state.resumePending && state.model.kind === "account"
+  const action = !state.resumePending && selectedAccountNeedsConnection()
     ? ' <button class="reason-action" type="button">Open Settings</button>'
     : "";
   reason.innerHTML = `${esc(blocked)}${action}`;
@@ -919,7 +927,13 @@ function updateInspectorLive(stepText) {
 
 function renderStatus(st) {
   if (!st) return;
-  $("#statusLine").innerHTML = esc(st.line).replace(/^([^·]+)/, "<b>$1</b>");
+  const segments = String(st.line || "").split(" · ");
+  // Mode is selected locally, while the rest of this line (provider, spend,
+  // savings) is supplied by the backend. Keep the only immediately knowable
+  // value authoritative even if a queued status response was generated before
+  // the user changed modes.
+  if (segments.length >= 2 && state.mode && state.mode.label) segments[1] = state.mode.label;
+  $("#statusLine").innerHTML = esc(segments.join(" · ")).replace(/^([^·]+)/, "<b>$1</b>");
 }
 
 /* ---------- views ---------- */
