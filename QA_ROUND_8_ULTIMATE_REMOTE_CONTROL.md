@@ -243,6 +243,31 @@ Resuming must restore the exact pending approval action without granting it. The
 
 The durable workflow keeps the exact selected provider, but `restoreSession()` renders persisted assistant messages as plain Markdown and never reconstructs a pending action from workflow safety state. The user sees the blocker but cannot act on it.
 
+### QAR8-09 — Context Waste actions are inert and misleading
+
+**Severity:** Medium — novice users are offered cleanup controls that neither preview nor safely start the advertised work.
+
+**Steps:**
+
+1. Open Insights → Context Waste.
+2. Select `Preview cleanup`.
+3. Observe the result.
+
+**Observed:**
+
+- No cleanup preview appeared.
+- The only feedback was `Run it from your terminal.`
+- No terminal command was shown or copied.
+- The adjacent `Generate ignore files` action used the same generic fallback even though its metadata correctly marked it as a confirmed config mutation.
+
+**Expected:**
+
+`Preview cleanup` should render the existing read-only cleanup analysis inside OPai. `Generate ignore files` should show a scoped one-time approval before calling the existing additive ignore generator. Denying it must write nothing.
+
+**Root-cause evidence:**
+
+The dashboard view model exposes `cleanup_preview` and `generate_ignores`, and `app_state` already implements both operations, but `runAction()` only dispatches panic and repair. Every other action without a shell command falls through to a generic terminal toast. The classic desktop action dispatcher has the same gap.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -305,6 +330,15 @@ The durable workflow keeps the exact selected provider, but `restoreSession()` r
 - Red evidence: the backend result had no pending action, and the resume browser test could not find the named confirmation button. A second red assertion received the generic `then retry` copy instead of the exact workflow action.
 - Green evidence: 32 Python routing/resume tests plus 3 subtests passed; 17 combined chat/resume browser tests passed; the standalone resume suite passed 7/7 after the copy correction; Ruff passed.
 - Live retest: created a fresh blocked Gemini turn, closed OPai without approval, relaunched, and chose `Resume work`. The exact `Confirm Gemini · 3.1 Flash-Lite (free tier)` card returned with no Retry and no provider call.
+
+### QAR8-09
+
+- Connected both Context Waste actions to the existing local app-state operations on the web and classic desktop surfaces.
+- `Preview cleanup` now runs the non-mutating profiler and renders potential token/byte reduction, top generated/cache sources, suggested ignore files, and an explicit no-deletion note inside chat.
+- `Generate ignore files` now enters the shared one-time approval card. Its scope identifies supported AI ignore files as additive and user-rule-preserving; approval is the only path to the generator.
+- Red evidence: two Python contracts failed because both tool names were unknown, and the live app only displayed `Run it from your terminal.`
+- Green evidence: the desktop GUI module passed 49/49 tests. The focused browser regression passed and proved preview dispatch, in-app output, a visible approval card, and zero apply calls after Deny.
+- Live retest: pending after restarting the source-build app with this fix.
 
 ## Session notes
 

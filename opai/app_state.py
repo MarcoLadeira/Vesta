@@ -1455,6 +1455,46 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
         lines += [f"• {s['path']} ({s['category']})" for s in top]
         return {"ok": True, "title": "Context waste", "text": "\n".join(lines)}
 
+    if tool in {"context_preview", "cleanup_preview"}:
+        preview = cleanup_preview(root)
+        sources = preview.get("top_sources", [])
+        lines = [
+            str(preview["note"]),
+            "",
+            f"Potential context reduction: ~{int(preview['would_reduce_tokens']):,} tokens "
+            f"({int(preview['would_reduce_bytes']):,} bytes).",
+        ]
+        if sources:
+            lines += [
+                "",
+                "Largest generated/cache sources:",
+                *[
+                    f"• {source.get('path', 'unknown')} "
+                    f"({source.get('category', 'generated')})"
+                    for source in sources
+                ],
+            ]
+        suggested = preview.get("suggested_ignores", [])
+        if suggested:
+            lines += ["", "Ignore files OPai can update: " + ", ".join(suggested)]
+        return {"ok": True, "title": "Cleanup preview", "text": "\n".join(lines)}
+
+    if tool in {"ignores", "generate_ignores"}:
+        return {
+            "ok": True,
+            "title": "Generate ignore files",
+            "text": (
+                "Append OPai-managed rules to supported AI ignore files. "
+                "Existing user rules are preserved."
+            ),
+            "mutates": True,
+            "confirm": (
+                "Generate additive AI ignore rules for this project? "
+                "This never deletes source code or existing user rules."
+            ),
+            "apply": ("ignores", None),
+        }
+
     if tool == "benchmark":
         gate = run_benchmark_gate(
             root, min_effectiveness_index=0.0, require_risk_blocks=False
@@ -1521,4 +1561,17 @@ def apply_tool(project_root: Path, apply: tuple[str, Any]) -> dict[str, Any]:
     if name == "repair":
         result = run_repair(project_root)
         return {"ok": True, "text": f"Repair: {result.get('status')}."}
+    if name == "ignores":
+        result = generate_ignores(project_root)
+        entries = result.get("results")
+        if not isinstance(entries, list):
+            entries = result.get("written", [])
+        count = len(entries) if isinstance(entries, list) else 0
+        return {
+            "ok": True,
+            "text": (
+                f"Updated {count} ignore file{'s' if count != 1 else ''}. "
+                "Existing user rules were preserved; no source files were deleted."
+            ),
+        }
     return {"ok": False, "text": "Nothing to apply."}

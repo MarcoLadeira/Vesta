@@ -965,6 +965,14 @@ def _run_gui(
                 self._switch_view("chat")
                 self._run_tool("repair")
                 return
+            if aid == "cleanup_preview":
+                self._switch_view("chat")
+                self._run_tool("context_preview")
+                return
+            if aid == "generate_ignores":
+                self._switch_view("chat")
+                self._run_tool("ignores")
+                return
             cmd = act.get("command")
             if cmd:
                 QtWidgets.QApplication.clipboard().setText(str(cmd))

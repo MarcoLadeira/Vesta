@@ -222,6 +222,39 @@ class SafetyAndActionTests(unittest.TestCase):
         self.assertFalse(preview["mutates"])
         self.assertEqual(before, after)  # no files created/deleted
 
+    def test_context_dashboard_tools_preview_in_app_and_gate_ignore_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            (root / "dist").mkdir()
+            (root / "dist" / "bundle.js").write_text("x" * 4000, encoding="utf-8")
+
+            preview = A.run_tool(root, "context_preview")
+            gated = A.run_tool(root, "ignores")
+
+        self.assertTrue(preview["ok"])
+        self.assertEqual(preview["title"], "Cleanup preview")
+        self.assertIn("Preview only", preview["text"])
+        self.assertNotIn("mutates", preview)
+        self.assertTrue(gated["mutates"])
+        self.assertEqual(gated["apply"], ("ignores", None))
+        self.assertIn("never deletes source", gated["confirm"])
+
+    def test_confirmed_ignore_generation_uses_the_additive_generator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            with mock.patch.object(
+                A,
+                "generate_ignores",
+                return_value={"written": [".claudeignore", ".geminiignore"]},
+            ) as generate:
+                applied = A.apply_tool(root, ("ignores", None))
+
+        generate.assert_called_once_with(root)
+        self.assertTrue(applied["ok"])
+        self.assertIn("2 ignore files", applied["text"])
+
     def test_set_panic_toggles_and_records_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

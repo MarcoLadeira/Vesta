@@ -2822,6 +2822,8 @@ function onDashboardReady(json) {
 function runAction(aid, cmd) {
   if (aid === "panic_toggle") { switchView("chat"); bridge.runTool("panic"); return; }
   if (aid === "safe_repair") { switchView("chat"); bridge.runTool("repair"); return; }
+  if (aid === "cleanup_preview") { switchView("chat"); bridge.runTool("context_preview"); return; }
+  if (aid === "generate_ignores") { switchView("chat"); bridge.runTool("ignores"); return; }
   if (cmd) { copyText(cmd); toast("Copied: " + cmd); }
   else toast("Run it from your terminal.");
 }
@@ -2965,6 +2967,7 @@ function onTool(json) {
 const APPROVAL_SCOPE = {
   panic: { risk: "Config change", scope: "Routing policy for this project (reversible)" },
   repair: { risk: "Config change", scope: "OPai client integration files (additive, no source deleted)" },
+  ignores: { risk: "Config change", scope: "Supported AI ignore files (additive; user rules preserved)" },
 };
 
 // Styled inline confirmation (#151) — the in-app replacement for native
