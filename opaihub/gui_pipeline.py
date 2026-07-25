@@ -676,7 +676,7 @@ def handle_gui_message(
     auto_active = selected_model == "auto"
     auto_chain: list[dict[str, Any]] = []
     auto_pos = 0
-    _pending_paid: dict[str, Any] = {}
+    _pending_cloud: dict[str, Any] = {}
     paid_authorized = bool(allow_cloud or allow_limit)
     # Central autonomy decision (#137): a requested/stored full-auto is honored
     # only when Full Auto is pinned; otherwise it is downgraded to Safe Auto.
@@ -1347,8 +1347,8 @@ def handle_gui_message(
             auto_pos += 1
             candidate = auto_chain[auto_pos]
             if candidate.get("paid") and not paid_authorized:
-                _pending_paid.clear()
-                _pending_paid.update(candidate)
+                _pending_cloud.clear()
+                _pending_cloud.update(candidate)
                 return "confirm"
             selected_model = str(candidate["id"])
             _emit(
@@ -1360,11 +1360,12 @@ def handle_gui_message(
             return "continue"
         return "stop"
 
-    def _auto_paid_card() -> dict[str, Any]:
-        """Confirmation card naming the cheapest capable paid model to escalate to."""
-        candidate = dict(_pending_paid)
+    def _auto_cloud_card() -> dict[str, Any]:
+        """Confirmation card naming the exact off-device model Auto selected."""
+        candidate = dict(_pending_cloud)
         model_id = str(candidate.get("id") or "")
         label = _auto_labels.get(model_id) or candidate.get("provider") or model_id
+        paid = bool(candidate.get("paid"))
         tried_free = any(
             auto_chain[i].get("kind") == "free" for i in range(1, auto_pos)
         )
@@ -1372,6 +1373,8 @@ def handle_gui_message(
             "OPai tried the free options without a usable answer. "
             if tried_free
             else "No free or local model is available. "
+            if paid
+            else "No capable local model is available. "
         )
         _phase_close("warning", "Needs your confirmation")
         return _decorate(
@@ -1379,25 +1382,27 @@ def handle_gui_message(
                 "status": "needs_auto_confirmation",
                 "answer": (
                     prefix
-                    + f"OPai can continue with {label}, a paid model — that call "
-                    "costs money. Confirm to continue, or switch model."
+                    + (
+                        f"OPai can continue with {label}, a paid model — that call "
+                        "costs money and sends task context off-device. "
+                        if paid
+                        else f"OPai can continue with {label}, a free-tier cloud model. "
+                        "Your task and compact project context will leave this device. "
+                    )
+                    + "Confirm to continue, or switch model."
                 ),
                 "fallbackModelId": model_id,
                 "fallbackModelLabel": label,
                 "cloudStarted": False,
                 "tool_trace": tool_trace,
-                "receipt": build_savings_receipt(
-                    root,
-                    task=message,
-                    selected_model=model_id,
-                    selected_mode=selected_mode,
-                    chosen_tier="L3",
-                    confidence="blocked",
-                ),
+                # No provider started, so there is no spend or saving to report.
+                # Attaching an estimated route receipt here makes the GUI label
+                # its positive estimate as money already "spent".
+                "receipt": {},
                 "changed_files": [],
                 "warnings": [],
                 "next_actions": [
-                    "Confirm the named paid model, or pick a different model."
+                    "Confirm the named cloud model, or pick a different model."
                 ],
             }
         )
@@ -1516,12 +1521,15 @@ def handle_gui_message(
                 return _decorate(
                     _cancelled_result(message, tool_trace, selected_model, selected_mode)
                 )
+            if auto_active and not allow_cloud:
+                # Auto chooses a route; it does not grant permission to transmit
+                # repository context off-device. Surface the exact free provider
+                # before calling it, just as we do for a paid fallback.
+                _pending_cloud.clear()
+                _pending_cloud.update(auto_chain[auto_pos])
+                return _auto_cloud_card()
             provider = selected_model.split(":", 2)[1]
-            # Auto owns the cloud decision: choosing Auto is the user's consent to
-            # let OPai run the cheapest capable model, so a free model Auto picked
-            # itself runs without a second confirmation card. An explicitly picked
-            # free model still honors the one-time free-tier consent boundary.
-            free_allow_cloud = allow_cloud or auto_active
+            free_allow_cloud = allow_cloud
             _phase(
                 "request_sending" if free_allow_cloud else "needs_confirmation",
                 "running" if free_allow_cloud else "warning",
@@ -1620,7 +1628,7 @@ def handle_gui_message(
                 if _decision == "continue":
                     continue
                 if _decision == "confirm":
-                    return _auto_paid_card()
+                    return _auto_cloud_card()
             answer = (
                 result.get("answer")
                 or result.get("message")
@@ -1637,7 +1645,7 @@ def handle_gui_message(
                 if _decision == "continue":
                     continue
                 if _decision == "confirm":
-                    return _auto_paid_card()
+                    return _auto_cloud_card()
             # Ledger truth (#144): a route/savings event is only real once the task
             # actually answered — confirmation prompts, failures, and no-answers
             # record nothing.
@@ -1779,7 +1787,7 @@ def handle_gui_message(
                         if _decision == "continue":
                             continue
                         if _decision == "confirm":
-                            return _auto_paid_card()
+                            return _auto_cloud_card()
                     return _decorate(
                         {
                             "status": "failed",
@@ -1927,7 +1935,7 @@ def handle_gui_message(
                     if _decision == "continue":
                         continue
                     if _decision == "confirm":
-                        return _auto_paid_card()
+                        return _auto_cloud_card()
                 answer = str(result.get("hint") or result.get("reason") or "")
                 _phase_close("warning", "Provider cannot enforce this edit mode")
                 _emit(
@@ -2007,7 +2015,7 @@ def handle_gui_message(
                     if _decision == "continue":
                         continue
                     if _decision == "confirm":
-                        return _auto_paid_card()
+                        return _auto_cloud_card()
             answer_text = (
                 result.get("answer")
                 or result.get("hint")
@@ -2084,7 +2092,7 @@ def handle_gui_message(
                 if _decision == "continue":
                     continue
                 if _decision == "confirm":
-                    return _auto_paid_card()
+                    return _auto_cloud_card()
             answer = str(result.get("hint") or result.get("reason") or "")
             _phase_close("warning", "Local model cannot enforce this edit mode")
             _emit(
@@ -2121,7 +2129,7 @@ def handle_gui_message(
                 if _decision == "continue":
                     continue
                 if _decision == "confirm":
-                    return _auto_paid_card()
+                    return _auto_cloud_card()
             answer = (
                 "Auto has no available model. Choose a configured model, or connect "
                 "a free API, account, or local model in Settings."
@@ -2147,7 +2155,7 @@ def handle_gui_message(
             if _decision == "continue":
                 continue
             if _decision == "confirm":
-                return _auto_paid_card()
+                return _auto_cloud_card()
         if final_status == "answered":
             # Ledger truth (#144/#381): record the route + savings only for a run that
             # actually met its objective. "No local model" cards, runner errors, and

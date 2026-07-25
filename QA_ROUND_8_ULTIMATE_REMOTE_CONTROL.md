@@ -149,6 +149,55 @@ The summary must distinguish redacted saved chat from raw prompts and agree with
 
 The summary is a separate static string from the payload-backed privacy statements. It used the broad word `Prompts` even though the implementation and detailed copy describe redacted chat plus one-way ledger hashes.
 
+### QAR8-05 — Auto silently sends repository context to a cloud provider
+
+**Severity:** Critical — the live routing behavior contradicts the app's privacy and confirmation promises.
+
+**Steps:**
+
+1. Leave the default model set to `Auto`.
+2. Observe the composer summary `Auto-apply · Auto · local`, the sidebar `Local only · no telemetry`, and the inspector `Local-first · cloud on confirm`.
+3. From the empty chat, choose `Summarize my changes`.
+4. Observe the provider timeline and receipt.
+
+**Observed:**
+
+- No cloud confirmation card appeared.
+- Auto sent the repository task and context to Gemini's public API.
+- The timeline said `Trying gemini`, and the receipt identified `free:gemini:gemini-3.1-flash-lite`.
+- The call cost `$0.0000`, but data still left the device.
+
+**Expected:**
+
+Every cloud route, including a zero-cost/free-tier route chosen by Auto, must stop before transmission and name the provider in a confirmation card. A local or cached route may continue without confirmation.
+
+**Root-cause evidence:**
+
+`handle_gui_message()` computes `free_allow_cloud = allow_cloud or auto_active`. Merely selecting `Auto` therefore sets cloud authority for a free provider, bypassing the lower-level `confirmation_required` gate. This directly contradicts the public `ask()` contract, the Cost Firewall setting `require_confirmation_for_cloud`, and the inspector copy `cloud on confirm`.
+
+### QAR8-06 — a confirmation-only turn is displayed as money spent
+
+**Severity:** High — the cost strip claims a charge for a provider call that never started.
+
+**Steps:**
+
+1. Trigger an Auto route with no capable local model.
+2. Stop at the new named cloud-confirmation card; do not approve it.
+3. Compare `cloudStarted`, the activity log, and the top status strip.
+
+**Observed:**
+
+- The result correctly said `cloudStarted: false` and no provider ran.
+- The status strip nevertheless displayed `$0.0002 spent`.
+
+**Expected:**
+
+An awaiting-confirmation result must show no spend and no savings. Estimates may be described as projections, but must never be labelled `spent`.
+
+**Root-cause evidence:**
+
+The Auto confirmation result attaches a normal estimated savings receipt. `stripFinalize()` renders any positive `estimated_actual_usd` from that receipt as `spent`, without considering that the terminal state is awaiting input and made zero model calls.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -180,6 +229,21 @@ The summary is a separate static string from the payload-backed privacy statemen
 - Red evidence: the factual-privacy case received the old `Prompts ... are kept locally` summary.
 - Green evidence: the full Permissions & Privacy suite passed 4/4, including both cancel and confirm paths for the styled saved-chat clear.
 - Live retest: after a full desktop restart, the summary explicitly said `Redacted saved chat` while the detailed statement continued to say `Raw prompts are never stored`.
+
+### QAR8-05
+
+- Auto now stops before every free-tier cloud candidate when no per-turn cloud grant exists. The confirmation names the exact provider, states that task and compact project context will leave the device, and preserves `cloudStarted: false`.
+- Confirmation continues with the exact reviewed model ID instead of recomputing Auto and potentially changing providers after consent.
+- Red evidence: the live default-Auto starter task contacted Gemini immediately; the new contract test then observed `opai.app_state.ask()` being called before any confirmation result could be returned.
+- Green evidence: the Auto/routing safety set passed 32/32, and the browser test proved confirmation resends the exact named free model with `allowCloud: true`.
+- Live retest: after a source-build restart, the same Auto prompt stopped at `Needs your confirmation`, named Gemini, explicitly said context would leave the device, and showed no provider response.
+
+### QAR8-06
+
+- Awaiting-confirmation results now carry an empty receipt because no provider call, spend, or saving exists yet.
+- Red evidence: the live blocked turn displayed `$0.0002 spent`; the regression then received a populated estimated receipt instead of `{}` while `cloudStarted` was false.
+- Green evidence: the Auto/routing safety set passed 32/32, including the no-receipt assertion, and the cloud-confirmation browser test passed.
+- Live retest: pending after the next source-build restart.
 
 ## Session notes
 
