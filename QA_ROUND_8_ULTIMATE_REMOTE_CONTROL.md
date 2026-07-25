@@ -338,7 +338,7 @@ The dashboard view model exposes `cleanup_preview` and `generate_ignores`, and `
 - `Generate ignore files` now enters the shared one-time approval card. Its scope identifies supported AI ignore files as additive and user-rule-preserving; approval is the only path to the generator.
 - Red evidence: two Python contracts failed because both tool names were unknown, and the live app only displayed `Run it from your terminal.`
 - Green evidence: the desktop GUI module passed 49/49 tests. The focused browser regression passed and proved preview dispatch, in-app output, a visible approval card, and zero apply calls after Deny.
-- Live retest: pending after restarting the source-build app with this fix.
+- Live retest: after a source-build restart, `Preview cleanup` rendered the full local analysis in chat with an explicit no-deletion note. `Generate ignore files` opened a scoped `Config change` approval card; choosing Deny reported `nothing was changed` and did not invoke the generator.
 
 ## Session notes
 
