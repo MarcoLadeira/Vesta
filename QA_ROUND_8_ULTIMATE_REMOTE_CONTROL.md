@@ -406,7 +406,7 @@ The sidebar must disclose that both saved chats and recovery data will be delete
 - The clear bridge is not called until the user selects `Clear history` inside that confirmation; Cancel leaves recents and recovery untouched.
 - Red evidence: three browser regressions could not find a confirmation because the first click immediately cleared state; the live app erased the complete sidebar history and blocked-session recovery in one click.
 - Green evidence: focused confirmation/cancel/failure coverage passed 3/3; the full Folder, Session Resume, and Permissions & Privacy browser sweep passed 21/21.
-- Live retest: pending after restarting the source-build app and creating a new disposable recent entry.
+- Live retest: after a source-build restart, created `Disposable history safety test` and stopped at the named Gemini confirmation without approving cloud use. Sidebar Clear history displayed the styled warning and exact recovery-data consequence. Cancel kept the recent chat; after closing and relaunching OPai, both the recent entry and `Resume work` recovery card were still present.
 
 ## Session notes
 
