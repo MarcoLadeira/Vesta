@@ -1060,6 +1060,20 @@ def handle_gui_message(
                 else str(payload.get("answer") or "Provider execution failed"),
                 next_actions=payload.get("next_actions") or (),
             )
+        safety_gates: dict[str, Any] = {}
+        if status == "needs_auto_confirmation":
+            pending_model = str(payload.get("fallbackModelId") or "").strip()
+            pending_label = str(payload.get("fallbackModelLabel") or "").strip()
+            if pending_model and pending_label:
+                # Persist only the inert description of the pending action.
+                # Authority is deliberately absent: a resumed session must show
+                # the same button and require a fresh click before allow_cloud
+                # is ever sent to the bridge.
+                safety_gates["pending_action"] = {
+                    "kind": "auto_cloud_confirmation",
+                    "model_id": pending_model,
+                    "model_label": pending_label,
+                }
         state = WorkflowState(
             task_id=runtime.task_id,
             checkpoint_id=checkpoint.checkpoint_id,
@@ -1093,6 +1107,7 @@ def handle_gui_message(
             history=tuple(event.to_dict() for event in runtime.state.history),
             changed_files=changed_files,
             provider={"model": selected_model, "run_mode": selected_mode},
+            safety_gates=safety_gates,
             cost={
                 **(payload.get("receipt") or {}),
                 **(

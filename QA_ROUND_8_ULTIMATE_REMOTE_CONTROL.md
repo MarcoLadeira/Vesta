@@ -219,6 +219,30 @@ Cards with a dedicated confirmation action must not offer a generic Retry. The u
 
 `renderErrorCard()` enables Retry for every status except `needs_model`; it does not exclude the three statuses that already render dedicated confirm/continue buttons.
 
+### QAR8-08 — restoring a blocked session loses its approval controls
+
+**Severity:** High — a safely paused task becomes impossible to continue after restart.
+
+**Steps:**
+
+1. Stop at an Auto cloud-confirmation card without approving it.
+2. Close and relaunch OPai.
+3. Choose `Resume work`.
+
+**Observed:**
+
+- The prompt and blocked explanation were restored.
+- The summary said `Next: Resolve the requested approval or input, then retry`.
+- The original `Confirm Gemini` action, along with the configuration/model alternatives, was gone.
+
+**Expected:**
+
+Resuming must restore the exact pending approval action without granting it. The provider call must still require a fresh click on the named confirmation button.
+
+**Root-cause evidence:**
+
+The durable workflow keeps the exact selected provider, but `restoreSession()` renders persisted assistant messages as plain Markdown and never reconstructs a pending action from workflow safety state. The user sees the blocker but cannot act on it.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -271,7 +295,16 @@ Cards with a dedicated confirmation action must not offer a generic Retry. The u
 - Generic Retry is now hidden for model setup, free-cloud confirmation, Auto cloud confirmation, and usage-limit confirmation states. Their dedicated confirm/configure/switch actions remain.
 - Red evidence: the cloud-confirmation browser test found one Retry button.
 - Green evidence: the focused assertion passed as part of 30/30 chat, error-recovery, and provider-auth browser tests.
-- Live retest: pending after the next source-build restart.
+- Live retest: after a source-build restart, the Gemini card showed only `Confirm Gemini`, `Open Settings`, and `Switch model`. No Retry action was present.
+
+### QAR8-08
+
+- The workflow now persists an inert `pending_action` containing only the action kind and exact named cloud model; it persists no cloud authority.
+- Resume reconstructs the named confirmation card from that safe metadata and the redacted saved prompt. `allowCloud: true` is still added only by clicking the restored confirmation button.
+- The recovery summary now prefers the workflow's exact next action over a generic checkpoint fallback, so it no longer says `then retry` beside a card with no Retry.
+- Red evidence: the backend result had no pending action, and the resume browser test could not find the named confirmation button. A second red assertion received the generic `then retry` copy instead of the exact workflow action.
+- Green evidence: 32 Python routing/resume tests plus 3 subtests passed; 17 combined chat/resume browser tests passed; the standalone resume suite passed 7/7 after the copy correction; Ruff passed.
+- Live retest: created a fresh blocked Gemini turn, closed OPai without approval, relaunched, and chose `Resume work`. The exact `Confirm Gemini · 3.1 Flash-Lite (free tier)` card returned with no Retry and no provider call.
 
 ## Session notes
 

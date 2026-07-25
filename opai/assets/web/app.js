@@ -1065,7 +1065,9 @@ function resumeSummaryHtml(resume) {
   const plan = ((resume.thread || {}).plan || []).map((item) => item.step).filter(Boolean);
   const steps = plan.length ? plan : (flow.plan_steps || []);
   const changed = (resume.thread && resume.thread.changed_files) || [];
-  const recovery = checkpoint.recovery_actions || [];
+  const recovery = (flow.next_actions || []).length
+    ? flow.next_actions
+    : (checkpoint.recovery_actions || []);
   return `<div class="resume-summary" role="status">
     <div class="rs-title">Work restored</div>
     ${checkpoint.id ? `<div class="rs-row">Checkpoint ${esc(checkpoint.id)} · ${esc(checkpoint.completion_state || "saved")}</div>` : ""}
@@ -1075,19 +1077,69 @@ function resumeSummaryHtml(resume) {
     ${recovery.length ? `<div class="rs-row">Next: ${esc(recovery[0])}</div>` : ""}
   </div>`;
 }
+function pendingResumeAction(resume) {
+  const gates = ((resume.workflow || {}).safety_gates || {});
+  const raw = gates.pending_action;
+  if (!raw || raw.kind !== "auto_cloud_confirmation") return null;
+  const modelId = String(raw.model_id || "");
+  const modelLabel = String(raw.model_label || "");
+  if (!/^(free|account):/.test(modelId) || !modelLabel) return null;
+  return { kind: raw.kind, modelId, modelLabel };
+}
+function renderResumedPendingAction(resume, action, messages) {
+  const lastUser = [...messages].reverse().find((item) => item.role === "user");
+  const lastAssistant = [...messages].reverse().find((item) => item.role === "assistant");
+  if (!lastUser) return false;
+  const flow = resume.workflow || {};
+  const provider = action.modelId.split(":")[1] || "";
+  const sel = {
+    text: String(lastUser.text || ""),
+    model: action.modelId,
+    mode: String((flow.provider || {}).run_mode || state.mode.id),
+    focus: state.focus,
+    format: state.format,
+    modelKind: action.modelId.startsWith("free:") ? "free" : "account",
+    modelLabel: action.modelLabel,
+    modelProvider: provider,
+    contextHints: [],
+  };
+  // Restoring the inert selection does not grant authority. renderErrorCard's
+  // named Confirm button is still the only path that adds allowCloud: true.
+  state.lastSend = sel;
+  const el = appendMsg("", "bot resumed-approval");
+  renderErrorCard(el, "needs_auto_confirmation", {
+    answer: String((lastAssistant && lastAssistant.text) || "Confirm the named cloud model to continue."),
+    fallbackModelId: action.modelId,
+    fallbackModelLabel: action.modelLabel,
+    cloudStarted: false,
+  }, sel);
+  return true;
+}
 function restoreSession(resume) {
   clearChat();
-  for (const message of ((resume.thread || {}).messages || [])) {
+  const messages = ((resume.thread || {}).messages || []);
+  const pendingAction = pendingResumeAction(resume);
+  let pendingAssistantIndex = -1;
+  if (pendingAction) {
+    for (let index = messages.length - 1; index >= 0; index--) {
+      if (messages[index].role === "assistant") {
+        pendingAssistantIndex = index;
+        break;
+      }
+    }
+  }
+  messages.forEach((message, index) => {
     if (message.role === "user") {
       appendMsg(`<div class="bubble">${esc(message.text || "")}</div>`, "user");
-    } else if (message.role === "assistant") {
+    } else if (message.role === "assistant" && index !== pendingAssistantIndex) {
       const el = appendMsg(
         roleHeader("OPai", "var(--accent)") + `<div class="body">${mdToHtml(message.text || "")}</div>`,
         "bot",
       );
       enhanceCodeBlocks(el);
     }
-  }
+  });
+  if (pendingAction) renderResumedPendingAction(resume, pendingAction, messages);
   appendMsg(resumeSummaryHtml(resume), "bot resume-restored");
   if (state.boot.resume) state.boot.resume.requires_choice = false;
   setResumeGate(false);

@@ -561,6 +561,14 @@ class AutoFallbackTests(unittest.TestCase):
         self.assertIn("leave this device", result["answer"])
         self.assertFalse(result["cloudStarted"])
         self.assertEqual(result["receipt"], {})
+        self.assertEqual(
+            result["workflow"]["safety_gates"]["pending_action"],
+            {
+                "kind": "auto_cloud_confirmation",
+                "model_id": "free:groq:openai/gpt-oss-120b",
+                "model_label": "Groq",
+            },
+        )
         ask_mock.assert_not_called()
 
     def test_auto_names_first_free_provider_before_any_fallback(self) -> None:
