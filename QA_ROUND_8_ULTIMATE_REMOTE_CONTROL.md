@@ -520,6 +520,28 @@ The command must open Providers & Connections, whose render path refreshes and d
 
 The `doctor` command only called `switchView("settings")`, so the existing Settings hash chose whichever pane was active previously.
 
+### QAR8-21 — cancelling New app leaves a blank chat canvas
+
+**Severity:** Medium — the first-time app-creation journey ends in an unexplained empty screen.
+
+**Steps:**
+
+1. From an empty chat, select `New app`.
+2. Optionally submit the empty form to see its inline validation.
+3. Select `Cancel`.
+
+**Observed:**
+
+The New app card disappeared, but OPai left the entire central chat canvas blank. The welcome explanation, starter prompts, and keyboard hint did not return.
+
+**Expected:**
+
+If no other chat messages remain, cancelling New app must restore the normal empty-chat welcome state. Cancelling from a non-empty conversation must preserve that conversation without adding a welcome card.
+
+**Root-cause evidence:**
+
+Opening New app uses the normal message renderer, which hides `#empty`. Its Cancel handler removed only the generated message element and never restored `#empty` when the thread became message-free.
+
 ## Fix and retest log
 
 ### QAR8-01
@@ -682,6 +704,13 @@ The `doctor` command only called `switchView("settings")`, so the existing Setti
 - Red evidence: the extended shell regression opened Settings but left the Providers & Connections pane inactive.
 - Green evidence: the focused palette regression passed with Providers & Connections active and the `Connection Doctor` region visible; the complete shell suite passed 7/7 and the combined Connection Doctor/settings-connections run passed 21/21. That broader run also exposed and corrected one stale test assertion for the intentionally renamed `Ask before edits` mode label.
 - Live retest: relaunched the nested app, ran `Run connection doctor` from the palette, and landed directly on Providers & Connections with the eight-provider doctor, attention count, detected/not-configured states, safe credential-source labels, and local test/sign-in controls visible. No sign-in, provider test, disconnect, or model call was started.
+
+### QAR8-21
+
+- New app cancellation now checks whether any real messages remain. If the thread is empty, it restores the welcome state and rebuilds its starter actions; existing conversations remain untouched.
+- Red evidence: the focused New app regression removed the card but found `#empty` hidden until timeout.
+- Green evidence: the complete New app suite passed 9/9, including empty validation, deterministic scaffolding, Enter submission, workspace handoff, preview command, failure recovery, cancellation, and command-palette launch.
+- Live retest: restarted the nested source app, opened New app, selected Cancel, and confirmed the app card disappeared while the welcome headline and all three starter actions returned. No model call or file scaffold was started.
 
 ## Session notes
 

@@ -1249,7 +1249,13 @@ function startNewApp() {
   };
   card.querySelector('[data-a="create"]').onclick = create;
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); create(); } });
-  card.querySelector('[data-a="cancel"]').onclick = () => el.remove();
+  card.querySelector('[data-a="cancel"]').onclick = () => {
+    el.remove();
+    if (!$("#thread .msg")) {
+      $("#empty").style.display = "";
+      renderEmptyChips();
+    }
+  };
   input.focus();
   scrollBottom(true);
 }
