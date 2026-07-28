@@ -1351,6 +1351,73 @@ separation — Workstream A plus #517. The queue removes the silent data loss
 without pretending to deliver that. CLI parity for these states (Workstream H,
 #525) is untouched: the CLI does not consume `run_state` at all today.
 
+### Issue #380 — Stop claimed the work had stopped before it had
+
+`#380` (a direct child of the #295 epic) opens with: *"Immediate visible
+`cancelling` feedback followed by canonical `cancelled` or typed
+`failed(cancel_timeout)` within a bounded interval."* Nothing produced that
+intermediate state — `CANCEL_REQUESTED` had just been added to the canonical
+machine with no producer.
+
+**The defect.** `stop()` did four things in a row:
+
+```js
+bridge.cancel(state.currentRequest);
+state.currentRequest = null;                 // drop id → late signals ignored
+state.message = transition(..., "cancelled"); // terminal: "proven stopped"
+finalize("cancelled", ...);
+```
+
+But `bridge.cancel` only sets a `threading.Event`; the provider CLI dies
+whenever it next notices, and the desktop `Worker` then **swallows** the result
+(`if not self._cancelled: self.done.emit(result)`) so the GUI is never told
+teardown finished. The UI therefore declared a terminal "cancelled" — which
+means *proven stopped* — at the instant the request was made, and dropped the
+request id so the truth became unobservable. A paid provider call could still
+be running with nothing on screen to say so. That is #295 invariant 9
+(acknowledgement, propagation, teardown and final state are one contract) and
+invariant 15 (no hidden work).
+
+**The fix, in two halves.**
+
+*Backend:* a new `cancelReady` signal. `cancel()` records the request as
+in-teardown and returns; `_confirm_teardown` is wired to `QThread.finished`,
+which fires after `run()` returns — the first moment "cancelled" is a fact
+rather than a hope. A cancel for a request that is not running answers
+`not_running` immediately, so the UI is never left waiting for a confirmation
+that will never come. All three cancellable paths (login, send, build) are
+hooked.
+
+*Frontend:* `stop()` transitions to `cancel_requested`, shows "Stopping…", and
+keeps the request id so the confirmation can be matched. On confirmation the run
+becomes `cancelled`. A 10s bound guarantees resolution either way, and an
+unconfirmed teardown is reported as such rather than dressed up as a clean stop.
+
+**The safety property that had to survive.** Dropping the request id was also
+what blocked stale replies from overwriting the UI. Keeping the id would have
+reopened that hole, so the guard moved into `canApply()`, which now refuses
+everything while a run is stopping. The regression test was strengthened
+accordingly: it now proves a late reply is ignored *both* during teardown and
+after it.
+
+Seven existing tests encoded the old instant-cancelled contract and were updated
+to drive the confirmation — the same treatment the run-state tests got, and for
+the same reason: the epic says that contract was wrong.
+
+One incidental fix: `test_run_state_parity.py` scraped state names with a naive
+`(\w+):` regex that also matched ordinary prose in comments ("evidence that
+already exists:"), so a comment could fail the guard. It now strips `//`
+comments first.
+
+- Green evidence: new `cancel-teardown.spec.js` 7/7; `activity.spec.js` 15/15;
+  `activity-truth` + `status-strip` + cancel suites 29/29; state suites 41 tests
+  + 47 subtests; 74 JS unit; Ruff and format clean.
+
+**Not attempted:** process-tree reaping fixtures on Windows/POSIX, and the
+`timeout` terminal state with its own budget — both are #380 scope but need the
+supervisor/lease work from Workstream A. This slice makes the acknowledgement
+honest; it does not yet prove zero orphan processes.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.

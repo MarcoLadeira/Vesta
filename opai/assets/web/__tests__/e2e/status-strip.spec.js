@@ -84,9 +84,13 @@ test("a failed reply shows Failed and no invented cost", async ({ page }) => {
 });
 
 test("stopping shows a cancelled state", async ({ page }) => {
-  await sendPrompt(page);
+  const id = await sendPrompt(page);
   await page.locator(".gen-stop").click();
+  // #380: Stop is acknowledged at once, but "Stopped" is only claimed after
+  // the backend confirms the work actually stopped.
   await expect(strip(page)).toHaveClass(/ss-cancelled/);
+  await expect(page.locator("#ssConn")).toHaveText("Stopping…");
+  await page.evaluate((rid) => window.__mock.confirmCancel(rid), id);
   await expect(page.locator("#ssConn")).toHaveText("Stopped");
 });
 
@@ -103,6 +107,7 @@ test("a new request resets the strip", async ({ page }) => {
 test("status events from a superseded request never touch the strip", async ({ page }) => {
   const firstId = await sendPrompt(page);
   await page.locator(".gen-stop").click();
+  await page.evaluate((rid) => window.__mock.confirmCancel(rid), firstId);
   await expect(strip(page)).toHaveClass(/ss-cancelled/);
   const secondId = await sendPrompt(page, "second");
   // A late connect from the cancelled request must be ignored (stale guard).

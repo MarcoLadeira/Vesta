@@ -31,7 +31,11 @@ def _js_block(name: str) -> str:
 
 
 def _js_keys(name: str) -> set[str]:
-    return set(re.findall(r"(\w+):", _js_block(name)))
+    # Strip `//` comments first. Without this, ordinary prose inside the block
+    # ("evidence that already exists: ...") is scraped as if it were a state
+    # name, and the guard fails on a comment rather than on real drift.
+    body = re.sub(r"//[^\n]*", "", _js_block(name))
+    return set(re.findall(r"(\w+):", body))
 
 
 def test_js_terminal_states_match_the_canonical_terminals_exactly() -> None:
