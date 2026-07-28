@@ -671,7 +671,7 @@ kbd {
 .composer-queued[hidden] { display: none; }
 .cq-label { flex: none; }
 .cq-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; color: var(--text); }
+  white-space: nowrap; color: var(--ink); }
 .cq-edit, .cq-drop { flex: none; background: none; border: 0; padding: 0 var(--space-1);
   color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
 .cq-edit:hover, .cq-drop:hover { opacity: .8; }
