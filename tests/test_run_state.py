@@ -29,6 +29,11 @@ def test_states_partition_into_terminal_and_non_terminal() -> None:
         "queued",
         "preparing",
         "running",
+        # Handing control back to the user is not an ending: the answer resumes
+        # this same run (#295).
+        "awaiting_input",
+        # An acknowledged Stop is not yet a completed teardown (#295).
+        "cancel_requested",
         "verifying",
     }
 
@@ -57,12 +62,16 @@ def test_terminal_states_are_immutable() -> None:
         assert transition(terminal, RunState.RUNNING) is terminal
 
 
-def test_verifying_only_leads_to_terminal_states() -> None:
+def test_verifying_leads_only_to_an_outcome_or_an_acknowledged_stop() -> None:
+    # Verification judges evidence that already exists. It never returns to
+    # doing work, and it has no question to ask — the one non-terminal it may
+    # reach is the acknowledgement of a Stop pressed while it was running.
     for other in NON_TERMINAL_STATES:
-        assert (
-            not can_transition(RunState.VERIFYING, other) or other is RunState.VERIFYING
-        )
+        allowed = other in {RunState.VERIFYING, RunState.CANCEL_REQUESTED}
+        assert not can_transition(RunState.VERIFYING, other) or allowed, other
     assert not can_transition(RunState.VERIFYING, RunState.RUNNING)
+    assert not can_transition(RunState.VERIFYING, RunState.AWAITING_INPUT)
+    assert can_transition(RunState.VERIFYING, RunState.CANCEL_REQUESTED)
     assert can_transition(RunState.VERIFYING, RunState.COMPLETED)
 
 

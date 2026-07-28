@@ -33,6 +33,19 @@ class RunState(str, Enum):
     QUEUED = "queued"
     PREPARING = "preparing"
     RUNNING = "running"
+    # The run stopped and handed control back to the user — an approval card, a
+    # cloud confirmation, a model choice. This is NOT terminal: the user's
+    # answer resumes the very same work. Before this state existed the pipeline
+    # reported these turns as `blocked`, an immutable terminal, so an ordinary
+    # "shall I run this command?" was recorded in history, receipts and the
+    # ledger as a run that could not proceed (#295, invariant 12: honest
+    # uncertainty; the lifecycle's `waiting_user`/`awaiting_approval`).
+    AWAITING_INPUT = "awaiting_input"
+    # Stop was pressed and acknowledged, but controllable work has not been
+    # proven stopped yet. Distinct from CANCELLED so the acknowledgement is
+    # immediate and honest without claiming teardown already finished
+    # (#295 lifecycle: `cancel_requested`; invariant 9).
+    CANCEL_REQUESTED = "cancel_requested"
     VERIFYING = "verifying"
     # Terminal (immutable; one-for-one with CompletionVerdict).
     COMPLETED = "completed"
@@ -67,12 +80,42 @@ _ACTIVE_ORDER: tuple[RunState, ...] = (
 )
 
 
+# Non-terminal states that sit outside the linear phase order. Both are
+# *interruptions* of the progression rather than steps in it, so they are
+# reachable from any live phase and can hand control back to any of them.
+_INTERRUPT_STATES: frozenset[RunState] = frozenset(
+    {RunState.AWAITING_INPUT, RunState.CANCEL_REQUESTED}
+)
+
+
 def _legal_transitions() -> dict[RunState, frozenset[RunState]]:
     table: dict[RunState, frozenset[RunState]] = {}
     for index, state in enumerate(_ACTIVE_ORDER):
         # Forward to any later active phase, plus any terminal state.
         forward = set(_ACTIVE_ORDER[index + 1 :])
-        table[state] = frozenset(forward | set(TERMINAL_STATES))
+        allowed = forward | set(TERMINAL_STATES)
+        # Stop can be pressed during any live phase, verification included.
+        allowed.add(RunState.CANCEL_REQUESTED)
+        # Asking the user is only legal *before* verification. Verification
+        # judges evidence that already exists; it has no question to ask, and
+        # the pre-existing invariant that verifying leads only to a terminal is
+        # worth keeping. A future `repairing` state is what would change this,
+        # and it should have to change it deliberately.
+        if state is not RunState.VERIFYING:
+            allowed.add(RunState.AWAITING_INPUT)
+        table[state] = frozenset(allowed)
+    # Answering resumes the work: a run returns to a live phase (an approved
+    # command resumes execution) or ends. Not back into verifying, for the same
+    # reason it cannot stop to ask from there.
+    table[RunState.AWAITING_INPUT] = frozenset(
+        {RunState.QUEUED, RunState.PREPARING, RunState.RUNNING}
+        | {RunState.CANCEL_REQUESTED}
+        | set(TERMINAL_STATES)
+    )
+    # A requested cancel only ends. It may still end as COMPLETED: pressing Stop
+    # while the last step was already finishing is a race, and reporting that as
+    # cancelled would be a lie about what actually happened.
+    table[RunState.CANCEL_REQUESTED] = frozenset(TERMINAL_STATES)
     # Terminal states are immutable — no legal transition leaves them.
     for state in TERMINAL_STATES:
         table[state] = frozenset()
@@ -87,6 +130,9 @@ _ACTIVE_LABELS = {
     RunState.QUEUED: "Queued",
     RunState.PREPARING: "Preparing",
     RunState.RUNNING: "Running",
+    # Names the user as the thing being waited on, not the run as stuck.
+    RunState.AWAITING_INPUT: "Waiting for you",
+    RunState.CANCEL_REQUESTED: "Stopping",
     RunState.VERIFYING: "Verifying",
 }
 
@@ -147,7 +193,42 @@ _PRESENTATION_TO_CANONICAL = {
     "sending": RunState.RUNNING,
     "waiting": RunState.RUNNING,
     "streaming": RunState.RUNNING,
+    # #295 names these `waiting_user` / `awaiting_approval` / `cancel_requested`.
+    # Accepting the epic's words as aliases means a surface or document written
+    # against the epic converges here instead of starting a rival vocabulary.
+    "waiting_user": RunState.AWAITING_INPUT,
+    "awaiting_approval": RunState.AWAITING_INPUT,
+    "awaiting_input": RunState.AWAITING_INPUT,
+    "cancel_requested": RunState.CANCEL_REQUESTED,
 }
+
+# Pipeline statuses that hand control back to the user *and can be resumed by
+# their answer*. Each of these is re-sent as the same task plus one added
+# authority (an approved command, a one-shot edit grant, cloud consent, a limit
+# waiver), so the run genuinely continues.
+#
+# The test for membership is deliberately narrow: **does the user's answer
+# resume this run?** `needs_model` deliberately fails it. That status means Auto
+# found nothing it could call, and the remedy is to configure a provider in
+# Settings and start again — a new run, not a continuation. Filing it here would
+# make the `resumable` flag a false claim and would dress a genuine dead end up
+# as a question, which is the opposite of the honesty this state exists for.
+AWAITING_INPUT_STATUSES: frozenset[str] = frozenset(
+    {
+        "needs_command_approval",
+        "needs_edit_approval",
+        "needs_free_confirmation",
+        "needs_auto_confirmation",
+        "needs_limit_confirmation",
+        "needs_confirmation",
+    }
+)
+
+
+def is_awaiting_input(status: str) -> bool:
+    """True when a pipeline status means "OPai handed control back to you"."""
+
+    return str(status or "").strip().lower() in AWAITING_INPUT_STATUSES
 
 
 def canonical_for(presentation_state: RunState | str) -> RunState:

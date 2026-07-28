@@ -49,7 +49,7 @@ from .ledger import (
 )
 from .model_intelligence import recommend_model
 from .repo_context import classify_dirty_paths, resolve_repo_context, save_active_repo
-from .run_state import run_state_for_verdict
+from .run_state import RunState, is_awaiting_input, run_state_for_verdict
 from .run_summary import build_run_summary
 from .task_packet import build_task_packet
 from .workflow_state import WorkflowState, load_workflow_state, save_workflow_state
@@ -64,6 +64,56 @@ _EDITING_MODES = {"safe-auto", "full-auto"}
 # `cancelled` — those already carry the exact action that unblocks them, and
 # offering a different model there would be an invitation to route around a
 # safety gate.
+# What each awaiting status is actually asking the user for. `kind` is a closed
+# vocabulary a surface can branch on; `question` is the one-line ask. Keeping
+# this beside the statuses means a new awaiting status cannot be added without
+# deciding what it asks — the gap that let these turns look like failures.
+#
+# `question` is Layer 1 (what the user reads) and is deliberately first-person
+# plain English. #295's product amendment is explicit: say "I need permission to
+# push this branch", never expose an internal state name like
+# `awaiting_approval`. `kind` is Layer 2 — a closed vocabulary for surfaces to
+# branch on, never rendered.
+_AWAITING_ASKS: dict[str, tuple[str, str]] = {
+    "needs_command_approval": ("approval", "I need your OK to run this command."),
+    "needs_edit_approval": ("approval", "I need your OK to edit these files."),
+    "needs_free_confirmation": (
+        "consent",
+        "I need your OK to send this to a free cloud model.",
+    ),
+    "needs_auto_confirmation": (
+        "consent",
+        "I need your OK to continue with the model I picked.",
+    ),
+    "needs_limit_confirmation": (
+        "consent",
+        "I need your OK to continue past your usage limit.",
+    ),
+    "needs_confirmation": ("consent", "I need your OK before I continue."),
+}
+
+
+def _awaiting_payload(status: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Why this run is waiting, and what it is waiting for.
+
+    ``backgroundActive`` is False on every current path and says so explicitly
+    rather than omitting it: OPai stops the turn to ask, so nothing keeps
+    running behind the question. A future path that *does* leave work running
+    must set it True, and the field being present forces that decision instead
+    of leaving the user guessing whether a spinner is still spending money.
+    """
+    kind, question = _AWAITING_ASKS.get(
+        str(status or ""), ("confirmation", "I need your OK before I continue.")
+    )
+    return {
+        "status": str(status or ""),
+        "kind": kind,
+        "question": question,
+        "resumable": True,
+        "backgroundActive": False,
+    }
+
+
 _DEAD_END_STATUSES = frozenset(
     {
         "failed",
@@ -1250,7 +1300,12 @@ def handle_gui_message(
                 turn_id,
                 state=(
                     DONE
-                    if completed_ok
+                    # A turn that stopped to ask did its job: it ran, found it
+                    # needed the user, and returned an actionable card. The task
+                    # continues in the turn the answer starts. Recording it as
+                    # FAILED was the same misstatement as calling it `blocked`
+                    # (#295).
+                    if completed_ok or is_awaiting_input(status)
                     else CANCELLED
                     if canonical is CompletionState.CANCELLED or status == "cancelled"
                     else FAILED
@@ -1327,10 +1382,27 @@ def handle_gui_message(
             "message_contract": contract.to_dict(),
             "objective": objective.to_dict(),
             "completion_verdict": verdict_payload,
-            # #379: the engine emits the canonical terminal run state (derived
-            # from the verdict, 1:1) so every surface reads one lifecycle field
-            # instead of inferring it from a local status string.
-            "run_state": run_state_for_verdict(verdict.verdict).value,
+            # #379: the engine emits the canonical run state so every surface
+            # reads one lifecycle field instead of inferring it from a local
+            # status string. A turn that handed control back to the user is
+            # AWAITING_INPUT — non-terminal, because the user's next click
+            # resumes this same work. Deriving it from the verdict instead would
+            # record an ordinary "shall I run this command?" as `blocked`, an
+            # immutable terminal, in history, receipts and the ledger (#295).
+            "run_state": (
+                RunState.AWAITING_INPUT.value
+                if is_awaiting_input(status)
+                else run_state_for_verdict(verdict.verdict).value
+            ),
+            # The lifecycle says a run is waiting; this says what for, so a
+            # surface can render the ask without re-deriving it from the status
+            # string (#295: waiting states carry a reason and the requested
+            # input). Absent entirely on a run that is not waiting.
+            **(
+                {"awaiting": _awaiting_payload(status, payload)}
+                if is_awaiting_input(status)
+                else {}
+            ),
             "agent_policy": policy.to_dict(),
             "requested_run_mode": autonomy.requested_mode,
             "effective_run_mode": selected_mode,
