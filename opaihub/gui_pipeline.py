@@ -39,6 +39,7 @@ from .cost_telemetry import (
 from .diff_review import build_diff_review
 from .gui_preferences import load_gui_preferences
 from .intent_router import route_intents, safety_warnings
+from .message_contract import resolve_message_contract
 from .ledger import (
     UNKNOWN as OUTCOME_UNKNOWN,
     record_event,
@@ -707,6 +708,15 @@ def handle_gui_message(
     autonomy = effective_mode(mode, prefs)
     requested_run_mode = autonomy.effective_mode
     policy = resolve_agent_policy(message, focus_hint=focus_hint)
+    # The message contract: one routing decision, made before anything runs.
+    # It assigns this turn to a lane and the lane fixes the runtime policy —
+    # whether a failure may be recovered on a different provider, how many
+    # transport blips are absorbed, and what tool/time/context budget applies.
+    # Deterministic by construction, so the same request always gets the same
+    # treatment no matter how it was phrased around the edges.
+    contract = resolve_message_contract(
+        root, message, agent_mode=policy.mode, selected_mode=str(mode or "")
+    )
     # #381: savings are OPai's proof, so a route/savings event is recorded only
     # for a run that met its declared objective. One objective per turn, shared
     # by the route gate below and the terminal verdict in _decorate, so the
@@ -1294,7 +1304,7 @@ def handle_gui_message(
         # some other model is genuinely runnable; ``None`` is left off entirely
         # rather than promising a fallback that does not exist.
         fallback_offer: dict[str, Any] | None = None
-        if status in _DEAD_END_STATUSES:
+        if status in _DEAD_END_STATUSES and contract.allow_provider_fallback:
             with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
                 from opai import app_state as _app_state
 
@@ -1313,6 +1323,10 @@ def handle_gui_message(
             # Absent (not null) when there is nothing to offer, so no renderer
             # can accidentally show an empty "Continue with" button.
             **({"fallback_offer": fallback_offer} if fallback_offer else {}),
+            # Route transparency: routing quality and routing *trust* are
+            # separate problems. Every turn reports the lane it ran in and why,
+            # so a user can see what OPai decided instead of inferring it.
+            "message_contract": contract.to_dict(),
             "objective": objective.to_dict(),
             "completion_verdict": verdict_payload,
             # #379: the engine emits the canonical terminal run state (derived
@@ -1416,6 +1430,22 @@ def handle_gui_message(
             channel="status",
         )
 
+    def _contract_tool_loop_policy() -> Any:
+        """The lane's execution budgets, as a ToolLoopPolicy.
+
+        A multi-file refactor and a one-line fix used to share one allowance,
+        so the long task quietly stopped at a budget sized for the short one.
+        Built here (not in the contract) so ``message_contract`` stays free of
+        runtime imports and remains a pure decision record.
+        """
+        from .tool_loop import ToolLoopPolicy
+
+        return ToolLoopPolicy(
+            max_calls_per_subgoal=contract.max_tool_calls,
+            max_active_seconds=contract.max_active_seconds,
+            compaction_char_threshold=contract.compaction_char_threshold,
+        )
+
     def _prune_blocked_candidates() -> None:
         """Drop not-yet-tried chain entries belonging to a just-blocked provider.
 
@@ -1461,6 +1491,11 @@ def handle_gui_message(
         if not provider:
             return False
         attempts = _transient_retries.get(provider, 0)
+        if attempts >= contract.max_transient_retries:
+            # The lane's budget, not a global one: the governed lane spends
+            # zero, because silently re-attempting an irreversible action is
+            # not a recovery the user asked for.
+            return False
         if not auto_router.should_retry_same_provider(error, attempts):
             return False
         _transient_retries[provider] = attempts + 1
@@ -1486,6 +1521,12 @@ def handle_gui_message(
         """
         nonlocal selected_model, auto_pos
         if not auto_active:
+            return "stop"
+        if not contract.allow_provider_fallback:
+            # Governed lane. Moving a release, a publish, or a destructive
+            # action to a different provider after a failure is a second
+            # attempt at something irreversible that the user approved once,
+            # for one route. Stop and let them decide instead.
             return "stop"
         from . import auto_router
         from . import provider_balance as _bal
@@ -1781,6 +1822,7 @@ def handle_gui_message(
                 record_route=False,
                 cancel=cancel,
                 on_text=on_text,
+                tool_loop_policy=_contract_tool_loop_policy(),
             )
             if result.get("status") == "cancelled":
                 _phase_close("cancelled", "Stopped by you")

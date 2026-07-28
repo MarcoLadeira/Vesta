@@ -293,12 +293,14 @@ def _call_tool_loop(
     cancel: Any,
     guard: Any,
     allow_command: str | None,
+    tool_loop_policy: Any = None,
 ) -> dict[str, Any]:
     """Invoke the runner's tool loop, threading a one-shot command grant.
 
     ``allow_command`` is the exact command the user just approved (F17/F9); the
     executor permits it once. Older runners without the parameter simply never
     receive it — the grant is additive, never a behavior change on its own.
+    ``tool_loop_policy`` (the turn's contract budgets) is threaded the same way.
     """
 
     kwargs: dict[str, Any] = {
@@ -309,17 +311,20 @@ def _call_tool_loop(
         "cancel": cancel,
         "guard": guard,
     }
-    if allow_command:
+
+    def _accepts(name: str) -> bool:
         try:
             params = inspect.signature(complete_with_tools).parameters
-            accepts = "allow_command" in params or any(
-                param.kind is inspect.Parameter.VAR_KEYWORD
-                for param in params.values()
-            )
         except (TypeError, ValueError):
-            accepts = True
-        if accepts:
-            kwargs["allow_command"] = allow_command
+            return True
+        return name in params or any(
+            param.kind is inspect.Parameter.VAR_KEYWORD for param in params.values()
+        )
+
+    if allow_command and _accepts("allow_command"):
+        kwargs["allow_command"] = allow_command
+    if tool_loop_policy is not None and _accepts("tool_loop_policy"):
+        kwargs["tool_loop_policy"] = tool_loop_policy
     return complete_with_tools(task, **kwargs)
 
 
@@ -338,6 +343,7 @@ def run_explicit_model(
     cancel: Any = None,
     on_text: Any = None,
     allow_command: str | None = None,
+    tool_loop_policy: Any = None,
 ) -> dict[str, Any]:
     """Run an explicitly selected model without Auto routing or prose caching.
 
@@ -349,8 +355,11 @@ def run_explicit_model(
 
     ``allow_command`` is a one-shot, exact-command grant the user issued after
     a command-approval prompt (F17/F9); it is threaded to the tool executor
-    verbatim. Completion truth (F8): the result's ``completion_state`` is
-    derived from what actually happened — never pre-seeded as "completed".
+    verbatim. ``tool_loop_policy`` carries the turn's contract budgets (tool
+    calls, wall clock, compaction threshold) so a multi-file refactor is not
+    held to a one-file fix's allowance; ``None`` keeps the defaults. Completion
+    truth (F8): the result's ``completion_state`` is derived from what actually
+    happened — never pre-seeded as "completed".
     """
 
     root = project_root.expanduser().resolve()
@@ -386,6 +395,7 @@ def run_explicit_model(
                 cancel=cancel,
                 guard=turn_guard,
                 allow_command=allow_command,
+                tool_loop_policy=tool_loop_policy,
             )
             answer = str(completed.get("text") or "")
             tool_trace = list(completed.get("tool_trace") or [])

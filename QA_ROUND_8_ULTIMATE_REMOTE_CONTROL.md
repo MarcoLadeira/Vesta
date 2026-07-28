@@ -954,6 +954,97 @@ now simply re-issued from where it was. Bounds and boundaries:
   agent / capture / activity sweep 464 passed with 96 subtests; Ruff clean;
   `git diff --check` clean.
 
+### QAR8-31 — message laneing: one routing decision, made before anything runs
+
+Implements the central recommendation of the Cursor-consistency research
+report: **define a message contract before any model is invoked**, so runtime
+behaviour is governed state rather than a side effect of how a request happened
+to be worded. The report names the defect precisely — *message-shape variance*:
+"semantically similar user messages succeed or fail depending on wording,
+length, attached context, tool path, or the model selected".
+
+OPai already classified intent (`agent_policy`), task type
+(`model_intelligence.classify_task`), and provider order (`auto_router`) — but
+nothing bound them into one decision, and nothing said which runtime *policies*
+followed from it. Two phrasings of the same request could take different tool
+budgets, different fallback behaviour, and different amounts of context.
+
+`opaihub/message_contract.py` assigns every message exactly one lane, and the
+lane fixes the policy:
+
+| lane | when | fallback | blip retries | tool calls | wall clock | context |
+| --- | --- | --- | --- | --- | --- | --- |
+| `stable` | routine, bounded work | yes | 1 | 12 | 600s | shared |
+| `explore` | discovery ("find me an issue") | yes | 1 | 20 | 600s | **isolated** |
+| `long_horizon` | multi-file features, architecture | yes | 2 | 40 | 1800s | later compaction |
+| `governed` | destructive, release, credentials | **no** | **0** | 8 | 600s | shared |
+
+The governed lane is the one that matters most for safety. Moving a publish or
+a delete to a different provider after a failure is not a recovery — it is a
+second attempt at an irreversible action the user approved once, for one route.
+That lane refuses provider fallback, refuses the silent transient retry, and
+suppresses the QAR8-26 "Continue with…" offer. When a message qualifies for
+more than one lane, the **most constrained** one wins: an
+"implement the deploy feature and publish it to production" request is
+governed, because a wider budget is worthless if it routes around the gate.
+
+What is actually enforced, not merely declared:
+
+- `allow_provider_fallback` gates `_advance_auto` and the dead-end offer.
+- `max_transient_retries` replaces the former global constant.
+- `max_tool_calls` / `max_active_seconds` / `compaction_char_threshold` are
+  threaded to `ToolLoopPolicy` through `app_state.ask` → `run_explicit_model` →
+  the runner, using the same additive signature-inspection pattern as the
+  existing one-shot command grant, so older and fake runners are unaffected.
+  Previously a multi-file refactor and a one-line fix shared one allowance, so
+  the long task quietly stopped at a budget sized for the short one.
+
+**Transparency** (the report's separate point that route quality and route
+*trust* are different problems): every result carries `message_contract`, and
+a governed-lane failure states in the card that OPai will not move the request
+to another model on its own, and why. Without that, a deliberately withheld
+fallback would look exactly like the dead end the rest of this release removed.
+
+**Flapping evals** (the report's own recommendation — "replay identical cases
+multiple times and flag routes whose outcomes oscillate") are implemented in
+`tests/test_message_lanes.py`: the same message replayed 10× must yield one
+contract, and paraphrase groups must not split across lanes. Since the defect
+*is* message-shape variance, a paraphrase that changes lane is itself the bug.
+
+Deliberately **not** implemented from the report, and why: custom embeddings and
+the retrieval overhaul (large, and OPai's `semantic_index` is a separate track);
+release channels and online A/B telemetry (needs product infrastructure OPai
+does not have); real-time RL behind Auto (the report itself flags this as the
+part to adopt last, after stable lanes exist — which is what this item builds).
+
+- Red evidence: granting the governed lane the stable lane's permissions
+  (`allow_provider_fallback: True`, `max_transient_retries: 1`) fails 5
+  regressions across both suites — the pipeline's no-silent-retry and
+  no-automatic-reroute cases, and the lane, precedence, and serialization
+  cases. Flipping only `allow_provider_fallback` fails 1, which is how the
+  two rules were confirmed to be independently enforced rather than one
+  check wearing two names.
+- Green evidence: `tests/test_message_lanes.py` 17 tests + 20 subtests;
+  `tests/test_pipeline_consistency.py` 10/10 including the governed-lane
+  contrast; `fallback-offer.spec.js` 10/10; existing
+  `tests/test_message_contract.py` (status contract) unchanged and passing;
+  Ruff clean; `git diff --check` clean.
+
+### QAR8-32 — a test-only global `time.sleep` mock could exhaust process memory
+
+Found by the full-suite run, not by any individual suite. The QAR8-26 pipeline
+tests patched `opaihub.gui_pipeline.time.sleep`, which resolves to the **stdlib
+`time` module** and therefore replaced `time.sleep` process-wide. A pre-existing
+leaked daemon reader thread in `tests/test_cancellation.py` calls
+`time.sleep(0.03)` in an unbounded keep-alive loop; against the mock, every one
+of those calls appended to `call_args_list` until the run died of `MemoryError`,
+taking down both `test_pipeline_consistency` and the unrelated
+`test_gui_overview_cache` timing test.
+
+Fixed by patching `auto_router.TRANSIENT_RETRY_DELAY_SECONDS` to `0.0` instead —
+exact, local, and it cannot leak into another test's threads. Verified by
+running the three affected suites together (28 passed).
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.

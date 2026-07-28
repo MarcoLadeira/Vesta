@@ -2212,10 +2212,21 @@ function renderErrorCard(el, status, r, sel) {
   const offerId = offer ? String(offer.id || "") : "";
   const offerLabel = offer ? String(offer.label || offerId) : "";
   const showOffer = !!offerId && offerId !== String((sel && sel.model) || "");
+  // Route transparency. When OPai deliberately declines to reroute — an
+  // irreversible request in the governed lane — the absence of a "Continue
+  // with" button is a decision, not the dead end this release spent its time
+  // removing. Say so, or it reads as the same old failure.
+  const lane = r && r.message_contract && typeof r.message_contract === "object"
+    ? r.message_contract
+    : null;
+  const heldLane = lane && lane.allowProviderFallback === false
+    ? `OPai will not move this request to another model on its own — ${String(lane.reason || "it cannot be safely repeated")} Choose a model yourself to continue.`
+    : "";
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
   el.innerHTML = roleHeader(sel && sel.build ? "OPai Build" : "OPai", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card" role="alert"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
+    (heldLane ? `<div class="ec-w" data-lane-note>${esc(heldLane)}</div>` : "") +
     `<div class="ec-actions">` +
     (showOffer ? `<button class="btn primary" data-a="continue-with">Continue with ${esc(offerLabel)}</button>` : "") +
     (canRetry ? `<button class="btn" data-a="retry">Retry</button>` : "") +

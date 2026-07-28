@@ -119,6 +119,51 @@ test("awaiting-input cards never offer a different model", async ({ page }) => {
   await expect(page.locator('.error-card [data-a="fallback"]')).toBeVisible();
 });
 
+test("a governed request explains why OPai will not reroute it", async ({ page }) => {
+  // Re-running an irreversible action on a different provider is a second
+  // attempt at something the user approved once, for one route. OPai declines
+  // — and says so, so the missing button reads as a decision, not a dead end.
+  await openWithCodexSelected(page);
+  const id = await sendPrompt(page, "publish the release to production");
+  await finishRequest(page, id, {
+    status: "failed",
+    answer: "OPai could not complete this request.",
+    error: { code: "UNKNOWN", title: "OPai could not complete this request.", provider: "codex" },
+    message_contract: {
+      lane: "governed",
+      laneLabel: "Governed",
+      reason: "This request publishes, releases, or touches credentials.",
+      allowProviderFallback: false,
+      maxTransientRetries: 0,
+    },
+  });
+
+  const note = page.locator(".error-card [data-lane-note]");
+  await expect(note).toBeVisible();
+  await expect(note).toContainText("will not move this request to another model");
+  await expect(note).toContainText("publishes, releases, or touches credentials");
+  await expect(page.locator('.error-card [data-a="continue-with"]')).toHaveCount(0);
+  // The user can still choose a model deliberately — this restricts OPai, not them.
+  await expect(page.locator('.error-card [data-a="switch"]')).toBeVisible();
+});
+
+test("an ordinary failure carries no governed-lane note", async ({ page }) => {
+  await openWithCodexSelected(page);
+  const id = await sendPrompt(page, "fix the failing test");
+  await finishRequest(page, id, {
+    ...CLI_OUTDATED,
+    message_contract: {
+      lane: "stable",
+      laneLabel: "Stable",
+      reason: "Routine request on the predictable route.",
+      allowProviderFallback: true,
+      maxTransientRetries: 1,
+    },
+  });
+  await expect(page.locator(".error-card [data-lane-note]")).toHaveCount(0);
+  await expect(page.locator('.error-card [data-a="continue-with"]')).toBeVisible();
+});
+
 test("a write-incapable model says so before it is picked", async ({ page }) => {
   // Copilot's CLI cannot expose a bounded edit-tool set, so OPai refuses to
   // launch it with write access. The picker must say that up front rather than

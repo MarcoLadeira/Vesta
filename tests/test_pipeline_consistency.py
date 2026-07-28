@@ -42,12 +42,19 @@ class TransientRetryPipelineTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.root = make_repo(Path(self._tmp.name))
-        # No real sleep: the retry delay is policy, not something to wait for.
-        self._sleep = mock.patch("opaihub.gui_pipeline.time.sleep")
-        self._sleep.start()
+        # No real wait: the retry delay is policy, not something to sit through.
+        # Zero the delay constant rather than patching `time.sleep` — the
+        # pipeline imports the stdlib module, so patching its attribute would
+        # replace `time.sleep` for the whole process, and any other test's
+        # background thread calling it would accumulate mock call records until
+        # the run dies of MemoryError. Constant-patching is exact and local.
+        self._delay = mock.patch.object(
+            auto_router, "TRANSIENT_RETRY_DELAY_SECONDS", 0.0
+        )
+        self._delay.start()
 
     def tearDown(self) -> None:
-        self._sleep.stop()
+        self._delay.stop()
         self._tmp.cleanup()
 
     def _run(self, results: list[dict], **kwargs):
@@ -117,11 +124,13 @@ class DeadEndPipelineTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.root = make_repo(Path(self._tmp.name))
-        self._sleep = mock.patch("opaihub.gui_pipeline.time.sleep")
-        self._sleep.start()
+        self._delay = mock.patch.object(
+            auto_router, "TRANSIENT_RETRY_DELAY_SECONDS", 0.0
+        )
+        self._delay.start()
 
     def tearDown(self) -> None:
-        self._sleep.stop()
+        self._delay.stop()
         self._tmp.cleanup()
 
     STALE_CLI = {
@@ -177,6 +186,87 @@ class DeadEndPipelineTests(unittest.TestCase):
         # The next turn must not spend a call rediscovering the same refusal.
         self.assertTrue(blocks.is_blocked(self.root, "codex"))
         self.assertIn("codex", blocks.block_message(self.root, "codex").lower())
+
+
+class GovernedLanePipelineTests(unittest.TestCase):
+    """The governed lane's rule, proven through the real pipeline.
+
+    Automatic recovery is the whole point of the rest of this work — which is
+    exactly why the one place it must not apply needs a test. Re-running a
+    publish or a delete somewhere else is a second attempt at something the
+    user approved once, for one route.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+        self._delay = mock.patch.object(
+            auto_router, "TRANSIENT_RETRY_DELAY_SECONDS", 0.0
+        )
+        self._delay.start()
+
+    def tearDown(self) -> None:
+        self._delay.stop()
+        self._tmp.cleanup()
+
+    BLIP = {
+        "status": "runner_error",
+        "error": {
+            "code": "PROVIDER_UNAVAILABLE",
+            "title": "OPai could not reach this provider.",
+            "userMessage": "The provider is unavailable.",
+            "provider": "gemini",
+            "retryable": True,
+        },
+    }
+
+    def _run(self, message: str):
+        calls: list[str] = []
+
+        def fake_ask(project_root, task, model_choice="auto", **kw):
+            calls.append(str(model_choice))
+            return self.BLIP
+
+        catalog = _catalog(
+            _free("free:gemini:3.1-flash-lite", "gemini", "Gemini"),
+            _free("free:groq:llama", "groq", "Groq"),
+        )
+        with (
+            mock.patch("opai.app_state.ask", side_effect=fake_ask),
+            mock.patch("opai.app_state.available_models", return_value=catalog),
+        ):
+            result = handle_gui_message(
+                self.root,
+                message,
+                model_id="free:gemini:3.1-flash-lite",
+                mode="ask",
+                allow_cloud=True,
+            )
+        return result, calls
+
+    def test_a_governed_request_is_not_silently_retried(self) -> None:
+        _result, calls = self._run("publish the release to production")
+        self.assertEqual(len(calls), 1, "an irreversible action must not repeat itself")
+
+    def test_a_governed_failure_offers_no_automatic_reroute(self) -> None:
+        result, _calls = self._run("publish the release to production")
+        self.assertNotIn("fallback_offer", result)
+        self.assertEqual(result["message_contract"]["lane"], "governed")
+        self.assertFalse(result["message_contract"]["allowProviderFallback"])
+
+    def test_the_same_failure_on_a_routine_request_does_recover(self) -> None:
+        # The contrast that proves the restriction is the lane's, not a
+        # regression in recovery.
+        result, calls = self._run("explain this repo")
+        self.assertEqual(len(calls), 2, "a routine request still absorbs a blip")
+        self.assertEqual(result["message_contract"]["lane"], "stable")
+        self.assertIn("fallback_offer", result)
+
+    def test_every_turn_reports_the_lane_it_ran_in(self) -> None:
+        result, _calls = self._run("explain this repo")
+        contract = result["message_contract"]
+        self.assertTrue(contract["laneLabel"])
+        self.assertTrue(contract["reason"])
 
 
 if __name__ == "__main__":  # pragma: no cover

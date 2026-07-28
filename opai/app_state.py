@@ -779,6 +779,7 @@ def ask(
     on_event: Any = None,
     on_text: Any = None,
     cancel: Any = None,
+    tool_loop_policy: Any = None,
 ) -> dict[str, Any]:
     """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', 'free:<id>', or 'provider:model'.
 
@@ -827,6 +828,7 @@ def ask(
             record_route=record_route,
             cancel=cancel,
             on_text=on_text,
+            tool_loop_policy=tool_loop_policy,
         )
 
     from opaihub.ask import run_ask
@@ -862,6 +864,7 @@ def _ask_free_model(
     record_route: bool = True,
     cancel: Any = None,
     on_text: Any = None,
+    tool_loop_policy: Any = None,
 ) -> dict[str, Any]:
     """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
 
@@ -928,6 +931,9 @@ def _ask_free_model(
         # re-demands consent it has no way to collect, so the run always
         # dead-ends as "needs_consent" with an empty answer (#219).
         allow_cloud=allow_cloud,
+        # The turn's contract budgets (tool calls, wall clock, compaction),
+        # so a long multi-file task is not held to a short task's allowance.
+        tool_loop_policy=tool_loop_policy,
     )
     if result.get("status") == "runner_error":
         from opai.provider_contract import normalize_provider_error
