@@ -10,6 +10,7 @@ from opaihub.completion import CompletionState
 from opaihub.provider_protocol import (
     PROTOCOL_VERSION,
     AdapterRequest,
+    AdapterSLO,
     CapabilityStatus,
     EventKind,
     ProtocolViolation,
@@ -254,6 +255,44 @@ class ProviderProtocolTests(unittest.TestCase):
             _event(1, 30.01, EventKind.STARTED),
             _event(2, 30.02, EventKind.TERMINAL),
         )
+        with self.assertRaises(ProtocolViolation):
+            validate_event_stream(events)
+
+    def test_adapter_slo_uses_exact_public_fields_and_validator_limits(self):
+        slo = AdapterSLO(
+            first_event_seconds=0.5,
+            cancel_ack_seconds=0.2,
+            terminal_after_cancel_seconds=0.5,
+        )
+        self.assertEqual(slo.first_event_seconds, 0.5)
+        self.assertEqual(slo.cancel_ack_seconds, 0.2)
+        self.assertEqual(slo.terminal_after_cancel_seconds, 0.5)
+
+        with self.assertRaises(ProtocolViolation):
+            validate_event_stream(
+                (
+                    _event(1, 0.51, EventKind.STARTED),
+                    _event(2, 0.52, EventKind.TERMINAL),
+                ),
+                slo=slo,
+            )
+        with self.assertRaises(ProtocolViolation):
+            validate_event_stream(
+                (
+                    _event(1, 0.0, EventKind.STARTED),
+                    _event(2, 1.1, EventKind.CANCEL_ACK),
+                    _event(3, 1.61, EventKind.TERMINAL),
+                ),
+                slo=slo,
+                cancel_requested_at=1.0,
+            )
+
+    def test_stream_sequence_must_start_at_one(self):
+        events = (
+            _event(0, 0.0, EventKind.STARTED),
+            _event(1, 0.1, EventKind.TERMINAL),
+        )
+
         with self.assertRaises(ProtocolViolation):
             validate_event_stream(events)
 

@@ -228,65 +228,71 @@ def _thaw_json(value: Any) -> Any:
 
 
 @dataclass(frozen=True)
-class AttemptSLO:
+class AdapterSLO:
     """Bounded timing guarantees for one adapter attempt.
 
     Event timestamps are elapsed monotonic seconds from the attempt start.
     """
 
-    first_observable_event_seconds: float = 30.0
-    cancellation_acknowledgement_seconds: float = 2.0
-    terminal_after_cancel_ack_seconds: float = 10.0
+    first_event_seconds: float = 30.0
+    cancel_ack_seconds: float = 2.0
+    terminal_after_cancel_seconds: float = 10.0
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
-            "first_observable_event_seconds",
+            "first_event_seconds",
             _positive_seconds(
-                self.first_observable_event_seconds,
-                field_name="first_observable_event_seconds",
+                self.first_event_seconds,
+                field_name="first_event_seconds",
             ),
         )
         object.__setattr__(
             self,
-            "cancellation_acknowledgement_seconds",
+            "cancel_ack_seconds",
             _positive_seconds(
-                self.cancellation_acknowledgement_seconds,
-                field_name="cancellation_acknowledgement_seconds",
+                self.cancel_ack_seconds,
+                field_name="cancel_ack_seconds",
             ),
         )
         object.__setattr__(
             self,
-            "terminal_after_cancel_ack_seconds",
+            "terminal_after_cancel_seconds",
             _positive_seconds(
-                self.terminal_after_cancel_ack_seconds,
-                field_name="terminal_after_cancel_ack_seconds",
+                self.terminal_after_cancel_seconds,
+                field_name="terminal_after_cancel_seconds",
             ),
         )
 
     @property
-    def first_event_seconds(self) -> float:
-        """Compatibility-friendly short name for the first-observation bound."""
+    def first_observable_event_seconds(self) -> float:
+        """Compatibility spelling for the first-observation bound."""
 
-        return self.first_observable_event_seconds
+        return self.first_event_seconds
 
     @property
-    def cancel_ack_seconds(self) -> float:
-        """Compatibility-friendly short name for the cancellation-ack bound."""
+    def cancellation_acknowledgement_seconds(self) -> float:
+        """Compatibility spelling for the cancellation-ack bound."""
 
-        return self.cancellation_acknowledgement_seconds
+        return self.cancel_ack_seconds
+
+    @property
+    def terminal_after_cancel_ack_seconds(self) -> float:
+        """Compatibility spelling for the post-ack terminal bound."""
+
+        return self.terminal_after_cancel_seconds
 
     @property
     def terminal_after_ack_seconds(self) -> float:
-        """Compatibility-friendly short name for the post-ack terminal bound."""
+        """Compatibility spelling for the post-ack terminal bound."""
 
-        return self.terminal_after_cancel_ack_seconds
+        return self.terminal_after_cancel_seconds
 
     def to_dict(self) -> dict[str, float]:
         return {
-            "first_observable_event_seconds": self.first_observable_event_seconds,
-            "cancellation_acknowledgement_seconds": self.cancellation_acknowledgement_seconds,
-            "terminal_after_cancel_ack_seconds": self.terminal_after_cancel_ack_seconds,
+            "first_event_seconds": self.first_event_seconds,
+            "cancel_ack_seconds": self.cancel_ack_seconds,
+            "terminal_after_cancel_seconds": self.terminal_after_cancel_seconds,
         }
 
 
@@ -628,14 +634,14 @@ def negotiate_capabilities(
 def validate_event_stream(
     events: Iterable[ProviderEvent],
     *,
-    slo: AttemptSLO | None = None,
+    slo: AdapterSLO | None = None,
     cancel_requested_at: float | None = None,
 ) -> tuple[ProviderEvent, ...]:
     """Validate an ordered, immutable provider event stream without side effects."""
 
-    active_slo = AttemptSLO() if slo is None else slo
-    if not isinstance(active_slo, AttemptSLO):
-        _fail("slo must be an AttemptSLO")
+    active_slo = AdapterSLO() if slo is None else slo
+    if not isinstance(active_slo, AdapterSLO):
+        _fail("slo must be an AdapterSLO")
     try:
         stream = tuple(events)
     except TypeError as exc:
@@ -648,7 +654,9 @@ def validate_event_stream(
         _fail("event stream contains an unknown provider event")
     if stream[0].kind is not EventKind.STARTED:
         _fail("the first provider event must be started")
-    if stream[0].timestamp > active_slo.first_observable_event_seconds:
+    if stream[0].sequence != 1:
+        _fail("the first provider event sequence must be 1")
+    if stream[0].timestamp > active_slo.first_event_seconds:
         _fail("first observable event exceeded its SLO")
 
     terminal_indexes: list[int] = []
@@ -690,17 +698,14 @@ def validate_event_stream(
     acknowledgement = cancel_acks[0]
     if acknowledgement.timestamp < requested_at:
         _fail("cancel_ack cannot precede its cancellation request")
-    if (
-        acknowledgement.timestamp - requested_at
-        > active_slo.cancellation_acknowledgement_seconds
-    ):
+    if acknowledgement.timestamp - requested_at > active_slo.cancel_ack_seconds:
         _fail("cancellation acknowledgement exceeded its SLO")
     terminal = stream[-1]
     if terminal.timestamp < acknowledgement.timestamp:
         _fail("terminal cannot precede cancel_ack")
     if (
         terminal.timestamp - acknowledgement.timestamp
-        > active_slo.terminal_after_cancel_ack_seconds
+        > active_slo.terminal_after_cancel_seconds
     ):
         _fail("terminal after cancel_ack exceeded its SLO")
     return stream
@@ -709,8 +714,8 @@ def validate_event_stream(
 # Intentional aliases make the boundary easy to discover without creating a
 # second protocol or duplicate models.
 ProviderEventKind = EventKind
-ProviderAttemptSLO = AttemptSLO
-AdapterSLO = AttemptSLO
+AttemptSLO = AdapterSLO
+ProviderAttemptSLO = AdapterSLO
 validate_capability_negotiation = negotiate_capabilities
 validate_protocol_version = protocol_readiness
 
