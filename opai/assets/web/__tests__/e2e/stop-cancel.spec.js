@@ -6,10 +6,13 @@ import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
 test.beforeEach(async ({ page }) => openApp(page));
 
 test("Escape stops an active request and records one cancellation", async ({ page }) => {
-  await sendPrompt(page);
+  const id = await sendPrompt(page);
   await page.keyboard.press("Escape");
-  await expect(page.locator(".stopped-card")).toBeVisible();
   expect(await page.evaluate(() => window.__mock.cancelCount)).toBe(1);
+  // #380: the stopped card is the terminal presentation, so it waits for the
+  // backend to confirm the work actually stopped.
+  await page.evaluate((rid) => window.__mock.confirmCancel(rid), id);
+  await expect(page.locator(".stopped-card")).toBeVisible();
 });
 
 test("composer send control becomes Stop and returns to Send", async ({ page }) => {
@@ -30,8 +33,9 @@ test("new chat during generation cancels before clearing", async ({ page }) => {
 });
 
 test("edit after stop restores the original prompt without resending", async ({ page }) => {
-  await sendPrompt(page, "keep my original prompt");
+  const id = await sendPrompt(page, "keep my original prompt");
   await page.locator(".gen-stop").click();
+  await page.evaluate((rid) => window.__mock.confirmCancel(rid), id);
   await page.locator('.stopped-card [data-a="edit"]').click();
   await expect(page.locator("#input")).toHaveValue("keep my original prompt");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);

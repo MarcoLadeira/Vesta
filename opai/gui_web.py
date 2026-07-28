@@ -1278,6 +1278,8 @@ def _run_gui(
         activityBatch = QtCore.Signal(str)
         token = QtCore.Signal(str)
         toolReady = QtCore.Signal(str)
+        # #380: teardown actually finished for a cancelled request.
+        cancelReady = QtCore.Signal(str)
         workspaceChanged = QtCore.Signal(str)
         modelsChanged = QtCore.Signal(str)
         providerLoginReady = QtCore.Signal(str)
@@ -1294,6 +1296,8 @@ def _run_gui(
             self.root = root
             self._workers: list[Any] = []
             self._cancels: dict[str, threading.Event] = {}
+            # Requests whose Stop was accepted but whose teardown is unproven.
+            self._cancelling: set[str] = set()
             self._resume_context_active = False
             self._session_epoch = _SessionPersistenceEpoch()
 
@@ -1712,6 +1716,8 @@ def _run_gui(
                 )
 
             worker.done.connect(_done)
+            # #380: teardown is only proven once run() has returned.
+            worker.finished.connect(lambda rid=request_id: self._confirm_teardown(rid))
             worker.finished.connect(
                 lambda w=worker: self._workers.remove(w) if w in self._workers else None
             )
@@ -1898,6 +1904,8 @@ def _run_gui(
                 )
 
             worker.done.connect(_done)
+            # #380: teardown is only proven once run() has returned.
+            worker.finished.connect(lambda rid=request_id: self._confirm_teardown(rid))
             worker.finished.connect(
                 lambda w=worker: self._workers.remove(w) if w in self._workers else None
             )
@@ -1994,6 +2002,8 @@ def _run_gui(
                 )
 
             worker.done.connect(_done)
+            # #380: teardown is only proven once run() has returned.
+            worker.finished.connect(lambda rid=request_id: self._confirm_teardown(rid))
             worker.finished.connect(
                 lambda w=worker: self._workers.remove(w) if w in self._workers else None
             )
@@ -2020,12 +2030,41 @@ def _run_gui(
         def cancel(self, request_id: str) -> None:
             """Stop the request: set its cancel flag so the runner kills the CLI.
 
-            The front-end also drops the request_id immediately, so even if a
-            late partial arrives it is ignored — no stale overwrite.
+            Setting the flag is a *request*, not proof: the runner terminates its
+            subprocess whenever it next notices. The front-end therefore shows
+            "Stopping…" and waits for ``cancelReady`` (#380), which this bridge
+            emits only once the worker thread has actually returned. Declaring
+            "cancelled" at this moment instead would claim a paid provider call
+            had stopped while it was very possibly still running (#295
+            invariants 9 and 15).
             """
-            event = self._cancels.get(str(request_id))
-            if event is not None:
-                event.set()
+            rid = str(request_id)
+            event = self._cancels.get(rid)
+            if event is None:
+                # Nothing to stop — already finished or never started. Say so
+                # rather than leaving the UI waiting for a teardown that will
+                # never be confirmed.
+                self.cancelReady.emit(
+                    json.dumps({"requestId": rid, "teardown": "not_running"})
+                )
+                return
+            self._cancelling.add(rid)
+            event.set()
+
+        def _confirm_teardown(self, request_id: str) -> None:
+            """Tell the UI a cancelled request's worker has genuinely stopped.
+
+            Wired to ``QThread.finished``, which fires after ``run()`` returns —
+            i.e. after the provider call unwound and its subprocess was reaped.
+            That is the first moment "cancelled" is a fact rather than a hope.
+            """
+            rid = str(request_id)
+            if rid not in self._cancelling:
+                return
+            self._cancelling.discard(rid)
+            self.cancelReady.emit(
+                json.dumps({"requestId": rid, "teardown": "complete"})
+            )
 
         @QtCore.Slot(str)
         def runTool(self, name: str) -> None:

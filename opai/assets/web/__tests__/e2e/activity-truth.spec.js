@@ -152,8 +152,10 @@ test("answer delivery is not labelled independently verified", async ({ page }) 
 });
 
 test("cancelled request never becomes failed or completed", async ({ page }) => {
-  await sendPrompt(page);
+  const id = await sendPrompt(page);
   await page.locator(".gen-stop").click();
+  // #380: the run is only reported cancelled once teardown is confirmed.
+  await page.evaluate((rid) => window.__mock.confirmCancel(rid), id);
   await expect(page.locator(".stopped-card")).toContainText("stopped by you");
   await expect(page.locator(".msg.bot")).not.toContainText(/Failed|Completed/);
 });
