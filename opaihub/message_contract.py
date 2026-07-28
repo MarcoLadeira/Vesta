@@ -205,9 +205,7 @@ def _pick_lane(
     candidates: list[tuple[str, str]] = []
 
     if agent_mode is AgentMode.DANGEROUS:
-        candidates.append(
-            (GOVERNED, "This request can destroy or overwrite work.")
-        )
+        candidates.append((GOVERNED, "This request can destroy or overwrite work."))
     if agent_mode is AgentMode.SHIP or task_type in _GOVERNED_TASK_TYPES:
         candidates.append(
             (GOVERNED, "This request publishes, releases, or touches credentials.")
@@ -215,7 +213,9 @@ def _pick_lane(
     if requires_confirmation:
         candidates.append((GOVERNED, "This kind of task always needs confirmation."))
     if discovery:
-        candidates.append((EXPLORE, "This request searches for work rather than doing it."))
+        candidates.append(
+            (EXPLORE, "This request searches for work rather than doing it.")
+        )
     if task_type in _LONG_HORIZON_TASK_TYPES:
         candidates.append(
             (LONG_HORIZON, "Multi-file work needs a longer tool and time budget.")

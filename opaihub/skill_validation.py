@@ -135,7 +135,9 @@ def _validate_entry(hub: Path, entry: dict[str, Any]) -> list[str]:
     skill_id = str(entry.get("id") or "").strip()
     label = skill_id or "<entry with no id>"
 
-    missing = [f for f in REQUIRED_REGISTRY_FIELDS if not str(entry.get(f) or "").strip()]
+    missing = [
+        f for f in REQUIRED_REGISTRY_FIELDS if not str(entry.get(f) or "").strip()
+    ]
     if missing:
         issues.append(f"{label}: registry entry is missing {', '.join(missing)}")
     if not skill_id:
@@ -156,7 +158,9 @@ def _validate_entry(hub: Path, entry: dict[str, Any]) -> list[str]:
         issues.append(f"{skill_id}: registry path does not resolve to a file ({rel})")
         return issues
     if path.name != "SKILL.md":
-        issues.append(f"{skill_id}: skill file must be named SKILL.md, found {path.name}")
+        issues.append(
+            f"{skill_id}: skill file must be named SKILL.md, found {path.name}"
+        )
 
     try:
         text = path.read_text(encoding="utf-8")

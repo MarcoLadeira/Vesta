@@ -682,7 +682,9 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         # one-file fix's allowance. Absent a contract the defaults apply exactly
         # as before. The deprecated external ceiling is layered on top either
         # way, so an explicit caller-set ceiling still wins.
-        policy = tool_loop_policy if isinstance(tool_loop_policy, ToolLoopPolicy) else None
+        policy = (
+            tool_loop_policy if isinstance(tool_loop_policy, ToolLoopPolicy) else None
+        )
         if policy is None:
             policy = ToolLoopPolicy(max_tool_calls=max_tool_calls)
         elif max_tool_calls is not None:

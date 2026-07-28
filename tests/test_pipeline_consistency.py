@@ -161,7 +161,9 @@ class DeadEndPipelineTests(unittest.TestCase):
         result = self._run_with_catalog(
             _catalog(
                 _free("free:codex:whatever", "codex", "Codex"),
-                _free("free:gemini:3.1-flash-lite", "gemini", "Gemini · 3.1 Flash-Lite"),
+                _free(
+                    "free:gemini:3.1-flash-lite", "gemini", "Gemini · 3.1 Flash-Lite"
+                ),
             )
         )
         offer = result.get("fallback_offer")

@@ -30,9 +30,7 @@ class ReasonMappingTests(unittest.TestCase):
             blocks.reason_for("failed", {"code": "PROVIDER_CLI_OUTDATED"}),
             "cli_outdated",
         )
-        self.assertEqual(
-            blocks.reason_for("capability_mismatch"), "no_scoped_edits"
-        )
+        self.assertEqual(blocks.reason_for("capability_mismatch"), "no_scoped_edits")
         self.assertEqual(
             blocks.reason_for("failed", {"code": "CONFIG_INVALID"}), "config_invalid"
         )
@@ -176,9 +174,7 @@ class EditCapabilityRoutingTests(unittest.TestCase):
         chain = auto_router.resolve_auto_chain(
             self.root, "fix the bug", self.catalog, needs_edit=True
         )
-        self.assertNotIn(
-            "account:copilot:gpt-5.4", [entry["id"] for entry in chain]
-        )
+        self.assertNotIn("account:copilot:gpt-5.4", [entry["id"] for entry in chain])
 
     def test_read_only_turns_still_use_it(self) -> None:
         chain = auto_router.resolve_auto_chain(

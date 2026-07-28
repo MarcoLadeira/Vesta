@@ -92,9 +92,7 @@ class CliProbePersistenceTests(unittest.TestCase):
     def test_unreadable_binaries_are_never_trusted(self) -> None:
         missing = str(self.home / "not-installed")
         accounts._write_cli_probe(missing, "version", "whatever", home=self.home)
-        self.assertIsNone(
-            accounts._read_cli_probe(missing, "version", home=self.home)
-        )
+        self.assertIsNone(accounts._read_cli_probe(missing, "version", home=self.home))
 
 
 class ColdStartHonestyTests(unittest.TestCase):

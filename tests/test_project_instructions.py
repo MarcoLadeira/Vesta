@@ -133,9 +133,7 @@ class RobustnessTests(unittest.TestCase):
         self.assertEqual(load_project_instructions(self.root), "")
 
     def test_a_missing_project_root_never_raises(self) -> None:
-        self.assertEqual(
-            load_project_instructions(self.root / "nope" / "nowhere"), ""
-        )
+        self.assertEqual(load_project_instructions(self.root / "nope" / "nowhere"), "")
 
     def test_undecodable_bytes_do_not_break_the_turn(self) -> None:
         (self.root / "AGENTS.md").write_bytes(b"rule one\n\xff\xfe\nrule two")

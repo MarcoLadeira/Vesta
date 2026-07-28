@@ -593,9 +593,8 @@ class ToolLoopController:
                 # whole run's progress over a blip. The budget is per-run, so a
                 # provider that keeps failing still stops honestly — and the
                 # retry is not counted as a model call, because none happened.
-                if (
-                    provider_retries < policy.max_provider_retries
-                    and not _cancelled(cancel)
+                if provider_retries < policy.max_provider_retries and not _cancelled(
+                    cancel
                 ):
                     provider_retries += 1
                     self._sleep(policy.provider_retry_delay_seconds)
