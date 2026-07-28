@@ -92,6 +92,14 @@ def _require_exact_keys(
         _fail(f"{provider_id}.{field} has an incomplete or unknown field")
 
 
+def _require_string_enum(
+    value: Any, *, field: str, provider_id: str, allowed: frozenset[str]
+) -> str:
+    if not isinstance(value, str) or value not in allowed:
+        _fail(f"{provider_id}.{field} is invalid")
+    return value
+
+
 def _parse_iso_timestamp(value: Any, *, field: str, provider_id: str) -> datetime:
     if not isinstance(value, str) or not value or "T" not in value:
         _fail(f"{provider_id}.{field} must be a non-empty ISO timestamp")
@@ -133,8 +141,13 @@ def _validate_record(value: Any) -> dict[str, Any]:
         provider_id=provider_id,
         keys=_CAPABILITY_NAMES,
     )
-    if any(status not in _CAPABILITY_STATUSES for status in capabilities.values()):
-        _fail(f"{provider_id}.capabilities has an invalid status")
+    for capability, status in capabilities.items():
+        _require_string_enum(
+            status,
+            field=f"capabilities.{capability}",
+            provider_id=provider_id,
+            allowed=_CAPABILITY_STATUSES,
+        )
 
     requirements = _require_mapping(
         value["requirements"], field="requirements", provider_id=provider_id
@@ -206,8 +219,12 @@ def _validate_record(value: Any) -> dict[str, Any]:
     )
     if not isinstance(pricing["source"], str) or not pricing["source"]:
         _fail(f"{provider_id}.pricing.source must be non-empty")
-    if pricing["measurement"] not in _PRICING_MEASUREMENTS:
-        _fail(f"{provider_id}.pricing.measurement is invalid")
+    _require_string_enum(
+        pricing["measurement"],
+        field="pricing.measurement",
+        provider_id=provider_id,
+        allowed=_PRICING_MEASUREMENTS,
+    )
     observed_at = _parse_iso_timestamp(
         pricing["observed_at"], field="pricing.observed_at", provider_id=provider_id
     )
@@ -280,7 +297,12 @@ def _parse_catalog(data: bytes) -> tuple[Mapping[str, Any], ...]:
         _fail("top level must be a list")
     _reject_non_finite_numbers(payload)
 
-    records = tuple(_validate_record(record) for record in payload)
+    try:
+        records = tuple(_validate_record(record) for record in payload)
+    except ValueError:
+        raise
+    except (AttributeError, KeyError, TypeError) as exc:
+        raise ValueError("Invalid provider catalog: invalid record schema") from exc
     provider_ids = tuple(record["provider_id"] for record in records)
     if len(set(provider_ids)) != len(provider_ids):
         _fail("duplicate provider_id")

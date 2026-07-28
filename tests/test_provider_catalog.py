@@ -159,6 +159,23 @@ class ProviderCatalogTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             provider_catalog._parse_catalog(json.dumps(catalog).encode("utf-8"))
 
+    def test_capability_and_pricing_arrays_fail_closed_with_value_error(self):
+        cases = {
+            "capabilities_object": lambda record: record.update(capabilities=[]),
+            "capability_status": lambda record: record["capabilities"].update(chat=[]),
+            "pricing_object": lambda record: record.update(pricing=[]),
+            "pricing_measurement": lambda record: record["pricing"].update(
+                measurement=[]
+            ),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name):
+                catalog = json.loads(provider_catalog.catalog_bytes())
+                mutate(catalog[0])
+
+                with self.assertRaises(ValueError):
+                    provider_catalog._parse_catalog(json.dumps(catalog).encode("utf-8"))
+
     def test_unknown_provider_fails_closed(self):
         with self.assertRaises(ValueError):
             provider_catalog.provider_record("mock")
