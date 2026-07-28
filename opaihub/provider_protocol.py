@@ -80,6 +80,7 @@ _AUTHORITY_TRUTH_TOKENS = frozenset(
     {"authority", "authorization", "authorisation", "authorized", "authorised"}
 )
 _VERIFICATION_TRUTH_TOKENS = frozenset({"verification", "verified"})
+_COST_TRUTH_TOKENS = frozenset({"cost", "price", "pricing", "charge"})
 _STATE_MAPPING_FIELDS = frozenset(
     {
         "state",
@@ -188,12 +189,12 @@ def _validate_transport_field(key: str, value: Any, *, path: str) -> None:
     tokens = frozenset(part for part in normalized.split("_") if part)
     if (
         normalized in _FORBIDDEN_PAYLOAD_FIELDS
-        or normalized.startswith("completion_")
+        or "completion" in tokens
         or tokens & _AUTHORITY_TRUTH_TOKENS
         or tokens & _VERIFICATION_TRUTH_TOKENS
     ):
         _fail(f"{path}.{key} cannot assert canonical truth")
-    if "cost" in tokens or normalized in {"price", "pricing", "charge"}:
+    if tokens & _COST_TRUTH_TOKENS:
         _fail(f"{path}.{key} cannot assert cost")
     if normalized in _STATE_MAPPING_FIELDS:
         _validate_state_mapping(value, field_name=f"{path}.{key}")

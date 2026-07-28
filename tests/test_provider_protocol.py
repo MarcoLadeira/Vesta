@@ -158,6 +158,10 @@ class ProviderProtocolTests(unittest.TestCase):
             "authorization": True,
             "verification_status": "verified",
             "estimated_cost": 1,
+            "price_usd": 1,
+            "charge_amount": 1,
+            "provider_completion_state": "completed",
+            "sdk_completion_verdict": "completed",
         }
         for field, value in aliases.items():
             with self.subTest(field=field), self.assertRaises(ProtocolViolation):
@@ -513,12 +517,25 @@ class ProviderProtocolPropertyTests(unittest.TestCase):
 
     @given(
         st.sampled_from(
-            ("final_state", "authorization", "verification_status", "estimated_cost")
+            (
+                "final_state",
+                "authorization",
+                "verification_status",
+                "estimated_cost",
+                "price_usd",
+                "charge_amount",
+                "provider_completion_state",
+                "sdk_completion_verdict",
+            )
         ),
         st.sampled_from(("snake", "camel", "hyphen", "upper")),
     )
     def test_generated_truth_aliases_are_rejected(self, alias, convention):
-        value = "completed" if alias == "final_state" else "claimed"
+        value = (
+            "completed"
+            if "completion" in alias or alias == "final_state"
+            else "claimed"
+        )
 
         with self.assertRaises(ProtocolViolation):
             _event(1, 0.0, EventKind.STARTED, {_alias_key(alias, convention): value})
