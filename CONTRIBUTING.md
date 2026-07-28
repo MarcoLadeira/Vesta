@@ -7,7 +7,7 @@ Thanks for helping OPai become a low-cost, local-first AI coding hub.
 ```sh
 git clone https://github.com/MarcoLadeira/OPai.git
 cd OPai
-python -m pip install -e .
+python -m pip install -e ".[test]"
 python -m unittest discover -s tests
 python -m opaihub validate
 ```

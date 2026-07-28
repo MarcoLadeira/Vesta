@@ -1,0 +1,106 @@
+"""Tests for the static, versioned provider capability catalog."""
+
+import json
+import unittest
+from pathlib import Path
+
+from opaihub import provider_catalog
+
+
+EXPECTED_PROVIDER_IDS = (
+    "claude",
+    "codex",
+    "copilot",
+    "kimi",
+    "gemini",
+    "groq",
+    "mistral",
+    "ollama",
+    "openai-compatible",
+)
+EXPECTED_CAPABILITIES = {
+    "chat",
+    "code_execution",
+    "repo_read",
+    "repo_editing",
+    "run_tests",
+    "streaming",
+    "tool_calling",
+    "structured_output",
+}
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "provider_catalog" / "v1.json"
+
+
+class ProviderCatalogTests(unittest.TestCase):
+    def test_catalog_has_the_pinned_provider_inventory(self):
+        self.assertEqual(provider_catalog.CATALOG_VERSION, "v1")
+        self.assertEqual(provider_catalog.PROTOCOL_VERSION, 1)
+        self.assertEqual(provider_catalog.provider_ids(), EXPECTED_PROVIDER_IDS)
+
+    def test_fixture_is_the_exact_replayable_catalog_bytes(self):
+        self.assertEqual(
+            provider_catalog.catalog_path().read_bytes(),
+            provider_catalog.catalog_bytes(),
+        )
+        self.assertEqual(FIXTURE_PATH.read_bytes(), provider_catalog.catalog_bytes())
+
+    def test_catalog_records_are_complete_immutable_and_never_route_on_price(self):
+        records = provider_catalog.all_catalog_records()
+
+        self.assertEqual(
+            tuple(record["provider_id"] for record in records), EXPECTED_PROVIDER_IDS
+        )
+        self.assertNotIn("mock", provider_catalog.provider_ids())
+        for record in records:
+            self.assertEqual(record["catalog_version"], "v1")
+            self.assertEqual(record["protocol_version"], 1)
+            self.assertEqual(set(record["capabilities"]), EXPECTED_CAPABILITIES)
+            self.assertTrue(
+                set(record["capabilities"].values())
+                <= {"supported", "partial", "unsupported"}
+            )
+            self.assertIn("api_key", record["requirements"])
+            self.assertIn("mode", record["cancellation"])
+            self.assertGreater(record["cancellation"]["slo_seconds"], 0)
+            self.assertEqual(record["unsupported_behavior"]["mode"], "fail_closed")
+            self.assertIn(
+                record["pricing"]["measurement"],
+                {
+                    "actual",
+                    "derived",
+                    "estimated",
+                    "unavailable",
+                },
+            )
+            self.assertTrue(record["pricing"]["provenance"])
+            self.assertIn("observed_at", record["pricing"])
+            self.assertIn("expiry", record["pricing"])
+            self.assertFalse(record["pricing"]["routing_eligible"])
+            self.assertIsNone(record["pricing"]["price_usd"])
+
+        with self.assertRaises(TypeError):
+            records[0]["provider_id"] = "mock"
+        with self.assertRaises(TypeError):
+            records[0]["capabilities"]["chat"] = "unsupported"
+
+    def test_unknown_provider_fails_closed(self):
+        with self.assertRaises(ValueError):
+            provider_catalog.provider_record("mock")
+
+    def test_malformed_duplicate_and_incomplete_catalogs_fail_closed(self):
+        with self.assertRaises(ValueError):
+            provider_catalog._parse_catalog(b"not-json")
+
+        duplicate = json.loads(provider_catalog.catalog_bytes())
+        duplicate[1]["provider_id"] = duplicate[0]["provider_id"]
+        with self.assertRaises(ValueError):
+            provider_catalog._parse_catalog(json.dumps(duplicate).encode("utf-8"))
+
+        incomplete = json.loads(provider_catalog.catalog_bytes())
+        del incomplete[0]["pricing"]["expiry"]
+        with self.assertRaises(ValueError):
+            provider_catalog._parse_catalog(json.dumps(incomplete).encode("utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()

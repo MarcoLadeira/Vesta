@@ -12,6 +12,7 @@ dependencies = ["PyYAML>=6.0.2,<7"]
 [project.optional-dependencies]
 desktop-gui = ["PySide6>=6.7", "keyring==25.7.0"]
 terminal-ui = ["Pillow>=10"]
+test = ["hypothesis==6.160.0"]
 
 [project.scripts]
 opai = "opai.cli:main"
@@ -50,6 +51,7 @@ opai = [
 ]
 opaihub = [
     "data/hub/**/*",
+    "data/provider_catalog/*.json",
     # Wildcards do not match dotfiles; parity fixtures require these manifests.
     "data/hub/benchmarks/parity/*/repo/.opai-app.json",
 ]

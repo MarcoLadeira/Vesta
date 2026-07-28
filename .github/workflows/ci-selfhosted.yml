@@ -37,7 +37,7 @@ jobs:
           PY=./.venv/bin/python
           [ -f ./.venv/Scripts/python.exe ] && PY=./.venv/Scripts/python.exe
           "$PY" -m pip install --upgrade pip
-          "$PY" -m pip install -e . "ruff==0.15.9" bandit
+          "$PY" -m pip install -e ".[test]" "ruff==0.15.9" bandit
 
       - name: Run the CI gate
         shell: bash
