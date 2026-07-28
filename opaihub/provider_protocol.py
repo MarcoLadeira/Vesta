@@ -70,6 +70,7 @@ _CAPABILITY_NAMES = frozenset(
 MAX_EVENTS = 256
 MAX_PAYLOAD_DEPTH = 16
 MAX_PAYLOAD_ITEMS = 512
+MAX_REQUESTED_CAPABILITIES = 32
 _FORBIDDEN_PAYLOAD_FIELDS = frozenset(
     {
         "completion_state",
@@ -151,6 +152,14 @@ def _catalog_provider_id(value: Any) -> str:
             f"provider_id is not present in the pinned catalog: {provider_id!r}"
         ) from exc
     return provider_id
+
+
+def _is_catalog_provider(provider_id: str) -> bool:
+    try:
+        provider_record(provider_id)
+    except ValueError:
+        return False
+    return True
 
 
 def _request_id(value: Any) -> str:
@@ -417,17 +426,27 @@ class AdapterRequest:
         if isinstance(self.requested_capabilities, str):
             _fail("requested_capabilities must be an iterable of capability names")
         try:
-            requested = tuple(
-                dict.fromkeys(
-                    _normalised_capability(capability)
-                    for capability in self.requested_capabilities
-                )
-            )
+            iterator = iter(self.requested_capabilities)
         except TypeError as exc:
             raise ProtocolViolation(
                 "requested_capabilities must be an iterable of capability names"
             ) from exc
-        object.__setattr__(self, "requested_capabilities", requested)
+        requested: list[str] = []
+        seen: set[str] = set()
+        raw_count = 0
+        for _ in range(MAX_REQUESTED_CAPABILITIES + 1):
+            try:
+                raw_capability = next(iterator)
+            except StopIteration:
+                break
+            raw_count += 1
+            if raw_count > MAX_REQUESTED_CAPABILITIES:
+                _fail("requested_capabilities exceeds MAX_REQUESTED_CAPABILITIES")
+            capability = _normalised_capability(raw_capability)
+            if capability not in seen:
+                seen.add(capability)
+                requested.append(capability)
+        object.__setattr__(self, "requested_capabilities", tuple(requested))
         if self.cancel_requested_at is not None:
             object.__setattr__(
                 self,
@@ -476,7 +495,30 @@ class ProviderReadiness:
     protocol_version: int = PROTOCOL_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "provider_id", _provider_id(self.provider_id))
+        provider_id = _provider_id(self.provider_id)
+        object.__setattr__(self, "provider_id", provider_id)
+        if not _is_catalog_provider(provider_id):
+            if any(
+                value is not None
+                for value in (
+                    self.installed,
+                    self.configured,
+                    self.authenticated,
+                    self.authorised,
+                    self.healthy,
+                    self.degraded_reason,
+                    self.next_action,
+                )
+            ):
+                _fail("unlisted providers cannot assert readiness facts")
+            object.__setattr__(self, "healthy", False)
+            object.__setattr__(self, "degraded_reason", "provider_not_in_catalog")
+            object.__setattr__(
+                self,
+                "next_action",
+                "Choose a provider listed in the pinned capability catalog.",
+            )
+            return
         for name in (
             "installed",
             "configured",
@@ -665,6 +707,8 @@ def protocol_readiness(provider_id: str, protocol_version: Any) -> ProviderReadi
     """Return an actionable degradation for incompatible protocol versions."""
 
     normalized_provider_id = _provider_id(provider_id)
+    if not _is_catalog_provider(normalized_provider_id):
+        return ProviderReadiness(provider_id=normalized_provider_id)
     if (
         isinstance(protocol_version, int)
         and not isinstance(protocol_version, bool)
@@ -700,18 +744,18 @@ def negotiate_capabilities(
         _fail("capability negotiation requires an AdapterRequest")
     if protocol_version is not None and provider_protocol_version is not None:
         _fail("supply only one provider protocol version")
-    advertised_version = (
-        provider_protocol_version
-        if provider_protocol_version is not None
-        else protocol_version
-        if protocol_version is not None
-        else request.protocol_version
-    )
     catalog = provider_record(request.provider_id)
     catalog_version = catalog["protocol_version"]
-    if advertised_version != catalog_version:
-        return protocol_readiness(request.provider_id, advertised_version)
-    readiness = protocol_readiness(request.provider_id, advertised_version)
+    if request.protocol_version != catalog_version:
+        return protocol_readiness(request.provider_id, request.protocol_version)
+    if protocol_version is not None and protocol_version != catalog_version:
+        return protocol_readiness(request.provider_id, protocol_version)
+    if (
+        provider_protocol_version is not None
+        and provider_protocol_version != catalog_version
+    ):
+        return protocol_readiness(request.provider_id, provider_protocol_version)
+    readiness = protocol_readiness(request.provider_id, catalog_version)
     if readiness.degraded_reason is not None:
         return readiness
     if not isinstance(capabilities, Mapping):
@@ -870,6 +914,7 @@ __all__ = [
     "MAX_EVENTS",
     "MAX_PAYLOAD_DEPTH",
     "MAX_PAYLOAD_ITEMS",
+    "MAX_REQUESTED_CAPABILITIES",
     "AdapterRequest",
     "AdapterSLO",
     "AttemptSLO",

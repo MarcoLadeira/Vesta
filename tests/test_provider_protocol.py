@@ -12,6 +12,7 @@ from opaihub.provider_protocol import (
     MAX_EVENTS,
     MAX_PAYLOAD_DEPTH,
     MAX_PAYLOAD_ITEMS,
+    MAX_REQUESTED_CAPABILITIES,
     PROTOCOL_VERSION,
     AdapterRequest,
     AdapterSLO,
@@ -103,6 +104,20 @@ class ProviderProtocolTests(unittest.TestCase):
     def test_request_rejects_providers_missing_from_the_pinned_catalog(self):
         with self.assertRaises(ProtocolViolation):
             AdapterRequest("not-a-catalog-provider", "request-1", ())
+
+    def test_request_bounds_raw_capability_iterables_before_deduplication(self):
+        def repeated_capabilities():
+            while True:
+                yield "chat"
+
+        with self.assertRaises(ProtocolViolation):
+            AdapterRequest("codex", "request-1", repeated_capabilities())
+        with self.assertRaises(ProtocolViolation):
+            AdapterRequest(
+                "codex",
+                "request-1",
+                ("chat" for _ in range(MAX_REQUESTED_CAPABILITIES + 1)),
+            )
 
     def test_readiness_keeps_each_fact_separate_and_requires_actionable_degradation(
         self,
@@ -428,6 +443,28 @@ class ProviderProtocolTests(unittest.TestCase):
         self.assertEqual(readiness.degraded_reason, "protocol_version_incompatible")
         self.assertIn(str(PROTOCOL_VERSION), readiness.next_action)
 
+    def test_request_and_explicit_provider_versions_are_independently_checked(self):
+        capabilities = _catalog_capabilities("codex")
+        stale_request = AdapterRequest(
+            "codex", "request-1", ("chat",), protocol_version=PROTOCOL_VERSION + 1
+        )
+        readiness = negotiate_capabilities(
+            stale_request,
+            capabilities,
+            provider_protocol_version=PROTOCOL_VERSION,
+        )
+        self.assertFalse(readiness.healthy)
+        self.assertEqual(readiness.degraded_reason, "protocol_version_incompatible")
+
+        current_request = AdapterRequest("codex", "request-2", ("chat",))
+        readiness = negotiate_capabilities(
+            current_request,
+            capabilities,
+            provider_protocol_version=PROTOCOL_VERSION + 1,
+        )
+        self.assertFalse(readiness.healthy)
+        self.assertEqual(readiness.degraded_reason, "protocol_version_incompatible")
+
     def test_only_an_exact_non_bool_integer_protocol_version_is_compatible(self):
         for version in (0, 2, -1, 1.0, True, "1", None):
             with self.subTest(version=version):
@@ -437,6 +474,20 @@ class ProviderProtocolTests(unittest.TestCase):
                 self.assertEqual(
                     readiness.degraded_reason, "protocol_version_incompatible"
                 )
+
+    def test_unlisted_provider_readiness_is_actionable_and_construction_fails_closed(
+        self,
+    ):
+        readiness = protocol_readiness("not-a-catalog-provider", PROTOCOL_VERSION)
+        self.assertFalse(readiness.healthy)
+        self.assertEqual(readiness.degraded_reason, "provider_not_in_catalog")
+        self.assertTrue(readiness.next_action)
+
+        constructed = ProviderReadiness(provider_id="not-a-catalog-provider")
+        self.assertFalse(constructed.healthy)
+        self.assertEqual(constructed.degraded_reason, "provider_not_in_catalog")
+        with self.assertRaises(ProtocolViolation):
+            ProviderReadiness(provider_id="not-a-catalog-provider", healthy=True)
 
     def test_stream_and_payload_resource_limits_fail_closed(self):
         events = [_event(1, 0.0, EventKind.STARTED)]
