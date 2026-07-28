@@ -671,6 +671,7 @@ def available_models(
     # failing) is marked unhealthy so the picker can gray it out honestly.
     # Purely local: reads the reliability memory, makes no network call.
     from opaihub import provider_balance as _bal
+    from opaihub import provider_blocks as _blocks
     from opaihub import provider_reliability as _rel
 
     for option in options:
@@ -682,6 +683,8 @@ def available_models(
             option["health_reason"] = None
             option["balance"] = None
             option["out_of_credit"] = False
+            option["blocked_reason"] = None
+            option["edit_blocked_reason"] = None
             continue
         cooldown = _rel.in_cooldown(project_root, provider)
         penalty = _rel.reliability_penalty(project_root, provider)
@@ -709,6 +712,25 @@ def available_models(
             )
             option["disabled_reason"] = reason
             option["health_reason"] = reason
+        # Deterministic blocks (stale CLI, invalid config, no bounded edit
+        # tools). Letting the user pick a model OPai has already watched refuse
+        # every request is the picker's version of the consistency bug: the
+        # click looks fine and the run always fails. Two separate fields so an
+        # edit-incapable provider stays a legitimate Ask/Plan choice — the
+        # picker grays it only when the current mode will write files.
+        block = _blocks.active_block(project_root, provider)
+        option["blocked_reason"] = None
+        option["edit_blocked_reason"] = None
+        if block:
+            text = f"{block['title']} {block['remedy']}".strip()
+            if block["scope"] == "edit":
+                option["edit_blocked_reason"] = text
+            else:
+                option["blocked_reason"] = text
+                option["available"] = False
+                option["healthy"] = False
+                option["disabled_reason"] = text
+                option["health_reason"] = text
 
     if accounts or local:
         hint = None

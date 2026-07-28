@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from . import provider_balance as balance
+from . import provider_blocks as blocks
 from . import provider_reliability as reliability
 from .model_intelligence import classify_task
 
@@ -69,6 +70,45 @@ TERMINAL_STATUSES = frozenset(
 _UNAVAILABLE_ACCOUNT_STATUSES = frozenset(
     {"misconfigured", "provider_unavailable", "invalid", "expired", "disconnected"}
 )
+
+# Error codes that describe the *transport*, not the provider's ability to
+# answer: a blip, a dropped stream, a slow endpoint. Gemini's free tier in
+# particular returns "provider temporarily unavailable" intermittently, and the
+# identical prompt succeeds a second later. Abandoning the provider on the first
+# blip is what makes OPai feel random, so these earn one immediate re-attempt on
+# the SAME provider before the chain advances.
+TRANSIENT_ERROR_CODES = frozenset(
+    {
+        "PROVIDER_UNAVAILABLE",
+        "PROVIDER_TIMEOUT",
+        "NETWORK_ERROR",
+        "STREAM_ABORTED",
+        "NO_RESPONSE",
+    }
+)
+
+# One retry, not a loop: a second failure is evidence the provider is genuinely
+# down, and the fallback chain is the better answer than a third attempt.
+MAX_TRANSIENT_RETRIES = 1
+# Short enough that the user reads it as the same request still working, long
+# enough for a momentary 503 to clear.
+TRANSIENT_RETRY_DELAY_SECONDS = 1.5
+
+
+def is_transient_error(error: Any) -> bool:
+    """True when a structured error is a transport blip worth re-attempting."""
+    if not isinstance(error, dict):
+        return False
+    return str(error.get("code") or "").upper() in TRANSIENT_ERROR_CODES
+
+
+def should_retry_same_provider(error: Any, attempts: int) -> bool:
+    """Whether to re-run the identical request on the same provider.
+
+    ``attempts`` is how many retries this provider has already been given for
+    the current turn.
+    """
+    return is_transient_error(error) and attempts < MAX_TRANSIENT_RETRIES
 
 
 def provider_of(model_id: str) -> str:
@@ -164,6 +204,7 @@ def resolve_auto_chain(
     catalog: dict[str, Any],
     *,
     allow_paid: bool = False,
+    needs_edit: bool = False,
     now: float | None = None,
 ) -> list[dict[str, Any]]:
     """Build the ordered Auto fallback chain from the live catalog.
@@ -172,6 +213,10 @@ def resolve_auto_chain(
     element is always the local live-detection sentinel. ``allow_paid`` only
     affects the reason text — paid accounts are always included so the pipeline
     can offer a confirmed escalation; it decides whether to run or confirm.
+
+    ``needs_edit`` says this turn will write to the repository, which excludes
+    providers that cannot be given a bounded edit-tool set (Copilot's CLI
+    today). Those providers stay in the chain for read-only work.
     """
     root = project_root.expanduser().resolve()
     models = list(catalog.get("models") or [])
@@ -188,12 +233,22 @@ def resolve_auto_chain(
             return False
         return not balance.is_exhausted(root, _provider_of_entry(item), now=now)
 
+    # Same logic as out-of-credit, for the other class of guaranteed refusal:
+    # a CLI too old for its model, a broken provider config, or (for editing
+    # turns only) a provider that cannot be sandboxed for repository writes.
+    # Calling these spends a fallback step on a refusal OPai has already seen.
+    def is_usable(item: dict[str, Any]) -> bool:
+        return not blocks.is_blocked(
+            root, _provider_of_entry(item), needs_edit=needs_edit, now=now
+        )
+
     free = [
         item
         for item in models
         if item.get("kind") == "free"
         and item.get("available") is True
         and has_credit(item)
+        and is_usable(item)
     ]
     accounts = [
         item
@@ -202,6 +257,7 @@ def resolve_auto_chain(
         and item.get("available") is True
         and _provider_of_entry(item) not in unavailable
         and has_credit(item)
+        and is_usable(item)
     ]
 
     classification = classify_task(root, task)
@@ -243,15 +299,85 @@ def resolve_auto_chain(
     return chain
 
 
+def best_alternative(
+    project_root: Path,
+    catalog: dict[str, Any],
+    *,
+    exclude_providers: set[str] | frozenset[str] | None = None,
+    exclude_ids: set[str] | frozenset[str] | None = None,
+    needs_edit: bool = False,
+    now: float | None = None,
+) -> dict[str, Any] | None:
+    """The best model that can still run after another one failed.
+
+    This exists so a failure is never a dead end. When a provider refuses —
+    capped, stale CLI, write-incapable, or simply down — OPai can name one
+    concrete model the user can continue with in a single click instead of
+    leaving them to guess in the picker. Cheapest-first, same ordering policy as
+    the Auto chain: on-device, then free, then paid.
+
+    Returns ``None`` only when nothing at all is runnable, which is the one case
+    where an honest dead end is the truthful answer.
+    """
+    root = project_root.expanduser().resolve()
+    skip_providers = {str(p or "").lower() for p in (exclude_providers or set())}
+    skip_ids = {str(i or "") for i in (exclude_ids or set())}
+    unavailable = unavailable_account_providers(catalog)
+
+    def eligible(item: dict[str, Any], kind: str) -> bool:
+        if item.get("kind") != kind:
+            return False
+        if str(item.get("id") or "") in skip_ids:
+            return False
+        provider = _provider_of_entry(item)
+        if provider and provider in skip_providers:
+            return False
+        if kind != "local":
+            if item.get("available") is not True:
+                return False
+            if item.get("out_of_credit") is True or balance.is_exhausted(
+                root, provider, now=now
+            ):
+                return False
+            if blocks.is_blocked(root, provider, needs_edit=needs_edit, now=now):
+                return False
+        if kind == "account" and provider in unavailable:
+            return False
+        return True
+
+    models = list(catalog.get("models") or [])
+    for kind in ("local", "free", "account"):
+        bucket = [item for item in models if eligible(item, kind)]
+        if kind != "local":
+            bucket = _rank_bucket(root, bucket, now=now)
+        if bucket:
+            item = bucket[0]
+            return {
+                "id": str(item.get("id") or ""),
+                "label": str(item.get("label") or item.get("id") or ""),
+                "kind": kind,
+                "provider": _provider_of_entry(item),
+                "paid": kind == "account",
+            }
+    return None
+
+
 def routing_diagnostics(
-    project_root: Path, task: str, catalog: dict[str, Any], *, now: float | None = None
+    project_root: Path,
+    task: str,
+    catalog: dict[str, Any],
+    *,
+    needs_edit: bool = False,
+    now: float | None = None,
 ) -> dict[str, Any]:
     """Lightweight, secret-free view of how Auto ordered its candidates.
 
     For the internal diagnostics surface only — never shown as noise to a
     normal user, but available when a route needs explaining.
     """
-    chain = resolve_auto_chain(project_root, task, catalog, now=now)
+    chain = resolve_auto_chain(
+        project_root, task, catalog, needs_edit=needs_edit, now=now
+    )
     root = project_root.expanduser().resolve()
     skipped = sorted(
         {
@@ -265,6 +391,7 @@ def routing_diagnostics(
         }
         - {""}
     )
+    live_blocks = blocks.blocked_providers(root, needs_edit=needs_edit, now=now)
     return {
         "task_type": classify_task(project_root, task).get("task_type"),
         "chain": [
@@ -275,4 +402,10 @@ def routing_diagnostics(
         # Providers Auto refused to call because they are out of credit — the
         # explanation surface for "why isn't X in the chain?".
         "skipped_out_of_credit": skipped,
+        # The other half of that answer: providers that are funded and connected
+        # but provably cannot serve this request (stale CLI, invalid config, or
+        # no bounded edit tools on an editing turn).
+        "skipped_blocked": {
+            provider: block["reason"] for provider, block in sorted(live_blocks.items())
+        },
     }

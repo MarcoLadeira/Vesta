@@ -2199,11 +2199,25 @@ function renderErrorCard(el, status, r, sel) {
   const freeProvider = freeFromResult
     ? freeFromResult.charAt(0).toUpperCase() + freeFromResult.slice(1)
     : String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
+  // Never a dead end: when the engine could name a model that can still run
+  // this request, offer it as the primary action. "Switch model" alone made the
+  // user diagnose a routing problem OPai had already solved — the whole point
+  // of OPai is that having usage somewhere is enough to keep working.
+  // Suppressed on awaiting-input cards (`canRetry` is the same test): those
+  // already carry the exact action that unblocks them, and offering a different
+  // model there would read as a way around a safety gate.
+  const offer = canRetry && r && r.fallback_offer && typeof r.fallback_offer === "object"
+    ? r.fallback_offer
+    : null;
+  const offerId = offer ? String(offer.id || "") : "";
+  const offerLabel = offer ? String(offer.label || offerId) : "";
+  const showOffer = !!offerId && offerId !== String((sel && sel.model) || "");
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
   el.innerHTML = roleHeader(sel && sel.build ? "OPai Build" : "OPai", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card" role="alert"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     `<div class="ec-actions">` +
+    (showOffer ? `<button class="btn primary" data-a="continue-with">Continue with ${esc(offerLabel)}</button>` : "") +
     (canRetry ? `<button class="btn" data-a="retry">Retry</button>` : "") +
     (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
     (offerLogin ? `<button class="btn primary" data-a="signin">Sign in to ${esc(providerName(loginProvider))}</button>` : "") +
@@ -2225,6 +2239,31 @@ function renderErrorCard(el, status, r, sel) {
     (raw ? `<button class="btn ghost" data-a="details">Show technical details</button><button class="btn ghost" data-a="copy">Copy details</button>` : "") + `</div>` +
     (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
   wireActivitySummary(el);
+  const continueWith = el.querySelector('[data-a="continue-with"]'); if (continueWith) continueWith.onclick = () => {
+    // Make the switch visible before re-sending, so the composer never
+    // disagrees with the model that is actually about to run. The saved
+    // default is deliberately left alone: this recovers one request, it does
+    // not silently rewrite the user's preferred model.
+    const entry = (state.boot.models || []).find((x) => x.id === offerId);
+    if (entry) state.model = { ...entry, advancedLabel: entry.advanced_label };
+    else state.model = { id: offerId, label: offerLabel, kind: String(offer.kind || ""), provider: String(offer.provider || "") };
+    renderComposerSelects(); refreshInspector(); refreshStatus();
+    if (window.OPaiComposer) window.OPaiComposer.refresh();
+    const payload = {
+      ...(state.lastSend || sel || {}),
+      model: state.model.id,
+      modelKind: state.model.kind,
+      modelLabel: state.model.label,
+      modelProvider: state.model.provider,
+    };
+    // A consent the user gave for the previous route does not transfer. The new
+    // model passes its own cloud/limit gates (PR #511) — this button changes
+    // which model runs, never what it is allowed to do.
+    delete payload.allowCloud;
+    delete payload.allowLimit;
+    toast(`Continuing with ${state.model.label}`);
+    sendSelection(payload);
+  };
   const retryButton = el.querySelector('[data-a="retry"]'); if (retryButton) retryButton.onclick = () => retry();
   const signIn = el.querySelector('[data-a="signin"]'); if (signIn) signIn.onclick = () => {
     const retryPayload = state.lastSend ? { ...state.lastSend } : (sel ? { ...sel } : null);

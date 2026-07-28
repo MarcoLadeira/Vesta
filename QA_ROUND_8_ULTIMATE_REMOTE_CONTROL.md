@@ -743,6 +743,59 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 - Green evidence: 37 focused desktop/client activation tests plus 14 subtests passed; the Agent Readiness capture browser test passed; Ruff passed.
 - Live retest: after a full desktop restart on `codex/ultimate-opai-qa`, Agent Readiness rendered all six client cards in order — Claude Code, Codex CLI, GitHub Copilot, Gemini CLI, Cursor, and Cline — with Gemini CLI showing `ACTIVE` alongside the other ready clients. No repair or account action was run during verification.
 
+### QAR8-26 — provider consistency: deterministic refusals, blips, and dead ends
+
+The core complaint on this PR ("sometimes OPai works, other times it doesn't")
+was traced to four *deterministic* refusals stacked behind one another, not to
+randomness. This item fixes the routing behavior that made them look random.
+
+**1. Deterministic refusals are now remembered (`opaihub/provider_blocks.py`).**
+Codex answering `The 'gpt-5.6-terra' model requires a newer version of Codex`
+and Copilot refusing repository write access are not transient — they refuse
+identically on every turn until the user changes something. OPai now records
+them once, with a closed reason vocabulary (`cli_outdated`, `config_invalid`,
+`no_scoped_edits`), a scope (`all` vs `edit`), and a TTL:
+
+- Auto no longer spends a fallback step on a provider it has already watched
+  refuse; the whole provider is pruned from the remaining chain in one move
+  instead of one wasted call per model.
+- An `edit`-scoped block only applies to editing turns, so a write-incapable
+  provider stays a legitimate Ask/Plan choice.
+- Blocks expire, and any successful call clears one immediately, so a CLI
+  upgraded outside OPai is rediscovered without user action.
+- The store holds only provider ids, closed-vocabulary slugs, and timestamps —
+  no prompts, no raw provider text, no secrets.
+
+**2. A transport blip no longer counts as a provider failure.** Gemini's free
+tier intermittently returns `provider temporarily unavailable` and the identical
+prompt succeeds a second later. Transient codes (`PROVIDER_UNAVAILABLE`,
+`PROVIDER_TIMEOUT`, `NETWORK_ERROR`, `STREAM_ABORTED`, `NO_RESPONSE`) now earn
+exactly one silent re-attempt on the same provider before the chain advances,
+and the blip does not stain the provider's reliability record. This applies
+outside Auto too — "I picked Gemini and it randomly failed" is the same bug as
+"Auto picked Gemini and it randomly failed".
+
+**3. A failure is never a dead end.** When a turn ends because a model could not
+serve it, the engine names one model that still can (`fallback_offer`, cheapest
+usable first: on-device → free → paid) and the failure card offers it as the
+primary action: **Continue with `<model>`**. Previously the user got a generic
+`Switch model` and had to diagnose a routing problem OPai had already solved.
+
+**4. The picker stops offering guaranteed dead ends.** Blocked providers are
+grayed with the exact remedy (including the literal update command, e.g.
+`npm install -g @openai/codex`) instead of looking selectable and then failing.
+
+Safety boundaries preserved: the offer never carries the previous route's
+`allowCloud`/`allowLimit`, so the new model passes its own PR #511 gates; the
+offer is suppressed on every awaiting-input card so it can never read as a way
+around a safety gate; and it never changes the user's saved default model.
+
+- Green evidence: new `tests/test_provider_blocks.py` 19/19; new
+  `fallback-offer.spec.js` 6/6; combined errors-recovery + model-mode +
+  chat-core browser suites 31/31; focused Python sweep (pipeline/routing/auto/
+  provider/model) 800 passed, 1 skipped, 125 subtests; Ruff clean;
+  `git diff --check` clean.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
