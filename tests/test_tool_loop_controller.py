@@ -236,7 +236,10 @@ class ControllerCompletionTests(unittest.TestCase):
 
 class ControllerRecoverableStateTests(unittest.TestCase):
     def _controller(self, **policy_kwargs):
-        return ToolLoopController(ToolLoopPolicy(**policy_kwargs))
+        # The provider-retry backoff is policy, not something to wait for.
+        return ToolLoopController(
+            ToolLoopPolicy(**policy_kwargs), sleep=lambda _seconds: None
+        )
 
     def _base(self):
         return [{"role": "user", "content": "task"}]
@@ -265,6 +268,58 @@ class ControllerRecoverableStateTests(unittest.TestCase):
         )
         self.assertIs(result.completion_state, CompletionState.RETRYABLE_PROVIDER_ERROR)
         self.assertIn("503", result.last_error)
+
+    def test_a_blip_resumes_the_run_instead_of_discarding_its_progress(self):
+        # A failed round-trip changes nothing about the loop's state, so the
+        # turn can be re-issued. Losing an entire long run to a momentary 503
+        # was a large part of "sometimes I can do the task, sometimes I can't".
+        attempts: list[int] = []
+
+        def chat(messages, *, tools):
+            attempts.append(len(attempts))
+            if len(attempts) == 1:
+                raise ToolLoopProviderError("503 upstream")
+            if len(attempts) == 2:
+                return tool_turn("c1", "apply_patch")
+            return decision_turn(evidence=["c1"])
+
+        executor = FakeExecutor()
+        result = self._controller().run(
+            chat=chat, executor=executor, base_messages=self._base()
+        )
+        self.assertIs(result.completion_state, CompletionState.COMPLETED)
+        self.assertEqual(len(executor.invocations), 1)
+        # The failed round-trip produced nothing, so it is not billed as one.
+        self.assertEqual(result.model_calls, 2)
+
+    def test_the_retry_budget_is_bounded(self):
+        attempts: list[int] = []
+
+        def chat(messages, *, tools):
+            attempts.append(len(attempts))
+            raise ToolLoopProviderError("503 upstream")
+
+        result = self._controller(max_provider_retries=2).run(
+            chat=chat, executor=FakeExecutor(), base_messages=self._base()
+        )
+        self.assertIs(result.completion_state, CompletionState.RETRYABLE_PROVIDER_ERROR)
+        self.assertEqual(len(attempts), 3, "one attempt plus two retries")
+
+    def test_stop_wins_over_the_retry(self):
+        cancel = threading.Event()
+
+        def chat(messages, *, tools):
+            cancel.set()
+            raise ToolLoopProviderError("503 upstream")
+
+        result = self._controller().run(
+            chat=chat,
+            executor=FakeExecutor(),
+            base_messages=self._base(),
+            cancel=cancel,
+        )
+        # Stopping is the user's decision; a retry must never override it.
+        self.assertIs(result.completion_state, CompletionState.RETRYABLE_PROVIDER_ERROR)
 
     def test_external_ceiling_stops_without_slicing_a_batch(self):
         # A deprecated external ceiling is recoverable and never runs a partial

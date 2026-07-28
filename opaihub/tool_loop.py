@@ -86,6 +86,13 @@ class ToolLoopPolicy:
     # stops as STUCK_NO_PROGRESS/repeated_success instead of burning turns.
     max_identical_successes: int = 3
     max_active_seconds: float = 600.0
+    # A transport blip mid-loop used to end the whole run and throw away every
+    # tool call already made — twenty minutes of real work lost to a momentary
+    # 503. The loop's own state is untouched by a failed round-trip, so the
+    # turn can simply be re-issued from exactly where it was. Bounded, because
+    # a genuinely down provider must still stop honestly rather than spin.
+    max_provider_retries: int = 2
+    provider_retry_delay_seconds: float = 1.5
     # Deprecated, opt-in external ceiling.  ``None`` means "no ceiling"; the GUI
     # never sets it.  Hitting it is a recoverable stop, never a fake completion.
     max_tool_calls: int | None = None
@@ -471,9 +478,12 @@ class ToolLoopController:
         policy: ToolLoopPolicy | None = None,
         *,
         clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.policy = policy or ToolLoopPolicy()
         self._clock = clock
+        # Injected so tests exercise the retry policy without waiting for it.
+        self._sleep = sleep
 
     def run(
         self,
@@ -498,6 +508,7 @@ class ToolLoopController:
         quota: Mapping[str, Any] | None = None
         last_error = ""
         invalid_decisions = 0
+        provider_retries = 0
         started = self._clock()
 
         def _result(
@@ -576,6 +587,20 @@ class ToolLoopController:
                 turn = chat(state.request_messages(), tools=tools)
             except ToolLoopProviderError as exc:
                 last_error = str(exc)
+                # The round-trip failed, so it changed nothing: the request
+                # messages, the tool trace, and every milestone are exactly as
+                # they were. Re-issue the same turn instead of discarding the
+                # whole run's progress over a blip. The budget is per-run, so a
+                # provider that keeps failing still stops honestly — and the
+                # retry is not counted as a model call, because none happened.
+                if (
+                    provider_retries < policy.max_provider_retries
+                    and not _cancelled(cancel)
+                ):
+                    provider_retries += 1
+                    self._sleep(policy.provider_retry_delay_seconds)
+                    if not _cancelled(cancel):
+                        continue
                 return _result(
                     CompletionState.RETRYABLE_PROVIDER_ERROR, stopped="provider_error"
                 )

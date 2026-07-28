@@ -922,6 +922,38 @@ is perfectly valid — the row is honest, not restrictive.
   model-mode browser suites 35/35; focused Python sweep 851 passed, 1 skipped,
   129 subtests; Ruff clean; `git diff --check` clean.
 
+### QAR8-30 — a blip mid-run discarded the entire run
+
+The worst version of the transient-failure problem, and the one that matches
+"sometimes I can do the tasks, other times I can't" most exactly.
+
+`ToolLoopController.run` is documented as raising `ToolLoopProviderError` "for a
+**retryable** transport failure" — but nothing retried it. One failed provider
+round-trip returned `RETRYABLE_PROVIDER_ERROR` and ended the run, throwing away
+every tool call, every milestone, and every edit already made. On a long coding
+task that is twenty minutes of real work lost to a momentary 503, with no way
+to resume.
+
+A failed round-trip changes nothing about the loop's state — the request
+messages, tool trace, and milestones are exactly as they were — so the turn is
+now simply re-issued from where it was. Bounds and boundaries:
+
+- `max_provider_retries: 2` per run, so a genuinely down provider still stops
+  honestly instead of spinning.
+- The failed round-trip is **not** counted as a model call, because none
+  happened — the token/spend accounting stays true.
+- `cancel` is re-checked before and after the backoff, so Stop always wins over
+  a retry.
+- The backoff is injected (`sleep=`), so the suite exercises the policy without
+  waiting for it — the tool-loop suite went from 7.4s to 0.5s as a side effect.
+
+- Red evidence: with `max_provider_retries` forced to `0`, the resume
+  regression fails with `RETRYABLE_PROVIDER_ERROR is not COMPLETED`.
+- Green evidence: `tests/test_tool_loop_controller.py` 37/37 including the new
+  resume, bounded-budget, and Stop-wins cases; combined tool-loop / completion /
+  agent / capture / activity sweep 464 passed with 96 subtests; Ruff clean;
+  `git diff --check` clean.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
