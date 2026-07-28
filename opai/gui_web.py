@@ -483,6 +483,7 @@ def _resume_payload(root: Path) -> dict[str, Any]:
     """Build a whitelisted crash-safe resume offer for one workspace."""
 
     from opai.gui_recents import load_thread
+    from opaihub.owner_lease import describe as describe_lease
     from opaihub.checkpoints import list_run_checkpoints
     from opaihub.workflow_state import load_workflow_state
 
@@ -551,6 +552,13 @@ def _resume_payload(root: Path) -> dict[str, Any]:
         "thread": thread,
         "workflow": workflow.to_dict(),
         "checkpoint": checkpoint_payload,
+        # #295 invariant 4: whether the process that owned this run is
+        # still alive. Boot stays read-only — this reports what the lease
+        # says and mutates nothing, so the resume/start-fresh choice is
+        # still the user's. It just stops OPai having to present a run
+        # abandoned days ago and one a sibling window is actively working
+        # on as the same indistinguishable thing.
+        "owner": describe_lease(thread.get("lease")),
     }
 
 
@@ -722,6 +730,17 @@ def clear_history_payload(root: Path) -> dict[str, Any]:
     payload = boot_payload(resolved)
     payload["ok"] = True
     return payload
+
+
+def _beat_lease(root: Path, request_id: str) -> None:
+    """Restamp this run's supervisor lease. Never breaks the run it describes."""
+
+    from opai.gui_recents import refresh_thread_lease
+
+    try:
+        refresh_thread_lease(root, request_id=request_id)
+    except (OSError, TypeError, ValueError):
+        pass
 
 
 def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> None:
@@ -1841,6 +1860,10 @@ def _run_gui(
                 payload = batcher.flush()
                 if payload is not None:
                     self.activityBatch.emit(payload)
+                # Beat the supervisor lease on the same tick (#295). A lease
+                # that is never restamped goes stale mid-run, and a healthy
+                # long task would start looking abandoned to the next reader.
+                _beat_lease(turn_root, request_id)
 
             timer = QtCore.QTimer(self)
             timer.setInterval(FLUSH_INTERVAL_MS)
