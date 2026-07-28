@@ -4,6 +4,7 @@
     "protocol_version": 1,
     "provider_id": "claude",
     "capabilities": {
+      "cancellation": "supported",
       "chat": "supported",
       "code_execution": "supported",
       "repo_read": "supported",
@@ -30,7 +31,7 @@
       "message": "Unavailable capabilities are rejected rather than inferred or emulated."
     },
     "pricing": {
-      "provenance": "catalog-v1: no price evidence captured",
+      "source": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
       "observed_at": "2026-07-28T00:00:00Z",
       "expiry": "2026-08-04T00:00:00Z",
@@ -43,6 +44,7 @@
     "protocol_version": 1,
     "provider_id": "codex",
     "capabilities": {
+      "cancellation": "supported",
       "chat": "supported",
       "code_execution": "supported",
       "repo_read": "supported",
@@ -69,7 +71,7 @@
       "message": "Unavailable capabilities are rejected rather than inferred or emulated."
     },
     "pricing": {
-      "provenance": "catalog-v1: no price evidence captured",
+      "source": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
       "observed_at": "2026-07-28T00:00:00Z",
       "expiry": "2026-08-04T00:00:00Z",
@@ -82,6 +84,7 @@
     "protocol_version": 1,
     "provider_id": "copilot",
     "capabilities": {
+      "cancellation": "supported",
       "chat": "supported",
       "code_execution": "supported",
       "repo_read": "supported",
@@ -108,7 +111,7 @@
       "message": "Unavailable capabilities are rejected rather than inferred or emulated."
     },
     "pricing": {
-      "provenance": "catalog-v1: no price evidence captured",
+      "source": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
       "observed_at": "2026-07-28T00:00:00Z",
       "expiry": "2026-08-04T00:00:00Z",
@@ -121,6 +124,7 @@
     "protocol_version": 1,
     "provider_id": "kimi",
     "capabilities": {
+      "cancellation": "supported",
       "chat": "supported",
       "code_execution": "supported",
       "repo_read": "supported",
@@ -147,7 +151,7 @@
       "message": "Unavailable capabilities are rejected rather than inferred or emulated."
     },
     "pricing": {
-      "provenance": "catalog-v1: no price evidence captured",
+      "source": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
       "observed_at": "2026-07-28T00:00:00Z",
       "expiry": "2026-08-04T00:00:00Z",
@@ -160,6 +164,7 @@
     "protocol_version": 1,
     "provider_id": "gemini",
     "capabilities": {
+      "cancellation": "supported",
       "chat": "supported",
       "code_execution": "supported",
       "repo_read": "supported",
@@ -186,7 +191,7 @@
       "message": "Unavailable capabilities are rejected rather than inferred or emulated."
     },
     "pricing": {
-      "provenance": "catalog-v1: no price evidence captured",
+      "source": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
       "observed_at": "2026-07-28T00:00:00Z",
       "expiry": "2026-08-04T00:00:00Z",
@@ -199,6 +204,7 @@
     "protocol_version": 1,
     "provider_id": "groq",
     "capabilities": {
+      "cancellation": "supported",
       "chat": "supported",
       "code_execution": "supported",
       "repo_read": "supported",
@@ -225,7 +231,7 @@
       "message": "Unavailable capabilities are rejected rather than inferred or emulated."
     },
     "pricing": {
-      "provenance": "catalog-v1: no price evidence captured",
+      "source": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
       "observed_at": "2026-07-28T00:00:00Z",
       "expiry": "2026-08-04T00:00:00Z",
@@ -238,6 +244,7 @@
     "protocol_version": 1,
     "provider_id": "mistral",
     "capabilities": {
+      "cancellation": "supported",
       "chat": "supported",
       "code_execution": "supported",
       "repo_read": "supported",
@@ -264,7 +271,7 @@
       "message": "Unavailable capabilities are rejected rather than inferred or emulated."
     },
     "pricing": {
-      "provenance": "catalog-v1: no price evidence captured",
+      "source": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
       "observed_at": "2026-07-28T00:00:00Z",
       "expiry": "2026-08-04T00:00:00Z",
@@ -277,6 +284,7 @@
     "protocol_version": 1,
     "provider_id": "ollama",
     "capabilities": {
+      "cancellation": "supported",
       "chat": "supported",
       "code_execution": "unsupported",
       "repo_read": "unsupported",
@@ -303,7 +311,7 @@
       "message": "Unavailable capabilities are rejected rather than inferred or emulated."
     },
     "pricing": {
-      "provenance": "catalog-v1: no price evidence captured",
+      "source": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
       "observed_at": "2026-07-28T00:00:00Z",
       "expiry": "2026-08-04T00:00:00Z",
@@ -316,6 +324,7 @@
     "protocol_version": 1,
     "provider_id": "openai-compatible",
     "capabilities": {
+      "cancellation": "supported",
       "chat": "supported",
       "code_execution": "unsupported",
       "repo_read": "unsupported",
@@ -342,7 +351,7 @@
       "message": "Unavailable capabilities are rejected rather than inferred or emulated."
     },
     "pricing": {
-      "provenance": "catalog-v1: no price evidence captured",
+      "source": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
       "observed_at": "2026-07-28T00:00:00Z",
       "expiry": "2026-08-04T00:00:00Z",

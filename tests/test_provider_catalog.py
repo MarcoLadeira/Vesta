@@ -20,6 +20,7 @@ EXPECTED_PROVIDER_IDS = (
     "openai-compatible",
 )
 EXPECTED_CAPABILITIES = {
+    "cancellation",
     "chat",
     "code_execution",
     "repo_read",
@@ -83,6 +84,7 @@ class ProviderCatalogTests(unittest.TestCase):
                 set(record["capabilities"].values())
                 <= {"supported", "partial", "unsupported"}
             )
+            self.assertEqual(record["capabilities"]["cancellation"], "supported")
             self.assertIn("api_key", record["requirements"])
             self.assertIn("mode", record["cancellation"])
             self.assertGreater(record["cancellation"]["slo_seconds"], 0)
@@ -96,7 +98,7 @@ class ProviderCatalogTests(unittest.TestCase):
                     "unavailable",
                 },
             )
-            self.assertTrue(record["pricing"]["provenance"])
+            self.assertTrue(record["pricing"]["source"])
             self.assertIn("observed_at", record["pricing"])
             self.assertIn("expiry", record["pricing"])
             self.assertFalse(record["pricing"]["routing_eligible"])
@@ -133,6 +135,29 @@ class ProviderCatalogTests(unittest.TestCase):
         for name, mutate in cases.items():
             with self.subTest(name=name), self.assertRaises(ValueError):
                 provider_catalog._parse_catalog(malformed_catalog(mutate))
+
+    def test_pricing_source_is_required_and_provenance_is_rejected(self):
+        def malformed_catalog(mutate):
+            catalog = json.loads(provider_catalog.catalog_bytes())
+            mutate(catalog[0]["pricing"])
+            return json.dumps(catalog).encode("utf-8")
+
+        cases = {
+            "missing_source": lambda pricing: pricing.pop("source", None),
+            "unknown_provenance": lambda pricing: pricing.update(
+                provenance="deprecated"
+            ),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                provider_catalog._parse_catalog(malformed_catalog(mutate))
+
+    def test_missing_cancellation_capability_status_fails_closed(self):
+        catalog = json.loads(provider_catalog.catalog_bytes())
+        catalog[0]["capabilities"].pop("cancellation", None)
+
+        with self.assertRaises(ValueError):
+            provider_catalog._parse_catalog(json.dumps(catalog).encode("utf-8"))
 
     def test_unknown_provider_fails_closed(self):
         with self.assertRaises(ValueError):

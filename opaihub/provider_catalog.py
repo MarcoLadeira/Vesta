@@ -33,6 +33,7 @@ _PROVIDER_IDS = (
 )
 _CAPABILITY_NAMES = frozenset(
     {
+        "cancellation",
         "chat",
         "code_execution",
         "repo_read",
@@ -194,7 +195,7 @@ def _validate_record(value: Any) -> dict[str, Any]:
         provider_id=provider_id,
         keys=frozenset(
             {
-                "provenance",
+                "source",
                 "measurement",
                 "observed_at",
                 "expiry",
@@ -203,8 +204,8 @@ def _validate_record(value: Any) -> dict[str, Any]:
             }
         ),
     )
-    if not isinstance(pricing["provenance"], str) or not pricing["provenance"]:
-        _fail(f"{provider_id}.pricing.provenance must be non-empty")
+    if not isinstance(pricing["source"], str) or not pricing["source"]:
+        _fail(f"{provider_id}.pricing.source must be non-empty")
     if pricing["measurement"] not in _PRICING_MEASUREMENTS:
         _fail(f"{provider_id}.pricing.measurement is invalid")
     observed_at = _parse_iso_timestamp(
