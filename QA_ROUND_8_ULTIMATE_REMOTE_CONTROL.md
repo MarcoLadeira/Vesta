@@ -1493,6 +1493,67 @@ path the canonical model forbade.
 prevention; separate task/run/attempt/step identities. Both need the persistence
 contract from #517 to be meaningful, and neither is faked here.
 
+### Issue #295 Workstream A — supervisor leases
+
+The gap was already documented, in the resume path's own comment:
+
+> Boot is deliberately read-only. A pending checkpoint can still belong to
+> another live OPai window or CLI run; **without an owner lease, process death
+> cannot be inferred safely**. Preserve it verbatim and let the user make the
+> explicit resume/start-fresh choice.
+
+That is the right call while the information is absent — and it means OPai
+could not tell "a sibling window is working on this" from "this died three days
+ago", so it had to present both identically. A crashed run stays
+`state: "running"` forever, pointing at a dead request id. `"interrupted"` was
+already a valid thread state and the resume path already accepted it, but
+nothing ever wrote it.
+
+`opaihub/owner_lease.py` supplies the missing evidence. #295 invariant 4: one
+active owner, each run holding exactly one supervisor lease.
+
+**Liveness is decided by heartbeat, not by pid.** A bare process id is not
+evidence — operating systems reuse them, so a dead owner's id can belong to an
+unrelated process minutes later and would read as alive. The owning process
+restamps its lease while it works, and a lease silent for longer than
+`STALE_AFTER_SECONDS` is stale whatever its pid says; a recycled pid cannot
+refresh a lease it does not know about. The pid and a per-process boot id are
+still recorded for the two narrower jobs they *can* do honestly: recognising
+OPai's own lease so a process never treats its own work as abandoned, and giving
+a human something to identify in a diagnostic.
+
+The stale window is deliberately several heartbeats wide (90s against a 10s
+beat), asserted by a test: declaring a live run abandoned is far worse than
+waiting longer to declare a dead one.
+
+Wiring: `begin_thread_turn` claims the lease at the same moment it records the
+turn as running, so there is never a window where a run looks active with nobody
+accountable. The heartbeat rides the existing per-request activity-flush tick,
+so a long task keeps proving itself alive without a new timer. Only a *running*
+turn carries a lease — a finished one has no owner to prove alive. The lease is
+whitelisted on both write and read, since this file is parsed on every boot.
+
+**Boot stays read-only.** `_resume_payload` now reports what the lease says and
+mutates nothing; the resume/start-fresh decision remains the user's. It simply
+stops OPai having to present an abandoned run and an actively-owned one as the
+same indistinguishable thing.
+
+**A bug my own test caught.** `describe()` checked ownership before staleness,
+so a lease this process had stopped refreshing reported as healthy — a run
+nobody was tending, described as fine — because the pid still matched. The
+heartbeat is the evidence; ownership only refines the wording. Staleness is now
+decided first, with a regression naming the ordering.
+
+- Green evidence: `tests/test_owner_lease.py` 20 tests + 8 subtests;
+  recents/resume/thread/session/gui_web/desktop sweep 233 passed with 22
+  subtests; Ruff and format clean.
+
+**Still open:** nothing yet *acts* on a stale lease — no automatic transition to
+`interrupted`, because choosing what to do with abandoned work (resume, discard,
+reconcile external side effects) is the recovery-decision half of Workstream A
+and needs #517's replay guarantees to be safe. This slice supplies the evidence
+that decision will require; it deliberately does not pre-empt it.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
