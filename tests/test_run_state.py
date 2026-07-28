@@ -42,9 +42,12 @@ def test_forward_progress_is_legal_but_backward_is_not() -> None:
     assert can_transition(RunState.QUEUED, RunState.PREPARING)
     assert can_transition(RunState.PREPARING, RunState.RUNNING)
     assert can_transition(RunState.RUNNING, RunState.VERIFYING)
-    # No going back up the ladder.
+    # No going back up the ladder...
     assert not can_transition(RunState.RUNNING, RunState.QUEUED)
-    assert not can_transition(RunState.VERIFYING, RunState.RUNNING)
+    # ...with one deliberate exception: the repair loop. #295 writes it
+    # `verifying <-> repairing?` — verification finds a problem, work resumes
+    # to fix it, and the evidence is judged again.
+    assert can_transition(RunState.VERIFYING, RunState.RUNNING)
 
 
 def test_any_non_terminal_may_reach_any_terminal() -> None:
@@ -62,14 +65,20 @@ def test_terminal_states_are_immutable() -> None:
         assert transition(terminal, RunState.RUNNING) is terminal
 
 
-def test_verifying_leads_only_to_an_outcome_or_an_acknowledged_stop() -> None:
-    # Verification judges evidence that already exists. It never returns to
-    # doing work, and it has no question to ask — the one non-terminal it may
-    # reach is the acknowledgement of a Stop pressed while it was running.
+def test_verifying_leads_to_an_outcome_a_repair_or_an_acknowledged_stop() -> None:
+    # Verification judges evidence. It may send the run back to work when the
+    # evidence is bad (#295's `verifying <-> repairing?`, which the engine
+    # already does as reviewing_diff -> implementing), it may be stopped, and
+    # otherwise it produces an outcome. What it never does is stop to ask: it
+    # has no question, only a verdict.
     for other in NON_TERMINAL_STATES:
-        allowed = other in {RunState.VERIFYING, RunState.CANCEL_REQUESTED}
+        allowed = other in {
+            RunState.VERIFYING,
+            RunState.RUNNING,
+            RunState.CANCEL_REQUESTED,
+        }
         assert not can_transition(RunState.VERIFYING, other) or allowed, other
-    assert not can_transition(RunState.VERIFYING, RunState.RUNNING)
+    assert can_transition(RunState.VERIFYING, RunState.RUNNING)
     assert not can_transition(RunState.VERIFYING, RunState.AWAITING_INPUT)
     assert can_transition(RunState.VERIFYING, RunState.CANCEL_REQUESTED)
     assert can_transition(RunState.VERIFYING, RunState.COMPLETED)
