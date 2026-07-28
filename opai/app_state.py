@@ -228,7 +228,7 @@ def overview(project_root: Path) -> dict[str, Any]:
 
 
 def agent_readiness(project_root: Path) -> dict[str, Any]:
-    """Per-client cards (Claude/Codex/Copilot/Cursor/Cline) with repair commands."""
+    """Per-client cards for every supported AI client, with repair commands."""
     from opai.clients import client_integrations_status, detect_stale_paths
     from opai.integrations import project_status
 
@@ -236,7 +236,7 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
     status = project_status(root)
     integrations = client_integrations_status(root)
     wrappers = status["global"]["wrappers"]
-    order = ["claude", "codex", "copilot", "cursor", "cline"]
+    order = ["claude", "codex", "copilot", "gemini", "cursor", "cline"]
     by_id = {client["id"]: client for client in integrations["clients"]}
 
     cards: list[dict[str, Any]] = []

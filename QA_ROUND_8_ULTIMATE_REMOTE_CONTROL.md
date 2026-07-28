@@ -736,6 +736,13 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 - Green evidence: all 11 combined tool-confirmation and Benchmark browser tests passed, including exact-once application, denial, keyboard operation, local benchmark approval, and final applied-state copy.
 - Live retest: after a source-build restart, approved a second offline benchmark run. The card showed `Approved — applying…` only while the worker was active, then changed to `Approved — applied.` at the same moment the completed result appeared.
 
+### QAR8-25
+
+- Agent Readiness now renders Gemini CLI alongside Claude Code, Codex CLI, GitHub Copilot, Cursor, and Cline, matching the declared six-client support and readiness denominator.
+- Red evidence: the live page subtitle named all six clients but its complete accessibility tree and scrolled card list contained only five; the updated client-set contract received no `gemini` card.
+- Green evidence: 37 focused desktop/client activation tests plus 14 subtests passed; the Agent Readiness capture browser test passed; Ruff passed.
+- Live retest: after a full desktop restart on `codex/ultimate-opai-qa`, Agent Readiness rendered all six client cards in order — Claude Code, Codex CLI, GitHub Copilot, Gemini CLI, Cursor, and Cline — with Gemini CLI showing `ACTIVE` alongside the other ready clients. No repair or account action was run during verification.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.

@@ -46,13 +46,16 @@ class AppStateReadTests(unittest.TestCase):
         self.assertIn("Local max benchmark proof", o["benchmark_claim"])
         self.assertNotIn("50x", o["benchmark_claim"])
 
-    def test_agent_readiness_has_five_clients(self):
+    def test_agent_readiness_renders_every_declared_client(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
             ar = A.agent_readiness(root)
         ids = [c["id"] for c in ar["clients"]]
-        self.assertEqual(ids, ["claude", "codex", "copilot", "cursor", "cline"])
+        self.assertEqual(
+            ids,
+            ["claude", "codex", "copilot", "gemini", "cursor", "cline"],
+        )
         for c in ar["clients"]:
             self.assertIn(c["status"], {"active", "broken", "missing", "needs_setup", "unknown"})
             self.assertTrue(c["repair"])
