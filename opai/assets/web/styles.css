@@ -663,6 +663,19 @@ kbd {
 .context-help, .composer-help { margin-top: var(--space-1); }
 .composer-reason { min-height: 0; margin-top: var(--space-2); color: var(--warn, #e9c46a); }
 .composer-reason:empty { display: none; }
+
+/* #295: a message typed while a run is active is held, not discarded. Calm
+   and informational — it is a receipt for the user's words, not a warning. */
+.composer-queued { display: flex; align-items: center; gap: var(--space-2);
+  margin-top: var(--space-2); font-size: var(--type-caption); color: var(--faint); }
+.composer-queued[hidden] { display: none; }
+.cq-label { flex: none; }
+.cq-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--text); }
+.cq-edit, .cq-drop { flex: none; background: none; border: 0; padding: 0 var(--space-1);
+  color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
+.cq-edit:hover, .cq-drop:hover { opacity: .8; }
+
 .reason-action {
   appearance: none; margin-left: var(--space-1); padding: var(--space-1) var(--space-2);
   border: 1px solid rgba(233, 196, 106, 0.48); border-radius: var(--r-sm);
