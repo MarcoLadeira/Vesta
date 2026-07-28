@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date
+from datetime import datetime
 from functools import lru_cache
 from importlib import resources
 from pathlib import Path
@@ -91,13 +91,18 @@ def _require_exact_keys(
         _fail(f"{provider_id}.{field} has an incomplete or unknown field")
 
 
-def _require_iso_date(value: Any, *, field: str, provider_id: str) -> None:
-    if not isinstance(value, str):
-        _fail(f"{provider_id}.{field} must be an ISO date")
+def _parse_iso_timestamp(value: Any, *, field: str, provider_id: str) -> datetime:
+    if not isinstance(value, str) or not value or "T" not in value:
+        _fail(f"{provider_id}.{field} must be a non-empty ISO timestamp")
     try:
-        date.fromisoformat(value)
+        timestamp = datetime.fromisoformat(
+            value[:-1] + "+00:00" if value.endswith("Z") else value
+        )
     except ValueError:
-        _fail(f"{provider_id}.{field} must be an ISO date")
+        _fail(f"{provider_id}.{field} must be a non-empty ISO timestamp")
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        _fail(f"{provider_id}.{field} must include a timezone")
+    return timestamp
 
 
 def _validate_record(value: Any) -> dict[str, Any]:
@@ -202,13 +207,14 @@ def _validate_record(value: Any) -> dict[str, Any]:
         _fail(f"{provider_id}.pricing.provenance must be non-empty")
     if pricing["measurement"] not in _PRICING_MEASUREMENTS:
         _fail(f"{provider_id}.pricing.measurement is invalid")
-    _require_iso_date(
+    observed_at = _parse_iso_timestamp(
         pricing["observed_at"], field="pricing.observed_at", provider_id=provider_id
     )
-    if pricing["expiry"] is not None:
-        _require_iso_date(
-            pricing["expiry"], field="pricing.expiry", provider_id=provider_id
-        )
+    expiry = _parse_iso_timestamp(
+        pricing["expiry"], field="pricing.expiry", provider_id=provider_id
+    )
+    if expiry <= observed_at:
+        _fail(f"{provider_id}.pricing.expiry must be after observed_at")
     if pricing["price_usd"] is not None:
         if isinstance(pricing["price_usd"], bool) or not isinstance(
             pricing["price_usd"], (int, float)

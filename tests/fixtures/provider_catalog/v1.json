@@ -32,8 +32,8 @@
     "pricing": {
       "provenance": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
-      "observed_at": "2026-07-28",
-      "expiry": null,
+      "observed_at": "2026-07-28T00:00:00Z",
+      "expiry": "2026-08-04T00:00:00Z",
       "price_usd": null,
       "routing_eligible": false
     }
@@ -71,8 +71,8 @@
     "pricing": {
       "provenance": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
-      "observed_at": "2026-07-28",
-      "expiry": null,
+      "observed_at": "2026-07-28T00:00:00Z",
+      "expiry": "2026-08-04T00:00:00Z",
       "price_usd": null,
       "routing_eligible": false
     }
@@ -110,8 +110,8 @@
     "pricing": {
       "provenance": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
-      "observed_at": "2026-07-28",
-      "expiry": null,
+      "observed_at": "2026-07-28T00:00:00Z",
+      "expiry": "2026-08-04T00:00:00Z",
       "price_usd": null,
       "routing_eligible": false
     }
@@ -149,8 +149,8 @@
     "pricing": {
       "provenance": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
-      "observed_at": "2026-07-28",
-      "expiry": null,
+      "observed_at": "2026-07-28T00:00:00Z",
+      "expiry": "2026-08-04T00:00:00Z",
       "price_usd": null,
       "routing_eligible": false
     }
@@ -188,8 +188,8 @@
     "pricing": {
       "provenance": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
-      "observed_at": "2026-07-28",
-      "expiry": null,
+      "observed_at": "2026-07-28T00:00:00Z",
+      "expiry": "2026-08-04T00:00:00Z",
       "price_usd": null,
       "routing_eligible": false
     }
@@ -227,8 +227,8 @@
     "pricing": {
       "provenance": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
-      "observed_at": "2026-07-28",
-      "expiry": null,
+      "observed_at": "2026-07-28T00:00:00Z",
+      "expiry": "2026-08-04T00:00:00Z",
       "price_usd": null,
       "routing_eligible": false
     }
@@ -266,8 +266,8 @@
     "pricing": {
       "provenance": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
-      "observed_at": "2026-07-28",
-      "expiry": null,
+      "observed_at": "2026-07-28T00:00:00Z",
+      "expiry": "2026-08-04T00:00:00Z",
       "price_usd": null,
       "routing_eligible": false
     }
@@ -305,8 +305,8 @@
     "pricing": {
       "provenance": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
-      "observed_at": "2026-07-28",
-      "expiry": null,
+      "observed_at": "2026-07-28T00:00:00Z",
+      "expiry": "2026-08-04T00:00:00Z",
       "price_usd": null,
       "routing_eligible": false
     }
@@ -344,8 +344,8 @@
     "pricing": {
       "provenance": "catalog-v1: no price evidence captured",
       "measurement": "unavailable",
-      "observed_at": "2026-07-28",
-      "expiry": null,
+      "observed_at": "2026-07-28T00:00:00Z",
+      "expiry": "2026-08-04T00:00:00Z",
       "price_usd": null,
       "routing_eligible": false
     }

@@ -107,6 +107,33 @@ class ProviderCatalogTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             records[0]["capabilities"]["chat"] = "unsupported"
 
+    def test_catalog_pricing_expiry_is_a_timestamp_after_observation(self):
+        for record in provider_catalog.all_catalog_records():
+            pricing = record["pricing"]
+
+            self.assertIsInstance(pricing["expiry"], str)
+            self.assertIn("T", pricing["observed_at"])
+            self.assertIn("T", pricing["expiry"])
+            self.assertGreater(pricing["expiry"], pricing["observed_at"])
+
+    def test_missing_null_and_invalid_pricing_expiry_fail_closed(self):
+        def malformed_catalog(mutate):
+            catalog = json.loads(provider_catalog.catalog_bytes())
+            mutate(catalog[0]["pricing"])
+            return json.dumps(catalog).encode("utf-8")
+
+        cases = {
+            "missing": lambda pricing: pricing.pop("expiry"),
+            "null": lambda pricing: pricing.update(expiry=None),
+            "invalid": lambda pricing: pricing.update(expiry="not-a-timestamp"),
+            "not_after_observed_at": lambda pricing: pricing.update(
+                expiry=pricing["observed_at"]
+            ),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                provider_catalog._parse_catalog(malformed_catalog(mutate))
+
     def test_unknown_provider_fails_closed(self):
         with self.assertRaises(ValueError):
             provider_catalog.provider_record("mock")
