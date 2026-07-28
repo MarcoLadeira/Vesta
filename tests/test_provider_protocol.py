@@ -18,6 +18,7 @@ from opaihub.provider_protocol import (
     UsageMeasurement,
     UsageObservation,
     negotiate_capabilities,
+    protocol_readiness,
     validate_event_stream,
 )
 
@@ -42,6 +43,17 @@ def _valid_events() -> tuple[ProviderEvent, ...]:
         _event(2, 0.1, EventKind.TEXT_DELTA, {"text": "hello"}),
         _event(3, 0.2, EventKind.TERMINAL),
     )
+
+
+def _alias_key(alias: str, convention: str) -> str:
+    parts = alias.split("_")
+    if convention == "camel":
+        return parts[0] + "".join(part.title() for part in parts[1:])
+    if convention == "hyphen":
+        return "-".join(parts)
+    if convention == "upper":
+        return alias.upper()
+    return alias
 
 
 class ProviderProtocolTests(unittest.TestCase):
@@ -138,6 +150,20 @@ class ProviderProtocolTests(unittest.TestCase):
             _event(3, 0.2, EventKind.TERMINAL, {"status": "provider_done"})
         allowed = _event(3, 0.2, EventKind.TERMINAL, {"status": "failed"})
         self.assertEqual(allowed.payload["status"], CompletionState.FAILED.value)
+
+    def test_semantic_truth_aliases_and_unknown_terminal_fields_fail_closed(self):
+        aliases = {
+            "final_state": "completed",
+            "authorization": True,
+            "verification_status": "verified",
+            "estimated_cost": 1,
+        }
+        for field, value in aliases.items():
+            with self.subTest(field=field), self.assertRaises(ProtocolViolation):
+                _event(1, 0.0, EventKind.STARTED, {"nested": {field: value}})
+
+        with self.assertRaises(ProtocolViolation):
+            _event(3, 0.2, EventKind.TERMINAL, {"provider_result": "failed"})
 
     def test_usage_observation_validates_provenance_without_inventing_zeroes(self):
         observation = UsageObservation(
@@ -294,6 +320,16 @@ class ProviderProtocolTests(unittest.TestCase):
         self.assertEqual(readiness.degraded_reason, "protocol_version_incompatible")
         self.assertIn(str(PROTOCOL_VERSION), readiness.next_action)
 
+    def test_only_an_exact_non_bool_integer_protocol_version_is_compatible(self):
+        for version in (0, 2, -1, 1.0, True, "1", None):
+            with self.subTest(version=version):
+                readiness = protocol_readiness("codex", version)
+
+                self.assertFalse(readiness.healthy)
+                self.assertEqual(
+                    readiness.degraded_reason, "protocol_version_incompatible"
+                )
+
 
 class ProviderProtocolPropertyTests(unittest.TestCase):
     @given(st.lists(st.integers(min_value=0, max_value=30), min_size=2, max_size=8))
@@ -315,6 +351,154 @@ class ProviderProtocolPropertyTests(unittest.TestCase):
 
         with self.assertRaises(ProtocolViolation):
             validate_event_stream(events)
+
+    @given(st.integers(min_value=0, max_value=30))
+    def test_generated_duplicate_terminals_are_rejected(self, timestamp):
+        events = (
+            _event(1, 0.0, EventKind.STARTED),
+            _event(2, float(timestamp), EventKind.TERMINAL),
+            _event(3, float(timestamp), EventKind.TERMINAL),
+        )
+
+        with self.assertRaises(ProtocolViolation):
+            validate_event_stream(events)
+
+    @given(
+        st.sampled_from(
+            (
+                "missing_measurement",
+                "missing_provenance",
+                "blank_provenance",
+                "invalid_tokens",
+                "unavailable_with_total",
+                "unknown_field",
+            )
+        ),
+        st.one_of(
+            st.none(), st.booleans(), st.integers(max_value=-1), st.text(max_size=20)
+        ),
+    )
+    def test_generated_malformed_usage_payloads_are_rejected(self, shape, value):
+        payload = {"measurement": "actual", "provenance": "provider"}
+        if shape == "missing_measurement":
+            payload = {"provenance": "provider"}
+        elif shape == "missing_provenance":
+            payload = {"measurement": "actual"}
+        elif shape == "blank_provenance":
+            payload["provenance"] = " "
+        elif shape == "invalid_tokens":
+            payload["input_tokens"] = value
+        elif shape == "unavailable_with_total":
+            payload.update(measurement="unavailable", total_tokens=0)
+        else:
+            payload["unexpected"] = value
+        events = (
+            _event(1, 0.0, EventKind.STARTED),
+            _event(2, 0.1, EventKind.USAGE, payload),
+            _event(3, 0.2, EventKind.TERMINAL),
+        )
+
+        with self.assertRaises(ProtocolViolation):
+            validate_event_stream(events)
+
+    @given(
+        st.floats(min_value=0, max_value=20, allow_nan=False, allow_infinity=False),
+        st.floats(min_value=0, max_value=30, allow_nan=False, allow_infinity=False),
+    )
+    def test_generated_cancellation_ack_races_follow_the_slo(self, ack_at, terminal_at):
+        events = (
+            _event(1, 0.0, EventKind.STARTED),
+            _event(2, ack_at, EventKind.CANCEL_ACK),
+            _event(3, terminal_at, EventKind.TERMINAL),
+        )
+        valid = (
+            1.0 <= ack_at <= 3.0
+            and terminal_at >= ack_at
+            and terminal_at - ack_at <= 10.0
+        )
+
+        if valid:
+            self.assertEqual(
+                validate_event_stream(events, cancel_requested_at=1.0), events
+            )
+        else:
+            with self.assertRaises(ProtocolViolation):
+                validate_event_stream(events, cancel_requested_at=1.0)
+
+    @given(st.sampled_from(("partial", "unsupported", "unknown")))
+    def test_generated_non_supported_requested_capabilities_are_rejected(self, status):
+        request = AdapterRequest("codex", "request-1", ("chat",))
+
+        with self.assertRaises(ProtocolViolation):
+            negotiate_capabilities(request, {"chat": status})
+
+    @given(st.text(min_size=1, max_size=20).filter(lambda value: value != "chat"))
+    def test_generated_unknown_capability_fields_are_rejected(self, unknown_capability):
+        request = AdapterRequest("codex", "request-1", ("chat",))
+
+        with self.assertRaises(ProtocolViolation):
+            negotiate_capabilities(
+                request,
+                {"chat": "supported", unknown_capability: "supported"},
+            )
+
+    @given(st.sampled_from((math.nan, math.inf, -math.inf)))
+    def test_generated_non_finite_inputs_are_rejected(self, value):
+        with self.assertRaises(ProtocolViolation):
+            _event(1, value, EventKind.STARTED)
+        with self.assertRaises(ProtocolViolation):
+            AdapterRequest("codex", "request-1", (), cancel_requested_at=value)
+
+    @given(
+        st.recursive(
+            st.one_of(st.none(), st.booleans(), st.integers(), st.text(max_size=20)),
+            lambda children: st.one_of(
+                st.lists(children, max_size=4),
+                st.dictionaries(
+                    st.sampled_from(("data", "items", "nested")), children, max_size=3
+                ),
+            ),
+            max_leaves=10,
+        )
+    )
+    def test_generated_json_payloads_are_copied_and_immutable(self, value):
+        original = {"data": value}
+
+        event = _event(1, 0.0, EventKind.STARTED, original)
+        expected = event.to_dict()["payload"]
+        original["later"] = "mutation"
+
+        self.assertEqual(event.to_dict()["payload"], expected)
+        with self.assertRaises(TypeError):
+            event.payload["later"] = "mutation"
+
+    @given(
+        st.sampled_from(
+            ("final_state", "authorization", "verification_status", "estimated_cost")
+        ),
+        st.sampled_from(("snake", "camel", "hyphen", "upper")),
+    )
+    def test_generated_truth_aliases_are_rejected(self, alias, convention):
+        value = "completed" if alias == "final_state" else "claimed"
+
+        with self.assertRaises(ProtocolViolation):
+            _event(1, 0.0, EventKind.STARTED, {_alias_key(alias, convention): value})
+
+    @given(
+        st.one_of(
+            st.booleans(),
+            st.integers(max_value=0),
+            st.integers(min_value=2),
+            st.floats(allow_nan=True, allow_infinity=True),
+            st.text(max_size=10),
+            st.none(),
+        )
+    )
+    def test_generated_non_integer_versions_are_degraded(self, version):
+        readiness = protocol_readiness("codex", version)
+
+        self.assertFalse(readiness.healthy)
+        self.assertEqual(readiness.degraded_reason, "protocol_version_incompatible")
 
 
 if __name__ == "__main__":

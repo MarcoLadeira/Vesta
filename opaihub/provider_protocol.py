@@ -76,10 +76,17 @@ _FORBIDDEN_PAYLOAD_FIELDS = frozenset(
         "authorized",
     }
 )
+_AUTHORITY_TRUTH_TOKENS = frozenset(
+    {"authority", "authorization", "authorisation", "authorized", "authorised"}
+)
+_VERIFICATION_TRUTH_TOKENS = frozenset({"verification", "verified"})
 _STATE_MAPPING_FIELDS = frozenset(
     {
         "state",
         "status",
+        "final",
+        "final_state",
+        "final_status",
         "mapped_state",
         "failure_state",
         "cancellation_state",
@@ -95,10 +102,13 @@ _STATE_MAPPING_FIELDS = frozenset(
         "result_status",
     }
 )
+_TERMINAL_PAYLOAD_FIELDS = _STATE_MAPPING_FIELDS | frozenset(
+    {"reason_code", "error_code", "stop_reason"}
+)
 _USAGE_FIELDS = frozenset(
     {"measurement", "provenance", "input_tokens", "output_tokens", "total_tokens"}
 )
-_CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
 def _fail(message: str) -> None:
@@ -106,7 +116,8 @@ def _fail(message: str) -> None:
 
 
 def _normalised_field_name(value: str) -> str:
-    return _CAMEL_BOUNDARY.sub("_", value).lower().replace("-", "_").replace(" ", "_")
+    separated = _CAMEL_BOUNDARY.sub("_", value)
+    return re.sub(r"_+", "_", separated.lower().replace("-", "_").replace(" ", "_"))
 
 
 def _provider_id(value: Any) -> str:
@@ -174,16 +185,24 @@ def _freeze_json(value: Any, *, path: str = "payload") -> Any:
 
 def _validate_transport_field(key: str, value: Any, *, path: str) -> None:
     normalized = _normalised_field_name(key)
-    if normalized in _FORBIDDEN_PAYLOAD_FIELDS:
-        _fail(f"{path}.{key} cannot assert canonical truth")
+    tokens = frozenset(part for part in normalized.split("_") if part)
     if (
-        normalized == "cost"
-        or normalized.startswith("cost_")
-        or normalized.endswith("_cost")
+        normalized in _FORBIDDEN_PAYLOAD_FIELDS
+        or normalized.startswith("completion_")
+        or tokens & _AUTHORITY_TRUTH_TOKENS
+        or tokens & _VERIFICATION_TRUTH_TOKENS
     ):
+        _fail(f"{path}.{key} cannot assert canonical truth")
+    if "cost" in tokens or normalized in {"price", "pricing", "charge"}:
         _fail(f"{path}.{key} cannot assert cost")
     if normalized in _STATE_MAPPING_FIELDS:
         _validate_state_mapping(value, field_name=f"{path}.{key}")
+
+
+def _validate_terminal_payload(payload: Mapping[str, Any]) -> None:
+    for key in payload:
+        if _normalised_field_name(key) not in _TERMINAL_PAYLOAD_FIELDS:
+            _fail(f"terminal payload has an unknown field: {key!r}")
 
 
 def _validate_state_mapping(value: Any, *, field_name: str) -> None:
@@ -442,6 +461,8 @@ class ProviderEvent:
         if not isinstance(self.payload, Mapping):
             _fail("event payload must be a JSON object")
         object.__setattr__(self, "payload", _freeze_json(self.payload))
+        if self.kind is EventKind.TERMINAL:
+            _validate_terminal_payload(self.payload)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -533,7 +554,11 @@ def protocol_readiness(provider_id: str, protocol_version: Any) -> ProviderReadi
     """Return an actionable degradation for incompatible protocol versions."""
 
     normalized_provider_id = _provider_id(provider_id)
-    if protocol_version == PROTOCOL_VERSION and not isinstance(protocol_version, bool):
+    if (
+        isinstance(protocol_version, int)
+        and not isinstance(protocol_version, bool)
+        and protocol_version == PROTOCOL_VERSION
+    ):
         return ProviderReadiness(provider_id=normalized_provider_id)
     return ProviderReadiness(
         provider_id=normalized_provider_id,
