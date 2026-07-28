@@ -1443,7 +1443,6 @@ def handle_gui_message(
         return ToolLoopPolicy(
             max_calls_per_subgoal=contract.max_tool_calls,
             max_active_seconds=contract.max_active_seconds,
-            compaction_char_threshold=contract.compaction_char_threshold,
         )
 
     def _prune_blocked_candidates() -> None:

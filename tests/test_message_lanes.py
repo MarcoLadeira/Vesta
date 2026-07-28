@@ -70,9 +70,6 @@ class LaneAssignmentTests(unittest.TestCase):
         stable = _contract(self.root, "fix the failing test in app.py")
         self.assertGreater(contract.max_tool_calls, stable.max_tool_calls)
         self.assertGreater(contract.max_active_seconds, stable.max_active_seconds)
-        self.assertGreater(
-            contract.compaction_char_threshold, stable.compaction_char_threshold
-        )
 
     def test_irreversible_work_takes_the_governed_lane(self) -> None:
         for message in (
@@ -81,6 +78,14 @@ class LaneAssignmentTests(unittest.TestCase):
         ):
             with self.subTest(message=message):
                 self.assertEqual(_contract(self.root, message).lane, GOVERNED)
+
+    def test_the_governed_lane_is_not_given_a_tighter_execution_budget(self) -> None:
+        # Its safety comes from refusing fallback and requiring confirmation.
+        # A smaller allowance would only strand a legitimate release half-done.
+        governed = _contract(self.root, "publish the release to production")
+        stable = _contract(self.root, "fix the failing test in app.py")
+        self.assertEqual(governed.max_tool_calls, stable.max_tool_calls)
+        self.assertEqual(governed.max_active_seconds, stable.max_active_seconds)
 
     def test_the_governed_lane_never_reroutes_or_silently_retries(self) -> None:
         contract = _contract(self.root, "publish the release to production")

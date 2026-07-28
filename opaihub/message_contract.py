@@ -27,8 +27,8 @@ policy:
 
 ``long_horizon``
     Multi-file features, refactors, architecture. The budgets that a short task
-    does not need and a long one silently dies without: more tool calls, more
-    wall-clock, a later compaction threshold.
+    does not need and a long one silently dies without: more tool calls and
+    more wall-clock.
 
 ``governed``
     Destructive, release, or credential-touching work. The one lane that
@@ -100,7 +100,13 @@ class MessageContract:
     # --- execution budgets ------------------------------------------------
     max_tool_calls: int
     max_active_seconds: float
-    compaction_char_threshold: int
+    # NOTE: the context-compaction threshold is deliberately *not* a lane knob.
+    # Raising it for long tasks is tempting — more history in view — but the
+    # tool loop only clamps it against the provider's real context window when
+    # `provider_context_chars` is known, and OPai does not know it for every
+    # local model. A raised threshold would silently overflow a small-context
+    # model's window. The shared conservative default stays until OPai can read
+    # the true window per provider.
     # --- context policy ---------------------------------------------------
     # Keep this turn's exploration out of the main thread's context.
     isolate_context: bool
@@ -141,7 +147,6 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
         "max_transient_retries": 1,
         "max_tool_calls": 12,
         "max_active_seconds": 600.0,
-        "compaction_char_threshold": 48_000,
         "isolate_context": False,
     },
     EXPLORE: {
@@ -150,7 +155,6 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
         "max_transient_retries": 1,
         "max_tool_calls": 20,
         "max_active_seconds": 600.0,
-        "compaction_char_threshold": 48_000,
         # A long search must not become the next request's baggage.
         "isolate_context": True,
     },
@@ -159,18 +163,17 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
         "max_transient_retries": 2,
         "max_tool_calls": 40,
         "max_active_seconds": 1_800.0,
-        # Compact later: a multi-file change legitimately needs more of its own
-        # history in view than a one-file fix does.
-        "compaction_char_threshold": 96_000,
         "isolate_context": False,
     },
     GOVERNED: {
         # The defining rule of this lane. See the module docstring.
         "allow_provider_fallback": False,
         "max_transient_retries": 0,
-        "max_tool_calls": 8,
+        # Deliberately the same allowance as `stable`: this lane's safety comes
+        # from refusing fallback and requiring confirmation, not from a tighter
+        # budget that could strand a legitimate release half-finished.
+        "max_tool_calls": 12,
         "max_active_seconds": 600.0,
-        "compaction_char_threshold": 48_000,
         "isolate_context": False,
     },
 }
@@ -267,7 +270,6 @@ def resolve_message_contract(
         max_transient_retries=int(policy["max_transient_retries"]),
         max_tool_calls=int(policy["max_tool_calls"]),
         max_active_seconds=float(policy["max_active_seconds"]),
-        compaction_char_threshold=int(policy["compaction_char_threshold"]),
         isolate_context=bool(policy["isolate_context"]),
         requires_confirmation=requires_confirmation
         or agent_mode is AgentMode.DANGEROUS,

@@ -976,8 +976,21 @@ lane fixes the policy:
 | --- | --- | --- | --- | --- | --- | --- |
 | `stable` | routine, bounded work | yes | 1 | 12 | 600s | shared |
 | `explore` | discovery ("find me an issue") | yes | 1 | 20 | 600s | **isolated** |
-| `long_horizon` | multi-file features, architecture | yes | 2 | 40 | 1800s | later compaction |
-| `governed` | destructive, release, credentials | **no** | **0** | 8 | 600s | shared |
+| `long_horizon` | multi-file features, architecture | yes | 2 | 40 | 1800s | shared |
+| `governed` | destructive, release, credentials | **no** | **0** | 12 | 600s | shared |
+
+Two budgets were deliberately **not** made lane-specific, after review:
+
+- The **governed lane keeps the standard execution allowance**. Its safety comes
+  from refusing fallback and requiring confirmation; a tighter budget would only
+  strand a legitimate release half-finished, adding a failure mode rather than
+  removing one.
+- The **compaction threshold stays shared and conservative**. Raising it for
+  long tasks is tempting, but the tool loop only clamps it against the
+  provider's real context window when `provider_context_chars` is known, and
+  OPai does not know that for every local model — a raised threshold would
+  silently overflow a small-context model. It stays until OPai can read the
+  true window per provider.
 
 The governed lane is the one that matters most for safety. Moving a publish or
 a delete to a different provider after a failure is not a recovery — it is a
@@ -992,12 +1005,12 @@ What is actually enforced, not merely declared:
 
 - `allow_provider_fallback` gates `_advance_auto` and the dead-end offer.
 - `max_transient_retries` replaces the former global constant.
-- `max_tool_calls` / `max_active_seconds` / `compaction_char_threshold` are
-  threaded to `ToolLoopPolicy` through `app_state.ask` → `run_explicit_model` →
-  the runner, using the same additive signature-inspection pattern as the
-  existing one-shot command grant, so older and fake runners are unaffected.
-  Previously a multi-file refactor and a one-line fix shared one allowance, so
-  the long task quietly stopped at a budget sized for the short one.
+- `max_tool_calls` / `max_active_seconds` are threaded to `ToolLoopPolicy`
+  through `app_state.ask` → `run_explicit_model` → the runner, using the same
+  additive signature-inspection pattern as the existing one-shot command grant,
+  so older and fake runners are unaffected. Previously a multi-file refactor and
+  a one-line fix shared one allowance, so the long task quietly stopped at a
+  budget sized for the short one.
 
 **Transparency** (the report's separate point that route quality and route
 *trust* are different problems): every result carries `message_contract`, and
