@@ -19,15 +19,24 @@
   // so it is not itself an end state).
   var ENDS = ["completed", "partial", "blocked", "timeout", "failed", "cancelled"];
   var RETRYABLE_ENDS = ["partial", "blocked", "timeout", "failed", "cancelled"];
+  // #295: a run that handed control back to the user is waiting, not finished.
+  // Keeping it out of TERMINAL is the point — canApply() refuses updates to a
+  // terminal message, so recording an approval card as "blocked" made the very
+  // run the user is about to resume unaddressable.
+  var AWAITING = "awaiting_input";
+  var LIVE = ["preparing", "authenticating", "sending", "verifying"];
   var ALLOWED = {
-    queued: ["preparing", "authenticating", "sending", "verifying"].concat(ENDS),
+    queued: LIVE.concat(AWAITING, ENDS),
     // A retry re-enters the pipeline; it never jumps straight to "completed".
-    retrying: ["preparing", "authenticating", "sending", "verifying"].concat(RETRYABLE_ENDS),
-    preparing: ["authenticating", "sending", "verifying"].concat(ENDS),
-    authenticating: ["sending", "verifying"].concat(ENDS),
-    sending: ["waiting", "streaming", "verifying"].concat(ENDS),
-    waiting: ["streaming", "verifying"].concat(ENDS),
-    streaming: ["verifying"].concat(ENDS),
+    retrying: LIVE.concat(AWAITING, RETRYABLE_ENDS),
+    preparing: ["authenticating", "sending", "verifying", AWAITING].concat(ENDS),
+    authenticating: ["sending", "verifying", AWAITING].concat(ENDS),
+    sending: ["waiting", "streaming", "verifying", AWAITING].concat(ENDS),
+    waiting: ["streaming", "verifying", AWAITING].concat(ENDS),
+    streaming: ["verifying", AWAITING].concat(ENDS),
+    // Answering resumes the work; it never skips ahead to verifying, and the
+    // run can still end here if the user cancels or abandons the question.
+    awaiting_input: ["preparing", "authenticating", "sending"].concat(ENDS),
     verifying: ENDS.slice(),
     failed: ["retrying"],
     cancelled: ["retrying"],
@@ -69,7 +78,24 @@
     return !!message.requestId && message.requestId === incomingRequestId;
   }
 
+  // #295: statuses whose run is not over — the user's answer re-sends the same
+  // task plus one grant and the work continues. Mirrors
+  // opaihub/run_state.AWAITING_INPUT_STATUSES; the Python guard test asserts
+  // the two lists stay identical.
+  var AWAITING_STATUS = {
+    needs_command_approval: true,
+    needs_edit_approval: true,
+    needs_free_confirmation: true,
+    needs_auto_confirmation: true,
+    needs_limit_confirmation: true,
+    needs_confirmation: true,
+  };
+
   function fromBackendStatus(status, verdict) {
+    // Checked before the verdict: an awaiting run has not reached a terminal,
+    // so its verdict is provisional. Reading the verdict first is exactly what
+    // recorded "shall I run this command?" as blocked.
+    if (AWAITING_STATUS[status]) return AWAITING;
     // Prefer the authoritative completion verdict when the reply carries one so
     // a partial/blocked/timeout run is rendered honestly, never as "failed".
     var raw = verdict && typeof verdict === "object" ? verdict.verdict : verdict;

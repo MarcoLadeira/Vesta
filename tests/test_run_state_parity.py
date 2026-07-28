@@ -60,6 +60,23 @@ def test_js_carries_no_terminal_outside_the_canonical_set() -> None:
         assert RunState(terminal) in TERMINAL_STATES
 
 
+def test_js_and_python_agree_on_which_statuses_are_awaiting_input() -> None:
+    # #295 invariant 11 (cross-surface reconciliation). If the GUI's list drifts
+    # from the engine's, the same turn is "waiting" on one surface and
+    # "blocked" on the other — the exact class of bug this state was added to
+    # kill, reintroduced one status at a time.
+    from opaihub.run_state import AWAITING_INPUT_STATUSES
+
+    assert _js_keys("AWAITING_STATUS") == set(AWAITING_INPUT_STATUSES)
+
+
+def test_the_js_store_does_not_treat_waiting_as_an_ending() -> None:
+    # canApply() refuses updates to a terminal message, so a waiting run listed
+    # as terminal would be unaddressable by the answer that resumes it.
+    assert "awaiting_input" not in _js_keys("TERMINAL")
+    assert "awaiting_input" in _js_keys("ALLOWED")
+
+
 def test_pipeline_emits_the_canonical_run_state_alongside_the_verdict() -> None:
     # #379 slice 2: the engine emits the canonical terminal run state, so a
     # surface reads one lifecycle field instead of inferring it from a status.

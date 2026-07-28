@@ -180,6 +180,9 @@
               <div class="composer-summary" id="composerSummary" aria-label="Effective behaviour"></div>
             </div>
             <div class="composer-reason" id="composerReason" aria-live="polite"></div>
+            <!-- #295: a message typed while a run is active is held, never
+                 discarded. It sends itself when the run finishes. -->
+            <div class="composer-queued" id="composerQueued" aria-live="polite" hidden></div>
           </div>
         </section>
 

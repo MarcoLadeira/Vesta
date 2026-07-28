@@ -343,11 +343,69 @@ function updateSendLabel() {
 function submitComposer() {
   if (composerBlockReason()) return;
   const text = $("#input").value.trim();
+  // #295: "OPai must not silently ignore a new instruction because an older run
+  // is active." Enter used to be dropped on the floor mid-run — the keystroke
+  // vanished with no trace, which is the worst outcome for someone correcting
+  // or redirecting the work. Hold it instead and send it when the run ends.
+  if (state.busy && text) { queueMessage(text); return; }
   if (state.buildMode && state.buildApp && text && !text.startsWith("/")) {
     sendBuild(text);
     return;
   }
   send();
+}
+
+/* ---------- queued message (#295, conversational freedom) ----------
+   Deliberately a queue and not a second concurrent run: the existing
+   single-flight guarantee (one active request, no duplicate submits) is what
+   keeps cost and side effects controllable. What changes is that the user's
+   words survive. A queued message is visible, editable and removable, and it
+   never auto-cancels the active run — inferring "stop" from prose next to a
+   real Stop button would be guessing at a destructive action. */
+function queueMessage(text) {
+  state.queued = String(text || "").trim();
+  setComposerDraft("");
+  renderQueued();
+}
+
+function clearQueued() {
+  state.queued = "";
+  renderQueued();
+}
+
+function renderQueued() {
+  const el = $("#composerQueued");
+  if (!el) return;
+  if (!state.queued) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.innerHTML =
+    `<span class="cq-label">Queued — sends when this finishes:</span>` +
+    `<span class="cq-text" title="${esc(state.queued)}">${esc(state.queued)}</span>` +
+    `<button type="button" class="cq-edit" data-a="edit">Edit</button>` +
+    `<button type="button" class="cq-drop" data-a="drop" aria-label="Remove queued message">Remove</button>`;
+  const edit = el.querySelector('[data-a="edit"]');
+  if (edit) edit.onclick = () => { const t = state.queued; clearQueued(); setComposerDraft(t); $("#input").focus(); };
+  const drop = el.querySelector('[data-a="drop"]');
+  if (drop) drop.onclick = () => clearQueued();
+}
+
+function flushQueued() {
+  if (!state.queued || state.busy) return;
+  const text = state.queued;
+  state.queued = "";
+  renderQueued();
+  setComposerDraft(text);
+  submitComposer();
+}
+
+// Called when a turn ends. An awaiting-input turn is NOT an ending: the run is
+// holding for a decision, and sending the queued message there would start a
+// fresh run over an approval card the user has not answered — losing both the
+// question and the work behind it. The queued text simply stays queued until
+// the user resolves the card.
+function maybeFlushQueued(result) {
+  if (String((result && result.run_state) || "") === "awaiting_input") return;
+  flushQueued();
 }
 
 /* ---------- sidebar: simple by default ---------- */
@@ -1334,6 +1392,7 @@ function onBuildReply(json) {
   state.currentRequest = null;
   setBusy(false);
   finalizeBuild(r);
+  maybeFlushQueued(r);
   refreshStatus(); refreshInspector();
 }
 
@@ -1850,6 +1909,7 @@ function stop() {
   stopTimer();
   finalize("cancelled", { answer: state.streamedText || "" });
   setBusy(false);
+  flushQueued();
 }
 function retry() {
   if (!state.lastSend) return;
@@ -2789,6 +2849,7 @@ function onReply(json) {
   state.currentRequest = null;
   setBusy(false);
   finalize(backendStatus, d.result || {});
+  maybeFlushQueued(d.result || {});
   refreshStatus(); refreshInspector(); refreshWorkspaceBadge();
 }
 
@@ -3406,8 +3467,9 @@ function wire() {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWsMenu(); });
   $("#input").addEventListener("input", () => { autoSize(); updateComposerAvailability(); });
   $("#input").addEventListener("keydown", (e) => {
-    // Enter sends; while a request is active it is ignored (no duplicate/queue).
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!state.busy) submitComposer(); }
+    // Enter sends. While a request is active the text is queued rather than
+    // discarded (#295) — still no second concurrent request.
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComposer(); }
   });
   const contextPath = $("#contextPath");
   $("#addContext").onclick = () => {

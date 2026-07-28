@@ -1278,6 +1278,79 @@ technique (`PYTHONUNBUFFERED=1 pytest -v` redirected straight to a file, no
 pipe) names the blocking test, and `wmic process … get UserModeTime` sampled
 twice distinguishes a hang from slowness.
 
+### Issue #295 — waiting is not failing, and typing is never discarded
+
+Work against the P0 consistency epic, guided by its 2026-07-28 product
+amendment ("strict runtime, unrestricted conversation").
+
+**1. A run waiting for the user was recorded as terminal.** Every turn that
+handed control back — command approval, edit approval, cloud consent, limit
+waiver — derived its lifecycle state from the completion verdict and reported
+`blocked`. `blocked` is terminal and immutable, yet the user's next click
+resumes that same work. Measured before the fix: a free-tier consent turn
+returned `status=needs_auto_confirmation, run_state=blocked`. Consequences:
+history, receipts and the ledger recorded an ordinary "shall I run this?" as a
+run that could not proceed; `is_terminal()` answered True for a run about to
+continue; and the GUI store's `canApply()` refused further updates to the very
+message the answer would resume.
+
+Added `AWAITING_INPUT` and `CANCEL_REQUESTED` as canonical **non-terminal**
+states — the epic's `waiting_user`/`awaiting_approval` and `cancel_requested`.
+Membership is deliberately narrow: a status qualifies only if the user's answer
+resumes the run by adding one authority. `needs_model` fails that test (Auto
+found nothing to call; the remedy is to configure a provider and start again),
+so it stays terminal rather than being dressed up as a question. This was found
+by a test written before the decision, which failed and forced the distinction.
+
+Transition edges stay conservative. Verification judges evidence that already
+exists, so it cannot stop to ask; its one new outbound edge is the
+acknowledgement of a Stop pressed while it was running. A requested cancel may
+still end `completed`, because pressing Stop as the last step finishes is a
+race and calling that cancelled would misstate what happened.
+
+Two existing tests encoded the old spec and were updated rather than deleted:
+the non-terminal partition genuinely grew, and `verifying`'s
+"only leads to terminal" guarantee was preserved with the cancel edge carved out
+explicitly.
+
+**2. The amendment's two layers are enforced.** Layer 2 keeps the state names;
+Layer 1 is first-person English — *"I need your OK to run this command."*,
+never `awaiting_approval` — with a guard test asserting no rendered string
+carries internal vocabulary and every ask reads as OPai speaking. The GUI store
+mirrors the same status list under a parity test, so the two cannot drift and
+leave one turn "waiting" on one surface and "blocked" on the other.
+
+**3. A message typed during a run was silently discarded.** `app.js` read:
+*"Enter sends; while a request is active it is ignored (no duplicate/queue)"* —
+the keystroke vanished with no trace, worst exactly when it matters most, for
+someone correcting or redirecting work in flight. The epic says plainly: "OPai
+must not silently ignore a new instruction because an older run is active."
+
+The text is now held and sent when the run ends. Deliberately a **queue, not a
+second concurrent run**: single-flight is what keeps cost and side effects
+controllable, and the existing "Enter during generation does not create a
+duplicate request" invariant still passes unchanged. The queued message is
+visible, editable and removable. It is **not** flushed into an awaiting-input
+turn, which would start a fresh run over an approval card the user has not
+answered and lose both the question and the work behind it. OPai also never
+infers a cancel from the queued prose — guessing at a destructive action next
+to a real Stop button is not a feature.
+
+- Red evidence: before the state fix, a consent turn measured
+  `run_state=blocked`; before the queue, `Enter` mid-run left `sendCount` at 1
+  with the text gone from the DOM entirely.
+- Green evidence: `tests/test_awaiting_input_state.py` 24 tests + 47 subtests;
+  `test_run_state.py` + `test_run_state_parity.py` updated and passing;
+  new `queued-message.spec.js` 7/7; 324 passed across
+  state/completion/session/capture/activity; 74 JS unit; design-token lint
+  clean; Ruff clean.
+
+**Not attempted, and why:** true concurrent conversational turns during a run
+(amendment #14's full form) need a second execution lane and task/run
+separation — Workstream A plus #517. The queue removes the silent data loss
+without pretending to deliver that. CLI parity for these states (Workstream H,
+#525) is untouched: the CLI does not consume `run_state` at all today.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
