@@ -7,11 +7,14 @@ import unittest
 from hypothesis import given, strategies as st
 
 from opaihub.completion import CompletionState
+from opaihub.provider_catalog import provider_record
 from opaihub.provider_protocol import (
+    MAX_EVENTS,
+    MAX_PAYLOAD_DEPTH,
+    MAX_PAYLOAD_ITEMS,
     PROTOCOL_VERSION,
     AdapterRequest,
     AdapterSLO,
-    CapabilityStatus,
     EventKind,
     ProtocolViolation,
     ProviderEvent,
@@ -30,6 +33,8 @@ def _event(
     kind: EventKind | str,
     payload: dict | None = None,
 ) -> ProviderEvent:
+    if payload is None and EventKind(kind) is EventKind.TERMINAL:
+        payload = {"state": "failed"}
     return ProviderEvent(
         sequence=sequence,
         timestamp=timestamp,
@@ -55,6 +60,10 @@ def _alias_key(alias: str, convention: str) -> str:
     if convention == "upper":
         return alias.upper()
     return alias
+
+
+def _catalog_capabilities(provider_id: str) -> dict[str, str]:
+    return dict(provider_record(provider_id)["capabilities"])
 
 
 class ProviderProtocolTests(unittest.TestCase):
@@ -90,6 +99,10 @@ class ProviderProtocolTests(unittest.TestCase):
             AdapterRequest("codex", "request-1", ("imaginary",))
         with self.assertRaises(ProtocolViolation):
             AdapterRequest("codex", "request-1", (), cancel_requested_at=math.nan)
+
+    def test_request_rejects_providers_missing_from_the_pinned_catalog(self):
+        with self.assertRaises(ProtocolViolation):
+            AdapterRequest("not-a-catalog-provider", "request-1", ())
 
     def test_readiness_keeps_each_fact_separate_and_requires_actionable_degradation(
         self,
@@ -152,6 +165,11 @@ class ProviderProtocolTests(unittest.TestCase):
         allowed = _event(3, 0.2, EventKind.TERMINAL, {"status": "failed"})
         self.assertEqual(allowed.payload["status"], CompletionState.FAILED.value)
 
+    def test_payload_field_names_reject_whitespace_and_punctuation_aliases(self):
+        for field in ("result ", " state", "status!", "state\t"):
+            with self.subTest(field=field), self.assertRaises(ProtocolViolation):
+                _event(1, 0.0, EventKind.STARTED, {field: "failed"})
+
     def test_semantic_truth_aliases_and_unknown_terminal_fields_fail_closed(self):
         aliases = {
             "final_state": "completed",
@@ -169,6 +187,26 @@ class ProviderProtocolTests(unittest.TestCase):
 
         with self.assertRaises(ProtocolViolation):
             _event(3, 0.2, EventKind.TERMINAL, {"provider_result": "failed"})
+
+    def test_terminal_requires_one_non_success_state_and_canonical_error_codes(self):
+        invalid_payloads = (
+            {},
+            {"state": "completed"},
+            {"state": "failed", "status": "failed"},
+            {"state": "failed", "error_code": "not_a_canonical_error"},
+            {"state": "cancelled", "error_code": "NETWORK_ERROR"},
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload), self.assertRaises(ProtocolViolation):
+                _event(3, 0.2, EventKind.TERMINAL, payload)
+
+        terminal = _event(
+            3,
+            0.2,
+            EventKind.TERMINAL,
+            {"state": "failed", "error_code": "NETWORK_ERROR"},
+        )
+        self.assertEqual(terminal.payload["state"], "failed")
 
     def test_usage_observation_validates_provenance_without_inventing_zeroes(self):
         observation = UsageObservation(
@@ -333,24 +371,51 @@ class ProviderProtocolTests(unittest.TestCase):
             with self.subTest(events=events), self.assertRaises(ProtocolViolation):
                 validate_event_stream(events, cancel_requested_at=cancellation_time)
 
+    def test_request_cancellation_timestamp_is_derived_by_stream_validation(self):
+        request = AdapterRequest("codex", "request-1", (), cancel_requested_at=1.0)
+        acknowledged = (
+            _event(1, 0.0, EventKind.STARTED),
+            _event(2, 1.1, EventKind.CANCEL_ACK),
+            _event(3, 1.2, EventKind.TERMINAL, {"state": "cancelled"}),
+        )
+        self.assertEqual(
+            validate_event_stream(acknowledged, request=request), acknowledged
+        )
+
+        without_ack = (
+            _event(1, 0.0, EventKind.STARTED),
+            _event(2, 1.1, EventKind.TERMINAL, {"state": "cancelled"}),
+        )
+        with self.assertRaises(ProtocolViolation):
+            validate_event_stream(without_ack, request=request)
+        with self.assertRaises(ProtocolViolation):
+            validate_event_stream(
+                acknowledged,
+                request=request,
+                cancel_requested_at=1.1,
+            )
+
     def test_capability_negotiation_accepts_only_explicit_support(self):
         request = AdapterRequest("codex", "request-1", ("chat", "streaming"))
+        capabilities = _catalog_capabilities("codex")
         readiness = negotiate_capabilities(
             request,
-            {"chat": "supported", "streaming": CapabilityStatus.SUPPORTED},
+            capabilities,
         )
         self.assertIsNone(readiness.degraded_reason)
         self.assertIsNone(readiness.next_action)
 
         for status in ("partial", "unsupported", "unknown"):
             with self.subTest(status=status), self.assertRaises(ProtocolViolation):
-                negotiate_capabilities(
-                    request, {"chat": "supported", "streaming": status}
-                )
+                mismatch = _catalog_capabilities("codex")
+                mismatch["streaming"] = status
+                negotiate_capabilities(request, mismatch)
         with self.assertRaises(ProtocolViolation):
-            negotiate_capabilities(
-                request, {"chat": "supported", "imaginary": "supported"}
-            )
+            unknown = _catalog_capabilities("codex")
+            unknown["imaginary"] = "supported"
+            negotiate_capabilities(request, unknown)
+        with self.assertRaises(ProtocolViolation):
+            negotiate_capabilities(request, {"chat": "supported"})
 
     def test_version_incompatibility_returns_actionable_degraded_readiness(self):
         request = AdapterRequest(
@@ -372,6 +437,39 @@ class ProviderProtocolTests(unittest.TestCase):
                 self.assertEqual(
                     readiness.degraded_reason, "protocol_version_incompatible"
                 )
+
+    def test_stream_and_payload_resource_limits_fail_closed(self):
+        events = [_event(1, 0.0, EventKind.STARTED)]
+        events.extend(
+            _event(sequence, 0.0, EventKind.TEXT_DELTA)
+            for sequence in range(2, MAX_EVENTS + 1)
+        )
+        events.append(_event(MAX_EVENTS + 1, 0.0, EventKind.TERMINAL))
+        with self.assertRaises(ProtocolViolation):
+            validate_event_stream(events)
+
+        nested: dict[str, object] = {}
+        cursor = nested
+        for _ in range(MAX_PAYLOAD_DEPTH + 1):
+            child: dict[str, object] = {}
+            cursor["nested"] = child
+            cursor = child
+        with self.assertRaises(ProtocolViolation):
+            _event(1, 0.0, EventKind.STARTED, nested)
+
+        deep_leaf: dict[str, object] = {}
+        cursor = deep_leaf
+        for _ in range(MAX_PAYLOAD_DEPTH):
+            child = {}
+            cursor["nested"] = child
+            cursor = child
+        cursor["leaf"] = "too deep"
+        with self.assertRaises(ProtocolViolation):
+            _event(1, 0.0, EventKind.STARTED, deep_leaf)
+
+        oversized = {f"item_{index}": index for index in range(MAX_PAYLOAD_ITEMS + 1)}
+        with self.assertRaises(ProtocolViolation):
+            _event(1, 0.0, EventKind.STARTED, oversized)
 
 
 class ProviderProtocolPropertyTests(unittest.TestCase):
@@ -471,19 +569,21 @@ class ProviderProtocolPropertyTests(unittest.TestCase):
     @given(st.sampled_from(("partial", "unsupported", "unknown")))
     def test_generated_non_supported_requested_capabilities_are_rejected(self, status):
         request = AdapterRequest("codex", "request-1", ("chat",))
+        capabilities = _catalog_capabilities("codex")
+        capabilities["chat"] = status
 
         with self.assertRaises(ProtocolViolation):
-            negotiate_capabilities(request, {"chat": status})
+            negotiate_capabilities(request, capabilities)
 
-    @given(st.text(min_size=1, max_size=20).filter(lambda value: value != "chat"))
-    def test_generated_unknown_capability_fields_are_rejected(self, unknown_capability):
+    @given(st.text(max_size=20))
+    def test_generated_unknown_capability_fields_are_rejected(self, suffix):
         request = AdapterRequest("codex", "request-1", ("chat",))
+        capabilities = _catalog_capabilities("codex")
+        unknown_capability = f"unknown_{suffix}"
+        capabilities[unknown_capability] = "supported"
 
         with self.assertRaises(ProtocolViolation):
-            negotiate_capabilities(
-                request,
-                {"chat": "supported", unknown_capability: "supported"},
-            )
+            negotiate_capabilities(request, capabilities)
 
     @given(st.sampled_from((math.nan, math.inf, -math.inf)))
     def test_generated_non_finite_inputs_are_rejected(self, value):
@@ -555,6 +655,36 @@ class ProviderProtocolPropertyTests(unittest.TestCase):
 
         self.assertFalse(readiness.healthy)
         self.assertEqual(readiness.degraded_reason, "protocol_version_incompatible")
+
+    @given(st.sampled_from(("result", "state", "status")), st.sampled_from((" ", "\t")))
+    def test_generated_noncanonical_field_aliases_are_rejected(self, field, suffix):
+        with self.assertRaises(ProtocolViolation):
+            _event(1, 0.0, EventKind.STARTED, {field + suffix: "failed"})
+
+    @given(st.integers(min_value=MAX_EVENTS + 1, max_value=MAX_EVENTS + 3))
+    def test_generated_event_limits_are_rejected(self, count):
+        events = [_event(1, 0.0, EventKind.STARTED)]
+        events.extend(
+            _event(sequence, 0.0, EventKind.TEXT_DELTA) for sequence in range(2, count)
+        )
+        events.append(_event(count, 0.0, EventKind.TERMINAL))
+
+        with self.assertRaises(ProtocolViolation):
+            validate_event_stream(events)
+
+    @given(
+        st.integers(min_value=MAX_PAYLOAD_DEPTH + 1, max_value=MAX_PAYLOAD_DEPTH + 3)
+    )
+    def test_generated_payload_depth_limits_are_rejected(self, depth):
+        payload: dict[str, object] = {}
+        cursor = payload
+        for _ in range(depth):
+            child: dict[str, object] = {}
+            cursor["nested"] = child
+            cursor = child
+
+        with self.assertRaises(ProtocolViolation):
+            _event(1, 0.0, EventKind.STARTED, payload)
 
 
 if __name__ == "__main__":

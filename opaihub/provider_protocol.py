@@ -15,7 +15,8 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 from .completion import CompletionState
-from .provider_catalog import PROTOCOL_VERSION
+from .provider_catalog import PROTOCOL_VERSION, provider_record
+from opai.provider_contract import ERROR_CODES
 
 
 class ProtocolViolation(ValueError):
@@ -66,6 +67,9 @@ _CAPABILITY_NAMES = frozenset(
         "structured_output",
     }
 )
+MAX_EVENTS = 256
+MAX_PAYLOAD_DEPTH = 16
+MAX_PAYLOAD_ITEMS = 512
 _FORBIDDEN_PAYLOAD_FIELDS = frozenset(
     {
         "completion_state",
@@ -106,10 +110,20 @@ _STATE_MAPPING_FIELDS = frozenset(
 _TERMINAL_PAYLOAD_FIELDS = _STATE_MAPPING_FIELDS | frozenset(
     {"reason_code", "error_code", "stop_reason"}
 )
+_FAILURE_TERMINAL_STATES = frozenset(
+    {
+        CompletionState.FAILED,
+        CompletionState.RETRYABLE_PROVIDER_ERROR,
+        CompletionState.PROVIDER_BLOCKED,
+        CompletionState.STUCK_NO_PROGRESS,
+    }
+)
+_CANONICAL_ERROR_CODES = frozenset(ERROR_CODES)
 _USAGE_FIELDS = frozenset(
     {"measurement", "provenance", "input_tokens", "output_tokens", "total_tokens"}
 )
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_CANONICAL_FIELD_NAME = re.compile(r"[a-z][a-z0-9_]*")
 
 
 def _fail(message: str) -> None:
@@ -117,7 +131,7 @@ def _fail(message: str) -> None:
 
 
 def _normalised_field_name(value: str) -> str:
-    separated = _CAMEL_BOUNDARY.sub("_", value)
+    separated = _CAMEL_BOUNDARY.sub("_", value.strip())
     return re.sub(r"_+", "_", separated.lower().replace("-", "_").replace(" ", "_"))
 
 
@@ -125,6 +139,17 @@ def _provider_id(value: Any) -> str:
     provider_id = str(value or "").strip().lower()
     if not provider_id or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", provider_id):
         _fail("provider_id must be a normalized non-empty provider identifier")
+    return provider_id
+
+
+def _catalog_provider_id(value: Any) -> str:
+    provider_id = _provider_id(value)
+    try:
+        provider_record(provider_id)
+    except ValueError as exc:
+        raise ProtocolViolation(
+            f"provider_id is not present in the pinned catalog: {provider_id!r}"
+        ) from exc
     return provider_id
 
 
@@ -163,29 +188,93 @@ def _normalised_capability(value: Any) -> str:
 
 
 def _freeze_json(value: Any, *, path: str = "payload") -> Any:
-    """Copy only finite JSON-compatible transport data into immutable values."""
+    """Boundedly copy finite JSON transport data into immutable values."""
 
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            _fail(f"{path} contains a non-finite number")
-        return value
-    if isinstance(value, Mapping):
-        frozen: dict[str, Any] = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                _fail(f"{path} has a non-string JSON object key")
-            _validate_transport_field(key, item, path=path)
-            frozen[key] = _freeze_json(item, path=f"{path}.{key}")
-        return MappingProxyType(frozen)
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_json(item, path=f"{path}[]") for item in value)
-    _fail(f"{path} must be JSON-compatible")
+    holder: list[Any] = [None]
+    stack: list[tuple[Any, ...]] = [("visit", value, 0, holder, 0, frozenset(), path)]
+    item_count = 0
+    while stack:
+        frame = stack.pop()
+        operation = frame[0]
+        if operation == "finish_mapping":
+            _, output, parent, slot = frame
+            parent[slot] = MappingProxyType(output)
+            continue
+        if operation == "finish_list":
+            _, output, parent, slot = frame
+            parent[slot] = tuple(output)
+            continue
+
+        _, current, depth, parent, slot, ancestors, current_path = frame
+        if depth > MAX_PAYLOAD_DEPTH:
+            _fail(f"{current_path} exceeds MAX_PAYLOAD_DEPTH")
+        if current is None or isinstance(current, (str, bool, int)):
+            parent[slot] = current
+            continue
+        if isinstance(current, float):
+            if not math.isfinite(current):
+                _fail(f"{current_path} contains a non-finite number")
+            parent[slot] = current
+            continue
+        identity = id(current)
+        if identity in ancestors:
+            _fail(f"{current_path} contains a reference cycle")
+        next_ancestors = ancestors | frozenset({identity})
+        if isinstance(current, Mapping):
+            entries: list[tuple[str, Any]] = []
+            for key, item in current.items():
+                item_count += 1
+                if item_count > MAX_PAYLOAD_ITEMS:
+                    _fail(f"{current_path} exceeds MAX_PAYLOAD_ITEMS")
+                if not isinstance(key, str):
+                    _fail(f"{current_path} has a non-string JSON object key")
+                _validate_transport_field(key, item, path=current_path)
+                entries.append((key, item))
+            output: dict[str, Any] = {}
+            stack.append(("finish_mapping", output, parent, slot))
+            for key, item in reversed(entries):
+                stack.append(
+                    (
+                        "visit",
+                        item,
+                        depth + 1,
+                        output,
+                        key,
+                        next_ancestors,
+                        f"{current_path}.{key}",
+                    )
+                )
+            continue
+        if isinstance(current, (list, tuple)):
+            entries = []
+            for item in current:
+                item_count += 1
+                if item_count > MAX_PAYLOAD_ITEMS:
+                    _fail(f"{current_path} exceeds MAX_PAYLOAD_ITEMS")
+                entries.append(item)
+            output = [None] * len(entries)
+            stack.append(("finish_list", output, parent, slot))
+            for index in range(len(entries) - 1, -1, -1):
+                stack.append(
+                    (
+                        "visit",
+                        entries[index],
+                        depth + 1,
+                        output,
+                        index,
+                        next_ancestors,
+                        f"{current_path}[]",
+                    )
+                )
+            continue
+        _fail(f"{current_path} must be JSON-compatible")
+    return holder[0]
 
 
 def _validate_transport_field(key: str, value: Any, *, path: str) -> None:
     normalized = _normalised_field_name(key)
+    if key != normalized or _CANONICAL_FIELD_NAME.fullmatch(key) is None:
+        _fail(f"{path}.{key} must use a canonical lower_snake_case field name")
     tokens = frozenset(part for part in normalized.split("_") if part)
     if (
         normalized in _FORBIDDEN_PAYLOAD_FIELDS
@@ -201,12 +290,26 @@ def _validate_transport_field(key: str, value: Any, *, path: str) -> None:
 
 
 def _validate_terminal_payload(payload: Mapping[str, Any]) -> None:
+    states: list[CompletionState] = []
     for key in payload:
-        if _normalised_field_name(key) not in _TERMINAL_PAYLOAD_FIELDS:
+        normalized = _normalised_field_name(key)
+        if normalized not in _TERMINAL_PAYLOAD_FIELDS:
             _fail(f"terminal payload has an unknown field: {key!r}")
+        if normalized in _STATE_MAPPING_FIELDS:
+            states.append(_validate_state_mapping(payload[key], field_name=key))
+    if len(states) != 1:
+        _fail("terminal payload must contain exactly one non-success outcome state")
+    state = states[0]
+    if "error_code" not in payload:
+        return
+    if state not in _FAILURE_TERMINAL_STATES:
+        _fail("error_code is only valid for a terminal failure state")
+    error_code = payload["error_code"]
+    if not isinstance(error_code, str) or error_code not in _CANONICAL_ERROR_CODES:
+        _fail("terminal error_code must use the canonical provider error vocabulary")
 
 
-def _validate_state_mapping(value: Any, *, field_name: str) -> None:
+def _validate_state_mapping(value: Any, *, field_name: str) -> CompletionState:
     raw_value = getattr(value, "value", value)
     if not isinstance(raw_value, str):
         _fail(f"{field_name} must use CompletionState vocabulary")
@@ -218,6 +321,7 @@ def _validate_state_mapping(value: Any, *, field_name: str) -> None:
         ) from exc
     if state is CompletionState.COMPLETED:
         _fail(f"{field_name} cannot claim completed")
+    return state
 
 
 def _thaw_json(value: Any) -> Any:
@@ -308,7 +412,7 @@ class AdapterRequest:
     protocol_version: int = PROTOCOL_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "provider_id", _provider_id(self.provider_id))
+        object.__setattr__(self, "provider_id", _catalog_provider_id(self.provider_id))
         object.__setattr__(self, "request_id", _request_id(self.request_id))
         if isinstance(self.requested_capabilities, str):
             _fail("requested_capabilities must be an iterable of capability names")
@@ -603,6 +707,10 @@ def negotiate_capabilities(
         if protocol_version is not None
         else request.protocol_version
     )
+    catalog = provider_record(request.provider_id)
+    catalog_version = catalog["protocol_version"]
+    if advertised_version != catalog_version:
+        return protocol_readiness(request.provider_id, advertised_version)
     readiness = protocol_readiness(request.provider_id, advertised_version)
     if readiness.degraded_reason is not None:
         return readiness
@@ -625,6 +733,19 @@ def negotiate_capabilities(
                 f"invalid capability status for {capability}: {raw_status!r}"
             ) from exc
 
+    expected = {
+        capability: CapabilityStatus(status)
+        for capability, status in catalog["capabilities"].items()
+    }
+    if set(advertised) != set(expected):
+        _fail("advertised capabilities must exactly match the pinned catalog")
+    for capability, expected_status in expected.items():
+        if advertised[capability] is not expected_status:
+            _fail(
+                "advertised capability status does not match the pinned catalog: "
+                f"{capability}"
+            )
+
     for capability in request.requested_capabilities:
         status = advertised.get(capability, CapabilityStatus.UNKNOWN)
         if status is not CapabilityStatus.SUPPORTED:
@@ -637,18 +758,45 @@ def validate_event_stream(
     *,
     slo: AdapterSLO | None = None,
     cancel_requested_at: float | None = None,
+    request: AdapterRequest | None = None,
 ) -> tuple[ProviderEvent, ...]:
     """Validate an ordered, immutable provider event stream without side effects."""
 
     active_slo = AdapterSLO() if slo is None else slo
     if not isinstance(active_slo, AdapterSLO):
         _fail("slo must be an AdapterSLO")
+    if request is not None and not isinstance(request, AdapterRequest):
+        _fail("request must be an AdapterRequest or None")
+    requested_cancel_at = None if request is None else request.cancel_requested_at
+    if cancel_requested_at is not None:
+        explicit_cancel_at = _finite_number(
+            cancel_requested_at,
+            field_name="cancel_requested_at",
+            non_negative=True,
+        )
+        if (
+            requested_cancel_at is not None
+            and explicit_cancel_at != requested_cancel_at
+        ):
+            _fail("cancel_requested_at must match the AdapterRequest")
+        requested_cancel_at = explicit_cancel_at
+
     try:
-        stream = tuple(events)
+        iterator = iter(events)
     except TypeError as exc:
         raise ProtocolViolation(
             "events must be an iterable of ProviderEvent values"
         ) from exc
+    stream: list[ProviderEvent] = []
+    for _ in range(MAX_EVENTS + 1):
+        try:
+            event = next(iterator)
+        except StopIteration:
+            break
+        if len(stream) == MAX_EVENTS:
+            _fail("event stream exceeds MAX_EVENTS")
+        stream.append(event)
+    stream = tuple(stream)
     if not stream:
         _fail("event stream cannot be empty")
     if any(not isinstance(event, ProviderEvent) for event in stream):
@@ -684,16 +832,12 @@ def validate_event_stream(
             "event stream must contain exactly one terminal event, and it must be last"
         )
 
-    if cancel_requested_at is None:
+    if requested_cancel_at is None:
         if cancel_acks:
             _fail("cancel_ack cannot appear without a cancellation request")
         return stream
 
-    requested_at = _finite_number(
-        cancel_requested_at,
-        field_name="cancel_requested_at",
-        non_negative=True,
-    )
+    requested_at = requested_cancel_at
     if len(cancel_acks) != 1:
         _fail("a cancellation request requires exactly one cancel_ack")
     acknowledgement = cancel_acks[0]
@@ -723,6 +867,9 @@ validate_protocol_version = protocol_readiness
 
 __all__ = [
     "PROTOCOL_VERSION",
+    "MAX_EVENTS",
+    "MAX_PAYLOAD_DEPTH",
+    "MAX_PAYLOAD_ITEMS",
     "AdapterRequest",
     "AdapterSLO",
     "AttemptSLO",
