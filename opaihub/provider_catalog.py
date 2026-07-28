@@ -235,9 +235,19 @@ def _reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any
     return value
 
 
+def _reject_non_standard_json_constant(value: str) -> None:
+    """Reject JSON extensions such as NaN and Infinity everywhere in the catalog."""
+
+    _fail(f"non-standard JSON constant: {value!r}")
+
+
 def _parse_catalog(data: bytes) -> tuple[Mapping[str, Any], ...]:
     try:
-        payload = json.loads(data, object_pairs_hook=_reject_duplicate_object_keys)
+        payload = json.loads(
+            data,
+            object_pairs_hook=_reject_duplicate_object_keys,
+            parse_constant=_reject_non_standard_json_constant,
+        )
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("Invalid provider catalog: malformed JSON") from exc
     if not isinstance(payload, list):
