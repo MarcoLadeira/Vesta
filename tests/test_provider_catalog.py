@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from importlib import metadata
 from pathlib import Path
 
 from opaihub import provider_catalog
@@ -36,6 +37,29 @@ class ProviderCatalogTests(unittest.TestCase):
         self.assertEqual(provider_catalog.CATALOG_VERSION, "v1")
         self.assertEqual(provider_catalog.PROTOCOL_VERSION, 1)
         self.assertEqual(provider_catalog.provider_ids(), EXPECTED_PROVIDER_IDS)
+
+    def test_protocol_version_must_be_an_exact_non_bool_integer(self):
+        for value in (b"true", b"1.0"):
+            with self.subTest(value=value):
+                raw_catalog = provider_catalog.catalog_bytes().replace(
+                    b'"protocol_version": 1', b'"protocol_version": ' + value, 1
+                )
+
+                with self.assertRaises(ValueError):
+                    provider_catalog._parse_catalog(raw_catalog)
+
+        valid_catalog = provider_catalog.catalog_bytes().replace(
+            b'"protocol_version": 1', b'"protocol_version": 1', 1
+        )
+        self.assertEqual(
+            provider_catalog._parse_catalog(valid_catalog)[0]["protocol_version"], 1
+        )
+
+    def test_test_extra_includes_pytest_and_pinned_hypothesis(self):
+        requirements = metadata.requires("opai") or []
+
+        self.assertIn('hypothesis==6.160.0; extra == "test"', requirements)
+        self.assertIn('pytest; extra == "test"', requirements)
 
     def test_fixture_is_the_exact_replayable_catalog_bytes(self):
         self.assertEqual(

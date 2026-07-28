@@ -111,6 +111,10 @@ def _validate_record(value: Any) -> dict[str, Any]:
         _fail("record has an unknown provider_id")
     if value["catalog_version"] != CATALOG_VERSION:
         _fail(f"{provider_id}.catalog_version must be {CATALOG_VERSION!r}")
+    if not isinstance(value["protocol_version"], int) or isinstance(
+        value["protocol_version"], bool
+    ):
+        _fail(f"{provider_id}.protocol_version must be an integer")
     if value["protocol_version"] != PROTOCOL_VERSION:
         _fail(f"{provider_id}.protocol_version must be {PROTOCOL_VERSION}")
 
