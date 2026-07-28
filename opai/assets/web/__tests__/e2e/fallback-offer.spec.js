@@ -119,6 +119,43 @@ test("awaiting-input cards never offer a different model", async ({ page }) => {
   await expect(page.locator('.error-card [data-a="fallback"]')).toBeVisible();
 });
 
+test("a write-incapable model says so before it is picked", async ({ page }) => {
+  // Copilot's CLI cannot expose a bounded edit-tool set, so OPai refuses to
+  // launch it with write access. The picker must say that up front rather than
+  // let the user choose it for an editing task and hit the refusal mid-run.
+  await openApp(page, {
+    boot: {
+      models: [
+        { id: "account:copilot:gpt-5.4", label: "Copilot · GPT-5.4", kind: "account", group: "copilot", provider: "copilot", available: true, healthy: true, repo_editing: false },
+        { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing", available: true, healthy: true },
+      ],
+      selectedModel: "auto",
+    },
+  });
+  await page.locator("#modelBtn").click();
+  const row = page.locator('#modelPop [data-id="account:copilot:gpt-5.4"]');
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("Ask & Plan only");
+  // Still selectable: read-only work through it is perfectly valid.
+  await expect(row).toBeEnabled();
+});
+
+test("a fully capable model carries no read-only caption", async ({ page }) => {
+  await openApp(page, {
+    boot: {
+      models: [
+        { id: "account:claude:sonnet", label: "Claude · Sonnet 4.6", kind: "account", group: "claude", provider: "claude", available: true, healthy: true, repo_editing: true },
+        { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing", available: true, healthy: true },
+      ],
+      selectedModel: "auto",
+    },
+  });
+  await page.locator("#modelBtn").click();
+  const row = page.locator('#modelPop [data-id="account:claude:sonnet"]');
+  await expect(row).toBeVisible();
+  await expect(row.locator("[data-read-only]")).toHaveCount(0);
+});
+
 test("a failure with no usable alternative still ends honestly", async ({ page }) => {
   await openWithCodexSelected(page);
   const id = await sendPrompt(page, "fix the failing test");

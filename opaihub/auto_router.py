@@ -131,6 +131,18 @@ def _provider_of_entry(item: dict[str, Any]) -> str:
     return provider or provider_of(str(item.get("id") or ""))
 
 
+def can_edit_repository(item: dict[str, Any]) -> bool:
+    """Whether this catalog entry may be given repository write access.
+
+    The catalog sets ``repo_editing`` to False for a CLI OPai will refuse to
+    launch with write access (Copilot's, today, because it cannot expose a
+    bounded edit-tool set). Routing an editing task there is a guaranteed
+    refusal, so Auto must know *before* it picks, not after it fails. Missing
+    means "no known limitation" and stays eligible.
+    """
+    return item.get("repo_editing") is not False
+
+
 def is_retryable_status(status: str) -> bool:
     return str(status or "").strip() in RETRYABLE_STATUSES
 
@@ -238,6 +250,8 @@ def resolve_auto_chain(
     # turns only) a provider that cannot be sandboxed for repository writes.
     # Calling these spends a fallback step on a refusal OPai has already seen.
     def is_usable(item: dict[str, Any]) -> bool:
+        if needs_edit and not can_edit_repository(item):
+            return False
         return not blocks.is_blocked(
             root, _provider_of_entry(item), needs_edit=needs_edit, now=now
         )
@@ -332,6 +346,8 @@ def best_alternative(
         provider = _provider_of_entry(item)
         if provider and provider in skip_providers:
             return False
+        if needs_edit and not can_edit_repository(item):
+            return False
         if kind != "local":
             if item.get("available") is not True:
                 return False
@@ -360,6 +376,80 @@ def best_alternative(
                 "paid": kind == "account",
             }
     return None
+
+
+def routing_blockers(
+    project_root: Path,
+    catalog: dict[str, Any],
+    *,
+    needs_edit: bool = False,
+    now: float | None = None,
+) -> list[dict[str, str]]:
+    """Why each configured provider cannot serve this turn, in plain language.
+
+    When Auto runs out of candidates the honest answer is not "no model
+    available" — OPai knows exactly which provider is capped, which CLI is
+    stale, and which cannot be given write access. Listing that turns a dead
+    end into a short, fixable to-do list.
+
+    One entry per provider, ordered by provider id so the message is stable.
+    """
+    root = project_root.expanduser().resolve()
+    unavailable = unavailable_account_providers(catalog)
+    seen: dict[str, str] = {}
+    for item in catalog.get("models") or []:
+        if item.get("kind") not in {"free", "account"}:
+            continue
+        provider = _provider_of_entry(item)
+        if not provider or provider in seen:
+            continue
+        # Most specific cause first — a capped account and a stale CLI need
+        # completely different fixes, and only the exact one is useful.
+        if item.get("out_of_credit") is True or balance.is_exhausted(
+            root, provider, now=now
+        ):
+            snapshot = balance.balance_snapshot(root, provider, now=now)
+            seen[provider] = (
+                f"{snapshot['displayName']} is out of credit. "
+                f"{snapshot['rechargeHint']}"
+            )
+            continue
+        block = blocks.active_block(root, provider, now=now)
+        if block and (block["scope"] != "edit" or needs_edit):
+            seen[provider] = (
+                f"{balance.provider_display_name(provider)}: "
+                f"{block['title']} {block['remedy']}"
+            )
+            continue
+        if provider in unavailable:
+            seen[provider] = (
+                f"{balance.provider_display_name(provider)} is not connected. "
+                "Sign in again in Settings."
+            )
+            continue
+        # Checked before the edit-capability rule on purpose: a provider that
+        # cannot run *anything* has a more fundamental cause, and its own
+        # disabled_reason carries the exact fix (Codex's stale CLI sets both
+        # available=False and repo_editing=False — the CLI update is the honest
+        # reason, not "cannot take write access").
+        if item.get("available") is not True:
+            reason = str(item.get("disabled_reason") or "").strip()
+            seen[provider] = (
+                f"{balance.provider_display_name(provider)}: {reason}"
+                if reason
+                else f"{balance.provider_display_name(provider)} is not set up yet."
+            )
+            continue
+        if needs_edit and not can_edit_repository(item):
+            seen[provider] = (
+                f"{balance.provider_display_name(provider)} cannot be given safe "
+                "repository write access from this CLI. Use it for Ask or Plan, "
+                "or update its CLI for scoped tools."
+            )
+    return [
+        {"provider": provider, "reason": reason}
+        for provider, reason in sorted(seen.items())
+    ]
 
 
 def routing_diagnostics(

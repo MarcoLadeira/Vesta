@@ -157,6 +157,96 @@ class ChainExclusionTests(unittest.TestCase):
         self.assertEqual(diagnostics["skipped_blocked"], {"codex": "cli_outdated"})
 
 
+class EditCapabilityRoutingTests(unittest.TestCase):
+    """A write-incapable CLI is skipped before it refuses, not after."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        copilot = _account("account:copilot:gpt-5.4", "copilot")
+        copilot["repo_editing"] = False
+        self.catalog = {
+            "models": [copilot, _free("free:gemini:3.1-flash-lite", "gemini")]
+        }
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_editing_turns_never_route_to_a_write_incapable_provider(self) -> None:
+        chain = auto_router.resolve_auto_chain(
+            self.root, "fix the bug", self.catalog, needs_edit=True
+        )
+        self.assertNotIn(
+            "account:copilot:gpt-5.4", [entry["id"] for entry in chain]
+        )
+
+    def test_read_only_turns_still_use_it(self) -> None:
+        chain = auto_router.resolve_auto_chain(
+            self.root, "explain this repo", self.catalog, needs_edit=False
+        )
+        self.assertIn("account:copilot:gpt-5.4", [entry["id"] for entry in chain])
+
+    def test_the_offer_respects_the_same_rule(self) -> None:
+        self.assertIsNone(
+            auto_router.best_alternative(
+                self.root,
+                self.catalog,
+                exclude_providers={"gemini"},
+                needs_edit=True,
+            )
+        )
+        offer = auto_router.best_alternative(
+            self.root, self.catalog, exclude_providers={"gemini"}, needs_edit=False
+        )
+        assert offer is not None
+        self.assertEqual(offer["id"], "account:copilot:gpt-5.4")
+
+
+class RoutingBlockerTests(unittest.TestCase):
+    """An exhausted Auto explains itself instead of saying "no model"."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _reasons(self, catalog: dict, **kwargs) -> str:
+        return " ".join(
+            entry["reason"]
+            for entry in auto_router.routing_blockers(self.root, catalog, **kwargs)
+        )
+
+    def test_an_unavailable_provider_reports_its_own_exact_fix(self) -> None:
+        codex = _account("account:codex", "codex")
+        codex["available"] = False
+        codex["disabled_reason"] = "Update Codex CLI (npm install -g @openai/codex)."
+        reasons = self._reasons({"models": [codex]})
+        self.assertIn("npm install -g @openai/codex", reasons)
+        # Not the generic write-access sentence: the CLI update is the honest
+        # cause, and it is the only one that fixes anything.
+        self.assertNotIn("write access", reasons)
+
+    def test_an_out_of_credit_provider_reports_where_to_top_up(self) -> None:
+        claude = _account("account:claude:sonnet", "claude")
+        claude["out_of_credit"] = True
+        reasons = self._reasons({"models": [claude]})
+        self.assertIn("out of credit", reasons)
+        self.assertIn("claude.ai/settings/usage", reasons)
+
+    def test_a_write_incapable_provider_is_listed_only_for_editing_turns(self) -> None:
+        copilot = _account("account:copilot:gpt-5.4", "copilot")
+        copilot["repo_editing"] = False
+        catalog = {"models": [copilot]}
+        self.assertIn("write access", self._reasons(catalog, needs_edit=True))
+        self.assertEqual(self._reasons(catalog, needs_edit=False), "")
+
+    def test_a_healthy_provider_is_never_listed_as_a_blocker(self) -> None:
+        catalog = {"models": [_free("free:gemini:3.1-flash-lite", "gemini")]}
+        self.assertEqual(self._reasons(catalog, needs_edit=True), "")
+
+
 class TransientRetryTests(unittest.TestCase):
     """A transport blip earns one re-attempt, not a provider change."""
 

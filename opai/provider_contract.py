@@ -286,8 +286,14 @@ def classify_error_code(
         return "AUTH_INVALID"
     if any(word in low for word in ("429", "rate limit", "too many requests")):
         return "PROVIDER_RATE_LIMITED"
-    if "context" in low and any(
-        word in low for word in ("large", "limit", "exceed", "too long")
+    # "context" plus "exceed" is usually an oversized prompt — but not when the
+    # thing exceeded was a deadline. Go/gRPC backends report a plain timeout as
+    # "context deadline exceeded", and telling the user to shrink their prompt
+    # for a network timeout sends them to fix the wrong thing.
+    if (
+        "context" in low
+        and "deadline" not in low
+        and any(word in low for word in ("large", "limit", "exceed", "too long"))
     ):
         return "CONTEXT_TOO_LARGE"
     # Provider CLI config is broken before it can even authenticate, e.g. Codex's
@@ -312,20 +318,65 @@ def classify_error_code(
         for word in ("unknown model", "model not found", "model unavailable")
     ):
         return "MODEL_UNAVAILABLE"
+    # Transport failures, classified before the generic fallbacks below.
+    #
+    # These used to land in UNKNOWN ("OPai could not complete this request"),
+    # which is the single biggest source of the "sometimes my messages just
+    # don't work" experience: a momentary socket timeout or an overloaded
+    # endpoint produced an alarming dead-end error instead of being absorbed by
+    # a retry. Every code here is in auto_router.TRANSIENT_ERROR_CODES, so the
+    # pipeline re-attempts once before it reports anything.
     if any(
         word in low
-        for word in ("connection reset", "network", "dns", "name resolution", "offline")
+        for word in ("timed out", "timeout", "etimedout", "deadline exceeded")
     ):
-        return "NETWORK_ERROR"
+        return "PROVIDER_TIMEOUT"
     if any(
         word in low
         for word in (
-            "service unavailable",
-            "provider unavailable",
-            "502",
-            "503",
-            "maintenance",
+            "connection reset",
+            "connection refused",
+            "connection aborted",
+            # Python raises these as class names with no spaces, and Windows
+            # phrases the same failure as "An established connection was
+            # aborted by the software in your host machine".
+            "connectionreset",
+            "connectionrefused",
+            "connectionaborted",
+            "was aborted",
+            "remote end closed connection",
+            "eof occurred",
+            "network",
+            "dns",
+            "getaddrinfo",
+            "name resolution",
+            "temporary failure",
+            "offline",
+            "unreachable",
+            "ssl",
+            "tls handshake",
         )
+    ):
+        return "NETWORK_ERROR"
+    if (
+        any(
+            word in low
+            for word in (
+                "service unavailable",
+                "provider unavailable",
+                "temporarily unavailable",
+                "overloaded",
+                "try again later",
+                "server error",
+                "bad gateway",
+                "maintenance",
+            )
+        )
+        # Any HTTP 5xx the phrases above did not name (500, 504, Anthropic's
+        # 529 overload). Matched as a whole token so a token count like 1500
+        # can never be read as a status code.
+        or re.search(r"\bhttp[ _/-]?5\d\d\b", low) is not None
+        or re.search(r"\bstatus(?:[ _-]?code)?[ :=]+5\d\d\b", low) is not None
     ):
         return "PROVIDER_UNAVAILABLE"
     if any(

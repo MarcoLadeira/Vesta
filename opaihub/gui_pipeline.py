@@ -1535,6 +1535,40 @@ def handle_gui_message(
             return "continue"
         return "stop"
 
+    def _auto_exhausted_answer() -> str:
+        """Name every provider Auto could not use, and the exact fix for each.
+
+        Auto walking its whole chain without an answer is the one moment the
+        user most needs specifics: "no available model" is true but useless when
+        the real state is "Claude is capped, Codex's CLI is stale, Copilot can't
+        take write access, and no local model is running". Falls back to the
+        generic sentence when nothing is known, rather than inventing a cause.
+        """
+        generic = (
+            "Auto has no available model. Choose a configured model, or connect "
+            "a free API, account, or local model in Settings."
+        )
+        blockers: list[dict[str, str]] = []
+        with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
+            from opai import app_state as _app_state
+
+            from . import auto_router as _ar3
+
+            blockers = _ar3.routing_blockers(
+                root,
+                _app_state.available_models(root, discover_local=False),
+                needs_edit=will_edit,
+            )
+        if not blockers:
+            return generic
+        lines = "\n".join(f"- {entry['reason']}" for entry in blockers)
+        return (
+            "Auto could not use any connected model for this request:\n"
+            f"{lines}\n\n"
+            "Fix any one of these, or pick a different model — OPai only needs "
+            "one working route."
+        )
+
     def _recover(*, status: str = "", error: Any = None) -> str:
         """One recovery decision for every failure site, Auto or not.
 
@@ -2314,10 +2348,11 @@ def handle_gui_message(
                     continue
                 if _decision == "confirm":
                     return _auto_cloud_card()
-            answer = (
-                "Auto has no available model. Choose a configured model, or connect "
-                "a free API, account, or local model in Settings."
-            )
+            # Auto ran out of candidates. OPai knows exactly which provider is
+            # capped, which CLI is stale, and which cannot take write access —
+            # so say that, instead of a generic "no available model" that leaves
+            # the user guessing which of four things to fix.
+            answer = _auto_exhausted_answer()
         elif result.get("status") == "confirmation_required":
             answer = (
                 "This needs a paid model. Pick your Claude or Codex account in the model "

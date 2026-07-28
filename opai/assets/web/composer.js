@@ -261,6 +261,15 @@
   }
   // Out-of-credit models are removed from selection entirely; this builds the
   // one-line explanation of what was hidden and why (per provider, deduped).
+  // A model that works for Ask and Plan but that OPai will refuse to hand
+  // repository write access (Copilot's CLI today, because it cannot expose a
+  // bounded edit-tool set). It stays fully selectable — read-only work is a
+  // legitimate use — but the row says so up front instead of letting the user
+  // pick it for an editing task and hit the refusal mid-run.
+  function readOnlyNote(m) {
+    return m.repo_editing === false ? "Ask & Plan only — can't edit files" : "";
+  }
+
   function outOfCreditNote(models) {
     var names = [];
     models.forEach(function (m) {
@@ -353,12 +362,15 @@
       working.concat(failing).forEach(function (m) {
         var disabled = !isWorking(m);
         var credit = balanceLabel(m);
+        var readOnly = disabled ? "" : readOnlyNote(m);
         html +=
           '<button type="button" role="menuitemradio" aria-checked="' + (m.id === cur ? "true" : "false") +
           '" data-id="' + esc(m.id) + '" class="cpop-row cpop-model' + (m.id === cur && !selectedUnavailable ? " active" : "") + '"' +
-          (disabled ? ' disabled aria-disabled="true" title="' + esc(m.health_reason || m.disabled_reason || "Unavailable") + '"' : "") + ">" +
+          (disabled ? ' disabled aria-disabled="true" title="' + esc(m.health_reason || m.disabled_reason || "Unavailable") + '"' : "") +
+          (readOnly ? ' title="' + esc(m.edit_blocked_reason || readOnly) + '"' : "") + ">" +
           '<span class="cpop-body"><span class="cpop-title">' + esc(modelName(m)) + "</span>" +
           (disabled ? '<span class="cpop-desc">' + esc(m.health_reason || "Currently unavailable") + "</span>" : "") +
+          (readOnly ? '<span class="cpop-desc" data-read-only>' + esc(readOnly) + "</span>" : "") +
           "</span>" +
           (credit ? '<span class="cpop-balance" data-balance>' + esc(credit) + "</span>" : "") +
           '<span class="cpop-prov">' + esc(modelShortProvider(m)) + "</span>" +

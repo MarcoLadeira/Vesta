@@ -838,6 +838,90 @@ keyed by the executable's identity (path + size + mtime):
   account/connection/capability/app_state/desktop-GUI/settings sweep 238 passed
   with 12 subtests; Ruff clean; `git diff --check` clean.
 
+### QAR8-28 — transient failures were classified as unknown dead ends
+
+With the retry machinery from QAR8-26 in place, an audit of
+`classify_error_code` found that almost no real-world transient transport
+failure actually reached it. Verified by classifying the exact strings these
+paths produce:
+
+| provider diagnostic | before | after |
+| --- | --- | --- |
+| `The read operation timed out` | `UNKNOWN` | `PROVIDER_TIMEOUT` |
+| `_ssl.c:1112: The handshake operation timed out` | `UNKNOWN` | `PROVIDER_TIMEOUT` |
+| `Remote end closed connection without response` | `UNKNOWN` | `NETWORK_ERROR` |
+| `[WinError 10053] An established connection was aborted` | `UNKNOWN` | `NETWORK_ERROR` |
+| `[Errno 111] Connection refused` | `UNKNOWN` | `NETWORK_ERROR` |
+| `EOF occurred in violation of protocol` | `UNKNOWN` | `NETWORK_ERROR` |
+| `The model is overloaded. Please try again later.` | `UNKNOWN` | `PROVIDER_UNAVAILABLE` |
+| `HTTP 529: overloaded_error` | `UNKNOWN` | `PROVIDER_UNAVAILABLE` |
+| `HTTP 500: internal error` | `UNKNOWN` | `PROVIDER_UNAVAILABLE` |
+| `the provider was temporarily unavailable` | `UNKNOWN` | `PROVIDER_UNAVAILABLE` |
+
+`UNKNOWN` renders as *"OPai could not complete this request. Retry, or open
+technical details if the problem continues."* — an alarming dead end for what
+was a momentary blip. This is the single biggest contributor to "sometimes my
+messages work, sometimes they don't": the failure was transient, but nothing in
+OPai could tell, so nothing retried and the user saw a hard error. Every code in
+the table is in `TRANSIENT_ERROR_CODES`, so with QAR8-26 these are now absorbed
+by one silent re-attempt.
+
+Two related misclassifications fixed in the same pass:
+
+- `context deadline exceeded` (how Go/gRPC backends report a plain timeout) was
+  classified `CONTEXT_TOO_LARGE`, telling the user to shrink a prompt that was
+  never the problem. It is now `PROVIDER_TIMEOUT`.
+- HTTP 5xx was matched by the bare substrings `"502"`/`"503"`, so `used 1503
+  tokens` read as an outage. Status codes are now matched as whole tokens.
+
+Every deterministic classification is unchanged and covered by an explicit
+regression: rate limit, 401, insufficient balance, stale Codex CLI, invalid
+config, unknown model, and signed-out all keep their own code and stay
+non-transient.
+
+### QAR8-29 — Auto's dead end now names every blocker and its exact fix
+
+Auto exhausting its chain used to say *"Auto has no available model. Choose a
+configured model, or connect a free API, account, or local model in Settings."*
+— true but useless when OPai already knows precisely which provider is capped,
+which CLI is stale, and which cannot take write access. It now lists them:
+
+```
+Auto could not use any connected model for this request:
+- Codex (OpenAI): Update Codex CLI to use the current account-default model (npm install -g @openai/codex).
+- GitHub Copilot cannot be given safe repository write access from this CLI. Use it for Ask or Plan, or update its CLI for scoped tools.
+- Groq: Set GROQ_API_KEY env var. Create a free-plan key at console.groq.com
+- Mistral: Set MISTRAL_API_KEY env var. Create a free-mode key at console.mistral.ai
+
+Fix any one of these, or pick a different model — OPai only needs one working route.
+```
+
+(That block is real output from this machine, not an illustration.) Each
+provider reports its own most specific cause, in precedence order: out of
+credit → recorded block → not connected → not available (its own
+`disabled_reason`) → cannot take write access. Codex therefore reports the CLI
+update rather than the write-access sentence, even though the stale CLI sets
+both flags.
+
+The same pass also made the Copilot exclusion **proactive**. Previously Auto
+learned Copilot could not edit by routing an editing task to it and being
+refused; now `repo_editing: False` removes it from editing chains before it is
+picked, while leaving it fully available for Ask and Plan. Verified live: an
+editing task's chain contains no `account:copilot:*` entry, a read-only task's
+chain contains all three.
+
+The model popover carries the same truth: a `repo_editing: false` model now
+renders a persistent `Ask & Plan only — can't edit files` caption and keeps the
+full reason in its tooltip. It stays enabled, because read-only work through it
+is perfectly valid — the row is honest, not restrictive.
+
+- Green evidence: `tests/test_provider_contract.py` 15 tests + new transient
+  suite, `tests/test_provider_blocks.py` 30/30, `tests/test_auto_router.py`
+  11/11, `tests/test_cli_capability_cache.py` 8/8 — 64 passed with 46 subtests;
+  `fallback-offer.spec.js` 8/8; combined composer-setup + model-usage +
+  model-mode browser suites 35/35; focused Python sweep 851 passed, 1 skipped,
+  129 subtests; Ruff clean; `git diff --check` clean.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
