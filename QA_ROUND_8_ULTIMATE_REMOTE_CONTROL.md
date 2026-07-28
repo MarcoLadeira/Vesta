@@ -796,6 +796,48 @@ around a safety gate; and it never changes the user's saved default model.
   provider/model) 800 passed, 1 skipped, 125 subtests; Ruff clean;
   `git diff --check` clean.
 
+### QAR8-27 — the picker lied on every cold start (root cause of "sometimes")
+
+Investigating QAR8-26 found the mechanism behind the reported Codex and Copilot
+symptoms, and it was worse than a routing problem: **the model picker's
+availability was wrong on every fresh launch.**
+
+What a provider CLI can do (its version, and whether it can expose a bounded
+edit-tool set) was cached only in process memory, and model enumeration
+deliberately avoids provider probes. An unknown CLI was therefore resolved
+*optimistically* — `_codex_cli_supports_current_default("")` returns `True`. So
+whether Codex appeared usable depended entirely on whether some earlier code
+path in that same process had happened to probe it. Launch OPai and pick Codex
+straight away: it looked available and the run hard-failed with
+`The 'gpt-5.6-terra' model requires a newer version of Codex`. Open Settings
+first (which probes), and the same model was correctly grayed out. That is
+literally "sometimes I can do the tasks, other times I can't".
+
+Fix: CLI capability is a property of the machine, so the verdict is now
+persisted next to OPai's other machine-scoped state (`~/.opai/cli_capability.json`),
+keyed by the executable's identity (path + size + mtime):
+
+- A cold start reads the last known verdict — honest, and still probe-free.
+- Upgrading the CLI changes its identity and invalidates the entry immediately;
+  otherwise entries expire after 6h.
+- The one-shot probe now runs only when *nothing at all* is known (first launch,
+  or right after the binary changed) — exactly when guessing is most wrong.
+- Copilot's write-incapability is likewise known before the first run, so the
+  picker says so instead of letting the user pick it for an editing task and
+  hit the refusal. It stays fully selectable for Ask and Plan.
+
+- Red evidence (live, this machine, cold process): `account:codex` enumerated
+  `available=True, repo_editing=True` with Codex CLI 0.128.0 installed against a
+  0.143.0 minimum, and all three `account:copilot:*` models enumerated
+  `repo_editing=True`.
+- Green evidence (same command, same machine): `account:codex` →
+  `available=False`, reason `Update Codex CLI to use the current account-default
+  model (npm install -g @openai/codex)`; every `account:copilot:*` →
+  `repo_editing=False` with the Ask/Plan remedy.
+- Regression evidence: new `tests/test_cli_capability_cache.py` 8/8; combined
+  account/connection/capability/app_state/desktop-GUI/settings sweep 238 passed
+  with 12 subtests; Ruff clean; `git diff --check` clean.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.

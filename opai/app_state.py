@@ -721,6 +721,16 @@ def available_models(
         block = _blocks.active_block(project_root, provider)
         option["blocked_reason"] = None
         option["edit_blocked_reason"] = None
+        # Known before the first run, not discovered by failing one: a CLI that
+        # cannot expose a bounded edit-tool set will be refused write access by
+        # OPai every time. Say so in the picker instead of letting the user pick
+        # it for an editing task and hit the refusal.
+        if option.get("repo_editing") is False:
+            option["edit_blocked_reason"] = (
+                f"{_bal.provider_display_name(provider)} cannot be given safe "
+                "repository write access from this CLI. Use it for Ask or Plan, "
+                "or update its CLI for scoped tools."
+            )
         if block:
             text = f"{block['title']} {block['remedy']}".strip()
             if block["scope"] == "edit":
