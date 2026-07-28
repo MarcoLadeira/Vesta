@@ -21,6 +21,7 @@ from .cancellation import LocalRunCancelled
 from .evidence import collect_evidence
 from .local_runner import LocalRunner, detect_local_runner
 from .model_intelligence import recommend_model
+from .project_instructions import build_system_prompt
 
 SYSTEM_PROMPT = (
     "You are OPai's local-first coding assistant. Reply directly to the user's "
@@ -89,7 +90,7 @@ def _cache_metadata(lookup: Any) -> dict[str, Any]:
 
 
 def _complete_streaming(
-    runner: Any, text: str, *, cancel: Any, on_text: Any
+    runner: Any, text: str, *, cancel: Any, on_text: Any, system: str = SYSTEM_PROMPT
 ) -> tuple[str, bool]:
     """Call ``runner.complete``, streaming via ``on_text`` when the runner
     supports it (#154). Returns ``(answer, streamed)``; ``streamed`` means
@@ -99,7 +100,7 @@ def _complete_streaming(
         try:
             return (
                 runner.complete(
-                    text, system=SYSTEM_PROMPT, cancel=cancel, on_text=on_text
+                    text, system=system, cancel=cancel, on_text=on_text
                 ),
                 True,
             )
@@ -108,11 +109,11 @@ def _complete_streaming(
                 raise
             # Runner has no on_text — fall through to the non-streaming path.
     try:
-        return runner.complete(text, system=SYSTEM_PROMPT, cancel=cancel), False
+        return runner.complete(text, system=system, cancel=cancel), False
     except TypeError as exc:
         if "cancel" not in str(exc):
             raise
-        return runner.complete(text, system=SYSTEM_PROMPT), False
+        return runner.complete(text, system=system), False
 
 
 def run_ask(
@@ -194,7 +195,16 @@ def run_ask(
             # runner owns emission (deltas, or one blocking emit) and closes its
             # HTTP connection when the cancel Event fires.
             answer, streamed = _complete_streaming(
-                active, prompt, cancel=cancel, on_text=on_text
+                active,
+                prompt,
+                cancel=cancel,
+                on_text=on_text,
+                # The project's own standing instructions. Account models get
+                # these from their vendor CLI; without this line local and
+                # free-tier models never saw them, so the same request obeyed
+                # the repository's rules or ignored them purely by which model
+                # picked it up.
+                system=build_system_prompt(SYSTEM_PROMPT, root),
             )
         except LocalRunCancelled:
             return {**base, "status": "cancelled", "answer": ""}
@@ -391,7 +401,10 @@ def run_explicit_model(
                 task,
                 root=root,
                 allow_edits=allow_edits,
-                system=SYSTEM_PROMPT,
+                # Same reason as the non-tool path: an editing run is exactly
+                # where the project's house rules matter most, and this is the
+                # path free-tier coding actually takes.
+                system=build_system_prompt(SYSTEM_PROMPT, root),
                 cancel=cancel,
                 guard=turn_guard,
                 allow_command=allow_command,

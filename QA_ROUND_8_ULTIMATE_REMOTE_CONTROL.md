@@ -1093,6 +1093,58 @@ turn and one proving stickiness never outranks a failure.
 - Green evidence: `tests/test_auto_router.py` 13/13; full Python suite 2652
   passed, 3 skipped, 602 subtests.
 
+### QAR8-34 — project rules reached account models only
+
+The research report's prompt-contract item, and the largest remaining source of
+"the same request behaves differently depending on the model".
+
+OPai's **account** models run through their vendor CLIs (`claude`, `codex`,
+`copilot`), and those CLIs read the repository's `AGENTS.md` / `CLAUDE.md`
+themselves. OPai's **local and free-tier** models go through `opaihub.ask`,
+whose prompt is built from languages, markers, test commands, and git status —
+and `context_pack` explicitly excludes the instruction files as "not useful code
+context". Confirmed by grep: before this change, `opaihub/ask.py` contained no
+reference to either filename.
+
+So a rule the user wrote in `AGENTS.md` — "always run the tests before claiming
+done" — was obeyed by Claude and silently ignored by Gemini, with nothing in the
+request to explain the difference. Rephrasing cannot fix it, which is exactly
+the profile of the reported complaint.
+
+`opaihub/project_instructions.py` loads the project's standing instructions as a
+prompt layer and both `ask` paths (the plain completion and the tool loop, which
+is where free-tier coding actually runs) now prepend it. Boundaries:
+
+- **Project files only** — `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`,
+  `.opai/rules.md`. A user's global `~/.claude/CLAUDE.md` is personal
+  configuration that can describe unrelated work and is never read.
+- **Bounded** at 4000 chars, clipped on a line boundary, with no single file
+  allowed to starve the others; truncation is labelled `(truncated)` rather
+  than hidden, because a silently half-applied rule set is worse than a
+  visibly clipped one.
+- **Deterministic** — fixed filename order, no globbing, no clock.
+- **OPai's rules stay first.** The project directs the work; it does not
+  override OPai's safety and honesty rules.
+- Unreadable files, directories in place of files, undecodable bytes, and a
+  missing root all degrade to "no instructions" rather than failing the turn.
+
+Verified against this repository: 2560 chars of real `AGENTS.md` content now
+reach the system prompt (3120 chars total, up from 560).
+
+- Red evidence: reverting the `ask.py` wiring fails
+  `test_a_local_run_receives_the_projects_rules`.
+- Green evidence: `tests/test_project_instructions.py` 15 tests + 8 subtests.
+
+### QAR8-35 — stale `Safe Auto` assertion in the inspector browser test
+
+The full browser sweep (422 tests) surfaced one failure unrelated to this
+session's changes: `inspector.spec.js` still asserted the raw engine name
+`Safe Auto`, which QAR8-01 retired from every user-facing surface in favour of
+`Ask before edits`. That commit's own notes record updating "one stale test
+assertion" — the inspector one was missed. Updated to the canonical label.
+
+- Green evidence: `inspector.spec.js` 6/6; full browser suite 422/422.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.

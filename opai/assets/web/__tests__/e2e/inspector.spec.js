@@ -16,7 +16,10 @@ test("Inspector opens and closes from the top bar", async ({ page }) => {
 test("Inspector shows model, mode, workspace, budget, permissions, and privacy", async ({ page }) => {
   const inspector = page.locator("#inspector");
   await expect(inspector).toContainText("Model");
-  await expect(inspector).toContainText("Safe Auto");
+  // QAR8-01 retired the raw engine name "Safe Auto" from every user-facing
+  // surface in favour of one novice-facing label. The inspector was missed when
+  // the other assertions were updated.
+  await expect(inspector).toContainText("Ask before edits");
   await expect(inspector).toContainText("3 files indexed");
   await expect(inspector).toContainText("$0.42 / $2.00 today");
   await expect(inspector).toContainText("Read files");
