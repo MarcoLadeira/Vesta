@@ -101,6 +101,26 @@ class ProviderCatalogTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             provider_catalog._parse_catalog(json.dumps(incomplete).encode("utf-8"))
 
+    def test_duplicate_json_object_keys_fail_closed(self):
+        raw_catalog = provider_catalog.catalog_bytes().replace(
+            b'"provider_id": "claude",',
+            b'"provider_id": "claude",\n    "provider_id": "claude",',
+            1,
+        )
+
+        with self.assertRaises(ValueError):
+            provider_catalog._parse_catalog(raw_catalog)
+
+    def test_non_finite_cancellation_slos_fail_closed(self):
+        for value in (b"NaN", b"Infinity", b"-Infinity"):
+            with self.subTest(value=value):
+                raw_catalog = provider_catalog.catalog_bytes().replace(
+                    b'"slo_seconds": 5', b'"slo_seconds": ' + value, 1
+                )
+
+                with self.assertRaises(ValueError):
+                    provider_catalog._parse_catalog(raw_catalog)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@ without touching the network, a provider binary, or credentials.
 from __future__ import annotations
 
 import json
+import math
 from datetime import date
 from functools import lru_cache
 from importlib import resources
@@ -151,6 +152,10 @@ def _validate_record(value: Any) -> dict[str, Any]:
     if (
         not isinstance(cancellation["slo_seconds"], (int, float))
         or isinstance(cancellation["slo_seconds"], bool)
+        or (
+            isinstance(cancellation["slo_seconds"], float)
+            and not math.isfinite(cancellation["slo_seconds"])
+        )
         or cancellation["slo_seconds"] <= 0
     ):
         _fail(f"{provider_id}.cancellation.slo_seconds must be positive")
@@ -219,9 +224,20 @@ def _freeze(value: Any) -> Any:
     return value
 
 
+def _reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build a JSON object only when every key occurs once."""
+
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            _fail(f"duplicate JSON object key: {key!r}")
+        value[key] = item
+    return value
+
+
 def _parse_catalog(data: bytes) -> tuple[Mapping[str, Any], ...]:
     try:
-        payload = json.loads(data)
+        payload = json.loads(data, object_pairs_hook=_reject_duplicate_object_keys)
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("Invalid provider catalog: malformed JSON") from exc
     if not isinstance(payload, list):
