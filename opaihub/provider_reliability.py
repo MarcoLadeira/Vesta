@@ -35,6 +35,10 @@ COOLDOWN_SECONDS = 180.0
 WINDOW_SECONDS = 1800.0
 # Bound the per-provider event list so the file stays tiny.
 MAX_EVENTS = 12
+# How long a successful provider stays preferred for follow-up turns. Long
+# enough to cover a working conversation, short enough that load still spreads
+# across free tiers across a day. See ``is_sticky``.
+STICKY_SECONDS = 1800.0
 # Reasons that are transient and worth a short cooldown, versus hard config
 # problems that should deprioritize a provider harder/longer.
 _HARD_REASONS = {"auth", "unauthenticated", "misconfigured", "unavailable"}
@@ -199,6 +203,31 @@ def last_used(project_root: Path, provider: str) -> float:
     if not isinstance(entry, dict):
         return 0.0
     return float(entry.get("last_used", 0.0) or 0.0)
+
+
+def is_sticky(project_root: Path, provider: str, *, now: float | None = None) -> bool:
+    """True when ``provider`` answered successfully within the stickiness window.
+
+    Rotation and conversation consistency pull in opposite directions. LRU
+    rotation spreads load across free tiers, which is good — but taken alone it
+    means the provider that *just answered* sorts last, so the follow-up turn
+    actively routes away from whatever worked. A user asking a question and then
+    a follow-up could get two different providers, with different style and
+    different context, for no reason they could see.
+
+    So a recent success is sticky for a short window: the provider that just
+    worked leads the next turn, and rotation resumes once the window lapses or
+    the provider fails. This is deliberately *not* a lock — a failure clears it
+    immediately through the ordinary cooldown and penalty path.
+    """
+    provider = str(provider or "").strip().lower()
+    if not provider:
+        return False
+    entry = _load(project_root).get(provider)
+    if not isinstance(entry, dict) or not entry.get("last_ok"):
+        return False
+    ts = time.time() if now is None else float(now)
+    return (ts - float(entry.get("last_used", 0.0) or 0.0)) <= STICKY_SECONDS
 
 
 def reliability_snapshot(

@@ -190,19 +190,28 @@ def unavailable_account_providers(catalog: dict[str, Any]) -> set[str]:
 def _rank_bucket(
     project_root: Path, candidates: list[dict[str, Any]], *, now: float | None
 ) -> list[dict[str, Any]]:
-    """Order candidates in one cost bucket: healthy + not-recently-used first.
+    """Order candidates in one cost bucket: healthy + sticky first, then LRU.
 
-    Sort key (all ascending): (in_cooldown, reliability_penalty, last_used, id).
-    So a provider that just failed sinks (cooldown, penalty), and among equally
-    healthy providers the least-recently-used one leads — Auto rotates instead
-    of hammering the first entry.
+    Sort key (all ascending):
+    ``(in_cooldown, reliability_penalty, not_sticky, last_used, id)``.
+
+    A provider that just failed sinks (cooldown, penalty). Among equally healthy
+    providers, one that answered successfully inside the stickiness window leads
+    — otherwise LRU rotation would sort the provider that *just worked* last,
+    and a follow-up turn would actively route away from it. Two consecutive
+    turns of one conversation landing on two providers, with different style and
+    different context, is visible inconsistency with no cause the user can see.
+
+    Outside that window the original least-recently-used rotation applies, so
+    load still spreads across free tiers instead of hammering one entry.
     """
 
-    def key(item: dict[str, Any]) -> tuple[int, float, float, str]:
+    def key(item: dict[str, Any]) -> tuple[int, float, int, float, str]:
         provider = _provider_of_entry(item)
         return (
             1 if reliability.in_cooldown(project_root, provider, now=now) else 0,
             reliability.reliability_penalty(project_root, provider, now=now),
+            0 if reliability.is_sticky(project_root, provider, now=now) else 1,
             reliability.last_used(project_root, provider),
             str(item.get("id") or ""),
         )

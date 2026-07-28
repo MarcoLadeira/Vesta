@@ -1058,6 +1058,41 @@ Fixed by patching `auto_router.TRANSIENT_RETRY_DELAY_SECONDS` to `0.0` instead �
 exact, local, and it cannot leak into another test's threads. Verified by
 running the three affected suites together (28 passed).
 
+### QAR8-33 — Auto actively routed away from whatever just worked
+
+The research report warns that request-level model switching "risks visible
+inconsistency if conversation state, tool permissions, response style, or safety
+policy differ sharply between models", and recommends **no silent mid-thread
+switching**. Checking OPai against that found the opposite of stickiness — an
+active anti-affinity.
+
+`_rank_bucket` ordered equally-healthy providers by least-recently-used, so
+"Auto rotates instead of hammering the first entry". But `last_used` is stamped
+on **success** as well as failure. So the provider that had just answered
+successfully sorted *last*, and the very next turn preferred anything else. Ask
+a question and get Gemini; ask a follow-up and get Kimi — different style,
+different context, no cause the user could see. That is precisely the
+"sometimes my messages work" complaint, produced by the router itself.
+
+Fixed with a bounded stickiness window rather than by deleting rotation, because
+both goals are real:
+
+- A provider that answered successfully within `STICKY_SECONDS` (30 min) leads
+  the next turn, so a working conversation stays on one provider.
+- Outside that window LRU rotation resumes exactly as before, so load still
+  spreads across free tiers over a day.
+- Stickiness is a tiebreak among *healthy* providers only — it sorts after
+  cooldown and reliability penalty, so a provider that succeeds and then fails
+  loses preference immediately. It is not a lock.
+
+The pre-existing rotation test asserted the old behaviour directly, so it was
+**scoped rather than removed**: `test_rotation_resumes_once_the_conversation_
+goes_cold` keeps the original guarantee, alongside a new test for the follow-up
+turn and one proving stickiness never outranks a failure.
+
+- Green evidence: `tests/test_auto_router.py` 13/13; full Python suite 2652
+  passed, 3 skipped, 602 subtests.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
