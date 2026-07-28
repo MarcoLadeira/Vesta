@@ -57,10 +57,14 @@ class AppStateReadTests(unittest.TestCase):
             ["claude", "codex", "copilot", "gemini", "cursor", "cline"],
         )
         for c in ar["clients"]:
-            self.assertIn(c["status"], {"active", "broken", "missing", "needs_setup", "unknown"})
+            self.assertIn(
+                c["status"], {"active", "broken", "missing", "needs_setup", "unknown"}
+            )
             self.assertTrue(c["repair"])
 
-    def _agent_readiness_card(self, client: dict[str, object], wrapper: dict[str, object]) -> dict[str, object]:
+    def _agent_readiness_card(
+        self, client: dict[str, object], wrapper: dict[str, object]
+    ) -> dict[str, object]:
         integrations = {
             "clients": [
                 {"id": "cursor", "label": "Cursor", "status": "active", **client}
@@ -73,7 +77,9 @@ class AppStateReadTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             with (
-                mock.patch("opai.clients.client_integrations_status", return_value=integrations),
+                mock.patch(
+                    "opai.clients.client_integrations_status", return_value=integrations
+                ),
                 mock.patch("opai.clients.detect_stale_paths", return_value=[]),
                 mock.patch("opai.integrations.project_status", return_value=status),
             ):
@@ -500,7 +506,9 @@ class PremiumGuiContractTests(unittest.TestCase):
             _repo(root)
             vm = build_view_model(root)
 
-        context = next(section for section in vm["sections"] if section["id"] == "context")
+        context = next(
+            section for section in vm["sections"] if section["id"] == "context"
+        )
         tokens = next(kpi for kpi in context["kpis"] if "token" in kpi["label"].lower())
         self.assertEqual(tokens["label"], "Estimated wasted tokens")
         cost = next(kpi for kpi in context["kpis"] if "cost" in kpi["label"].lower())

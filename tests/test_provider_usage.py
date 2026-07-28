@@ -46,9 +46,15 @@ def _model_call(provider: str, *, created_at: str, quota=None, calls=1, tokens=0
 
 class ResetParsingTests(unittest.TestCase):
     def test_duration_string(self):
-        self.assertAlmostEqual(pu.parse_reset("2m59.5s", observed_at=1000) - 1000, 179.5, places=1)
-        self.assertAlmostEqual(pu.parse_reset("1h30m", observed_at=1000) - 1000, 5400, places=1)
-        self.assertAlmostEqual(pu.parse_reset("45s", observed_at=1000) - 1000, 45, places=1)
+        self.assertAlmostEqual(
+            pu.parse_reset("2m59.5s", observed_at=1000) - 1000, 179.5, places=1
+        )
+        self.assertAlmostEqual(
+            pu.parse_reset("1h30m", observed_at=1000) - 1000, 5400, places=1
+        )
+        self.assertAlmostEqual(
+            pu.parse_reset("45s", observed_at=1000) - 1000, 45, places=1
+        )
 
     def test_bare_seconds_vs_epoch(self):
         self.assertEqual(pu.parse_reset("60", observed_at=1000), 1060)
@@ -85,7 +91,10 @@ class HeaderParsingTests(unittest.TestCase):
 
     def test_falls_back_to_token_window(self):
         quota = pu.parse_quota_headers(
-            {"x-ratelimit-limit-tokens": "6000", "x-ratelimit-remaining-tokens": "5400"},
+            {
+                "x-ratelimit-limit-tokens": "6000",
+                "x-ratelimit-remaining-tokens": "5400",
+            },
             observed_at=1000,
         )
         self.assertEqual(quota["metric"], "tokens")
@@ -131,7 +140,9 @@ class SnapshotTests(unittest.TestCase):
 
     def test_not_configured_provider(self):
         with _Root() as root:
-            snap = pu.usage_snapshot(root, "gemini", configured=False, events=[], now=1000)
+            snap = pu.usage_snapshot(
+                root, "gemini", configured=False, events=[], now=1000
+            )
         self.assertEqual(snap["status"], "not_configured")
 
     def test_observed_quota_from_ledger_yields_live_usage(self):
@@ -140,7 +151,13 @@ class SnapshotTests(unittest.TestCase):
             _model_call(
                 "gemini",
                 created_at=_iso(now - 120),
-                quota={"metric": "requests", "limit": 1500, "remaining": 1230, "window": "day", "resetsAt": "1h30m"},
+                quota={
+                    "metric": "requests",
+                    "limit": 1500,
+                    "remaining": 1230,
+                    "window": "day",
+                    "resetsAt": "1h30m",
+                },
                 calls=3,
                 tokens=1200,
             )
@@ -164,7 +181,13 @@ class SnapshotTests(unittest.TestCase):
             _model_call(
                 "groq",
                 created_at=_iso(now - 2 * 24 * 3600),  # 2 days ago
-                quota={"metric": "requests", "limit": 1000, "remaining": 500, "window": "day", "resetsAt": "60s"},
+                quota={
+                    "metric": "requests",
+                    "limit": 1000,
+                    "remaining": 500,
+                    "window": "day",
+                    "resetsAt": "60s",
+                },
             )
         ]
         with _Root() as root:
@@ -175,10 +198,18 @@ class SnapshotTests(unittest.TestCase):
     def test_opai_tracked_counts_the_provider_window_only(self):
         now = 1_784_800_000.0
         events = [
-            _model_call("gemini", created_at=_iso(now - 60), calls=2, tokens=100),  # today
-            _model_call("gemini", created_at=_iso(now - 60), calls=1, tokens=50),   # today
-            _model_call("gemini", created_at=_iso(now - 5 * 24 * 3600), calls=9, tokens=999),  # old, excluded
-            _model_call("claude", created_at=_iso(now - 60), calls=7, tokens=7),    # other provider
+            _model_call(
+                "gemini", created_at=_iso(now - 60), calls=2, tokens=100
+            ),  # today
+            _model_call(
+                "gemini", created_at=_iso(now - 60), calls=1, tokens=50
+            ),  # today
+            _model_call(
+                "gemini", created_at=_iso(now - 5 * 24 * 3600), calls=9, tokens=999
+            ),  # old, excluded
+            _model_call(
+                "claude", created_at=_iso(now - 60), calls=7, tokens=7
+            ),  # other provider
         ]
         with _Root() as root:
             snap = pu.usage_snapshot(root, "gemini", events=events, now=now)
@@ -199,8 +230,12 @@ class SnapshotTests(unittest.TestCase):
         now = 1_784_800_000.0
         eighteen_days_ago = now - 18 * 24 * 3600
         events = [
-            _model_call("claude", created_at=_iso(eighteen_days_ago), calls=1, tokens=53),
-            _model_call("claude", created_at=_iso(eighteen_days_ago + 3600), calls=1, tokens=76),
+            _model_call(
+                "claude", created_at=_iso(eighteen_days_ago), calls=1, tokens=53
+            ),
+            _model_call(
+                "claude", created_at=_iso(eighteen_days_ago + 3600), calls=1, tokens=76
+            ),
         ]
         with _Root() as root:
             snap = pu.usage_snapshot(root, "claude", events=events, now=now)
@@ -233,10 +268,22 @@ class SnapshotTests(unittest.TestCase):
 class ProbeTests(unittest.TestCase):
     def test_header_probe_populates_and_caches(self):
         now = 1_784_800_000.0
-        probed = {"metric": "requests", "limit": 1000, "remaining": 900, "used": 100, "window": "day", "resetsAt": now + 3600, "observedAt": now}
+        probed = {
+            "metric": "requests",
+            "limit": 1000,
+            "remaining": 900,
+            "used": 100,
+            "window": "day",
+            "resetsAt": now + 3600,
+            "observedAt": now,
+        }
         with _Root() as root:
-            with mock.patch.object(pu, "_probe_headers", return_value=probed) as probe, \
-                 mock.patch("opaihub.credentials.CredentialStore.get", return_value="key"):
+            with (
+                mock.patch.object(pu, "_probe_headers", return_value=probed) as probe,
+                mock.patch(
+                    "opaihub.credentials.CredentialStore.get", return_value="key"
+                ),
+            ):
                 first = pu.probe_usage(root, "groq", force=True, now=now)
                 self.assertEqual(first, probed)
                 # Within the TTL, the cache is used — no second network probe.
@@ -246,8 +293,12 @@ class ProbeTests(unittest.TestCase):
 
     def test_probe_failure_never_raises_and_returns_none(self):
         with _Root() as root:
-            with mock.patch.object(pu, "_probe_headers", return_value=None), \
-                 mock.patch("opaihub.credentials.CredentialStore.get", return_value="key"):
+            with (
+                mock.patch.object(pu, "_probe_headers", return_value=None),
+                mock.patch(
+                    "opaihub.credentials.CredentialStore.get", return_value="key"
+                ),
+            ):
                 self.assertIsNone(pu.probe_usage(root, "groq", force=True))
 
     def test_account_provider_has_nothing_to_probe(self):
@@ -264,7 +315,10 @@ class OverviewTests(unittest.TestCase):
                 [
                     {"provider": "claude", "configured": True},
                     {"provider": "gemini", "configured": True},
-                    {"provider": "weirdo", "configured": True},  # dropped, not in USAGE_MODELS
+                    {
+                        "provider": "weirdo",
+                        "configured": True,
+                    },  # dropped, not in USAGE_MODELS
                     {"provider": "claude", "configured": True},  # de-duped
                 ],
                 now=now,
@@ -277,7 +331,10 @@ class OverviewTests(unittest.TestCase):
             with mock.patch.object(pu, "_model_call_events", return_value=[]) as reader:
                 pu.usage_overview(
                     root,
-                    [{"provider": "claude", "configured": True}, {"provider": "gemini", "configured": True}],
+                    [
+                        {"provider": "claude", "configured": True},
+                        {"provider": "gemini", "configured": True},
+                    ],
                     now=now,
                 )
                 self.assertEqual(reader.call_count, 1)

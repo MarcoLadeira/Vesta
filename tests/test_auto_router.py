@@ -37,9 +37,7 @@ class ProviderOfTests(unittest.TestCase):
             "rate-limit",
         )
         self.assertEqual(auto_router.reason_slug("empty"), "no-answer")
-        self.assertEqual(
-            auto_router.reason_slug("capability_mismatch"), "capability"
-        )
+        self.assertEqual(auto_router.reason_slug("capability_mismatch"), "capability")
 
 
 class ChainOrderingTests(unittest.TestCase):
@@ -69,7 +67,11 @@ class ChainOrderingTests(unittest.TestCase):
     def test_unavailable_free_and_failed_accounts_excluded(self) -> None:
         catalog = {
             "models": [
-                {"id": "free:gemini:x", "provider": "gemini", "kind": "free"},  # no avail
+                {
+                    "id": "free:gemini:x",
+                    "provider": "gemini",
+                    "kind": "free",
+                },  # no avail
                 _free("free:kimi:kimi-k2.6", "kimi"),
                 _account("account:claude:haiku", "claude"),
             ],
@@ -104,9 +106,7 @@ class ChainOrderingTests(unittest.TestCase):
         }
 
     def _first_free(self, catalog: dict, *, now: float | None = None) -> str:
-        chain = auto_router.resolve_auto_chain(
-            self.root, "explain", catalog, now=now
-        )
+        chain = auto_router.resolve_auto_chain(self.root, "explain", catalog, now=now)
         return next(c["id"] for c in chain if c["kind"] == "free")
 
     def test_a_provider_that_just_worked_leads_the_follow_up_turn(self) -> None:
@@ -135,9 +135,7 @@ class ChainOrderingTests(unittest.TestCase):
         reliability.record_provider_outcome(
             self.root, "kimi", False, reason="timeout", now=1001.0
         )
-        self.assertEqual(
-            self._first_free(self._two_free(), now=1002.0), "free:groq:x"
-        )
+        self.assertEqual(self._first_free(self._two_free(), now=1002.0), "free:groq:x")
 
 
 class RetryClassificationTests(unittest.TestCase):
@@ -160,7 +158,9 @@ class ReliabilityStoreTests(unittest.TestCase):
         base = 1_000_000.0
         self.assertEqual(reliability.reliability_penalty(self.root, "kimi"), 0.0)
         reliability.record_provider_outcome(self.root, "kimi", False, now=base)
-        self.assertGreater(reliability.reliability_penalty(self.root, "kimi", now=base), 0.0)
+        self.assertGreater(
+            reliability.reliability_penalty(self.root, "kimi", now=base), 0.0
+        )
         # Old failures fall out of the rolling window.
         future = base + reliability.WINDOW_SECONDS + 10
         self.assertEqual(

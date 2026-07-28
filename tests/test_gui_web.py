@@ -65,7 +65,9 @@ class ThreadStatusHonestyTests(unittest.TestCase):
 
         with isolated_home():
             root = make_repo(Path(tempfile.mkdtemp()))
-            begin_thread_turn(root, request_id="r1", text="fix the bug", mode="safe-auto")
+            begin_thread_turn(
+                root, request_id="r1", text="fix the bug", mode="safe-auto"
+            )
             _persist_turn_result(
                 root,
                 "r1",
@@ -145,7 +147,9 @@ class BootPayloadTests(unittest.TestCase):
         self.assertEqual(payload["build"], asset_build_identity())
         self.assertRegex(payload["build"]["assetFingerprint"], r"^[0-9a-f]{64}$")
         self.assertGreater(payload["build"]["assetCount"], 0)
-        self.assertIn(payload["build"]["runtimeSource"], {"source_checkout", "installed_package"})
+        self.assertIn(
+            payload["build"]["runtimeSource"], {"source_checkout", "installed_package"}
+        )
 
     def test_nav_groups_are_simple_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -322,7 +326,9 @@ class WebAssetsTests(unittest.TestCase):
     def test_asset_fingerprint_changes_when_a_hosted_asset_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             assets = Path(tmp)
-            (assets / "index.html").write_text("<script src='app.js'></script>", encoding="utf-8")
+            (assets / "index.html").write_text(
+                "<script src='app.js'></script>", encoding="utf-8"
+            )
             (assets / "app.js").write_text("window.build = 1;", encoding="utf-8")
             first = asset_build_identity(assets)
             (assets / "app.js").write_text("window.build = 2;", encoding="utf-8")
@@ -331,8 +337,16 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotEqual(first["assetFingerprint"], second["assetFingerprint"])
         self.assertEqual(first["assetCount"], 2)
         self.assertEqual(second["assetCount"], 2)
+
     def test_core_assets_exist(self):
-        for name in ("index.html", "design-tokens.css", "design-tokens-preview.html", "icons.js", "styles.css", "app.js"):
+        for name in (
+            "index.html",
+            "design-tokens.css",
+            "design-tokens-preview.html",
+            "icons.js",
+            "styles.css",
+            "app.js",
+        ):
             self.assertTrue((WEB_DIR / name).exists(), name)
 
     def test_index_wires_bridge_and_assets(self):
@@ -400,14 +414,31 @@ class SettingsPayloadTests(unittest.TestCase):
         self.assertEqual(
             # github joined via the git/PR connector credential (GITHUB_TOKEN);
             # kimi joined with its Moonshot free-tier credential.
-            {"claude", "codex", "copilot", "kimi", "gemini", "groq", "mistral", "github"},
+            {
+                "claude",
+                "codex",
+                "copilot",
+                "kimi",
+                "gemini",
+                "groq",
+                "mistral",
+                "github",
+            },
             {item["providerId"] for item in payload["connectionDoctor"]},
         )
         self.assertNotIn("cli_path", json.dumps(payload["connectionDoctor"]))
         # Credits & Balance: one snapshot per AI tool, accounts and free APIs.
         self.assertIn("providerBalances", payload)
         balance_providers = {item["provider"] for item in payload["providerBalances"]}
-        for provider in ("claude", "codex", "copilot", "kimi", "gemini", "groq", "mistral"):
+        for provider in (
+            "claude",
+            "codex",
+            "copilot",
+            "kimi",
+            "gemini",
+            "groq",
+            "mistral",
+        ):
             self.assertIn(provider, balance_providers)
         for item in payload["providerBalances"]:
             self.assertIn(
@@ -417,7 +448,15 @@ class SettingsPayloadTests(unittest.TestCase):
         # free APIs, each with a verifiable window + honest official status.
         self.assertIn("providerUsage", payload)
         usage_providers = {item["provider"] for item in payload["providerUsage"]}
-        for provider in ("claude", "codex", "copilot", "kimi", "gemini", "groq", "mistral"):
+        for provider in (
+            "claude",
+            "codex",
+            "copilot",
+            "kimi",
+            "gemini",
+            "groq",
+            "mistral",
+        ):
             self.assertIn(provider, usage_providers)
         for item in payload["providerUsage"]:
             self.assertIn(
@@ -546,7 +585,10 @@ class ContextPickerPayloadTests(unittest.TestCase):
     def test_picker_returns_only_workspace_relative_paths(self):
         from opai.gui_web import context_picker_payload
 
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as other:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as other,
+        ):
             root = Path(tmp).resolve()
             inside = root / "src" / "app.js"
             inside.parent.mkdir()
@@ -570,6 +612,7 @@ class ContextPickerPayloadTests(unittest.TestCase):
             payload = context_picker_payload(root, [str(folder)])
 
         self.assertEqual(payload["paths"], ["src/"])
+
 
 class FirewallSettingsPayloadTests(unittest.TestCase):
     """Budgets in settings (#238): straight from budget_status, no duplicates."""

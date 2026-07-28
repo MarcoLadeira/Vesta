@@ -99,9 +99,7 @@ def _complete_streaming(
     if on_text is not None:
         try:
             return (
-                runner.complete(
-                    text, system=system, cancel=cancel, on_text=on_text
-                ),
+                runner.complete(text, system=system, cancel=cancel, on_text=on_text),
                 True,
             )
         except TypeError as exc:

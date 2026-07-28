@@ -596,7 +596,11 @@ class ActivitySession:
         )
 
     def _codex_exec(
-        self, begin: bool, title: str, detail: str | None, msg: dict[str, Any] | None = None
+        self,
+        begin: bool,
+        title: str,
+        detail: str | None,
+        msg: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Legacy exec_command begin/end pairs coalesce FIFO (no item ids)."""
         now_ms = int(time.time() * 1000)
@@ -632,7 +636,11 @@ class ActivitySession:
             )
         # An end with no open begin (schema drift): standalone row, honest.
         return make_event(
-            "command_run", status, honest_title, detail=detail, request_id=self.request_id
+            "command_run",
+            status,
+            honest_title,
+            detail=detail,
+            request_id=self.request_id,
         )
 
     def _codex_fail_open(self) -> list[dict[str, Any]]:

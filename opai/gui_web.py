@@ -104,7 +104,9 @@ def asset_build_identity(asset_dir: Path = WEB_DIR) -> dict[str, Any]:
         "assetFingerprint": digest.hexdigest(),
         "assetCount": len(candidates),
         "runtimeSource": (
-            "source_checkout" if (source_root / ".git").exists() else "installed_package"
+            "source_checkout"
+            if (source_root / ".git").exists()
+            else "installed_package"
         ),
     }
 
@@ -1607,7 +1609,9 @@ def _run_gui(
             try:
                 return json.dumps(check_for_update(install_root(), force=bool(force)))
             except Exception as exc:  # noqa: BLE001 - never crash the page
-                return json.dumps({"checked": False, "up_to_date": True, "reason": str(exc)})
+                return json.dumps(
+                    {"checked": False, "up_to_date": True, "reason": str(exc)}
+                )
 
         @QtCore.Slot(result=str)
         def applyUpdate(self) -> str:
@@ -1634,7 +1638,8 @@ def _run_gui(
                 creationflags = 0
                 if sys.platform.startswith("win"):
                     creationflags = (
-                        subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                        subprocess.DETACHED_PROCESS
+                        | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
                     )
                 subprocess.Popen(  # nosec B603 - fixed argv, no shell
                     [sys.executable, "-m", "opai", "gui", "--project", str(self.root)],

@@ -291,9 +291,7 @@ def describe_controls(run_mode: str | None, focus: str | None) -> dict[str, Any]
     }
 
 
-def plan_mode_selection(
-    selected_mode: str, prefs: dict[str, Any]
-) -> dict[str, Any]:
+def plan_mode_selection(selected_mode: str, prefs: dict[str, Any]) -> dict[str, Any]:
     """Decide what picking a run mode in the composer must do (F16, #137).
 
     Qt-free so both GUIs share one rule and the classic pin flow is testable

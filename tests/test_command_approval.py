@@ -22,7 +22,11 @@ import pytest
 
 from _helpers import FakeAccountRunner, FakeStreamingRunner, make_repo
 
-from opaihub.completion import CompletionState, completion_state_from_legacy, result_is_completed
+from opaihub.completion import (
+    CompletionState,
+    completion_state_from_legacy,
+    result_is_completed,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -491,7 +495,9 @@ class AccountCompletionTruthTests(unittest.TestCase):
                 return {
                     "text": "I could not run the command.",
                     "cost": 0.01,
-                    "permission_denials": [{"tool": "Bash", "command": "gh issue view 219"}],
+                    "permission_denials": [
+                        {"tool": "Bash", "command": "gh issue view 219"}
+                    ],
                 }
 
         result = self._ask(DeniedRunner())

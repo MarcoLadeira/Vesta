@@ -183,9 +183,7 @@ class SurfaceParityTests(unittest.TestCase):
             web_controls = boot_payload(root)["controls"]
             classic_controls = describe_controls(
                 resolve_startup_mode(load_gui_preferences(root)).effective_mode,
-                str(
-                    load_gui_preferences(root).get("default_task_mode") or "general"
-                ),
+                str(load_gui_preferences(root).get("default_task_mode") or "general"),
             )
         self.assertEqual(web_controls, classic_controls)
 

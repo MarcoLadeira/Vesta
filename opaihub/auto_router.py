@@ -494,8 +494,7 @@ def routing_diagnostics(
     return {
         "task_type": classify_task(project_root, task).get("task_type"),
         "chain": [
-            {"id": c["id"], "provider": c["provider"], "paid": c["paid"]}
-            for c in chain
+            {"id": c["id"], "provider": c["provider"], "paid": c["paid"]} for c in chain
         ],
         "reliability": reliability.reliability_snapshot(project_root, now=now),
         # Providers Auto refused to call because they are out of credit — the

@@ -453,9 +453,7 @@ def _record_gui_route(
     event["selected_mode"] = mode
 
 
-def _outcome_category(
-    status: str, *, had_work: bool, verdict: str = ""
-) -> str | None:
+def _outcome_category(status: str, *, had_work: bool, verdict: str = "") -> str | None:
     """The honest terminal class for a finished turn, or ``None`` when there is
     nothing to record (#288).
 
@@ -1778,7 +1776,9 @@ def handle_gui_message(
             if _cancelled():
                 _phase_close("cancelled", "Stopped by you")
                 return _decorate(
-                    _cancelled_result(message, tool_trace, selected_model, selected_mode)
+                    _cancelled_result(
+                        message, tool_trace, selected_model, selected_mode
+                    )
                 )
             if auto_active and not allow_cloud:
                 # Auto chooses a route; it does not grant permission to transmit
@@ -1827,7 +1827,9 @@ def handle_gui_message(
                 _phase_close("cancelled", "Stopped by you")
                 _emit("cancelled", "cancelled", "Stopped by you")
                 return _decorate(
-                    _cancelled_result(message, tool_trace, selected_model, selected_mode)
+                    _cancelled_result(
+                        message, tool_trace, selected_model, selected_mode
+                    )
                 )
             approval = _command_approval(result)
             if approval is not None:
@@ -1933,7 +1935,9 @@ def handle_gui_message(
                     cost_usd=float(receipt["estimated_actual_usd"]),
                     model=selected_model,
                 )
-                record_workflow_cost(root, runtime.task_id, free_telemetry, task=message)
+                record_workflow_cost(
+                    root, runtime.task_id, free_telemetry, task=message
+                )
             if not answer:
                 # Name the provider and the concrete next check instead of a
                 # generic "did not return an answer" (QA pass-2): an empty free
@@ -1958,7 +1962,9 @@ def handle_gui_message(
                     if policy.mode in {
                         AgentMode.IMPLEMENT,
                         AgentMode.SHIP,
-                    } and not _has_change_evidence(result, repo_changed=_repo_changed()):
+                    } and not _has_change_evidence(
+                        result, repo_changed=_repo_changed()
+                    ):
                         # F14/F24: an edit-intent run that changed nothing is not
                         # a green completion.
                         _phase_close("warning", "Finished with no changes")
@@ -1990,7 +1996,9 @@ def handle_gui_message(
                     "next_actions": ["Review provider quota and billing settings."],
                     "raw_result": result,
                     "error": result.get("error"),
-                    "cost_telemetry": free_telemetry.to_dict() if free_telemetry else {},
+                    "cost_telemetry": free_telemetry.to_dict()
+                    if free_telemetry
+                    else {},
                 }
             )
 
@@ -2000,9 +2008,13 @@ def handle_gui_message(
             if _cancelled():
                 _phase_close("cancelled", "Stopped by you")
                 return _decorate(
-                    _cancelled_result(message, tool_trace, selected_model, selected_mode)
+                    _cancelled_result(
+                        message, tool_trace, selected_model, selected_mode
+                    )
                 )
-            provider = selected_model.split(":")[1] if ":" in selected_model else "account"
+            provider = (
+                selected_model.split(":")[1] if ":" in selected_model else "account"
+            )
             _phase(
                 "provider_checking",
                 "running",
@@ -2030,7 +2042,9 @@ def handle_gui_message(
                             "misconfigured": "Provider CLI is misconfigured",
                             "provider_unavailable": "Provider unavailable",
                             "disconnected": "Provider disconnected",
-                        }.get(str(connection["authStatus"]), "Provider connection failed")
+                        }.get(
+                            str(connection["authStatus"]), "Provider connection failed"
+                        )
                         error = normalize_provider_error(provider, status_detail)
                     event_type = (
                         "provider_auth_failed"
@@ -2259,7 +2273,9 @@ def handle_gui_message(
             elif status == "answered":
                 _emit("stopped", "warning", _incomplete_title(result))
             else:
-                error = result.get("error") if isinstance(result.get("error"), dict) else {}
+                error = (
+                    result.get("error") if isinstance(result.get("error"), dict) else {}
+                )
                 code = str(error.get("code") or "UNKNOWN")
                 event_type = (
                     "provider_auth_failed" if code.startswith("AUTH_") else "failed"
@@ -2378,7 +2394,9 @@ def handle_gui_message(
             "no_local_model": "needs_model",
             "confirmation_required": "needs_confirmation",
         }
-        answer = result.get("answer") or result.get("hint") or result.get("reason") or ""
+        answer = (
+            result.get("answer") or result.get("hint") or result.get("reason") or ""
+        )
         if result.get("status") == "no_local_model":
             # Auto local-first: no local model is a retryable miss, not a dead end.
             # Advance to the next capable configured model (free, then — with
@@ -2404,13 +2422,21 @@ def handle_gui_message(
                 "The local model couldn't answer that. Pick your Claude or Codex account "
                 "in the model menu, or check that your local model is running."
             )
-        final_status = status_map.get(result.get("status"), result.get("status", "error"))
+        final_status = status_map.get(
+            result.get("status"), result.get("status", "error")
+        )
         # Auto fallback: a local runner error or a cloud-tier request from the
         # local-first probe advances to the next capable model in the chain.
-        if auto_active and final_status in {"runner_error", "needs_confirmation", "error"}:
+        if auto_active and final_status in {
+            "runner_error",
+            "needs_confirmation",
+            "error",
+        }:
             _decision = _advance_auto(
                 status=final_status,
-                error=result.get("error") if isinstance(result.get("error"), dict) else None,
+                error=result.get("error")
+                if isinstance(result.get("error"), dict)
+                else None,
             )
             if _decision == "continue":
                 continue

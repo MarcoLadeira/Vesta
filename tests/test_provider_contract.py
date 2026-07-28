@@ -156,7 +156,7 @@ class OutdatedProviderCliTests(unittest.TestCase):
     CODEX_400 = (
         'Codex reported: {"type":"error","status":400,"error":'
         '{"type":"invalid_request_error","message":"The \'gpt-5.6-terra\' model '
-        'requires a newer version of Codex. Please upgrade to the latest one or '
+        "requires a newer version of Codex. Please upgrade to the latest one or "
         'CLI and try again."}}'
     )
 

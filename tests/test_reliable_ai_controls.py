@@ -535,13 +535,17 @@ class AutoFallbackTests(unittest.TestCase):
             "available": True,
         }
 
-    def test_auto_requires_confirmation_before_configured_free_cloud_model(self) -> None:
+    def test_auto_requires_confirmation_before_configured_free_cloud_model(
+        self,
+    ) -> None:
         # Auto chooses the route, but it is not consent to transmit repository
         # context off-device. The named free-tier provider must be offered before
         # any cloud runner starts.
         from opaihub.gui_pipeline import handle_gui_message
 
-        models = {"models": [self._free("free:groq:openai/gpt-oss-120b", "groq", "Groq")]}
+        models = {
+            "models": [self._free("free:groq:openai/gpt-oss-120b", "groq", "Groq")]
+        }
         no_local = {"status": "no_local_model", "hint": "none"}
         with tempfile.TemporaryDirectory() as tmp:
             with (
@@ -554,9 +558,7 @@ class AutoFallbackTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "needs_auto_confirmation")
-        self.assertEqual(
-            result["fallbackModelId"], "free:groq:openai/gpt-oss-120b"
-        )
+        self.assertEqual(result["fallbackModelId"], "free:groq:openai/gpt-oss-120b")
         self.assertIn("Groq", result["answer"])
         self.assertIn("leave this device", result["answer"])
         self.assertFalse(result["cloudStarted"])

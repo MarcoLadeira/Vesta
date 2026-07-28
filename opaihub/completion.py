@@ -277,9 +277,7 @@ _FAILURE_COPY = {
     ),
 }
 
-_INTERNAL_FAILURE_STATUSES = frozenset(
-    {"runner_error", "internal_error", "opai_error"}
-)
+_INTERNAL_FAILURE_STATUSES = frozenset({"runner_error", "internal_error", "opai_error"})
 _POLICY_FAILURE_STATUSES = frozenset({"blocked_policy", "policy_error"})
 
 _EDIT_MODES = frozenset({"implement", "ship", "build", "edit", "fix"})
@@ -512,7 +510,10 @@ def _evidence_from_payload(payload: Mapping[str, Any]) -> tuple[EvidenceRef, ...
             refs.append(
                 EvidenceRef(
                     "diff",
-                    str(repo_change.get("detail") or "Repository changed during this run"),
+                    str(
+                        repo_change.get("detail")
+                        or "Repository changed during this run"
+                    ),
                 )
             )
     if _has_successful_test(payload):
@@ -707,7 +708,7 @@ def evaluate_completion(
             "not contain any of it.",
             objective,
             evidence,
-            "Ask again for the data itself: \"reply with only the raw output\".",
+            'Ask again for the data itself: "reply with only the raw output".',
         )
     if AcceptanceRequirement.ANSWER_PRESENT in objective.acceptance:
         return _verdict(

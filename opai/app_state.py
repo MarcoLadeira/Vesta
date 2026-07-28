@@ -707,8 +707,7 @@ def available_models(
             option["available"] = False
             option["healthy"] = False
             reason = (
-                f"{balance['displayName']} is out of credit. "
-                f"{balance['rechargeHint']}"
+                f"{balance['displayName']} is out of credit. {balance['rechargeHint']}"
             )
             option["disabled_reason"] = reason
             option["health_reason"] = reason
@@ -1172,7 +1171,9 @@ def _ask_account(
     if account_id == "copilot" and allow_edits:
         capability_check = getattr(run, "supports_scoped_editing", None)
         try:
-            scoped_editing = bool(capability_check()) if callable(capability_check) else False
+            scoped_editing = (
+                bool(capability_check()) if callable(capability_check) else False
+            )
         except (OSError, subprocess.SubprocessError):
             scoped_editing = False
         if not scoped_editing:

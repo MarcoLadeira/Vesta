@@ -80,8 +80,7 @@ def _tool_result_line(tool_id: str, text: str, *, is_error: bool = True) -> str:
 
 
 _DENIAL_TEXT = (
-    "Claude requested permissions to write to {path}, but you haven't "
-    "granted it yet."
+    "Claude requested permissions to write to {path}, but you haven't granted it yet."
 )
 
 
@@ -119,9 +118,7 @@ class ActivityEditDenialTests(unittest.TestCase):
 
     def test_ordinary_edit_error_is_not_a_denial(self):
         session = self._session()
-        session.parse_claude_line(
-            _tool_use_line("Edit", "toolu_1", file_path="a.py")
-        )
+        session.parse_claude_line(_tool_use_line("Edit", "toolu_1", file_path="a.py"))
         session.parse_claude_line(
             _tool_result_line("toolu_1", "String to replace not found in file.")
         )
@@ -324,12 +321,8 @@ class NoProgressGuardTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"OPAI_NO_PROGRESS_STEP_BUDGET": "0"}):
             self.assertEqual(_guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60), 0)
         for bad in ("nope", "-5", ""):
-            with mock.patch.dict(
-                os.environ, {"OPAI_NO_PROGRESS_STEP_BUDGET": bad}
-            ):
-                self.assertEqual(
-                    _guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60), 60
-                )
+            with mock.patch.dict(os.environ, {"OPAI_NO_PROGRESS_STEP_BUDGET": bad}):
+                self.assertEqual(_guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60), 60)
 
 
 if __name__ == "__main__":

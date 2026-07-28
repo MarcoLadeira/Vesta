@@ -189,10 +189,7 @@ class CopilotModelPickerTests(unittest.TestCase):
 class CopilotBuildCommandTests(unittest.TestCase):
     def test_scoped_permission_probe_requires_every_bounded_cli_flag(self):
         full_help = _FakeProc(
-            stdout=(
-                "--available-tools --allow-tool --deny-tool --add-dir "
-                "-C, --cwd"
-            )
+            stdout=("--available-tools --allow-tool --deny-tool --add-dir -C, --cwd")
         )
         legacy_help = _FakeProc(stdout="--allow-all-tools --no-ask-user")
 
@@ -223,9 +220,7 @@ class CopilotBuildCommandTests(unittest.TestCase):
     def test_safe_auto_command_uses_only_workspace_scoped_edit_tools(self):
         runner = _copilot_runner()
         root = Path("/work/repo").resolve()
-        cmd = runner.build_command(
-            "ship it", mode="safe-auto", project_root=root
-        )
+        cmd = runner.build_command("ship it", mode="safe-auto", project_root=root)
         self.assertNotIn("--allow-all-tools", cmd)
         self.assertIn("--available-tools=view,grep,glob,edit", cmd)
         self.assertIn("--allow-tool=edit", cmd)

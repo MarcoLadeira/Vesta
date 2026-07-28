@@ -120,9 +120,7 @@ _SMALLTALK_UNIT = (
     r"good\s*bye|bye+|see\s+(?:ya|you)|gn|later|take\s+care"
     r")"
 )
-_SMALLTALK_SIGNAL = re.compile(
-    rf"^(?:{_SMALLTALK_UNIT}[\s!.,?~]*)+$", re.IGNORECASE
-)
+_SMALLTALK_SIGNAL = re.compile(rf"^(?:{_SMALLTALK_UNIT}[\s!.,?~]*)+$", re.IGNORECASE)
 
 
 def is_smalltalk_request(message: str) -> bool:
@@ -393,9 +391,9 @@ def build_capability_contract(
             lines.append(
                 "- Pushing and PRs are off this turn. If asked to push or open a "
                 "PR, commit locally, then say exactly this: pushing is enabled in "
-                "Settings -> Providers & Connections, in the \"GitHub · pushes & "
-                "pull requests\" card — connect a GitHub token, then click "
-                "\"Enable pushes & PRs\". Both are needed. Never invent a "
+                'Settings -> Providers & Connections, in the "GitHub · pushes & '
+                'pull requests" card — connect a GitHub token, then click '
+                '"Enable pushes & PRs". Both are needed. Never invent a '
                 "different button, page, or setting name, and never claim a "
                 "control exists that you have not been told about here."
             )

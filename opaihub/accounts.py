@@ -671,8 +671,7 @@ def _with_connection_history(
     checked_at = history.get("lastCheckedAt")
     try:
         account_type_is_fresh = (
-            int(time.time() * 1000) - int(checked_at)
-            <= _ACCOUNT_TYPE_HISTORY_TTL_MS
+            int(time.time() * 1000) - int(checked_at) <= _ACCOUNT_TYPE_HISTORY_TTL_MS
         )
     except (TypeError, ValueError):
         account_type_is_fresh = False
@@ -860,9 +859,8 @@ def _copilot_supports_scoped_permissions(
             "--deny-tool",
             "--add-dir",
         )
-        supported = (
-            int(getattr(result, "returncode", 0) or 0) == 0
-            and all(flag in output for flag in required)
+        supported = int(getattr(result, "returncode", 0) or 0) == 0 and all(
+            flag in output for flag in required
         )
     if run is None:
         _CLI_CAPABILITY_CACHE[cli_path] = supported
@@ -1553,7 +1551,7 @@ def _codex_safety_preamble() -> str:
         else (
             "For a git push: tell the user to enable pushes once in Settings -> "
             "Providers & Connections (connect a GitHub token, then click "
-            "\"Enable pushes & PRs\"). After that OPai can push, and will ask "
+            '"Enable pushes & PRs"). After that OPai can push, and will ask '
             "them to approve each push."
         )
     )

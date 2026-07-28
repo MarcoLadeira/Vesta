@@ -128,7 +128,11 @@ def record_provider_outcome(
             entry = {"events": [], "last_used": 0.0}
         events = [e for e in entry.get("events", []) if isinstance(e, dict)]
         events.append(
-            {"ok": bool(ok), "at": ts, "reason": _clean_reason(reason) if not ok else ""}
+            {
+                "ok": bool(ok),
+                "at": ts,
+                "reason": _clean_reason(reason) if not ok else "",
+            }
         )
         entry["events"] = events[-MAX_EVENTS:]
         entry["last_used"] = ts

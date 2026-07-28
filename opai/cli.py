@@ -762,8 +762,8 @@ _HOOK_BLOCK_REASON = (
 _HOOK_BLOCK_REASON_PUSH = (
     "OPai safety gate: pushing is not enabled yet, so OPai will not run this "
     "`git push` ({detail}). Enable it once in Settings -> Providers & "
-    "Connections, in the \"GitHub · pushes & pull requests\" card: connect a "
-    "GitHub token, then click \"Enable pushes & PRs\". After that OPai can push "
+    'Connections, in the "GitHub · pushes & pull requests" card: connect a '
+    'GitHub token, then click "Enable pushes & PRs". After that OPai can push '
     "this branch itself. Or push yourself in a terminal. Do not retry this push "
     "until it is enabled; continue with safe, read-only steps only."
 )
@@ -979,7 +979,11 @@ def cmd_hooks(args: argparse.Namespace) -> int:
             raise ValueError("hook payload is not a JSON object")
     except (json.JSONDecodeError, ValueError):
         # Fail closed: an unparseable payload cannot be proven safe.
-        print(json.dumps(_hook_deny(_HOOK_BLOCK_REASON.format(detail="unparseable hook payload"))))
+        print(
+            json.dumps(
+                _hook_deny(_HOOK_BLOCK_REASON.format(detail="unparseable hook payload"))
+            )
+        )
         return 0
     # Single-line JSON on stdout; exit code stays 0 because the decision is
     # carried in the payload, not the process status.

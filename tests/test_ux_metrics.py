@@ -31,8 +31,14 @@ class UxMetricsTests(unittest.TestCase):
 
     def test_verdict_distribution_and_rates(self):
         self._record(
-            "completed", "completed", "completed", "partial", "cancelled", "timeout",
-            "failed", "blocked",
+            "completed",
+            "completed",
+            "completed",
+            "partial",
+            "cancelled",
+            "timeout",
+            "failed",
+            "blocked",
         )
         metrics = summarize_ux_metrics(self.root)
         self.assertEqual(metrics["runs"], 8)

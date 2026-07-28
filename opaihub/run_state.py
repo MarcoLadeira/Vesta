@@ -158,9 +158,11 @@ def canonical_for(presentation_state: RunState | str) -> RunState:
     silently-swallowed unknown.
     """
 
-    key = str(
-        getattr(presentation_state, "value", presentation_state) or ""
-    ).strip().lower()
+    key = (
+        str(getattr(presentation_state, "value", presentation_state) or "")
+        .strip()
+        .lower()
+    )
     mapped = _PRESENTATION_TO_CANONICAL.get(key)
     return mapped if mapped is not None else RunState(key)
 

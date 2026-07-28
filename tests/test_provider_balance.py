@@ -168,9 +168,7 @@ class SnapshotShapeTests(unittest.TestCase):
     def test_store_file_contains_no_free_text(self):
         """Only numbers, closed slugs, and currency codes may be persisted."""
         with _Root() as root:
-            pb.record_exhausted(
-                root, "kimi", source="HTTP 429 sk-secret-token leaked!"
-            )
+            pb.record_exhausted(root, "kimi", source="HTTP 429 sk-secret-token leaked!")
             raw = (root / ".opaihub" / "health" / "provider_balance.json").read_text(
                 encoding="utf-8"
             )
@@ -180,7 +178,15 @@ class SnapshotShapeTests(unittest.TestCase):
             self.assertEqual(data["kimi"]["exhausted_source"], "observed")
 
     def test_display_names_and_hints_cover_known_providers(self):
-        for provider in ("kimi", "claude", "codex", "copilot", "gemini", "groq", "mistral"):
+        for provider in (
+            "kimi",
+            "claude",
+            "codex",
+            "copilot",
+            "gemini",
+            "groq",
+            "mistral",
+        ):
             self.assertTrue(pb.provider_display_name(provider))
             self.assertIn(provider, pb.RECHARGE_HINTS)
 
@@ -321,9 +327,24 @@ class BalanceOverviewTests(unittest.TestCase):
 class RouterExclusionTests(unittest.TestCase):
     CATALOG = {
         "models": [
-            {"id": "free:kimi:kimi-k2.6", "kind": "free", "provider": "kimi", "available": True},
-            {"id": "free:gemini:g", "kind": "free", "provider": "gemini", "available": True},
-            {"id": "account:claude", "kind": "account", "provider": "claude", "available": True},
+            {
+                "id": "free:kimi:kimi-k2.6",
+                "kind": "free",
+                "provider": "kimi",
+                "available": True,
+            },
+            {
+                "id": "free:gemini:g",
+                "kind": "free",
+                "provider": "gemini",
+                "available": True,
+            },
+            {
+                "id": "account:claude",
+                "kind": "account",
+                "provider": "claude",
+                "available": True,
+            },
         ],
         "connections": [],
     }
@@ -467,11 +488,7 @@ class CatalogRemovalTests(unittest.TestCase):
             pb.record_exhausted(root, "kimi")
             with mock.patch.dict("os.environ", {"MOONSHOT_API_KEY": "k"}):
                 catalog = available_models(root, discover_local=False)
-        kimi = [
-            m
-            for m in catalog["models"]
-            if str(m.get("provider") or "") == "kimi"
-        ]
+        kimi = [m for m in catalog["models"] if str(m.get("provider") or "") == "kimi"]
         self.assertTrue(kimi)
         for model in kimi:
             self.assertFalse(model["available"])
@@ -518,9 +535,7 @@ class SettingsPayloadBalanceTests(unittest.TestCase):
             }
             store = mock.MagicMock()
             store.get.side_effect = lambda p: "key" if p == "kimi" else ""
-            with mock.patch(
-                "opaihub.credentials.CredentialStore", return_value=store
-            ):
+            with mock.patch("opaihub.credentials.CredentialStore", return_value=store):
                 payload = provider_balances_payload(root, models)
         by_provider = {item["provider"]: item for item in payload}
         # Accounts and every free provider are present, deduped.

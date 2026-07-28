@@ -32,9 +32,7 @@ def _tool_use_line(tool_use_id: str, command: str, name: str = "Bash") -> str:
     )
 
 
-def _tool_result_line(
-    tool_use_id: str, content, *, is_error: bool = False
-) -> str:
+def _tool_result_line(tool_use_id: str, content, *, is_error: bool = False) -> str:
     return json.dumps(
         {
             "type": "user",
@@ -56,9 +54,7 @@ class ClaudeToolResultTests(unittest.TestCase):
     def test_successful_result_with_output_keeps_the_row_green(self):
         session = ActivitySession("r1")
         use = session.parse_claude_line(_tool_use_line("t1", "gh issue view 219"))
-        result = session.parse_claude_line(
-            _tool_result_line("t1", "issue body text")
-        )
+        result = session.parse_claude_line(_tool_result_line("t1", "issue body text"))
         self.assertEqual(use["events"][0]["status"], "success")
         # No corrective event: the optimistic row was honest.
         self.assertEqual(result["events"], [])
@@ -153,9 +149,7 @@ class ClaudeDuplicateCommandTests(unittest.TestCase):
 
     def test_non_bash_tools_are_not_duplicate_tracked(self):
         session = ActivitySession("r1")
-        session.parse_claude_line(
-            _tool_use_line("t1", "a.py", name="Read")
-        )
+        session.parse_claude_line(_tool_use_line("t1", "a.py", name="Read"))
         # Read uses file_path input; same target twice is normal navigation.
         line = json.dumps(
             {

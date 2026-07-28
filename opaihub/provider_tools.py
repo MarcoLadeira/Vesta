@@ -845,10 +845,9 @@ class RepositoryToolExecutor:
 
             verdict = classify_command(raw, self.repo_root)
             reason = str(verdict.get("reason") or "")
-            if (
-                str(verdict.get("decision") or "") == "confirm"
-                and not _SHELL_OPERATORS.search(raw)
-            ):
+            if str(
+                verdict.get("decision") or ""
+            ) == "confirm" and not _SHELL_OPERATORS.search(raw):
                 if self._consume_one_shot_grant(raw):
                     return self._run_granted_command(argv, arguments)
                 blocked = _error(

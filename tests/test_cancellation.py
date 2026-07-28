@@ -253,8 +253,9 @@ class CodexStructuredStreamTests(unittest.TestCase):
             allow_cleanup.wait(timeout=1)
 
         started = time.monotonic()
-        with mock.patch.object(accounts, "_popen", return_value=proc), mock.patch.object(
-            accounts, "_terminate", side_effect=slow_terminate
+        with (
+            mock.patch.object(accounts, "_popen", return_value=proc),
+            mock.patch.object(accounts, "_terminate", side_effect=slow_terminate),
         ):
             result = self._runner().stream("x", timeout=0.2)
         elapsed = time.monotonic() - started
@@ -276,7 +277,9 @@ class CodexStructuredStreamTests(unittest.TestCase):
 
         self.assertIsNone(result["returncode"])
 
-    def test_terminal_codex_error_defers_output_file_cleanup_until_after_termination(self):
+    def test_terminal_codex_error_defers_output_file_cleanup_until_after_termination(
+        self,
+    ):
         proc = FakeProc(
             ['{"type":"turn.failed","error":{"message":"provider failed"}}\n'],
             hang=True,
@@ -304,8 +307,12 @@ class CodexStructuredStreamTests(unittest.TestCase):
         try:
             with (
                 mock.patch.object(accounts, "_popen", return_value=proc),
-                mock.patch.object(accounts, "_terminate", side_effect=delayed_terminate),
-                mock.patch.object(accounts.tempfile, "NamedTemporaryFile", return_value=named_file),
+                mock.patch.object(
+                    accounts, "_terminate", side_effect=delayed_terminate
+                ),
+                mock.patch.object(
+                    accounts.tempfile, "NamedTemporaryFile", return_value=named_file
+                ),
                 mock.patch.object(Path, "unlink", new=windows_unlink),
             ):
                 result = self._runner().stream("x", timeout=0.2)

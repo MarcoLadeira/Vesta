@@ -27,11 +27,17 @@ class _Root:
         self._tmp.cleanup()
 
 
-def _completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> "subprocess.CompletedProcess[str]":
-    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+def _completed(
+    returncode: int = 0, stdout: str = "", stderr: str = ""
+) -> "subprocess.CompletedProcess[str]":
+    return subprocess.CompletedProcess(
+        args=[], returncode=returncode, stdout=stdout, stderr=stderr
+    )
 
 
-def _fake_git(responses: dict[tuple, "subprocess.CompletedProcess[str]"], default_ok: bool = True):
+def _fake_git(
+    responses: dict[tuple, "subprocess.CompletedProcess[str]"], default_ok: bool = True
+):
     """Builds a GitRunner that answers from ``responses`` keyed by the args tuple."""
 
     def runner(root: Path, args) -> "subprocess.CompletedProcess[str]":
@@ -42,7 +48,11 @@ def _fake_git(responses: dict[tuple, "subprocess.CompletedProcess[str]"], defaul
         if key == ("rev-parse", "--is-inside-work-tree"):
             return _completed(0, "true\n") if default_ok else _completed(1)
         if key == ("remote", "get-url", "origin"):
-            return _completed(0, "https://github.com/MarcoLadeira/OPai.git\n") if default_ok else _completed(1)
+            return (
+                _completed(0, "https://github.com/MarcoLadeira/OPai.git\n")
+                if default_ok
+                else _completed(1)
+            )
         if key == ("status", "--porcelain"):
             return _completed(0, "")
         return _completed(0, "")
@@ -94,19 +104,28 @@ class CheckForUpdateTests(unittest.TestCase):
 
     def test_offline_fetch_failure_is_soft(self):
         with _Root() as (root, cache_path):
-            git = _fake_git({("fetch", "--quiet", "origin", "main"): _completed(1, "", "network unreachable")})
+            git = _fake_git(
+                {
+                    ("fetch", "--quiet", "origin", "main"): _completed(
+                        1, "", "network unreachable"
+                    )
+                }
+            )
             result = updater.check_for_update(root, git=git, cache_path=cache_path)
             self.assertFalse(result["checked"])
             self.assertIn("offline", result["reason"].lower())
 
     def test_git_timeout_is_soft_not_raised(self):
         with _Root() as (root, cache_path):
+
             def timing_out(root_arg, args):
                 if tuple(args) == ("fetch", "--quiet", "origin", "main"):
                     raise subprocess.TimeoutExpired(cmd="git", timeout=8.0)
                 return _fake_git({})(root_arg, args)
 
-            result = updater.check_for_update(root, git=timing_out, cache_path=cache_path)
+            result = updater.check_for_update(
+                root, git=timing_out, cache_path=cache_path
+            )
             self.assertFalse(result["checked"])
             self.assertIn("timed out", result["reason"].lower())
 
@@ -119,14 +138,22 @@ class CheckForUpdateTests(unittest.TestCase):
                 return _fake_git(
                     {
                         ("fetch", "--quiet", "origin", "main"): _completed(0),
-                        ("rev-list", "--count", "HEAD..origin/main"): _completed(0, "0\n"),
+                        ("rev-list", "--count", "HEAD..origin/main"): _completed(
+                            0, "0\n"
+                        ),
                     }
                 )(root_arg, args)
 
-            first = updater.check_for_update(root, git=counting_git, cache_path=cache_path)
+            first = updater.check_for_update(
+                root, git=counting_git, cache_path=cache_path
+            )
             calls_after_first = calls["n"]
-            second = updater.check_for_update(root, git=counting_git, cache_path=cache_path)
-            self.assertEqual(calls["n"], calls_after_first)  # no new git calls — served from cache
+            second = updater.check_for_update(
+                root, git=counting_git, cache_path=cache_path
+            )
+            self.assertEqual(
+                calls["n"], calls_after_first
+            )  # no new git calls — served from cache
             self.assertEqual(first["checked_at"], second["checked_at"])
 
     def test_force_bypasses_the_cache(self):
@@ -139,14 +166,18 @@ class CheckForUpdateTests(unittest.TestCase):
             )
             first = updater.check_for_update(root, git=git, cache_path=cache_path)
             time.sleep(0.01)
-            second = updater.check_for_update(root, git=git, force=True, cache_path=cache_path)
+            second = updater.check_for_update(
+                root, git=git, force=True, cache_path=cache_path
+            )
             self.assertGreater(second["checked_at"], first["checked_at"])
 
 
 class ApplyUpdateTests(unittest.TestCase):
     def test_refuses_on_dirty_working_tree(self):
         with _Root() as (root, cache_path):
-            git = _fake_git({("status", "--porcelain"): _completed(0, "M some/file.py\n")})
+            git = _fake_git(
+                {("status", "--porcelain"): _completed(0, "M some/file.py\n")}
+            )
             result = updater.apply_update(root, git=git, cache_path=cache_path)
             self.assertFalse(result["ok"])
             self.assertIn("uncommitted", result["error"].lower())
@@ -161,7 +192,9 @@ class ApplyUpdateTests(unittest.TestCase):
     def test_successful_update_fetches_checks_out_and_reinstalls(self):
         with _Root() as (root, cache_path):
             (root / "opai").mkdir()
-            (root / "opai" / "__init__.py").write_text('__version__ = "0.3.0"\n', encoding="utf-8")
+            (root / "opai" / "__init__.py").write_text(
+                '__version__ = "0.3.0"\n', encoding="utf-8"
+            )
             calls: list[tuple] = []
 
             def recording_git(root_arg, args):
@@ -178,7 +211,10 @@ class ApplyUpdateTests(unittest.TestCase):
                 return _completed(0)
 
             result = updater.apply_update(
-                root, git=recording_git, pip_install=fake_pip_install, cache_path=cache_path
+                root,
+                git=recording_git,
+                pip_install=fake_pip_install,
+                cache_path=cache_path,
             )
             self.assertTrue(result["ok"])
             self.assertTrue(result["restart_required"])
@@ -193,7 +229,9 @@ class ApplyUpdateTests(unittest.TestCase):
                 {
                     ("fetch", "--quiet", "origin", "main"): _completed(0),
                     ("checkout", "main"): _completed(0),
-                    ("merge", "--ff-only", "origin/main"): _completed(1, "", "diverged"),
+                    ("merge", "--ff-only", "origin/main"): _completed(
+                        1, "", "diverged"
+                    ),
                 }
             )
             result = updater.apply_update(root, git=git, cache_path=cache_path)
@@ -203,7 +241,9 @@ class ApplyUpdateTests(unittest.TestCase):
     def test_pip_install_failure_reports_code_updated_but_not_ok(self):
         with _Root() as (root, cache_path):
             (root / "opai").mkdir()
-            (root / "opai" / "__init__.py").write_text('__version__ = "0.3.0"\n', encoding="utf-8")
+            (root / "opai" / "__init__.py").write_text(
+                '__version__ = "0.3.0"\n', encoding="utf-8"
+            )
             git = _fake_git(
                 {
                     ("fetch", "--quiet", "origin", "main"): _completed(0),
@@ -212,7 +252,10 @@ class ApplyUpdateTests(unittest.TestCase):
                 }
             )
             result = updater.apply_update(
-                root, git=git, pip_install=lambda r: _completed(1, "", "boom"), cache_path=cache_path
+                root,
+                git=git,
+                pip_install=lambda r: _completed(1, "", "boom"),
+                cache_path=cache_path,
             )
             self.assertFalse(result["ok"])
             self.assertTrue(result["code_updated"])

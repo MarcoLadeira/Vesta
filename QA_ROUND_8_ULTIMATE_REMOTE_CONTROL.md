@@ -1244,16 +1244,39 @@ branch point (`abc5246`):
   plus `local_runner.py` and `tool_loop.py`, which were clean at the branch
   point and became unformatted through its edits.
 
-Only that last group was reformatted. The 43 unrelated files were left alone
-deliberately: reformatting them would produce a large unreviewable diff mixed
-into a consistency PR, and the debt is not this branch's to silently absorb.
-The gate will still report them — that is now the *only* thing it reports, which
-makes the pre-existing debt visible as its own piece of work rather than
-hidden behind this branch's contribution.
+Only that last group was reformatted at first, leaving the 43 unrelated files
+alone so the pre-existing debt would stay visible as its own piece of work.
 
-- Green evidence: every file this branch created or touched passes
-  `ruff format --check`; `ruff check` clean; 131 tests + 36 subtests across the
-  seven affected suites pass after reformatting.
+**That call was then reversed, on new evidence.** Checking `origin/main`
+directly showed **main is itself red on this gate — 50 files**. So the debt is
+not something this branch would expose; it is a condition that has been making
+`ci-selfhosted.yml` fail on main already. A gate that is permanently red is a
+gate everyone learns to ignore, which is worse than the churn of fixing it. The
+remaining files were therefore formatted too:
+
+- `ruff format` is deterministic and semantics-preserving, so the change carries
+  no behavioural risk — 50 files, +543/−255, entirely whitespace and wrapping.
+- It is a single isolated commit, so a reviewer can skip it as "formatting only"
+  rather than having it interleaved with logic.
+- The gate now goes green for the first time, which makes it usable as a merge
+  criterion for every future PR instead of noise.
+
+- Green evidence: `ruff format --check` reports **381 tracked files already
+  formatted**, `ruff check` on the tracked tree passes, and the full Python
+  suite passes after reformatting.
+
+**One unresolved observation, recorded rather than glossed.** The first
+post-format full run hung: output stopped at 9% and the process's CPU time was
+byte-identical across a 20-second sample (`UserModeTime` 66562500 twice) with a
+flat 110 MB working set, so it was genuinely blocked rather than slow. It was
+killed and the suite re-run verbosely; the second run progressed past the same
+region and completed. The hang therefore **did not reproduce** and cannot be
+attributed to a specific test on this evidence. `ruff format` is AST-preserving,
+so the reformatting is not a plausible cause. Noted here because "it passed the
+second time" is not the same as "it was fine" — if it recurs, the verbose-run
+technique (`PYTHONUNBUFFERED=1 pytest -v` redirected straight to a file, no
+pipe) names the blocking test, and `wmic process … get UserModeTime` sampled
+twice distinguishes a hang from slowness.
 
 ## Session notes
 

@@ -662,7 +662,13 @@ class FreeAPIRunnerTests(unittest.TestCase):
         from opaihub.local_runner import _http_json_cancellable
 
         body = json.dumps(
-            {"error": {"code": 401, "message": "API key not valid.", "status": "UNAUTHENTICATED"}}
+            {
+                "error": {
+                    "code": 401,
+                    "message": "API key not valid.",
+                    "status": "UNAUTHENTICATED",
+                }
+            }
         ).encode("utf-8")
         fake_conn = self._fake_https_connection(401, body)
         with mock.patch("http.client.HTTPSConnection", fake_conn):
@@ -679,7 +685,12 @@ class FreeAPIRunnerTests(unittest.TestCase):
         import threading
 
         body = json.dumps(
-            {"error": {"message": "Resource has been exhausted (quota).", "status": "RESOURCE_EXHAUSTED"}}
+            {
+                "error": {
+                    "message": "Resource has been exhausted (quota).",
+                    "status": "RESOURCE_EXHAUSTED",
+                }
+            }
         ).encode("utf-8")
         fake_conn = self._fake_https_connection(429, body)
         with mock.patch("http.client.HTTPSConnection", fake_conn):
@@ -694,7 +705,9 @@ class FreeAPIRunnerTests(unittest.TestCase):
     def test_transport_raises_model_not_found_on_404(self):
         from opaihub.local_runner import _http_json_cancellable
 
-        body = json.dumps({"error": {"message": "models/x is not found."}}).encode("utf-8")
+        body = json.dumps({"error": {"message": "models/x is not found."}}).encode(
+            "utf-8"
+        )
         fake_conn = self._fake_https_connection(404, body)
         with mock.patch("http.client.HTTPSConnection", fake_conn):
             with self.assertRaises(RuntimeError) as ctx:
@@ -761,7 +774,9 @@ class FreeAPIRunnerTests(unittest.TestCase):
             "gemini-3.1-flash-lite",
             "test-key",
         )
-        empty_response = {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]}
+        empty_response = {
+            "choices": [{"message": {"content": ""}, "finish_reason": "stop"}]
+        }
         with mock.patch(
             "opaihub.local_runner._http_json_cancellable",
             return_value=empty_response,

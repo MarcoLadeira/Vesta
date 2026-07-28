@@ -173,7 +173,9 @@ def set_budget(
     if monthly_usd is not None:
         caps["monthly_usd_limit"] = _validate_cap(monthly_usd, name="monthly_usd")
     if per_task_usd is not None:
-        caps["per_task_hard_limit_usd"] = _validate_cap(per_task_usd, name="per_task_usd")
+        caps["per_task_hard_limit_usd"] = _validate_cap(
+            per_task_usd, name="per_task_usd"
+        )
     if panic is not None:
         caps["panic"] = bool(panic)
     path = budget_path(root)
@@ -266,7 +268,10 @@ def budget_gate(
     # so a paid/cloud route must fail closed instead of proceeding as if no
     # budget were set. A recovered backup is used transparently by load_budget.
     if budget_config["state"] == "unreadable" and not is_local:
-        escalate("deny", "Budget state unreadable — failing closed: " + budget_config["reason"])
+        escalate(
+            "deny",
+            "Budget state unreadable — failing closed: " + budget_config["reason"],
+        )
 
     # 0. A degraded cost model (#471): the paid estimate can't be trusted, so a
     # paid/cloud route must never be silently allowed on a possibly-understated
