@@ -1400,9 +1400,24 @@ everything while a run is stopping. The regression test was strengthened
 accordingly: it now proves a late reply is ignored *both* during teardown and
 after it.
 
-Seven existing tests encoded the old instant-cancelled contract and were updated
-to drive the confirmation — the same treatment the run-state tests got, and for
-the same reason: the epic says that contract was wrong.
+**A defect the full suite caught in the first attempt.** Holding the busy state
+until teardown was confirmed failed `REGRESSION: Stop never leaves the interface
+busy` and `Send changes to Stop immediately` — and those tests were right. Making
+the user wait on a teardown they play no part in is exactly the kind of
+restriction this work is supposed to remove. `setBusy(false)` now happens the
+moment Stop is pressed, so control returns instantly; the honesty lives in the
+run state and the status strip, not in a frozen interface.
+
+That change created a second problem worth naming: since the user can start a
+new run while the old teardown is pending, a late confirmation could clobber it.
+`finishCancel` therefore carries the cancelled request id explicitly and touches
+nothing unless the id still matches.
+
+Twelve existing tests encoded the old instant-cancelled contract and were
+updated to drive the confirmation — the same treatment the run-state tests got,
+and for the same reason: the epic says that contract was wrong. Three of them
+(`calm-scenarios`) are stale-guard tests, so they now also prove the guard
+survives the two-phase change.
 
 One incidental fix: `test_run_state_parity.py` scraped state names with a naive
 `(\w+):` regex that also matched ordinary prose in comments ("evidence that

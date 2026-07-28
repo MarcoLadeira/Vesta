@@ -1912,14 +1912,20 @@ function updateGenStage(sel) {
 // then wait for the backend to confirm the worker actually returned.
 function stop() {
   if (!state.currentRequest || state.cancelling) return;
-  state.cancelling = state.currentRequest;
-  bridge.cancel(state.currentRequest);
+  const cancelling = state.currentRequest;
+  state.cancelling = cancelling;
+  bridge.cancel(cancelling);
   state.message = OPaiMessageState.transition(state.message, "cancel_requested");
+  stopTimer();
   stripFinalize("cancel_requested", {});
-  updateInspectorLive("Stopping…");
-  // Bounded: teardown that never reports back must not leave the UI waiting
-  // forever, but it must not be reported as a clean stop either.
-  state.cancelTimer = setTimeout(() => finishCancel("unconfirmed"), CANCEL_TEARDOWN_MS);
+  // Control returns to the user at once. Waiting for teardown before releasing
+  // the composer would make Stop feel broken and would limit interaction for
+  // something the user has no part in — the honesty belongs in the run state
+  // and the strip, not in a frozen interface.
+  setBusy(false);
+  // Bounded: teardown that never reports back must not leave the run in limbo,
+  // but it must not be reported as a clean stop either.
+  state.cancelTimer = setTimeout(() => finishCancel(cancelling, "unconfirmed"), CANCEL_TEARDOWN_MS);
 }
 
 // How long to wait for teardown before saying so honestly.
@@ -1929,24 +1935,29 @@ function onCancelReady(json) {
   let d = {};
   try { d = JSON.parse(json || "{}"); } catch (_e) { return; }
   if (!state.cancelling || d.requestId !== state.cancelling) return;
-  finishCancel(d.teardown === "complete" || d.teardown === "not_running" ? "complete" : "unconfirmed");
+  const proven = d.teardown === "complete" || d.teardown === "not_running";
+  finishCancel(state.cancelling, proven ? "complete" : "unconfirmed");
 }
 
-function finishCancel(teardown) {
-  if (!state.cancelling) return;
+// `cancelledId` is carried explicitly because the user regains control the
+// moment Stop is pressed: by the time teardown reports back they may already
+// have started another run, and this must never clobber it.
+function finishCancel(cancelledId, teardown) {
+  if (state.cancelling !== cancelledId) return;
   if (state.cancelTimer) { clearTimeout(state.cancelTimer); state.cancelTimer = null; }
   state.cancelling = null;
-  state.currentRequest = null; // now safe: the work is proven stopped
+  if (state.currentRequest === cancelledId) state.currentRequest = null;
+  // Only finalize the message this cancel belongs to. A newer request owns the
+  // composer now and its own reply will finalize it.
+  if (!state.message || state.message.requestId !== cancelledId) return;
   state.message = OPaiMessageState.transition(state.message, "cancelled");
   state.store.cancelRunning(); renderTimeline();
-  stopTimer();
   finalize("cancelled", {
     answer: state.streamedText || "",
     // Reported, not hidden: an unconfirmed teardown means OPai could not prove
     // the provider call stopped, and the user may still be paying for it.
     cancel_teardown: teardown,
   });
-  setBusy(false);
   flushQueued();
 }
 function retry() {
