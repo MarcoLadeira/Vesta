@@ -96,11 +96,18 @@ def _legal_transitions() -> dict[RunState, frozenset[RunState]]:
         allowed = forward | set(TERMINAL_STATES)
         # Stop can be pressed during any live phase, verification included.
         allowed.add(RunState.CANCEL_REQUESTED)
+        # The repair loop. #295's lifecycle writes it `verifying ↔ repairing?`:
+        # verification finds a problem, work resumes to fix it, and the evidence
+        # is judged again. The engine already does exactly this
+        # (`reviewing_diff -> implementing/testing` in agent_runtime._FORWARD),
+        # so forbidding it here made the canonical machine describe a lifecycle
+        # the product does not have. Caught by test_runtime_phase_parity's
+        # graph-projection check.
+        if state is RunState.VERIFYING:
+            allowed.add(RunState.RUNNING)
         # Asking the user is only legal *before* verification. Verification
-        # judges evidence that already exists; it has no question to ask, and
-        # the pre-existing invariant that verifying leads only to a terminal is
-        # worth keeping. A future `repairing` state is what would change this,
-        # and it should have to change it deliberately.
+        # produces a verdict on evidence that already exists — it can send the
+        # run back to work (above), but it has no question of its own to ask.
         if state is not RunState.VERIFYING:
             allowed.add(RunState.AWAITING_INPUT)
         table[state] = frozenset(allowed)
@@ -201,6 +208,63 @@ _PRESENTATION_TO_CANONICAL = {
     "awaiting_input": RunState.AWAITING_INPUT,
     "cancel_requested": RunState.CANCEL_REQUESTED,
 }
+
+# `opaihub.agent_runtime.RuntimePhase` is the engine's *working* vocabulary: a
+# finer, workflow-shaped account of what a run is doing (planning, testing,
+# preparing a PR). It is a legitimate refinement — but #295 allows exactly one
+# lifecycle, so every phase must declare which canonical state it refines.
+#
+# Fourteen of the eighteen phases had no canonical mapping at all, which is the
+# semantic drift Phase 0 of the epic exists to freeze: two engine-side
+# vocabularies, one canonical but unused for live transitions, one used but
+# parallel. Keyed by value rather than by the enum so this module stays
+# import-free; `test_runtime_phase_parity` asserts the mapping is total, so a
+# new phase cannot be added without deciding what it means here.
+_RUNTIME_PHASE_TO_CANONICAL: dict[str, RunState] = {
+    # Nothing has started yet.
+    "idle": RunState.QUEUED,
+    # Working out what to do and what it applies to — all before execution.
+    "intent_resolved": RunState.PREPARING,
+    "repo_resolved": RunState.PREPARING,
+    "issue_selected": RunState.PREPARING,
+    "context_gathering": RunState.PREPARING,
+    "planning": RunState.PREPARING,
+    # Stopped to ask. The canonical state this refines is the one added for
+    # exactly this case (#295): waiting on the user is not an ending.
+    "awaiting_approval": RunState.AWAITING_INPUT,
+    # Doing the work. `repairing` is a second attempt at it, not a phase of
+    # judging evidence, so it refines RUNNING rather than VERIFYING.
+    "implementing": RunState.RUNNING,
+    "testing": RunState.RUNNING,
+    "repairing": RunState.RUNNING,
+    # Judging what the work produced.
+    "reviewing_diff": RunState.VERIFYING,
+    # Delivery is still active work. #295 reserves a `delivering` state for it,
+    # but nothing emits one yet and a state with no producer is decoration —
+    # these refine RUNNING until that workstream lands.
+    "preparing_pr": RunState.RUNNING,
+    "pr_created": RunState.RUNNING,
+    "merge_check_running": RunState.RUNNING,
+    "merged": RunState.RUNNING,
+    # Terminals, which already share their words with the canonical set.
+    "blocked": RunState.BLOCKED,
+    "failed": RunState.FAILED,
+    "completed": RunState.COMPLETED,
+}
+
+
+def canonical_for_runtime_phase(phase: Any) -> RunState:
+    """The canonical run state a ``RuntimePhase`` refines.
+
+    Raises ``ValueError`` for a phase with no declared mapping — an unmapped
+    phase is a second lifecycle in disguise, never a silently-tolerated unknown.
+    """
+    key = str(getattr(phase, "value", phase) or "").strip().lower()
+    mapped = _RUNTIME_PHASE_TO_CANONICAL.get(key)
+    if mapped is None:
+        raise ValueError(f"runtime phase {key!r} has no canonical run state")
+    return mapped
+
 
 # Pipeline statuses that hand control back to the user *and can be resumed by
 # their answer*. Each of these is re-sent as the same task plus one added

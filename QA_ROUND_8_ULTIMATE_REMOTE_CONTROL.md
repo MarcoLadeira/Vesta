@@ -1433,6 +1433,66 @@ comments first.
 supervisor/lease work from Workstream A. This slice makes the acknowledgement
 honest; it does not yet prove zero orphan processes.
 
+### Issue #295 Workstream A — the engine was running two lifecycles
+
+Phase 0 of the epic is "instrument and freeze semantic drift", and its
+transition rule says there must be one machine-enforced lifecycle: *"No adapter,
+UI component or provider may invent a parallel vocabulary."*
+
+**Measured drift.** OPai had two engine-side lifecycles:
+
+- `RunState` (`run_state.py`) — canonical per #379, twelve states. Its
+  `transition()` had **no production caller at all**; only `run_state_for_verdict`
+  was imported. The canonical machine described a lifecycle but enforced nothing
+  live.
+- `RuntimePhase` (`agent_runtime.py`) — eighteen phases, actually driven by the
+  pipeline. And `AgentRuntime._move` already does what Workstream A asks for:
+  it validates every move, **raises** on an illegal one, and records a sequenced
+  `RuntimeEvent` history. The guard and the history existed — in the parallel
+  vocabulary.
+
+**Fourteen of the eighteen phases had no canonical mapping.** Both vocabularies
+even contain `blocked`/`failed`/`completed`, so the same word was defined twice
+with nothing binding the definitions together.
+
+**The fix** binds them: `_RUNTIME_PHASE_TO_CANONICAL` declares, for every phase,
+which canonical state it refines, and `canonical_for_runtime_phase()` raises on
+anything unmapped. A refinement is legitimate; an *unmapped* phase is a second
+lifecycle in disguise. `tests/test_runtime_phase_parity.py` asserts the mapping
+is total, so a new phase cannot be added without deciding what it means.
+
+Deliberate mapping calls: `repairing` refines `RUNNING` (a second attempt at the
+work, not a phase of judging evidence); the four delivery phases
+(`preparing_pr` … `merged`) refine `RUNNING` because #295 reserves a
+`delivering` state that nothing emits yet, and a state with no producer is
+decoration.
+
+**The strongest test found a real contradiction — and I was the one who was
+wrong.** `test_no_legal_phase_move_implies_an_illegal_canonical_transition`
+projects every edge of the engine's graph onto the canonical graph. It failed:
+the engine allows `reviewing_diff → implementing/testing` (the repair loop), but
+the canonical machine forbade `verifying → running` — a restriction I had
+deliberately preserved in the earlier slice because no producer existed for the
+reverse edge.
+
+The epic's own lifecycle settles it: `verifying ↔ repairing?`, bidirectional.
+The canonical machine was describing a lifecycle the product does not have, so
+`VERIFYING → RUNNING` is now legal, and the two earlier assertions that encoded
+the stricter rule were updated to state the repair loop explicitly.
+
+That is the whole point of the projection test: without it the "one lifecycle"
+claim would have been words, and the engine would have kept legally walking a
+path the canonical model forbade.
+
+- Green evidence: `tests/test_runtime_phase_parity.py` 8/8; state suites
+  (`run_state`, `run_state_parity`, `awaiting_input_state`) 49 tests + 47
+  subtests; state/runtime/pipeline sweep 167 passed with 47 subtests; Ruff and
+  format clean.
+
+**Still open in Workstream A:** supervisor leases and duplicate-active-run
+prevention; separate task/run/attempt/step identities. Both need the persistence
+contract from #517 to be meaningful, and neither is faked here.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
