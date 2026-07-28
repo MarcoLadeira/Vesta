@@ -465,6 +465,22 @@ class ProviderProtocolTests(unittest.TestCase):
         self.assertFalse(readiness.healthy)
         self.assertEqual(readiness.degraded_reason, "protocol_version_incompatible")
 
+    def test_optional_negotiation_versions_require_exact_non_bool_integers(self):
+        request = AdapterRequest("codex", "request-1", ("chat",))
+        capabilities = _catalog_capabilities("codex")
+        for parameter in ("protocol_version", "provider_protocol_version"):
+            for version in (True, 1.0):
+                with self.subTest(parameter=parameter, version=version):
+                    readiness = negotiate_capabilities(
+                        request,
+                        capabilities,
+                        **{parameter: version},
+                    )
+                    self.assertFalse(readiness.healthy)
+                    self.assertEqual(
+                        readiness.degraded_reason, "protocol_version_incompatible"
+                    )
+
     def test_only_an_exact_non_bool_integer_protocol_version_is_compatible(self):
         for version in (0, 2, -1, 1.0, True, "1", None):
             with self.subTest(version=version):
@@ -488,6 +504,12 @@ class ProviderProtocolTests(unittest.TestCase):
         self.assertEqual(constructed.degraded_reason, "provider_not_in_catalog")
         with self.assertRaises(ProtocolViolation):
             ProviderReadiness(provider_id="not-a-catalog-provider", healthy=True)
+        for version in (True, 1.0, "1", PROTOCOL_VERSION + 1):
+            with self.subTest(version=version), self.assertRaises(ProtocolViolation):
+                ProviderReadiness(
+                    provider_id="not-a-catalog-provider",
+                    protocol_version=version,
+                )
 
     def test_stream_and_payload_resource_limits_fail_closed(self):
         events = [_event(1, 0.0, EventKind.STARTED)]

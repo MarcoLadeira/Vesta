@@ -187,6 +187,16 @@ def _positive_seconds(value: Any, *, field_name: str) -> float:
     return seconds
 
 
+def _is_exact_protocol_version(value: Any, expected: int = PROTOCOL_VERSION) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value == expected
+
+
+def _require_protocol_version(value: Any, *, field_name: str) -> int:
+    if not _is_exact_protocol_version(value):
+        _fail(f"{field_name} must be the exact non-bool integer {PROTOCOL_VERSION}")
+    return value
+
+
 def _normalised_capability(value: Any) -> str:
     if not isinstance(value, str):
         _fail("capability names must be strings")
@@ -497,6 +507,14 @@ class ProviderReadiness:
     def __post_init__(self) -> None:
         provider_id = _provider_id(self.provider_id)
         object.__setattr__(self, "provider_id", provider_id)
+        object.__setattr__(
+            self,
+            "protocol_version",
+            _require_protocol_version(
+                self.protocol_version,
+                field_name="protocol_version",
+            ),
+        )
         if not _is_catalog_provider(provider_id):
             if any(
                 value is not None
@@ -541,12 +559,6 @@ class ProviderReadiness:
             _fail("degraded_reason and next_action must be supplied together")
         if self.healthy is True and reason is not None:
             _fail("healthy readiness cannot carry a degraded reason")
-        if (
-            isinstance(self.protocol_version, bool)
-            or not isinstance(self.protocol_version, int)
-            or self.protocol_version < 1
-        ):
-            _fail("protocol_version must be a positive integer")
 
     @property
     def authorized(self) -> bool | None:
@@ -708,12 +720,9 @@ def protocol_readiness(provider_id: str, protocol_version: Any) -> ProviderReadi
 
     normalized_provider_id = _provider_id(provider_id)
     if not _is_catalog_provider(normalized_provider_id):
+        _require_protocol_version(protocol_version, field_name="protocol_version")
         return ProviderReadiness(provider_id=normalized_provider_id)
-    if (
-        isinstance(protocol_version, int)
-        and not isinstance(protocol_version, bool)
-        and protocol_version == PROTOCOL_VERSION
-    ):
+    if _is_exact_protocol_version(protocol_version):
         return ProviderReadiness(provider_id=normalized_provider_id)
     return ProviderReadiness(
         provider_id=normalized_provider_id,
@@ -746,13 +755,14 @@ def negotiate_capabilities(
         _fail("supply only one provider protocol version")
     catalog = provider_record(request.provider_id)
     catalog_version = catalog["protocol_version"]
-    if request.protocol_version != catalog_version:
+    if not _is_exact_protocol_version(request.protocol_version, catalog_version):
         return protocol_readiness(request.provider_id, request.protocol_version)
-    if protocol_version is not None and protocol_version != catalog_version:
+    if protocol_version is not None and not _is_exact_protocol_version(
+        protocol_version, catalog_version
+    ):
         return protocol_readiness(request.provider_id, protocol_version)
-    if (
-        provider_protocol_version is not None
-        and provider_protocol_version != catalog_version
+    if provider_protocol_version is not None and not _is_exact_protocol_version(
+        provider_protocol_version, catalog_version
     ):
         return protocol_readiness(request.provider_id, provider_protocol_version)
     readiness = protocol_readiness(request.provider_id, catalog_version)
