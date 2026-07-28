@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .loader import load_named_registry, registry_items
+from .loader import hub_root, load_named_registry, registry_items
 
 
 REQUIRED = {
@@ -128,6 +128,14 @@ def validate_registry(name: str, project_root: Path) -> dict[str, Any]:
 def validate_all(project_root: Path) -> dict[str, Any]:
     names = ["tools", "agents", "workflows", "mcp_servers", "models"]
     results = [validate_registry(name, project_root) for name in names]
+    # Skills validate differently from the other registries: each entry owns a
+    # SKILL.md whose frontmatter decides whether a host can select it at all, so
+    # the check spans the registry *and* the file. Joining the existing gate here
+    # (rather than as a new CI step) keeps it free — this repository runs hosted
+    # CI manually to stay inside its Actions budget.
+    from .skill_validation import validate_skills
+
+    results.append(validate_skills(hub_root(project_root)))
     return {
         "ok": all(result["ok"] for result in results),
         "registries": results,

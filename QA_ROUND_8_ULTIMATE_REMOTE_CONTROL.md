@@ -1170,6 +1170,61 @@ dead-end offer (`_DEAD_END_STATUSES` disabled), the tool-loop resume
 permissions — 5 failures), and the project-instruction wiring (reverted to the
 bare system prompt).
 
+### QAR8-36 — skill catalogue validation (from the repository audit report)
+
+An external audit report was supplied for implementation. Its premises were
+checked against the repository before acting, and **most of them are wrong** —
+the audit could not fetch the repo or PR and inferred the product from two
+cached third-party pages:
+
+| Audit claim | Verified reality |
+| --- | --- |
+| Repo/PR 404 ⇒ "governance anti-pattern", "restore public access" | The repo is **private** (`gh api … .private = true`). A 404 to anonymous fetch is correct behaviour, not an outage. |
+| README / LICENCE / CONTRIBUTING / SECURITY / CODEOWNERS "unverified ⇒ operationally missing" | All present. `README.md` is 25 KB; `LICENSE` is MIT; `.github/CODEOWNERS` exists. |
+| "CI/CD unverified ⇒ not trustworthy as a merge gate" | Four workflows exist. Hosted CI is manual **by design** (documented in `ci.yml`: Actions minutes are capped on a private repo); the day-to-day gate is `ci-selfhosted.yml` running `scripts/ci_local.py`. |
+| "OPai is a skills repository / workflow library, not an AI IDE" | `hub/skills/` is 36 files totalling 10 KB inside a 10.8 MB product: desktop GUI, 109-module routing engine, CLI, provider adapters, 2674 Python tests, 422 browser tests. |
+| "Reposition away from competing with Cursor" | Founded on the above misidentification. Not actioned. |
+
+One recommendation survived scrutiny, and it was correct: **skills had no
+validation.** `opaihub validate` gated five registries (tools, agents,
+workflows, mcp_servers, models) and skipped skills entirely, and `opaihub skills
+doctor` checked only that each file exists. Two failure shapes were unguarded:
+
+- **Silent deactivation.** A host selects a skill from its frontmatter `name`
+  and `description`. If `name` drifts from the registry `id`, the skill still
+  exists, still passes `skills doctor`, and simply never activates again.
+- **Undeclared mutation.** A skill in a state-changing category needs to say
+  where it stops. `gitops-pr` did this well ("Never push, merge, delete
+  branches, or deploy without explicit confirmation") and `tool-installer` did
+  too. Nothing required the next one to.
+
+`opaihub/skill_validation.py` enforces registry↔disk consistency (dangling
+entries and unregistered directories), unique kebab-case ids, required registry
+fields including OPai's `cost_policy`, frontmatter presence, `name`/`id` match,
+description length bounds, body substance, and a stated boundary for the eight
+state-changing categories. It joins the existing `opaihub validate` gate rather
+than adding a CI step, so it costs nothing against the repo's Actions budget.
+
+Run against the shipped catalogue it found **four real gaps** — skills in
+mutating categories with no stated limit:
+
+- `ci-fixer` — now: *"Never push, merge, re-run a deploy job, or edit workflow
+  permissions and secrets without explicit confirmation."* Independent
+  convergence worth noting: this is the one skill the external ClaudSkills
+  catalogue graded **B** and flagged for filesystem/persistence risk, reached
+  here from a completely different direction.
+- `browser-automation` — now treats live sites as read-only: never sign in,
+  submit a form, or complete a purchase without explicit confirmation.
+- `refactor-codemod` — now requires a dry-run first and a revertible diff.
+- `tool-discovery` — now states it is read-only and installs nothing
+  (`tool-installer` owns that), which was already true but unstated.
+
+- Red evidence: stripping the four boundary sentences fails
+  `test_the_real_skill_catalogue_is_valid` with all four named.
+- Green evidence: `tests/test_skill_validation.py` 21 tests + 13 subtests;
+  `opaihub validate` reports `skills count=36 ok=True`; validator/registry sweep
+  146 passed with 50 subtests; Ruff clean.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
