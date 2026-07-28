@@ -88,6 +88,7 @@ test("Auto fallback names the model and only starts cloud after confirmation", a
     cloudStarted: false,
   }), first.requestId);
   await expect(page.getByText("Continue with Groq · GPT-OSS 120B")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
   await page.getByRole("button", { name: "Confirm Groq · GPT-OSS 120B" }).click();
   const second = await page.evaluate(() => window.__mock.lastRequest);
   expect(second.model).toBe("free:groq:openai/gpt-oss-120b");

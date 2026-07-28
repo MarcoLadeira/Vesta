@@ -216,7 +216,20 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
             variant="primary",
         ),
         _action(
-            "benchmark_gate", "Run benchmark gate", icon="play", variant="secondary"
+            "benchmark_gate" if benchmark.get("has_run") else "benchmark_run",
+            "Check latest benchmark gate"
+            if benchmark.get("has_run")
+            else "Run local benchmark",
+            icon="play",
+            variant="secondary",
+            mutates=not benchmark.get("has_run"),
+            risk="config" if not benchmark.get("has_run") else "read",
+            confirmation=(
+                "Run the offline max benchmark and write privacy-safe evidence "
+                "under .opaihub. No cloud model is contacted."
+                if not benchmark.get("has_run")
+                else ""
+            ),
         ),
     ]
     home = {
@@ -445,6 +458,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         ],
     }
 
+    benchmark_has_run = bool(benchmark.get("has_run"))
     benchmark_section = {
         "id": "benchmark",
         "label": "Benchmark",
@@ -453,28 +467,38 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "subtitle": "Local proof that OPai is cheaper, smaller, and safer than normal AI usage.",
         "hero": {
             "headline": str(int(float(benchmark.get("effectiveness_index") or 0)))
-            if benchmark.get("has_run")
+            if benchmark_has_run
             else "Not run yet",
             "caption": "OPai effectiveness index"
-            if benchmark.get("has_run")
+            if benchmark_has_run
             else benchmark.get("next_command", ""),
-            "severity": "success" if benchmark.get("has_run") else "warning",
+            "severity": "success" if benchmark_has_run else "warning",
         },
         "kpis": [
             {
                 "label": "Context reduction",
-                "value": f"{float(benchmark.get('context_reduction_ratio') or 50):.0f}x",
-                "severity": "success",
+                "value": (
+                    f"{float(benchmark.get('context_reduction_ratio') or 0):.0f}x"
+                    if benchmark_has_run
+                    else "—"
+                ),
+                "severity": "success" if benchmark_has_run else "neutral",
             },
             {
                 "label": "Paid calls avoided",
-                "value": _num(benchmark.get("paid_calls_avoided") or 16),
-                "severity": "success",
+                "value": (
+                    _num(benchmark.get("paid_calls_avoided"))
+                    if benchmark_has_run
+                    else "—"
+                ),
+                "severity": "success" if benchmark_has_run else "neutral",
             },
             {
                 "label": "Risk blocks",
-                "value": _num(benchmark.get("risk_blocks") or 0),
-                "severity": "warning",
+                "value": (
+                    _num(benchmark.get("risk_blocks")) if benchmark_has_run else "—"
+                ),
+                "severity": "warning" if benchmark_has_run else "neutral",
             },
         ],
         "cards": [
@@ -487,7 +511,22 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         ],
         "actions": [
             _action(
-                "benchmark_gate", "Run benchmark gate", icon="play", variant="primary"
+                "benchmark_run",
+                "Run local benchmark",
+                icon="play",
+                variant="primary",
+                mutates=True,
+                risk="config",
+                confirmation=(
+                    "Run the offline max benchmark and write privacy-safe evidence "
+                    "under .opaihub. No cloud model is contacted."
+                ),
+            ),
+            _action(
+                "benchmark_gate",
+                "Check latest gate",
+                icon="activity",
+                variant="secondary",
             ),
         ],
     }
@@ -561,7 +600,12 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "subtitle": "Repeatable, approval-aware workflows for real development risk.",
         "cards": workflow_cards,
         "actions": [
-            _action("copy_workflow_command", "Copy selected command", icon="copy"),
+            _action(
+                "copy_workflow_command",
+                "Copy workflow list command",
+                icon="copy",
+                command="opai guard list",
+            ),
         ],
     }
 

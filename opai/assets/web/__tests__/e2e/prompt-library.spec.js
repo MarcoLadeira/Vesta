@@ -32,6 +32,8 @@ test("using a prompt fills the composer and updates task focus", async ({ page }
   await card.getByRole("button", { name: "Use prompt" }).click();
   await expect(page.locator("#view-chat")).toBeVisible();
   await expect(page.locator("#input")).toHaveValue("Audit <area> for security risks. Do not modify files.");
+  await expect(page.locator("#send")).toBeEnabled();
+  await expect(page.locator("#composerReason")).toBeEmpty();
   expect(await page.evaluate(() => window.__mock.savedPrefs)).toContainEqual(["default_task_mode", "review"]);
 });
 

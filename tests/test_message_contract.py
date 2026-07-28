@@ -236,9 +236,7 @@ class LocalRouteContractTests(_Base):
         # escalate, so a local "needs a paid tier" result guides the user to
         # connect one. (Pin an empty catalog so the test is independent of any
         # account connected on the host running it.)
-        with mock.patch(
-            "opai.app_state.available_models", return_value={"models": []}
-        ):
+        with mock.patch("opai.app_state.available_models", return_value={"models": []}):
             res = self._run({"status": "confirmation_required", "reason": "cloud tier"})
         self.assertEqual(res["status"], "needs_confirmation")
         self.assertClean(res["answer"])

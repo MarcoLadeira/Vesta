@@ -163,6 +163,7 @@ def connect_github(token: str, *, http: HttpFn = _default_http) -> dict[str, Any
         # No secure keychain on this machine: never fall back to plaintext.
         # The user can still export GITHUB_TOKEN in their shell profile.
         stored = "env-only"
+
     def _apply(config: dict[str, Any]) -> None:
         config["login"] = login
         config.setdefault("allow_push", False)
@@ -188,6 +189,7 @@ def disconnect_github() -> dict[str, Any]:
         removed = bool(result.get("deleted"))
     except CredentialStoreUnavailable:
         removed = False
+
     def _apply(config: dict[str, Any]) -> None:
         config.pop("login", None)
         config["allow_push"] = False

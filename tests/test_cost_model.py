@@ -26,9 +26,7 @@ class CostModelDegradationTests(unittest.TestCase):
         # The cost model lives in a global package hub; point it at an isolated
         # temp hub so a test never reads or writes the real shipped file.
         self._hub = Path(self._tmp.name) / "hub"
-        self._patch = mock.patch(
-            "opaihub.cost_model.hub_root", return_value=self._hub
-        )
+        self._patch = mock.patch("opaihub.cost_model.hub_root", return_value=self._hub)
         self._patch.start()
 
     def tearDown(self) -> None:

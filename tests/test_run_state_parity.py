@@ -19,11 +19,7 @@ from _helpers import FakeLocalRunner, make_repo
 from opaihub.run_state import TERMINAL_STATES, RunState, canonical_for, is_terminal
 
 _MESSAGE_STATE_JS = (
-    Path(__file__).resolve().parents[1]
-    / "opai"
-    / "assets"
-    / "web"
-    / "message-state.js"
+    Path(__file__).resolve().parents[1] / "opai" / "assets" / "web" / "message-state.js"
 )
 
 

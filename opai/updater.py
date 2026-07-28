@@ -147,7 +147,10 @@ def check_for_update(
     if not force:
         cached = _load_cache(cache_path)
         checked_at = cached.get("checked_at")
-        if isinstance(checked_at, (int, float)) and time.time() - checked_at < CHECK_TTL_SECONDS:
+        if (
+            isinstance(checked_at, (int, float))
+            and time.time() - checked_at < CHECK_TTL_SECONDS
+        ):
             return cached
 
     root = Path(project_root)
@@ -174,7 +177,9 @@ def check_for_update(
         _save_cache(cache_path, result)
         return result
     if fetched.returncode != 0:
-        result = _not_checked("Could not reach the update server — you may be offline.", branch)
+        result = _not_checked(
+            "Could not reach the update server — you may be offline.", branch
+        )
         _save_cache(cache_path, result)
         return result
 
@@ -188,7 +193,11 @@ def check_for_update(
     }
 
     count = git(root, ["rev-list", "--count", f"HEAD..{remote_ref}"])
-    behind = int(count.stdout.strip()) if count.returncode == 0 and count.stdout.strip().isdigit() else 0
+    behind = (
+        int(count.stdout.strip())
+        if count.returncode == 0 and count.stdout.strip().isdigit()
+        else 0
+    )
     result["commits_behind"] = behind
     result["up_to_date"] = behind == 0
 
@@ -236,11 +245,17 @@ def apply_update(
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
         return {"ok": False, "error": f"Could not reach the update server: {exc}"}
     if fetch.returncode != 0:
-        return {"ok": False, "error": "Could not reach the update server — check your connection."}
+        return {
+            "ok": False,
+            "error": "Could not reach the update server — check your connection.",
+        }
 
     checkout = git(root, ["checkout", branch])
     if checkout.returncode != 0:
-        return {"ok": False, "error": f"Could not switch to '{branch}': {checkout.stderr.strip()}"}
+        return {
+            "ok": False,
+            "error": f"Could not switch to '{branch}': {checkout.stderr.strip()}",
+        }
 
     merged = git(root, ["merge", "--ff-only", f"origin/{branch}"])
     if merged.returncode != 0:

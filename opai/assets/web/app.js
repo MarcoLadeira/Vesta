@@ -11,6 +11,26 @@ const esc = (s) =>
 const uiIcon = (name, options) => window.OPaiIcons.icon(name, options);
 
 const PROVIDER_COLOR = { claude: "#e0937a", codex: "#6cc1e8", auto: "#98a2b0", local: "#34d399" };
+const MODE_PRESENTATION_LABELS = {
+  ask: "Ask",
+  plan: "Plan only",
+  "safe-auto": "Ask before edits",
+  "approve-edits": "Approve edits",
+  "full-auto": "Auto-apply",
+};
+const modePresentationLabel = (mode) => {
+  if (!mode) return "Ask before edits";
+  return MODE_PRESENTATION_LABELS[mode.id] || mode.label || "Mode";
+};
+const modePresentationCopy = (value) =>
+  String(value == null ? "" : value)
+    .replace(/\bSafe Auto\b/g, MODE_PRESENTATION_LABELS["safe-auto"])
+    .replace(/\bApprove Edits\b/g, MODE_PRESENTATION_LABELS["approve-edits"])
+    .replace(/\bFull Auto\b/g, MODE_PRESENTATION_LABELS["full-auto"]);
+if (typeof window !== "undefined") {
+  window.OPaiModePresentationLabel = modePresentationLabel;
+  window.OPaiModePresentationCopy = modePresentationCopy;
+}
 
 const PALETTE = [
   { id: "new_chat", label: "New chat", hint: "Ctrl+N" },
@@ -142,9 +162,7 @@ function onboardingCtx() {
     openProviders: () => { switchView("settings"); }, // Providers is the default settings page
     sendPrompt: (text) => {
       switchView("chat");
-      const input = $("#input");
-      input.value = text;
-      if (typeof autoSize === "function") autoSize();
+      setComposerDraft(text);
       send();
     },
     markSeen: () => {
@@ -187,7 +205,7 @@ function boot() {
     // Composer Redesign: apply the saved direction (toolbar / single / command).
     if (window.OPaiComposer) window.OPaiComposer.applyBootStyle();
     switchView("chat");
-    if (b.initialTask) { $("#input").value = b.initialTask; autoSize(); }
+    if (b.initialTask) setComposerDraft(b.initialTask);
     renderResumeChoice();
     // F16: if this workspace requests Full Auto but has no pin, surface the
     // acknowledgement even though no dropdown change event fired.
@@ -400,10 +418,12 @@ function renderRecents() {
     b.className = "recent";
     b.textContent = text.length > 34 ? text.slice(0, 33) + "…" : text;
     b.title = text;
-    b.onclick = () => { switchView("chat"); $("#input").value = text; autoSize(); $("#input").focus(); };
+    b.onclick = () => { switchView("chat"); setComposerDraft(text, { focus: true }); };
     rec.appendChild(b);
   });
-  // Privacy control (#145): history is per-workspace and deletable in one click.
+  // Privacy control (#145): history is per-workspace and deletable only after
+  // an explicit confirmation. Clearing also removes durable recovery state, so
+  // an accidental sidebar click must never destroy it.
   const clear = document.createElement("button");
   clear.className = "recent";
   clear.id = "clearRecents";
@@ -411,22 +431,31 @@ function renderRecents() {
   clear.textContent = "Clear history";
   clear.title = "Delete this workspace's stored chat history";
   clear.onclick = () => {
-    if (!bridge || !bridge.clearRecents) {
-      showSessionClearFailure(clearFailure("Saved history could not be cleared."));
-      return;
-    }
-    bridge.clearRecents((raw) => {
-      const response = parseClearResponse(raw);
-      if (!Array.isArray(response) && response.ok === false) {
-        showSessionClearFailure(response);
+    inlineConfirm(rec, {
+      title: "Clear saved chat history?",
+      body: "Delete all saved chats and recovery data for this workspace? This cannot be undone.",
+      confirmLabel: "Clear history",
+      cancelLabel: "Cancel",
+      danger: true,
+    }).then((confirmed) => {
+      if (!confirmed) return;
+      if (!bridge || !bridge.clearRecents) {
+        showSessionClearFailure(clearFailure("Saved history could not be cleared."));
         return;
       }
-      state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
-      state.boot.resume = (!Array.isArray(response) && response.resume)
-        ? response.resume : { available: false, requires_choice: false };
-      setResumeGate(false);
-      clearChat();
-      renderRecents();
+      bridge.clearRecents((raw) => {
+        const response = parseClearResponse(raw);
+        if (!Array.isArray(response) && response.ok === false) {
+          showSessionClearFailure(response);
+          return;
+        }
+        state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
+        state.boot.resume = (!Array.isArray(response) && response.resume)
+          ? response.resume : { available: false, requires_choice: false };
+        setResumeGate(false);
+        clearChat();
+        renderRecents();
+      });
     });
   };
   rec.appendChild(clear);
@@ -656,7 +685,7 @@ function composerBlockReason() {
 function renderComposerContext() {
   const root = $("#composerContext");
   if (!root || !state.boot) return;
-  const modeLabel = state.mode.label || "Selected mode";
+  const modeLabel = modePresentationLabel(state.mode);
   const modelLabel = state.model.kind === "auto" ? "OPai · Auto mode" : (state.model.label || "Selected model");
   // These legacy pills now live in the visually-hidden .composer-native block
   // (the redesigned toolbar summarises the same state). tabindex="-1" keeps them
@@ -734,13 +763,13 @@ function renderContextHints() {
 function offerFullAutoPinAck() {
   state.fullAutoAckOpen = true;
   chatConfirm({
-    title: "Pin Full Auto?",
+    title: "Pin Auto-apply?",
     // Round 5 finding 1: the old copy promised confirmation for "push, deploy, and
     // destructive actions" as one group, but only pushing actually asks — deploys
     // and destructive commands are refused outright, not queued for approval. Say
     // which is which, so the dialog matches what the gate does.
-    body: "Full Auto lets OPai edit files and run commands without asking first. It stays on until you unpin it. Pushing to a remote still asks for your approval each time, and destructive actions — force-push, deletes, deploys — are refused rather than run.",
-    confirmLabel: "Pin Full Auto",
+    body: "Auto-apply lets OPai edit files and run commands without asking first. It stays on until you unpin it. Pushing to a remote still asks for your approval each time, and destructive actions — force-push, deletes, deploys — are refused rather than run.",
+    confirmLabel: "Pin Auto-apply",
     cancelLabel: "Keep current mode",
     danger: true,
   }).then((ok) => {
@@ -852,6 +881,7 @@ function renderInspector(data) {
   const preview = derivedAgentMode();
   let sawAgentRow = false;
   const rowData = (data.rows || []).map((r) => {
+    if (r.label === "Run mode") return { label: r.label, value: modePresentationLabel(state.mode) };
     if (r.label !== "Agent mode") return r;
     sawAgentRow = true;
     return (preview && r.value !== preview) ? { label: r.label, value: preview + " (next run)" } : r;
@@ -932,7 +962,7 @@ function renderStatus(st) {
   // savings) is supplied by the backend. Keep the only immediately knowable
   // value authoritative even if a queued status response was generated before
   // the user changed modes.
-  if (segments.length >= 2 && state.mode && state.mode.label) segments[1] = state.mode.label;
+  if (segments.length >= 2 && state.mode) segments[1] = modePresentationLabel(state.mode);
   $("#statusLine").innerHTML = esc(segments.join(" · ")).replace(/^([^·]+)/, "<b>$1</b>");
 }
 
@@ -976,7 +1006,7 @@ function renderEmptyChips() {
     ? brandBody || "Your AI connection is ready · OPai picks the cheapest safe path."
     : "Connect your Claude, Codex, or Copilot account in Settings, then just type.";
   $("#chips").innerHTML = chips.map((c) => `<button class="chip" data-p="${esc(c[1])}">${esc(c[0])}</button>`).join("");
-  $$("#chips .chip").forEach((b) => (b.onclick = () => { $("#input").value = b.dataset.p; send(); }));
+  $$("#chips .chip").forEach((b) => (b.onclick = () => { setComposerDraft(b.dataset.p); send(); }));
 }
 function clearChat() {
   const t = $("#thread");
@@ -1046,7 +1076,9 @@ function resumeSummaryHtml(resume) {
   const plan = ((resume.thread || {}).plan || []).map((item) => item.step).filter(Boolean);
   const steps = plan.length ? plan : (flow.plan_steps || []);
   const changed = (resume.thread && resume.thread.changed_files) || [];
-  const recovery = checkpoint.recovery_actions || [];
+  const recovery = (flow.next_actions || []).length
+    ? flow.next_actions
+    : (checkpoint.recovery_actions || []);
   return `<div class="resume-summary" role="status">
     <div class="rs-title">Work restored</div>
     ${checkpoint.id ? `<div class="rs-row">Checkpoint ${esc(checkpoint.id)} · ${esc(checkpoint.completion_state || "saved")}</div>` : ""}
@@ -1056,19 +1088,70 @@ function resumeSummaryHtml(resume) {
     ${recovery.length ? `<div class="rs-row">Next: ${esc(recovery[0])}</div>` : ""}
   </div>`;
 }
+function pendingResumeAction(resume) {
+  const gates = ((resume.workflow || {}).safety_gates || {});
+  const raw = gates.pending_action;
+  if (!raw || raw.kind !== "auto_cloud_confirmation") return null;
+  const modelId = String(raw.model_id || "");
+  const modelLabel = String(raw.model_label || "");
+  if (!/^(free|account):/.test(modelId) || !modelLabel) return null;
+  return { kind: raw.kind, modelId, modelLabel };
+}
+function renderResumedPendingAction(resume, action, messages) {
+  const lastUser = [...messages].reverse().find((item) => item.role === "user");
+  const lastAssistant = [...messages].reverse().find((item) => item.role === "assistant");
+  if (!lastUser) return false;
+  const flow = resume.workflow || {};
+  const provider = action.modelId.split(":")[1] || "";
+  const sel = {
+    text: String(lastUser.text || ""),
+    model: action.modelId,
+    mode: String((flow.provider || {}).run_mode || state.mode.id),
+    focus: state.focus,
+    format: state.format,
+    modelKind: action.modelId.startsWith("free:") ? "free" : "account",
+    modelLabel: action.modelLabel,
+    modelProvider: provider,
+    contextHints: [],
+    build: String(((resume.thread || {}).mode) || "") === "build",
+  };
+  // Restoring the inert selection does not grant authority. renderErrorCard's
+  // named Confirm button is still the only path that adds allowCloud: true.
+  state.lastSend = sel;
+  const el = appendMsg("", "bot resumed-approval");
+  renderErrorCard(el, "needs_auto_confirmation", {
+    answer: String((lastAssistant && lastAssistant.text) || "Confirm the named cloud model to continue."),
+    fallbackModelId: action.modelId,
+    fallbackModelLabel: action.modelLabel,
+    cloudStarted: false,
+  }, sel);
+  return true;
+}
 function restoreSession(resume) {
   clearChat();
-  for (const message of ((resume.thread || {}).messages || [])) {
+  const messages = ((resume.thread || {}).messages || []);
+  const pendingAction = pendingResumeAction(resume);
+  let pendingAssistantIndex = -1;
+  if (pendingAction) {
+    for (let index = messages.length - 1; index >= 0; index--) {
+      if (messages[index].role === "assistant") {
+        pendingAssistantIndex = index;
+        break;
+      }
+    }
+  }
+  messages.forEach((message, index) => {
     if (message.role === "user") {
       appendMsg(`<div class="bubble">${esc(message.text || "")}</div>`, "user");
-    } else if (message.role === "assistant") {
+    } else if (message.role === "assistant" && index !== pendingAssistantIndex) {
       const el = appendMsg(
         roleHeader("OPai", "var(--accent)") + `<div class="body">${mdToHtml(message.text || "")}</div>`,
         "bot",
       );
       enhanceCodeBlocks(el);
     }
-  }
+  });
+  if (pendingAction) renderResumedPendingAction(resume, pendingAction, messages);
   appendMsg(resumeSummaryHtml(resume), "bot resume-restored");
   if (state.boot.resume) state.boot.resume.requires_choice = false;
   setResumeGate(false);
@@ -1166,7 +1249,13 @@ function startNewApp() {
   };
   card.querySelector('[data-a="create"]').onclick = create;
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); create(); } });
-  card.querySelector('[data-a="cancel"]').onclick = () => el.remove();
+  card.querySelector('[data-a="cancel"]').onclick = () => {
+    el.remove();
+    if (!$("#thread .msg")) {
+      $("#empty").style.display = "";
+      renderEmptyChips();
+    }
+  };
   input.focus();
   scrollBottom(true);
 }
@@ -1194,16 +1283,26 @@ function renderNewAppSuccess(el, result) {
    cheap, verified targeted diff. Reuses the whole activity/timeline/status
    machinery — same request lifecycle as send() — but calls bridge.build and
    renders a build result card instead of a chat answer. */
-function sendBuild(text) {
+function sendSelection(payload) {
+  if (payload && payload.build) sendBuild(payload);
+  else send(payload);
+}
+
+function sendBuild(value) {
   if (state.busy) return;
-  text = (text || $("#input").value).trim();
+  const retryOf = value && typeof value === "object" ? value : null;
+  const text = String(retryOf ? retryOf.text : (value || $("#input").value)).trim();
   if (!text) return;
-  $("#input").value = ""; autoSize();
-  appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
-  const sel = {
+  setComposerDraft("");
+  if (!retryOf) appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
+  const sel = retryOf || {
     text, model: state.model.id, modelKind: state.model.kind,
     modelLabel: state.model.label, modelProvider: state.model.provider, build: true,
   };
+  sel.build = true;
+  if (sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
+    sel.allowCloud = true;
+  }
   state.lastSend = sel;
   const requestId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "r" + Date.now() + Math.random();
   state.currentRequest = requestId;
@@ -1216,14 +1315,22 @@ function sendBuild(text) {
   stripReset(sel);
   startTimer(sel);
   setBusy(true);
-  bridge.build(JSON.stringify({ requestId, text, model: sel.model, strict: false }));
+  bridge.build(JSON.stringify({
+    requestId, text, model: sel.model, strict: false,
+    allowCloud: sel.allowCloud === true,
+    allowLimit: sel.allowLimit === true,
+  }));
 }
 
 function onBuildReply(json) {
   const d = JSON.parse(json);
   if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale reply ignored
   const r = d.result || {};
-  state.message = OPaiMessageState.transition(state.message, r.ok ? "answered" : "failed");
+  const backendStatus = r.status || "failed";
+  state.message = OPaiMessageState.transition(
+    state.message,
+    OPaiMessageState.fromBackendStatus(backendStatus, r.completion_verdict),
+  );
   state.currentRequest = null;
   setBusy(false);
   finalizeBuild(r);
@@ -1232,6 +1339,16 @@ function onBuildReply(json) {
 
 function finalizeBuild(r) {
   stopTimer();
+  const status = String(r.status || "error");
+  if (["needs_model", "needs_free_confirmation", "needs_auto_confirmation", "needs_limit_confirmation"].includes(status)) {
+    stripFinalize(status, r);
+    const gated = state.pending;
+    if (!gated) return;
+    state.pending = null;
+    state.lastFailedRequestId = state.message && state.message.requestId;
+    renderErrorCard(gated, status, r, state.lastSend || {});
+    return;
+  }
   const kind = r.ok ? "answered" : (r.status === "rolled_back" ? "cancelled" : "error");
   stripFinalize(kind, r);
   const el = state.pending;
@@ -1339,7 +1456,7 @@ function send(retryOf) {
   // Slash commands run local OPai tools ("/panic", "/savings", "/connect") —
   // they must NEVER be sent to a paid model as a prompt.
   if (!retryOf && text.startsWith("/")) {
-    $("#input").value = ""; autoSize();
+    setComposerDraft("");
     const name = text.slice(1).trim().split(/\s+/)[0].toLowerCase();
     if (name) {
       appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
@@ -1359,7 +1476,7 @@ function send(retryOf) {
   if (sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
     sel.allowCloud = true;
   }
-  if (!retryOf) { $("#input").value = ""; autoSize(); }
+  if (!retryOf) setComposerDraft("");
   state.lastSend = sel;
   if (!retryOf) {
     appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
@@ -1750,10 +1867,14 @@ function retry() {
     delete payload.allowCloud;
     delete payload.allowLimit;
   }
-  send(payload);
+  sendSelection(payload);
 }
 
 function openModelPicker() {
+  // The picker lives in the Chat composer, but Ctrl+M and the command palette
+  // are global. Move to its owning view first so the advertised shortcut
+  // never opens an invisible popover behind Prompt Library or Settings.
+  switchView("chat");
   // Failed-card and palette clicks originate outside the composer. Defer until
   // their click has finished bubbling, otherwise the composer's outside-click
   // listener closes the popover in the same event that opened it.
@@ -1767,6 +1888,12 @@ function openModelPicker() {
     if (button) button.click();
     else $("#modelSel").focus();
   }, 0);
+}
+
+function openSettingsPage(pageId = "overview") {
+  const target = String(pageId || "overview").replace(/[^\w-]/g, "") || "overview";
+  try { window.history.replaceState(null, "", `#settings/${target}`); } catch (_e) { /* best-effort deep link */ }
+  switchView("settings");
 }
 
 function scrollBottom(force) {
@@ -2027,7 +2154,7 @@ function onProviderLoginReady(json) {
   updateDoctorCard(pending.provider, result);
   if (!result.signedIn) { toast(result.message || "Sign-in was not verified"); return; }
   toast(result.message || `${providerName(pending.provider)} sign-in verified`);
-  if (pending.retryPayload && !state.busy && (!pending.retryRequestId || (state.message && state.message.requestId === pending.retryRequestId))) send(pending.retryPayload);
+  if (pending.retryPayload && !state.busy && (!pending.retryRequestId || (state.message && state.message.requestId === pending.retryRequestId))) sendSelection(pending.retryPayload);
 }
 
 function onConnectionDoctorReady(json) {
@@ -2043,9 +2170,15 @@ function onConnectionDoctorReady(json) {
 
 function renderErrorCard(el, status, r, sel) {
   const error = r && r.error && typeof r.error === "object" ? r.error : {};
-  // Retrying Auto with no eligible provider only reproduces the same setup
-  // card. Keep recovery concrete: choose a model or configure one first.
-  const canRetry = status !== "needs_model";
+  // Awaiting-input cards already provide the exact action that can unblock the
+  // run. A generic retry only reproduces the same gate and makes the safest
+  // path harder to recognize.
+  const canRetry = ![
+    "needs_model",
+    "needs_free_confirmation",
+    "needs_auto_confirmation",
+    "needs_limit_confirmation",
+  ].includes(status);
   const title = error.title || ERROR_TITLES[status] || "OPai could not complete this request.";
   const what = error.userMessage || (typeof (r && r.answer) === "string" && r.answer) || "Retry, or open Settings if the problem continues.";
   const raw = redactSecrets(
@@ -2066,11 +2199,36 @@ function renderErrorCard(el, status, r, sel) {
   const freeProvider = freeFromResult
     ? freeFromResult.charAt(0).toUpperCase() + freeFromResult.slice(1)
     : String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
+  // Never a dead end: when the engine could name a model that can still run
+  // this request, offer it as the primary action. "Switch model" alone made the
+  // user diagnose a routing problem OPai had already solved — the whole point
+  // of OPai is that having usage somewhere is enough to keep working.
+  // Suppressed on awaiting-input cards (`canRetry` is the same test): those
+  // already carry the exact action that unblocks them, and offering a different
+  // model there would read as a way around a safety gate.
+  const offer = canRetry && r && r.fallback_offer && typeof r.fallback_offer === "object"
+    ? r.fallback_offer
+    : null;
+  const offerId = offer ? String(offer.id || "") : "";
+  const offerLabel = offer ? String(offer.label || offerId) : "";
+  const showOffer = !!offerId && offerId !== String((sel && sel.model) || "");
+  // Route transparency. When OPai deliberately declines to reroute — an
+  // irreversible request in the governed lane — the absence of a "Continue
+  // with" button is a decision, not the dead end this release spent its time
+  // removing. Say so, or it reads as the same old failure.
+  const lane = r && r.message_contract && typeof r.message_contract === "object"
+    ? r.message_contract
+    : null;
+  const heldLane = lane && lane.allowProviderFallback === false
+    ? `OPai will not move this request to another model on its own — ${String(lane.reason || "it cannot be safely repeated")} Choose a model yourself to continue.`
+    : "";
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
-  el.innerHTML = roleHeader("OPai", "var(--red)") + activitySummaryHtml() +
+  el.innerHTML = roleHeader(sel && sel.build ? "OPai Build" : "OPai", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card" role="alert"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
+    (heldLane ? `<div class="ec-w" data-lane-note>${esc(heldLane)}</div>` : "") +
     `<div class="ec-actions">` +
+    (showOffer ? `<button class="btn primary" data-a="continue-with">Continue with ${esc(offerLabel)}</button>` : "") +
     (canRetry ? `<button class="btn" data-a="retry">Retry</button>` : "") +
     (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
     (offerLogin ? `<button class="btn primary" data-a="signin">Sign in to ${esc(providerName(loginProvider))}</button>` : "") +
@@ -2092,6 +2250,31 @@ function renderErrorCard(el, status, r, sel) {
     (raw ? `<button class="btn ghost" data-a="details">Show technical details</button><button class="btn ghost" data-a="copy">Copy details</button>` : "") + `</div>` +
     (raw ? `<details class="ec-details"><summary>Show details</summary><pre>${esc(raw.slice(0, 1500))}</pre></details>` : "") + `</div>`;
   wireActivitySummary(el);
+  const continueWith = el.querySelector('[data-a="continue-with"]'); if (continueWith) continueWith.onclick = () => {
+    // Make the switch visible before re-sending, so the composer never
+    // disagrees with the model that is actually about to run. The saved
+    // default is deliberately left alone: this recovers one request, it does
+    // not silently rewrite the user's preferred model.
+    const entry = (state.boot.models || []).find((x) => x.id === offerId);
+    if (entry) state.model = { ...entry, advancedLabel: entry.advanced_label };
+    else state.model = { id: offerId, label: offerLabel, kind: String(offer.kind || ""), provider: String(offer.provider || "") };
+    renderComposerSelects(); refreshInspector(); refreshStatus();
+    if (window.OPaiComposer) window.OPaiComposer.refresh();
+    const payload = {
+      ...(state.lastSend || sel || {}),
+      model: state.model.id,
+      modelKind: state.model.kind,
+      modelLabel: state.model.label,
+      modelProvider: state.model.provider,
+    };
+    // A consent the user gave for the previous route does not transfer. The new
+    // model passes its own cloud/limit gates (PR #511) — this button changes
+    // which model runs, never what it is allowed to do.
+    delete payload.allowCloud;
+    delete payload.allowLimit;
+    toast(`Continuing with ${state.model.label}`);
+    sendSelection(payload);
+  };
   const retryButton = el.querySelector('[data-a="retry"]'); if (retryButton) retryButton.onclick = () => retry();
   const signIn = el.querySelector('[data-a="signin"]'); if (signIn) signIn.onclick = () => {
     const retryPayload = state.lastSend ? { ...state.lastSend } : (sel ? { ...sel } : null);
@@ -2144,7 +2327,7 @@ function renderErrorCard(el, status, r, sel) {
         try { bridge.grantFreeConsent(id, () => {}); } catch (_e) { /* ignore */ }
       }
     }
-    send(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
+    sendSelection(Object.assign({}, state.lastSend || {}, { allowCloud: true }));
   };
   const fallback = el.querySelector('[data-a="fallback"]'); if (fallback) fallback.onclick = () => {
     // Preserve the reviewed route. Re-sending Auto here would recompute a
@@ -2152,13 +2335,13 @@ function renderErrorCard(el, status, r, sel) {
     // user was shown on the confirmation card.
     const fallbackModelId = String(r.fallbackModelId || "").trim();
     if (!fallbackModelId) { switchView("settings"); return; }
-    send(Object.assign({}, state.lastSend || {}, {
+    sendSelection(Object.assign({}, state.lastSend || {}, {
       model: fallbackModelId,
       allowCloud: true,
     }));
   };
   const limit = el.querySelector('[data-a="limit"]'); if (limit) limit.onclick = () => {
-    send(Object.assign({}, state.lastSend || {}, { allowLimit: true }));
+    sendSelection(Object.assign({}, state.lastSend || {}, { allowLimit: true }));
   };
   const settings = el.querySelector('[data-a="settings"]'); if (settings) settings.onclick = () => switchView("settings");
   el.querySelector('[data-a="switch"]').onclick = () => openModelPicker();
@@ -2183,7 +2366,7 @@ function finalize(status, r) {
       `<div class="sc-sub">You can edit the prompt, retry, or switch model.</div>` +
       `<div class="sc-actions"><button class="btn" data-a="retry">Retry</button><button class="btn ghost" data-a="edit">Edit prompt</button></div></div>`;
     el.querySelector('[data-a="retry"]').onclick = () => retry();
-    el.querySelector('[data-a="edit"]').onclick = () => { $("#input").value = sel.text || ""; switchView("chat"); $("#input").focus(); };
+    el.querySelector('[data-a="edit"]').onclick = () => { switchView("chat"); setComposerDraft(sel.text || "", { focus: true }); };
     return;
   }
   if (!ANSWERED.includes(status)) {
@@ -2547,7 +2730,7 @@ function planCardHtml(steps) {
     ${rows}
     <div class="pc-actions">
       <button class="btn primary" data-plan="build">Build this plan</button>
-      <span class="pc-note">runs in Safe Auto — edits gated by the usual approvals</span>
+      <span class="pc-note">runs in Ask before edits — edits gated by the usual approvals</span>
     </div></div>`;
 }
 function wirePlanCard(el, sel) {
@@ -2570,7 +2753,7 @@ function wirePlanCard(el, sel) {
     const text = "Implement this plan, in order. Stop and ask if a step becomes impossible:\n" +
       kept.map((s, i) => `${i + 1}. ${s}`).join("\n");
     // Through the normal composer path: user bubble, recents, live activity.
-    $("#input").value = text; autoSize();
+    setComposerDraft(text);
     send();
   };
 }
@@ -2632,7 +2815,10 @@ function setBusy(on) {
   s.textContent = on ? "Stop" : ((state.buildMode && state.buildApp) ? "Build" : "Send");
   s.classList.toggle("stop", on);
   s.setAttribute("aria-label", on ? "Stop generation" : "Send prompt");
-  if (!on) updateComposerAvailability();
+  // Clearing the sent draft disables Send just before the request starts.
+  // Re-evaluate availability in both directions so the same control becomes
+  // an enabled Stop button while a request is active.
+  updateComposerAvailability();
   if (window.OPaiComposer) window.OPaiComposer.refresh();
   updateInspectorLive(on ? "Preparing request…" : null);
 }
@@ -2745,6 +2931,12 @@ function onDashboardReady(json) {
 function runAction(aid, cmd) {
   if (aid === "panic_toggle") { switchView("chat"); bridge.runTool("panic"); return; }
   if (aid === "safe_repair") { switchView("chat"); bridge.runTool("repair"); return; }
+  if (aid === "cleanup_preview") { switchView("chat"); bridge.runTool("context_preview"); return; }
+  if (aid === "generate_ignores") { switchView("chat"); bridge.runTool("ignores"); return; }
+  if (aid === "benchmark_run") { switchView("chat"); bridge.runTool("benchmark_run"); return; }
+  if (aid === "benchmark_gate") { switchView("chat"); bridge.runTool("benchmark"); return; }
+  if (aid === "export_proof_json") { switchView("chat"); bridge.runTool("proof_json"); return; }
+  if (aid === "export_proof_markdown") { switchView("chat"); bridge.runTool("proof_markdown"); return; }
   if (cmd) { copyText(cmd); toast("Copied: " + cmd); }
   else toast("Run it from your terminal.");
 }
@@ -2775,7 +2967,7 @@ function usePrompt(id) {
     const p = JSON.parse(json);
     if (!p.id) return;
     if (p.mode) { state.focus = p.mode; bridge.savePref("default_task_mode", p.mode); }
-    switchView("chat"); $("#input").value = p.template; autoSize(); $("#input").focus(); refreshInspector();
+    switchView("chat"); setComposerDraft(p.template, { focus: true }); refreshInspector();
   });
 }
 
@@ -2888,6 +3080,10 @@ function onTool(json) {
 const APPROVAL_SCOPE = {
   panic: { risk: "Config change", scope: "Routing policy for this project (reversible)" },
   repair: { risk: "Config change", scope: "OPai client integration files (additive, no source deleted)" },
+  ignores: { risk: "Config change", scope: "Supported AI ignore files (additive; user rules preserved)" },
+  benchmark_run: { risk: "Local evidence write", scope: ".opaihub benchmark history (privacy-safe metadata; no raw prompts)" },
+  proof_json: { risk: "Local file write", scope: ".opaihub/proof-bundle.json (redacted and locally signed)" },
+  proof_markdown: { risk: "Local file write", scope: ".opaihub/proof-bundle.md (redacted and locally signed)" },
 };
 
 // Styled inline confirmation (#151) — the in-app replacement for native
@@ -2971,6 +3167,9 @@ function renderApprovalCard(r) {
     done("Approved — applying…", "approved");
     const finish = (j2) => {
       const a = JSON.parse(j2);
+      const approvalState = card.querySelector(".ap-state");
+      if (approvalState) approvalState.textContent = "Approved — applied.";
+      card.classList.add("applied");
       appendCard(r.title, a.text);
       refreshStatus(); refreshInspector();
     };
@@ -3002,7 +3201,7 @@ function appendCard(title, text) {
 // is re-sent.
 function renderCommandApprovalCard(el, r, sel) {
   const command = String((r && r.command) || "");
-  const reason = String((r && r.reason) || "The current run mode blocks this command.");
+  const reason = modePresentationCopy((r && r.reason) || "The current run mode blocks this command.");
   el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
     `<div class="approval-card command-approval" role="group" aria-label="Command approval required">
        <div class="ap-head"><span class="ap-badge">Command blocked</span><span class="ap-risk">One-time approval</span></div>
@@ -3051,7 +3250,7 @@ function renderEditApprovalCard(el, r, sel) {
     `<div class="approval-card edit-approval" role="group" aria-label="Edit approval required">
        <div class="ap-head"><span class="ap-badge">Edits blocked</span><span class="ap-risk">One-time approval</span></div>
        <div class="ap-title">Allow OPai to edit these files once?</div>
-       <div class="ap-why">Safe Auto asks before changing files. Commands and destructive actions stay gated.</div>
+       <div class="ap-why">In Ask before edits, OPai asks before changing files. Commands and destructive actions stay gated.</div>
        <div class="ap-scope"><span class="k">Files</span><span class="v"><ul class="ap-files">${rows || "<li>(paths unavailable)</li>"}</ul></span></div>
        <div class="ap-actions">
          <button class="btn primary" data-ap="approve">Allow edits once</button>
@@ -3105,7 +3304,7 @@ function runCommand(id) {
     case "savings": switchView("home"); break;
     case "firewall": switchView("firewall"); break;
     case "settings": switchView("settings"); break;
-    case "doctor": switchView("settings"); break;
+    case "doctor": openSettingsPage("providers"); break;
     case "connect": switchView("chat"); bridge.runTool("connect"); break;
     case "shortcuts": toast("Ctrl+K palette · Ctrl+N new · Ctrl+L focus · Ctrl+P prompts · Ctrl+I panel · Ctrl+O folder · Ctrl+M model · Ctrl+B sidebar · Esc stop · ? shortcuts"); break;
   }
@@ -3178,6 +3377,14 @@ function toast(msg) {
 }
 function autoSize() {
   const i = $("#input"); i.style.height = "auto"; i.style.height = Math.min(180, i.scrollHeight) + "px";
+}
+function setComposerDraft(value, options = {}) {
+  const input = $("#input");
+  if (!input) return;
+  input.value = String(value == null ? "" : value);
+  autoSize();
+  updateComposerAvailability();
+  if (options.focus) input.focus();
 }
 
 function wire() {
@@ -3279,10 +3486,19 @@ if (typeof window !== "undefined") {
     derivedAgentMode: () => derivedAgentMode(),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).
     runCommand: (id) => runCommand(id),
-    // The model picker's "Manage models" action opens the providers settings —
-    // the single real home for connecting/reconnecting a provider, kept out of
-    // the selection list itself.
-    openSettings: () => switchView("settings"),
+    // Context picker actions stay native so Chromium never receives arbitrary
+    // host paths. The bridge returns only workspace-relative paths.
+    pickContextFiles: (done) => {
+      if (bridge && bridge.pickContextFiles) bridge.pickContextFiles(done);
+      else if (done) done(JSON.stringify({ paths: [], rejected: 0 }));
+    },
+    pickContextFolder: (done) => {
+      if (bridge && bridge.pickContextFolder) bridge.pickContextFolder(done);
+      else if (done) done(JSON.stringify({ paths: [], rejected: 0 }));
+    },
+    notify: (message) => toast(message),
+    // Composer actions deep-link to the Settings page that owns the control.
+    openSettings: (pageId) => openSettingsPage(pageId),
     // Settings' About page re-reports the update banner after a live check
     // or a completed update, so the shell-wide nudge never lags behind it.
     renderUpdateBanner: (update) => renderUpdateBanner(update),

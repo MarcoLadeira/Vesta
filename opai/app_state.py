@@ -228,7 +228,7 @@ def overview(project_root: Path) -> dict[str, Any]:
 
 
 def agent_readiness(project_root: Path) -> dict[str, Any]:
-    """Per-client cards (Claude/Codex/Copilot/Cursor/Cline) with repair commands."""
+    """Per-client cards for every supported AI client, with repair commands."""
     from opai.clients import client_integrations_status, detect_stale_paths
     from opai.integrations import project_status
 
@@ -236,7 +236,7 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
     status = project_status(root)
     integrations = client_integrations_status(root)
     wrappers = status["global"]["wrappers"]
-    order = ["claude", "codex", "copilot", "cursor", "cline"]
+    order = ["claude", "codex", "copilot", "gemini", "cursor", "cline"]
     by_id = {client["id"]: client for client in integrations["clients"]}
 
     cards: list[dict[str, Any]] = []
@@ -532,6 +532,22 @@ def run_benchmark_gate(
     )
 
 
+def run_local_benchmark(project_root: Path) -> dict[str, Any]:
+    """Run the offline max suite and persist privacy-safe benchmark evidence."""
+    from opaihub.benchmark import run_benchmark
+
+    report = run_benchmark(project_root, suite="max", mode="both")
+    score = report.get("efficiency_score", {})
+    return {
+        "run_id": report.get("run_id"),
+        "effectiveness_index": score.get("opai_effectiveness_index"),
+        "context_reduction_ratio": min(
+            50.0, float(score.get("context_reduction_ratio", 0) or 0)
+        ),
+        "paid_calls_avoided": score.get("paid_calls_avoided"),
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Chat surface: model picker, ask, and the tool dispatcher (powers the GUI)
 # --------------------------------------------------------------------------- #
@@ -655,6 +671,7 @@ def available_models(
     # failing) is marked unhealthy so the picker can gray it out honestly.
     # Purely local: reads the reliability memory, makes no network call.
     from opaihub import provider_balance as _bal
+    from opaihub import provider_blocks as _blocks
     from opaihub import provider_reliability as _rel
 
     for option in options:
@@ -666,6 +683,8 @@ def available_models(
             option["health_reason"] = None
             option["balance"] = None
             option["out_of_credit"] = False
+            option["blocked_reason"] = None
+            option["edit_blocked_reason"] = None
             continue
         cooldown = _rel.in_cooldown(project_root, provider)
         penalty = _rel.reliability_penalty(project_root, provider)
@@ -688,11 +707,39 @@ def available_models(
             option["available"] = False
             option["healthy"] = False
             reason = (
-                f"{balance['displayName']} is out of credit. "
-                f"{balance['rechargeHint']}"
+                f"{balance['displayName']} is out of credit. {balance['rechargeHint']}"
             )
             option["disabled_reason"] = reason
             option["health_reason"] = reason
+        # Deterministic blocks (stale CLI, invalid config, no bounded edit
+        # tools). Letting the user pick a model OPai has already watched refuse
+        # every request is the picker's version of the consistency bug: the
+        # click looks fine and the run always fails. Two separate fields so an
+        # edit-incapable provider stays a legitimate Ask/Plan choice — the
+        # picker grays it only when the current mode will write files.
+        block = _blocks.active_block(project_root, provider)
+        option["blocked_reason"] = None
+        option["edit_blocked_reason"] = None
+        # Known before the first run, not discovered by failing one: a CLI that
+        # cannot expose a bounded edit-tool set will be refused write access by
+        # OPai every time. Say so in the picker instead of letting the user pick
+        # it for an editing task and hit the refusal.
+        if option.get("repo_editing") is False:
+            option["edit_blocked_reason"] = (
+                f"{_bal.provider_display_name(provider)} cannot be given safe "
+                "repository write access from this CLI. Use it for Ask or Plan, "
+                "or update its CLI for scoped tools."
+            )
+        if block:
+            text = f"{block['title']} {block['remedy']}".strip()
+            if block["scope"] == "edit":
+                option["edit_blocked_reason"] = text
+            else:
+                option["blocked_reason"] = text
+                option["available"] = False
+                option["healthy"] = False
+                option["disabled_reason"] = text
+                option["health_reason"] = text
 
     if accounts or local:
         hint = None
@@ -731,6 +778,7 @@ def ask(
     on_event: Any = None,
     on_text: Any = None,
     cancel: Any = None,
+    tool_loop_policy: Any = None,
 ) -> dict[str, Any]:
     """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', 'free:<id>', or 'provider:model'.
 
@@ -779,6 +827,7 @@ def ask(
             record_route=record_route,
             cancel=cancel,
             on_text=on_text,
+            tool_loop_policy=tool_loop_policy,
         )
 
     from opaihub.ask import run_ask
@@ -814,6 +863,7 @@ def _ask_free_model(
     record_route: bool = True,
     cancel: Any = None,
     on_text: Any = None,
+    tool_loop_policy: Any = None,
 ) -> dict[str, Any]:
     """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
 
@@ -880,6 +930,9 @@ def _ask_free_model(
         # re-demands consent it has no way to collect, so the run always
         # dead-ends as "needs_consent" with an empty answer (#219).
         allow_cloud=allow_cloud,
+        # The turn's contract budgets (tool calls, wall clock, compaction),
+        # so a long multi-file task is not held to a short task's allowance.
+        tool_loop_policy=tool_loop_policy,
     )
     if result.get("status") == "runner_error":
         from opai.provider_contract import normalize_provider_error
@@ -1118,7 +1171,9 @@ def _ask_account(
     if account_id == "copilot" and allow_edits:
         capability_check = getattr(run, "supports_scoped_editing", None)
         try:
-            scoped_editing = bool(capability_check()) if callable(capability_check) else False
+            scoped_editing = (
+                bool(capability_check()) if callable(capability_check) else False
+            )
         except (OSError, subprocess.SubprocessError):
             scoped_editing = False
         if not scoped_editing:
@@ -1455,6 +1510,63 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
         lines += [f"• {s['path']} ({s['category']})" for s in top]
         return {"ok": True, "title": "Context waste", "text": "\n".join(lines)}
 
+    if tool in {"context_preview", "cleanup_preview"}:
+        preview = cleanup_preview(root)
+        sources = preview.get("top_sources", [])
+        lines = [
+            str(preview["note"]),
+            "",
+            f"Potential context reduction: ~{int(preview['would_reduce_tokens']):,} tokens "
+            f"({int(preview['would_reduce_bytes']):,} bytes).",
+        ]
+        if sources:
+            lines += [
+                "",
+                "Largest generated/cache sources:",
+                *[
+                    f"• {source.get('path', 'unknown')} "
+                    f"({source.get('category', 'generated')})"
+                    for source in sources
+                ],
+            ]
+        suggested = preview.get("suggested_ignores", [])
+        if suggested:
+            lines += ["", "Ignore files OPai can update: " + ", ".join(suggested)]
+        return {"ok": True, "title": "Cleanup preview", "text": "\n".join(lines)}
+
+    if tool in {"ignores", "generate_ignores"}:
+        return {
+            "ok": True,
+            "title": "Generate ignore files",
+            "text": (
+                "Append OPai-managed rules to supported AI ignore files. "
+                "Existing user rules are preserved."
+            ),
+            "mutates": True,
+            "confirm": (
+                "Generate additive AI ignore rules for this project? "
+                "This never deletes source code or existing user rules."
+            ),
+            "apply": ("ignores", None),
+        }
+
+    if tool == "benchmark_run":
+        return {
+            "ok": True,
+            "title": "Run local benchmark",
+            "text": (
+                "Run the offline max benchmark and save privacy-safe evidence "
+                "under .opaihub. No model provider is contacted."
+            ),
+            "mutates": True,
+            "confirm": (
+                "Run the local benchmark and write its privacy-safe evidence "
+                "under .opaihub? No raw prompts or secrets are stored, and no "
+                "cloud model is contacted."
+            ),
+            "apply": ("benchmark_run", None),
+        }
+
     if tool == "benchmark":
         gate = run_benchmark_gate(
             root, min_effectiveness_index=0.0, require_risk_blocks=False
@@ -1481,6 +1593,25 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
             "title": "Proof bundle",
             "text": f"Available, signed by default. Redaction: {ps['redaction']}.\n"
             f"Export: {ps['command']}",
+        }
+
+    if tool in {"proof_json", "proof_markdown"}:
+        fmt = "markdown" if tool == "proof_markdown" else "json"
+        filename = "proof-bundle.md" if fmt == "markdown" else "proof-bundle.json"
+        relative = f".opaihub/{filename}"
+        return {
+            "ok": True,
+            "title": "Export proof bundle",
+            "text": (
+                f"Write a redacted, locally signed {fmt.upper()} proof bundle "
+                f"to {relative}."
+            ),
+            "mutates": True,
+            "confirm": (
+                f"Export the redacted proof bundle to {relative}? "
+                "Raw prompts and secrets are excluded."
+            ),
+            "apply": (tool, None),
         }
 
     if tool == "panic":
@@ -1521,4 +1652,41 @@ def apply_tool(project_root: Path, apply: tuple[str, Any]) -> dict[str, Any]:
     if name == "repair":
         result = run_repair(project_root)
         return {"ok": True, "text": f"Repair: {result.get('status')}."}
+    if name == "ignores":
+        result = generate_ignores(project_root)
+        entries = result.get("results")
+        if not isinstance(entries, list):
+            entries = result.get("written", [])
+        count = len(entries) if isinstance(entries, list) else 0
+        return {
+            "ok": True,
+            "text": (
+                f"Updated {count} ignore file{'s' if count != 1 else ''}. "
+                "Existing user rules were preserved; no source files were deleted."
+            ),
+        }
+    if name == "benchmark_run":
+        result = run_local_benchmark(project_root)
+        return {
+            "ok": True,
+            "text": (
+                "Benchmark complete.\n"
+                f"Effectiveness index: {result.get('effectiveness_index')}\n"
+                f"Context reduction: {result.get('context_reduction_ratio')}x\n"
+                f"Paid calls avoided: {result.get('paid_calls_avoided')}\n"
+                "Privacy-safe evidence was saved under .opaihub."
+            ),
+        }
+    if name in {"proof_json", "proof_markdown"}:
+        fmt = "markdown" if name == "proof_markdown" else "json"
+        filename = "proof-bundle.md" if fmt == "markdown" else "proof-bundle.json"
+        target = project_root / ".opaihub" / filename
+        result = export_proof(project_root, target, fmt=fmt)
+        return {
+            "ok": result.get("status") == "exported",
+            "text": (
+                f"Exported a redacted, locally signed proof bundle to "
+                f".opaihub/{filename}."
+            ),
+        }
     return {"ok": False, "text": "Nothing to apply."}

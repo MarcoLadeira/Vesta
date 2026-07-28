@@ -256,6 +256,14 @@
         boilerplate_tokens_avoided: 1018, next_steps: [],
       }));
     },
+    pickContextFiles: function (cb) {
+      window.__mock.contextFilePicks++;
+      cb(JSON.stringify({ paths: scenario.contextPickedFiles || ["index.html", "app.js"], rejected: [] }));
+    },
+    pickContextFolder: function (cb) {
+      window.__mock.contextFolderPicks++;
+      cb(JSON.stringify({ paths: scenario.contextPickedFolders || ["src/"], rejected: [] }));
+    },
     appReceipt: function (cb) {
       cb(JSON.stringify(scenario.appReceipt || { ok: false, status: "not_an_app" }));
     },
@@ -336,7 +344,14 @@
       var m = window.__mock;
       m.lastBuild = JSON.parse(p);
       m.buildCount++;
-      var result = scenario.buildResult || {
+      var result = scenario.buildCloudGate && !m.lastBuild.allowCloud ? {
+        ok: false,
+        status: "needs_auto_confirmation",
+        answer: "Confirm the named cloud model.",
+        fallbackModelId: "free:gemini:gemini-3.1-flash-lite-preview",
+        fallbackModelLabel: "Gemini · 3.1 Flash-Lite (free tier)",
+        completion_verdict: { verdict: "blocked", reasonCode: "approval_required" },
+      } : scenario.buildResult || {
         ok: true, status: "applied",
         applied: [{ path: "styles.css", action: "updated", added: 2, removed: 1 }],
         rejected: [], verify: { ok: true, passed: 3, failed: 0 },
@@ -429,7 +444,7 @@
     bridge: bridge, lastRequest: null, sendCount: 0, lastBuild: null, buildCount: 0, cancelCount: 0, cancelled: [],
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
     clearedRecents: 0, resumedSessions: 0, clearedSessions: 0,
-    copiedTexts: [],
+    copiedTexts: [], contextFilePicks: 0, contextFolderPicks: 0,
     fullAutoPins: 0, fullAutoUnpins: 0,
     windowMoves: 0, windowResizes: [], windowMinimizes: 0,
     windowMaximizes: 0, windowCloses: 0,

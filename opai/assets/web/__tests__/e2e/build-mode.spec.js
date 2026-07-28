@@ -42,6 +42,30 @@ test("sending in Build mode calls bridge.build, not chat", async ({ page }) => {
   expect(lastBuild.text).toBe("make the header sticky");
 });
 
+test("a gated Build can confirm the exact cloud model and continue as a Build", async ({ page }) => {
+  await openApp(page, { boot: BUILD_WS.boot, buildCloudGate: true });
+  await page.fill("#input", "add search");
+  await page.locator("#send").click();
+
+  const confirm = page.getByRole("button", {
+    name: "Confirm Gemini · 3.1 Flash-Lite (free tier)",
+  });
+  await expect(confirm).toBeVisible();
+  await expect(page.getByRole("group", { name: "Build failed" })).toHaveCount(0);
+  await expect(page.locator("#ssConn")).toHaveText("Blocked");
+
+  await confirm.click();
+  await expect(page.getByRole("group", { name: "Build result" })).toBeVisible();
+  await expect(page.locator(".msg.user")).toHaveCount(1);
+  const [buildCount, sendCount, lastBuild] = await page.evaluate(() => [
+    window.__mock.buildCount, window.__mock.sendCount, window.__mock.lastBuild,
+  ]);
+  expect(buildCount).toBe(2);
+  expect(sendCount).toBe(0);
+  expect(lastBuild.allowCloud).toBe(true);
+  expect(lastBuild.model).toBe("free:gemini:gemini-3.1-flash-lite-preview");
+});
+
 test("an applied build renders a result card with files, verify, and savings", async ({ page }) => {
   await openApp(page, BUILD_WS);
   await page.fill("#input", "change the theme");

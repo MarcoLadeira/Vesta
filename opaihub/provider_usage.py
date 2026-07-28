@@ -170,7 +170,9 @@ def supports_live_usage(provider: str) -> bool:
 # ---------------------------------------------------------------------------
 # rate-limit header parsing (real provider data → normalized quota)
 # ---------------------------------------------------------------------------
-_DURATION_RE = re.compile(r"(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?")
+_DURATION_RE = re.compile(
+    r"(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?"
+)
 
 
 def _to_float(value: Any) -> float | None:
@@ -225,8 +227,20 @@ def parse_quota_headers(
     lower = {str(k).lower(): v for k, v in headers.items()}
 
     for metric, limit_key, remaining_key, reset_key, window in (
-        ("requests", "x-ratelimit-limit-requests", "x-ratelimit-remaining-requests", "x-ratelimit-reset-requests", "day"),
-        ("tokens", "x-ratelimit-limit-tokens", "x-ratelimit-remaining-tokens", "x-ratelimit-reset-tokens", "minute"),
+        (
+            "requests",
+            "x-ratelimit-limit-requests",
+            "x-ratelimit-remaining-requests",
+            "x-ratelimit-reset-requests",
+            "day",
+        ),
+        (
+            "tokens",
+            "x-ratelimit-limit-tokens",
+            "x-ratelimit-remaining-tokens",
+            "x-ratelimit-reset-tokens",
+            "minute",
+        ),
     ):
         limit = _to_float(lower.get(limit_key))
         if not limit or limit <= 0:
@@ -410,7 +424,9 @@ def _observed_quota(
     return None
 
 
-def _window_start(window_type: str, window_seconds: int | None, now: float) -> float | None:
+def _window_start(
+    window_type: str, window_seconds: int | None, now: float
+) -> float | None:
     dt = datetime.fromtimestamp(now, tz=timezone.utc)
     if window_type == "rolling" and window_seconds:
         return now - window_seconds
@@ -462,7 +478,9 @@ def _opai_tracked(
             continue
         tasks += 1
         raw_calls = event.get("model_calls")
-        calls += int(raw_calls) if isinstance(raw_calls, (int, float)) and raw_calls else 1
+        calls += (
+            int(raw_calls) if isinstance(raw_calls, (int, float)) and raw_calls else 1
+        )
         raw_tokens = event.get("tokens")
         tokens += int(raw_tokens) if isinstance(raw_tokens, (int, float)) else 0
     labels = {
@@ -541,7 +559,9 @@ def usage_snapshot(
         if amount is not None:
             official = {
                 "available": True,
-                "source": "provider" if balance.get("source") == "provider" else balance.get("source"),
+                "source": "provider"
+                if balance.get("source") == "provider"
+                else balance.get("source"),
                 "metric": "credit",
                 "limit": None,
                 "remaining": amount,

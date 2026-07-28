@@ -29,7 +29,8 @@ test("plan-mode answers render an editable plan checklist", async ({ page }) => 
   await expect(card).toContainText("Plan · 3 steps");
   await expect(card.locator(".plan-step")).toHaveCount(3);
   await expect(card.getByRole("button", { name: "Build this plan" })).toBeEnabled();
-  await expect(card).toContainText("Safe Auto");
+  await expect(card).toContainText("Ask before edits");
+  await expect(card).not.toContainText("Safe Auto");
 });
 
 test("building sends only the kept steps, in Safe Auto, through the real pipeline", async ({ page }) => {

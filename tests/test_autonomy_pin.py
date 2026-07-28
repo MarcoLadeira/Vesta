@@ -136,7 +136,9 @@ class PreferenceMigrationTests(unittest.TestCase):
     def test_saving_preferences_uses_one_locked_atomic_transaction(self):
         path = preference_path(self.root)
         with (
-            mock.patch("opaihub.gui_preferences.interprocess_transaction") as transaction,
+            mock.patch(
+                "opaihub.gui_preferences.interprocess_transaction"
+            ) as transaction,
             mock.patch("opaihub.gui_preferences.atomic_write_text") as atomic_write,
         ):
             transaction.return_value.__enter__.return_value = None

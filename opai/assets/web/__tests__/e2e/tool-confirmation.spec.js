@@ -32,6 +32,8 @@ test("mutating tool renders an approval card — approve applies, exactly once",
 
   await card.getByRole("button", { name: "Approve once" }).click();
   await expect(page.locator(".tool-card")).toContainText("Panic mode enabled");
+  await expect(card).toContainText("Approved — applied.");
+  await expect(card).not.toContainText("applying");
   expect(await page.evaluate(() => window.__mock.appliedTools)).toEqual(["panic"]);
   // Buttons lock after the decision: no double-apply.
   await expect(card.getByRole("button", { name: "Approve once" })).toBeDisabled();

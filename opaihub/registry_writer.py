@@ -29,9 +29,7 @@ def add_tool_entry(project_root: Path, entry: dict[str, Any]) -> dict[str, Any]:
             }
         tools.append(entry)
         data["tools"] = tools
-        atomic_write_text(
-            path, json.dumps(data, indent=2, sort_keys=False) + "\n"
-        )
+        atomic_write_text(path, json.dumps(data, indent=2, sort_keys=False) + "\n")
     return {"ok": True, "id": entry.get("id"), "path": str(path)}
 
 

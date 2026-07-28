@@ -1,6 +1,7 @@
 import unittest
 
 from opai.provider_contract import (
+    classify_error_code,
     dedupe_error_text,
     normalize_provider_error,
     provider_display_name,
@@ -155,7 +156,7 @@ class OutdatedProviderCliTests(unittest.TestCase):
     CODEX_400 = (
         'Codex reported: {"type":"error","status":400,"error":'
         '{"type":"invalid_request_error","message":"The \'gpt-5.6-terra\' model '
-        'requires a newer version of Codex. Please upgrade to the latest one or '
+        "requires a newer version of Codex. Please upgrade to the latest one or "
         'CLI and try again."}}'
     )
 
@@ -177,6 +178,91 @@ class OutdatedProviderCliTests(unittest.TestCase):
             normalize_provider_error("codex", "401 invalid authentication")["code"],
             "AUTH_INVALID",
         )
+
+
+class TransientTransportClassificationTests(unittest.TestCase):
+    """Momentary transport failures must be recognizable, not "UNKNOWN".
+
+    These are what a user experiences as "sometimes my messages just don't
+    work": a socket timeout or an overloaded endpoint used to fall through to
+    the generic "OPai could not complete this request" dead end instead of
+    being absorbed by one retry.
+    """
+
+    TIMEOUTS = (
+        "timed out",
+        "The read operation timed out",
+        "_ssl.c:1112: The handshake operation timed out",
+        "HTTP 504: gateway timeout",
+        "context deadline exceeded",
+    )
+    NETWORK = (
+        "Remote end closed connection without response",
+        "[Errno 104] Connection reset by peer",
+        "[WinError 10053] An established connection was aborted",
+        "ConnectionAbortedError",
+        "[Errno 111] Connection refused",
+        "EOF occurred in violation of protocol",
+        "Temporary failure in name resolution",
+    )
+    UNAVAILABLE = (
+        "provider unavailable (HTTP 503): overloaded",
+        "The model is overloaded. Please try again later.",
+        "HTTP 529: overloaded_error",
+        "HTTP 500: internal error",
+        "Stopped: the provider was temporarily unavailable.",
+        "502 Bad Gateway",
+    )
+
+    def test_each_transient_shape_gets_its_transient_code(self):
+        for detail in self.TIMEOUTS:
+            with self.subTest(detail=detail):
+                self.assertEqual(classify_error_code(detail), "PROVIDER_TIMEOUT")
+        for detail in self.NETWORK:
+            with self.subTest(detail=detail):
+                self.assertEqual(classify_error_code(detail), "NETWORK_ERROR")
+        for detail in self.UNAVAILABLE:
+            with self.subTest(detail=detail):
+                self.assertEqual(classify_error_code(detail), "PROVIDER_UNAVAILABLE")
+
+    def test_transient_codes_are_the_ones_auto_retries(self):
+        from opaihub import auto_router
+
+        for detail in self.TIMEOUTS + self.NETWORK + self.UNAVAILABLE:
+            with self.subTest(detail=detail):
+                error = normalize_provider_error("gemini", detail)
+                self.assertTrue(auto_router.is_transient_error(error), detail)
+
+    def test_numbers_that_merely_look_like_status_codes_are_not_5xx(self):
+        # The previous bare "502"/"503" substrings would read a token count as
+        # an outage. A status code is now matched as a whole token.
+        self.assertEqual(classify_error_code("used 1503 tokens"), "UNKNOWN")
+        self.assertEqual(classify_error_code("the run took 5030 ms"), "UNKNOWN")
+
+    def test_deterministic_failures_are_not_reclassified_as_transient(self):
+        from opaihub import auto_router
+
+        cases = {
+            "429 rate limit exceeded": "PROVIDER_RATE_LIMITED",
+            "401 unauthorized": "AUTH_INVALID",
+            "insufficient balance, please recharge": "PROVIDER_QUOTA_EXHAUSTED",
+            "The 'gpt-5.6-terra' model requires a newer version of Codex": (
+                "PROVIDER_CLI_OUTDATED"
+            ),
+            "Error loading configuration: unknown variant, expected fast": (
+                "CONFIG_INVALID"
+            ),
+            "unknown model: gpt-9": "MODEL_UNAVAILABLE",
+            "Not logged in - Please run /login": "AUTH_MISSING",
+        }
+        for detail, expected in cases.items():
+            with self.subTest(detail=detail):
+                self.assertEqual(classify_error_code(detail), expected)
+                self.assertFalse(
+                    auto_router.is_transient_error(
+                        normalize_provider_error("codex", detail)
+                    )
+                )
 
 
 if __name__ == "__main__":

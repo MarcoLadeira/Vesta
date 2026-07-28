@@ -75,7 +75,7 @@
     return (
       '<div class="ob-eyebrow">Step 2 of 3</div>' +
       '<h2 class="ob-title">Pick your default model</h2>' +
-      '<p class="ob-body">OPai routes to the cheapest capable model and only uses a paid cloud model after you confirm. "Auto" decides for you, task by task.</p>' +
+      '<p class="ob-body">OPai routes to the cheapest capable model and only uses a cloud model after you confirm. "Auto" decides for you, task by task.</p>' +
       '<label class="ob-field"><span>Default model</span><select data-ob="model">' +
       options +
       "</select></label>"
@@ -119,7 +119,7 @@
       target +
       "</p>" +
       '<button class="btn" type="button" data-ob="send">Run this task now</button>' +
-      '<p class="ob-note">Runs through the same cost firewall as always — a paid model always asks first.</p>'
+      '<p class="ob-note">Runs through the same cost firewall as always — a cloud model always asks first.</p>'
     );
   }
 

@@ -35,6 +35,15 @@ test("Safe Auto is default and Full Auto is never silently selected", async ({ p
   await expect(page.locator("#modeSel")).not.toHaveValue("full-auto");
 });
 
+test("the header and composer use the same novice-facing run-mode name", async ({ page }) => {
+  await openApp(page);
+
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Ask before edits");
+  await expect(page.locator("#statusLine")).toContainText("Ask before edits");
+  await expect(page.locator("#statusLine")).not.toContainText("Safe Auto");
+  await expect(page.locator(".insp-row", { hasText: "Run mode" })).toContainText("Ask before edits");
+});
+
 test("leaving Full Auto immediately updates the header as well as the composer", async ({ page }) => {
   await openApp(page, {
     boot: {
@@ -101,7 +110,8 @@ test("selecting Full Auto shows a styled in-chat confirm, no native dialog (#151
   await page.selectOption("#modeSel", "full-auto");
   // The confirmation is an in-chat card, never a native window.confirm.
   await expect(page.locator(".inline-confirm")).toBeVisible();
-  await expect(page.locator(".inline-confirm .ic-title")).toContainText("Pin Full Auto");
+  await expect(page.locator(".inline-confirm .ic-title")).toContainText("Pin Auto-apply");
+  await expect(page.locator(".inline-confirm")).not.toContainText("Full Auto");
   expect(dialogs).toBe(0);
   // Round 5 finding 1: the copy must promise only what the gate does. Pushing
   // asks every time; deploys and destructive commands are refused outright — the

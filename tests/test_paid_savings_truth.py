@@ -234,14 +234,18 @@ class VerdictGatedSavingsTests(unittest.TestCase):
         gated = _gate_receipt_savings(dict(receipt), completed=False)
         self.assertEqual(gated["estimated_savings_usd"], 0.0)
         self.assertFalse(gated["paid_call_avoided"])
-        self.assertEqual(gated["savings_basis"], "savings_claimed_only_for_completed_runs")
+        self.assertEqual(
+            gated["savings_basis"], "savings_claimed_only_for_completed_runs"
+        )
         # Actual spend is preserved — the user still sees what the run cost.
         self.assertEqual(gated["estimated_actual_usd"], receipt["estimated_actual_usd"])
 
     def test_gate_is_a_no_op_for_a_completed_run(self):
         receipt = self._local_receipt()
         gated = _gate_receipt_savings(dict(receipt), completed=True)
-        self.assertEqual(gated["estimated_savings_usd"], receipt["estimated_savings_usd"])
+        self.assertEqual(
+            gated["estimated_savings_usd"], receipt["estimated_savings_usd"]
+        )
         self.assertEqual(gated["paid_call_avoided"], receipt["paid_call_avoided"])
 
     def test_partial_local_run_claims_no_savings_on_any_surface(self):
@@ -258,9 +262,7 @@ class VerdictGatedSavingsTests(unittest.TestCase):
             }
 
         with (
-            mock.patch(
-                "opaihub.local_runner.runner_for_model", return_value=selected
-            ),
+            mock.patch("opaihub.local_runner.runner_for_model", return_value=selected),
             mock.patch("opaihub.ask.run_ask", side_effect=partial_run_ask),
         ):
             res = handle_gui_message(
@@ -271,7 +273,9 @@ class VerdictGatedSavingsTests(unittest.TestCase):
             )
 
         self.assertEqual(res["completion_verdict"]["verdict"], "partial")
-        self.assertEqual(res["completion_verdict"]["reason_code"], "change_not_verified")
+        self.assertEqual(
+            res["completion_verdict"]["reason_code"], "change_not_verified"
+        )
         self.assertEqual(res["receipt"]["estimated_savings_usd"], 0.0)
         self.assertEqual(
             res["receipt"]["savings_basis"], "savings_claimed_only_for_completed_runs"

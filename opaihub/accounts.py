@@ -49,6 +49,22 @@ _CLI_VERSION_CACHE: dict[str, str] = {}
 _CLI_CAPABILITY_CACHE: dict[str, bool] = {}
 _CODEX_CURRENT_DEFAULT_MIN_VERSION = (0, 143, 0)
 
+# What a provider CLI can do is a property of the *machine*, not of one OPai
+# process. Keeping the answer only in the in-process caches above meant the
+# model picker enumerated an unknown CLI as fully capable on every cold start:
+# Codex looked selectable, the user picked it, and the run hard-failed with
+# "requires a newer version of Codex". Whether it looked available depended on
+# whether some earlier code path in that same process had happened to probe —
+# which is exactly the "sometimes it works, sometimes it doesn't" experience.
+#
+# So the verdict is persisted next to OPai's other machine-scoped state, keyed
+# by the executable's identity (path + size + mtime). An upgrade changes that
+# identity and invalidates the entry immediately; otherwise the entry is
+# trusted for _CLI_PROBE_TTL_SECONDS. Steady state costs one small file read;
+# only a first launch or a freshly changed binary pays for a subprocess.
+_CLI_PROBE_TTL_SECONDS = 6 * 3600.0
+_CLI_PROBE_LOCK = threading.RLock()
+
 _INVALID_CODEX_TIER = 'service_tier = "default"'
 
 _AUTH_FAILURE_CODES = {"AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED"}
@@ -655,8 +671,7 @@ def _with_connection_history(
     checked_at = history.get("lastCheckedAt")
     try:
         account_type_is_fresh = (
-            int(time.time() * 1000) - int(checked_at)
-            <= _ACCOUNT_TYPE_HISTORY_TTL_MS
+            int(time.time() * 1000) - int(checked_at) <= _ACCOUNT_TYPE_HISTORY_TTL_MS
         )
     except (TypeError, ValueError):
         account_type_is_fresh = False
@@ -668,14 +683,108 @@ def _with_connection_history(
     return merged
 
 
+def _cli_probe_store_path(home: Path | None = None) -> Path:
+    return (home or Path.home()).expanduser() / ".opai" / "cli_capability.json"
+
+
+def _cli_fingerprint(cli_path: str) -> str:
+    """Identity of the executable at ``cli_path`` — size and mtime, not content.
+
+    A reinstall or upgrade changes at least one of these, which invalidates the
+    stored verdict without waiting out the TTL. Unreadable paths return ``""``
+    so nothing is trusted for a binary we cannot even stat.
+    """
+    try:
+        stat = Path(cli_path).stat()
+    except OSError:
+        return ""
+    return f"{int(stat.st_size)}:{int(stat.st_mtime)}"
+
+
+def _read_cli_probe(
+    cli_path: str, field: str, *, home: Path | None = None, now: float | None = None
+) -> Any:
+    """A persisted probe result for this exact binary, or ``None`` if unknown."""
+    fingerprint = _cli_fingerprint(cli_path)
+    if not fingerprint:
+        return None
+    path = _cli_probe_store_path(home)
+    try:
+        store = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    entry = store.get(cli_path) if isinstance(store, dict) else None
+    if not isinstance(entry, dict) or entry.get("fingerprint") != fingerprint:
+        return None
+    ts = time.time() if now is None else float(now)
+    try:
+        checked_at = float(entry.get("checked_at") or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if (ts - checked_at) > _CLI_PROBE_TTL_SECONDS:
+        return None
+    return entry.get(field)
+
+
+def _write_cli_probe(
+    cli_path: str,
+    field: str,
+    value: Any,
+    *,
+    home: Path | None = None,
+    now: float | None = None,
+) -> None:
+    """Persist one probe result. Best-effort — a cache miss is never fatal."""
+    fingerprint = _cli_fingerprint(cli_path)
+    if not fingerprint:
+        return
+    path = _cli_probe_store_path(home)
+    ts = time.time() if now is None else float(now)
+    with _CLI_PROBE_LOCK:
+        try:
+            store = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            store = {}
+        if not isinstance(store, dict):
+            store = {}
+        entry = store.get(cli_path)
+        if not isinstance(entry, dict) or entry.get("fingerprint") != fingerprint:
+            entry = {"fingerprint": fingerprint}
+        entry[field] = value
+        entry["checked_at"] = ts
+        store[cli_path] = entry
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(
+                dir=str(path.parent), prefix=path.name, suffix=".tmp"
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(json.dumps(store, sort_keys=True, indent=2) + "\n")
+                os.replace(tmp, path)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+        except OSError:
+            return
+
+
 def _account_cli_version(
-    account: dict[str, Any], *, run: Callable[[list[str]], Any] | None = None
+    account: dict[str, Any],
+    *,
+    run: Callable[[list[str]], Any] | None = None,
+    home: Path | None = None,
 ) -> str:
     cli_path = str(account.get("cli_path") or "")
     if not cli_path:
         return ""
-    if run is None and cli_path in _CLI_VERSION_CACHE:
-        return _CLI_VERSION_CACHE[cli_path]
+    if run is None:
+        if cli_path in _CLI_VERSION_CACHE:
+            return _CLI_VERSION_CACHE[cli_path]
+        stored = _read_cli_probe(cli_path, "version", home=home)
+        if isinstance(stored, str):
+            _CLI_VERSION_CACHE[cli_path] = stored
+            return stored
     child_env, _removed = provider_child_env(str(account.get("id") or ""))
     execute = run or (
         lambda argv: _hidden_run(argv, cwd=None, timeout=0.75, env=child_env)
@@ -690,6 +799,7 @@ def _account_cli_version(
     version = redact(raw).strip().splitlines()[0][:160] if raw.strip() else ""
     if run is None:
         _CLI_VERSION_CACHE[cli_path] = version
+        _write_cli_probe(cli_path, "version", version, home=home)
     return version
 
 
@@ -713,14 +823,20 @@ def _copilot_supports_scoped_permissions(
     account: dict[str, Any],
     *,
     run: Callable[[list[str]], Any] | None = None,
+    home: Path | None = None,
 ) -> bool:
     """Whether this Copilot CLI can expose only bounded workspace edit tools."""
 
     cli_path = str(account.get("cli_path") or "")
     if not cli_path:
         return False
-    if run is None and cli_path in _CLI_CAPABILITY_CACHE:
-        return _CLI_CAPABILITY_CACHE[cli_path]
+    if run is None:
+        if cli_path in _CLI_CAPABILITY_CACHE:
+            return _CLI_CAPABILITY_CACHE[cli_path]
+        stored = _read_cli_probe(cli_path, "scoped_editing", home=home)
+        if isinstance(stored, bool):
+            _CLI_CAPABILITY_CACHE[cli_path] = stored
+            return stored
     child_env, _removed = provider_child_env("copilot")
     execute = run or (
         lambda argv: _hidden_run(argv, cwd=None, timeout=0.75, env=child_env)
@@ -743,12 +859,12 @@ def _copilot_supports_scoped_permissions(
             "--deny-tool",
             "--add-dir",
         )
-        supported = (
-            int(getattr(result, "returncode", 0) or 0) == 0
-            and all(flag in output for flag in required)
+        supported = int(getattr(result, "returncode", 0) or 0) == 0 and all(
+            flag in output for flag in required
         )
     if run is None:
         _CLI_CAPABILITY_CACHE[cli_path] = supported
+        _write_cli_probe(cli_path, "scoped_editing", supported, home=home)
     return supported
 
 
@@ -1291,16 +1407,30 @@ def account_models(
         cli_version = ""
         copilot_scoped_editing: bool | None = None
         cli_path = str(account.get("cli_path") or "")
+        # Enumeration deliberately avoids provider probes, but "unknown" used to
+        # be resolved *optimistically*, so a cold-start picker offered a Codex
+        # whose CLI could not run anything. The persisted verdict (see
+        # _read_cli_probe) makes the common case both honest and probe-free; the
+        # one-shot probe below is reached only on a first launch or right after
+        # the binary changed, which is exactly when guessing is most wrong.
         if account["id"] == "codex":
             if inspect_cli_capabilities:
-                cli_version = _account_cli_version(account)
+                cli_version = _account_cli_version(account, home=home)
             else:
-                cli_version = _CLI_VERSION_CACHE.get(cli_path, "")
+                cli_version = _CLI_VERSION_CACHE.get(cli_path) or (
+                    _account_cli_version(account, home=home) if cli_path else ""
+                )
         if account["id"] == "copilot":
             if inspect_cli_capabilities:
-                copilot_scoped_editing = _copilot_supports_scoped_permissions(account)
-            else:
-                copilot_scoped_editing = _CLI_CAPABILITY_CACHE.get(cli_path)
+                copilot_scoped_editing = _copilot_supports_scoped_permissions(
+                    account, home=home
+                )
+            elif cli_path in _CLI_CAPABILITY_CACHE:
+                copilot_scoped_editing = _CLI_CAPABILITY_CACHE[cli_path]
+            elif cli_path:
+                copilot_scoped_editing = _copilot_supports_scoped_permissions(
+                    account, home=home
+                )
         options.extend(
             _account_options(
                 account,
@@ -1421,7 +1551,7 @@ def _codex_safety_preamble() -> str:
         else (
             "For a git push: tell the user to enable pushes once in Settings -> "
             "Providers & Connections (connect a GitHub token, then click "
-            "\"Enable pushes & PRs\"). After that OPai can push, and will ask "
+            '"Enable pushes & PRs"). After that OPai can push, and will ask '
             "them to approve each push."
         )
     )

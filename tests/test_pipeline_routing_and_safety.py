@@ -374,7 +374,10 @@ class SmallTalkRoutingTests(unittest.TestCase):
         # (read-only), not run as an edit task that fails for changing nothing.
         with mock.patch(
             "opaihub.ask.run_ask",
-            return_value={"status": "answered_locally", "answer": "Hello! How can I help?"},
+            return_value={
+                "status": "answered_locally",
+                "answer": "Hello! How can I help?",
+            },
         ):
             res = handle_gui_message(
                 self.root,

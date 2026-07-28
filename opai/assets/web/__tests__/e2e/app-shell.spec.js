@@ -86,12 +86,14 @@ test("? shows the keyboard shortcuts (#400), but not while typing", async ({ pag
 
 test("palette exposes stop and doctor commands (#400) and they run", async ({ page }) => {
   await openApp(page);
-  // doctor → settings view (where the connection doctor lives).
+  // Doctor must open the exact Settings page where its refreshed results live.
   await page.keyboard.press("Control+k");
   await page.fill("#paletteInput", "doctor");
   await expect(page.locator("#paletteList .opt")).toHaveCount(1);
   await page.keyboard.press("Enter");
   await expect(page.locator("#view-settings")).toBeVisible();
+  await expect(page.locator('.settings-pane[data-pane="providers"]')).toHaveClass(/active/);
+  await expect(page.getByRole("region", { name: "Connection Doctor" })).toBeVisible();
 
   // stop is offered as a command (safe no-op when idle).
   await page.keyboard.press("Control+k");

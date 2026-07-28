@@ -37,9 +37,7 @@ class ProviderOfTests(unittest.TestCase):
             "rate-limit",
         )
         self.assertEqual(auto_router.reason_slug("empty"), "no-answer")
-        self.assertEqual(
-            auto_router.reason_slug("capability_mismatch"), "capability"
-        )
+        self.assertEqual(auto_router.reason_slug("capability_mismatch"), "capability")
 
 
 class ChainOrderingTests(unittest.TestCase):
@@ -69,7 +67,11 @@ class ChainOrderingTests(unittest.TestCase):
     def test_unavailable_free_and_failed_accounts_excluded(self) -> None:
         catalog = {
             "models": [
-                {"id": "free:gemini:x", "provider": "gemini", "kind": "free"},  # no avail
+                {
+                    "id": "free:gemini:x",
+                    "provider": "gemini",
+                    "kind": "free",
+                },  # no avail
                 _free("free:kimi:kimi-k2.6", "kimi"),
                 _account("account:claude:haiku", "claude"),
             ],
@@ -95,19 +97,45 @@ class ChainOrderingTests(unittest.TestCase):
         self.assertEqual(free_ids[0], "free:kimi:kimi-k2.6")
         self.assertEqual(free_ids[1], "free:groq:x")
 
-    def test_least_recently_used_rotates_equal_providers(self) -> None:
-        catalog = {
+    def _two_free(self) -> dict:
+        return {
             "models": [
                 _free("free:kimi:kimi-k2.6", "kimi"),
                 _free("free:groq:x", "groq"),
             ]
         }
-        # Both healthy, but kimi was just used successfully → groq (never used)
-        # should lead, so Auto rotates instead of always picking the same one.
-        reliability.record_provider_outcome(self.root, "kimi", True)
-        chain = auto_router.resolve_auto_chain(self.root, "explain", catalog)
-        free_ids = [c["id"] for c in chain if c["kind"] == "free"]
-        self.assertEqual(free_ids[0], "free:groq:x")
+
+    def _first_free(self, catalog: dict, *, now: float | None = None) -> str:
+        chain = auto_router.resolve_auto_chain(self.root, "explain", catalog, now=now)
+        return next(c["id"] for c in chain if c["kind"] == "free")
+
+    def test_a_provider_that_just_worked_leads_the_follow_up_turn(self) -> None:
+        # Rotation and conversation consistency pull in opposite directions.
+        # Pure LRU sorted the provider that *just answered* last, so a follow-up
+        # actively routed away from whatever worked — two turns of one
+        # conversation on two providers, with different style and different
+        # context, for no reason the user could see. Recent success wins inside
+        # the stickiness window.
+        reliability.record_provider_outcome(self.root, "kimi", True, now=1000.0)
+        self.assertEqual(
+            self._first_free(self._two_free(), now=1001.0), "free:kimi:kimi-k2.6"
+        )
+
+    def test_rotation_resumes_once_the_conversation_goes_cold(self) -> None:
+        # The original guarantee is scoped, not removed: outside the window,
+        # least-recently-used still leads so load spreads across free tiers.
+        reliability.record_provider_outcome(self.root, "kimi", True, now=1000.0)
+        cold = 1000.0 + reliability.STICKY_SECONDS + 1
+        self.assertEqual(self._first_free(self._two_free(), now=cold), "free:groq:x")
+
+    def test_stickiness_never_outranks_a_failure(self) -> None:
+        # A provider that succeeded and then failed must not stay preferred —
+        # stickiness is a tiebreak among healthy providers, never a lock.
+        reliability.record_provider_outcome(self.root, "kimi", True, now=1000.0)
+        reliability.record_provider_outcome(
+            self.root, "kimi", False, reason="timeout", now=1001.0
+        )
+        self.assertEqual(self._first_free(self._two_free(), now=1002.0), "free:groq:x")
 
 
 class RetryClassificationTests(unittest.TestCase):
@@ -130,7 +158,9 @@ class ReliabilityStoreTests(unittest.TestCase):
         base = 1_000_000.0
         self.assertEqual(reliability.reliability_penalty(self.root, "kimi"), 0.0)
         reliability.record_provider_outcome(self.root, "kimi", False, now=base)
-        self.assertGreater(reliability.reliability_penalty(self.root, "kimi", now=base), 0.0)
+        self.assertGreater(
+            reliability.reliability_penalty(self.root, "kimi", now=base), 0.0
+        )
         # Old failures fall out of the rolling window.
         future = base + reliability.WINDOW_SECONDS + 10
         self.assertEqual(

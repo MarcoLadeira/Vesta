@@ -76,11 +76,13 @@ test.describe("New app flow", () => {
     await expect(page.getByRole("button", { name: "Create app" })).toBeEnabled();
   });
 
-  test("Cancel removes the card", async ({ page }) => {
+  test("Cancel removes the card and restores the empty-chat welcome", async ({ page }) => {
     await openApp(page);
     await page.locator("#newApp").click();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.locator("#newAppCard")).toHaveCount(0);
+    await expect(page.locator("#empty")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Explain this repo" })).toBeVisible();
   });
 
   test("the command palette lists and launches New app", async ({ page }) => {

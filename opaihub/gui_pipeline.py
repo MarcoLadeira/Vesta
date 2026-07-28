@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -38,6 +39,7 @@ from .cost_telemetry import (
 from .diff_review import build_diff_review
 from .gui_preferences import load_gui_preferences
 from .intent_router import route_intents, safety_warnings
+from .message_contract import resolve_message_contract
 from .ledger import (
     UNKNOWN as OUTCOME_UNKNOWN,
     record_event,
@@ -54,6 +56,25 @@ from .workflow_state import WorkflowState, load_workflow_state, save_workflow_st
 
 
 _EDITING_MODES = {"safe-auto", "full-auto"}
+
+# Terminal statuses where the turn ended because a *model* could not serve it.
+# These earn a named "continue with <other model>" offer, so no provider failure
+# is ever a dead end while some other usable model exists. Deliberately excludes
+# every awaiting-input status (approvals, confirmations, safety blocks) and
+# `cancelled` — those already carry the exact action that unblocks them, and
+# offering a different model there would be an invitation to route around a
+# safety gate.
+_DEAD_END_STATUSES = frozenset(
+    {
+        "failed",
+        "error",
+        "runner_error",
+        "needs_model",
+        "model_unavailable",
+        "capability_mismatch",
+        "empty",
+    }
+)
 
 # Honest terminal titles for a run that produced text but did not complete
 # (Task 7). No non-COMPLETED run ever shows "OPai completed".
@@ -432,9 +453,7 @@ def _record_gui_route(
     event["selected_mode"] = mode
 
 
-def _outcome_category(
-    status: str, *, had_work: bool, verdict: str = ""
-) -> str | None:
+def _outcome_category(status: str, *, had_work: bool, verdict: str = "") -> str | None:
     """The honest terminal class for a finished turn, or ``None`` when there is
     nothing to record (#288).
 
@@ -676,13 +695,26 @@ def handle_gui_message(
     auto_active = selected_model == "auto"
     auto_chain: list[dict[str, Any]] = []
     auto_pos = 0
-    _pending_paid: dict[str, Any] = {}
+    # provider -> how many transport-blip retries it has already been given on
+    # this turn. Bounded by auto_router.MAX_TRANSIENT_RETRIES so a genuinely
+    # down provider can never spin.
+    _transient_retries: dict[str, int] = {}
+    _pending_cloud: dict[str, Any] = {}
     paid_authorized = bool(allow_cloud or allow_limit)
     # Central autonomy decision (#137): a requested/stored full-auto is honored
     # only when Full Auto is pinned; otherwise it is downgraded to Safe Auto.
     autonomy = effective_mode(mode, prefs)
     requested_run_mode = autonomy.effective_mode
     policy = resolve_agent_policy(message, focus_hint=focus_hint)
+    # The message contract: one routing decision, made before anything runs.
+    # It assigns this turn to a lane and the lane fixes the runtime policy —
+    # whether a failure may be recovered on a different provider, how many
+    # transport blips are absorbed, and what tool/time/context budget applies.
+    # Deterministic by construction, so the same request always gets the same
+    # treatment no matter how it was phrased around the edges.
+    contract = resolve_message_contract(
+        root, message, agent_mode=policy.mode, selected_mode=str(mode or "")
+    )
     # #381: savings are OPai's proof, so a route/savings event is recorded only
     # for a run that met its declared objective. One objective per turn, shared
     # by the route gate below and the terminal verdict in _decorate, so the
@@ -702,6 +734,17 @@ def handle_gui_message(
         selected_mode = "plan"
     else:
         selected_mode = "ask"
+    # Will this turn write to the repository? Decided once, here, because both
+    # Auto's fallback chain and the dead-end fallback offer need it *before* a
+    # provider is picked — a provider OPai cannot hand bounded edit tools is a
+    # guaranteed refusal on an editing turn and a perfectly good choice on a
+    # read-only one. Plan / Ask / Approve-Edits are read-only; Safe Auto / Full
+    # Auto may edit, except for a discovery request ("find me an issue to
+    # solve"), which locates work rather than changing the repository.
+    will_edit = selected_mode in {
+        "safe-auto",
+        "full-auto",
+    } and not is_discovery_request(message)
     repo_context = resolve_repo_context(root)
     save_active_repo(root, repo_context)
     previous_workflow = load_workflow_state(root)
@@ -1060,6 +1103,20 @@ def handle_gui_message(
                 else str(payload.get("answer") or "Provider execution failed"),
                 next_actions=payload.get("next_actions") or (),
             )
+        safety_gates: dict[str, Any] = {}
+        if status == "needs_auto_confirmation":
+            pending_model = str(payload.get("fallbackModelId") or "").strip()
+            pending_label = str(payload.get("fallbackModelLabel") or "").strip()
+            if pending_model and pending_label:
+                # Persist only the inert description of the pending action.
+                # Authority is deliberately absent: a resumed session must show
+                # the same button and require a fresh click before allow_cloud
+                # is ever sent to the bridge.
+                safety_gates["pending_action"] = {
+                    "kind": "auto_cloud_confirmation",
+                    "model_id": pending_model,
+                    "model_label": pending_label,
+                }
         state = WorkflowState(
             task_id=runtime.task_id,
             checkpoint_id=checkpoint.checkpoint_id,
@@ -1093,6 +1150,7 @@ def handle_gui_message(
             history=tuple(event.to_dict() for event in runtime.state.history),
             changed_files=changed_files,
             provider={"model": selected_model, "run_mode": selected_mode},
+            safety_gates=safety_gates,
             cost={
                 **(payload.get("receipt") or {}),
                 **(
@@ -1205,21 +1263,68 @@ def handle_gui_message(
         # _advance_auto), so they are not double-counted here.
         with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
             from . import auto_router as _ar
+            from . import provider_blocks as _blocks
             from . import provider_reliability as _rel
 
             _prov = _ar.provider_of(selected_model)
             if _prov:
                 if status == "answered":
                     _rel.record_provider_outcome(root, _prov, True)
-                elif not auto_active and verdict.verdict in {
-                    CompletionVerdict.FAILED,
-                    CompletionVerdict.TIMEOUT,
-                }:
-                    _rel.record_provider_outcome(
-                        root, _prov, False, reason=str(status or "failed")
-                    )
+                    # An answer disproves every deterministic block on this
+                    # provider: the CLI was upgraded, the config was repaired,
+                    # or the capability came back. Clear it now so the next Auto
+                    # chain includes the provider again immediately rather than
+                    # waiting out the TTL.
+                    _blocks.clear_block(root, _prov)
+                else:
+                    if not auto_active and verdict.verdict in {
+                        CompletionVerdict.FAILED,
+                        CompletionVerdict.TIMEOUT,
+                    }:
+                        _rel.record_provider_outcome(
+                            root, _prov, False, reason=str(status or "failed")
+                        )
+                    # Remember a guaranteed refusal even when the user picked
+                    # this model themselves — otherwise Auto has to rediscover
+                    # it on its own turn, one wasted call at a time. Unlike the
+                    # reliability record above this is not verdict-gated: a
+                    # stale CLI or a capability refusal is deterministic fact
+                    # however the turn was classified.
+                    _block_reason = _blocks.reason_for(status, payload.get("error"))
+                    if _block_reason:
+                        _blocks.record_block(root, _prov, _block_reason)
+        # Never a dead end (consistency): when a turn ends because a provider
+        # could not serve it, name one model that still can so the user
+        # continues in a single click. This is the difference between "OPai
+        # failed, go figure out why" and "OPai could not use Codex, continue
+        # with Gemini?" — with real usage available somewhere, the second is
+        # always the honest answer. Computed only on failure, and only when
+        # some other model is genuinely runnable; ``None`` is left off entirely
+        # rather than promising a fallback that does not exist.
+        fallback_offer: dict[str, Any] | None = None
+        if status in _DEAD_END_STATUSES and contract.allow_provider_fallback:
+            with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
+                from opai import app_state as _app_state
+
+                from . import auto_router as _ar2
+
+                _failed_provider = _ar2.provider_of(selected_model)
+                fallback_offer = _ar2.best_alternative(
+                    root,
+                    _app_state.available_models(root, discover_local=False),
+                    exclude_providers={_failed_provider} if _failed_provider else set(),
+                    exclude_ids={selected_model},
+                    needs_edit=will_edit,
+                )
         decorated = {
             **payload,
+            # Absent (not null) when there is nothing to offer, so no renderer
+            # can accidentally show an empty "Continue with" button.
+            **({"fallback_offer": fallback_offer} if fallback_offer else {}),
+            # Route transparency: routing quality and routing *trust* are
+            # separate problems. Every turn reports the lane it ran in and why,
+            # so a user can see what OPai decided instead of inferring it.
+            "message_contract": contract.to_dict(),
             "objective": objective.to_dict(),
             "completion_verdict": verdict_payload,
             # #379: the engine emits the canonical terminal run state (derived
@@ -1304,7 +1409,14 @@ def handle_gui_message(
             for item in (_catalog.get("models") or [])
         }
         auto_chain = auto_router.resolve_auto_chain(
-            root, message, _catalog, allow_paid=paid_authorized
+            root,
+            message,
+            _catalog,
+            allow_paid=paid_authorized,
+            # An editing turn must not be routed to a provider OPai refuses to
+            # give repository write access — that is a guaranteed refusal, not
+            # a fallback step. The same provider stays eligible for Ask/Plan.
+            needs_edit=will_edit,
         )
         if auto_chain:
             selected_model = str(auto_chain[0]["id"])
@@ -1315,6 +1427,86 @@ def handle_gui_message(
             metadata={"candidates": [c["id"] for c in auto_chain]},
             channel="status",
         )
+
+    def _contract_tool_loop_policy() -> Any:
+        """The lane's execution budgets, as a ToolLoopPolicy.
+
+        A multi-file refactor and a one-line fix used to share one allowance,
+        so the long task quietly stopped at a budget sized for the short one.
+        Built here (not in the contract) so ``message_contract`` stays free of
+        runtime imports and remains a pure decision record.
+        """
+        from .tool_loop import ToolLoopPolicy
+
+        return ToolLoopPolicy(
+            max_calls_per_subgoal=contract.max_tool_calls,
+            max_active_seconds=contract.max_active_seconds,
+        )
+
+    def _prune_blocked_candidates() -> None:
+        """Drop not-yet-tried chain entries belonging to a just-blocked provider.
+
+        A provider with a stale CLI refuses *every* one of its models. Without
+        this, Auto walks Codex's whole model list one guaranteed refusal at a
+        time before reaching a provider that can actually answer. Entries
+        already visited stay in place so ``auto_pos`` keeps its meaning.
+        """
+        if not auto_chain:
+            return
+        from . import auto_router
+        from . import provider_blocks as _blocks
+
+        remaining = [
+            candidate
+            for candidate in auto_chain[auto_pos + 1 :]
+            if not _blocks.is_blocked(
+                root,
+                auto_router.provider_of(str(candidate.get("id") or "")),
+                needs_edit=will_edit,
+            )
+        ]
+        auto_chain[auto_pos + 1 :] = remaining
+
+    def _retry_transient(*, error: Any = None) -> bool:
+        """Re-run this exact request on the same provider after a transport blip.
+
+        Free-tier endpoints (Gemini especially) return an intermittent 503 that
+        clears within a second, and the identical prompt then succeeds. Treating
+        the first blip as a provider failure is what made OPai feel unreliable:
+        the same message worked or didn't for no reason the user could see. One
+        quiet re-attempt turns that coin-flip into a normal answer; a second
+        failure is real, and the caller falls through to the fallback chain.
+
+        Applies whether or not Auto picked the model — a user who chose Gemini
+        deserves the same resilience Auto gets.
+        """
+        if _cancelled():
+            return False
+        from . import auto_router
+
+        provider = auto_router.provider_of(selected_model)
+        if not provider:
+            return False
+        attempts = _transient_retries.get(provider, 0)
+        if attempts >= contract.max_transient_retries:
+            # The lane's budget, not a global one: the governed lane spends
+            # zero, because silently re-attempting an irreversible action is
+            # not a recovery the user asked for.
+            return False
+        if not auto_router.should_retry_same_provider(error, attempts):
+            return False
+        _transient_retries[provider] = attempts + 1
+        _emit(
+            "request_sending",
+            "running",
+            "Provider blipped — retrying the same request",
+            metadata={"provider": provider, "attempt": attempts + 2},
+            channel="status",
+        )
+        # A blocking sleep is correct here: this runs on the turn's worker
+        # thread, and the user is already watching a live "still working" state.
+        time.sleep(auto_router.TRANSIENT_RETRY_DELAY_SECONDS)
+        return not _cancelled()
 
     def _advance_auto(*, status: str = "", error: Any = None) -> str:
         """Move Auto to the next candidate after a retryable failure.
@@ -1327,11 +1519,23 @@ def handle_gui_message(
         nonlocal selected_model, auto_pos
         if not auto_active:
             return "stop"
+        if not contract.allow_provider_fallback:
+            # Governed lane. Moving a release, a publish, or a destructive
+            # action to a different provider after a failure is a second
+            # attempt at something irreversible that the user approved once,
+            # for one route. Stop and let them decide instead.
+            return "stop"
         from . import auto_router
         from . import provider_balance as _bal
+        from . import provider_blocks as _blocks
         from . import provider_reliability as _rel
 
         failed_provider = auto_router.provider_of(selected_model)
+        # A transport blip is not a reason to abandon a provider or to stain its
+        # reliability record. Retry the same candidate first; only a repeat
+        # failure counts as evidence and advances the chain.
+        if _retry_transient(error=error):
+            return "continue"
         _rel.record_provider_outcome(
             root,
             failed_provider,
@@ -1343,12 +1547,21 @@ def handle_gui_message(
         # outright instead of re-trying a guaranteed refusal.
         if isinstance(error, dict) and error.get("code") == "PROVIDER_QUOTA_EXHAUSTED":
             _bal.record_exhausted(root, failed_provider)
+        # Same reasoning for the deterministic refusals: a CLI too old for its
+        # model, an invalid provider config, or a provider that cannot be handed
+        # bounded edit tools will refuse identically on every future turn until
+        # the user fixes it. Record it once so neither Auto nor the picker keeps
+        # offering a guaranteed dead end.
+        block_reason = _blocks.reason_for(status, error)
+        if block_reason:
+            _blocks.record_block(root, failed_provider, block_reason)
+            _prune_blocked_candidates()
         while auto_pos + 1 < len(auto_chain):
             auto_pos += 1
             candidate = auto_chain[auto_pos]
             if candidate.get("paid") and not paid_authorized:
-                _pending_paid.clear()
-                _pending_paid.update(candidate)
+                _pending_cloud.clear()
+                _pending_cloud.update(candidate)
                 return "confirm"
             selected_model = str(candidate["id"])
             _emit(
@@ -1360,11 +1573,58 @@ def handle_gui_message(
             return "continue"
         return "stop"
 
-    def _auto_paid_card() -> dict[str, Any]:
-        """Confirmation card naming the cheapest capable paid model to escalate to."""
-        candidate = dict(_pending_paid)
+    def _auto_exhausted_answer() -> str:
+        """Name every provider Auto could not use, and the exact fix for each.
+
+        Auto walking its whole chain without an answer is the one moment the
+        user most needs specifics: "no available model" is true but useless when
+        the real state is "Claude is capped, Codex's CLI is stale, Copilot can't
+        take write access, and no local model is running". Falls back to the
+        generic sentence when nothing is known, rather than inventing a cause.
+        """
+        generic = (
+            "Auto has no available model. Choose a configured model, or connect "
+            "a free API, account, or local model in Settings."
+        )
+        blockers: list[dict[str, str]] = []
+        with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
+            from opai import app_state as _app_state
+
+            from . import auto_router as _ar3
+
+            blockers = _ar3.routing_blockers(
+                root,
+                _app_state.available_models(root, discover_local=False),
+                needs_edit=will_edit,
+            )
+        if not blockers:
+            return generic
+        lines = "\n".join(f"- {entry['reason']}" for entry in blockers)
+        return (
+            "Auto could not use any connected model for this request:\n"
+            f"{lines}\n\n"
+            "Fix any one of these, or pick a different model — OPai only needs "
+            "one working route."
+        )
+
+    def _recover(*, status: str = "", error: Any = None) -> str:
+        """One recovery decision for every failure site, Auto or not.
+
+        Auto walks its fallback chain; an explicitly chosen model still gets the
+        transport-blip retry, because "I picked Gemini and it randomly failed"
+        is the same bug as "Auto picked Gemini and it randomly failed".
+        Returns the same ``continue`` / ``confirm`` / ``stop`` vocabulary.
+        """
+        if auto_active:
+            return _advance_auto(status=status, error=error)
+        return "continue" if _retry_transient(error=error) else "stop"
+
+    def _auto_cloud_card() -> dict[str, Any]:
+        """Confirmation card naming the exact off-device model Auto selected."""
+        candidate = dict(_pending_cloud)
         model_id = str(candidate.get("id") or "")
         label = _auto_labels.get(model_id) or candidate.get("provider") or model_id
+        paid = bool(candidate.get("paid"))
         tried_free = any(
             auto_chain[i].get("kind") == "free" for i in range(1, auto_pos)
         )
@@ -1372,6 +1632,8 @@ def handle_gui_message(
             "OPai tried the free options without a usable answer. "
             if tried_free
             else "No free or local model is available. "
+            if paid
+            else "No capable local model is available. "
         )
         _phase_close("warning", "Needs your confirmation")
         return _decorate(
@@ -1379,25 +1641,27 @@ def handle_gui_message(
                 "status": "needs_auto_confirmation",
                 "answer": (
                     prefix
-                    + f"OPai can continue with {label}, a paid model — that call "
-                    "costs money. Confirm to continue, or switch model."
+                    + (
+                        f"OPai can continue with {label}, a paid model — that call "
+                        "costs money and sends task context off-device. "
+                        if paid
+                        else f"OPai can continue with {label}, a free-tier cloud model. "
+                        "Your task and compact project context will leave this device. "
+                    )
+                    + "Confirm to continue, or switch model."
                 ),
                 "fallbackModelId": model_id,
                 "fallbackModelLabel": label,
                 "cloudStarted": False,
                 "tool_trace": tool_trace,
-                "receipt": build_savings_receipt(
-                    root,
-                    task=message,
-                    selected_model=model_id,
-                    selected_mode=selected_mode,
-                    chosen_tier="L3",
-                    confidence="blocked",
-                ),
+                # No provider started, so there is no spend or saving to report.
+                # Attaching an estimated route receipt here makes the GUI label
+                # its positive estimate as money already "spent".
+                "receipt": {},
                 "changed_files": [],
                 "warnings": [],
                 "next_actions": [
-                    "Confirm the named paid model, or pick a different model."
+                    "Confirm the named cloud model, or pick a different model."
                 ],
             }
         )
@@ -1502,10 +1766,8 @@ def handle_gui_message(
     # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
     # A discovery request ("find me an issue to solve") stays read-only even in
     # an editing mode — it locates work, it does not change the repository.
-    allow_edits = selected_mode in {
-        "safe-auto",
-        "full-auto",
-    } and not is_discovery_request(message)
+    # Same decision Auto's chain was built from, so routing and execution agree.
+    allow_edits = will_edit
 
     while True:
         if selected_model.startswith("free:"):
@@ -1514,14 +1776,19 @@ def handle_gui_message(
             if _cancelled():
                 _phase_close("cancelled", "Stopped by you")
                 return _decorate(
-                    _cancelled_result(message, tool_trace, selected_model, selected_mode)
+                    _cancelled_result(
+                        message, tool_trace, selected_model, selected_mode
+                    )
                 )
+            if auto_active and not allow_cloud:
+                # Auto chooses a route; it does not grant permission to transmit
+                # repository context off-device. Surface the exact free provider
+                # before calling it, just as we do for a paid fallback.
+                _pending_cloud.clear()
+                _pending_cloud.update(auto_chain[auto_pos])
+                return _auto_cloud_card()
             provider = selected_model.split(":", 2)[1]
-            # Auto owns the cloud decision: choosing Auto is the user's consent to
-            # let OPai run the cheapest capable model, so a free model Auto picked
-            # itself runs without a second confirmation card. An explicitly picked
-            # free model still honors the one-time free-tier consent boundary.
-            free_allow_cloud = allow_cloud or auto_active
+            free_allow_cloud = allow_cloud
             _phase(
                 "request_sending" if free_allow_cloud else "needs_confirmation",
                 "running" if free_allow_cloud else "warning",
@@ -1554,12 +1821,15 @@ def handle_gui_message(
                 record_route=False,
                 cancel=cancel,
                 on_text=on_text,
+                tool_loop_policy=_contract_tool_loop_policy(),
             )
             if result.get("status") == "cancelled":
                 _phase_close("cancelled", "Stopped by you")
                 _emit("cancelled", "cancelled", "Stopped by you")
                 return _decorate(
-                    _cancelled_result(message, tool_trace, selected_model, selected_mode)
+                    _cancelled_result(
+                        message, tool_trace, selected_model, selected_mode
+                    )
                 )
             approval = _command_approval(result)
             if approval is not None:
@@ -1614,13 +1884,14 @@ def handle_gui_message(
             status = status_map.get(result.get("status"), result.get("status", "error"))
             # Auto fallback (#406+): a free provider that errored or is unconfigured
             # is not a dead end — move to the next capable model in the chain
-            # without asking the user to prompt again.
-            if auto_active and status in {"runner_error", "needs_model"}:
-                _decision = _advance_auto(status=status, error=result.get("error"))
+            # without asking the user to prompt again. Outside Auto the same
+            # call still absorbs a transport blip with one silent re-attempt.
+            if status in {"runner_error", "needs_model"}:
+                _decision = _recover(status=status, error=result.get("error"))
                 if _decision == "continue":
                     continue
                 if _decision == "confirm":
-                    return _auto_paid_card()
+                    return _auto_cloud_card()
             answer = (
                 result.get("answer")
                 or result.get("message")
@@ -1637,7 +1908,7 @@ def handle_gui_message(
                 if _decision == "continue":
                     continue
                 if _decision == "confirm":
-                    return _auto_paid_card()
+                    return _auto_cloud_card()
             # Ledger truth (#144): a route/savings event is only real once the task
             # actually answered — confirmation prompts, failures, and no-answers
             # record nothing.
@@ -1664,7 +1935,9 @@ def handle_gui_message(
                     cost_usd=float(receipt["estimated_actual_usd"]),
                     model=selected_model,
                 )
-                record_workflow_cost(root, runtime.task_id, free_telemetry, task=message)
+                record_workflow_cost(
+                    root, runtime.task_id, free_telemetry, task=message
+                )
             if not answer:
                 # Name the provider and the concrete next check instead of a
                 # generic "did not return an answer" (QA pass-2): an empty free
@@ -1689,7 +1962,9 @@ def handle_gui_message(
                     if policy.mode in {
                         AgentMode.IMPLEMENT,
                         AgentMode.SHIP,
-                    } and not _has_change_evidence(result, repo_changed=_repo_changed()):
+                    } and not _has_change_evidence(
+                        result, repo_changed=_repo_changed()
+                    ):
                         # F14/F24: an edit-intent run that changed nothing is not
                         # a green completion.
                         _phase_close("warning", "Finished with no changes")
@@ -1721,7 +1996,9 @@ def handle_gui_message(
                     "next_actions": ["Review provider quota and billing settings."],
                     "raw_result": result,
                     "error": result.get("error"),
-                    "cost_telemetry": free_telemetry.to_dict() if free_telemetry else {},
+                    "cost_telemetry": free_telemetry.to_dict()
+                    if free_telemetry
+                    else {},
                 }
             )
 
@@ -1731,9 +2008,13 @@ def handle_gui_message(
             if _cancelled():
                 _phase_close("cancelled", "Stopped by you")
                 return _decorate(
-                    _cancelled_result(message, tool_trace, selected_model, selected_mode)
+                    _cancelled_result(
+                        message, tool_trace, selected_model, selected_mode
+                    )
                 )
-            provider = selected_model.split(":")[1] if ":" in selected_model else "account"
+            provider = (
+                selected_model.split(":")[1] if ":" in selected_model else "account"
+            )
             _phase(
                 "provider_checking",
                 "running",
@@ -1761,7 +2042,9 @@ def handle_gui_message(
                             "misconfigured": "Provider CLI is misconfigured",
                             "provider_unavailable": "Provider unavailable",
                             "disconnected": "Provider disconnected",
-                        }.get(str(connection["authStatus"]), "Provider connection failed")
+                        }.get(
+                            str(connection["authStatus"]), "Provider connection failed"
+                        )
                         error = normalize_provider_error(provider, status_detail)
                     event_type = (
                         "provider_auth_failed"
@@ -1774,12 +2057,11 @@ def handle_gui_message(
                         error["title"],
                         metadata={"provider": provider, "code": error["code"]},
                     )
-                    if auto_active:
-                        _decision = _advance_auto(status="failed", error=error)
-                        if _decision == "continue":
-                            continue
-                        if _decision == "confirm":
-                            return _auto_paid_card()
+                    _decision = _recover(status="failed", error=error)
+                    if _decision == "continue":
+                        continue
+                    if _decision == "confirm":
+                        return _auto_cloud_card()
                     return _decorate(
                         {
                             "status": "failed",
@@ -1927,7 +2209,7 @@ def handle_gui_message(
                     if _decision == "continue":
                         continue
                     if _decision == "confirm":
-                        return _auto_paid_card()
+                        return _auto_cloud_card()
                 answer = str(result.get("hint") or result.get("reason") or "")
                 _phase_close("warning", "Provider cannot enforce this edit mode")
                 _emit(
@@ -1991,7 +2273,9 @@ def handle_gui_message(
             elif status == "answered":
                 _emit("stopped", "warning", _incomplete_title(result))
             else:
-                error = result.get("error") if isinstance(result.get("error"), dict) else {}
+                error = (
+                    result.get("error") if isinstance(result.get("error"), dict) else {}
+                )
                 code = str(error.get("code") or "UNKNOWN")
                 event_type = (
                     "provider_auth_failed" if code.startswith("AUTH_") else "failed"
@@ -2002,12 +2286,11 @@ def handle_gui_message(
                     str(error.get("title") or "OPai could not complete this request."),
                     metadata={"provider": provider, "code": code},
                 )
-                if auto_active:
-                    _decision = _advance_auto(status=status, error=error or None)
-                    if _decision == "continue":
-                        continue
-                    if _decision == "confirm":
-                        return _auto_paid_card()
+                _decision = _recover(status=status, error=error or None)
+                if _decision == "continue":
+                    continue
+                if _decision == "confirm":
+                    return _auto_cloud_card()
             answer_text = (
                 result.get("answer")
                 or result.get("hint")
@@ -2084,7 +2367,7 @@ def handle_gui_message(
                 if _decision == "continue":
                     continue
                 if _decision == "confirm":
-                    return _auto_paid_card()
+                    return _auto_cloud_card()
             answer = str(result.get("hint") or result.get("reason") or "")
             _phase_close("warning", "Local model cannot enforce this edit mode")
             _emit(
@@ -2111,7 +2394,9 @@ def handle_gui_message(
             "no_local_model": "needs_model",
             "confirmation_required": "needs_confirmation",
         }
-        answer = result.get("answer") or result.get("hint") or result.get("reason") or ""
+        answer = (
+            result.get("answer") or result.get("hint") or result.get("reason") or ""
+        )
         if result.get("status") == "no_local_model":
             # Auto local-first: no local model is a retryable miss, not a dead end.
             # Advance to the next capable configured model (free, then — with
@@ -2121,11 +2406,12 @@ def handle_gui_message(
                 if _decision == "continue":
                     continue
                 if _decision == "confirm":
-                    return _auto_paid_card()
-            answer = (
-                "Auto has no available model. Choose a configured model, or connect "
-                "a free API, account, or local model in Settings."
-            )
+                    return _auto_cloud_card()
+            # Auto ran out of candidates. OPai knows exactly which provider is
+            # capped, which CLI is stale, and which cannot take write access —
+            # so say that, instead of a generic "no available model" that leaves
+            # the user guessing which of four things to fix.
+            answer = _auto_exhausted_answer()
         elif result.get("status") == "confirmation_required":
             answer = (
                 "This needs a paid model. Pick your Claude or Codex account in the model "
@@ -2136,18 +2422,26 @@ def handle_gui_message(
                 "The local model couldn't answer that. Pick your Claude or Codex account "
                 "in the model menu, or check that your local model is running."
             )
-        final_status = status_map.get(result.get("status"), result.get("status", "error"))
+        final_status = status_map.get(
+            result.get("status"), result.get("status", "error")
+        )
         # Auto fallback: a local runner error or a cloud-tier request from the
         # local-first probe advances to the next capable model in the chain.
-        if auto_active and final_status in {"runner_error", "needs_confirmation", "error"}:
+        if auto_active and final_status in {
+            "runner_error",
+            "needs_confirmation",
+            "error",
+        }:
             _decision = _advance_auto(
                 status=final_status,
-                error=result.get("error") if isinstance(result.get("error"), dict) else None,
+                error=result.get("error")
+                if isinstance(result.get("error"), dict)
+                else None,
             )
             if _decision == "continue":
                 continue
             if _decision == "confirm":
-                return _auto_paid_card()
+                return _auto_cloud_card()
         if final_status == "answered":
             # Ledger truth (#144/#381): record the route + savings only for a run that
             # actually met its objective. "No local model" cards, runner errors, and

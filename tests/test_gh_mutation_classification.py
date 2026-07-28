@@ -117,9 +117,7 @@ class DestructiveGateGhMutationTests(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertTrue(is_destructive_command(command.split()), command)
-        self.assertTrue(
-            is_destructive_command(["bash", "-c", "rm opai-test-notes.md"])
-        )
+        self.assertTrue(is_destructive_command(["bash", "-c", "rm opai-test-notes.md"]))
 
     def test_git_commit_is_not_destructive(self):
         # Local and undoable: never a hard destructive block (and, since Bug 2,

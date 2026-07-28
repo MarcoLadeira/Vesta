@@ -19,11 +19,13 @@ test("Permissions page shows current-mode rules and a run-mode comparison", asyn
   // Current-mode capability rows with plain-language notes.
   await expect(settings).toContainText("Read files", seen);
   await expect(settings).toContainText("Pauses for your OK", seen);
+  await expect(settings).toContainText("Asks every time, even in Auto-apply", seen);
+  await expect(settings).not.toContainText("Full Auto", seen);
   // Run-mode comparison, with the active mode marked current.
   await expect(settings).toContainText("Run modes", seen);
-  await expect(page.locator(".mode-row.active")).toContainText("Safe Auto");
+  await expect(page.locator(".mode-row.active")).toContainText("Ask before edits");
   await expect(page.locator(".mode-row.active")).toContainText("current");
-  await expect(page.locator(".mode-row", { hasText: "Full Auto" })).toContainText("6 allowed");
+  await expect(page.locator(".mode-row", { hasText: "Auto-apply" })).toContainText("6 allowed");
 });
 
 test("Privacy page states the factual data stance", async ({ page }) => {
@@ -33,6 +35,8 @@ test("Privacy page states the factual data stance", async ({ page }) => {
   await expect(settings).toContainText("Raw prompts are never stored", seen);
   await expect(settings).toContainText("one-way task hashes", seen);
   await expect(settings).toContainText("No telemetry", seen);
+  await expect(settings).toContainText("Redacted saved chat, the ledger, and audit history are kept locally", seen);
+  await expect(settings).not.toContainText("Prompts, the ledger, and audit history are kept locally", seen);
 });
 
 test("clearing saved chat requires the styled confirm; cancel keeps data", async ({ page }) => {

@@ -42,6 +42,101 @@ test("startup requires an explicit resume choice before restoring safe messages"
   expectNoFatalErrors(diagnostics);
 });
 
+test("resuming a cloud-blocked turn restores the exact approval without granting it", async ({ page }) => {
+  const cloudResume = {
+    ...resume,
+    thread: {
+      ...resume.thread,
+      mode: "ask",
+      messages: [
+        { role: "user", text: "Explain this repository", status: "complete", timestamp: "2026-07-13T08:00:00Z" },
+        { role: "assistant", text: "Gemini will receive compact project context.", status: "blocked", timestamp: "2026-07-13T08:01:00Z" },
+      ],
+    },
+    workflow: {
+      phase: "blocked",
+      message: "OPai needs a safe resolution before continuing",
+      next_actions: ["Confirm the named cloud model, or pick a different model."],
+      provider: { model: "free:gemini:gemini-3.1-flash-lite", run_mode: "ask" },
+      safety_gates: {
+        pending_action: {
+          kind: "auto_cloud_confirmation",
+          model_id: "free:gemini:gemini-3.1-flash-lite",
+          model_label: "Gemini · 3.1 Flash-Lite",
+        },
+      },
+    },
+    checkpoint: { id: "cp-cloud", completion_state: "blocked", recovery_actions: ["Resolve the requested approval or input, then retry."] },
+  };
+  await openApp(page, { boot: { selectedModel: "auto", resume: cloudResume } });
+
+  await page.getByRole("button", { name: "Resume work" }).click();
+
+  await expect(page.getByRole("button", { name: "Confirm Gemini · 3.1 Flash-Lite" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  await expect(page.locator(".resume-summary")).toContainText("Confirm the named cloud model");
+  await expect(page.locator(".resume-summary")).not.toContainText("then retry");
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
+
+  await page.getByRole("button", { name: "Confirm Gemini · 3.1 Flash-Lite" }).click();
+  const request = await page.evaluate(() => window.__mock.lastRequest);
+  expect(request.text).toBe("Explain this repository");
+  expect(request.model).toBe("free:gemini:gemini-3.1-flash-lite");
+  expect(request.allowCloud).toBe(true);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
+});
+
+test("resuming a cloud-blocked Build confirms back into Build, never Chat", async ({ page }) => {
+  const buildResume = {
+    ...resume,
+    thread: {
+      ...resume.thread,
+      mode: "build",
+      messages: [
+        { role: "user", text: "Add search", status: "complete", timestamp: "2026-07-13T08:00:00Z" },
+        { role: "assistant", text: "Confirm the named cloud model.", status: "blocked", timestamp: "2026-07-13T08:01:00Z" },
+      ],
+    },
+    workflow: {
+      phase: "blocked",
+      message: "OPai needs a safe resolution before continuing",
+      next_actions: ["Confirm the named cloud model, or pick a different model."],
+      provider: { model: "free:gemini:gemini-3.1-flash-lite-preview", run_mode: "ask" },
+      safety_gates: {
+        pending_action: {
+          kind: "auto_cloud_confirmation",
+          model_id: "free:gemini:gemini-3.1-flash-lite-preview",
+          model_label: "Gemini · 3.1 Flash-Lite (free tier)",
+        },
+      },
+    },
+    checkpoint: { id: "cp-build-cloud", completion_state: "blocked", recovery_actions: [] },
+  };
+  await openApp(page, {
+    boot: { workspace: { build_app: true, build_app_name: "demo" }, selectedModel: "auto", resume: buildResume },
+    buildCloudGate: true,
+  });
+
+  await page.getByRole("button", { name: "Resume work" }).click();
+  const confirm = page.getByRole("button", {
+    name: "Confirm Gemini · 3.1 Flash-Lite (free tier)",
+  });
+  await expect(confirm).toBeVisible();
+  await expect(page.locator(".resumed-approval .role")).toContainText("OPai Build");
+  expect(await page.evaluate(() => window.__mock.buildCount)).toBe(0);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
+
+  await confirm.click();
+  await expect(page.getByRole("group", { name: "Build result" })).toBeVisible();
+  const [buildCount, sendCount, request] = await page.evaluate(() => [
+    window.__mock.buildCount, window.__mock.sendCount, window.__mock.lastBuild,
+  ]);
+  expect(buildCount).toBe(1);
+  expect(sendCount).toBe(0);
+  expect(request.allowCloud).toBe(true);
+  expect(request.model).toBe("free:gemini:gemini-3.1-flash-lite-preview");
+});
+
 
 test("start fresh clears only through the session bridge and restores the empty composer", async ({ page }) => {
   await openApp(page, { boot: { resume } });
@@ -123,6 +218,7 @@ test("failed clear history does not hide resumable work", async ({ page }) => {
   await openApp(page, { boot: { resume }, clearRecentsResult: failure });
 
   await page.click("#clearRecents");
+  await page.locator("#recents .inline-confirm [data-ic='ok']").click();
 
   await expect(page.getByRole("group", { name: "Resume previous work" })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("could not clear");

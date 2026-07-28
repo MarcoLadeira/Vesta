@@ -23,15 +23,6 @@
   var STYLES = ["toolbar", "single", "command"];
   var DEFAULT_STYLE = "toolbar";
 
-  // Plain-language mode labels + descriptions, keyed by the app's mode ids.
-  // Falls back to the mode's own label when an id is unknown (forward compat).
-  var MODE_LABEL = {
-    ask: "Ask",
-    plan: "Plan only",
-    "safe-auto": "Ask before edits",
-    "approve-edits": "Approve edits",
-    "full-auto": "Auto-apply",
-  };
   var MODE_DESC = {
     ask: "Answer questions without changing files.",
     plan: "Describe the changes without touching files.",
@@ -71,8 +62,10 @@
     return !!m && (m.kind === "auto" || m.kind === "local" || m.kind === "free");
   }
   function modeLabelOf(mode) {
-    if (!mode) return "Ask before edits";
-    return MODE_LABEL[mode.id] || mode.label || "Mode";
+    if (typeof global.OPaiModePresentationLabel === "function") {
+      return global.OPaiModePresentationLabel(mode);
+    }
+    return (mode && mode.label) || "Mode";
   }
   function dotVar(kind) {
     return kind === "caution" ? "var(--amber)" : kind === "muted" ? "var(--faint)" : "var(--accent)";
@@ -101,9 +94,9 @@
     add.click();
   }
   function useRepo() {
-    var ws = boot().workspace || {};
-    var name = ws.name || ws.label || "";
-    if (name) addPath(name + "/");
+    // Context hints are relative to the active workspace root. Using the Git
+    // repository name is wrong for generated apps nested inside a parent repo.
+    addPath("./");
   }
 
   /* ---------- popovers ---------- */
@@ -155,22 +148,19 @@
 
   function buildContextPop() {
     var ws = boot().workspace || {};
-    var repo = ws.name || ws.label || "this project";
+    var repo = ws.label || ws.name || "this project";
     var pop = els.ctxPop;
     pop.innerHTML =
       '<div class="cpop-head">Add context</div>' +
       '<button type="button" role="menuitem" class="cpop-row" data-act="file"><span class="cpop-ico">' + icon("file") + '</span><span class="cpop-body"><span class="cpop-title">Attach files…</span></span></button>' +
       '<button type="button" role="menuitem" class="cpop-row" data-act="folder"><span class="cpop-ico">' + icon("folder") + '</span><span class="cpop-body"><span class="cpop-title">Add a folder…</span></span></button>' +
-      '<button type="button" role="menuitem" class="cpop-row" data-act="repo"><span class="cpop-ico">' + icon("workspace") + '</span><span class="cpop-body"><span class="cpop-title">Use this repository</span></span><span class="cpop-meta">' + esc(repo) + "</span></button>" +
+      '<button type="button" role="menuitem" class="cpop-row" data-act="repo"><span class="cpop-ico">' + icon("workspace") + '</span><span class="cpop-body"><span class="cpop-title">Use this repository</span></span><span class="cpop-meta" title="' + esc(repo) + '">' + esc(repo) + "</span></button>" +
       '<div class="cpop-sep"></div>' +
       '<div class="cpop-input"><span>›</span><input id="ctxPathDraft" placeholder="Type a path and press Enter" aria-label="Add a path" autocomplete="off" /></div>' +
       '<p class="cpop-note">OPai links to your files — it sends their location, not their contents.</p>';
     pop.querySelector('[data-act="repo"]').onclick = function () { useRepo(); closePopovers(); };
-    // Attaching files/folders through a picker is owned by the host; when no
-    // bridge picker is present we focus the path input so the capability is
-    // never a dead end.
-    pop.querySelector('[data-act="file"]').onclick = function () { focusDraft(); };
-    pop.querySelector('[data-act="folder"]').onclick = function () { focusDraft(); };
+    pop.querySelector('[data-act="file"]').onclick = function () { pickContext("file"); };
+    pop.querySelector('[data-act="folder"]').onclick = function () { pickContext("folder"); };
     var draft = pop.querySelector("#ctxPathDraft");
     draft.onkeydown = function (e) {
       if (e.key === "Enter") {
@@ -180,6 +170,21 @@
       }
     };
     function focusDraft() { try { draft.focus(); } catch (_e) { /* ignore */ } }
+    function pickContext(kind) {
+      var api = global.__opai || {};
+      var pick = kind === "file" ? api.pickContextFiles : api.pickContextFolder;
+      if (typeof pick !== "function") { focusDraft(); return; }
+      pick(function (raw) {
+        var result = {};
+        try { result = JSON.parse(raw || "{}"); } catch (_e) { result = {}; }
+        var paths = Array.isArray(result.paths) ? result.paths : [];
+        paths.forEach(addPath);
+        if (Number(result.rejected || 0) > 0 && typeof api.notify === "function") {
+          api.notify("Only files and folders inside this workspace can be attached.");
+        }
+        closePopovers();
+      });
+    }
   }
 
   function buildModePop() {
@@ -195,7 +200,7 @@
         var editMode = ["safe-auto", "approve-edits", "full-auto"].indexOf(m.id) >= 0;
         return menuRow({
           role: "menuitemradio",
-          title: MODE_LABEL[m.id] || m.label,
+          title: modeLabelOf(m),
           desc: MODE_DESC[m.id] || "",
           active: m.id === cur,
           dot: dotVar(MODE_DOT[m.id] || "accent"),
@@ -256,6 +261,15 @@
   }
   // Out-of-credit models are removed from selection entirely; this builds the
   // one-line explanation of what was hidden and why (per provider, deduped).
+  // A model that works for Ask and Plan but that OPai will refuse to hand
+  // repository write access (Copilot's CLI today, because it cannot expose a
+  // bounded edit-tool set). It stays fully selectable — read-only work is a
+  // legitimate use — but the row says so up front instead of letting the user
+  // pick it for an editing task and hit the refusal mid-run.
+  function readOnlyNote(m) {
+    return m.repo_editing === false ? "Ask & Plan only — can't edit files" : "";
+  }
+
   function outOfCreditNote(models) {
     var names = [];
     models.forEach(function (m) {
@@ -348,12 +362,15 @@
       working.concat(failing).forEach(function (m) {
         var disabled = !isWorking(m);
         var credit = balanceLabel(m);
+        var readOnly = disabled ? "" : readOnlyNote(m);
         html +=
           '<button type="button" role="menuitemradio" aria-checked="' + (m.id === cur ? "true" : "false") +
           '" data-id="' + esc(m.id) + '" class="cpop-row cpop-model' + (m.id === cur && !selectedUnavailable ? " active" : "") + '"' +
-          (disabled ? ' disabled aria-disabled="true" title="' + esc(m.health_reason || m.disabled_reason || "Unavailable") + '"' : "") + ">" +
+          (disabled ? ' disabled aria-disabled="true" title="' + esc(m.health_reason || m.disabled_reason || "Unavailable") + '"' : "") +
+          (readOnly ? ' title="' + esc(m.edit_blocked_reason || readOnly) + '"' : "") + ">" +
           '<span class="cpop-body"><span class="cpop-title">' + esc(modelName(m)) + "</span>" +
           (disabled ? '<span class="cpop-desc">' + esc(m.health_reason || "Currently unavailable") + "</span>" : "") +
+          (readOnly ? '<span class="cpop-desc" data-read-only>' + esc(readOnly) + "</span>" : "") +
           "</span>" +
           (credit ? '<span class="cpop-balance" data-balance>' + esc(credit) + "</span>" : "") +
           '<span class="cpop-prov">' + esc(modelShortProvider(m)) + "</span>" +
@@ -384,7 +401,7 @@
     var manage = els.modelPop.querySelector("#manageModels");
     if (manage) manage.onclick = function () {
       closePopovers();
-      if (global.__opai && global.__opai.openSettings) global.__opai.openSettings();
+      if (global.__opai && global.__opai.openSettings) global.__opai.openSettings("models");
     };
   }
   var CHECK_SVG = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.5 3.5L13 5"/></svg>';

@@ -128,7 +128,11 @@ def build_run_summary(record: Mapping[str, Any] | None) -> str:
         paid = " paid" if receipt.get("paid_call") else ""
         cost_lines.append(f"- Spend: {spend} ({badge}){paid}")
     savings = receipt.get("estimated_savings_usd")
-    if isinstance(savings, (int, float)) and not isinstance(savings, bool) and savings > 0:
+    if (
+        isinstance(savings, (int, float))
+        and not isinstance(savings, bool)
+        and savings > 0
+    ):
         against = baseline_tier or "the cloud"
         cost_lines.append(f"- Saved: {_money(savings)} vs the {against} baseline")
     if cost_lines:

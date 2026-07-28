@@ -210,17 +210,11 @@ class ProviderConnectionTests(unittest.TestCase):
             "login_hint": "",
         }
 
-        chatgpt = account_models(
-            accounts=[account], account_types={"codex": "chatgpt"}
-        )
-        api_key = account_models(
-            accounts=[account], account_types={"codex": "api_key"}
-        )
+        chatgpt = account_models(accounts=[account], account_types={"codex": "chatgpt"})
+        api_key = account_models(accounts=[account], account_types={"codex": "api_key"})
 
         self.assertEqual([option["id"] for option in chatgpt], ["account:codex"])
-        self.assertIn(
-            "account:codex:gpt-5.6", [option["id"] for option in api_key]
-        )
+        self.assertIn("account:codex:gpt-5.6", [option["id"] for option in api_key])
 
     def test_codex_picker_disables_a_known_outdated_cli(self):
         account = {
@@ -330,9 +324,7 @@ class ProviderConnectionTests(unittest.TestCase):
                 mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
                 mock.patch(
                     "opaihub.accounts.provider_connection_doctor",
-                    return_value=[
-                        {"providerId": "codex", "authStatus": "connected"}
-                    ],
+                    return_value=[{"providerId": "codex", "authStatus": "connected"}],
                 ),
             ):
                 payload = available_models(Path(tmp))

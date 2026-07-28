@@ -22,6 +22,7 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -615,6 +616,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         tool_calling_enabled: bool = True,
         guard: Any = None,
         allow_command: str | None = None,
+        tool_loop_policy: Any = None,
     ) -> dict[str, Any]:
         """Run a continuous, checkpointed repository tool loop.
 
@@ -675,7 +677,19 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                 usage=self._usage(result),
             )
 
-        controller = ToolLoopController(ToolLoopPolicy(max_tool_calls=max_tool_calls))
+        # The turn's message contract picks the budgets (tool calls, wall clock,
+        # compaction threshold) so a multi-file refactor is not held to a
+        # one-file fix's allowance. Absent a contract the defaults apply exactly
+        # as before. The deprecated external ceiling is layered on top either
+        # way, so an explicit caller-set ceiling still wins.
+        policy = (
+            tool_loop_policy if isinstance(tool_loop_policy, ToolLoopPolicy) else None
+        )
+        if policy is None:
+            policy = ToolLoopPolicy(max_tool_calls=max_tool_calls)
+        elif max_tool_calls is not None:
+            policy = replace(policy, max_tool_calls=max_tool_calls)
+        controller = ToolLoopController(policy)
         outcome = controller.run(
             chat=chat,
             executor=executor,

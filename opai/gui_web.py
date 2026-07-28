@@ -58,6 +58,7 @@ from opai.gui_workspace import (
     add_recent_workspace,
     is_valid_workspace,
     load_recent_workspaces,
+    resolve_gui_workspace,
     workspace_label,
 )
 
@@ -103,7 +104,9 @@ def asset_build_identity(asset_dir: Path = WEB_DIR) -> dict[str, Any]:
         "assetFingerprint": digest.hexdigest(),
         "assetCount": len(candidates),
         "runtimeSource": (
-            "source_checkout" if (source_root / ".git").exists() else "installed_package"
+            "source_checkout"
+            if (source_root / ".git").exists()
+            else "installed_package"
         ),
     }
 
@@ -216,6 +219,38 @@ def resolve_openable(root: Path, target: str) -> Path | None:
     return candidate
 
 
+def context_picker_payload(root: Path, selected: list[str]) -> dict[str, Any]:
+    """Return safe, workspace-relative context paths from a native picker.
+
+    The browser must never receive an arbitrary absolute path selected by the
+    host.  Existing files and folders inside the active workspace are reduced
+    to portable relative paths; everything else is counted as rejected.
+    """
+    try:
+        workspace = root.expanduser().resolve()
+    except (OSError, ValueError, RuntimeError):
+        return {"paths": [], "rejected": len(selected)}
+
+    paths: list[str] = []
+    rejected = 0
+    for raw in selected:
+        try:
+            target = Path(raw).expanduser().resolve()
+            relative = target.relative_to(workspace)
+        except (OSError, ValueError, RuntimeError):
+            rejected += 1
+            continue
+        if not target.exists() or relative == Path("."):
+            rejected += 1
+            continue
+        value = relative.as_posix()
+        if target.is_dir():
+            value = value.rstrip("/") + "/"
+        if value not in paths:
+            paths.append(value)
+    return {"paths": paths, "rejected": rejected}
+
+
 # --------------------------------------------------------------------------- #
 # Overview cache: the status hot path must not rescan an unchanged repo (#146)
 # --------------------------------------------------------------------------- #
@@ -320,11 +355,12 @@ def _workspace(root: Path) -> dict[str, Any]:
         ws = {"name": root.name, "branch": "", "file_count": 0}
     from opaihub.build_loop import load_app_manifest
 
-    build_manifest = load_app_manifest(context.path)
+    build_manifest = load_app_manifest(root)
     return {
         "label": workspace_label(root),
         "name": ws["name"],
-        "root": str(context.path),
+        "root": str(root.expanduser().resolve()),
+        "repo_root": str(context.path),
         "branch": context.branch or ws.get("branch", ""),
         "remote": context.remote,
         "dirty": bool(context.dirty_paths),
@@ -819,7 +855,10 @@ def _persist_turn_result(
             answer=answer,
             status=thread_status,
             task_id=str(workflow.get("task_id") or request_id),
-            mode=str(workflow.get("mode") or mode),
+            # Build is a UI execution channel, not the agent intent reported by
+            # the nested chat pipeline. Preserve it so a blocked cloud handoff
+            # resumes through bridge.build instead of silently becoming Chat.
+            mode=str(mode if build else (workflow.get("mode") or mode)),
             checkpoint_id=str(result.get("checkpoint_id") or ""),
             plan=plan,
             changed_files=changed_files,
@@ -1214,9 +1253,7 @@ def _run_gui(
     from PySide6.QtWebEngineWidgets import QWebEngineView
 
     QtCore.qInstallMessageHandler(lambda *_a: None)
-    from opaihub.repo_context import active_repo_context
-
-    root = active_repo_context(project_root).path
+    root = resolve_gui_workspace(project_root)
     from opaihub.gui_pipeline import handle_gui_message
     from opaihub.gui_preferences import save_gui_preferences
 
@@ -1572,7 +1609,9 @@ def _run_gui(
             try:
                 return json.dumps(check_for_update(install_root(), force=bool(force)))
             except Exception as exc:  # noqa: BLE001 - never crash the page
-                return json.dumps({"checked": False, "up_to_date": True, "reason": str(exc)})
+                return json.dumps(
+                    {"checked": False, "up_to_date": True, "reason": str(exc)}
+                )
 
         @QtCore.Slot(result=str)
         def applyUpdate(self) -> str:
@@ -1599,7 +1638,8 @@ def _run_gui(
                 creationflags = 0
                 if sys.platform.startswith("win"):
                     creationflags = (
-                        subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                        subprocess.DETACHED_PROCESS
+                        | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
                     )
                 subprocess.Popen(  # nosec B603 - fixed argv, no shell
                     [sys.executable, "-m", "opai", "gui", "--project", str(self.root)],
@@ -1927,6 +1967,8 @@ def _run_gui(
                     on_text=emit_text,
                     cancel=cancel,
                     resume_context=resume_context,
+                    allow_cloud=bool(payload.get("allowCloud", False)),
+                    allow_limit=bool(payload.get("allowLimit", False)),
                 )
 
             worker = Worker(job)
@@ -2037,6 +2079,32 @@ def _run_gui(
             if chosen and is_valid_workspace(chosen):
                 self._switch(chosen)
 
+        @QtCore.Slot(result=str)
+        def pickContextFiles(self) -> str:
+            """Let the user select context files without exposing host paths."""
+            self.window.raise_()
+            self.window.activateWindow()
+            chosen, _filter = QtWidgets.QFileDialog.getOpenFileNames(
+                self.window,
+                "Attach files",
+                str(self.root),
+            )
+            return json.dumps(context_picker_payload(self.root, chosen))
+
+        @QtCore.Slot(result=str)
+        def pickContextFolder(self) -> str:
+            """Let the user select one context folder inside the workspace."""
+            self.window.raise_()
+            self.window.activateWindow()
+            chosen = QtWidgets.QFileDialog.getExistingDirectory(
+                self.window,
+                "Add a folder",
+                str(self.root),
+                QtWidgets.QFileDialog.Option.ShowDirsOnly,
+            )
+            selected = [chosen] if chosen else []
+            return json.dumps(context_picker_payload(self.root, selected))
+
         @QtCore.Slot(str)
         def switchWorkspace(self, path: str) -> None:
             if is_valid_workspace(path):
@@ -2078,9 +2146,7 @@ def _run_gui(
             return json.dumps(result)
 
         def _switch(self, path: str) -> None:
-            from opaihub.repo_context import active_repo_context
-
-            self.root = active_repo_context(Path(path)).path
+            self.root = resolve_gui_workspace(Path(path))
             self._resume_context_active = False
             self._session_epoch.invalidate()
             add_recent_workspace(self.root)

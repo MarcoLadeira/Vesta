@@ -59,7 +59,9 @@ def test_terminal_states_are_immutable() -> None:
 
 def test_verifying_only_leads_to_terminal_states() -> None:
     for other in NON_TERMINAL_STATES:
-        assert not can_transition(RunState.VERIFYING, other) or other is RunState.VERIFYING
+        assert (
+            not can_transition(RunState.VERIFYING, other) or other is RunState.VERIFYING
+        )
     assert not can_transition(RunState.VERIFYING, RunState.RUNNING)
     assert can_transition(RunState.VERIFYING, RunState.COMPLETED)
 

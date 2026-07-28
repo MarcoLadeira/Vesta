@@ -158,9 +158,13 @@ class Gui2ModelAndPreferenceTests(unittest.TestCase):
                     )
                 accepted = json.loads(buf.getvalue())
 
-        codex_group = next(group for group in listed["groups"] if group["id"] == "codex")
+        codex_group = next(
+            group for group in listed["groups"] if group["id"] == "codex"
+        )
         self.assertEqual(list_code, 0)
-        self.assertEqual([option["id"] for option in codex_group["models"]], ["account:codex"])
+        self.assertEqual(
+            [option["id"] for option in codex_group["models"]], ["account:codex"]
+        )
         self.assertEqual(rejected_code, 2)
         self.assertEqual(rejected["status"], "unknown_model")
         self.assertEqual(accepted_code, 0)

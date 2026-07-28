@@ -208,14 +208,20 @@ def test_terminal_verdicts_have_typed_reason_codes(
 def test_failure_reason_maps_every_provider_error_code(
     error_code: str, expected: FailureReason
 ) -> None:
-    assert classify_failure_reason({"status": "failed", "error": {"code": error_code}}) is expected
+    assert (
+        classify_failure_reason({"status": "failed", "error": {"code": error_code}})
+        is expected
+    )
 
 
 def test_failure_reason_falls_back_honestly_without_a_typed_code() -> None:
     # A codeless failure defaults to "provider" (the old generic cause), never a
     # fabricated internal blame; a local runner error is honestly internal.
     assert classify_failure_reason({"status": "failed"}) is FailureReason.PROVIDER
-    assert classify_failure_reason({"status": "failed", "error": "raw text"}) is FailureReason.PROVIDER
+    assert (
+        classify_failure_reason({"status": "failed", "error": "raw text"})
+        is FailureReason.PROVIDER
+    )
     assert classify_failure_reason({"status": "runner_error"}) is FailureReason.INTERNAL
     assert classify_failure_reason(None) is FailureReason.PROVIDER
 
@@ -224,8 +230,12 @@ def test_typed_failure_offers_a_class_specific_next_action() -> None:
     # #380: a failure names its class AND the next safe action — auth failures
     # send the user to re-connect, not a generic "retry the run".
     objective = objective_from_request("Fix it.", mode="implement")
-    auth = evaluate_completion(objective, {"status": "failed", "error": {"code": "AUTH_MISSING"}})
-    rate = evaluate_completion(objective, {"status": "failed", "error": {"code": "PROVIDER_RATE_LIMITED"}})
+    auth = evaluate_completion(
+        objective, {"status": "failed", "error": {"code": "AUTH_MISSING"}}
+    )
+    rate = evaluate_completion(
+        objective, {"status": "failed", "error": {"code": "PROVIDER_RATE_LIMITED"}}
+    )
 
     assert auth.verdict is CompletionVerdict.FAILED
     assert auth.reason_code == "auth"

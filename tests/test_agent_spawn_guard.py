@@ -207,8 +207,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         """A direct PR comment is outward-facing, but not a dead-end block."""
 
         command = (
-            "gh pr comment 511 --repo MarcoLadeira/OPai "
-            "--body-file .pr511-comment.md"
+            "gh pr comment 511 --repo MarcoLadeira/OPai --body-file .pr511-comment.md"
         )
         with _hermetic_hub(), _consent_store():
             from opaihub import command_consent
@@ -256,7 +255,9 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
             command_consent.begin_turn("git push")
             first = claude_pre_tool_decision(_hook_payload("git push -u origin feat/x"))
             self.assertEqual(_decision_of(first), "allow")
-            second = claude_pre_tool_decision(_hook_payload("git push -u origin feat/x"))
+            second = claude_pre_tool_decision(
+                _hook_payload("git push -u origin feat/x")
+            )
             self.assertEqual(_decision_of(second), "deny")
 
     def test_a_grant_never_unlocks_an_unsafe_push(self):
@@ -329,8 +330,11 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
     def test_push_consent_lookup_failure_denies(self):
         # The consent probe must fail closed: an unreadable config can only ever
         # make the gate stricter, never open it.
-        with _hermetic_hub(), mock.patch(
-            "opaihub.github_connector.push_allowed", side_effect=OSError("boom")
+        with (
+            _hermetic_hub(),
+            mock.patch(
+                "opaihub.github_connector.push_allowed", side_effect=OSError("boom")
+            ),
         ):
             result = claude_pre_tool_decision(_hook_payload("git push"))
         self.assertEqual(_decision_of(result), "deny")
@@ -539,10 +543,12 @@ class CodexFullAutoPostureTests(unittest.TestCase):
         # "Enable pushes & PRs", a button that by then reads "Disable pushes &
         # PRs". The refusal stays; the directions have to match reality.
         with _push_consent(True):
-            prompt = self._runner().build_command("push my branch", mode="full-auto")[-1]
+            prompt = self._runner().build_command("push my branch", mode="full-auto")[
+                -1
+            ]
         self.assertIn("denied", prompt)
         self.assertIn("already enabled", prompt)
-        self.assertNotIn("click \"Enable pushes & PRs\"", prompt)
+        self.assertNotIn('click "Enable pushes & PRs"', prompt)
         self.assertIn("invent a Settings button", prompt)
         self.assertIn("push my branch", prompt)
         # Round 5 finding 1: every other channel raises a per-push approval card,
@@ -604,7 +610,9 @@ class RecursionGuardCliTests(unittest.TestCase):
         self.assertIn("OPai", err)
 
     def test_ask_refuses_inside_agent_session(self):
-        code, _out, err = _run_cli(["ask", "do the thing"], env={AGENT_SESSION_ENV: "1"})
+        code, _out, err = _run_cli(
+            ["ask", "do the thing"], env={AGENT_SESSION_ENV: "1"}
+        )
         self.assertEqual(code, 2)
         self.assertIn(self.REFUSAL, err)
 
@@ -639,7 +647,9 @@ class RecursionGuardCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "pyproject.toml").write_text("[project]\nname='x'\n")
-            code, out, _err = _run_cli(["route", "explain this repo", "--project", str(root)])
+            code, out, _err = _run_cli(
+                ["route", "explain this repo", "--project", str(root)]
+            )
         self.assertEqual(code, 0)
         self.assertTrue(out.strip())
 

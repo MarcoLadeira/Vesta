@@ -46,18 +46,25 @@ class AppStateReadTests(unittest.TestCase):
         self.assertIn("Local max benchmark proof", o["benchmark_claim"])
         self.assertNotIn("50x", o["benchmark_claim"])
 
-    def test_agent_readiness_has_five_clients(self):
+    def test_agent_readiness_renders_every_declared_client(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
             ar = A.agent_readiness(root)
         ids = [c["id"] for c in ar["clients"]]
-        self.assertEqual(ids, ["claude", "codex", "copilot", "cursor", "cline"])
+        self.assertEqual(
+            ids,
+            ["claude", "codex", "copilot", "gemini", "cursor", "cline"],
+        )
         for c in ar["clients"]:
-            self.assertIn(c["status"], {"active", "broken", "missing", "needs_setup", "unknown"})
+            self.assertIn(
+                c["status"], {"active", "broken", "missing", "needs_setup", "unknown"}
+            )
             self.assertTrue(c["repair"])
 
-    def _agent_readiness_card(self, client: dict[str, object], wrapper: dict[str, object]) -> dict[str, object]:
+    def _agent_readiness_card(
+        self, client: dict[str, object], wrapper: dict[str, object]
+    ) -> dict[str, object]:
         integrations = {
             "clients": [
                 {"id": "cursor", "label": "Cursor", "status": "active", **client}
@@ -70,7 +77,9 @@ class AppStateReadTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             with (
-                mock.patch("opai.clients.client_integrations_status", return_value=integrations),
+                mock.patch(
+                    "opai.clients.client_integrations_status", return_value=integrations
+                ),
                 mock.patch("opai.clients.detect_stale_paths", return_value=[]),
                 mock.patch("opai.integrations.project_status", return_value=status),
             ):
@@ -222,6 +231,95 @@ class SafetyAndActionTests(unittest.TestCase):
         self.assertFalse(preview["mutates"])
         self.assertEqual(before, after)  # no files created/deleted
 
+    def test_context_dashboard_tools_preview_in_app_and_gate_ignore_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            (root / "dist").mkdir()
+            (root / "dist" / "bundle.js").write_text("x" * 4000, encoding="utf-8")
+
+            preview = A.run_tool(root, "context_preview")
+            gated = A.run_tool(root, "ignores")
+
+        self.assertTrue(preview["ok"])
+        self.assertEqual(preview["title"], "Cleanup preview")
+        self.assertIn("Preview only", preview["text"])
+        self.assertNotIn("mutates", preview)
+        self.assertTrue(gated["mutates"])
+        self.assertEqual(gated["apply"], ("ignores", None))
+        self.assertIn("never deletes source", gated["confirm"])
+
+    def test_confirmed_ignore_generation_uses_the_additive_generator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            with mock.patch.object(
+                A,
+                "generate_ignores",
+                return_value={"written": [".claudeignore", ".geminiignore"]},
+            ) as generate:
+                applied = A.apply_tool(root, ("ignores", None))
+
+        generate.assert_called_once_with(root)
+        self.assertTrue(applied["ok"])
+        self.assertIn("2 ignore files", applied["text"])
+
+    def test_proof_exports_are_scoped_and_only_write_after_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            json_request = A.run_tool(root, "proof_json")
+            markdown_request = A.run_tool(root, "proof_markdown")
+
+            with mock.patch.object(
+                A,
+                "export_proof",
+                return_value={"status": "exported"},
+            ) as export:
+                applied = A.apply_tool(root, json_request["apply"])
+
+        self.assertTrue(json_request["mutates"])
+        self.assertEqual(json_request["apply"], ("proof_json", None))
+        self.assertIn(".opaihub/proof-bundle.json", json_request["confirm"])
+        self.assertTrue(markdown_request["mutates"])
+        self.assertEqual(markdown_request["apply"], ("proof_markdown", None))
+        self.assertIn(".opaihub/proof-bundle.md", markdown_request["confirm"])
+        export.assert_called_once_with(
+            root,
+            root / ".opaihub" / "proof-bundle.json",
+            fmt="json",
+        )
+        self.assertTrue(applied["ok"])
+        self.assertIn(".opaihub/proof-bundle.json", applied["text"])
+
+    def test_local_benchmark_runs_in_app_only_after_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            request = A.run_tool(root, "benchmark_run")
+
+            self.assertFalse(A.benchmark_proof(root)["has_run"])
+            with mock.patch.object(
+                A,
+                "run_local_benchmark",
+                return_value={
+                    "effectiveness_index": 99.4,
+                    "context_reduction_ratio": 50.0,
+                    "paid_calls_avoided": 16,
+                },
+            ) as run:
+                applied = A.apply_tool(root, request["apply"])
+
+        self.assertTrue(request["mutates"])
+        self.assertEqual(request["apply"], ("benchmark_run", None))
+        self.assertIn("local benchmark", request["confirm"].lower())
+        self.assertIn("no raw prompts", request["confirm"].lower())
+        run.assert_called_once_with(root)
+        self.assertTrue(applied["ok"])
+        self.assertIn("99.4", applied["text"])
+        self.assertIn("50", applied["text"])
+        self.assertIn("16", applied["text"])
+
     def test_set_panic_toggles_and_records_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -371,6 +469,7 @@ class PremiumGuiContractTests(unittest.TestCase):
             "safe_repair",
             "panic_toggle",
             "cleanup_preview",
+            "benchmark_run",
             "benchmark_gate",
         ]:
             self.assertIn(expected, actions)
@@ -387,6 +486,12 @@ class PremiumGuiContractTests(unittest.TestCase):
         self.assertEqual(
             proof["subtitle"], "Local signed evidence for alpha users and teams."
         )
+        workflows = next(
+            section for section in vm["sections"] if section["id"] == "workflows"
+        )
+        workflow_action = workflows["actions"][0]
+        self.assertEqual(workflow_action["label"], "Copy workflow list command")
+        self.assertEqual(workflow_action["command"], "opai guard list")
         home = next(section for section in vm["sections"] if section["id"] == "home")
         benchmark_kpi = next(
             kpi for kpi in home["kpis"] if kpi["label"] == "Benchmark proof"
@@ -401,7 +506,9 @@ class PremiumGuiContractTests(unittest.TestCase):
             _repo(root)
             vm = build_view_model(root)
 
-        context = next(section for section in vm["sections"] if section["id"] == "context")
+        context = next(
+            section for section in vm["sections"] if section["id"] == "context"
+        )
         tokens = next(kpi for kpi in context["kpis"] if "token" in kpi["label"].lower())
         self.assertEqual(tokens["label"], "Estimated wasted tokens")
         cost = next(kpi for kpi in context["kpis"] if "cost" in kpi["label"].lower())
@@ -410,6 +517,25 @@ class PremiumGuiContractTests(unittest.TestCase):
             cost["description"],
             "Not money spent — projection for uncompressed context.",
         )
+
+    def test_benchmark_zero_state_does_not_present_fixture_results_as_proof(self):
+        from opai.gui_view_model import build_view_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            vm = build_view_model(root)
+
+        benchmark = next(
+            section for section in vm["sections"] if section["id"] == "benchmark"
+        )
+        self.assertEqual(benchmark["hero"]["headline"], "Not run yet")
+        self.assertEqual(
+            [kpi["value"] for kpi in benchmark["kpis"]],
+            ["—", "—", "—"],
+        )
+        self.assertNotIn("50x", json.dumps(benchmark))
+        self.assertNotIn('"16"', json.dumps(benchmark))
 
     def test_view_model_does_not_expose_raw_prompts_or_secrets(self):
         from opai.gui_view_model import build_view_model

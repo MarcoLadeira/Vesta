@@ -36,3 +36,48 @@ test("context action copies a read-only profiling command", async ({ page }) => 
   await page.getByRole("button", { name: "Copy profile command" }).click();
   await expect(page.locator("#toast")).toContainText("opai context profile");
 });
+
+test("cleanup actions preview in app and require approval before writing ignores", async ({ page }) => {
+  await openApp(page, {
+    dashboards: {
+      context: {
+        title: "Context Waste",
+        subtitle: "Find expensive generated context.",
+        kpis: [],
+        cards: [{ title: "dist/", body: "Generated output" }],
+        actions: [
+          { id: "cleanup_preview", label: "Preview cleanup" },
+          { id: "generate_ignores", label: "Generate ignore files" },
+        ],
+      },
+    },
+    toolResponses: {
+      context_preview: {
+        title: "Cleanup preview",
+        text: "Preview only. No files are deleted.",
+        needs_confirm: false,
+      },
+      ignores: {
+        title: "Generate ignore files",
+        text: "Append managed ignore blocks?",
+        needs_confirm: true,
+        apply: "ignores",
+      },
+    },
+  });
+
+  await openNav(page, "Context Waste");
+  await page.getByRole("button", { name: "Preview cleanup" }).click();
+  await expect(page.locator(".tool-card")).toContainText("Preview only. No files are deleted.");
+  await expect.poll(() => page.evaluate(() => window.__mock.runTools)).toEqual(["context_preview"]);
+
+  await openNav(page, "Context Waste");
+  await page.getByRole("button", { name: "Generate ignore files" }).click();
+  await expect(page.locator(".approval-card")).toContainText("Append managed ignore blocks?");
+  await expect(page.locator(".approval-card")).toContainText("Approve once");
+  await expect.poll(() => page.evaluate(() => window.__mock.appliedTools)).toEqual([]);
+
+  await page.getByRole("button", { name: "Deny" }).click();
+  await expect(page.locator(".approval-card")).toContainText("Denied — nothing was changed.");
+  await expect.poll(() => page.evaluate(() => window.__mock.appliedTools)).toEqual([]);
+});

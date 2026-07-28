@@ -40,7 +40,8 @@ test("the Overview status card reflects the real payload", async ({ page }) => {
   await expect(settings).toContainText("Cloud gate: confirm", seen);
   await expect(settings).toContainText("solo-balanced", seen);
   await expect(settings).toContainText("3 connected", seen);
-  await expect(settings).toContainText("Safe Auto", seen);
+  await expect(settings).toContainText("Ask before edits", seen);
+  await expect(settings).not.toContainText("Safe Auto", seen);
   // All connections are healthy, so the attention list is honestly calm.
   await expect(settings).toContainText("Nothing needs your attention right now", seen);
 });

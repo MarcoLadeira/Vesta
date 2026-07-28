@@ -53,9 +53,7 @@ def summarize_ux_metrics(project_root: Path) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     events = read_events(root)
     verdict_events = [
-        event
-        for event in events
-        if event.get("event_type") == EVENT_COMPLETION_VERDICT
+        event for event in events if event.get("event_type") == EVENT_COMPLETION_VERDICT
     ]
 
     distribution: dict[str, int] = {verdict: 0 for verdict in _VERDICTS}
