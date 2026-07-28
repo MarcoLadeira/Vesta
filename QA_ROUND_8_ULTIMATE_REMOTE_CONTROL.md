@@ -1145,6 +1145,31 @@ assertion" — the inspector one was missed. Updated to the canonical label.
 
 - Green evidence: `inspector.spec.js` 6/6; full browser suite 422/422.
 
+### Consistency campaign — final verification (QAR8-26 … QAR8-35)
+
+Run against the complete branch with every change in place:
+
+- **Full Python suite: 2674 passed, 3 skipped, 610 subtests, 0 failures**
+  (13:01). For contrast, the same suite took 27:13 and failed twice before
+  QAR8-32 — the leaked `time.sleep` mock was both breaking tests and slowing
+  the whole run.
+- **Full browser suite: 422/422** across every spec.
+- Ruff clean; `git diff --check` clean.
+
+New coverage added by this campaign: `test_provider_blocks.py` (30),
+`test_cli_capability_cache.py` (8), `test_pipeline_consistency.py` (10),
+`test_message_lanes.py` (17 + 20 subtests), `test_project_instructions.py`
+(15 + 8 subtests), `fallback-offer.spec.js` (10), plus new cases in
+`test_provider_contract.py`, `test_auto_router.py`, and
+`test_tool_loop_controller.py`.
+
+Each behavioural fix was red-checked by reverting its mechanism and confirming
+the regression fails: the transient retry (`MAX_TRANSIENT_RETRIES = 0`), the
+dead-end offer (`_DEAD_END_STATUSES` disabled), the tool-loop resume
+(`max_provider_retries = 0`), the governed lane (granted the stable lane's
+permissions — 5 failures), and the project-instruction wiring (reverted to the
+bare system prompt).
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
