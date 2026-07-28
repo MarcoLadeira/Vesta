@@ -1,0 +1,712 @@
+"""Immutable, provider-neutral v1 adapter protocol boundary.
+
+This module accepts only transport observations.  It deliberately does not
+produce completion, cost, authority, or verification truth; those are owned by
+the layers that observe and evaluate an OPai run.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+import math
+import re
+from types import MappingProxyType
+from typing import Any, Iterable, Mapping
+
+from .completion import CompletionState
+from .provider_catalog import PROTOCOL_VERSION
+
+
+class ProtocolViolation(ValueError):
+    """Raised when provider transport data violates the v1 boundary."""
+
+
+class CapabilityStatus(str, Enum):
+    """The only capability statuses an adapter may report."""
+
+    SUPPORTED = "supported"
+    PARTIAL = "partial"
+    UNSUPPORTED = "unsupported"
+    UNKNOWN = "unknown"
+
+
+class EventKind(str, Enum):
+    """Provider-neutral event kinds emitted during one adapter attempt."""
+
+    STARTED = "started"
+    TEXT_DELTA = "text_delta"
+    TOOL_CALL = "tool_call"
+    STRUCTURED_OUTPUT = "structured_output"
+    USAGE = "usage"
+    CANCEL_ACK = "cancel_ack"
+    ERROR = "error"
+    TERMINAL = "terminal"
+
+
+class UsageMeasurement(str, Enum):
+    """How an observed usage value was measured."""
+
+    ACTUAL = "actual"
+    DERIVED = "derived"
+    ESTIMATED = "estimated"
+    UNAVAILABLE = "unavailable"
+
+
+_CAPABILITY_NAMES = frozenset(
+    {
+        "cancellation",
+        "chat",
+        "code_execution",
+        "repo_read",
+        "repo_editing",
+        "run_tests",
+        "streaming",
+        "tool_calling",
+        "structured_output",
+    }
+)
+_FORBIDDEN_PAYLOAD_FIELDS = frozenset(
+    {
+        "completion_state",
+        "completion_verdict",
+        "authority",
+        "verification",
+        "authorised",
+        "authorized",
+    }
+)
+_STATE_MAPPING_FIELDS = frozenset(
+    {
+        "state",
+        "status",
+        "mapped_state",
+        "failure_state",
+        "cancellation_state",
+        "cancel_state",
+        "timeout_state",
+        "terminal_state",
+        "terminal_status",
+        "outcome_state",
+        "outcome_status",
+        "completion",
+        "result",
+        "result_state",
+        "result_status",
+    }
+)
+_USAGE_FIELDS = frozenset(
+    {"measurement", "provenance", "input_tokens", "output_tokens", "total_tokens"}
+)
+_CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _fail(message: str) -> None:
+    raise ProtocolViolation(message)
+
+
+def _normalised_field_name(value: str) -> str:
+    return _CAMEL_BOUNDARY.sub("_", value).lower().replace("-", "_").replace(" ", "_")
+
+
+def _provider_id(value: Any) -> str:
+    provider_id = str(value or "").strip().lower()
+    if not provider_id or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", provider_id):
+        _fail("provider_id must be a normalized non-empty provider identifier")
+    return provider_id
+
+
+def _request_id(value: Any) -> str:
+    request_id = str(value or "").strip()
+    if not request_id or len(request_id) > 256:
+        _fail("request_id must be a non-empty value no longer than 256 characters")
+    return request_id
+
+
+def _finite_number(value: Any, *, field_name: str, non_negative: bool = False) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        _fail(f"{field_name} must be a finite number")
+    number = float(value)
+    if not math.isfinite(number):
+        _fail(f"{field_name} must be a finite number")
+    if non_negative and number < 0:
+        _fail(f"{field_name} must be non-negative")
+    return number
+
+
+def _positive_seconds(value: Any, *, field_name: str) -> float:
+    seconds = _finite_number(value, field_name=field_name)
+    if seconds <= 0:
+        _fail(f"{field_name} must be greater than zero")
+    return seconds
+
+
+def _normalised_capability(value: Any) -> str:
+    if not isinstance(value, str):
+        _fail("capability names must be strings")
+    capability = _normalised_field_name(value.strip())
+    if capability not in _CAPABILITY_NAMES:
+        _fail(f"unknown capability: {value!r}")
+    return capability
+
+
+def _freeze_json(value: Any, *, path: str = "payload") -> Any:
+    """Copy only finite JSON-compatible transport data into immutable values."""
+
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            _fail(f"{path} contains a non-finite number")
+        return value
+    if isinstance(value, Mapping):
+        frozen: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                _fail(f"{path} has a non-string JSON object key")
+            _validate_transport_field(key, item, path=path)
+            frozen[key] = _freeze_json(item, path=f"{path}.{key}")
+        return MappingProxyType(frozen)
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_json(item, path=f"{path}[]") for item in value)
+    _fail(f"{path} must be JSON-compatible")
+
+
+def _validate_transport_field(key: str, value: Any, *, path: str) -> None:
+    normalized = _normalised_field_name(key)
+    if normalized in _FORBIDDEN_PAYLOAD_FIELDS:
+        _fail(f"{path}.{key} cannot assert canonical truth")
+    if (
+        normalized == "cost"
+        or normalized.startswith("cost_")
+        or normalized.endswith("_cost")
+    ):
+        _fail(f"{path}.{key} cannot assert cost")
+    if normalized in _STATE_MAPPING_FIELDS:
+        _validate_state_mapping(value, field_name=f"{path}.{key}")
+
+
+def _validate_state_mapping(value: Any, *, field_name: str) -> None:
+    raw_value = getattr(value, "value", value)
+    if not isinstance(raw_value, str):
+        _fail(f"{field_name} must use CompletionState vocabulary")
+    try:
+        state = CompletionState(raw_value)
+    except ValueError as exc:
+        raise ProtocolViolation(
+            f"{field_name} must use existing CompletionState vocabulary"
+        ) from exc
+    if state is CompletionState.COMPLETED:
+        _fail(f"{field_name} cannot claim completed")
+
+
+def _thaw_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_json(item) for item in value]
+    return value
+
+
+@dataclass(frozen=True)
+class AttemptSLO:
+    """Bounded timing guarantees for one adapter attempt.
+
+    Event timestamps are elapsed monotonic seconds from the attempt start.
+    """
+
+    first_observable_event_seconds: float = 30.0
+    cancellation_acknowledgement_seconds: float = 2.0
+    terminal_after_cancel_ack_seconds: float = 10.0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "first_observable_event_seconds",
+            _positive_seconds(
+                self.first_observable_event_seconds,
+                field_name="first_observable_event_seconds",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "cancellation_acknowledgement_seconds",
+            _positive_seconds(
+                self.cancellation_acknowledgement_seconds,
+                field_name="cancellation_acknowledgement_seconds",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "terminal_after_cancel_ack_seconds",
+            _positive_seconds(
+                self.terminal_after_cancel_ack_seconds,
+                field_name="terminal_after_cancel_ack_seconds",
+            ),
+        )
+
+    @property
+    def first_event_seconds(self) -> float:
+        """Compatibility-friendly short name for the first-observation bound."""
+
+        return self.first_observable_event_seconds
+
+    @property
+    def cancel_ack_seconds(self) -> float:
+        """Compatibility-friendly short name for the cancellation-ack bound."""
+
+        return self.cancellation_acknowledgement_seconds
+
+    @property
+    def terminal_after_ack_seconds(self) -> float:
+        """Compatibility-friendly short name for the post-ack terminal bound."""
+
+        return self.terminal_after_cancel_ack_seconds
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "first_observable_event_seconds": self.first_observable_event_seconds,
+            "cancellation_acknowledgement_seconds": self.cancellation_acknowledgement_seconds,
+            "terminal_after_cancel_ack_seconds": self.terminal_after_cancel_ack_seconds,
+        }
+
+
+@dataclass(frozen=True)
+class AdapterRequest:
+    """One normalized adapter request, without credentials or completion claims."""
+
+    provider_id: str
+    request_id: str
+    requested_capabilities: tuple[str, ...] = ()
+    cancel_requested_at: float | None = None
+    protocol_version: int = PROTOCOL_VERSION
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "provider_id", _provider_id(self.provider_id))
+        object.__setattr__(self, "request_id", _request_id(self.request_id))
+        if isinstance(self.requested_capabilities, str):
+            _fail("requested_capabilities must be an iterable of capability names")
+        try:
+            requested = tuple(
+                dict.fromkeys(
+                    _normalised_capability(capability)
+                    for capability in self.requested_capabilities
+                )
+            )
+        except TypeError as exc:
+            raise ProtocolViolation(
+                "requested_capabilities must be an iterable of capability names"
+            ) from exc
+        object.__setattr__(self, "requested_capabilities", requested)
+        if self.cancel_requested_at is not None:
+            object.__setattr__(
+                self,
+                "cancel_requested_at",
+                _finite_number(
+                    self.cancel_requested_at,
+                    field_name="cancel_requested_at",
+                    non_negative=True,
+                ),
+            )
+        if (
+            isinstance(self.protocol_version, bool)
+            or not isinstance(self.protocol_version, int)
+            or self.protocol_version < 1
+        ):
+            _fail("protocol_version must be a positive integer")
+
+    @property
+    def correlation_id(self) -> str:
+        """The request ID is the stable correlation ID for this protocol."""
+
+        return self.request_id
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider_id": self.provider_id,
+            "request_id": self.request_id,
+            "requested_capabilities": list(self.requested_capabilities),
+            "cancel_requested_at": self.cancel_requested_at,
+            "protocol_version": self.protocol_version,
+        }
+
+
+@dataclass(frozen=True)
+class ProviderReadiness:
+    """Separate readiness facts; no one boolean is allowed to hide their state."""
+
+    provider_id: str
+    installed: bool | None = None
+    configured: bool | None = None
+    authenticated: bool | None = None
+    authorised: bool | None = None
+    healthy: bool | None = None
+    degraded_reason: str | None = None
+    next_action: str | None = None
+    protocol_version: int = PROTOCOL_VERSION
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "provider_id", _provider_id(self.provider_id))
+        for name in (
+            "installed",
+            "configured",
+            "authenticated",
+            "authorised",
+            "healthy",
+        ):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, bool):
+                _fail(f"{name} must be true, false, or unknown")
+        reason = _optional_action_text(
+            self.degraded_reason, field_name="degraded_reason"
+        )
+        action = _optional_action_text(self.next_action, field_name="next_action")
+        object.__setattr__(self, "degraded_reason", reason)
+        object.__setattr__(self, "next_action", action)
+        if self.healthy is False and (not reason or not action):
+            _fail("degraded readiness requires both a reason and a next_action")
+        if (reason is None) != (action is None):
+            _fail("degraded_reason and next_action must be supplied together")
+        if self.healthy is True and reason is not None:
+            _fail("healthy readiness cannot carry a degraded reason")
+        if (
+            isinstance(self.protocol_version, bool)
+            or not isinstance(self.protocol_version, int)
+            or self.protocol_version < 1
+        ):
+            _fail("protocol_version must be a positive integer")
+
+    @property
+    def authorized(self) -> bool | None:
+        """US spelling for callers; transport payloads must never use either spelling."""
+
+        return self.authorised
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider_id": self.provider_id,
+            "installed": self.installed,
+            "configured": self.configured,
+            "authenticated": self.authenticated,
+            "authorised": self.authorised,
+            "healthy": self.healthy,
+            "degraded_reason": self.degraded_reason,
+            "next_action": self.next_action,
+            "protocol_version": self.protocol_version,
+        }
+
+
+def _optional_action_text(value: Any, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        _fail(f"{field_name} must be a string or None")
+    text = value.strip()
+    if not text:
+        _fail(f"{field_name} must be non-empty when supplied")
+    return text[:1_000]
+
+
+@dataclass(frozen=True)
+class ProviderEvent:
+    """One immutable transport observation from a provider adapter."""
+
+    sequence: int
+    timestamp: float
+    kind: EventKind
+    payload: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.sequence, bool) or not isinstance(self.sequence, int):
+            _fail("event sequence must be an integer")
+        if self.sequence < 0:
+            _fail("event sequence must be non-negative")
+        object.__setattr__(
+            self,
+            "timestamp",
+            _finite_number(
+                self.timestamp,
+                field_name="event timestamp",
+                non_negative=True,
+            ),
+        )
+        try:
+            kind = (
+                self.kind if isinstance(self.kind, EventKind) else EventKind(self.kind)
+            )
+        except (TypeError, ValueError) as exc:
+            raise ProtocolViolation(
+                f"unknown provider event kind: {self.kind!r}"
+            ) from exc
+        object.__setattr__(self, "kind", kind)
+        if not isinstance(self.payload, Mapping):
+            _fail("event payload must be a JSON object")
+        object.__setattr__(self, "payload", _freeze_json(self.payload))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sequence": self.sequence,
+            "timestamp": self.timestamp,
+            "kind": self.kind.value,
+            "payload": _thaw_json(self.payload),
+        }
+
+
+@dataclass(frozen=True)
+class UsageObservation:
+    """Usage data with explicit measurement provenance and no fabricated zeros."""
+
+    measurement: UsageMeasurement
+    provenance: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        try:
+            measurement = (
+                self.measurement
+                if isinstance(self.measurement, UsageMeasurement)
+                else UsageMeasurement(self.measurement)
+            )
+        except (TypeError, ValueError) as exc:
+            raise ProtocolViolation("usage measurement is invalid") from exc
+        object.__setattr__(self, "measurement", measurement)
+        if not isinstance(self.provenance, str) or not self.provenance.strip():
+            _fail("usage provenance is required")
+        object.__setattr__(self, "provenance", self.provenance.strip()[:500])
+        for name in ("input_tokens", "output_tokens", "total_tokens"):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                _fail(f"{name} must be a non-negative integer or None")
+        values = (self.input_tokens, self.output_tokens, self.total_tokens)
+        if measurement is UsageMeasurement.UNAVAILABLE:
+            if any(value is not None for value in values):
+                _fail("unavailable usage cannot include token values")
+            return
+        if all(value is None for value in values):
+            _fail("measured usage requires at least one observed token value")
+        if (
+            self.input_tokens is not None
+            and self.output_tokens is not None
+            and self.total_tokens is not None
+            and self.total_tokens != self.input_tokens + self.output_tokens
+        ):
+            _fail("total_tokens must equal input_tokens plus output_tokens")
+        known_components = sum(
+            value
+            for value in (self.input_tokens, self.output_tokens)
+            if value is not None
+        )
+        if self.total_tokens is not None and self.total_tokens < known_components:
+            _fail("total_tokens cannot be smaller than observed token components")
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> UsageObservation:
+        if not isinstance(payload, Mapping):
+            _fail("usage payload must be a JSON object")
+        if set(payload) - _USAGE_FIELDS:
+            _fail("usage payload has an unknown field")
+        if "measurement" not in payload or "provenance" not in payload:
+            _fail("usage payload requires measurement and provenance")
+        return cls(
+            measurement=payload["measurement"],
+            provenance=payload["provenance"],
+            input_tokens=payload.get("input_tokens"),
+            output_tokens=payload.get("output_tokens"),
+            total_tokens=payload.get("total_tokens"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "measurement": self.measurement.value,
+            "provenance": self.provenance,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+        }
+
+
+def protocol_readiness(provider_id: str, protocol_version: Any) -> ProviderReadiness:
+    """Return an actionable degradation for incompatible protocol versions."""
+
+    normalized_provider_id = _provider_id(provider_id)
+    if protocol_version == PROTOCOL_VERSION and not isinstance(protocol_version, bool):
+        return ProviderReadiness(provider_id=normalized_provider_id)
+    return ProviderReadiness(
+        provider_id=normalized_provider_id,
+        healthy=False,
+        degraded_reason="protocol_version_incompatible",
+        next_action=(
+            "Update the provider adapter to protocol version "
+            f"{PROTOCOL_VERSION}, then retry."
+        ),
+        protocol_version=PROTOCOL_VERSION,
+    )
+
+
+def negotiate_capabilities(
+    request: AdapterRequest,
+    capabilities: Mapping[str, CapabilityStatus | str],
+    *,
+    protocol_version: Any | None = None,
+    provider_protocol_version: Any | None = None,
+) -> ProviderReadiness:
+    """Fail closed unless every requested capability is explicitly supported.
+
+    Incompatibility is a readiness result rather than a fallback: callers can
+    show its repair action without executing an adapter under an unknown schema.
+    """
+
+    if not isinstance(request, AdapterRequest):
+        _fail("capability negotiation requires an AdapterRequest")
+    if protocol_version is not None and provider_protocol_version is not None:
+        _fail("supply only one provider protocol version")
+    advertised_version = (
+        provider_protocol_version
+        if provider_protocol_version is not None
+        else protocol_version
+        if protocol_version is not None
+        else request.protocol_version
+    )
+    readiness = protocol_readiness(request.provider_id, advertised_version)
+    if readiness.degraded_reason is not None:
+        return readiness
+    if not isinstance(capabilities, Mapping):
+        _fail("capabilities must be a mapping")
+
+    advertised: dict[str, CapabilityStatus] = {}
+    for raw_capability, raw_status in capabilities.items():
+        capability = _normalised_capability(raw_capability)
+        if capability in advertised:
+            _fail(f"duplicate capability: {capability}")
+        try:
+            advertised[capability] = (
+                raw_status
+                if isinstance(raw_status, CapabilityStatus)
+                else CapabilityStatus(raw_status)
+            )
+        except (TypeError, ValueError) as exc:
+            raise ProtocolViolation(
+                f"invalid capability status for {capability}: {raw_status!r}"
+            ) from exc
+
+    for capability in request.requested_capabilities:
+        status = advertised.get(capability, CapabilityStatus.UNKNOWN)
+        if status is not CapabilityStatus.SUPPORTED:
+            _fail(f"requested capability is not explicitly supported: {capability}")
+    return ProviderReadiness(provider_id=request.provider_id)
+
+
+def validate_event_stream(
+    events: Iterable[ProviderEvent],
+    *,
+    slo: AttemptSLO | None = None,
+    cancel_requested_at: float | None = None,
+) -> tuple[ProviderEvent, ...]:
+    """Validate an ordered, immutable provider event stream without side effects."""
+
+    active_slo = AttemptSLO() if slo is None else slo
+    if not isinstance(active_slo, AttemptSLO):
+        _fail("slo must be an AttemptSLO")
+    try:
+        stream = tuple(events)
+    except TypeError as exc:
+        raise ProtocolViolation(
+            "events must be an iterable of ProviderEvent values"
+        ) from exc
+    if not stream:
+        _fail("event stream cannot be empty")
+    if any(not isinstance(event, ProviderEvent) for event in stream):
+        _fail("event stream contains an unknown provider event")
+    if stream[0].kind is not EventKind.STARTED:
+        _fail("the first provider event must be started")
+    if stream[0].timestamp > active_slo.first_observable_event_seconds:
+        _fail("first observable event exceeded its SLO")
+
+    terminal_indexes: list[int] = []
+    cancel_acks: list[ProviderEvent] = []
+    previous = stream[0]
+    for index, event in enumerate(stream):
+        if not isinstance(event.kind, EventKind):
+            _fail("event stream contains an unknown provider event kind")
+        if index:
+            if event.sequence != previous.sequence + 1:
+                _fail("event sequences must be contiguous and increasing")
+            if event.timestamp < previous.timestamp:
+                _fail("event timestamps must be non-decreasing")
+            previous = event
+        if event.kind is EventKind.TERMINAL:
+            terminal_indexes.append(index)
+        if event.kind is EventKind.CANCEL_ACK:
+            cancel_acks.append(event)
+        if event.kind is EventKind.USAGE:
+            UsageObservation.from_payload(event.payload)
+
+    if terminal_indexes != [len(stream) - 1]:
+        _fail(
+            "event stream must contain exactly one terminal event, and it must be last"
+        )
+
+    if cancel_requested_at is None:
+        if cancel_acks:
+            _fail("cancel_ack cannot appear without a cancellation request")
+        return stream
+
+    requested_at = _finite_number(
+        cancel_requested_at,
+        field_name="cancel_requested_at",
+        non_negative=True,
+    )
+    if len(cancel_acks) != 1:
+        _fail("a cancellation request requires exactly one cancel_ack")
+    acknowledgement = cancel_acks[0]
+    if acknowledgement.timestamp < requested_at:
+        _fail("cancel_ack cannot precede its cancellation request")
+    if (
+        acknowledgement.timestamp - requested_at
+        > active_slo.cancellation_acknowledgement_seconds
+    ):
+        _fail("cancellation acknowledgement exceeded its SLO")
+    terminal = stream[-1]
+    if terminal.timestamp < acknowledgement.timestamp:
+        _fail("terminal cannot precede cancel_ack")
+    if (
+        terminal.timestamp - acknowledgement.timestamp
+        > active_slo.terminal_after_cancel_ack_seconds
+    ):
+        _fail("terminal after cancel_ack exceeded its SLO")
+    return stream
+
+
+# Intentional aliases make the boundary easy to discover without creating a
+# second protocol or duplicate models.
+ProviderEventKind = EventKind
+ProviderAttemptSLO = AttemptSLO
+AdapterSLO = AttemptSLO
+validate_capability_negotiation = negotiate_capabilities
+validate_protocol_version = protocol_readiness
+
+
+__all__ = [
+    "PROTOCOL_VERSION",
+    "AdapterRequest",
+    "AdapterSLO",
+    "AttemptSLO",
+    "CapabilityStatus",
+    "EventKind",
+    "ProtocolViolation",
+    "ProviderAttemptSLO",
+    "ProviderEvent",
+    "ProviderEventKind",
+    "ProviderReadiness",
+    "UsageMeasurement",
+    "UsageObservation",
+    "negotiate_capabilities",
+    "protocol_readiness",
+    "validate_capability_negotiation",
+    "validate_event_stream",
+    "validate_protocol_version",
+]
