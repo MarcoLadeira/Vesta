@@ -1,10 +1,17 @@
 # OPai Launch Checklist
 
-Positioning is fixed across every surface: **OPai is the AI coding cost
-firewall.** Keep the message identical on GitHub, Product Hunt, Hacker News,
-Reddit, and short-form video.
+This checklist supplies evidence for a go/no-go review; it is not permission to
+launch. Follow the [Launch Operations Runbook](LAUNCH_OPERATIONS.md) for the
+required scorecard, public-claim register, channel-specific adaptations,
+privacy-safe attribution, incident response, rollback, and post-launch review.
 
-## One-line message (use verbatim)
+Positioning is consistent across every surface: **OPai is the AI coding cost
+firewall.** Adapt the message to each community's rules and purpose; do not use
+copy-paste promotion.
+
+## Canonical positioning statement
+
+This statement fixes the factual positioning, not a copy-and-paste post. Adapt its wording to each channel's rules, audience, and evidence while preserving its privacy, cost, and capability boundaries.
 
 > OPai is the AI coding cost firewall — it routes the tasks it runs to the
 > cheapest safe path across Claude, Codex, Copilot, Gemini, Cursor, and Cline, then
@@ -34,6 +41,8 @@ Reddit, and short-form video.
 - [ ] Every public claim maps to a shipped command (no vaporware).
 
 ## GitHub
+
+The following channel prompts are planning aids, not approved copy. Apply the [Launch Operations Runbook](LAUNCH_OPERATIONS.md) before publishing and adapt each prompt to the current community rules.
 
 - [ ] Repo description = the one-line message.
 - [ ] Topics: `ai`, `cost-control`, `llm`, `developer-tools`, `local-first`,
