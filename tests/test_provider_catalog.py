@@ -176,6 +176,50 @@ class ProviderCatalogTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     provider_catalog._parse_catalog(json.dumps(catalog).encode("utf-8"))
 
+    def test_pricing_measurement_and_price_usd_must_agree(self):
+        def catalog_with_pricing(measurement, price_usd):
+            catalog = json.loads(provider_catalog.catalog_bytes())
+            catalog[0]["pricing"].update(measurement=measurement, price_usd=price_usd)
+            return json.dumps(catalog).encode("utf-8")
+
+        invalid_cases = (
+            ("actual", None),
+            ("actual", -0.01),
+            ("actual", True),
+            ("actual", "1.00"),
+            ("derived", None),
+            ("derived", -0.01),
+            ("derived", True),
+            ("derived", "1.00"),
+            ("estimated", None),
+            ("estimated", -0.01),
+            ("estimated", True),
+            ("estimated", "1.00"),
+            ("unavailable", 0),
+            ("unavailable", -1),
+            ("unavailable", True),
+            ("unavailable", "1.00"),
+        )
+        for measurement, price_usd in invalid_cases:
+            with self.subTest(measurement=measurement, price_usd=price_usd):
+                with self.assertRaises(ValueError):
+                    provider_catalog._parse_catalog(
+                        catalog_with_pricing(measurement, price_usd)
+                    )
+
+        valid_cases = (
+            ("unavailable", None),
+            ("actual", 0),
+            ("derived", 1.25),
+            ("estimated", 3),
+        )
+        for measurement, price_usd in valid_cases:
+            with self.subTest(measurement=measurement, price_usd=price_usd):
+                record = provider_catalog._parse_catalog(
+                    catalog_with_pricing(measurement, price_usd)
+                )[0]
+                self.assertEqual(record["pricing"]["price_usd"], price_usd)
+
     def test_unknown_provider_fails_closed(self):
         with self.assertRaises(ValueError):
             provider_catalog.provider_record("mock")

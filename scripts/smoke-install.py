@@ -24,6 +24,18 @@ EXTERNAL_STATE_ENV = {
     "OLLAMA_MODEL",
 }
 
+_EXPECTED_PROVIDER_CATALOG_IDS = (
+    "claude",
+    "codex",
+    "copilot",
+    "kimi",
+    "gemini",
+    "groq",
+    "mistral",
+    "ollama",
+    "openai-compatible",
+)
+
 
 def run(argv: list[str], cwd: Path, *, env: Mapping[str, str] | None = None) -> None:
     print("+", " ".join(argv))
@@ -54,6 +66,22 @@ def required_smoke_commands(python: Path) -> list[list[str]]:
         [executable, "-m", "opaihub", "validate"],
         [executable, "-m", "opai", "gui", "--once"],
     ]
+
+
+def provider_catalog_smoke_command(python: Path) -> list[str]:
+    """Load the packaged provider catalog from the isolated wheel install."""
+
+    check = (
+        "from opaihub import provider_catalog\n"
+        f"expected = {_EXPECTED_PROVIDER_CATALOG_IDS!r}\n"
+        "if not provider_catalog.catalog_bytes():\n"
+        "    raise SystemExit('wheel provider catalog is empty')\n"
+        "records = provider_catalog.all_catalog_records()\n"
+        "if tuple(record['provider_id'] for record in records) != expected:\n"
+        "    raise SystemExit('wheel provider catalog inventory is invalid')\n"
+        "print('provider catalog records:', len(records))\n"
+    )
+    return [str(python), "-c", check]
 
 
 def isolated_environment(
@@ -190,6 +218,7 @@ def main() -> int:
             env=smoke_env,
         )
         run([str(python), "-c", gui_assets_check], outside_repo, env=smoke_env)
+        run(provider_catalog_smoke_command(python), outside_repo, env=smoke_env)
         run(
             [str(python), "-m", "opai", "hub", "list-tools"],
             outside_repo,

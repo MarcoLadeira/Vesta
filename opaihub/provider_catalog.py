@@ -219,7 +219,7 @@ def _validate_record(value: Any) -> dict[str, Any]:
     )
     if not isinstance(pricing["source"], str) or not pricing["source"]:
         _fail(f"{provider_id}.pricing.source must be non-empty")
-    _require_string_enum(
+    measurement = _require_string_enum(
         pricing["measurement"],
         field="pricing.measurement",
         provider_id=provider_id,
@@ -233,11 +233,17 @@ def _validate_record(value: Any) -> dict[str, Any]:
     )
     if expiry <= observed_at:
         _fail(f"{provider_id}.pricing.expiry must be after observed_at")
-    if pricing["price_usd"] is not None:
-        if isinstance(pricing["price_usd"], bool) or not isinstance(
-            pricing["price_usd"], (int, float)
-        ):
-            _fail(f"{provider_id}.pricing.price_usd must be numeric or null")
+    price_usd = pricing["price_usd"]
+    if measurement == "unavailable":
+        if price_usd is not None:
+            _fail(f"{provider_id}.pricing.price_usd must be null when unavailable")
+    elif (
+        isinstance(price_usd, bool)
+        or not isinstance(price_usd, (int, float))
+        or (isinstance(price_usd, float) and not math.isfinite(price_usd))
+        or price_usd < 0
+    ):
+        _fail(f"{provider_id}.pricing.price_usd must be a finite non-negative number")
     if pricing["routing_eligible"] is not False:
         _fail(f"{provider_id}.pricing must never be routing eligible")
 

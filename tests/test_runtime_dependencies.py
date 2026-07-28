@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import importlib.util
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -174,6 +175,13 @@ class SmokeInstallContractTests(unittest.TestCase):
 
             self.assertEqual(project.parent, home)
             self.assertTrue((project / "pyproject.toml").is_file())
+
+    def test_smoke_checks_the_packaged_provider_catalog(self):
+        smoke = _load_smoke_module()
+        command = smoke.provider_catalog_smoke_command(Path(sys.executable))
+
+        self.assertEqual(command[:2], [sys.executable, "-c"])
+        exec(command[2], {})
 
 
 class HermeticTestEnvironmentTests(unittest.TestCase):
