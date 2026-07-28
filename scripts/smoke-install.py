@@ -81,7 +81,17 @@ def provider_catalog_smoke_command(python: Path) -> list[str]:
         "    raise SystemExit('wheel provider catalog inventory is invalid')\n"
         "print('provider catalog records:', len(records))\n"
     )
-    return [str(python), "-c", check]
+    return [str(python), "-I", "-c", check]
+
+
+def run_post_install_smoke_checks(
+    python: Path, cwd: Path, environment: Mapping[str, str]
+) -> None:
+    """Run the checks that must prove the just-installed wheel is usable."""
+
+    run(provider_catalog_smoke_command(python), cwd, env=environment)
+    for command in required_smoke_commands(python):
+        run(command, cwd, env=environment)
 
 
 def isolated_environment(
@@ -178,6 +188,10 @@ def main() -> int:
         python = venv_root / (
             "Scripts/python.exe" if sys.platform.startswith("win") else "bin/python"
         )
+        smoke_home = work_dir / "smoke-home"
+        smoke_home.mkdir(parents=True, exist_ok=True)
+        smoke_env = isolated_environment(smoke_home, executable_dir=python.parent)
+        outside_repo = prepare_smoke_project(smoke_home)
         run(
             [
                 str(python),
@@ -191,10 +205,7 @@ def main() -> int:
             ],
             root,
         )
-
-        smoke_home = work_dir / "smoke-home"
-        smoke_home.mkdir(parents=True, exist_ok=True)
-        smoke_env = isolated_environment(smoke_home, executable_dir=python.parent)
+        run_post_install_smoke_checks(python, outside_repo, smoke_env)
 
         # The web GUI ships as package data; a wheel without it silently falls
         # back to the legacy Qt window (issue #139). Fail the smoke instead.
@@ -209,16 +220,12 @@ def main() -> int:
             "print('web GUI assets present:', len(required))\n"
         )
 
-        outside_repo = prepare_smoke_project(smoke_home)
-        for command in required_smoke_commands(python):
-            run(command, outside_repo, env=smoke_env)
         run(
             [str(python), "-m", "opai", "version"],
             outside_repo,
             env=smoke_env,
         )
         run([str(python), "-c", gui_assets_check], outside_repo, env=smoke_env)
-        run(provider_catalog_smoke_command(python), outside_repo, env=smoke_env)
         run(
             [str(python), "-m", "opai", "hub", "list-tools"],
             outside_repo,
