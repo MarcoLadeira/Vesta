@@ -241,6 +241,21 @@ def _reject_non_standard_json_constant(value: str) -> None:
     _fail(f"non-standard JSON constant: {value!r}")
 
 
+def _reject_non_finite_numbers(value: Any) -> None:
+    """Reject float overflows recursively before validating catalog records."""
+
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            _fail("non-finite JSON number")
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            _reject_non_finite_numbers(item)
+    elif isinstance(value, list):
+        for item in value:
+            _reject_non_finite_numbers(item)
+
+
 def _parse_catalog(data: bytes) -> tuple[Mapping[str, Any], ...]:
     try:
         payload = json.loads(
@@ -252,6 +267,7 @@ def _parse_catalog(data: bytes) -> tuple[Mapping[str, Any], ...]:
         raise ValueError("Invalid provider catalog: malformed JSON") from exc
     if not isinstance(payload, list):
         _fail("top level must be a list")
+    _reject_non_finite_numbers(payload)
 
     records = tuple(_validate_record(record) for record in payload)
     provider_ids = tuple(record["provider_id"] for record in records)

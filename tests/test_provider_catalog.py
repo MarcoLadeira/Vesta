@@ -131,6 +131,16 @@ class ProviderCatalogTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     provider_catalog._parse_catalog(raw_catalog)
 
+    def test_overflowed_pricing_numbers_fail_closed(self):
+        for value in (b"1e309", b"-1e309"):
+            with self.subTest(value=value):
+                raw_catalog = provider_catalog.catalog_bytes().replace(
+                    b'"price_usd": null', b'"price_usd": ' + value, 1
+                )
+
+                with self.assertRaises(ValueError):
+                    provider_catalog._parse_catalog(raw_catalog)
+
 
 if __name__ == "__main__":
     unittest.main()
