@@ -14,6 +14,7 @@ from opaihub.provider_adapters import (
     SUPPORTED_PROVIDERS,
     adapter_for,
 )
+from opaihub.provider_catalog import all_catalog_records
 from opaihub.provider_capabilities import (
     HEALTH_TRANSITIONS,
     ProviderHealth,
@@ -23,6 +24,7 @@ from opaihub.provider_capabilities import (
     health_from_connection,
     provider_profile,
 )
+from opaihub.provider_protocol import ProviderReadiness
 
 
 class ProfileTruthTests(unittest.TestCase):
@@ -33,6 +35,58 @@ class ProfileTruthTests(unittest.TestCase):
         # And the serialized table covers exactly the supported providers.
         ids = {p["provider_id"] for p in all_provider_profiles()}
         self.assertEqual(ids, set(SUPPORTED_PROVIDERS))
+
+    def test_every_catalog_provider_derives_adapter_capabilities_from_its_record(self):
+        for record in all_catalog_records():
+            with self.subTest(provider=record["provider_id"]):
+                adapter = adapter_for(record["provider_id"])
+                profile = adapter.profile
+                requirements = record["requirements"]
+                capabilities = record["capabilities"]
+                expected_kind = (
+                    "local"
+                    if requirements["local_service"]
+                    else "account"
+                    if requirements["cli"]
+                    else "free"
+                )
+
+                self.assertEqual(adapter.kind, expected_kind)
+                self.assertEqual(profile.capability_status, dict(capabilities))
+                self.assertEqual(
+                    profile.capabilities(),
+                    {
+                        "chat": capabilities["chat"] == "supported",
+                        "code_execution": capabilities["code_execution"] == "supported",
+                        "repo_editing": capabilities["repo_editing"] == "supported",
+                        "streaming": capabilities["streaming"] == "supported",
+                        "tool_calling": capabilities["tool_calling"] == "supported",
+                    },
+                )
+                self.assertEqual(
+                    profile.requirements(),
+                    {
+                        "requires_api_key": requirements["api_key"],
+                        "requires_oauth": requirements["oauth"],
+                        "requires_cli": requirements["cli"],
+                        "requires_git_repo": requirements["git_repository"],
+                    },
+                )
+                self.assertEqual(
+                    profile.supports_cancellation,
+                    capabilities["cancellation"] == "supported",
+                )
+                self.assertEqual(
+                    adapter.capabilities,
+                    ProviderCapabilities(
+                        capabilities["repo_read"] == "supported",
+                        capabilities["repo_editing"] == "supported",
+                        capabilities["run_tests"] == "supported",
+                        bool(requirements["cli"])
+                        and capabilities["tool_calling"] == "supported",
+                        capabilities["streaming"] == "supported",
+                    ),
+                )
 
     def test_unknown_provider_raises(self):
         with self.assertRaises(ValueError):
@@ -84,6 +138,28 @@ class ProfileTruthTests(unittest.TestCase):
         self.assertIn("repo_editing", payload["capabilities"])
         self.assertIn("requires_oauth", payload["requirements"])
         json.dumps(all_provider_profiles())  # must not raise
+
+    def test_profile_payload_adds_safe_catalog_protocol_and_readiness_facts(self):
+        profile = provider_profile("codex")
+        record = next(
+            item for item in all_catalog_records() if item["provider_id"] == "codex"
+        )
+        payload = profile.to_dict()
+
+        self.assertEqual(payload["catalogVersion"], "v1")
+        self.assertEqual(payload["protocolVersion"], 1)
+        self.assertEqual(payload["capabilityStatus"], dict(record["capabilities"]))
+        self.assertEqual(payload["providerState"], ProviderReadiness("codex").to_dict())
+        self.assertEqual(
+            payload["contract"],
+            {
+                "requirements": dict(record["requirements"]),
+                "cancellation": dict(record["cancellation"]),
+                "unsupportedBehavior": dict(record["unsupported_behavior"]),
+            },
+        )
+        self.assertNotIn("pricing", payload["contract"])
+        json.dumps(payload)  # must not leak immutable catalog mappings
 
 
 class HealthStateMachineTests(unittest.TestCase):
@@ -205,6 +281,30 @@ class AdapterIntegrationTests(unittest.TestCase):
             ProviderHealth.NOT_INSTALLED,
         )
 
+    def test_adapter_readiness_keeps_health_authentication_and_authorisation_separate(
+        self,
+    ):
+        adapter = adapter_for("claude")
+
+        # The historical health mapping still reads authStatus, but a protocol
+        # readiness record must not invent authentication or healthy state from it.
+        self.assertEqual(
+            adapter.health({"authStatus": "connected", "cliInstalled": True}),
+            ProviderHealth.AUTHENTICATED,
+        )
+        readiness = adapter.readiness({"authStatus": "connected", "cliInstalled": True})
+        self.assertIsNone(readiness.authenticated)
+        self.assertIsNone(readiness.authorised)
+        self.assertIsNone(readiness.healthy)
+
+    def test_legacy_cli_presence_only_reports_installation_for_cli_providers(self):
+        self.assertIsNone(
+            adapter_for("gemini").readiness({"cliInstalled": False}).installed
+        )
+        self.assertFalse(
+            adapter_for("codex").readiness({"cliInstalled": False}).installed
+        )
+
     def test_existing_execution_capabilities_are_unchanged(self):
         # Regression: the narrow execution caps used to build tools must not move.
         self.assertEqual(
@@ -217,7 +317,7 @@ class AdapterIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             adapter_for("ollama").capabilities,
-            ProviderCapabilities(False, False, False, False, True),
+            ProviderCapabilities(False, False, False, False, False),
         )
 
 

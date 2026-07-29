@@ -1,24 +1,20 @@
-"""One capability record and one health-state machine per provider (#168).
+"""Catalog-derived provider profiles plus the legacy health-state machine.
 
-Provider knowledge used to be scattered — ``ACCOUNT_SPECS`` in accounts.py,
-``FREE_MODEL_SPECS`` in free_models.py, adapter kinds in provider_adapters.py,
-and ad-hoc ``authStatus`` strings — so every surface (picker, settings, doctor,
-router) reasoned about providers differently. This module is the single source
-of truth those surfaces read:
-
-* :class:`ProviderProfile` — what a provider can do and what it needs.
-* :class:`ProviderHealth` — one lifecycle enum with defined transitions.
-
-It does **not** introduce a second model registry: the profiles are derived from
-provider kind and the existing specs, and :class:`opaihub.provider_adapters.ProviderAdapter`
-grows ``.profile`` / ``.health()`` accessors over this module.
+The versioned provider catalog is the source of truth for adapter capability
+facts.  ``ProviderHealth`` remains a compatibility view for existing surfaces;
+it is deliberately separate from the protocol's richer ``ProviderReadiness``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Any
+
+from .provider_catalog import CATALOG_VERSION, PROTOCOL_VERSION, all_catalog_records
+from .provider_protocol import ProviderReadiness
 
 
 class ProviderHealth(str, Enum):
@@ -128,6 +124,13 @@ class ProviderProfile:
     requires_git_repo: bool
     # Lifecycle
     supports_cancellation: bool
+    # Additive catalog/protocol facts. Defaults keep direct legacy construction
+    # source-compatible while catalog-created profiles always carry the truth.
+    catalog_version: str = CATALOG_VERSION
+    protocol_version: int = PROTOCOL_VERSION
+    capability_status: Mapping[str, str] = field(default_factory=dict)
+    provider_state: ProviderReadiness | None = None
+    contract: Mapping[str, Any] = field(default_factory=dict)
 
     def capabilities(self) -> dict[str, bool]:
         return {
@@ -147,87 +150,93 @@ class ProviderProfile:
         }
 
     def to_dict(self) -> dict[str, Any]:
+        state = self.provider_state or ProviderReadiness(
+            self.provider_id, protocol_version=self.protocol_version
+        )
         return {
             "provider_id": self.provider_id,
             "kind": self.kind,
             "capabilities": self.capabilities(),
             "requirements": self.requirements(),
             "supports_cancellation": self.supports_cancellation,
+            "catalogVersion": self.catalog_version,
+            "protocolVersion": self.protocol_version,
+            "capabilityStatus": _thaw_catalog_value(self.capability_status),
+            "providerState": state.to_dict(),
+            "contract": _thaw_catalog_value(self.contract),
         }
 
 
-def _account_profile(provider_id: str, *, repo_editing: bool) -> ProviderProfile:
-    """Signed-in CLI providers (claude/codex/copilot): native tools + streaming,
-    OAuth via their CLI. Runtime probes can still fail closed on old CLIs."""
+def _freeze_catalog_value(value: Any) -> Any:
+    """Copy immutable catalog data without leaking mapping proxies to JSON callers."""
+
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {str(key): _freeze_catalog_value(item) for key, item in value.items()}
+        )
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_catalog_value(item) for item in value)
+    return value
+
+
+def _thaw_catalog_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw_catalog_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_catalog_value(item) for item in value]
+    return value
+
+
+def _kind_from_record(record: Mapping[str, Any]) -> str:
+    """Derive the historical adapter kind from catalog requirements only."""
+
+    requirements = record["requirements"]
+    if requirements["local_service"]:
+        return "local"
+    if requirements["cli"]:
+        return "account"
+    return "free"
+
+
+def _supported(capabilities: Mapping[str, str], name: str) -> bool:
+    return capabilities[name] == "supported"
+
+
+def _profile_from_record(record: Mapping[str, Any]) -> ProviderProfile:
+    capabilities = record["capabilities"]
+    requirements = record["requirements"]
     return ProviderProfile(
-        provider_id=provider_id,
-        kind="account",
-        chat=True,
-        code_execution=True,
-        repo_editing=repo_editing,
-        streaming=True,
-        tool_calling=True,
-        requires_api_key=False,
-        requires_oauth=True,
-        requires_cli=True,
-        requires_git_repo=True,
-        supports_cancellation=True,
+        provider_id=record["provider_id"],
+        kind=_kind_from_record(record),
+        chat=_supported(capabilities, "chat"),
+        code_execution=_supported(capabilities, "code_execution"),
+        repo_editing=_supported(capabilities, "repo_editing"),
+        streaming=_supported(capabilities, "streaming"),
+        tool_calling=_supported(capabilities, "tool_calling"),
+        requires_api_key=requirements["api_key"],
+        requires_oauth=requirements["oauth"],
+        requires_cli=requirements["cli"],
+        requires_git_repo=requirements["git_repository"],
+        supports_cancellation=_supported(capabilities, "cancellation"),
+        catalog_version=record["catalog_version"],
+        protocol_version=record["protocol_version"],
+        capability_status=_freeze_catalog_value(capabilities),
+        provider_state=ProviderReadiness(
+            record["provider_id"], protocol_version=record["protocol_version"]
+        ),
+        contract=_freeze_catalog_value(
+            {
+                "requirements": requirements,
+                "cancellation": record["cancellation"],
+                "unsupportedBehavior": record["unsupported_behavior"],
+            }
+        ),
     )
 
 
-def _free_profile(provider_id: str) -> ProviderProfile:
-    """Free public-API models (kimi/gemini/groq/mistral): OPai drives edits through the
-    OpenAI-compatible tool loop (``complete_with_tools``), so they DO use native
-    tool-calling — including the git_push/open_pr tools. No OPai-side streaming
-    yet; needs an API key."""
-    return ProviderProfile(
-        provider_id=provider_id,
-        kind="free",
-        chat=True,
-        code_execution=True,
-        repo_editing=True,
-        streaming=False,
-        tool_calling=True,
-        requires_api_key=True,
-        requires_oauth=False,
-        requires_cli=False,
-        requires_git_repo=True,
-        supports_cancellation=True,
-    )
-
-
-def _local_profile(provider_id: str) -> ProviderProfile:
-    """Local runtimes (ollama/openai-compatible): answer-only today — no repo
-    editing, and no streaming yet (#154). No key, no OAuth, no CLI required."""
-    return ProviderProfile(
-        provider_id=provider_id,
-        kind="local",
-        chat=True,
-        code_execution=False,
-        repo_editing=False,
-        streaming=False,
-        tool_calling=False,
-        requires_api_key=False,
-        requires_oauth=False,
-        requires_cli=False,
-        requires_git_repo=False,
-        supports_cancellation=True,
-    )
-
-
-# The single capability table. Derived from provider kind + the honest current
-# behaviour; keep this the only place these truths live.
 _PROFILES: dict[str, ProviderProfile] = {
-    "claude": _account_profile("claude", repo_editing=True),
-    "codex": _account_profile("codex", repo_editing=True),
-    # Copilot edits use a runtime-gated, workspace-scoped named tool set.
-    "copilot": _account_profile("copilot", repo_editing=True),
-    "kimi": _free_profile("kimi"),
-    "gemini": _free_profile("gemini"),
-    "groq": _free_profile("groq"),
-    "mistral": _free_profile("mistral"),
-    "ollama": _local_profile("ollama"),
-    "openai-compatible": _local_profile("openai-compatible"),
+    record["provider_id"]: _profile_from_record(record)
+    for record in all_catalog_records()
 }
 
 
