@@ -321,6 +321,21 @@ class AdapterIntegrationTests(unittest.TestCase):
         self.assertIsNone(legacy_only.authenticated)
         self.assertIsNone(legacy_only.authorised)
 
+    def test_explicit_readiness_facts_do_not_fall_back_to_auth_status(self):
+        adapter = adapter_for("claude")
+
+        for status in (
+            {"healthy": True, "authStatus": "connected"},
+            {"installed": True, "authStatus": "connected"},
+        ):
+            with self.subTest(status=status):
+                readiness = adapter.readiness(status)
+
+                self.assertIsNone(readiness.authenticated)
+                self.assertNotEqual(
+                    adapter.health(status), ProviderHealth.AUTHENTICATED
+                )
+
     def test_legacy_cli_presence_only_reports_installation_for_cli_providers(self):
         self.assertIsNone(
             adapter_for("gemini").readiness({"cliInstalled": False}).installed

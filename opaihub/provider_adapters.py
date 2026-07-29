@@ -230,12 +230,6 @@ class ProviderAdapter:
 
         if not status:
             return ProviderHealth.UNKNOWN
-        legacy_health = canonical_health(
-            auth_status=status.get("authStatus") or status.get("auth_status"),
-            cli_installed=status.get("cliInstalled", status.get("cli_present")),
-            error_code=status.get("lastErrorCode") or status.get("error_code"),
-            kind=status.get("kind", self.kind),
-        )
         if not any(
             name in status
             for name in (
@@ -247,23 +241,24 @@ class ProviderAdapter:
                 "healthy",
             )
         ):
-            return legacy_health
+            return canonical_health(
+                auth_status=status.get("authStatus") or status.get("auth_status"),
+                cli_installed=status.get("cliInstalled", status.get("cli_present")),
+                error_code=status.get("lastErrorCode") or status.get("error_code"),
+                kind=status.get("kind", self.kind),
+            )
         readiness = self.readiness(status)
         if readiness.installed is False:
             return ProviderHealth.NOT_INSTALLED
         if readiness.configured is False:
             return ProviderHealth.NOT_CONFIGURED
         if readiness.healthy is False or readiness.authorised is False:
-            return (
-                legacy_health
-                if legacy_health is ProviderHealth.RATE_LIMITED
-                else ProviderHealth.DEGRADED
-            )
+            return ProviderHealth.DEGRADED
         if readiness.authenticated is True:
             return ProviderHealth.AUTHENTICATED
         if readiness.authenticated is False or readiness.configured is True:
             return ProviderHealth.CONFIGURED
-        return legacy_health
+        return ProviderHealth.UNKNOWN
 
     def readiness(self, status: dict[str, Any] | None = None) -> Any:
         """Return independent protocol readiness facts without inferring them.
