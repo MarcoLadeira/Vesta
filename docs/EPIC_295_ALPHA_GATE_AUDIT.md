@@ -23,7 +23,7 @@ it, and every gap names the epic that owns it.
 | 3 | Duplicate active run: 0 | **Partial** | #517 admission keys |
 | 4 | Duplicate side effect: 0 | **Not started** | #517 idempotency keys |
 | 5 | Orphan processes: 0 | **Partial** | real-process fixtures |
-| 6 | Cross-surface terminal agreement | **Partial** | #525 CLI parity |
+| 6 | Cross-surface terminal agreement | **Partial** | #525 shared control |
 | 7 | Illegal transitions: 0 unhandled, observable | **Evidenced** | — |
 | 8 | Restart recovery: 100% | **Partial** | #517 replay |
 | 9 | Cancellation truth | **Partial** | #380 teardown proof |
@@ -121,9 +121,28 @@ identical; `test_runtime_phase_parity.py` binds the engine's `RuntimePhase` to
 the same lifecycle and proves no legal phase move implies an illegal canonical
 transition.
 
-**Missing:** the CLI. It does not consume `run_state` at all — verified by
-grep — so "CLI exit codes map deterministically to canonical terminal states"
-is unimplemented. #525.
+The CLI now maps terminal states to **distinct** exit codes from the same
+canonical source (`run_state.exit_code_for`), so `opai ask` and the streaming
+path cannot drift from each other or from the engine:
+
+| ending | code | why |
+| --- | --- | --- |
+| completed | 0 | success; keeps `if ! opai ask …` working unchanged |
+| failed | 2 | the code it already meant |
+| partial | 3 | work landed but is unverified — not the same as failure |
+| blocked | 4 | a refusal; retrying hits it again |
+| timeout | 5 | worth retrying |
+| cancelled | 130 | the shell's SIGINT convention, already in use |
+
+Every non-completed ending previously collapsed to `2`, so automation could
+learn only "it failed" — it could not retry a timeout while leaving a refusal
+alone. `1` is deliberately unused: argparse and most shells spend it on usage
+errors, and a lifecycle outcome must not be confused with a mistyped command.
+`test_cli_exit_codes.py` (16 tests + 29 subtests) pins the values as the public
+contract they are and drives each ending through the real CLI.
+
+**Missing:** the rest of Workstream H — starting a task on one surface and
+controlling it from the other, and rehydrating shared state on reconnect. #525.
 
 ### 7. Illegal transitions: 0 unhandled, every violation observable — Evidenced
 

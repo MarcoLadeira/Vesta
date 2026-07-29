@@ -325,9 +325,15 @@ def stream_ask(
         else:
             _line(f"✗ {status} · {footer}")
 
+    # #295 Workstream H: the exit code names *which* ending this was, so a
+    # script can retry a timeout without retrying a refusal. The mapping lives
+    # in run_state beside the states themselves, not here, so the CLI cannot
+    # drift from the canonical vocabulary.
+    from opaihub.run_state import exit_code_for
+
     terminal = _terminal_verdict(result)
-    if status == "cancelled" or (terminal is not None and terminal[0] == "cancelled"):
-        return 130
+    if status == "cancelled":
+        return exit_code_for("cancelled")
     if terminal is not None:
-        return 0 if terminal[0] == "completed" else 2
-    return 0 if status in ANSWERED else 2
+        return exit_code_for(terminal[0])
+    return exit_code_for("completed" if status in ANSWERED else "failed")
