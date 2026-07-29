@@ -1407,19 +1407,29 @@ def account_models(
         cli_version = ""
         copilot_scoped_editing: bool | None = None
         cli_path = str(account.get("cli_path") or "")
-        # Enumeration deliberately avoids provider probes, but "unknown" used to
-        # be resolved *optimistically*, so a cold-start picker offered a Codex
-        # whose CLI could not run anything. The persisted verdict (see
-        # _read_cli_probe) makes the common case both honest and probe-free; the
-        # one-shot probe below is reached only on a first launch or right after
-        # the binary changed, which is exactly when guessing is most wrong.
+        # Enumeration must never launch a provider CLI. A subprocess here blocks
+        # whatever is enumerating — the settings page, the model picker — for up
+        # to a timeout per CLI, and `test_settings_payload_includes_github`
+        # asserts exactly that by making a synchronous lookup raise.
+        #
+        # QAR8-27 needed cold-start honesty (an unknown CLI was resolved
+        # optimistically, so a stale Codex enumerated as available). It got that
+        # by *persisting* the verdict; reading that file is cheap and survives a
+        # restart, which is the common case. The synchronous fallback probe it
+        # also added was the mistake: it bought first-launch accuracy at the
+        # price of blocking every enumeration with a cold cache. The probe now
+        # belongs only to callers that already run off the UI thread and pass
+        # inspect_cli_capabilities=True (model discovery, the connection
+        # doctor), and those persist the verdict for everyone else to read.
         if account["id"] == "codex":
             if inspect_cli_capabilities:
                 cli_version = _account_cli_version(account, home=home)
-            else:
-                cli_version = _CLI_VERSION_CACHE.get(cli_path) or (
-                    _account_cli_version(account, home=home) if cli_path else ""
-                )
+            elif cli_path:
+                cached = _CLI_VERSION_CACHE.get(cli_path)
+                if cached is None:
+                    stored = _read_cli_probe(cli_path, "version", home=home)
+                    cached = stored if isinstance(stored, str) else ""
+                cli_version = cached
         if account["id"] == "copilot":
             if inspect_cli_capabilities:
                 copilot_scoped_editing = _copilot_supports_scoped_permissions(
@@ -1428,9 +1438,8 @@ def account_models(
             elif cli_path in _CLI_CAPABILITY_CACHE:
                 copilot_scoped_editing = _CLI_CAPABILITY_CACHE[cli_path]
             elif cli_path:
-                copilot_scoped_editing = _copilot_supports_scoped_permissions(
-                    account, home=home
-                )
+                stored = _read_cli_probe(cli_path, "scoped_editing", home=home)
+                copilot_scoped_editing = stored if isinstance(stored, bool) else None
         options.extend(
             _account_options(
                 account,

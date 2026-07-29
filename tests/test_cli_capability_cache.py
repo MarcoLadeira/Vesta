@@ -14,6 +14,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from unittest import mock
+
 from opaihub import accounts
 
 
@@ -93,6 +95,75 @@ class CliProbePersistenceTests(unittest.TestCase):
         missing = str(self.home / "not-installed")
         accounts._write_cli_probe(missing, "version", "whatever", home=self.home)
         self.assertIsNone(accounts._read_cli_probe(missing, "version", home=self.home))
+
+
+class NoBlockingProbeTests(unittest.TestCase):
+    """Enumeration must never launch a provider CLI.
+
+    A subprocess here blocks whatever is enumerating — the settings page,
+    the model picker — for up to a timeout per CLI. QAR8-27 briefly added a
+    synchronous fallback probe to get cold-start honesty, which bought
+    first-launch accuracy at the price of blocking every enumeration with a
+    cold cache. `test_settings_payload_includes_github` caught it, but only
+    when run alone: in a full suite an earlier test warmed the in-process
+    cache and hid it. This asserts it with the cache explicitly cold, so
+    order can never mask it again.
+    """
+
+    def setUp(self) -> None:
+        accounts._CLI_VERSION_CACHE.clear()
+        accounts._CLI_CAPABILITY_CACHE.clear()
+
+    def tearDown(self) -> None:
+        accounts._CLI_VERSION_CACHE.clear()
+        accounts._CLI_CAPABILITY_CACHE.clear()
+
+    def test_enumeration_with_a_cold_cache_never_probes(self) -> None:
+        detected = [
+            {
+                "id": "codex",
+                "label": "Codex",
+                "vendor": "OpenAI",
+                "connected": True,
+                "cli_path": "/nonexistent/codex",
+            },
+            {
+                "id": "copilot",
+                "label": "GitHub Copilot",
+                "vendor": "GitHub",
+                "connected": True,
+                "cli_path": "/nonexistent/copilot",
+            },
+        ]
+        boom = AssertionError("enumeration launched a provider CLI")
+        with (
+            mock.patch.object(accounts, "_account_cli_version", side_effect=boom),
+            mock.patch.object(
+                accounts, "_copilot_supports_scoped_permissions", side_effect=boom
+            ),
+        ):
+            accounts.account_models(accounts=detected)
+
+    def test_an_explicit_inspection_still_probes(self) -> None:
+        # The probe is not removed, only moved: callers that already run
+        # off the UI thread opt in and persist the verdict for the rest.
+        detected = [
+            {
+                "id": "codex",
+                "label": "Codex",
+                "vendor": "OpenAI",
+                "connected": True,
+                "cli_path": "/nonexistent/codex",
+            },
+        ]
+        calls: list[int] = []
+        with mock.patch.object(
+            accounts,
+            "_account_cli_version",
+            side_effect=lambda *a, **k: calls.append(1) or "codex-cli 0.128.0",
+        ):
+            accounts.account_models(accounts=detected, inspect_cli_capabilities=True)
+        self.assertEqual(len(calls), 1)
 
 
 class ColdStartHonestyTests(unittest.TestCase):

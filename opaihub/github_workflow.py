@@ -544,7 +544,39 @@ class GitHubAdapter:
             sleep(max(0.0, poll_interval))
 
     def comment_pr(self, number: int, body: str) -> str:
-        return self._run(["pr", "comment", str(number), "--body", body])
+        """Post a comment once, however many times the turn is retried (#295 gate 4).
+
+        A duplicate comment is outward, visible to everyone on the thread, and
+        not undoable by OPai — so a retried, resumed or reconnected turn must not
+        post the same thing twice. The key is the comment's identity (repo, PR
+        number, body), never an attempt counter.
+        """
+
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        key = operation_key(
+            "comment_pr", root=str(self.repo_root), pr=int(number), body=body
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return str(prior["result"].get("output") or "")
+        if prior["state"] == IN_FLIGHT:
+            # Started and never confirmed. Posting again risks the duplicate;
+            # claiming success would be a lie. Say which it is.
+            raise RuntimeError(
+                "An earlier attempt to post this comment did not confirm. "
+                "It may already be on the pull request — check before retrying."
+            )
+        try:
+            output = self._run(["pr", "comment", str(number), "--body", body])
+        except (OSError, RuntimeError, ValueError):
+            # The gh invocation failed outright, so nothing was posted; release
+            # the key so a corrected retry can proceed.
+            abandon(self.repo_root, key)
+            raise
+        complete(self.repo_root, key, {"output": output})
+        return output
 
     def merge_pr(self, number: int, *, method: str = "squash") -> str:
         if method not in {"merge", "squash", "rebase"}:

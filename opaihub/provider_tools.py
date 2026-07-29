@@ -685,15 +685,51 @@ class RepositoryToolExecutor:
         # extra card here would split "push and open a PR" across two turns, and
         # since approval re-runs the whole turn, the second pass would have to redo
         # a branch/commit chain that has already landed. One approval, one turn.
+        # #295 gate 4: a retried, resumed or reconnected turn must not open a
+        # second pull request. The key is the request's identity — repo, branch
+        # pair, title — never an attempt counter, or every retry would look new.
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        body = str(arguments.get("body") or "")
+        key = operation_key(
+            "open_pr", root=str(self.repo_root), head=head, base=base, title=title
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            recorded = prior["result"]
+            return Observation(
+                "open_pr",
+                True,
+                {"url": recorded.get("url", ""), "number": recorded.get("number")},
+                message=f"PR already open: {recorded.get('url', '')}",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            # Started and never confirmed: the PR may exist. Opening another is
+            # the duplicate this gate forbids, and claiming success would be a
+            # lie — so report the uncertainty and let a human settle it.
+            return _error(
+                "PR_STATE_UNCERTAIN",
+                "An earlier attempt to open this pull request did not confirm. "
+                "It may already exist — check the repository before retrying.",
+            )
         result = create_pull_request(
             self.repo_root,
             title=title,
-            body=str(arguments.get("body") or ""),
+            body=body,
             head=head,
             base=base,
         )
         if not result.get("ok"):
+            # A refused or invalid request never reached GitHub, so the key is
+            # released and a corrected retry is free to proceed.
+            abandon(self.repo_root, key)
             return _error("GIT_PR_FAILED", str(result.get("error") or "PR failed"))
+        complete(
+            self.repo_root,
+            key,
+            {"url": result.get("url", ""), "number": result.get("number")},
+        )
         return Observation(
             "open_pr",
             True,
