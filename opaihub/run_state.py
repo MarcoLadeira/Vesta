@@ -19,6 +19,8 @@ authenticating/streaming/tool_call/…) stays underneath this model; it refines
 
 from __future__ import annotations
 
+import threading
+import time
 from enum import Enum
 from typing import Any
 
@@ -160,14 +162,77 @@ def can_transition(current: RunState | str, nxt: RunState | str) -> bool:
     return _coerce(nxt) in _TRANSITIONS[_coerce(current)]
 
 
-def transition(current: RunState | str, nxt: RunState | str) -> RunState:
+def transition(
+    current: RunState | str, nxt: RunState | str, *, source: str = ""
+) -> RunState:
     """Apply a transition, returning the new state, or the current one unchanged
     when the move is illegal — the machine never raises on a bad edge, it simply
-    refuses it (mirrors the front-end ``message-state`` contract)."""
+    refuses it (mirrors the front-end ``message-state`` contract).
+
+    A refused edge is *recorded* (see :func:`illegal_transitions`). #295's alpha
+    gate 7 asks for "0 unhandled illegal transitions; every attempted violation
+    is rejected **and observable**". Refusing silently satisfied only the first
+    half: the machine knew something had tried to walk an impossible path and
+    said nothing, so the one class of bug this model exists to catch left no
+    trace. ``source`` is an optional caller label for the record.
+    """
 
     current_state = _coerce(current)
     next_state = _coerce(nxt)
-    return next_state if can_transition(current_state, next_state) else current_state
+    if can_transition(current_state, next_state):
+        return next_state
+    _record_refusal(current_state, next_state, source)
+    return current_state
+
+
+# Refused transitions, newest last. Bounded so a runaway caller cannot grow it
+# without limit, and counted separately so the total survives truncation — a
+# capped list that silently drops the earliest evidence would recreate the
+# blindness this exists to remove.
+_MAX_REFUSALS = 64
+_refusals: list[dict[str, Any]] = []
+_refusal_count = 0
+_refusal_lock = threading.Lock()
+
+
+def _record_refusal(current: RunState, nxt: RunState, source: str) -> None:
+    global _refusal_count
+    entry = {
+        "from": current.value,
+        "to": nxt.value,
+        # A closed label, never free text from a provider or a prompt: this
+        # record is read by diagnostics and must not become a place a secret
+        # can land.
+        "source": "".join(
+            ch for ch in str(source or "unknown").lower() if ch.isalnum() or ch in "._-"
+        )[:64]
+        or "unknown",
+        "at": time.time(),
+    }
+    with _refusal_lock:
+        _refusal_count += 1
+        _refusals.append(entry)
+        if len(_refusals) > _MAX_REFUSALS:
+            del _refusals[0]
+
+
+def illegal_transitions() -> dict[str, Any]:
+    """Every refused transition this process has seen.
+
+    ``count`` is the true total; ``recent`` is the bounded tail. A non-zero
+    count is a defect report, not a metric to be tolerated — gate 7 requires it
+    to be zero across the release matrix.
+    """
+    with _refusal_lock:
+        return {"count": _refusal_count, "recent": [dict(item) for item in _refusals]}
+
+
+def reset_illegal_transitions() -> None:
+    """Clear the record. For tests and for a fresh diagnostic window only."""
+    global _refusal_count
+    with _refusal_lock:
+        _refusal_count = 0
+        _refusals.clear()
 
 
 def cancel(current: RunState | str) -> RunState:

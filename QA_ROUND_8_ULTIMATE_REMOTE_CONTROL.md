@@ -1554,6 +1554,59 @@ reconcile external side effects) is the recovery-decision half of Workstream A
 and needs #517's replay guarantees to be safe. This slice supplies the evidence
 that decision will require; it deliberately does not pre-empt it.
 
+### Issue #295 alpha gate 7 — illegal transitions were rejected but invisible
+
+Gate 7 reads: *"Illegal transitions: 0 unhandled; every attempted violation is
+rejected **and observable**."* The machine satisfied only the first half.
+
+`run_state.transition()` refused a bad edge and returned the previous state —
+correct, and silent. So the one class of bug the canonical model exists to
+catch, something walking a path the lifecycle forbids, left no trace anywhere.
+A guard nobody can read is a guard nobody can audit, and the gate asks for a
+number that can be proven zero.
+
+Refusals are now recorded on both surfaces — the engine
+(`run_state.illegal_transitions()`) and the GUI store
+(`OPaiMessageState.illegalTransitions()`) — with a bounded tail and an
+*unbounded* count, because a capped list that silently drops the earliest
+evidence would recreate the blindness being removed. The `source` label is
+sanitised to `[a-z0-9._-]` since this record is read by diagnostics and must
+never become somewhere a provider string or prompt fragment can land.
+
+Recording is additive: the refusal itself, and the preserved previous state,
+are unchanged. `test_illegal_transitions.py` (13 tests + 6 subtests) covers
+recording, every terminal-escape attempt, bounding, thread safety under eight
+concurrent writers, source sanitisation, and that a caller cannot mutate the
+returned record. Three of those tests drive the **real pipeline** through
+answered, failed and awaiting turns and assert the count stays 0 — which is the
+gate's actual target, not the mechanism.
+
+### Issue #295 — alpha gate audit
+
+`docs/EPIC_295_ALPHA_GATE_AUDIT.md` records, gate by gate, what is evidenced
+and what each remaining gate needs. **3 of 14 gates are fully evidenced** (2,
+7, 12). The epic is not closeable: gates 4 and 10 have no implementation, and
+gate 5's mechanism is proven only against injected fakes.
+
+Two entries in the first draft were **wrong**, and checking rather than
+trusting the note corrected them:
+
+- Gate 5 (orphan processes) was written as "not started". `process_tree.py`
+  already implements per-platform group isolation and full-tree termination and
+  is wired into the real provider path in `accounts.py`. What is missing is
+  narrower and worth stating precisely: the tests say outright that *"no real
+  processes are spawned"*, so the logic is proven but the operating system
+  reaping anything is not.
+- Gate 12 (budget/policy fail-closed) was written as "unaudited", which meant
+  "I did not look". Looking found the exact negative already proven by name —
+  `test_corrupt_primary_and_backup_fails_closed_on_paid_routes`,
+  `test_corrupt_nan_cap_on_disk_fails_closed_not_open` — plus the authority
+  half in command consent, spawn guard, agent runtime and completion contract.
+
+An audit that is not itself verified is only a second opinion, so every
+"evidenced" claim in that document names the test that proves it and every gap
+names the epic that owns it.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.
