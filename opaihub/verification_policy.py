@@ -12,11 +12,15 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
+
+from .loader import RegistryLoadError, load_registry
 
 
 POLICY_SCHEMA_VERSION = 1
 RESOLVER_SEMANTICS_VERSION = 1
+REPOSITORY_POLICY_FILE = "opai-verification-policy.yaml"
+TEAM_POLICY_FILE = "opai-team-policy.yaml"
 
 _EDIT_MODES = frozenset({"implement", "ship", "build", "edit", "fix"})
 _VALID_REQUIREMENTS = frozenset({"required", "optional", "forbidden", "conditional"})
@@ -360,6 +364,195 @@ def _acceptance_from_task(task: str) -> tuple[tuple[AcceptanceCriterion, ...], t
     return tuple(criteria), tuple(reviews)
 
 
+def _policy_finding(code: str, message: str, *, source: str) -> PolicyFinding:
+    return PolicyFinding(code, message, source=source, severity="error")
+
+
+def _load_policy_mapping(path: Path, *, source: str) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
+    """Load one trusted policy mapping, treating malformed content as a block."""
+
+    try:
+        data = load_registry(path)
+    except (OSError, RegistryLoadError) as exc:
+        return None, _policy_finding("malformed_policy", str(exc), source=source)
+    if not isinstance(data, Mapping):
+        return None, _policy_finding(
+            "invalid_policy_shape", "Verification policy content must be a mapping.", source=source
+        )
+    return data, None
+
+
+def _overlay_from_repository(root: Path) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
+    path = root / REPOSITORY_POLICY_FILE
+    if not path.exists():
+        return None, None
+    return _load_policy_mapping(path, source="repository")
+
+
+def _overlay_from_team(root: Path) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
+    path = root / TEAM_POLICY_FILE
+    if not path.exists():
+        return None, None
+    team, finding = _load_policy_mapping(path, source="team")
+    if finding is not None or team is None:
+        return None, finding
+    overlay = team.get("verification_policy")
+    if overlay is None:
+        return None, None
+    if not isinstance(overlay, Mapping):
+        return None, _policy_finding(
+            "invalid_policy_shape", "team verification_policy must be a mapping.", source="team"
+        )
+    return overlay, None
+
+
+def _overlay_check(
+    raw: Mapping[str, Any], *, source: str, inherited: PolicyCheck | None
+) -> PolicyCheck:
+    check_id = _normal(raw.get("id"))
+    if not check_id:
+        raise ValueError("check id is required")
+    kind = _normal(raw.get("kind")) or (inherited.kind if inherited else "")
+    requirement = _normal(raw.get("requirement")) or (
+        inherited.requirement if inherited else "required"
+    )
+    reason = str(raw.get("reason") or (inherited.reason if inherited else "")).strip()
+    command_raw = raw.get("command", inherited.command if inherited else ())
+    if isinstance(command_raw, str):
+        raise ValueError("command must be an argv list, not a shell string")
+    if not isinstance(command_raw, (list, tuple)):
+        raise ValueError("command must be a list")
+    conditions_raw = raw.get("conditions", inherited.conditions if inherited else ())
+    evidence_raw = raw.get("evidence", inherited.evidence if inherited else ("exit_status", "output_summary"))
+    if not isinstance(conditions_raw, (list, tuple)) or not isinstance(evidence_raw, (list, tuple)):
+        raise ValueError("conditions and evidence must be lists")
+    timeout = raw.get("timeout_seconds", inherited.timeout_seconds if inherited else 600)
+    retries = raw.get("retries", inherited.retries if inherited else 0)
+    return PolicyCheck(
+        check_id=check_id,
+        kind=kind,
+        requirement=requirement,
+        reason=reason,
+        source=source,
+        command=tuple(str(item) for item in command_raw),
+        conditions=tuple(str(item) for item in conditions_raw),
+        evidence=tuple(str(item) for item in evidence_raw),
+        timeout_seconds=timeout,
+        retries=retries,
+    )
+
+
+def _apply_overlay(
+    checks: list[PolicyCheck],
+    overlay: Mapping[str, Any],
+    *,
+    source: str,
+    findings: list[PolicyFinding],
+) -> None:
+    """Apply an overlay only when it cannot weaken inherited requirements."""
+
+    supported = {"schema_version", "checks", "human_reviews"}
+    for field_name in overlay:
+        if str(field_name) not in supported:
+            findings.append(
+                _policy_finding(
+                    "unknown_policy_field",
+                    f"Unsupported verification policy field: {field_name}",
+                    source=source,
+                )
+            )
+    version = overlay.get("schema_version")
+    if isinstance(version, bool) or not isinstance(version, int) or version != POLICY_SCHEMA_VERSION:
+        findings.append(
+            _policy_finding(
+                "schema_incompatible",
+                f"Policy schema_version must be {POLICY_SCHEMA_VERSION}.",
+                source=source,
+            )
+        )
+        return
+    raw_checks = overlay.get("checks", [])
+    if not isinstance(raw_checks, list):
+        findings.append(
+            _policy_finding("invalid_checks", "checks must be a list.", source=source)
+        )
+        return
+    positions = {check.check_id: index for index, check in enumerate(checks)}
+    seen: set[str] = set()
+    for raw in raw_checks:
+        if not isinstance(raw, Mapping):
+            findings.append(
+                _policy_finding("invalid_check", "Each check must be a mapping.", source=source)
+            )
+            continue
+        check_id = _normal(raw.get("id"))
+        if not check_id:
+            findings.append(_policy_finding("invalid_check", "Check id is required.", source=source))
+            continue
+        if check_id in seen:
+            findings.append(
+                _policy_finding("duplicate_check_id", f"Duplicate check id: {check_id}", source=source)
+            )
+            continue
+        seen.add(check_id)
+        inherited = checks[positions[check_id]] if check_id in positions else None
+        try:
+            candidate = _overlay_check(raw, source=source, inherited=inherited)
+        except (TypeError, ValueError) as exc:
+            findings.append(_policy_finding("invalid_check", str(exc), source=source))
+            continue
+        if inherited is not None:
+            if inherited.requirement == "required" and candidate.requirement != "required":
+                findings.append(
+                    _policy_finding(
+                        "required_check_downgrade",
+                        f"{check_id} is required by {inherited.source} and cannot be downgraded.",
+                        source=source,
+                    )
+                )
+                continue
+            if candidate.kind != inherited.kind:
+                findings.append(
+                    _policy_finding(
+                        "check_kind_conflict",
+                        f"{check_id} cannot change kind from {inherited.kind} to {candidate.kind}.",
+                        source=source,
+                    )
+                )
+                continue
+            checks[positions[check_id]] = candidate
+        else:
+            positions[check_id] = len(checks)
+            checks.append(candidate)
+
+
+def _overlay_human_reviews(
+    overlay: Mapping[str, Any], *, source: str, findings: list[PolicyFinding]
+) -> tuple[HumanReviewRequirement, ...]:
+    raw_reviews = overlay.get("human_reviews", [])
+    if not isinstance(raw_reviews, list):
+        findings.append(
+            _policy_finding("invalid_human_reviews", "human_reviews must be a list.", source=source)
+        )
+        return ()
+    reviews: list[HumanReviewRequirement] = []
+    for raw in raw_reviews:
+        if not isinstance(raw, Mapping):
+            findings.append(
+                _policy_finding("invalid_human_review", "Each human review must be a mapping.", source=source)
+            )
+            continue
+        try:
+            reviews.append(
+                HumanReviewRequirement(
+                    raw.get("requirement"), raw.get("reason"), source=source
+                )
+            )
+        except ValueError as exc:
+            findings.append(_policy_finding("invalid_human_review", str(exc), source=source))
+    return tuple(reviews)
+
+
 def resolve_verification_policy(
     root: Path,
     *,
@@ -391,11 +584,25 @@ def resolve_verification_policy(
                 severity="warning",
             )
         )
+    root_path = Path(root).expanduser().resolve()
+    sources: list[PolicySource] = [PolicySource("builtin", "Versioned OPai safe defaults")]
+    for source, loader in (("team", _overlay_from_team), ("repository", _overlay_from_repository)):
+        overlay, finding = loader(root_path)
+        if finding is not None:
+            findings.append(finding)
+            sources.append(PolicySource(source, "Policy could not be loaded safely", status="blocked"))
+            continue
+        if overlay is None:
+            continue
+        _apply_overlay(checks, overlay, source=source, findings=findings)
+        reviews += _overlay_human_reviews(overlay, source=source, findings=findings)
+        sources.append(PolicySource(source, "Trusted policy overlay applied"))
+    status = "blocked" if any(finding.severity == "error" for finding in findings) else "ready"
     return VerificationPolicy(
-        status="ready",
+        status=status,
         classification={**classification, "delivery": normalized_delivery},
         checks=tuple(checks),
-        sources=(PolicySource("builtin", "Versioned OPai safe defaults"),),
+        sources=tuple(sources),
         acceptance_criteria=criteria,
         human_reviews=reviews,
         findings=tuple(findings),
