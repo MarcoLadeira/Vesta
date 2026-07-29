@@ -1,6 +1,6 @@
 # Epic #295 — alpha gate audit
 
-**Status: the epic is NOT closeable. 3 of 14 alpha gates are fully evidenced; the rest
+**Status: the epic is NOT closeable. 4 of 14 alpha gates are fully evidenced; the rest
 are blocked on other P0 epics or on work not yet done.**
 
 #295 states plainly: *"This epic remains open and alpha remains blocked until
@@ -22,7 +22,7 @@ it, and every gap names the epic that owns it.
 | 2 | Silent message loss: 0 | **Evidenced** | — |
 | 3 | Duplicate active run: 0 | **Partial** | #517 admission keys |
 | 4 | Duplicate side effect: 0 | **Partial** | git ops + #517 replay |
-| 5 | Orphan processes: 0 | **Partial** | real-process fixtures |
+| 5 | Orphan processes: 0 | **Evidenced (Windows)** | POSIX CI run |
 | 6 | Cross-surface terminal agreement | **Partial** | #525 shared control |
 | 7 | Illegal transitions: 0 unhandled, observable | **Evidenced** | — |
 | 8 | Restart recovery: 100% | **Partial** | #517 replay |
@@ -33,10 +33,10 @@ it, and every gap names the epic that owns it.
 | 13 | No hidden active work | **Partial** | #524 desktop lifecycle |
 | 14 | Receipt completeness | **Partial** | #516 / #528 |
 
-Three gates are genuinely closed (2, 7, 12). Nothing here should be read as
-"nearly done": gate 10 has no implementation at all, and gate 5's
-mechanism is proven only against injected fakes. Those are the ones that protect
-the user's repository, their money and their machine.
+Four gates are genuinely closed (2, 5, 7, 12) — gate 5 on this Windows host,
+pending a POSIX CI run of the same fixtures. Nothing here should be read as
+"nearly done": gate 10 still has no implementation at all, and it is the one
+that decides whether a provider OPai advertises actually behaves.
 
 **Two entries in this table were wrong in the first draft** — gate 5 was recorded
 as "not started" when the mechanism was already wired into the provider path,
@@ -112,26 +112,57 @@ protection — a repeat commit of unchanged paths fails, and a repeat push is a
 no-op — but "partial natural protection" is not the gate's zero. Provider calls
 and tool invocations are unkeyed. Durable replay across processes is #517.
 
-### 5. Orphan processes: 0 — Partial
+### 5. Orphan processes: 0 — Evidenced on Windows, logic-only on POSIX
 
-*This entry was corrected during the audit. The first draft said "not started",
-which was wrong — checking rather than trusting the note found the mechanism
-already in place.*
+*This entry was corrected twice. The first draft said "not started", which was
+wrong — the mechanism was already wired in. The second said the mechanism only
+lacked real-process proof. Writing that proof found a defect the unit tests had
+encoded as intended behaviour.*
 
-`opaihub/process_tree.py` implements per-platform process-group isolation and
-full-tree termination, and it is wired into the real provider path:
-`accounts.py` launches CLIs with `isolated_group_kwargs()` and stops them with
-`terminate_tree()`. `test_process_tree.py` (11 tests) covers the Windows and
-POSIX strategies, escalation from terminate to hard kill, idempotency, an
-already-exited child, a failing tree-killer, and a process with no pid.
+**The defect.** `terminate_tree` returned immediately when the direct child had
+already exited. That reads as reasonable and is wrong in the one case that
+matters: a **crashed provider CLI** is precisely when its grandchildren
+(language servers, git, sub-agents) are left running against the user's
+repository. A dead root is not evidence of a clean tree. A red-check against
+the old implementation confirms the orphan survived; against the new one it
+does not.
 
-**Missing:** those tests state plainly that *"no real processes are spawned: a
-fake process object stands in for the tree, and the platform kill strategy is
-injected"*. The gate asks for something stronger — child processes, browser
-workers and temporary servers **reaped on Windows and POSIX fixtures**, with
-zero orphans proven after cancel, timeout, app exit, provider crash and retry.
-A unit test with an injected killer proves the logic; it cannot prove the
-operating system actually reaped anything.
+`test_process_tree.py` had asserted the buggy behaviour by name
+(`test_already_exited_process_is_not_signalled`). It is replaced by two tests
+that separate the cases it had conflated: an exited-but-unreaped child still
+gets its tree reaped, and a **reaped** child is never signalled again — because
+once a pid is reaped the OS may reissue it, and signalling a recycled pid hits
+a stranger.
+
+**The fix.** `adopt()` records, at spawn time, how to reach the tree *after the
+root dies*:
+
+| | mechanism | why the old path could not do it |
+| --- | --- | --- |
+| Windows | job object | `taskkill /T` walks parent→child; once the root is gone the link is gone. Job membership outlives the root. |
+| POSIX | process group id recorded at spawn | `getpgid` fails on a dead leader — exactly when it is needed. |
+
+The Windows job also carries `KILL_ON_JOB_CLOSE`, so the tree dies even when
+OPai is force-killed and none of its cleanup code ever runs. `_killpg` refuses
+to signal OPai's own group: cheap to check, unrecoverable to miss.
+
+**Evidence.** `test_orphan_processes.py` spawns real child *and grandchild*
+processes and proves each scenario the gate names — cancel, timeout, app exit,
+provider crash, retry. Two deliberate choices make the proof mean something:
+
+- Liveness is a **heartbeat file**, not a pid probe. A pid can be recycled, and
+  on Windows `os.kill(pid, 0)` does not probe — it terminates.
+- Every scenario **first proves the orphan is real**, asserting the grandchild
+  is still beating before anything claims to have reaped it.
+
+Plus `test_process_tree.py` (26 tests) for the logic, adoption failure modes,
+single-release of the handle, and the self-group guard.
+
+**Missing:** the real-process fixtures run on this Windows host; the POSIX
+paths are covered by logic tests and by the same fixtures when run on POSIX
+CI, which has not yet happened. Browser workers and temporary servers are not
+separately fixtured — the tests use generic child processes, which exercise the
+same mechanism but do not name those two cases from the gate.
 
 ### 6. Cross-surface terminal disagreement: 0 — Partial
 

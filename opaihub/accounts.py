@@ -34,7 +34,7 @@ from opai.model_registry import models_for as _models_for
 
 from .command_runner import redact
 from .proc import provider_child_env
-from .process_tree import isolated_group_kwargs, terminate_tree
+from .process_tree import adopt, isolated_group_kwargs, terminate_tree
 
 _CONNECTION_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _CONNECTION_CACHE_LOCK = threading.RLock()
@@ -257,7 +257,12 @@ def _popen(cmd: list[str], *, cwd: str | None, env: dict[str, str] | None = None
     if env is not None:
         kwargs["env"] = env
     kwargs.update(isolated_group_kwargs())
-    return subprocess.Popen(cmd, **kwargs)  # nosec B603 - argv list, no shell, user's own CLI
+    # adopt() binds the child to a Windows job object, so the tree stays
+    # reachable even after the CLI itself crashes (#295 gate 5). A no-op on
+    # POSIX, where the new session already provides that.
+    return adopt(
+        subprocess.Popen(cmd, **kwargs)  # nosec B603 - argv list, no shell, user's own CLI
+    )
 
 
 def _is_login_sentinel(text: str) -> bool:
