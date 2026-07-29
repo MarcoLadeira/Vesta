@@ -1607,6 +1607,64 @@ An audit that is not itself verified is only a second opinion, so every
 "evidenced" claim in that document names the test that proves it and every gap
 names the epic that owns it.
 
+### Issue #295 gate 4 — a retry could open a second PR
+
+Gate 4: *"Duplicate side effect: 0 after retry, replay, reconnect or failover."*
+Nothing enforced it. `create_pull_request` POSTed straight to GitHub and
+`comment_pr` straight to the issue thread, so a retried, resumed or reconnected
+turn opened a **second pull request** or posted the same comment twice. Both are
+outward, visible to other people, and not undoable by OPai.
+
+`opaihub/idempotency.py` supplies operation keys. Two design points carry the
+weight:
+
+**Three states, not two.** The tempting design is a set of completed keys: if
+present, skip. That is wrong at exactly the moment it matters — the process can
+die *between* performing the side effect and recording it. A two-state store has
+no way to represent "this may or may not have happened", so it must guess, and
+both guesses are real failures: redo duplicates, skip silently drops work the
+user asked for. So an operation is `fresh`, `in_flight` (**may already exist** —
+not repeated, not claimed as success, reported as uncertain) or `done`.
+
+**Keys identify the operation, not the attempt.** Derived from what makes two
+calls the same request — repo, branch pair, title — and never from a timestamp
+or attempt counter, which would make every retry look new. Long user-authored
+values (a PR body, a comment) are hashed rather than stored, so the key is stable
+without the store holding content that could be anything.
+
+A provably-failed attempt (validation error, refused approval — never reached
+the network) releases its key so a corrected retry is free. A network timeout
+does **not**: the request may have arrived, so its key stays uncertain.
+
+- Green evidence: `test_idempotency.py` 22 tests + 4 subtests. Red-checked by
+  neutering the guard: 6 fail, including both duplicate cases.
+
+### Regression fixed: QAR8-27 had made the settings page probe a CLI
+
+Found while running the git/GitHub suites: `test_settings_payload_includes_github`
+fails. It asserts, by making a synchronous `_account_cli_version` raise, that
+building the settings payload **never launches a provider CLI** — a subprocess
+there blocks the page for up to a timeout per CLI.
+
+QAR8-27 (already merged) added exactly that: a cold-cache fallback probe during
+enumeration. It bought first-launch accuracy at the price of blocking every
+enumeration with a cold cache.
+
+Worse, the full suite did not catch it. An earlier test warms the in-process
+`_CLI_VERSION_CACHE`, so the failure only appears when the test runs alone —
+order-dependent masking, which is how a suite stops being trustworthy.
+
+The fix keeps what QAR8-27 was actually for. Its real win was *persisting* the
+verdict; reading that file is cheap and survives a restart, which is the common
+case. Only the synchronous fallback is removed — the probe now belongs to
+callers that already run off the UI thread and opt in with
+`inspect_cli_capabilities=True`, and they persist the verdict for everyone else.
+Verified live: Codex still enumerates `available=False` and Copilot
+`repo_editing=False`, now from the persisted verdict rather than a live probe.
+
+A new order-independent regression asserts it with the cache explicitly cold, so
+ordering can never mask it again — red-checked by restoring the probe.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.

@@ -21,7 +21,7 @@ it, and every gap names the epic that owns it.
 | 1 | False completion: 0 | **Partial** | #522 verification policy |
 | 2 | Silent message loss: 0 | **Evidenced** | — |
 | 3 | Duplicate active run: 0 | **Partial** | #517 admission keys |
-| 4 | Duplicate side effect: 0 | **Not started** | #517 idempotency keys |
+| 4 | Duplicate side effect: 0 | **Partial** | git ops + #517 replay |
 | 5 | Orphan processes: 0 | **Partial** | real-process fixtures |
 | 6 | Cross-surface terminal agreement | **Partial** | #525 CLI parity |
 | 7 | Illegal transitions: 0 unhandled, observable | **Evidenced** | — |
@@ -34,7 +34,7 @@ it, and every gap names the epic that owns it.
 | 14 | Receipt completeness | **Partial** | #516 / #528 |
 
 Three gates are genuinely closed (2, 7, 12). Nothing here should be read as
-"nearly done": gates 4 and 10 have no implementation at all, and gate 5's
+"nearly done": gate 10 has no implementation at all, and gate 5's
 mechanism is proven only against injected fakes. Those are the ones that protect
 the user's repository, their money and their machine.
 
@@ -83,14 +83,34 @@ the owning process.
 admission key — a resubmit after a reconnect is a new request id, so nothing
 deduplicates it. #517.
 
-### 4. Duplicate side effect: 0 — Not started
+### 4. Duplicate side effect: 0 — Partial
 
-No operation-level idempotency keys exist for provider calls, tool invocations,
-Git operations or GitHub mutations. After a retry, replay, reconnect or
-failover, nothing prevents a repeated commit, PR or comment.
+`opaihub/idempotency.py` supplies operation keys with a **three-state** model,
+and the two outward operations that had no protection at all are wired to it:
 
-This is the gate with the most direct user cost and it has **no implementation**.
-Owned by #517 with #521/#523.
+- `open_pr` — `create_pull_request` POSTed straight to GitHub, so a retried,
+  resumed or reconnected turn opened a second pull request.
+- `comment_pr` — the same, posting a duplicate comment on the thread.
+
+Both are visible to other people and not undoable by OPai.
+
+The third state is the design point. A set of completed keys is wrong at exactly
+the moment it matters: the process can die *between* performing the side effect
+and recording it. With two states the store must guess, and both guesses are
+real failures — redo duplicates, skip silently drops work. So an operation is
+`fresh` (safe to perform), `in_flight` (**may already exist**; not repeated, not
+claimed as success, reported as uncertain), or `done` (recorded result returned).
+
+`test_idempotency.py` (22 tests + 4 subtests) covers key stability and
+separation, the crash-between-effect-and-record case, provably-failed attempts
+releasing the key, uncertainty expiring rather than blocking forever, results
+holding no bodies or secrets, and an unwritable store never blocking the user.
+Red-checked: neutering the guard fails 6 tests including both duplicate cases.
+
+**Missing:** `git_commit` and `git_push` are not keyed. Both have partial natural
+protection — a repeat commit of unchanged paths fails, and a repeat push is a
+no-op — but "partial natural protection" is not the gate's zero. Provider calls
+and tool invocations are unkeyed. Durable replay across processes is #517.
 
 ### 5. Orphan processes: 0 — Partial
 
