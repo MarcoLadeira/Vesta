@@ -8,6 +8,7 @@ consent-gated push/PR, and a contract that names the actual tools.
 
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -121,6 +122,36 @@ class GitToolTests(unittest.TestCase):
             result = _executor(root).invoke("git_commit", {"message": "empty"})
             self.assertFalse(result["ok"])
             self.assertEqual(result["error_code"], "NOTHING_TO_COMMIT")
+
+    def test_commit_blocks_when_the_index_changes_after_a_provider_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = _executor(root)
+            self.assertTrue(
+                executor.invoke("write_file", {"path": "f.txt", "content": "hello"})[
+                    "ok"
+                ]
+            )
+            (root / "user.txt").write_text("outside change\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "--", "user.txt"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+
+            result = executor.invoke("git_commit", {"message": "Add f.txt"})
+
+            self.assertFalse(result["ok"], result)
+            self.assertEqual(result["error_code"], "REPOSITORY_SAFETY_BLOCKED")
+            head = subprocess.run(
+                ["git", "log", "-1", "--format=%s"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(head.stdout.strip(), "init")
 
     def test_invalid_branch_names_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

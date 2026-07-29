@@ -302,6 +302,7 @@ def _call_tool_loop(
     guard: Any,
     allow_command: str | None,
     tool_loop_policy: Any = None,
+    repository_handle: Any = None,
 ) -> dict[str, Any]:
     """Invoke the runner's tool loop, threading a one-shot command grant.
 
@@ -333,6 +334,8 @@ def _call_tool_loop(
         kwargs["allow_command"] = allow_command
     if tool_loop_policy is not None and _accepts("tool_loop_policy"):
         kwargs["tool_loop_policy"] = tool_loop_policy
+    if repository_handle is not None and _accepts("repository_handle"):
+        kwargs["repository_handle"] = repository_handle
     return complete_with_tools(task, **kwargs)
 
 
@@ -352,6 +355,7 @@ def run_explicit_model(
     on_text: Any = None,
     allow_command: str | None = None,
     tool_loop_policy: Any = None,
+    repository_handle: Any = None,
 ) -> dict[str, Any]:
     """Run an explicitly selected model without Auto routing or prose caching.
 
@@ -407,6 +411,7 @@ def run_explicit_model(
                 guard=turn_guard,
                 allow_command=allow_command,
                 tool_loop_policy=tool_loop_policy,
+                repository_handle=repository_handle,
             )
             answer = str(completed.get("text") or "")
             tool_trace = list(completed.get("tool_trace") or [])

@@ -802,6 +802,7 @@ def ask(
     on_text: Any = None,
     cancel: Any = None,
     tool_loop_policy: Any = None,
+    repository_handle: Any = None,
 ) -> dict[str, Any]:
     """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', 'free:<id>', or 'provider:model'.
 
@@ -851,6 +852,7 @@ def ask(
             cancel=cancel,
             on_text=on_text,
             tool_loop_policy=tool_loop_policy,
+            repository_handle=repository_handle,
         )
 
     from opaihub.ask import run_ask
@@ -887,6 +889,7 @@ def _ask_free_model(
     cancel: Any = None,
     on_text: Any = None,
     tool_loop_policy: Any = None,
+    repository_handle: Any = None,
 ) -> dict[str, Any]:
     """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
 
@@ -956,6 +959,7 @@ def _ask_free_model(
         # The turn's contract budgets (tool calls, wall clock, compaction),
         # so a long multi-file task is not held to a short task's allowance.
         tool_loop_policy=tool_loop_policy,
+        repository_handle=repository_handle,
     )
     if result.get("status") == "runner_error":
         from opai.provider_contract import normalize_provider_error

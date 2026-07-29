@@ -2,6 +2,19 @@
 
 ## 0.2.1 Alpha.1
 
+### Repository safety
+
+- Added canonical repository handles and fail-closed mutation gates. OPai now
+  records redacted worktree/Git/remote/dirty-state identity before edit-capable
+  work, revalidates it immediately before provider file and Git mutations, and
+  blocks stale, unknown, overlapping, conflicted, or unrelated direct writes.
+- Added durable isolated-worktree leases with owner/run/base evidence,
+  collision checks, quotas, heartbeat/recovery reporting, and registry/filesystem
+  reconciliation. Recovery and `opai repo worktrees --recover --json` are
+  non-destructive: user-modified or unknown worktrees are preserved for review.
+- Added matching GUI and `opai repo inspect --json` safety receipts, with
+  redacted remote identity and no cleanup command exposed by either surface.
+
 ### Provider adapters
 
 - **Provider adapter protocol v1 (2026-07-29).** Migrated the nine supported

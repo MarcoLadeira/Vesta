@@ -5,12 +5,20 @@ from __future__ import annotations
 import json
 import subprocess  # nosec B404 - fixed git argv, never a shell command
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
+from .repository_safety import (
+    DirtyState as CanonicalDirtyState,
+    RepositoryProbeError,
+    build_repository_safety_receipt,
+    capture_repository_handle,
+    classify_dirty_state,
+)
 from .state import state_dir
 
 
@@ -37,14 +45,19 @@ class RepoContext:
     remote: str = ""
     dirty_paths: tuple[str, ...] = ()
     is_git: bool = True
+    handle_id: str = ""
+    safety: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
-            **asdict(self),
             "path": str(self.path),
+            "branch": self.branch,
             "remote": _sanitize_remote(self.remote),
             "dirty_paths": list(self.dirty_paths),
             "dirty": bool(self.dirty_paths),
+            "is_git": self.is_git,
+            "handle_id": self.handle_id,
+            "safety": dict(self.safety),
         }
 
 
@@ -81,39 +94,108 @@ def _git_text(root: Path, args: list[str]) -> str:
 
 
 def _dirty_paths(root: Path) -> tuple[str, ...]:
-    result = _run_git(root, ["status", "--porcelain=v1", "--untracked-files=all"])
-    output = result.stdout or "" if result.returncode == 0 else ""
-    paths: list[str] = []
-    for line in output.splitlines():
-        if len(line) < 4:
-            continue
-        path = line[3:].strip().strip('"')
-        if " -> " in path:
-            path = path.rsplit(" -> ", 1)[1]
-        normalized = path.replace("\\", "/")
-        if normalized.startswith((".opaihub/", ".opcoding/")):
-            continue
-        if normalized and normalized not in paths:
-            paths.append(normalized)
-    return tuple(paths)
+    try:
+        return capture_repository_handle(
+            root, task_id="active-repository", run_id="context"
+        ).dirty_state.changed_paths
+    except RepositoryProbeError:
+        return ()
+
+
+def _context_from_handle(handle: Any) -> RepoContext:
+    identity = handle.identity
+    assessment = classify_dirty_state(handle.dirty_state, planned_paths=None)
+    remote = dict(identity.remotes).get("origin", "")
+    safety = {
+        "schema_version": handle.schema_version,
+        "handle": {
+            "handle_id": handle.handle_id,
+            "captured_at": handle.captured_at,
+            "max_age_seconds": handle.max_age_seconds,
+        },
+        "identity": identity.to_dict(),
+        "dirty_state": handle.dirty_state.to_dict(),
+        "assessment": assessment.to_dict(),
+    }
+    return RepoContext(
+        path=identity.worktree_root,
+        branch=identity.branch,
+        remote=remote,
+        dirty_paths=handle.dirty_state.changed_paths,
+        is_git=True,
+        handle_id=handle.handle_id,
+        safety=safety,
+    )
+
+
+def context_from_repository_handle(handle: Any) -> RepoContext:
+    """Project a previously task-bound canonical handle into legacy context."""
+
+    return _context_from_handle(handle)
 
 
 def resolve_repo_context(path: str | Path) -> RepoContext:
     """Resolve a selected folder to its enclosing Git worktree when possible."""
 
-    selected = Path(path).expanduser().resolve()
+    selected = Path(path).expanduser().resolve(strict=False)
     start = selected.parent if selected.is_file() else selected
-    top = _git_text(start, ["rev-parse", "--show-toplevel"])
-    if not top:
-        return RepoContext(path=start, is_git=False)
-    root = Path(top).resolve()
-    return RepoContext(
-        path=root,
-        branch=_git_text(root, ["branch", "--show-current"]),
-        remote=_sanitize_remote(_git_text(root, ["remote", "get-url", "origin"])),
-        dirty_paths=_dirty_paths(root),
-        is_git=True,
+    try:
+        return _context_from_handle(
+            capture_repository_handle(
+                start, task_id="active-repository", run_id="context"
+            )
+        )
+    except RepositoryProbeError as exc:
+        return RepoContext(
+            path=start,
+            is_git=False,
+            safety={
+                "schema_version": 1,
+                "status": "unavailable",
+                "reason": exc.reason,
+            },
+        )
+
+
+def repository_safety_surface(
+    path: str | Path,
+) -> tuple[RepoContext, dict[str, Any], list[dict[str, Any]]]:
+    """Build the shared, read-only repository-safety projection for a surface."""
+
+    context = resolve_repo_context(path)
+    leases: list[dict[str, Any]] = []
+    lease_error = ""
+    if context.is_git:
+        try:
+            from .worktree_leases import list_worktree_leases
+
+            leases = [lease.to_dict() for lease in list_worktree_leases(context.path)]
+        except Exception as exc:  # noqa: BLE001 - corrupted leases fail visibly, never open cleanup
+            lease_error = redact(str(exc))[:240]
+    source = context.safety if isinstance(context.safety, dict) else {}
+    identity = source.get("identity")
+    assessment = source.get("assessment")
+    dirty_state = source.get("dirty_state")
+    handle = source.get("handle")
+    safety: dict[str, Any] = {
+        "schema_version": int(source.get("schema_version") or 1),
+        "status": str(source.get("status") or "available"),
+        "handle": dict(handle) if isinstance(handle, dict) else {},
+        "identity": dict(identity) if isinstance(identity, dict) else {},
+        "dirty_state": dict(dirty_state) if isinstance(dirty_state, dict) else {},
+        "assessment": dict(assessment) if isinstance(assessment, dict) else {},
+    }
+    if not context.is_git:
+        safety["status"] = "unavailable"
+        safety["reason"] = str(source.get("reason") or "probe_unavailable")
+    if lease_error:
+        safety["lease_error"] = lease_error
+    safety["receipt"] = build_repository_safety_receipt(
+        source,
+        safety["assessment"],
+        leases,
     )
+    return context, safety, leases
 
 
 def _active_repo_path(project_root: Path) -> Path:
@@ -122,13 +204,9 @@ def _active_repo_path(project_root: Path) -> Path:
 
 def save_active_repo(project_root: Path, context: RepoContext) -> Path:
     target = _active_repo_path(project_root.expanduser().resolve())
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(context.to_dict(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(target)
+    payload = json.dumps(context.to_dict(), indent=2, sort_keys=True) + "\n"
+    with interprocess_transaction(target):
+        atomic_write_text(target, payload)
     return target
 
 
@@ -146,6 +224,10 @@ def load_active_repo(project_root: Path) -> RepoContext | None:
         remote=_sanitize_remote(str(data.get("remote") or "")),
         dirty_paths=tuple(str(item) for item in data.get("dirty_paths") or []),
         is_git=bool(data.get("is_git", True)),
+        handle_id=str(data.get("handle_id") or ""),
+        safety=dict(data.get("safety") or {})
+        if isinstance(data.get("safety"), dict)
+        else {},
     )
 
 
@@ -173,20 +255,26 @@ def classify_dirty_paths(
     dirty = tuple(
         dict.fromkeys(str(_normal(path)) for path in dirty_paths if str(path))
     )
-    if not dirty:
-        return DirtyAssessment("clean", True)
-    if intended_paths is None:
-        return DirtyAssessment("needs_inspection", True, unrelated_paths=dirty)
-    intended = tuple(_normal(path) for path in intended_paths if str(path))
-    conflicts = tuple(
-        path
-        for path in dirty
-        if any(_overlaps(_normal(path), target) for target in intended)
+    canonical = classify_dirty_state(
+        CanonicalDirtyState(unstaged=dirty), planned_paths=intended_paths
     )
-    unrelated = tuple(path for path in dirty if path not in conflicts)
-    if conflicts:
-        return DirtyAssessment("conflicting", False, conflicts, unrelated)
-    return DirtyAssessment("unrelated", True, unrelated_paths=unrelated)
+    if canonical.classification == "clean":
+        return DirtyAssessment("clean", True)
+    if canonical.classification in {"overlapping", "unsafe"}:
+        unrelated = tuple(
+            path for path in dirty if path not in canonical.overlapping_paths
+        )
+        return DirtyAssessment(
+            "conflicting", False, canonical.overlapping_paths, unrelated
+        )
+    if canonical.classification == "unknown":
+        return DirtyAssessment("needs_inspection", False, unrelated_paths=dirty)
+    if canonical.classification == "compatible":
+        return DirtyAssessment("compatible", True, unrelated_paths=dirty)
+    # An unrelated user change is safe only for the caller to *isolate*; this
+    # compatibility API preserves that legacy routing signal. Mutation paths use
+    # require_mutation_permitted(), which blocks direct writes in this state.
+    return DirtyAssessment("unrelated", True, unrelated_paths=dirty)
 
 
 def prepare_isolated_worktree(

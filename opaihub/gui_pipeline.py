@@ -48,7 +48,18 @@ from .ledger import (
     read_events,
 )
 from .model_intelligence import recommend_model
-from .repo_context import classify_dirty_paths, resolve_repo_context, save_active_repo
+from .repo_context import (
+    classify_dirty_paths,
+    context_from_repository_handle,
+    resolve_repo_context,
+    save_active_repo,
+)
+from .repository_safety import (
+    RepositoryProbeError,
+    RepositorySafetyPersistenceError,
+    capture_repository_handle,
+    save_repository_handle,
+)
 from .run_state import RunState, is_awaiting_input, run_state_for_verdict
 from .run_summary import build_run_summary
 from .task_packet import build_task_packet
@@ -799,6 +810,24 @@ def handle_gui_message(
     save_active_repo(root, repo_context)
     previous_workflow = load_workflow_state(root)
     runtime = AgentRuntime(root, task=message)
+    task_repository_handle: Any = None
+    repository_safety_error = ""
+    if will_edit:
+        try:
+            if not repo_context.is_git:
+                raise RepositoryProbeError(
+                    "probe_unavailable", "An edit-capable run requires a Git worktree"
+                )
+            task_repository_handle = capture_repository_handle(
+                repo_context.path,
+                task_id=runtime.task_id,
+                run_id=turn_id,
+            )
+            save_repository_handle(root, task_repository_handle)
+            repo_context = context_from_repository_handle(task_repository_handle)
+            save_active_repo(root, repo_context)
+        except (RepositoryProbeError, RepositorySafetyPersistenceError) as exc:
+            repository_safety_error = str(exc)[:400]
     runtime.transition(
         RuntimePhase.INTENT_RESOLVED,
         message=f"{policy.mode.value.title()} mode selected",
@@ -1431,6 +1460,31 @@ def handle_gui_message(
         command_consent.end_turn()
         return decorated
 
+    if repository_safety_error:
+        return _decorate(
+            {
+                "status": "blocked",
+                "answer": (
+                    "OPai could not establish and persist a fresh repository "
+                    "identity for this edit-capable run. No provider was allowed "
+                    "to mutate the workspace. Inspect the repository and retry."
+                ),
+                "tool_trace": [],
+                "receipt": {},
+                "changed_files": [],
+                "warnings": [
+                    {
+                        "severity": "warning",
+                        "reason": "repository_safety_unavailable",
+                        "detail": repository_safety_error,
+                    }
+                ],
+                "next_actions": [
+                    "Inspect repository safety state, then retry the edit-capable run."
+                ],
+            }
+        )
+
     if policy.requires_confirmation:
         blocked_tier = str(
             recommend_model(root, message).get("recommended_model_tier") or "L1"
@@ -1894,6 +1948,7 @@ def handle_gui_message(
                 cancel=cancel,
                 on_text=on_text,
                 tool_loop_policy=_contract_tool_loop_policy(),
+                repository_handle=task_repository_handle,
             )
             if result.get("status") == "cancelled":
                 _phase_close("cancelled", "Stopped by you")
