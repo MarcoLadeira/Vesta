@@ -146,6 +146,42 @@ _ACTIVE_LABELS = {
 }
 
 
+# One exit code per terminal state, so a script can branch on *which* ending it
+# got (#295 Workstream H: "CLI exit codes map deterministically to canonical
+# terminal states"). Every non-completed ending used to collapse to 2, which
+# made `timeout` — worth retrying — indistinguishable from `blocked`, which is
+# a refusal that retrying will hit again, and from `partial`, where work
+# actually landed.
+#
+# Chosen to keep the ordinary idiom working: 0 is success and everything else is
+# non-zero, so `if ! opai ask ...` behaves exactly as before. 2 stays on
+# `failed`, the code it already meant. 130 is the shell's SIGINT convention and
+# was already returned for Ctrl+C, so cancellation keeps it.
+_EXIT_CODES: dict[RunState, int] = {
+    RunState.COMPLETED: 0,
+    RunState.FAILED: 2,
+    RunState.PARTIAL: 3,
+    RunState.BLOCKED: 4,
+    RunState.TIMEOUT: 5,
+    RunState.CANCELLED: 130,
+}
+
+
+def exit_code_for(state: RunState | str) -> int:
+    """The process exit code for a terminal run state.
+
+    A non-terminal state has no exit code — the run has not ended — and asking
+    for one is a bug in the caller, so it raises rather than inventing a
+    success. ``1`` is deliberately unused: argparse and most shells already
+    spend it on usage errors, and a lifecycle outcome must not be confused with
+    "you typed the command wrong".
+    """
+    run_state = _coerce(state)
+    if run_state not in TERMINAL_STATES:
+        raise ValueError(f"{run_state.value} is not a terminal state")
+    return _EXIT_CODES[run_state]
+
+
 def is_terminal(state: RunState | str) -> bool:
     """True when ``state`` is a terminal (immutable) run state."""
 
