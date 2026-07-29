@@ -346,6 +346,13 @@ class RepoContextTests(unittest.TestCase):
         self.assertTrue(context.branch)
         self.assertEqual(context.remote, "https://github.com/acme/demo.git")
         self.assertIn("src/app.py", context.dirty_paths)
+        self.assertTrue(context.handle_id)
+        self.assertEqual(
+            context.to_dict()["safety"]["identity"]["worktree_root"], str(root.resolve())
+        )
+        self.assertEqual(
+            context.to_dict()["safety"]["assessment"]["rule_id"], "unknown_scope"
+        )
         self.assertFalse(
             any(path.startswith(".opaihub/") for path in refreshed.dirty_paths)
         )
@@ -392,6 +399,12 @@ class RepoContextTests(unittest.TestCase):
         self.assertEqual(assessment.status, "conflicting")
         self.assertFalse(assessment.can_proceed)
         self.assertEqual(assessment.conflicting_paths, ("opai/agent_policy.py",))
+
+    def test_unknown_dirty_scope_cannot_authorize_mutation(self):
+        assessment = classify_dirty_paths(["docs/notes.md"], None)
+
+        self.assertEqual(assessment.status, "needs_inspection")
+        self.assertFalse(assessment.can_proceed)
 
     def test_safe_worktree_command_uses_new_branch_and_preserves_unrelated_changes(
         self,
