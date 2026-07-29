@@ -69,7 +69,9 @@ class WorktreeLease:
 
     def to_dict(self) -> dict[str, object]:
         value = asdict(self)
-        value["filesystem_id"] = list(self.filesystem_id) if self.filesystem_id else None
+        value["filesystem_id"] = (
+            list(self.filesystem_id) if self.filesystem_id else None
+        )
         return value
 
 
@@ -170,7 +172,9 @@ class WorktreeManager:
     def _lock_path(self) -> Path:
         return self._directory() / "leases.index"
 
-    def _git(self, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    def _git(
+        self, args: list[str], *, cwd: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         env = {
             name: value
             for name, value in os.environ.items()
@@ -191,7 +195,9 @@ class WorktreeManager:
         try:
             return self._git_run(["git", *args], **kwargs)
         except (OSError, subprocess.SubprocessError) as exc:
-            raise WorktreeLeaseError(f"Git worktree command unavailable: {redact(str(exc))[:240]}") from exc
+            raise WorktreeLeaseError(
+                f"Git worktree command unavailable: {redact(str(exc))[:240]}"
+            ) from exc
 
     def _text(self, args: list[str], *, cwd: Path | None = None) -> str:
         result = self._git(args, cwd=cwd)
@@ -224,7 +230,10 @@ class WorktreeManager:
             raise WorktreeLeaseError(
                 f"Could not read worktree lease: {redact(str(exc))[:240]}"
             ) from exc
-        if not isinstance(data, dict) or data.get("schema_version") != LEASE_SCHEMA_VERSION:
+        if (
+            not isinstance(data, dict)
+            or data.get("schema_version") != LEASE_SCHEMA_VERSION
+        ):
             raise WorktreeLeaseError("Unsupported worktree lease schema")
         filesystem = data.get("filesystem_id")
         if filesystem is not None and (
@@ -291,20 +300,26 @@ class WorktreeManager:
     def _check_destination(self, target: Path) -> Path:
         destination = target.expanduser().resolve(strict=False)
         if destination.exists():
-            raise WorktreeLeaseError(f"Worktree destination already exists: {destination}")
+            raise WorktreeLeaseError(
+                f"Worktree destination already exists: {destination}"
+            )
         try:
             destination.relative_to(self.repo_root)
         except ValueError:
             pass
         else:
-            raise WorktreeLeaseError("Worktree destination must be outside the authoritative worktree")
+            raise WorktreeLeaseError(
+                "Worktree destination must be outside the authoritative worktree"
+            )
         parent = destination.parent
         while not parent.exists() and parent != parent.parent:
             parent = parent.parent
         try:
             free = int(self._disk_usage(parent).free)
         except OSError as exc:
-            raise WorktreeLeaseError(f"Could not inspect available disk space: {exc}") from exc
+            raise WorktreeLeaseError(
+                f"Could not inspect available disk space: {exc}"
+            ) from exc
         if free < self.min_free_bytes:
             raise WorktreeLeaseError("Insufficient disk space for isolated worktree")
         return destination
@@ -330,8 +345,14 @@ class WorktreeManager:
     ) -> WorktreeLease:
         """Create one lease after fresh identity, quota, and collision checks."""
 
-        if not str(task_id).strip() or not str(run_id).strip() or not str(owner).strip():
-            raise WorktreeLeaseError("Task, run, and owner are required for a worktree lease")
+        if (
+            not str(task_id).strip()
+            or not str(run_id).strip()
+            or not str(owner).strip()
+        ):
+            raise WorktreeLeaseError(
+                "Task, run, and owner are required for a worktree lease"
+            )
         safe_branch = _valid_branch(branch)
         destination = self._check_destination(Path(target))
         with interprocess_transaction(self._lock_path()):
@@ -348,17 +369,27 @@ class WorktreeManager:
                 raise WorktreeLeaseError("Repository safety denied worktree creation")
             current = decision.validation.current
             if current is None:
-                raise WorktreeLeaseError("Repository safety did not return a fresh handle")
+                raise WorktreeLeaseError(
+                    "Repository safety did not return a fresh handle"
+                )
             active = self._active_leases()
             if len(active) >= self.max_active_leases:
                 raise WorktreeLeaseError("Active worktree lease quota reached")
-            if any(item.branch == safe_branch or Path(item.path) == destination for item in active):
-                raise WorktreeLeaseError("Worktree branch or destination is already leased")
+            if any(
+                item.branch == safe_branch or Path(item.path) == destination
+                for item in active
+            ):
+                raise WorktreeLeaseError(
+                    "Worktree branch or destination is already leased"
+                )
             registry = self._registry()
             if destination in registry or any(
-                item.get("branch") == f"refs/heads/{safe_branch}" for item in registry.values()
+                item.get("branch") == f"refs/heads/{safe_branch}"
+                for item in registry.values()
             ):
-                raise WorktreeLeaseError("Git already has this worktree branch or destination")
+                raise WorktreeLeaseError(
+                    "Git already has this worktree branch or destination"
+                )
             base_sha = self._resolve_base(str(base))
             now = float(self._now())
             stamp = _now_iso()
@@ -431,7 +462,9 @@ class WorktreeManager:
                     },
                 )
                 self._save(failed)
-                detail = str(result.stderr or result.stdout or "git worktree add failed")
+                detail = str(
+                    result.stderr or result.stdout or "git worktree add failed"
+                )
                 raise WorktreeLeaseError(redact(detail)[:400])
             return self._reconcile_loaded(lease)
 
@@ -459,16 +492,24 @@ class WorktreeManager:
                 reasons.append("common_git_directory_changed")
             if current.identity.branch != lease.branch:
                 reasons.append("branch_changed")
-            if lease.filesystem_id is not None and current.identity.filesystem_id != lease.filesystem_id:
+            if (
+                lease.filesystem_id is not None
+                and current.identity.filesystem_id != lease.filesystem_id
+            ):
                 reasons.append("worktree_replaced")
             if current.dirty_state.changed_paths or current.dirty_state.conflicted:
                 reasons.append("dirty_worktree")
             try:
-                ahead = self._text(["rev-list", "--max-count=1", f"{lease.base_sha}..HEAD"], cwd=destination)
+                ahead = self._text(
+                    ["rev-list", "--max-count=1", f"{lease.base_sha}..HEAD"],
+                    cwd=destination,
+                )
             except WorktreeLeaseError:
                 ahead = "unknown"
             if ahead:
-                reasons.append("unpushed_commits" if ahead != "unknown" else "history_unavailable")
+                reasons.append(
+                    "unpushed_commits" if ahead != "unknown" else "history_unavailable"
+                )
         if entry is not None and entry.get("branch") != f"refs/heads/{lease.branch}":
             reasons.append("registry_branch_changed")
         if reasons:
@@ -485,13 +526,17 @@ class WorktreeManager:
             return self._save(reviewed)
         active = replace(
             lease,
-            filesystem_id=current.identity.filesystem_id if current is not None else None,
+            filesystem_id=current.identity.filesystem_id
+            if current is not None
+            else None,
             state="active",
             heartbeat_at=_now_iso(),
             evidence={
                 **lease.evidence,
                 "registry_state": "registered",
-                "observed_head": current.identity.head_sha if current is not None else "",
+                "observed_head": current.identity.head_sha
+                if current is not None
+                else "",
                 "reasons": [],
             },
         )
@@ -514,7 +559,9 @@ class WorktreeManager:
             )
         )
 
-    def preview_apply(self, lease_id: str, target_handle: RepositoryHandle) -> LeaseDecision:
+    def preview_apply(
+        self, lease_id: str, target_handle: RepositoryHandle
+    ) -> LeaseDecision:
         """Preview source/target divergence without changing either worktree."""
 
         lease = self.load(lease_id)
@@ -585,7 +632,9 @@ class WorktreeManager:
         with interprocess_transaction(self._lock_path()):
             lease = self.load(lease_id)
             if lease.owner != str(owner) or lease.state not in {"creating", "active"}:
-                raise WorktreeLeaseError("Only an active lease owner may renew its lease")
+                raise WorktreeLeaseError(
+                    "Only an active lease owner may renew its lease"
+                )
             now = float(self._now())
             return self._save(
                 replace(
@@ -607,7 +656,9 @@ class WorktreeManager:
             if lease.owner != str(owner):
                 raise WorktreeLeaseError("Only the lease owner may release it")
             if lease.state not in {"active", "needs_review"}:
-                raise WorktreeLeaseError("Only active or reviewable leases may be released")
+                raise WorktreeLeaseError(
+                    "Only active or reviewable leases may be released"
+                )
             return self._save(
                 replace(lease, state="completed", heartbeat_at=_now_iso())
             )

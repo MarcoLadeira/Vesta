@@ -50,9 +50,7 @@ def _git(root: Path, *args: str) -> str:
 def _tree_and_index_digest(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(
-        item
-        for item in root.rglob("*")
-        if item.is_file() and ".git" not in item.parts
+        item for item in root.rglob("*") if item.is_file() and ".git" not in item.parts
     ):
         digest.update(path.relative_to(root).as_posix().encode("utf-8"))
         digest.update(path.read_bytes())
@@ -93,8 +91,12 @@ class RepositoryCaptureTests(unittest.TestCase):
         self.assertEqual(handle.identity.worktree_root, self.repo.resolve())
         self.assertEqual(handle.identity.head_sha, _git(self.repo, "rev-parse", "HEAD"))
         self.assertFalse(handle.identity.detached)
-        self.assertEqual(handle.identity.branch, _git(self.repo, "branch", "--show-current"))
-        self.assertIn(("origin", "https://github.com/acme/demo.git"), handle.identity.remotes)
+        self.assertEqual(
+            handle.identity.branch, _git(self.repo, "branch", "--show-current")
+        )
+        self.assertIn(
+            ("origin", "https://github.com/acme/demo.git"), handle.identity.remotes
+        )
         self.assertNotIn("secret-token", repr(handle))
         self.assertEqual(handle.dirty_state.changed_paths, ())
 
@@ -133,7 +135,13 @@ class RepositoryCaptureTests(unittest.TestCase):
         (self.repo / "src" / "app.py").write_text("print('moved')\n", encoding="utf-8")
         _git(self.repo, "add", "src/app.py")
         _git(self.repo, "commit", "-m", "move head")
-        _git(self.repo, "remote", "set-url", "origin", "https://github.com/acme/other.git")
+        _git(
+            self.repo,
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/acme/other.git",
+        )
 
         result = revalidate_repository_handle(handle)
 
@@ -188,7 +196,9 @@ class RepositorySafetyGateTests(unittest.TestCase):
         self.assertEqual(malformed.outcome, "block")
         self.assertEqual(malformed.classification, "unsafe")
 
-    def test_classifier_distinguishes_clean_compatible_unrelated_and_overlap(self) -> None:
+    def test_classifier_distinguishes_clean_compatible_unrelated_and_overlap(
+        self,
+    ) -> None:
         clean = classify_dirty_state(DirtyState(), planned_paths=("src/app.py",))
         compatible = classify_dirty_state(
             DirtyState(unstaged=("generated/report.json",)),
@@ -207,8 +217,12 @@ class RepositorySafetyGateTests(unittest.TestCase):
             (compatible.classification, compatible.outcome),
             ("compatible", "proceed_carefully"),
         )
-        self.assertEqual((unrelated.classification, unrelated.outcome), ("unrelated", "isolate"))
-        self.assertEqual((overlap.classification, overlap.outcome), ("overlapping", "block"))
+        self.assertEqual(
+            (unrelated.classification, unrelated.outcome), ("unrelated", "isolate")
+        )
+        self.assertEqual(
+            (overlap.classification, overlap.outcome), ("overlapping", "block")
+        )
         self.assertEqual(overlap.overlapping_paths, ("src/app.py",))
 
     def test_explicit_owned_file_can_continue_its_own_pending_mutation(self) -> None:
@@ -277,15 +291,21 @@ class RepositorySafetyPersistenceTests(unittest.TestCase):
         path.write_text("not-json", encoding="utf-8")
         with self.assertRaises(RepositorySafetyPersistenceError):
             load_repository_handle(self.repo, handle.handle_id)
-        with mock.patch("opaihub.repository_safety.atomic_write_text", side_effect=OSError("no")):
+        with mock.patch(
+            "opaihub.repository_safety.atomic_write_text", side_effect=OSError("no")
+        ):
             with self.assertRaises(RepositorySafetyPersistenceError):
                 save_repository_handle(self.repo, handle)
 
 
 class RepositorySafetyPropertyTests(unittest.TestCase):
     @given(st.lists(st.text(min_size=1, max_size=40), max_size=40))
-    def test_path_overlap_classifier_never_allows_unknown_scope(self, paths: list[str]) -> None:
-        assessment = classify_dirty_state(DirtyState(untracked=tuple(paths)), planned_paths=None)
+    def test_path_overlap_classifier_never_allows_unknown_scope(
+        self, paths: list[str]
+    ) -> None:
+        assessment = classify_dirty_state(
+            DirtyState(untracked=tuple(paths)), planned_paths=None
+        )
         self.assertEqual(assessment.outcome, "block")
 
 

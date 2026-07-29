@@ -26,7 +26,9 @@ class RepositorySafetySurfaceTests(unittest.TestCase):
         self.assertEqual(code, 0, output.getvalue())
         return json.loads(output.getvalue())
 
-    def test_cli_and_gui_expose_matching_redacted_identity_assessment_and_receipt(self) -> None:
+    def test_cli_and_gui_expose_matching_redacted_identity_assessment_and_receipt(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"src/app.py": "ok\n"}, commit=True)
             import subprocess

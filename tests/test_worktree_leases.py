@@ -42,7 +42,9 @@ class WorktreeLeaseLifecycleTests(unittest.TestCase):
         self.repo = self.base / "repo"
         self.repo.mkdir()
         make_repo(self.repo, files={"src/app.py": "print('ok')\n"}, commit=True)
-        self.handle = capture_repository_handle(self.repo, task_id="task-a", run_id="run-a")
+        self.handle = capture_repository_handle(
+            self.repo, task_id="task-a", run_id="run-a"
+        )
         self.manager = WorktreeManager(self.repo, min_free_bytes=0)
 
     def tearDown(self) -> None:
@@ -79,7 +81,9 @@ class WorktreeLeaseLifecycleTests(unittest.TestCase):
         self.assertTrue(Path(lease.path).exists())
         self.assertIn("dirty_worktree", result.evidence["reasons"])
 
-    def test_branch_or_target_claim_collision_fails_without_second_worktree(self) -> None:
+    def test_branch_or_target_claim_collision_fails_without_second_worktree(
+        self,
+    ) -> None:
         self._create()
 
         with self.assertRaises(WorktreeLeaseError):
@@ -107,7 +111,9 @@ class WorktreeLeaseLifecycleTests(unittest.TestCase):
     def test_interrupted_add_keeps_recoverable_cleanup_failed_lease(self) -> None:
         def fail_add(argv, **kwargs):
             if argv[1:3] == ["worktree", "add"]:
-                return subprocess.CompletedProcess(argv, 1, "", "simulated disk failure")
+                return subprocess.CompletedProcess(
+                    argv, 1, "", "simulated disk failure"
+                )
             return subprocess.run(argv, **kwargs)
 
         manager = WorktreeManager(self.repo, git_run=fail_add, min_free_bytes=0)
@@ -149,7 +155,9 @@ class WorktreeLeaseLifecycleTests(unittest.TestCase):
 
         self.assertEqual(manager.list(), [])
 
-    def test_missing_registry_entry_moves_lease_to_review_without_recreation(self) -> None:
+    def test_missing_registry_entry_moves_lease_to_review_without_recreation(
+        self,
+    ) -> None:
         lease = self._create()
         _git(self.repo, "worktree", "remove", lease.path)
 
@@ -209,7 +217,9 @@ class WorktreePreviewTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_target_divergence_with_overlapping_paths_blocks_apply_preview(self) -> None:
+    def test_target_divergence_with_overlapping_paths_blocks_apply_preview(
+        self,
+    ) -> None:
         source = Path(self.lease.path)
         (source / "src" / "shared.py").write_text("source\n", encoding="utf-8")
         _git(source, "add", "src/shared.py")
@@ -217,7 +227,9 @@ class WorktreePreviewTests(unittest.TestCase):
         (self.repo / "src" / "shared.py").write_text("target\n", encoding="utf-8")
         _git(self.repo, "add", "src/shared.py")
         _git(self.repo, "commit", "-m", "target change")
-        target_handle = capture_repository_handle(self.repo, task_id="task-b", run_id="run-b")
+        target_handle = capture_repository_handle(
+            self.repo, task_id="task-b", run_id="run-b"
+        )
 
         preview = self.manager.preview_apply(self.lease.lease_id, target_handle)
 
@@ -245,14 +257,15 @@ class WorktreeRecoveryTests(unittest.TestCase):
                 base="HEAD",
                 planned_paths=("src/",),
             )
-            (Path(lease.path) / "user-note.txt").write_text("preserve\n", encoding="utf-8")
+            (Path(lease.path) / "user-note.txt").write_text(
+                "preserve\n", encoding="utf-8"
+            )
 
             recovered = manager.recover()
 
             self.assertEqual(recovered[0].lease.state, "needs_review")
             self.assertIn("inspect", recovered[0].recommended_actions)
             self.assertTrue(Path(lease.path).exists())
-
 
 
 if __name__ == "__main__":  # pragma: no cover

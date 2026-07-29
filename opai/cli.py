@@ -215,7 +215,9 @@ def cmd_repo(args: argparse.Namespace) -> int:
     else:
         receipt = safety.get("receipt") or {}
         print(f"Repository: {context.path}")
-        print(f"Safety: {safety.get('status')} ({receipt.get('repository_id', '')[:12]})")
+        print(
+            f"Safety: {safety.get('status')} ({receipt.get('repository_id', '')[:12]})"
+        )
         assessment = safety.get("assessment") or {}
         print(f"Dirty assessment: {assessment.get('outcome') or 'unavailable'}")
         if command == "worktrees":
@@ -2320,18 +2322,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Inspect canonical repository safety and isolated worktree leases",
     )
     repo_sub = p.add_subparsers(dest="repo_command", required=True)
-    ri = repo_sub.add_parser("inspect", help="Show redacted repository identity and safety assessment")
+    ri = repo_sub.add_parser(
+        "inspect", help="Show redacted repository identity and safety assessment"
+    )
     ri.add_argument("--project", default=None, help="Project root")
-    ri.add_argument("--json", action="store_true", help="Render machine-readable output")
+    ri.add_argument(
+        "--json", action="store_true", help="Render machine-readable output"
+    )
     ri.set_defaults(func=cmd_repo)
-    rw = repo_sub.add_parser("worktrees", help="List isolated worktree leases without cleanup")
+    rw = repo_sub.add_parser(
+        "worktrees", help="List isolated worktree leases without cleanup"
+    )
     rw.add_argument("--project", default=None, help="Project root")
     rw.add_argument(
         "--recover",
         action="store_true",
         help="Reconcile lease state and show recommended non-destructive actions",
     )
-    rw.add_argument("--json", action="store_true", help="Render machine-readable output")
+    rw.add_argument(
+        "--json", action="store_true", help="Render machine-readable output"
+    )
     rw.set_defaults(func=cmd_repo)
 
     p = sub.add_parser("cockpit", help="Obvious ON/OFF control panel for OPai")

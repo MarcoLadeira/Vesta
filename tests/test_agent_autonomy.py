@@ -348,7 +348,8 @@ class RepoContextTests(unittest.TestCase):
         self.assertIn("src/app.py", context.dirty_paths)
         self.assertTrue(context.handle_id)
         self.assertEqual(
-            context.to_dict()["safety"]["identity"]["worktree_root"], str(root.resolve())
+            context.to_dict()["safety"]["identity"]["worktree_root"],
+            str(root.resolve()),
         )
         self.assertEqual(
             context.to_dict()["safety"]["assessment"]["rule_id"], "unknown_scope"

@@ -1,6 +1,6 @@
 # Repository safety and worktree isolation design
 
-**Issues:** #521 (parent), #536 (repository identity), #537 (worktree isolation)  
+**Issues:** #521 (parent), #536 (repository identity), #537 (worktree isolation)
 **Status:** Approved for planning
 
 ## Goal

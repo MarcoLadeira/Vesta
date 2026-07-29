@@ -362,7 +362,9 @@ def _git_bytes(root: Path, args: list[str], *, git_run: GitRun) -> bytes:
         detail = str(result.stderr or result.stdout or "Git command failed")
         raise RepositoryProbeError("probe_unavailable", detail)
     output = result.stdout or b""
-    return output.encode("utf-8", "surrogateescape") if isinstance(output, str) else output
+    return (
+        output.encode("utf-8", "surrogateescape") if isinstance(output, str) else output
+    )
 
 
 def _filesystem_id(path: Path) -> tuple[int, int] | None:
@@ -384,7 +386,9 @@ def _remotes(root: Path, *, git_run: GitRun) -> tuple[tuple[str, str], ...]:
     names = _git_text(root, ["remote"], git_run=git_run, required=False).splitlines()
     values: list[tuple[str, str]] = []
     for name in sorted(value.strip() for value in names if value.strip()):
-        url = _git_text(root, ["remote", "get-url", name], git_run=git_run, required=False)
+        url = _git_text(
+            root, ["remote", "get-url", name], git_run=git_run, required=False
+        )
         values.append((name, _safe_remote(url)))
     return tuple(values)
 
@@ -425,23 +429,37 @@ def _repository_id(
     return hashlib.sha256(encoded.encode("utf-8", "surrogateescape")).hexdigest()
 
 
-def _probe_repository(path: Path, *, git_run: GitRun) -> tuple[RepositoryIdentity, DirtyState]:
+def _probe_repository(
+    path: Path, *, git_run: GitRun
+) -> tuple[RepositoryIdentity, DirtyState]:
     selected = path.expanduser().resolve(strict=False)
     start = selected.parent if selected.is_file() else selected
     if not start.exists():
-        raise RepositoryProbeError("repository_missing", f"Repository path is missing: {start}")
-    top = _git_text(start, ["rev-parse", "--show-toplevel"], git_run=git_run, required=False)
+        raise RepositoryProbeError(
+            "repository_missing", f"Repository path is missing: {start}"
+        )
+    top = _git_text(
+        start, ["rev-parse", "--show-toplevel"], git_run=git_run, required=False
+    )
     if not top:
         raise RepositoryProbeError("probe_unavailable", "Path is not a Git worktree")
     root = Path(top).resolve(strict=True)
-    git_dir = _resolve_git_path(root, _git_text(root, ["rev-parse", "--git-dir"], git_run=git_run, required=True))
+    git_dir = _resolve_git_path(
+        root,
+        _git_text(root, ["rev-parse", "--git-dir"], git_run=git_run, required=True),
+    )
     common_git_dir = _resolve_git_path(
         root,
-        _git_text(root, ["rev-parse", "--git-common-dir"], git_run=git_run, required=True),
+        _git_text(
+            root, ["rev-parse", "--git-common-dir"], git_run=git_run, required=True
+        ),
     )
     head_sha = _git_text(root, ["rev-parse", "HEAD"], git_run=git_run, required=True)
     branch = _git_text(
-        root, ["symbolic-ref", "--quiet", "--short", "HEAD"], git_run=git_run, required=False
+        root,
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+        git_run=git_run,
+        required=False,
     )
     dirty_state = parse_porcelain_v2(
         _git_bytes(
@@ -582,7 +600,9 @@ def _normal_path(value: str) -> PurePosixPath | None:
     if not text or "\0" in text:
         return None
     candidate = PurePosixPath(text)
-    if candidate.is_absolute() or any(part in {"", ".", ".."} for part in candidate.parts):
+    if candidate.is_absolute() or any(
+        part in {"", ".", ".."} for part in candidate.parts
+    ):
         return None
     return candidate
 
@@ -735,7 +755,9 @@ def require_mutation_permitted(
             ("isolation_required",),
             requires_isolation=True,
         )
-    reason = "isolation_required" if assessment.outcome == "isolate" else assessment.rule_id
+    reason = (
+        "isolation_required" if assessment.outcome == "isolate" else assessment.rule_id
+    )
     raise RepositorySafetyError(
         MutationDecision(False, str(operation), validation, assessment, (reason,))
     )
@@ -797,7 +819,12 @@ def _handle_path(project_root: Path, handle_id: str) -> Path:
     clean = "".join(char for char in str(handle_id) if char.isalnum() or char in "-_")
     if not clean or clean != str(handle_id):
         raise RepositorySafetyPersistenceError("Invalid repository handle id")
-    return state_dir(project_root.expanduser().resolve()) / "repository" / "handles" / f"{clean}.json"
+    return (
+        state_dir(project_root.expanduser().resolve())
+        / "repository"
+        / "handles"
+        / f"{clean}.json"
+    )
 
 
 def save_repository_handle(project_root: Path, handle: RepositoryHandle) -> Path:
@@ -849,7 +876,9 @@ def _load_handle_payload(data: Any) -> RepositoryHandle:
             git_dir=Path(str(identity_raw["git_dir"])),
             common_git_dir=Path(str(identity_raw["common_git_dir"])),
             filesystem_id=tuple(filesystem) if filesystem is not None else None,
-            remotes=tuple((item["name"], _safe_remote(item["url"])) for item in remotes_raw),
+            remotes=tuple(
+                (item["name"], _safe_remote(item["url"])) for item in remotes_raw
+            ),
             default_branch=str(identity_raw.get("default_branch") or ""),
             branch=str(identity_raw.get("branch") or ""),
             detached=bool(identity_raw.get("detached")),
@@ -862,7 +891,9 @@ def _load_handle_payload(data: Any) -> RepositoryHandle:
             unstaged=_tuple_of_strings(dirty_raw.get("unstaged"), "unstaged paths"),
             untracked=_tuple_of_strings(dirty_raw.get("untracked"), "untracked paths"),
             ignored=_tuple_of_strings(dirty_raw.get("ignored"), "ignored paths"),
-            conflicted=_tuple_of_strings(dirty_raw.get("conflicted"), "conflicted paths"),
+            conflicted=_tuple_of_strings(
+                dirty_raw.get("conflicted"), "conflicted paths"
+            ),
             malformed_records=_tuple_of_strings(
                 dirty_raw.get("malformed_records"), "malformed status records"
             ),
@@ -894,5 +925,7 @@ def load_repository_handle(project_root: Path, handle_id: str) -> RepositoryHand
         ) from exc
     handle = _load_handle_payload(data)
     if handle.handle_id != handle_id:
-        raise RepositorySafetyPersistenceError("Persisted repository handle identity mismatch")
+        raise RepositorySafetyPersistenceError(
+            "Persisted repository handle identity mismatch"
+        )
     return handle

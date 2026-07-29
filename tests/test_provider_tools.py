@@ -204,9 +204,7 @@ class RepositoryToolExecutorTests(unittest.TestCase):
 
     def test_write_revalidates_repository_identity_before_touching_file(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = make_repo(
-                Path(tmp), files={"app.py": "value = 1\n"}, commit=True
-            )
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             executor = RepositoryToolExecutor(root, allow_edits=True)
             subprocess.run(
                 ["git", "checkout", "-qb", "moved"],

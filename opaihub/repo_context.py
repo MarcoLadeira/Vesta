@@ -252,7 +252,9 @@ def _overlaps(left: PurePosixPath, right: PurePosixPath) -> bool:
 def classify_dirty_paths(
     dirty_paths: Iterable[str], intended_paths: Iterable[str] | None
 ) -> DirtyAssessment:
-    dirty = tuple(dict.fromkeys(str(_normal(path)) for path in dirty_paths if str(path)))
+    dirty = tuple(
+        dict.fromkeys(str(_normal(path)) for path in dirty_paths if str(path))
+    )
     canonical = classify_dirty_state(
         CanonicalDirtyState(unstaged=dirty), planned_paths=intended_paths
     )
