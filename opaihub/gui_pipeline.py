@@ -63,6 +63,12 @@ from .repository_safety import (
 from .run_state import RunState, is_awaiting_input, run_state_for_verdict
 from .run_summary import build_run_summary
 from .task_packet import build_task_packet
+from .verification_policy import (
+    PolicyArtifactRef,
+    VerificationPolicy,
+    persist_effective_policy,
+    resolve_verification_policy,
+)
 from .workflow_state import WorkflowState, load_workflow_state, save_workflow_state
 
 
@@ -385,6 +391,14 @@ def _cancelled_result(
         "next_actions": ["Edit the prompt, retry, or switch model."],
         "partial": bool(answer.strip()),
     }
+
+
+def _verification_policy_payload(
+    policy: VerificationPolicy, artifact: PolicyArtifactRef
+) -> dict[str, Any]:
+    """The immutable policy decision shared with GUI and provider task packets."""
+
+    return {**policy.to_dict(), "artifact": artifact.to_dict()}
 
 
 def build_savings_receipt(
@@ -812,6 +826,9 @@ def handle_gui_message(
     runtime = AgentRuntime(root, task=message)
     task_repository_handle: Any = None
     repository_safety_error = ""
+    effective_policy: VerificationPolicy | None = None
+    verification_policy_payload: dict[str, Any] = {}
+    verification_policy_error = ""
     if will_edit:
         try:
             if not repo_context.is_git:
@@ -828,6 +845,46 @@ def handle_gui_message(
             save_active_repo(root, repo_context)
         except (RepositoryProbeError, RepositorySafetyPersistenceError) as exc:
             repository_safety_error = str(exc)[:400]
+    if will_edit and not repository_safety_error:
+        try:
+            effective_policy = resolve_verification_policy(
+                repo_context.path,
+                task=message,
+                mode=policy.mode.value,
+                delivery="ship" if policy.mode is AgentMode.SHIP else "local",
+            )
+            policy_artifact = persist_effective_policy(
+                repo_context.path,
+                effective_policy,
+                task_id=runtime.task_id,
+                run_id=turn_id,
+            )
+            verification_policy_payload = _verification_policy_payload(
+                effective_policy, policy_artifact
+            )
+            if effective_policy.status == "blocked":
+                finding = next(
+                    (item for item in effective_policy.findings if item.severity == "error"),
+                    None,
+                )
+                verification_policy_error = (
+                    finding.message
+                    if finding is not None
+                    else "Verification policy could not be resolved safely."
+                )
+        except (OSError, TypeError, ValueError) as exc:
+            verification_policy_error = str(exc)[:400]
+            verification_policy_payload = {
+                "status": "blocked",
+                "findings": [
+                    {
+                        "code": "policy_artifact_unavailable",
+                        "message": verification_policy_error,
+                        "source": "pipeline",
+                        "severity": "error",
+                    }
+                ],
+            }
     runtime.transition(
         RuntimePhase.INTENT_RESOLVED,
         message=f"{policy.mode.value.title()} mode selected",
@@ -901,6 +958,7 @@ def handle_gui_message(
             "discover relevant focused tests",
             "run full relevant suite after focused tests pass",
         ),
+        verification_policy=effective_policy.safe_summary() if effective_policy is not None else {},
         last_failure=previous_workflow.last_test,
         next_action=runtime.state.next_actions[0]
         if runtime.state.next_actions
@@ -1449,6 +1507,11 @@ def handle_gui_message(
             "repo_context": current_repo.to_dict(),
             "workflow": state.to_dict(),
             "task_packet": task_packet.to_dict(),
+            **(
+                {"verification_policy": verification_policy_payload}
+                if verification_policy_payload
+                else {}
+            ),
         }
         # #389: the shareable, verdict-first receipt summary is rendered once
         # here, from the assembled record, so the GUI copy action and any other
@@ -1482,6 +1545,31 @@ def handle_gui_message(
                 "next_actions": [
                     "Inspect repository safety state, then retry the edit-capable run."
                 ],
+            }
+        )
+    if verification_policy_error:
+        return _decorate(
+            {
+                "status": "blocked",
+                "answer": (
+                    "OPai did not start the edit because its verification policy is blocked. "
+                    + verification_policy_error
+                ),
+                "error": {
+                    "code": "VERIFICATION_POLICY_BLOCKED",
+                    "message": verification_policy_error,
+                },
+                "tool_trace": [],
+                "receipt": {},
+                "changed_files": [],
+                "warnings": [
+                    {
+                        "severity": "warning",
+                        "reason": "verification_policy_blocked",
+                        "detail": verification_policy_error,
+                    }
+                ],
+                "next_actions": ["Repair the verification policy, then retry the task."],
             }
         )
 
