@@ -24,20 +24,28 @@
   // terminal message, so recording an approval card as "blocked" made the very
   // run the user is about to resume unaddressable.
   var AWAITING = "awaiting_input";
+  // #380: Stop was accepted but teardown is unproven. Non-terminal on purpose —
+  // the run is only "cancelled" once the worker has actually returned, so Stop
+  // must be reachable from every live phase and lead only to an ending.
+  var CANCELLING = "cancel_requested";
+  var INTERRUPTS = [AWAITING, CANCELLING];
   var LIVE = ["preparing", "authenticating", "sending", "verifying"];
   var ALLOWED = {
-    queued: LIVE.concat(AWAITING, ENDS),
+    queued: LIVE.concat(INTERRUPTS, ENDS),
     // A retry re-enters the pipeline; it never jumps straight to "completed".
-    retrying: LIVE.concat(AWAITING, RETRYABLE_ENDS),
-    preparing: ["authenticating", "sending", "verifying", AWAITING].concat(ENDS),
-    authenticating: ["sending", "verifying", AWAITING].concat(ENDS),
-    sending: ["waiting", "streaming", "verifying", AWAITING].concat(ENDS),
-    waiting: ["streaming", "verifying", AWAITING].concat(ENDS),
-    streaming: ["verifying", AWAITING].concat(ENDS),
+    retrying: LIVE.concat(INTERRUPTS, RETRYABLE_ENDS),
+    preparing: ["authenticating", "sending", "verifying"].concat(INTERRUPTS, ENDS),
+    authenticating: ["sending", "verifying"].concat(INTERRUPTS, ENDS),
+    sending: ["waiting", "streaming", "verifying"].concat(INTERRUPTS, ENDS),
+    waiting: ["streaming", "verifying"].concat(INTERRUPTS, ENDS),
+    streaming: ["verifying"].concat(INTERRUPTS, ENDS),
     // Answering resumes the work; it never skips ahead to verifying, and the
-    // run can still end here if the user cancels or abandons the question.
-    awaiting_input: ["preparing", "authenticating", "sending"].concat(ENDS),
-    verifying: ENDS.slice(),
+    // run can still be stopped or end here.
+    awaiting_input: ["preparing", "authenticating", "sending"].concat(CANCELLING, ENDS),
+    cancel_requested: ENDS.slice(),
+    // Verification judges evidence that already exists: it never returns to
+    // work and has no question to ask, but Stop still reaches it.
+    verifying: [CANCELLING].concat(ENDS),
     failed: ["retrying"],
     cancelled: ["retrying"],
     partial: ["retrying"],
@@ -66,15 +74,44 @@
     };
   }
 
+  // #295 alpha gate 7: "every attempted violation is rejected AND observable".
+  // Refusing silently satisfied only the first half — the store knew something
+  // had tried to walk an impossible path and said nothing, so the one class of
+  // bug this model exists to catch left no trace on this surface either.
+  // Bounded, with the true total kept separately so it survives truncation.
+  var MAX_REFUSALS = 64;
+  var refusals = [];
+  var refusalCount = 0;
+
   function transition(message, nextStatus) {
     var current = String((message && message.status) || "queued");
     var next = String(nextStatus || current);
-    if ((ALLOWED[current] || []).indexOf(next) === -1) return message;
+    if ((ALLOWED[current] || []).indexOf(next) === -1) {
+      refusalCount += 1;
+      refusals.push({ from: current, to: next, at: Date.now() });
+      if (refusals.length > MAX_REFUSALS) refusals.shift();
+      return message;
+    }
     return Object.assign({}, message, { status: next });
+  }
+
+  function illegalTransitions() {
+    return { count: refusalCount, recent: refusals.slice() };
+  }
+
+  function resetIllegalTransitions() {
+    refusalCount = 0;
+    refusals.length = 0;
   }
 
   function canApply(message, incomingRequestId) {
     if (!message || TERMINAL[message.status]) return false;
+    // #380: a stopping run accepts no more content. The old stop() dropped the
+    // request id to get this, which also made the teardown unobservable; the id
+    // is now kept so the confirmation can be matched, and the stale-overwrite
+    // protection lives here instead. Cancel confirmations do not come through
+    // canApply — they are matched against state.cancelling directly.
+    if (message.status === CANCELLING) return false;
     return !!message.requestId && message.requestId === incomingRequestId;
   }
 
@@ -114,6 +151,8 @@
     canApply: canApply,
     fromBackendStatus: fromBackendStatus,
     transition: transition,
+    illegalTransitions: illegalTransitions,
+    resetIllegalTransitions: resetIllegalTransitions,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   global.OPaiMessageState = api;

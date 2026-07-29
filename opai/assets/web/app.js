@@ -228,6 +228,7 @@ function boot() {
   if (bridge.activityBatch) bridge.activityBatch.connect(onActivityBatch);
   bridge.token.connect(onToken);
   bridge.toolReady.connect(onTool);
+  if (bridge.cancelReady) bridge.cancelReady.connect(onCancelReady);
   bridge.workspaceChanged.connect((json) => {
     state.boot = JSON.parse(json);
     rebootFromState();
@@ -1822,6 +1823,9 @@ function stripFinalize(status, r) {
   else if (verdict && (verdict.verdict === "partial" || verdict.verdict === "blocked")) { stripSetState("warning"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
   else if (verdict && verdict.verdict !== "completed") { stripSetState("error"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
   else if (verdict && verdict.reasonCode === "answer_delivered") { stripSetState("connected"); $("#ssConn").textContent = "Response received"; }
+  // #380: Stop was accepted but teardown is not proven yet. Saying "Stopped"
+  // here would be the same false claim the optimistic stop() used to make.
+  else if (status === "cancel_requested") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopping…"; }
   else if (status === "cancelled") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopped"; }
   else if (ANSWERED.includes(status)) { stripSetState("connected"); $("#ssConn").textContent = "Done"; }
   else { stripSetState("error"); $("#ssConn").textContent = "Failed"; }
@@ -1900,15 +1904,60 @@ function updateGenStage(sel) {
   updateInspectorLive(sm.stage);
 }
 
+// #380 / #295 invariant 9: pressing Stop is a *request*. The backend sets a
+// cancel flag and the provider CLI dies whenever it next notices, so declaring
+// "cancelled" here would claim a paid call had stopped while it was very
+// possibly still running — and dropping the request id at the same moment made
+// that unobservable (invariant 15: no hidden work). Acknowledge immediately,
+// then wait for the backend to confirm the worker actually returned.
 function stop() {
-  if (!state.currentRequest) return;
-  bridge.cancel(state.currentRequest);
-  state.currentRequest = null; // drop id → any late signal is ignored
+  if (!state.currentRequest || state.cancelling) return;
+  const cancelling = state.currentRequest;
+  state.cancelling = cancelling;
+  bridge.cancel(cancelling);
+  state.message = OPaiMessageState.transition(state.message, "cancel_requested");
+  stopTimer();
+  stripFinalize("cancel_requested", {});
+  // Control returns to the user at once. Waiting for teardown before releasing
+  // the composer would make Stop feel broken and would limit interaction for
+  // something the user has no part in — the honesty belongs in the run state
+  // and the strip, not in a frozen interface.
+  setBusy(false);
+  // Bounded: teardown that never reports back must not leave the run in limbo,
+  // but it must not be reported as a clean stop either.
+  state.cancelTimer = setTimeout(() => finishCancel(cancelling, "unconfirmed"), CANCEL_TEARDOWN_MS);
+}
+
+// How long to wait for teardown before saying so honestly.
+const CANCEL_TEARDOWN_MS = 10000;
+
+function onCancelReady(json) {
+  let d = {};
+  try { d = JSON.parse(json || "{}"); } catch (_e) { return; }
+  if (!state.cancelling || d.requestId !== state.cancelling) return;
+  const proven = d.teardown === "complete" || d.teardown === "not_running";
+  finishCancel(state.cancelling, proven ? "complete" : "unconfirmed");
+}
+
+// `cancelledId` is carried explicitly because the user regains control the
+// moment Stop is pressed: by the time teardown reports back they may already
+// have started another run, and this must never clobber it.
+function finishCancel(cancelledId, teardown) {
+  if (state.cancelling !== cancelledId) return;
+  if (state.cancelTimer) { clearTimeout(state.cancelTimer); state.cancelTimer = null; }
+  state.cancelling = null;
+  if (state.currentRequest === cancelledId) state.currentRequest = null;
+  // Only finalize the message this cancel belongs to. A newer request owns the
+  // composer now and its own reply will finalize it.
+  if (!state.message || state.message.requestId !== cancelledId) return;
   state.message = OPaiMessageState.transition(state.message, "cancelled");
   state.store.cancelRunning(); renderTimeline();
-  stopTimer();
-  finalize("cancelled", { answer: state.streamedText || "" });
-  setBusy(false);
+  finalize("cancelled", {
+    answer: state.streamedText || "",
+    // Reported, not hidden: an unconfirmed teardown means OPai could not prove
+    // the provider call stopped, and the user may still be paying for it.
+    cancel_teardown: teardown,
+  });
   flushQueued();
 }
 function retry() {

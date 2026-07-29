@@ -18,6 +18,7 @@ from unittest import mock
 from _helpers import FakeStreamingRunner, make_repo
 
 from opai.cli_stream import normalize_model_choice, stream_ask
+from opaihub.run_state import exit_code_for
 
 
 class NormalizeModelTests(unittest.TestCase):
@@ -114,7 +115,11 @@ class StreamAskTests(unittest.TestCase):
         )
 
         joined = "\n".join(lines)
-        self.assertEqual(code, 2)
+        # #295 Workstream H: a partial run exits with its own code rather than
+        # the old catch-all 2, so a script can tell "work landed but is
+        # unverified" from "the run failed". Still non-zero, as the name says.
+        self.assertEqual(code, exit_code_for("partial"))
+        self.assertNotEqual(code, 0)
         self.assertIn("Partial —", joined)
         self.assertIn("no changed-file or diff evidence", joined)
         self.assertNotIn("✓ done in", joined)
@@ -134,7 +139,8 @@ class StreamAskTests(unittest.TestCase):
         )
 
         joined = "\n".join(lines)
-        self.assertEqual(code, 2)
+        self.assertEqual(code, exit_code_for("partial"))
+        self.assertNotEqual(code, 0)
         self.assertIn("treat the claim as unconfirmed", joined)
 
     def test_json_output_is_machine_readable(self):

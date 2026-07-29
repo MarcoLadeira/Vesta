@@ -1351,6 +1351,320 @@ separation — Workstream A plus #517. The queue removes the silent data loss
 without pretending to deliver that. CLI parity for these states (Workstream H,
 #525) is untouched: the CLI does not consume `run_state` at all today.
 
+### Issue #380 — Stop claimed the work had stopped before it had
+
+`#380` (a direct child of the #295 epic) opens with: *"Immediate visible
+`cancelling` feedback followed by canonical `cancelled` or typed
+`failed(cancel_timeout)` within a bounded interval."* Nothing produced that
+intermediate state — `CANCEL_REQUESTED` had just been added to the canonical
+machine with no producer.
+
+**The defect.** `stop()` did four things in a row:
+
+```js
+bridge.cancel(state.currentRequest);
+state.currentRequest = null;                 // drop id → late signals ignored
+state.message = transition(..., "cancelled"); // terminal: "proven stopped"
+finalize("cancelled", ...);
+```
+
+But `bridge.cancel` only sets a `threading.Event`; the provider CLI dies
+whenever it next notices, and the desktop `Worker` then **swallows** the result
+(`if not self._cancelled: self.done.emit(result)`) so the GUI is never told
+teardown finished. The UI therefore declared a terminal "cancelled" — which
+means *proven stopped* — at the instant the request was made, and dropped the
+request id so the truth became unobservable. A paid provider call could still
+be running with nothing on screen to say so. That is #295 invariant 9
+(acknowledgement, propagation, teardown and final state are one contract) and
+invariant 15 (no hidden work).
+
+**The fix, in two halves.**
+
+*Backend:* a new `cancelReady` signal. `cancel()` records the request as
+in-teardown and returns; `_confirm_teardown` is wired to `QThread.finished`,
+which fires after `run()` returns — the first moment "cancelled" is a fact
+rather than a hope. A cancel for a request that is not running answers
+`not_running` immediately, so the UI is never left waiting for a confirmation
+that will never come. All three cancellable paths (login, send, build) are
+hooked.
+
+*Frontend:* `stop()` transitions to `cancel_requested`, shows "Stopping…", and
+keeps the request id so the confirmation can be matched. On confirmation the run
+becomes `cancelled`. A 10s bound guarantees resolution either way, and an
+unconfirmed teardown is reported as such rather than dressed up as a clean stop.
+
+**The safety property that had to survive.** Dropping the request id was also
+what blocked stale replies from overwriting the UI. Keeping the id would have
+reopened that hole, so the guard moved into `canApply()`, which now refuses
+everything while a run is stopping. The regression test was strengthened
+accordingly: it now proves a late reply is ignored *both* during teardown and
+after it.
+
+**A defect the full suite caught in the first attempt.** Holding the busy state
+until teardown was confirmed failed `REGRESSION: Stop never leaves the interface
+busy` and `Send changes to Stop immediately` — and those tests were right. Making
+the user wait on a teardown they play no part in is exactly the kind of
+restriction this work is supposed to remove. `setBusy(false)` now happens the
+moment Stop is pressed, so control returns instantly; the honesty lives in the
+run state and the status strip, not in a frozen interface.
+
+That change created a second problem worth naming: since the user can start a
+new run while the old teardown is pending, a late confirmation could clobber it.
+`finishCancel` therefore carries the cancelled request id explicitly and touches
+nothing unless the id still matches.
+
+Twelve existing tests encoded the old instant-cancelled contract and were
+updated to drive the confirmation — the same treatment the run-state tests got,
+and for the same reason: the epic says that contract was wrong. Three of them
+(`calm-scenarios`) are stale-guard tests, so they now also prove the guard
+survives the two-phase change.
+
+One incidental fix: `test_run_state_parity.py` scraped state names with a naive
+`(\w+):` regex that also matched ordinary prose in comments ("evidence that
+already exists:"), so a comment could fail the guard. It now strips `//`
+comments first.
+
+- Green evidence: new `cancel-teardown.spec.js` 7/7; `activity.spec.js` 15/15;
+  `activity-truth` + `status-strip` + cancel suites 29/29; state suites 41 tests
+  + 47 subtests; 74 JS unit; Ruff and format clean.
+
+**Not attempted:** process-tree reaping fixtures on Windows/POSIX, and the
+`timeout` terminal state with its own budget — both are #380 scope but need the
+supervisor/lease work from Workstream A. This slice makes the acknowledgement
+honest; it does not yet prove zero orphan processes.
+
+### Issue #295 Workstream A — the engine was running two lifecycles
+
+Phase 0 of the epic is "instrument and freeze semantic drift", and its
+transition rule says there must be one machine-enforced lifecycle: *"No adapter,
+UI component or provider may invent a parallel vocabulary."*
+
+**Measured drift.** OPai had two engine-side lifecycles:
+
+- `RunState` (`run_state.py`) — canonical per #379, twelve states. Its
+  `transition()` had **no production caller at all**; only `run_state_for_verdict`
+  was imported. The canonical machine described a lifecycle but enforced nothing
+  live.
+- `RuntimePhase` (`agent_runtime.py`) — eighteen phases, actually driven by the
+  pipeline. And `AgentRuntime._move` already does what Workstream A asks for:
+  it validates every move, **raises** on an illegal one, and records a sequenced
+  `RuntimeEvent` history. The guard and the history existed — in the parallel
+  vocabulary.
+
+**Fourteen of the eighteen phases had no canonical mapping.** Both vocabularies
+even contain `blocked`/`failed`/`completed`, so the same word was defined twice
+with nothing binding the definitions together.
+
+**The fix** binds them: `_RUNTIME_PHASE_TO_CANONICAL` declares, for every phase,
+which canonical state it refines, and `canonical_for_runtime_phase()` raises on
+anything unmapped. A refinement is legitimate; an *unmapped* phase is a second
+lifecycle in disguise. `tests/test_runtime_phase_parity.py` asserts the mapping
+is total, so a new phase cannot be added without deciding what it means.
+
+Deliberate mapping calls: `repairing` refines `RUNNING` (a second attempt at the
+work, not a phase of judging evidence); the four delivery phases
+(`preparing_pr` … `merged`) refine `RUNNING` because #295 reserves a
+`delivering` state that nothing emits yet, and a state with no producer is
+decoration.
+
+**The strongest test found a real contradiction — and I was the one who was
+wrong.** `test_no_legal_phase_move_implies_an_illegal_canonical_transition`
+projects every edge of the engine's graph onto the canonical graph. It failed:
+the engine allows `reviewing_diff → implementing/testing` (the repair loop), but
+the canonical machine forbade `verifying → running` — a restriction I had
+deliberately preserved in the earlier slice because no producer existed for the
+reverse edge.
+
+The epic's own lifecycle settles it: `verifying ↔ repairing?`, bidirectional.
+The canonical machine was describing a lifecycle the product does not have, so
+`VERIFYING → RUNNING` is now legal, and the two earlier assertions that encoded
+the stricter rule were updated to state the repair loop explicitly.
+
+That is the whole point of the projection test: without it the "one lifecycle"
+claim would have been words, and the engine would have kept legally walking a
+path the canonical model forbade.
+
+- Green evidence: `tests/test_runtime_phase_parity.py` 8/8; state suites
+  (`run_state`, `run_state_parity`, `awaiting_input_state`) 49 tests + 47
+  subtests; state/runtime/pipeline sweep 167 passed with 47 subtests; Ruff and
+  format clean.
+
+**Still open in Workstream A:** supervisor leases and duplicate-active-run
+prevention; separate task/run/attempt/step identities. Both need the persistence
+contract from #517 to be meaningful, and neither is faked here.
+
+### Issue #295 Workstream A — supervisor leases
+
+The gap was already documented, in the resume path's own comment:
+
+> Boot is deliberately read-only. A pending checkpoint can still belong to
+> another live OPai window or CLI run; **without an owner lease, process death
+> cannot be inferred safely**. Preserve it verbatim and let the user make the
+> explicit resume/start-fresh choice.
+
+That is the right call while the information is absent — and it means OPai
+could not tell "a sibling window is working on this" from "this died three days
+ago", so it had to present both identically. A crashed run stays
+`state: "running"` forever, pointing at a dead request id. `"interrupted"` was
+already a valid thread state and the resume path already accepted it, but
+nothing ever wrote it.
+
+`opaihub/owner_lease.py` supplies the missing evidence. #295 invariant 4: one
+active owner, each run holding exactly one supervisor lease.
+
+**Liveness is decided by heartbeat, not by pid.** A bare process id is not
+evidence — operating systems reuse them, so a dead owner's id can belong to an
+unrelated process minutes later and would read as alive. The owning process
+restamps its lease while it works, and a lease silent for longer than
+`STALE_AFTER_SECONDS` is stale whatever its pid says; a recycled pid cannot
+refresh a lease it does not know about. The pid and a per-process boot id are
+still recorded for the two narrower jobs they *can* do honestly: recognising
+OPai's own lease so a process never treats its own work as abandoned, and giving
+a human something to identify in a diagnostic.
+
+The stale window is deliberately several heartbeats wide (90s against a 10s
+beat), asserted by a test: declaring a live run abandoned is far worse than
+waiting longer to declare a dead one.
+
+Wiring: `begin_thread_turn` claims the lease at the same moment it records the
+turn as running, so there is never a window where a run looks active with nobody
+accountable. The heartbeat rides the existing per-request activity-flush tick,
+so a long task keeps proving itself alive without a new timer. Only a *running*
+turn carries a lease — a finished one has no owner to prove alive. The lease is
+whitelisted on both write and read, since this file is parsed on every boot.
+
+**Boot stays read-only.** `_resume_payload` now reports what the lease says and
+mutates nothing; the resume/start-fresh decision remains the user's. It simply
+stops OPai having to present an abandoned run and an actively-owned one as the
+same indistinguishable thing.
+
+**A bug my own test caught.** `describe()` checked ownership before staleness,
+so a lease this process had stopped refreshing reported as healthy — a run
+nobody was tending, described as fine — because the pid still matched. The
+heartbeat is the evidence; ownership only refines the wording. Staleness is now
+decided first, with a regression naming the ordering.
+
+- Green evidence: `tests/test_owner_lease.py` 20 tests + 8 subtests;
+  recents/resume/thread/session/gui_web/desktop sweep 233 passed with 22
+  subtests; Ruff and format clean.
+
+**Still open:** nothing yet *acts* on a stale lease — no automatic transition to
+`interrupted`, because choosing what to do with abandoned work (resume, discard,
+reconcile external side effects) is the recovery-decision half of Workstream A
+and needs #517's replay guarantees to be safe. This slice supplies the evidence
+that decision will require; it deliberately does not pre-empt it.
+
+### Issue #295 alpha gate 7 — illegal transitions were rejected but invisible
+
+Gate 7 reads: *"Illegal transitions: 0 unhandled; every attempted violation is
+rejected **and observable**."* The machine satisfied only the first half.
+
+`run_state.transition()` refused a bad edge and returned the previous state —
+correct, and silent. So the one class of bug the canonical model exists to
+catch, something walking a path the lifecycle forbids, left no trace anywhere.
+A guard nobody can read is a guard nobody can audit, and the gate asks for a
+number that can be proven zero.
+
+Refusals are now recorded on both surfaces — the engine
+(`run_state.illegal_transitions()`) and the GUI store
+(`OPaiMessageState.illegalTransitions()`) — with a bounded tail and an
+*unbounded* count, because a capped list that silently drops the earliest
+evidence would recreate the blindness being removed. The `source` label is
+sanitised to `[a-z0-9._-]` since this record is read by diagnostics and must
+never become somewhere a provider string or prompt fragment can land.
+
+Recording is additive: the refusal itself, and the preserved previous state,
+are unchanged. `test_illegal_transitions.py` (13 tests + 6 subtests) covers
+recording, every terminal-escape attempt, bounding, thread safety under eight
+concurrent writers, source sanitisation, and that a caller cannot mutate the
+returned record. Three of those tests drive the **real pipeline** through
+answered, failed and awaiting turns and assert the count stays 0 — which is the
+gate's actual target, not the mechanism.
+
+### Issue #295 — alpha gate audit
+
+`docs/EPIC_295_ALPHA_GATE_AUDIT.md` records, gate by gate, what is evidenced
+and what each remaining gate needs. **3 of 14 gates are fully evidenced** (2,
+7, 12). The epic is not closeable: gates 4 and 10 have no implementation, and
+gate 5's mechanism is proven only against injected fakes.
+
+Two entries in the first draft were **wrong**, and checking rather than
+trusting the note corrected them:
+
+- Gate 5 (orphan processes) was written as "not started". `process_tree.py`
+  already implements per-platform group isolation and full-tree termination and
+  is wired into the real provider path in `accounts.py`. What is missing is
+  narrower and worth stating precisely: the tests say outright that *"no real
+  processes are spawned"*, so the logic is proven but the operating system
+  reaping anything is not.
+- Gate 12 (budget/policy fail-closed) was written as "unaudited", which meant
+  "I did not look". Looking found the exact negative already proven by name —
+  `test_corrupt_primary_and_backup_fails_closed_on_paid_routes`,
+  `test_corrupt_nan_cap_on_disk_fails_closed_not_open` — plus the authority
+  half in command consent, spawn guard, agent runtime and completion contract.
+
+An audit that is not itself verified is only a second opinion, so every
+"evidenced" claim in that document names the test that proves it and every gap
+names the epic that owns it.
+
+### Issue #295 gate 4 — a retry could open a second PR
+
+Gate 4: *"Duplicate side effect: 0 after retry, replay, reconnect or failover."*
+Nothing enforced it. `create_pull_request` POSTed straight to GitHub and
+`comment_pr` straight to the issue thread, so a retried, resumed or reconnected
+turn opened a **second pull request** or posted the same comment twice. Both are
+outward, visible to other people, and not undoable by OPai.
+
+`opaihub/idempotency.py` supplies operation keys. Two design points carry the
+weight:
+
+**Three states, not two.** The tempting design is a set of completed keys: if
+present, skip. That is wrong at exactly the moment it matters — the process can
+die *between* performing the side effect and recording it. A two-state store has
+no way to represent "this may or may not have happened", so it must guess, and
+both guesses are real failures: redo duplicates, skip silently drops work the
+user asked for. So an operation is `fresh`, `in_flight` (**may already exist** —
+not repeated, not claimed as success, reported as uncertain) or `done`.
+
+**Keys identify the operation, not the attempt.** Derived from what makes two
+calls the same request — repo, branch pair, title — and never from a timestamp
+or attempt counter, which would make every retry look new. Long user-authored
+values (a PR body, a comment) are hashed rather than stored, so the key is stable
+without the store holding content that could be anything.
+
+A provably-failed attempt (validation error, refused approval — never reached
+the network) releases its key so a corrected retry is free. A network timeout
+does **not**: the request may have arrived, so its key stays uncertain.
+
+- Green evidence: `test_idempotency.py` 22 tests + 4 subtests. Red-checked by
+  neutering the guard: 6 fail, including both duplicate cases.
+
+### Regression fixed: QAR8-27 had made the settings page probe a CLI
+
+Found while running the git/GitHub suites: `test_settings_payload_includes_github`
+fails. It asserts, by making a synchronous `_account_cli_version` raise, that
+building the settings payload **never launches a provider CLI** — a subprocess
+there blocks the page for up to a timeout per CLI.
+
+QAR8-27 (already merged) added exactly that: a cold-cache fallback probe during
+enumeration. It bought first-launch accuracy at the price of blocking every
+enumeration with a cold cache.
+
+Worse, the full suite did not catch it. An earlier test warms the in-process
+`_CLI_VERSION_CACHE`, so the failure only appears when the test runs alone —
+order-dependent masking, which is how a suite stops being trustworthy.
+
+The fix keeps what QAR8-27 was actually for. Its real win was *persisting* the
+verdict; reading that file is cheap and survives a restart, which is the common
+case. Only the synchronous fallback is removed — the probe now belongs to
+callers that already run off the UI thread and opt in with
+`inspect_cli_capabilities=True`, and they persist the verdict for everyone else.
+Verified live: Codex still enumerates `available=False` and Copilot
+`repo_editing=False`, now from the persisted verdict rather than a live probe.
+
+A new order-independent regression asserts it with the cache explicitly cold, so
+ordering can never mask it again — red-checked by restoring the probe.
+
 ## Session notes
 
 - Campaign branch was created directly from `origin/main` after PR #512 merged.

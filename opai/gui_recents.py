@@ -18,6 +18,9 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
+
+from opaihub.owner_lease import new_lease, owned_by_this_process
+from opaihub.owner_lease import touch as touch_lease
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator
@@ -268,6 +271,29 @@ def _clean_changed_files(workspace_root: Path, value: Any) -> list[str]:
     return out
 
 
+def _clean_lease(value: Any) -> dict[str, Any]:
+    """Whitelist a supervisor lease: identity and timestamps only.
+
+    A closed shape by construction — this file is read on every boot, so it
+    must never become a place arbitrary structure can be persisted.
+    """
+
+    if not isinstance(value, dict):
+        return {}
+    pid = value.get("pid")
+    out: dict[str, Any] = {}
+    if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+        out["pid"] = int(pid)
+    boot = str(value.get("boot") or "")
+    if boot and len(boot) <= 64 and boot.isalnum():
+        out["boot"] = boot
+    for key in ("acquired_at", "heartbeat_at"):
+        stamp = value.get(key)
+        if isinstance(stamp, (int, float)) and not isinstance(stamp, bool):
+            out[key] = float(stamp)
+    return out
+
+
 def _clean_id(value: Any, *, limit: int = 128) -> str:
     clean = _clean_text(value, limit=limit)
     return clean if re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", clean) else ""
@@ -284,6 +310,7 @@ def _thread_payload(
     changed_files: Any = (),
     active_request_id: str = "",
     state: str = "idle",
+    lease: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "schema_version": THREAD_SCHEMA_VERSION,
@@ -294,6 +321,11 @@ def _thread_payload(
         "plan": _clean_plan(plan),
         "changed_files": _clean_changed_files(root, changed_files),
         "active_request_id": _clean_id(active_request_id, limit=128),
+        # #295 invariant 4 (one active owner): a running turn records the
+        # process that owns it and keeps a heartbeat, so a later reader can
+        # tell a live sibling window from a crash. Only running turns carry
+        # one — a finished thread has no owner to prove alive.
+        "lease": _clean_lease(lease) if str(state) == "running" else {},
         "state": (
             str(state)
             if str(state) in {"idle", "running", "complete", "interrupted"}
@@ -362,6 +394,10 @@ def _load_thread_unlocked(root: Path, target: Path) -> dict[str, Any]:
         "plan": _clean_plan(raw.get("plan")),
         "changed_files": _clean_changed_files(root, raw.get("changed_files")),
         "active_request_id": _clean_id(raw.get("active_request_id"), limit=128),
+        # Revalidated on read like every other field: a lease is evidence
+        # about a process, so it must survive the round trip to be worth
+        # anything (#295 invariant 4).
+        "lease": _clean_lease(raw.get("lease")),
         "state": (
             str(raw.get("state"))
             if str(raw.get("state")) in {"idle", "running", "complete", "interrupted"}
@@ -537,9 +573,58 @@ def begin_thread_turn(
             changed_files=current.get("changed_files") or (),
             active_request_id=request_id,
             state="running",
+            # Claim ownership at the same moment the turn is recorded as
+            # running, so there is never a window where a run looks active
+            # with nobody accountable for it (#295 invariant 4).
+            lease=new_lease(),
         )
         _write_thread_payload(root, target, payload)
         return _load_thread_unlocked(root, target)
+
+
+def refresh_thread_lease(workspace_root: str | Path, *, request_id: str) -> bool:
+    """Restamp the running turn's lease so it keeps proving the owner alive.
+
+    Returns True when this process refreshed its own lease. A lease that is
+    never restamped goes stale mid-run and a healthy run starts looking
+    abandoned, so the owning process must beat while it works.
+
+    Refuses to touch a turn that is not running, or one this process does
+    not own — keeping someone else's lease warm would make a dead owner look
+    alive forever, which is the failure the lease exists to catch.
+    """
+
+    root, target = _thread_target(workspace_root)
+    try:
+        with _thread_transaction(root, target):
+            current = _load_thread_unlocked(root, target)
+            if str(current.get("state") or "") != "running":
+                return False
+            if _clean_id(current.get("active_request_id"), limit=128) != _clean_id(
+                request_id, limit=128
+            ):
+                return False
+            existing = current.get("lease") or {}
+            if not owned_by_this_process(existing):
+                return False
+            payload = _thread_payload(
+                root,
+                task_id=str(current.get("task_id") or ""),
+                mode=str(current.get("mode") or ""),
+                messages=current.get("messages") or [],
+                checkpoint_id=str(current.get("checkpoint_id") or ""),
+                plan=current.get("plan") or (),
+                changed_files=current.get("changed_files") or (),
+                active_request_id=str(current.get("active_request_id") or ""),
+                state="running",
+                lease=touch_lease(existing),
+            )
+            _write_thread_payload(root, target, payload)
+            return True
+    except (OSError, ValueError):
+        # A heartbeat is an optimization on top of the real work; failing to
+        # write one must never break the run it is describing.
+        return False
 
 
 def finish_thread_turn(

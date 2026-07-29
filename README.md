@@ -164,6 +164,7 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 [install proof checklist](docs/INSTALL_PROOF.md), the
 [effectiveness benchmark guide](hub/docs/BENCHMARKS.md), the
 [launch checklist](docs/LAUNCH_CHECKLIST.md), the
+[launch operations runbook](docs/LAUNCH_OPERATIONS.md), the
 [30-day go-to-market plan](docs/GO_TO_MARKET_30_DAY_PLAN.md), the
 [launch revenue runbook](docs/LAUNCH_REVENUE_RUNBOOK.md), the
 [archived commercial access/IP protection plan](docs/COMMERCIAL_ACCESS_AND_IP_PROTECTION.md), the

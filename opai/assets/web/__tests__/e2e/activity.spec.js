@@ -86,11 +86,17 @@ test("stop before first token; late reply is ignored (no stale overwrite)", asyn
   await sendPrompt(page);
   const id = await reqId(page);
   await page.click(".gen-stop");
-  await expect(page.locator(".stopped-card")).toBeVisible();
   expect(await page.evaluate(() => window.__mock.cancelCount)).toBe(1);
-  // A late reply from the cancelled request must NOT overwrite the UI.
+  // #380: a reply arriving while the run is still stopping must not land
+  // either. The old stop() got this by dropping the request id, which also
+  // made teardown unobservable; the guard now lives in canApply().
   await page.evaluate((id) => window.__mock.emitReply(id, { status: "answered", answer: "LATE GHOST" }), id);
   await expect(page.locator(".msg.bot")).not.toContainText("LATE GHOST");
+
+  await page.evaluate((id) => window.__mock.confirmCancel(id), id);
+  await expect(page.locator(".stopped-card")).toBeVisible();
+  await page.evaluate((id) => window.__mock.emitReply(id, { status: "answered", answer: "LATER GHOST" }), id);
+  await expect(page.locator(".msg.bot")).not.toContainText("LATER GHOST");
   await expect(page.locator('.stopped-card [data-a="retry"]')).toBeVisible();
 });
 
@@ -100,16 +106,21 @@ test("stop during streaming preserves partial and drops later tokens", async ({ 
   await page.evaluate((id) => window.__mock.emitToken(id, "hello "), id);
   await expect(page.locator(".body.stream")).toContainText("hello");
   await page.click(".gen-stop");
-  await expect(page.locator(".stopped-card")).toBeVisible();
+  // Tokens are dropped from the moment Stop is accepted, before teardown is
+  // even confirmed.
   await page.evaluate((id) => window.__mock.emitToken(id, "EXTRA"), id);
+  await page.evaluate((id) => window.__mock.confirmCancel(id), id);
+  await expect(page.locator(".stopped-card")).toBeVisible();
   await expect(page.locator(".msg.bot")).not.toContainText("EXTRA");
 });
 
 test("double stop yields exactly one cancellation and stays stable", async ({ page }) => {
   await sendPrompt(page);
+  const id = await reqId(page);
   await page.click(".gen-stop");
   await page.evaluate(() => { window.__opai.stop(); window.__opai.stop(); });
   expect(await page.evaluate(() => window.__mock.cancelCount)).toBe(1);
+  await page.evaluate((id) => window.__mock.confirmCancel(id), id);
   await expect(page.locator(".stopped-card")).toHaveCount(1);
 });
 
@@ -123,7 +134,9 @@ test("Enter during generation does not create a duplicate request", async ({ pag
 
 test("retry after stop starts a fresh request", async ({ page }) => {
   await sendPrompt(page);
+  const id = await reqId(page);
   await page.click(".gen-stop");
+  await page.evaluate((id) => window.__mock.confirmCancel(id), id);
   await page.click('.stopped-card [data-a="retry"]');
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
   await expect(page.locator(".gen-stop")).toBeVisible();

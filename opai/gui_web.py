@@ -492,6 +492,7 @@ def _resume_payload(root: Path) -> dict[str, Any]:
     """Build a whitelisted crash-safe resume offer for one workspace."""
 
     from opai.gui_recents import load_thread
+    from opaihub.owner_lease import describe as describe_lease
     from opaihub.checkpoints import list_run_checkpoints
     from opaihub.workflow_state import load_workflow_state
 
@@ -560,6 +561,13 @@ def _resume_payload(root: Path) -> dict[str, Any]:
         "thread": thread,
         "workflow": workflow.to_dict(),
         "checkpoint": checkpoint_payload,
+        # #295 invariant 4: whether the process that owned this run is
+        # still alive. Boot stays read-only — this reports what the lease
+        # says and mutates nothing, so the resume/start-fresh choice is
+        # still the user's. It just stops OPai having to present a run
+        # abandoned days ago and one a sibling window is actively working
+        # on as the same indistinguishable thing.
+        "owner": describe_lease(thread.get("lease")),
     }
 
 
@@ -740,6 +748,17 @@ def clear_history_payload(root: Path) -> dict[str, Any]:
     payload = boot_payload(resolved)
     payload["ok"] = True
     return payload
+
+
+def _beat_lease(root: Path, request_id: str) -> None:
+    """Restamp this run's supervisor lease. Never breaks the run it describes."""
+
+    from opai.gui_recents import refresh_thread_lease
+
+    try:
+        refresh_thread_lease(root, request_id=request_id)
+    except (OSError, TypeError, ValueError):
+        pass
 
 
 def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> None:
@@ -1296,6 +1315,8 @@ def _run_gui(
         activityBatch = QtCore.Signal(str)
         token = QtCore.Signal(str)
         toolReady = QtCore.Signal(str)
+        # #380: teardown actually finished for a cancelled request.
+        cancelReady = QtCore.Signal(str)
         workspaceChanged = QtCore.Signal(str)
         modelsChanged = QtCore.Signal(str)
         providerLoginReady = QtCore.Signal(str)
@@ -1312,6 +1333,8 @@ def _run_gui(
             self.root = root
             self._workers: list[Any] = []
             self._cancels: dict[str, threading.Event] = {}
+            # Requests whose Stop was accepted but whose teardown is unproven.
+            self._cancelling: set[str] = set()
             self._resume_context_active = False
             self._session_epoch = _SessionPersistenceEpoch()
 
@@ -1730,6 +1753,8 @@ def _run_gui(
                 )
 
             worker.done.connect(_done)
+            # #380: teardown is only proven once run() has returned.
+            worker.finished.connect(lambda rid=request_id: self._confirm_teardown(rid))
             worker.finished.connect(
                 lambda w=worker: self._workers.remove(w) if w in self._workers else None
             )
@@ -1853,6 +1878,10 @@ def _run_gui(
                 payload = batcher.flush()
                 if payload is not None:
                     self.activityBatch.emit(payload)
+                # Beat the supervisor lease on the same tick (#295). A lease
+                # that is never restamped goes stale mid-run, and a healthy
+                # long task would start looking abandoned to the next reader.
+                _beat_lease(turn_root, request_id)
 
             timer = QtCore.QTimer(self)
             timer.setInterval(FLUSH_INTERVAL_MS)
@@ -1916,6 +1945,8 @@ def _run_gui(
                 )
 
             worker.done.connect(_done)
+            # #380: teardown is only proven once run() has returned.
+            worker.finished.connect(lambda rid=request_id: self._confirm_teardown(rid))
             worker.finished.connect(
                 lambda w=worker: self._workers.remove(w) if w in self._workers else None
             )
@@ -2012,6 +2043,8 @@ def _run_gui(
                 )
 
             worker.done.connect(_done)
+            # #380: teardown is only proven once run() has returned.
+            worker.finished.connect(lambda rid=request_id: self._confirm_teardown(rid))
             worker.finished.connect(
                 lambda w=worker: self._workers.remove(w) if w in self._workers else None
             )
@@ -2038,12 +2071,41 @@ def _run_gui(
         def cancel(self, request_id: str) -> None:
             """Stop the request: set its cancel flag so the runner kills the CLI.
 
-            The front-end also drops the request_id immediately, so even if a
-            late partial arrives it is ignored — no stale overwrite.
+            Setting the flag is a *request*, not proof: the runner terminates its
+            subprocess whenever it next notices. The front-end therefore shows
+            "Stopping…" and waits for ``cancelReady`` (#380), which this bridge
+            emits only once the worker thread has actually returned. Declaring
+            "cancelled" at this moment instead would claim a paid provider call
+            had stopped while it was very possibly still running (#295
+            invariants 9 and 15).
             """
-            event = self._cancels.get(str(request_id))
-            if event is not None:
-                event.set()
+            rid = str(request_id)
+            event = self._cancels.get(rid)
+            if event is None:
+                # Nothing to stop — already finished or never started. Say so
+                # rather than leaving the UI waiting for a teardown that will
+                # never be confirmed.
+                self.cancelReady.emit(
+                    json.dumps({"requestId": rid, "teardown": "not_running"})
+                )
+                return
+            self._cancelling.add(rid)
+            event.set()
+
+        def _confirm_teardown(self, request_id: str) -> None:
+            """Tell the UI a cancelled request's worker has genuinely stopped.
+
+            Wired to ``QThread.finished``, which fires after ``run()`` returns —
+            i.e. after the provider call unwound and its subprocess was reaped.
+            That is the first moment "cancelled" is a fact rather than a hope.
+            """
+            rid = str(request_id)
+            if rid not in self._cancelling:
+                return
+            self._cancelling.discard(rid)
+            self.cancelReady.emit(
+                json.dumps({"requestId": rid, "teardown": "complete"})
+            )
 
         @QtCore.Slot(str)
         def runTool(self, name: str) -> None:

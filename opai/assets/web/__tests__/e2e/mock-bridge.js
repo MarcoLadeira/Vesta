@@ -93,7 +93,7 @@
     else cb(JSON.stringify(value));
   }
   var bridge = {
-    replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
+    replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), cancelReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
     dashboardReady: Sig(), settingsReady: Sig(), toolApplied: Sig(), statusReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     // Round 2: the header's "N uncommitted" badge came from the boot payload
@@ -363,6 +363,8 @@
         bridge.buildReady.emit(JSON.stringify({ requestId: m.lastBuild.requestId, result: result }));
       }, scenario.buildDelayMs || 0);
     },
+    // #380: the real bridge only sets a cancel flag here; teardown is confirmed
+    // later via cancelReady. Tests drive that explicitly with confirmCancel().
     cancel: function (id) { var m = window.__mock; m.cancelCount++; m.cancelled.push(id); },
     runTool: function (name) {
       window.__mock.runTools.push(name);
@@ -442,6 +444,9 @@
   window.QWebChannel = function (transport, cb) { cb({ objects: { bridge: bridge } }); };
   window.__mock = {
     bridge: bridge, lastRequest: null, sendCount: 0, lastBuild: null, buildCount: 0, cancelCount: 0, cancelled: [],
+    confirmCancel: function (id, teardown) {
+      bridge.cancelReady.emit(JSON.stringify({ requestId: id, teardown: teardown || "complete" }));
+    },
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
     clearedRecents: 0, resumedSessions: 0, clearedSessions: 0,
     copiedTexts: [], contextFilePicks: 0, contextFolderPicks: 0,

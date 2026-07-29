@@ -223,6 +223,62 @@ def _http_json_cancellable(
     return _decode_http_json(box["raw"], box.get("headers") or {})
 
 
+#: One decoded wire line: the text delta, whether a terminal marker was seen,
+#: any usage on this line, and whether the stream is over.
+#:
+#: ``terminal`` and ``stop`` are separate on purpose. An OpenAI server sends
+#: ``finish_reason`` (terminal) and then, with ``stream_options.include_usage``,
+#: a *further* chunk carrying the token counts. Treating the first as the end of
+#: the stream would silently drop the cost of every run.
+_Decoded = tuple[str, bool, dict[str, Any], bool]
+
+
+def _sse_delta(line: bytes) -> _Decoded | None:
+    """Decode one OpenAI server-sent-event line."""
+    if not line or not line.startswith(b"data:"):
+        return None
+    data = line[len(b"data:") :].strip()
+    if data == b"[DONE]":
+        return "", True, {}, True
+    try:
+        obj = json.loads(data)
+    except ValueError:
+        return None
+    choice = (obj.get("choices") or [{}])[0]
+    terminal = bool(str(choice.get("finish_reason") or "").strip())
+    delta = str((choice.get("delta") or {}).get("content") or "")
+    usage = obj["usage"] if isinstance(obj.get("usage"), dict) else {}
+    return delta, terminal, usage, False
+
+
+def _ndjson_delta(line: bytes) -> _Decoded | None:
+    """Decode one Ollama NDJSON line.
+
+    Ollama streams whole JSON objects, one per line, ending with an object
+    whose ``done`` is true — no ``data:`` prefix and no ``[DONE]`` sentinel.
+    That object is both the terminal marker and the end of the stream, and it
+    may carry the last token alongside the counts.
+    """
+    if not line:
+        return None
+    try:
+        obj = json.loads(line)
+    except ValueError:
+        return None
+    if obj.get("error"):
+        raise RuntimeError(str(obj["error"]))
+    delta = str((obj.get("message") or {}).get("content") or "")
+    done = bool(obj.get("done"))
+    usage: dict[str, Any] = {}
+    if done:
+        usage = {
+            key: obj[key]
+            for key in ("prompt_eval_count", "eval_count", "total_duration")
+            if key in obj
+        }
+    return delta, done, usage, done
+
+
 def _stream_chat(
     url: str,
     *,
@@ -231,14 +287,23 @@ def _stream_chat(
     cancel: threading.Event | None,
     extra_headers: dict[str, str] | None,
     on_delta: Any,
+    decode: Any = None,
+    accept: str = "text/event-stream",
 ) -> tuple[str, dict[str, Any]]:
-    """POST an OpenAI-compatible chat completion with ``stream: true`` and invoke
-    ``on_delta(text)`` for each content token as it arrives (#154).
+    """POST a chat completion with ``stream: true`` and invoke ``on_delta(text)``
+    for each content token as it arrives (#154).
 
-    Returns ``(full_text, usage)``. Cancellation closes the socket between SSE
-    lines and raises :class:`LocalRunCancelled`. Any transport/HTTP error raises
-    so the caller can fall back to the blocking path — OPai never fakes progress.
+    ``decode`` parses one wire line into ``(delta, terminal, usage)`` and
+    selects the protocol: SSE by default, NDJSON for Ollama. Everything else —
+    the connection, the cancellation check between lines, the requirement that a
+    terminal marker actually arrived — is identical, and sharing it is why both
+    providers now behave the same way when a stream is cut short (#295 gate 10).
+
+    Returns ``(full_text, usage)``. Cancellation closes the socket between lines
+    and raises :class:`LocalRunCancelled`. Any transport/HTTP error raises so the
+    caller can fall back to the blocking path — OPai never fakes progress.
     """
+    decode = decode or _sse_delta
     parsed = urllib.parse.urlsplit(url)
     conn_cls = (
         http.client.HTTPSConnection
@@ -249,7 +314,7 @@ def _stream_chat(
     body = json.dumps({**payload, "stream": True}).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
-        "Accept": "text/event-stream",
+        "Accept": accept,
         **(extra_headers or {}),
     }
     path = (parsed.path or "/") + (("?" + parsed.query) if parsed.query else "")
@@ -271,27 +336,20 @@ def _stream_chat(
             line = response.readline()
             if not line:
                 break
-            line = line.strip()
-            if not line or not line.startswith(b"data:"):
+            decoded = decode(line.strip())
+            if decoded is None:
                 continue
-            data = line[len(b"data:") :].strip()
-            if data == b"[DONE]":
-                terminal_seen = True
-                break
-            try:
-                obj = json.loads(data)
-            except ValueError:
-                continue
-            choice = (obj.get("choices") or [{}])[0]
-            if str(choice.get("finish_reason") or "").strip():
-                terminal_seen = True
-            delta = str((choice.get("delta") or {}).get("content") or "")
+            delta, terminal, line_usage, stop = decoded
             if delta:
                 chunks.append(delta)
                 with contextlib.suppress(Exception):  # a rendering hiccup never
                     on_delta(delta)  # breaks the stream
-            if isinstance(obj.get("usage"), dict):
-                usage = obj["usage"]
+            if line_usage:
+                usage = line_usage
+            if terminal:
+                terminal_seen = True
+            if stop:
+                break
     finally:
         with contextlib.suppress(Exception):
             conn.close()
@@ -345,19 +403,68 @@ class OllamaRunner(LocalRunner):
         system: str | None = None,
         timeout: float = 60.0,
         cancel: threading.Event | None = None,
+        on_text: Any = None,
     ) -> str:
+        """Answer ``prompt``, streaming tokens to ``on_text`` when given.
+
+        Ollama used to be the one adapter that could not stream, so callers fell
+        back to a blocking request and the user watched nothing happen until the
+        whole answer landed. Worse, a failure part-way through discarded output
+        that a streaming provider would have kept (#295 gate 10). Ollama speaks
+        NDJSON rather than SSE, which is the only reason it was left out.
+        """
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
+        url = f"{self.base_url}/api/chat"
+        if on_text is not None:
+            streamed = self._stream_answer(
+                url, messages, timeout=timeout, cancel=cancel, on_text=on_text
+            )
+            if streamed is not None:
+                return streamed
         result = _http_json_cancellable(
-            f"{self.base_url}/api/chat",
+            url,
             method="POST",
             payload={"model": self.model, "messages": messages, "stream": False},
             timeout=timeout,
             cancel=cancel,
         )
-        return str((result.get("message") or {}).get("content", "")).strip()
+        text = str((result.get("message") or {}).get("content", "")).strip()
+        if on_text is not None and text:  # the blocking fallback still emits
+            with contextlib.suppress(Exception):
+                on_text(text)
+        return text
+
+    def _stream_answer(
+        self,
+        url: str,
+        messages: list[dict[str, Any]],
+        *,
+        timeout: float,
+        cancel: threading.Event | None,
+        on_text: Any,
+    ) -> str | None:
+        """Stream tokens, or ``None`` so the caller falls back — never faked."""
+        try:
+            text, _usage = _stream_chat(
+                url,
+                payload={"model": self.model, "messages": messages},
+                timeout=timeout,
+                cancel=cancel,
+                extra_headers=None,
+                on_delta=on_text,
+                decode=_ndjson_delta,
+                accept="application/x-ndjson",
+            )
+        except (LocalRunCancelled, IncompleteStreamError):
+            # Both are terminal by design: reissuing would duplicate content the
+            # user can already see, and hide an interruption as a clean answer.
+            raise
+        except Exception:  # noqa: BLE001 - any streaming failure falls back
+            return None
+        return text.strip() or None
 
 
 class OpenAICompatibleRunner(LocalRunner):

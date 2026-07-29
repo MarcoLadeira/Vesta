@@ -107,6 +107,7 @@ test("a batched turn ingests every event and coalesces the same as per-event", a
 test("a stale batch from a superseded request is dropped whole", async ({ page }) => {
   const firstId = await sendPrompt(page);
   await page.locator(".gen-stop").click();
+  await page.evaluate((rid) => window.__mock.confirmCancel(rid), firstId);
   await expect(page.locator(".stopped-card")).toBeVisible();
   await sendPrompt(page, "second task");
   await emitScenarioBatch(page, firstId, claudeTurnEvents(firstId, { chunks: 20 }));
@@ -118,6 +119,7 @@ test("cancel mid-stream flips running evidence to cancelled, never completed", a
   const id = await sendPrompt(page);
   await emitScenario(page, id, claudeTurnEvents(id, { chunks: 5 }).slice(0, 4)); // still streaming
   await page.locator(".gen-stop").click();
+  await page.evaluate((rid) => window.__mock.confirmCancel(rid), id);
   await expect(page.locator(".stopped-card")).toContainText("stopped by you");
   const statuses = await page.evaluate(() =>
     window.__opai.state.store.list().map((e) => e.status),
@@ -129,6 +131,7 @@ test("cancel mid-stream flips running evidence to cancelled, never completed", a
 test("late events from a superseded request are dropped by the stale guard", async ({ page }) => {
   const firstId = await sendPrompt(page);
   await page.locator(".gen-stop").click();
+  await page.evaluate((rid) => window.__mock.confirmCancel(rid), firstId);
   await expect(page.locator(".stopped-card")).toBeVisible();
   const secondId = await sendPrompt(page, "second task");
   // Stale burst from the cancelled request arrives late.

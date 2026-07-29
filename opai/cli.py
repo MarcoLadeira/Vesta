@@ -1080,8 +1080,13 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print_json(result)
     else:
         print(render_ask(result))
-    # Exit non-zero when nothing was answered, so scripts can branch on it.
-    return 0 if result["status"] in {"answered_locally", "cache_hit"} else 2
+    # #295 Workstream H: the exit code names which ending this was, from the one
+    # canonical mapping, so `opai ask` and the streaming path agree and a script
+    # can tell a timeout from a refusal.
+    from opaihub.run_state import exit_code_for
+
+    answered = result["status"] in {"answered_locally", "cache_hit"}
+    return exit_code_for("completed" if answered else "failed")
 
 
 def cmd_context(args: argparse.Namespace) -> int:
