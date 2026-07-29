@@ -651,9 +651,16 @@ def classify_dirty_state(
 
     planned_clean = tuple(item for item in planned if item is not None)
     dirty_clean = tuple(item for item in dirty_paths if item is not None)
+    owned = tuple(_normal_path(item) for item in opai_owned_paths)
+    owned_clean = tuple(item for item in owned if item is not None)
+
+    def is_opai_owned(path: PurePosixPath) -> bool:
+        return any(_paths_overlap(path, prefix) for prefix in owned_clean)
+
+    foreign_dirty = tuple(path for path in dirty_clean if not is_opai_owned(path))
     overlaps = tuple(
         path.as_posix()
-        for path in dirty_clean
+        for path in foreign_dirty
         if any(_paths_overlap(path, target) for target in planned_clean)
     )
     if overlaps:
@@ -666,12 +673,7 @@ def classify_dirty_state(
             "high",
         )
 
-    owned = tuple(_normal_path(item) for item in opai_owned_paths)
-    owned_clean = tuple(item for item in owned if item is not None)
-    if owned_clean and all(
-        any(_paths_overlap(path, prefix) and prefix in path.parents for prefix in owned_clean)
-        for path in dirty_clean
-    ):
+    if owned_clean and not foreign_dirty:
         return DirtyAssessment(
             "compatible",
             "proceed_carefully",
@@ -699,6 +701,7 @@ def require_mutation_permitted(
     *,
     planned_paths: Iterable[str],
     operation: str,
+    opai_owned_paths: Iterable[str] = (),
     git_run: GitRun = subprocess.run,
     allow_isolation: bool = False,
     now: Callable[[], float] = time.time,
@@ -716,7 +719,9 @@ def require_mutation_permitted(
         )
         raise RepositorySafetyError(decision)
     assessment = classify_dirty_state(
-        validation.current.dirty_state, planned_paths=planned_paths
+        validation.current.dirty_state,
+        planned_paths=planned_paths,
+        opai_owned_paths=opai_owned_paths,
     )
     if assessment.outcome in {"proceed", "proceed_carefully"}:
         return MutationDecision(True, str(operation), validation, assessment)

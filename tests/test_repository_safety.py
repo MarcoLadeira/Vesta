@@ -211,6 +211,16 @@ class RepositorySafetyGateTests(unittest.TestCase):
         self.assertEqual((overlap.classification, overlap.outcome), ("overlapping", "block"))
         self.assertEqual(overlap.overlapping_paths, ("src/app.py",))
 
+    def test_explicit_owned_file_can_continue_its_own_pending_mutation(self) -> None:
+        assessment = classify_dirty_state(
+            DirtyState(unstaged=("src/app.py",)),
+            planned_paths=("src/app.py",),
+            opai_owned_paths=("src/app.py",),
+        )
+
+        self.assertEqual(assessment.classification, "compatible")
+        self.assertEqual(assessment.outcome, "proceed_carefully")
+
     def test_gate_revalidates_immediately_before_write(self) -> None:
         handle = capture_repository_handle(self.repo, task_id="task-1", run_id="run-1")
         (self.repo / "src" / "other.py").write_text("changed\n", encoding="utf-8")

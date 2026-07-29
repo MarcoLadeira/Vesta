@@ -14,6 +14,15 @@ from .aci import AgentComputerInterface, Observation
 from .command_runner import redact
 from .proc import no_window_kwargs
 from .repo_context import classify_dirty_paths, resolve_repo_context
+from .repository_safety import (
+    RepositoryHandle,
+    RepositoryProbeError,
+    RepositorySafetyError,
+    RepositorySafetyPersistenceError,
+    capture_repository_handle,
+    require_mutation_permitted,
+    save_repository_handle,
+)
 
 READ_TOOLS = ("find_files", "search_code", "read_file", "git_status")
 WRITE_TOOLS = (
@@ -171,14 +180,23 @@ class RepositoryToolExecutor:
         allow_github_write: bool | None = None,
         git_run: Any = None,
         allow_command: str | None = None,
+        repository_handle: RepositoryHandle | None = None,
     ) -> None:
         self.repo_root = repo_root.expanduser().resolve()
         self.allow_edits = bool(allow_edits)
         self.aci = aci or AgentComputerInterface(self.repo_root)
         self.max_patch_chars = max(1, int(max_patch_chars))
-        self.initial_dirty_paths = resolve_repo_context(self.repo_root).dirty_paths
-        self.test_commands = self._test_commands()
         self._git_run = git_run or subprocess.run
+        self._repository_handle: RepositoryHandle | None = repository_handle
+        self._repository_safety_error = ""
+        if self.allow_edits:
+            self._establish_repository_handle()
+        self.initial_dirty_paths = (
+            self._repository_handle.dirty_state.changed_paths
+            if self._repository_handle is not None
+            else resolve_repo_context(self.repo_root).dirty_paths
+        )
+        self.test_commands = self._test_commands()
         # One-shot, exact-string grant for a confirm-class command (F17): the
         # pipeline threads the user-approved command back down and it permits
         # exactly that command, exactly once.
@@ -245,6 +263,88 @@ class RepositoryToolExecutor:
             except Exception:  # noqa: BLE001 - consent lookup must fail closed
                 allow_github_write = False
         self.allow_github_write = bool(allow_github_write)
+
+    def _establish_repository_handle(self) -> None:
+        """Capture and persist the immutable state required before a write."""
+
+        try:
+            handle = self._repository_handle or capture_repository_handle(
+                self.repo_root,
+                task_id="provider-tools",
+                run_id=f"provider-{id(self):x}",
+            )
+            if handle.identity.worktree_root != self.repo_root:
+                raise RepositoryProbeError(
+                    "worktree_mismatch",
+                    "Repository safety handle does not match the selected worktree",
+                )
+            save_repository_handle(self.repo_root, handle)
+        except (RepositoryProbeError, RepositorySafetyPersistenceError) as exc:
+            self._repository_handle = None
+            self._repository_safety_error = redact(str(exc))[:400]
+            return
+        self._repository_handle = handle
+        self._repository_safety_error = ""
+
+    def _refresh_repository_handle(self) -> bool:
+        """Record OPai's own completed mutation before another one can run."""
+
+        if self._repository_handle is None:
+            return False
+        try:
+            fresh = capture_repository_handle(
+                self.repo_root,
+                task_id=self._repository_handle.task_id,
+                run_id=self._repository_handle.run_id,
+                max_age_seconds=self._repository_handle.max_age_seconds,
+            )
+            save_repository_handle(self.repo_root, fresh)
+        except (RepositoryProbeError, RepositorySafetyPersistenceError) as exc:
+            self._repository_handle = None
+            self._repository_safety_error = redact(str(exc))[:400]
+            return False
+        self._repository_handle = fresh
+        self._repository_safety_error = ""
+        return True
+
+    def _repository_safety_blocked(
+        self, operation: str, error: RepositorySafetyError | None = None
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {"operation": operation}
+        if error is not None:
+            data["decision"] = error.decision.to_dict()
+            message = str(error)
+        else:
+            data["reason"] = self._repository_safety_error or "handle_unavailable"
+            message = "Repository identity could not be established or persisted"
+        return Observation(
+            "repository_safety",
+            False,
+            data,
+            "REPOSITORY_SAFETY_BLOCKED",
+            message,
+        ).to_dict()
+
+    def _mutation_gate(
+        self, operation: str, planned_paths: tuple[str, ...]
+    ) -> dict[str, Any] | None:
+        """Fail closed immediately before every local write or Git mutation."""
+
+        if self._repository_handle is None:
+            return self._repository_safety_blocked(operation)
+        # Branch/ref operations have no file list, but their authority is still
+        # explicitly bounded so an unknown scope never grants a mutation.
+        scope = planned_paths or (".opaihub/repository-safety-boundary",)
+        try:
+            require_mutation_permitted(
+                self._repository_handle,
+                planned_paths=scope,
+                operation=operation,
+                opai_owned_paths=tuple(self.written_paths),
+            )
+        except RepositorySafetyError as exc:
+            return self._repository_safety_blocked(operation, exc)
+        return None
 
     def _test_commands(self) -> dict[str, list[str]]:
         commands: dict[str, list[str]] = {}
@@ -518,11 +618,16 @@ class RepositoryToolExecutor:
                 checked.message,
                 checked.duration_ms,
             ).to_dict()
+        blocked = self._mutation_gate("apply_patch", safe_paths)
+        if blocked is not None:
+            return blocked
         applied = self.aci.apply_patch(patch)
         if applied.ok:
             for path in safe_paths:
                 if path not in self.written_paths:
                     self.written_paths.append(path)
+            if not self._refresh_repository_handle():
+                return self._repository_safety_blocked("apply_patch")
         return Observation(
             "patch_apply",
             applied.ok,
@@ -563,6 +668,9 @@ class RepositoryToolExecutor:
                 "DIRTY_PATH_CONFLICT",
                 f"{relative} has pre-existing user changes; refusing to overwrite",
             )
+        blocked = self._mutation_gate("write_file", (relative,))
+        if blocked is not None:
+            return blocked
         target = self.repo_root / relative
         created = not target.exists()
         try:
@@ -572,6 +680,8 @@ class RepositoryToolExecutor:
             return _error("WRITE_FAILED", f"Could not write {relative}: {exc}")
         if relative not in self.written_paths:
             self.written_paths.append(relative)
+        if not self._refresh_repository_handle():
+            return self._repository_safety_blocked("write_file")
         return Observation(
             "file_write",
             True,
@@ -606,7 +716,12 @@ class RepositoryToolExecutor:
         name = _valid_branch(arguments.get("name"))
         if name is None:
             return _error("INVALID_BRANCH_NAME", "Branch name is not a valid git ref")
+        blocked = self._mutation_gate("git_create_branch", tuple(self.written_paths))
+        if blocked is not None:
+            return blocked
         result = self._git(["checkout", "-b", name])
+        if result["ok"] and not self._refresh_repository_handle():
+            return self._repository_safety_blocked("git_create_branch")
         return Observation(
             "git_branch",
             result["ok"],
@@ -631,12 +746,22 @@ class RepositoryToolExecutor:
                 "NOTHING_TO_COMMIT",
                 "No files were changed by this run; nothing to commit",
             )
+        blocked = self._mutation_gate("git_add", paths)
+        if blocked is not None:
+            return blocked
         staged = self._git(["add", "--", *paths])
         if not staged["ok"]:
             return _error("GIT_ADD_FAILED", staged["output"])
+        if not self._refresh_repository_handle():
+            return self._repository_safety_blocked("git_commit")
+        blocked = self._mutation_gate("git_commit", paths)
+        if blocked is not None:
+            return blocked
         committed = self._git(["commit", "-m", message, "--", *paths])
         if not committed["ok"]:
             return _error("GIT_COMMIT_FAILED", committed["output"])
+        if not self._refresh_repository_handle():
+            return self._repository_safety_blocked("git_commit")
         head = self._git(["rev-parse", "--short", "HEAD"])
         return Observation(
             "git_commit",
@@ -660,7 +785,12 @@ class RepositoryToolExecutor:
         )
         if approval is not None:
             return approval
+        blocked = self._mutation_gate("git_push", tuple(self.written_paths))
+        if blocked is not None:
+            return blocked
         result = self._git(["push", "-u", "origin", name], timeout=120.0)
+        if result["ok"] and not self._refresh_repository_handle():
+            return self._repository_safety_blocked("git_push")
         return Observation(
             "git_push",
             result["ok"],

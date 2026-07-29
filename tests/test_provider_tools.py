@@ -185,7 +185,7 @@ class RepositoryToolExecutorTests(unittest.TestCase):
             self.assertEqual(result["error_code"], "DIRTY_PATH_CONFLICT")
             self.assertEqual((root / "app.py").read_text(), "value = 99\n")
 
-    def test_unrelated_dirty_file_is_preserved_while_patch_applies(self):
+    def test_unrelated_dirty_file_requires_isolation_before_patch(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(
                 Path(tmp),
@@ -197,9 +197,31 @@ class RepositoryToolExecutorTests(unittest.TestCase):
 
             result = executor.invoke("apply_patch", {"patch": PATCH_ONE_TO_TWO})
 
-            self.assertTrue(result["ok"], result)
-            self.assertEqual((root / "app.py").read_text(), "value = 2\n")
+            self.assertFalse(result["ok"], result)
+            self.assertEqual(result["error_code"], "REPOSITORY_SAFETY_BLOCKED")
+            self.assertEqual((root / "app.py").read_text(), "value = 1\n")
             self.assertEqual((root / "notes.txt").read_text(), "user change\n")
+
+    def test_write_revalidates_repository_identity_before_touching_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(
+                Path(tmp), files={"app.py": "value = 1\n"}, commit=True
+            )
+            executor = RepositoryToolExecutor(root, allow_edits=True)
+            subprocess.run(
+                ["git", "checkout", "-qb", "moved"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+
+            result = executor.invoke(
+                "write_file", {"path": "app.py", "content": "value = 2\n"}
+            )
+
+            self.assertFalse(result["ok"], result)
+            self.assertEqual(result["error_code"], "REPOSITORY_SAFETY_BLOCKED")
+            self.assertEqual((root / "app.py").read_text(), "value = 1\n")
 
     def test_deleted_file_patch_and_oversized_patch_fail_closed(self):
         delete_patch = """diff --git a/app.py b/app.py
