@@ -16,11 +16,13 @@ import subprocess  # nosec B404 - every call below uses fixed argv, never a shel
 import sys
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable
+from pathlib import Path, PurePosixPath
+from typing import Any, Callable, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
+from .state import state_dir
 
 
 SCHEMA_VERSION = 1
@@ -36,6 +38,19 @@ class RepositoryProbeError(RuntimeError):
         self.reason = reason
         self.detail = redact(detail)[:400]
         super().__init__(self.detail or reason)
+
+
+class RepositorySafetyPersistenceError(RuntimeError):
+    """A durable repository-safety record cannot be trusted."""
+
+
+class RepositorySafetyError(RuntimeError):
+    """A mutation was denied by the canonical safety decision."""
+
+    def __init__(self, decision: "MutationDecision") -> None:
+        self.decision = decision
+        detail = ", ".join(decision.reasons) or decision.assessment.rule_id
+        super().__init__(f"Repository mutation blocked: {detail}")
 
 
 @dataclass(frozen=True)
@@ -149,6 +164,50 @@ class HandleValidation:
         }
 
 
+@dataclass(frozen=True)
+class DirtyAssessment:
+    """A deterministic dirty-worktree classification with its evidence."""
+
+    classification: str
+    outcome: str
+    affected_paths: tuple[str, ...]
+    overlapping_paths: tuple[str, ...]
+    rule_id: str
+    confidence: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "classification": self.classification,
+            "outcome": self.outcome,
+            "affected_paths": list(self.affected_paths),
+            "overlapping_paths": list(self.overlapping_paths),
+            "rule_id": self.rule_id,
+            "confidence": self.confidence,
+        }
+
+
+@dataclass(frozen=True)
+class MutationDecision:
+    """The revalidation/classification result a side-effect boundary consumes."""
+
+    allowed: bool
+    operation: str
+    validation: HandleValidation
+    assessment: DirtyAssessment
+    reasons: tuple[str, ...] = ()
+    requires_isolation: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "allowed": self.allowed,
+            "operation": self.operation,
+            "validation": self.validation.to_dict(),
+            "assessment": self.assessment.to_dict(),
+            "reasons": list(self.reasons),
+            "requires_isolation": self.requires_isolation,
+        }
+
+
 def _safe_remote(value: str) -> str:
     """Strip credentials before any remote URL is retained or rendered."""
 
@@ -169,8 +228,19 @@ def _safe_remote(value: str) -> str:
     return redact(remote)
 
 
+def _is_opai_state_path(value: str) -> bool:
+    normalized = value.replace("\\", "/").strip("/")
+    return normalized == ".opaihub" or normalized.startswith(
+        (".opaihub/", ".opcoding/", ".opcoding")
+    )
+
+
 def _dedupe(values: list[str]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(value for value in values if value))
+    return tuple(
+        dict.fromkeys(
+            value for value in values if value and not _is_opai_state_path(value)
+        )
+    )
 
 
 def _decode_path(value: bytes) -> str:
@@ -504,3 +574,267 @@ def revalidate_repository_handle(
         return HandleValidation(False, (exc.reason,), None)
     reasons = _identity_differences(handle, current, observed_at=observed_at)
     return HandleValidation(not reasons, reasons, current)
+
+
+def _normal_path(value: str) -> PurePosixPath | None:
+    text = str(value or "").replace("\\", "/").strip()
+    if not text or "\0" in text:
+        return None
+    candidate = PurePosixPath(text)
+    if candidate.is_absolute() or any(part in {"", ".", ".."} for part in candidate.parts):
+        return None
+    return candidate
+
+
+def _paths_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:
+    return left == right or left in right.parents or right in left.parents
+
+
+def classify_dirty_state(
+    dirty: DirtyState,
+    *,
+    planned_paths: Iterable[str] | None,
+    opai_owned_paths: Iterable[str] = (),
+) -> DirtyAssessment:
+    """Classify user changes without letting an unknown scope authorize a write."""
+
+    affected = dirty.changed_paths
+    if dirty.malformed_records:
+        return DirtyAssessment(
+            "unsafe",
+            "block",
+            affected,
+            (),
+            "malformed_status",
+            "unknown",
+        )
+    if planned_paths is None:
+        return DirtyAssessment(
+            "unknown",
+            "block",
+            affected,
+            (),
+            "unknown_scope",
+            "unknown",
+        )
+    planned = tuple(_normal_path(item) for item in planned_paths)
+    if not planned or any(item is None for item in planned):
+        return DirtyAssessment(
+            "unknown",
+            "block",
+            affected,
+            (),
+            "invalid_scope",
+            "unknown",
+        )
+    dirty_paths = tuple(_normal_path(item) for item in affected)
+    if any(item is None for item in dirty_paths):
+        return DirtyAssessment(
+            "unsafe",
+            "block",
+            affected,
+            (),
+            "unsafe_dirty_path",
+            "unknown",
+        )
+    if dirty.conflicted:
+        return DirtyAssessment(
+            "unsafe",
+            "block",
+            affected,
+            tuple(dirty.conflicted),
+            "git_conflict",
+            "high",
+        )
+    if not dirty_paths:
+        return DirtyAssessment("clean", "proceed", (), (), "clean_tree", "high")
+
+    planned_clean = tuple(item for item in planned if item is not None)
+    dirty_clean = tuple(item for item in dirty_paths if item is not None)
+    overlaps = tuple(
+        path.as_posix()
+        for path in dirty_clean
+        if any(_paths_overlap(path, target) for target in planned_clean)
+    )
+    if overlaps:
+        return DirtyAssessment(
+            "overlapping",
+            "block",
+            affected,
+            overlaps,
+            "planned_scope_overlap",
+            "high",
+        )
+
+    owned = tuple(_normal_path(item) for item in opai_owned_paths)
+    owned_clean = tuple(item for item in owned if item is not None)
+    if owned_clean and all(
+        any(_paths_overlap(path, prefix) and prefix in path.parents for prefix in owned_clean)
+        for path in dirty_clean
+    ):
+        return DirtyAssessment(
+            "compatible",
+            "proceed_carefully",
+            affected,
+            (),
+            "opai_owned_changes",
+            "high",
+        )
+    return DirtyAssessment(
+        "unrelated",
+        "isolate",
+        affected,
+        (),
+        "unrelated_user_changes",
+        "high",
+    )
+
+
+def _degraded_assessment(rule_id: str) -> DirtyAssessment:
+    return DirtyAssessment("unknown", "block", (), (), rule_id, "unknown")
+
+
+def require_mutation_permitted(
+    handle: RepositoryHandle,
+    *,
+    planned_paths: Iterable[str],
+    operation: str,
+    git_run: GitRun = subprocess.run,
+    allow_isolation: bool = False,
+    now: Callable[[], float] = time.time,
+) -> MutationDecision:
+    """Revalidate then classify immediately before a repository side effect."""
+
+    validation = revalidate_repository_handle(handle, git_run=git_run, now=now)
+    if not validation.fresh or validation.current is None:
+        decision = MutationDecision(
+            False,
+            str(operation),
+            validation,
+            _degraded_assessment("stale_handle"),
+            validation.reasons or ("probe_unavailable",),
+        )
+        raise RepositorySafetyError(decision)
+    assessment = classify_dirty_state(
+        validation.current.dirty_state, planned_paths=planned_paths
+    )
+    if assessment.outcome in {"proceed", "proceed_carefully"}:
+        return MutationDecision(True, str(operation), validation, assessment)
+    if assessment.outcome == "isolate" and allow_isolation:
+        return MutationDecision(
+            True,
+            str(operation),
+            validation,
+            assessment,
+            ("isolation_required",),
+            requires_isolation=True,
+        )
+    reason = "isolation_required" if assessment.outcome == "isolate" else assessment.rule_id
+    raise RepositorySafetyError(
+        MutationDecision(False, str(operation), validation, assessment, (reason,))
+    )
+
+
+def _handle_path(project_root: Path, handle_id: str) -> Path:
+    clean = "".join(char for char in str(handle_id) if char.isalnum() or char in "-_")
+    if not clean or clean != str(handle_id):
+        raise RepositorySafetyPersistenceError("Invalid repository handle id")
+    return state_dir(project_root.expanduser().resolve()) / "repository" / "handles" / f"{clean}.json"
+
+
+def save_repository_handle(project_root: Path, handle: RepositoryHandle) -> Path:
+    """Durably save a redacted handle; inability to save is a safety failure."""
+
+    path = _handle_path(project_root, handle.handle_id)
+    payload = json.dumps(handle.to_dict(), sort_keys=True, separators=(",", ":")) + "\n"
+    try:
+        with interprocess_transaction(path):
+            atomic_write_text(path, payload)
+    except (OSError, TimeoutError, ValueError) as exc:
+        raise RepositorySafetyPersistenceError(
+            f"Could not persist repository safety handle: {redact(str(exc))[:240]}"
+        ) from exc
+    return path
+
+
+def _tuple_of_strings(value: Any, field: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise RepositorySafetyPersistenceError(f"Invalid persisted {field}")
+    return tuple(value)
+
+
+def _load_handle_payload(data: Any) -> RepositoryHandle:
+    if not isinstance(data, dict) or data.get("schema_version") != SCHEMA_VERSION:
+        raise RepositorySafetyPersistenceError("Unsupported repository handle schema")
+    identity_raw = data.get("identity")
+    dirty_raw = data.get("dirty_state")
+    if not isinstance(identity_raw, dict) or not isinstance(dirty_raw, dict):
+        raise RepositorySafetyPersistenceError("Invalid persisted repository handle")
+    filesystem = identity_raw.get("filesystem_id")
+    if filesystem is not None and (
+        not isinstance(filesystem, list)
+        or len(filesystem) != 2
+        or not all(isinstance(item, int) for item in filesystem)
+    ):
+        raise RepositorySafetyPersistenceError("Invalid persisted filesystem identity")
+    remotes_raw = identity_raw.get("remotes")
+    if not isinstance(remotes_raw, list) or not all(
+        isinstance(item, dict)
+        and isinstance(item.get("name"), str)
+        and isinstance(item.get("url"), str)
+        for item in remotes_raw
+    ):
+        raise RepositorySafetyPersistenceError("Invalid persisted remotes")
+    try:
+        identity = RepositoryIdentity(
+            worktree_root=Path(str(identity_raw["worktree_root"])),
+            git_dir=Path(str(identity_raw["git_dir"])),
+            common_git_dir=Path(str(identity_raw["common_git_dir"])),
+            filesystem_id=tuple(filesystem) if filesystem is not None else None,
+            remotes=tuple((item["name"], _safe_remote(item["url"])) for item in remotes_raw),
+            default_branch=str(identity_raw.get("default_branch") or ""),
+            branch=str(identity_raw.get("branch") or ""),
+            detached=bool(identity_raw.get("detached")),
+            head_sha=str(identity_raw["head_sha"]),
+            status_fingerprint=str(identity_raw["status_fingerprint"]),
+            repository_id=str(identity_raw["repository_id"]),
+        )
+        dirty = DirtyState(
+            staged=_tuple_of_strings(dirty_raw.get("staged"), "staged paths"),
+            unstaged=_tuple_of_strings(dirty_raw.get("unstaged"), "unstaged paths"),
+            untracked=_tuple_of_strings(dirty_raw.get("untracked"), "untracked paths"),
+            ignored=_tuple_of_strings(dirty_raw.get("ignored"), "ignored paths"),
+            conflicted=_tuple_of_strings(dirty_raw.get("conflicted"), "conflicted paths"),
+            malformed_records=_tuple_of_strings(
+                dirty_raw.get("malformed_records"), "malformed status records"
+            ),
+        )
+        return RepositoryHandle(
+            schema_version=SCHEMA_VERSION,
+            handle_id=str(data["handle_id"]),
+            task_id=str(data.get("task_id") or ""),
+            run_id=str(data.get("run_id") or ""),
+            captured_at=float(data["captured_at"]),
+            max_age_seconds=float(data["max_age_seconds"]),
+            identity=identity,
+            dirty_state=dirty,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RepositorySafetyPersistenceError("Malformed repository handle") from exc
+
+
+def load_repository_handle(project_root: Path, handle_id: str) -> RepositoryHandle:
+    """Read a handle strictly; corrupt state is never treated as a fresh handle."""
+
+    path = _handle_path(project_root, handle_id)
+    try:
+        with interprocess_transaction(path):
+            data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        raise RepositorySafetyPersistenceError(
+            f"Could not read repository safety handle: {redact(str(exc))[:240]}"
+        ) from exc
+    handle = _load_handle_payload(data)
+    if handle.handle_id != handle_id:
+        raise RepositorySafetyPersistenceError("Persisted repository handle identity mismatch")
+    return handle
