@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import importlib.util
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -174,6 +175,29 @@ class SmokeInstallContractTests(unittest.TestCase):
 
             self.assertEqual(project.parent, home)
             self.assertTrue((project / "pyproject.toml").is_file())
+
+    def test_smoke_checks_the_packaged_provider_catalog(self):
+        smoke = _load_smoke_module()
+        command = smoke.provider_catalog_smoke_command(Path(sys.executable))
+
+        self.assertEqual(command[:3], [sys.executable, "-I", "-c"])
+        self.assertIn("provider_catalog.catalog_bytes()", command[3])
+        self.assertIn("provider_catalog.all_catalog_records()", command[3])
+
+    def test_catalog_check_runs_before_required_smoke_commands(self):
+        smoke = _load_smoke_module()
+        python = Path("wheel-python")
+        project = Path("outside-project")
+        environment = {"PYTHONPATH": "host-checkout", "PYTHONHOME": "host-python"}
+
+        with mock.patch.object(smoke, "run") as run:
+            smoke.run_post_install_smoke_checks(python, project, environment)
+
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(commands[0], smoke.provider_catalog_smoke_command(python))
+        self.assertEqual(commands[1:], smoke.required_smoke_commands(python))
+        self.assertEqual(run.call_args_list[0].args[1], project)
+        self.assertIs(run.call_args_list[0].kwargs["env"], environment)
 
 
 class HermeticTestEnvironmentTests(unittest.TestCase):

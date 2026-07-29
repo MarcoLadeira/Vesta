@@ -26,7 +26,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -930,37 +930,61 @@ def provider_connection_doctor(
         )
         if connection.get("authStatus") != "connected" and "sign_in" not in recovery:
             recovery.append("sign_in")
-        entries.append(
-            {
-                "providerId": provider,
-                "displayName": str(account.get("label") or provider.title()),
-                "kind": "account",
-                "health": _connection_health(connection),
-                "authStatus": str(connection.get("authStatus") or "unknown"),
-                "credentialSource": "user_account",
-                "accountType": str(connection.get("accountType") or "unknown"),
-                "credentialSourceLabel": "Subscription sign-in",
-                "cliInstalled": bool(account.get("cli_present")),
-                "cliVersion": (
-                    _account_cli_version(account, run=version_run)
-                    if include_cli_versions
-                    else ""
-                ),
-                "lastCheckedAt": connection.get("lastCheckedAt"),
-                "lastError": str(connection.get("lastError") or ""),
-                "lastErrorCode": str(connection.get("lastErrorCode") or ""),
-                "safeDiagnostic": str(connection.get("safeDiagnostic") or ""),
-                "envOverridesRemoved": [
-                    str(item) for item in connection.get("envOverridesRemoved") or []
-                ],
-                "recoveryActions": recovery,
-                "loginHint": str(
-                    connection.get("loginHint") or account.get("login_hint") or ""
-                ),
-                "detected": bool(connection.get("detected")),
-                "loginSupported": provider in _LOGIN_ARGV,
-            }
+        entry = {
+            "providerId": provider,
+            "displayName": str(account.get("label") or provider.title()),
+            "kind": "account",
+            "health": _connection_health(connection),
+            "authStatus": str(connection.get("authStatus") or "unknown"),
+            "credentialSource": "user_account",
+            "accountType": str(connection.get("accountType") or "unknown"),
+            "credentialSourceLabel": "Subscription sign-in",
+            "cliInstalled": bool(account.get("cli_present")),
+            "cliVersion": (
+                _account_cli_version(account, run=version_run)
+                if include_cli_versions
+                else ""
+            ),
+            "lastCheckedAt": connection.get("lastCheckedAt"),
+            "lastError": str(connection.get("lastError") or ""),
+            "lastErrorCode": str(connection.get("lastErrorCode") or ""),
+            "safeDiagnostic": str(connection.get("safeDiagnostic") or ""),
+            "envOverridesRemoved": [
+                str(item) for item in connection.get("envOverridesRemoved") or []
+            ],
+            "recoveryActions": recovery,
+            "loginHint": str(
+                connection.get("loginHint") or account.get("login_hint") or ""
+            ),
+            "detected": bool(connection.get("detected")),
+            "loginSupported": provider in _LOGIN_ARGV,
+        }
+        auth_status = str(connection.get("authStatus") or "").strip().lower()
+        error_code = str(connection.get("lastErrorCode") or "").strip()
+        auth_failure = auth_status in {"invalid", "expired", "disconnected"} or (
+            error_code in _AUTH_FAILURE_CODES
         )
+        observation = {
+            "installed": bool(account.get("cli_present")),
+            # Only normalized local facts are retained: no error prose,
+            # provider completion claim, authority claim, or cost assertion.
+            "authStatus": auth_status,
+            "lastErrorCode": error_code,
+        }
+        # ``account[\"authenticated\"]`` is a backward-compatible presence
+        # detector (an auth artifact or token), not proof that the CLI's local
+        # sign-in check succeeded.  Preserve that legacy detector on the
+        # account/doctor fields, but make the protocol state conservative: only
+        # a successful safe status check may assert authentication.
+        if auth_failure:
+            observation["authenticated"] = False
+        elif auth_status == "connected":
+            observation["authenticated"] = True
+        observed_protocol = _observed_adapter_protocol_version(connection)
+        if observed_protocol is not None:
+            observation["adapterProtocolVersion"] = observed_protocol
+        entry["_providerContractObservation"] = observation
+        entries.append(entry)
 
     if credentials is None:
         from .credentials import credential_statuses
@@ -979,34 +1003,73 @@ def provider_connection_doctor(
         provider = str(credential.get("provider") or "")
         configured = bool(credential.get("configured"))
         source = str(credential.get("source") or "")
+        entry = {
+            "providerId": provider,
+            "displayName": labels.get(provider, provider.title()),
+            "kind": "api",
+            "health": "detected" if configured else "not_configured",
+            "authStatus": "detected" if configured else "not_configured",
+            "credentialSource": source,
+            "credentialSourceLabel": {
+                "environment": "Environment variable",
+                "keychain": "OS credential store",
+            }.get(source, "Not configured"),
+            "credentialEnvironmentName": str(credential.get("envKey") or ""),
+            "cliInstalled": None,
+            "cliVersion": "",
+            "lastCheckedAt": credential.get("lastCheckedAt"),
+            "lastError": "",
+            "lastErrorCode": "",
+            "safeDiagnostic": (
+                "API credential detected; use Test connection to verify it."
+                if configured
+                else "No API credential configured."
+            ),
+            "envOverridesRemoved": [],
+            "recoveryActions": ["test_connection"] if configured else [],
+            "loginHint": "",
+            "detected": configured,
+            "loginSupported": False,
+        }
+        observation = {"configured": configured}
+        observed_protocol = _observed_adapter_protocol_version(credential)
+        if observed_protocol is not None:
+            observation["adapterProtocolVersion"] = observed_protocol
+        entry["_providerContractObservation"] = observation
+        entries.append(entry)
+
+    # A doctor payload is also the provider-inventory view.  Preserve the
+    # account/API diagnostic entries above, then add a deliberately unobserved
+    # entry for catalog providers that have no local configuration record.  This
+    # lets GUI, CLI, and doctor agree on the supported set without treating a
+    # missing record as a successful or stale legacy provider.
+    from .provider_capabilities import all_provider_profiles
+
+    observed_providers = {str(entry.get("providerId") or "") for entry in entries}
+    for profile in all_provider_profiles():
+        provider = str(profile["provider_id"])
+        if provider in observed_providers:
+            continue
         entries.append(
             {
                 "providerId": provider,
-                "displayName": labels.get(provider, provider.title()),
-                "kind": "api",
-                "health": "detected" if configured else "not_configured",
-                "authStatus": "detected" if configured else "not_configured",
-                "credentialSource": source,
-                "credentialSourceLabel": {
-                    "environment": "Environment variable",
-                    "keychain": "OS credential store",
-                }.get(source, "Not configured"),
-                "credentialEnvironmentName": str(credential.get("envKey") or ""),
+                "displayName": labels.get(provider, _catalog_display_name(provider)),
+                "kind": str(profile["kind"]),
+                "health": "unknown",
+                "authStatus": "unknown",
+                "credentialSource": "catalog",
+                "credentialSourceLabel": "Pinned provider catalog",
                 "cliInstalled": None,
                 "cliVersion": "",
-                "lastCheckedAt": credential.get("lastCheckedAt"),
+                "lastCheckedAt": None,
                 "lastError": "",
                 "lastErrorCode": "",
-                "safeDiagnostic": (
-                    "API credential detected; use Test connection to verify it."
-                    if configured
-                    else "No API credential configured."
-                ),
+                "safeDiagnostic": "No local readiness observation is available.",
                 "envOverridesRemoved": [],
-                "recoveryActions": ["test_connection"] if configured else [],
+                "recoveryActions": [],
                 "loginHint": "",
-                "detected": configured,
-                "loginSupported": False,
+                "detected": False,
+                "loginSupported": provider in _LOGIN_ARGV,
             }
         )
     # Fold every entry onto the one capability + health truth (#168) without
@@ -1018,17 +1081,154 @@ def provider_connection_doctor(
 def _annotate_provider_capabilities(entries: list[dict[str, Any]]) -> None:
     """Attach the canonical health state and capability profile to each doctor
     entry so the picker, settings, and router all read one truth (#168)."""
-    from .provider_capabilities import health_from_connection, provider_profile
+    from .provider_capabilities import health_from_connection
 
     for entry in entries:
+        observation = entry.pop("_providerContractObservation", entry)
         entry["healthState"] = health_from_connection(entry).value
         try:
-            entry["capabilities"] = provider_profile(
-                str(entry.get("providerId") or "")
-            ).to_dict()
+            contract = provider_contract_payload(
+                str(entry.get("providerId") or ""), observation=observation
+            )
+            # ``capabilities`` is the established surface key.  Keep it while
+            # providing the explicit contract name to new GUI/CLI callers.
+            entry["capabilities"] = contract
+            entry["providerContract"] = contract
         except ValueError:
             # github (the git/PR connector) isn't an AI provider — no profile.
             entry["capabilities"] = None
+            entry["providerContract"] = None
+
+
+def _catalog_display_name(provider_id: str) -> str:
+    """Render an inventory label without deriving any provider capability."""
+
+    labels = {
+        "claude": "Claude",
+        "codex": "Codex",
+        "copilot": "Copilot",
+        "kimi": "Kimi",
+        "gemini": "Gemini",
+        "groq": "Groq",
+        "mistral": "Mistral",
+        "ollama": "Ollama",
+        "openai-compatible": "OpenAI-compatible",
+    }
+    return labels.get(provider_id, provider_id.title())
+
+
+def _observed_adapter_protocol_version(
+    observation: Mapping[str, Any],
+) -> Any | None:
+    """Return an explicitly reported adapter version, never a guessed one."""
+
+    for key in (
+        "adapterProtocolVersion",
+        "providerProtocolVersion",
+        "protocolVersion",
+    ):
+        if key in observation:
+            return observation[key]
+    return None
+
+
+def _observation_boolean(observation: Mapping[str, Any], *names: str) -> bool | None:
+    """Use only JSON booleans; strings and provider prose are not readiness."""
+
+    for name in names:
+        value = observation.get(name)
+        if isinstance(value, bool):
+            return value
+    return None
+
+
+def _observed_degradation(
+    observation: Mapping[str, Any],
+) -> tuple[str, str] | None:
+    """Convert known local failure evidence into an actionable health result."""
+
+    if _observation_boolean(observation, "healthy") is False:
+        return (
+            "local_readiness_check_failed",
+            "Review the provider diagnostic and run a fresh local readiness check.",
+        )
+    status = str(observation.get("authStatus") or "").strip().lower()
+    if (
+        status
+        in {
+            "misconfigured",
+            "provider_unavailable",
+            "invalid",
+            "expired",
+            "disconnected",
+            "failed",
+            "rate_limited",
+        }
+        or str(observation.get("lastErrorCode") or "").strip()
+    ):
+        return (
+            "local_readiness_check_failed",
+            "Review the provider diagnostic and run a fresh local readiness check.",
+        )
+    return None
+
+
+def provider_contract_payload(
+    provider_id: str,
+    *,
+    observation: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return the one catalog-backed provider contract for every surface.
+
+    ``observation`` is optional, read-only local diagnostic evidence already
+    gathered by the caller.  It may contribute installation/configuration/
+    authentication facts or a known degraded state, but it cannot establish
+    provider authority, completion, verification, or cost truth.
+    """
+
+    from .provider_capabilities import provider_profile
+    from .provider_protocol import ProviderReadiness, protocol_readiness
+
+    profile = provider_profile(provider_id)
+    payload = profile.to_dict()
+    source: Mapping[str, Any] = observation if isinstance(observation, Mapping) else {}
+    observed_protocol = _observed_adapter_protocol_version(source)
+    version_state = protocol_readiness(
+        profile.provider_id,
+        profile.protocol_version if observed_protocol is None else observed_protocol,
+    )
+    if version_state.degraded_reason is not None:
+        payload["providerState"] = version_state.to_dict()
+        return payload
+
+    degradation = _observed_degradation(source)
+    if degradation is not None:
+        reason, action = degradation
+        state = ProviderReadiness(
+            provider_id=profile.provider_id,
+            installed=_observation_boolean(source, "installed", "cliInstalled"),
+            configured=_observation_boolean(source, "configured"),
+            authenticated=_observation_boolean(source, "authenticated"),
+            # Local evidence cannot establish service-side authorisation.
+            authorised=None,
+            healthy=False,
+            degraded_reason=reason,
+            next_action=action,
+            protocol_version=profile.protocol_version,
+        )
+    else:
+        state = ProviderReadiness(
+            provider_id=profile.provider_id,
+            installed=_observation_boolean(source, "installed", "cliInstalled"),
+            configured=_observation_boolean(source, "configured"),
+            authenticated=_observation_boolean(source, "authenticated"),
+            # Local evidence cannot establish service-side authorisation.
+            authorised=None,
+            healthy=None,
+            protocol_version=profile.protocol_version,
+        )
+    payload["providerState"] = state.to_dict()
+    return payload
 
 
 def interactive_provider_login(

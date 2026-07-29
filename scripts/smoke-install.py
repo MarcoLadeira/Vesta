@@ -24,6 +24,18 @@ EXTERNAL_STATE_ENV = {
     "OLLAMA_MODEL",
 }
 
+_EXPECTED_PROVIDER_CATALOG_IDS = (
+    "claude",
+    "codex",
+    "copilot",
+    "kimi",
+    "gemini",
+    "groq",
+    "mistral",
+    "ollama",
+    "openai-compatible",
+)
+
 
 def run(argv: list[str], cwd: Path, *, env: Mapping[str, str] | None = None) -> None:
     print("+", " ".join(argv))
@@ -54,6 +66,32 @@ def required_smoke_commands(python: Path) -> list[list[str]]:
         [executable, "-m", "opaihub", "validate"],
         [executable, "-m", "opai", "gui", "--once"],
     ]
+
+
+def provider_catalog_smoke_command(python: Path) -> list[str]:
+    """Load the packaged provider catalog from the isolated wheel install."""
+
+    check = (
+        "from opaihub import provider_catalog\n"
+        f"expected = {_EXPECTED_PROVIDER_CATALOG_IDS!r}\n"
+        "if not provider_catalog.catalog_bytes():\n"
+        "    raise SystemExit('wheel provider catalog is empty')\n"
+        "records = provider_catalog.all_catalog_records()\n"
+        "if tuple(record['provider_id'] for record in records) != expected:\n"
+        "    raise SystemExit('wheel provider catalog inventory is invalid')\n"
+        "print('provider catalog records:', len(records))\n"
+    )
+    return [str(python), "-I", "-c", check]
+
+
+def run_post_install_smoke_checks(
+    python: Path, cwd: Path, environment: Mapping[str, str]
+) -> None:
+    """Run the checks that must prove the just-installed wheel is usable."""
+
+    run(provider_catalog_smoke_command(python), cwd, env=environment)
+    for command in required_smoke_commands(python):
+        run(command, cwd, env=environment)
 
 
 def isolated_environment(
@@ -150,6 +188,10 @@ def main() -> int:
         python = venv_root / (
             "Scripts/python.exe" if sys.platform.startswith("win") else "bin/python"
         )
+        smoke_home = work_dir / "smoke-home"
+        smoke_home.mkdir(parents=True, exist_ok=True)
+        smoke_env = isolated_environment(smoke_home, executable_dir=python.parent)
+        outside_repo = prepare_smoke_project(smoke_home)
         run(
             [
                 str(python),
@@ -163,10 +205,7 @@ def main() -> int:
             ],
             root,
         )
-
-        smoke_home = work_dir / "smoke-home"
-        smoke_home.mkdir(parents=True, exist_ok=True)
-        smoke_env = isolated_environment(smoke_home, executable_dir=python.parent)
+        run_post_install_smoke_checks(python, outside_repo, smoke_env)
 
         # The web GUI ships as package data; a wheel without it silently falls
         # back to the legacy Qt window (issue #139). Fail the smoke instead.
@@ -181,9 +220,6 @@ def main() -> int:
             "print('web GUI assets present:', len(required))\n"
         )
 
-        outside_repo = prepare_smoke_project(smoke_home)
-        for command in required_smoke_commands(python):
-            run(command, outside_repo, env=smoke_env)
         run(
             [str(python), "-m", "opai", "version"],
             outside_repo,

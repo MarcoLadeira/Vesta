@@ -236,6 +236,93 @@ class ConnectionDoctorTests(unittest.TestCase):
         self.assertEqual(claude["health"], "detected")
         self.assertEqual(claude["authStatus"], "unknown")
 
+    def test_doctor_reports_an_incompatible_observed_adapter_protocol(self):
+        entries = provider_connection_doctor(
+            accounts=[account()],
+            connections=[
+                {
+                    "providerId": "claude",
+                    "authStatus": "connected",
+                    "cliPresent": True,
+                    "adapterProtocolVersion": 999,
+                }
+            ],
+            credentials=[],
+            include_cli_versions=False,
+            include_history=False,
+        )
+
+        claude = next(item for item in entries if item["providerId"] == "claude")
+        state = claude["providerContract"]["providerState"]
+        self.assertFalse(state["healthy"])
+        self.assertEqual(state["degraded_reason"], "protocol_version_incompatible")
+        self.assertIn("Update", state["next_action"])
+
+    def test_doctor_projects_safe_connection_failure_into_contract_readiness(self):
+        entries = provider_connection_doctor(
+            accounts=[account(authenticated=False)],
+            connections=[
+                {
+                    "providerId": "claude",
+                    "authStatus": "invalid",
+                    "cliPresent": True,
+                    "lastErrorCode": "AUTH_INVALID",
+                }
+            ],
+            credentials=[],
+            include_cli_versions=False,
+            include_history=False,
+        )
+
+        claude = next(item for item in entries if item["providerId"] == "claude")
+        state = claude["providerContract"]["providerState"]
+        self.assertFalse(state["healthy"])
+        self.assertEqual(state["degraded_reason"], "local_readiness_check_failed")
+        self.assertIn("fresh local readiness check", state["next_action"])
+        self.assertFalse(state["authenticated"])
+        self.assertIsNone(state["authorised"])
+
+    def test_detected_auth_artifact_does_not_assert_protocol_authentication(self):
+        """Presence detection is not the safe local verification required by v1."""
+
+        entries = provider_connection_doctor(
+            accounts=[account("claude", authenticated=True)],
+            connections=[
+                {
+                    "providerId": "claude",
+                    "authStatus": "unknown",
+                    "cliPresent": True,
+                    "detected": True,
+                }
+            ],
+            credentials=[],
+            include_cli_versions=False,
+            include_history=False,
+        )
+
+        claude = next(item for item in entries if item["providerId"] == "claude")
+        self.assertEqual(claude["authStatus"], "unknown")  # legacy label remains
+        self.assertIsNone(claude["providerContract"]["providerState"]["authenticated"])
+
+    def test_verified_safe_local_status_asserts_protocol_authentication(self):
+        entries = provider_connection_doctor(
+            accounts=[account("claude", authenticated=False)],
+            connections=[
+                {
+                    "providerId": "claude",
+                    "authStatus": "connected",
+                    "cliPresent": True,
+                    "detected": True,
+                }
+            ],
+            credentials=[],
+            include_cli_versions=False,
+            include_history=False,
+        )
+
+        claude = next(item for item in entries if item["providerId"] == "claude")
+        self.assertTrue(claude["providerContract"]["providerState"]["authenticated"])
+
 
 class InteractiveProviderLoginTests(unittest.TestCase):
     def test_windows_login_uses_fixed_argv_sanitized_env_and_forced_probe(self):

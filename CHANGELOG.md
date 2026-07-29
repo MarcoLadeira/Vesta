@@ -2,6 +2,16 @@
 
 ## 0.2.1 Alpha.1
 
+### Provider adapters
+
+- **Provider adapter protocol v1 (2026-07-29).** Migrated the nine supported
+  adapters to the immutable **catalog v1** contract, with one deterministic
+  conformance matrix and offline replay suite. Consumers must retain the
+  announced catalog/protocol versions when serialising or exchanging adapter
+  records. An unknown or incompatible version, capability, readiness, or SLO
+  proof is reported as **degraded** with an actionable upgrade or
+  reconfiguration path — there is no silent fallback to a weaker contract.
+
 ### Desktop app
 
 - Redesigned the **Settings** surface: a new Overview landing page (status

@@ -10,10 +10,36 @@ from typing import Any
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
-ACCOUNT_PROVIDERS = {"claude", "codex", "copilot"}
-FREE_PROVIDERS = {"kimi", "gemini", "groq", "mistral"}
-LOCAL_PROVIDERS = {"ollama", "openai-compatible"}
-SUPPORTED_PROVIDERS = ACCOUNT_PROVIDERS | FREE_PROVIDERS | LOCAL_PROVIDERS
+from .provider_capabilities import provider_profile
+from .provider_catalog import all_catalog_records
+
+
+def _catalog_kind(record: dict[str, Any]) -> str:
+    requirements = record["requirements"]
+    if requirements["local_service"]:
+        return "local"
+    if requirements["cli"]:
+        return "account"
+    return "free"
+
+
+_CATALOG_RECORDS = tuple(all_catalog_records())
+ACCOUNT_PROVIDERS = frozenset(
+    record["provider_id"]
+    for record in _CATALOG_RECORDS
+    if _catalog_kind(record) == "account"
+)
+FREE_PROVIDERS = frozenset(
+    record["provider_id"]
+    for record in _CATALOG_RECORDS
+    if _catalog_kind(record) == "free"
+)
+LOCAL_PROVIDERS = frozenset(
+    record["provider_id"]
+    for record in _CATALOG_RECORDS
+    if _catalog_kind(record) == "local"
+)
+SUPPORTED_PROVIDERS = frozenset(record["provider_id"] for record in _CATALOG_RECORDS)
 
 
 @dataclass(frozen=True)
@@ -161,21 +187,26 @@ def test_free_provider_connection(
 class ProviderAdapter:
     provider_id: str
 
+    def __post_init__(self) -> None:
+        provider = str(self.provider_id or "").strip().lower()
+        provider_profile(provider)
+        object.__setattr__(self, "provider_id", provider)
+
     @property
     def kind(self) -> str:
-        if self.provider_id in ACCOUNT_PROVIDERS:
-            return "account"
-        if self.provider_id in FREE_PROVIDERS:
-            return "free"
-        return "local"
+        return self.profile.kind
 
     @property
     def capabilities(self) -> ProviderCapabilities:
-        if self.kind == "account":
-            return ProviderCapabilities(True, True, True, True, True)
-        if self.kind == "free":
-            return ProviderCapabilities(True, True, True, False, False)
-        return ProviderCapabilities(False, False, False, False, True)
+        profile = self.profile
+        status = profile.capability_status
+        return ProviderCapabilities(
+            status["repo_read"] == "supported",
+            status["repo_editing"] == "supported",
+            status["run_tests"] == "supported",
+            bool(profile.requires_cli and status["tool_calling"] == "supported"),
+            status["streaming"] == "supported",
+        )
 
     @property
     def profile(self) -> Any:
@@ -186,8 +217,6 @@ class ProviderAdapter:
         chat / code execution / repo editing / streaming / tool calling plus what
         the provider requires and whether it can be cancelled.
         """
-        from .provider_capabilities import provider_profile
-
         return provider_profile(self.provider_id)
 
     def health(self, status: dict[str, Any] | None = None) -> Any:
@@ -201,11 +230,76 @@ class ProviderAdapter:
 
         if not status:
             return ProviderHealth.UNKNOWN
-        return canonical_health(
-            auth_status=status.get("authStatus") or status.get("auth_status"),
-            cli_installed=status.get("cliInstalled", status.get("cli_present")),
-            error_code=status.get("lastErrorCode") or status.get("error_code"),
-            kind=status.get("kind", self.kind),
+        if not any(
+            name in status
+            for name in (
+                "installed",
+                "configured",
+                "authenticated",
+                "authorised",
+                "authorized",
+                "healthy",
+            )
+        ):
+            return canonical_health(
+                auth_status=status.get("authStatus") or status.get("auth_status"),
+                cli_installed=status.get("cliInstalled", status.get("cli_present")),
+                error_code=status.get("lastErrorCode") or status.get("error_code"),
+                kind=status.get("kind", self.kind),
+            )
+        readiness = self.readiness(status)
+        if readiness.installed is False:
+            return ProviderHealth.NOT_INSTALLED
+        if readiness.configured is False:
+            return ProviderHealth.NOT_CONFIGURED
+        if readiness.healthy is False or readiness.authorised is False:
+            return ProviderHealth.DEGRADED
+        if readiness.authenticated is True:
+            return ProviderHealth.AUTHENTICATED
+        if readiness.authenticated is False or readiness.configured is True:
+            return ProviderHealth.CONFIGURED
+        return ProviderHealth.UNKNOWN
+
+    def readiness(self, status: dict[str, Any] | None = None) -> Any:
+        """Return independent protocol readiness facts without inferring them.
+
+        ``health()`` intentionally retains its legacy one-enum projection.  This
+        method only accepts explicit readiness booleans, so an ``authStatus``
+        label can never be mistaken for authentication, authorisation, or a
+        general health verdict.
+        """
+
+        from .provider_protocol import ProviderReadiness
+
+        source = status or {}
+
+        def _bool(*names: str) -> bool | None:
+            for name in names:
+                value = source.get(name)
+                if isinstance(value, bool):
+                    return value
+            return None
+
+        healthy = _bool("healthy")
+        reason = source.get("degradedReason", source.get("degraded_reason"))
+        action = source.get("nextAction", source.get("next_action"))
+        if healthy is False and (not isinstance(reason, str) or not reason.strip()):
+            reason = "provider_unhealthy"
+        if healthy is False and (not isinstance(action, str) or not action.strip()):
+            action = "Check provider diagnostics, then retry."
+        installed = _bool("installed")
+        if installed is None and self.profile.requires_cli:
+            installed = _bool("cliInstalled", "cli_present")
+        return ProviderReadiness(
+            provider_id=self.provider_id,
+            installed=installed,
+            configured=_bool("configured"),
+            authenticated=_bool("authenticated"),
+            authorised=_bool("authorised", "authorized"),
+            healthy=healthy,
+            degraded_reason=reason if healthy is False else None,
+            next_action=action if healthy is False else None,
+            protocol_version=self.profile.protocol_version,
         )
 
     def probe(self, *, home: Path | None = None, force: bool = False) -> dict[str, Any]:
@@ -251,7 +345,11 @@ class ProviderAdapter:
             self.provider_id, cli_path or self.provider_id, model=model
         ).build_command(prompt, mode=mode, out_file=out_file)
 
-    def prepare_execution(self, request: ExecutionRequest) -> dict[str, Any]:
+    def prepare_execution(
+        self,
+        request: ExecutionRequest,
+        adapter_request: Any | None = None,
+    ) -> dict[str, Any]:
         """Build a structured, cancellable account-provider invocation.
 
         Provider-specific environment values are intentionally not returned;
@@ -259,6 +357,8 @@ class ProviderAdapter:
         reports which override names would be removed.
         """
 
+        if adapter_request is not None:
+            self.validate_request(adapter_request)
         if self.kind != "account":
             raise ValueError(
                 "Structured CLI execution is only available for account providers"
@@ -308,8 +408,36 @@ class ProviderAdapter:
             },
         }
 
+    def validate_request(self, adapter_request: Any) -> None:
+        """Fail before transport setup unless a protocol request matches the catalog."""
+
+        from .provider_protocol import (
+            AdapterRequest,
+            ProtocolViolation,
+            negotiate_capabilities,
+        )
+
+        if not isinstance(adapter_request, AdapterRequest):
+            raise ProtocolViolation("adapter_request must be an AdapterRequest")
+        if adapter_request.provider_id != self.provider_id:
+            raise ProtocolViolation(
+                "adapter_request provider_id must match the adapter"
+            )
+        readiness = negotiate_capabilities(
+            adapter_request,
+            self.profile.capability_status,
+        )
+        if readiness.degraded_reason is not None:
+            raise ProtocolViolation(readiness.degraded_reason)
+
     def normalize_event(self, event: dict[str, Any] | str) -> dict[str, Any]:
-        """Normalize transport output without inventing workflow transitions."""
+        """Normalize parser output into non-terminal protocol observations.
+
+        Parser ``done`` and ``cost`` hints remain useful to their legacy stream
+        owner, but this adapter boundary does not assert completion, price,
+        verification, or authority.  It emits caller-managed observations that
+        a later OPai layer may assign stream sequence numbers and timestamps to.
+        """
 
         from opai.activity import parse_claude_line, parse_codex_line
 
@@ -332,9 +460,40 @@ class ProviderAdapter:
             "events": parsed.get("events") or [],
             "text": parsed.get("text") or "",
             "error": parsed.get("error") or "",
-            "cost": parsed.get("cost"),
-            "done": bool(parsed.get("done")),
+            "cost": None,
+            "done": False,
+            "protocolObservations": self._protocol_observations(parsed),
         }
+
+    def _protocol_observations(self, parsed: dict[str, Any]) -> list[dict[str, Any]]:
+        """Convert only safe observations; stream envelope ownership stays upstream."""
+
+        from .provider_protocol import EventKind
+
+        observations: list[dict[str, Any]] = []
+
+        def _append(kind: EventKind, payload: dict[str, Any]) -> None:
+            observations.append({"kind": kind.value, "payload": payload})
+
+        text = parsed.get("text")
+        if isinstance(text, str) and text:
+            _append(EventKind.TEXT_DELTA, {"text": text})
+        for activity in parsed.get("events") or []:
+            if not isinstance(activity, dict):
+                continue
+            name = activity.get("type")
+            if name in {
+                "tool_call",
+                "file_read",
+                "file_edit",
+                "command_run",
+                "context_read",
+            }:
+                _append(EventKind.TOOL_CALL, {"name": str(name)})
+        error = parsed.get("error")
+        if isinstance(error, str) and error:
+            _append(EventKind.ERROR, {"message": error})
+        return observations
 
     def parse_result(
         self,

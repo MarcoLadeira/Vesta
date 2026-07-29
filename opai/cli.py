@@ -1964,6 +1964,15 @@ def cmd_models(args: argparse.Namespace) -> int:
                 "default_model": load_gui_preferences(root).get("default_model"),
                 "connected_accounts": data["accounts"],
                 "hint": data.get("hint"),
+                **{
+                    key: data[key]
+                    for key in (
+                        "providerCatalogVersion",
+                        "providerProtocolVersion",
+                        "providerContracts",
+                    )
+                    if key in data
+                },
             }
         )
     elif args.models_command == "set-default":

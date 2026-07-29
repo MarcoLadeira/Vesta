@@ -393,11 +393,32 @@ class SettingsPayloadTests(unittest.TestCase):
         self.assertEqual(payload["about"]["build"], asset_build_identity())
 
     def test_settings_exposes_normalized_connections(self):
+        from opaihub.provider_catalog import provider_ids
+
+        accounts = [
+            {
+                "id": provider,
+                "label": provider.title(),
+                "vendor": f"Test {provider.title()}",
+                "cli": provider,
+                "cli_path": None,
+                "cli_present": False,
+                "authenticated": False,
+                "connected": False,
+                "login_hint": "",
+            }
+            for provider in ("claude", "codex", "copilot")
+        ]
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
-            with mock.patch(
-                "opaihub.accounts._account_cli_version",
-                side_effect=AssertionError("synchronous CLI version lookup"),
+            with (
+                mock.patch(
+                    "opaihub.accounts._account_cli_version",
+                    side_effect=AssertionError("synchronous CLI version lookup"),
+                ),
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=accounts
+                ),
             ):
                 payload = settings_payload(root)
 
@@ -412,18 +433,9 @@ class SettingsPayloadTests(unittest.TestCase):
             self.assertNotIn("cli_path", connection)
         self.assertIn("connectionDoctor", payload)
         self.assertEqual(
-            # github joined via the git/PR connector credential (GITHUB_TOKEN);
-            # kimi joined with its Moonshot free-tier credential.
-            {
-                "claude",
-                "codex",
-                "copilot",
-                "kimi",
-                "gemini",
-                "groq",
-                "mistral",
-                "github",
-            },
+            # GitHub is the non-AI connector; every AI doctor entry must follow
+            # the version-pinned catalog rather than a drifting hand-written set.
+            set(provider_ids()) | {"github"},
             {item["providerId"] for item in payload["connectionDoctor"]},
         )
         self.assertNotIn("cli_path", json.dumps(payload["connectionDoctor"]))
