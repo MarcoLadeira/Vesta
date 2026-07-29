@@ -115,6 +115,13 @@ def _safe_readiness_input(
         source["configured"] = available
         source["healthy"] = available
 
+    connected = probe.get("connected")
+    if profile.requires_api_key and isinstance(connected, bool):
+        # A forced free-provider diagnostic has made a safe, prompt-free
+        # endpoint request. Its typed connection result is health evidence;
+        # it does not assert authorisation or any run outcome.
+        source["healthy"] = connected
+
     return source
 
 
@@ -199,7 +206,11 @@ def _adapter_prerequisite(
 
     try:
         adapter = adapter_factory(provider_id)
-        probe = adapter.probe()
+        probe = (
+            adapter.probe(force=True)
+            if adapter.profile.requires_api_key
+            else adapter.probe()
+        )
     except (OSError, RuntimeError, ValueError, TypeError):
         return f"requires a safe {provider_id} adapter diagnostic"
     if not isinstance(probe, Mapping):
@@ -294,6 +305,35 @@ def _adapter_with_ready_contract() -> MagicMock:
     return adapter
 
 
+def _api_adapter_with_ready_contract() -> MagicMock:
+    record = provider_record("groq")
+    adapter = MagicMock()
+    adapter.profile = SimpleNamespace(
+        catalog_version=CATALOG_VERSION,
+        protocol_version=PROTOCOL_VERSION,
+        capability_status=dict(record["capabilities"]),
+        contract={
+            "requirements": dict(record["requirements"]),
+            "cancellation": dict(record["cancellation"]),
+            "unsupportedBehavior": dict(record["unsupported_behavior"]),
+        },
+        requires_cli=False,
+        requires_api_key=True,
+        requires_oauth=False,
+    )
+    adapter.probe.return_value = {
+        "configured": True,
+        "connected": True,
+    }
+    adapter.readiness.return_value = ProviderReadiness(
+        provider_id="groq",
+        configured=True,
+        healthy=True,
+        protocol_version=PROTOCOL_VERSION,
+    )
+    return adapter
+
+
 class SelectedLiveProviderPreflightTests(unittest.TestCase):
     def _environment(self) -> dict[str, str]:
         return {
@@ -352,6 +392,31 @@ class SelectedLiveProviderPreflightTests(unittest.TestCase):
         self.assertTrue(readiness_input["configured"])
         self.assertTrue(readiness_input["authenticated"])
         self.assertNotIn("authorised", readiness_input)
+        ask.assert_called_once()
+
+    def test_api_key_provider_forces_safe_probe_before_ask(self) -> None:
+        adapter = _api_adapter_with_ready_contract()
+        environment = {
+            "OPAI_LIVE_PROVIDER_SMOKE": "1",
+            "OPAI_CONFIRM_CLOUD_TESTS": "YES",
+            "OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS": "groq",
+            "OPAI_LIVE_MODELS": "free:groq:openai/gpt-oss-120b",
+        }
+        expected_result = {"status": "answered_by_free_api", "answer": "OK"}
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch("opai.app_state.ask", return_value=expected_result) as ask,
+        ):
+            reason, result = _run_selected_provider_smoke(
+                "groq",
+                "free:groq:openai/gpt-oss-120b",
+                adapter_factory=lambda provider_id: adapter,
+            )
+
+        self.assertIsNone(reason)
+        self.assertEqual(result, expected_result)
+        adapter.probe.assert_called_once_with(force=True)
+        self.assertTrue(adapter.readiness.call_args.args[0]["healthy"])
         ask.assert_called_once()
 
 

@@ -107,10 +107,7 @@ class MockProviderAdapter:
     def slo(self) -> AdapterSLO:
         cancellation = self._record["cancellation"]
         assert isinstance(cancellation, Mapping)
-        # The protocol's two-second acknowledgement SLO remains the upper
-        # bound. A catalog adapter may promise a stricter acknowledgement.
-        cancel_ack_seconds = min(2.0, float(cancellation["slo_seconds"]))
-        return AdapterSLO(cancel_ack_seconds=cancel_ack_seconds)
+        return AdapterSLO(cancel_ack_seconds=float(cancellation["slo_seconds"]))
 
     def replay(self, scenario: Scenario | str) -> ScriptedTrace:
         """Return a deterministic trace for one required adapter scenario."""
@@ -228,8 +225,8 @@ class MockProviderAdapter:
         if scenario is Scenario.CANCELLATION_RACE:
             return (
                 _event(1, 0.0, EventKind.STARTED),
-                _event(2, 2.06, EventKind.CANCEL_ACK),
-                _terminal(3, 2.07, "cancelled"),
+                _event(2, 5.06, EventKind.CANCEL_ACK),
+                _terminal(3, 5.07, "cancelled"),
             )
         if scenario in {
             Scenario.UNSUPPORTED_CAPABILITY,

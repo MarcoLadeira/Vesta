@@ -7,7 +7,7 @@ import unittest
 
 from hypothesis import given, strategies as st
 
-from opaihub.provider_catalog import PROTOCOL_VERSION, provider_ids
+from opaihub.provider_catalog import PROTOCOL_VERSION, provider_ids, provider_record
 from opaihub.provider_protocol import EventKind, ProtocolViolation, ProviderEvent
 from tests.provider_conformance import (
     MockProviderAdapter,
@@ -93,6 +93,13 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertEqual(trace.events, ())
         with self.assertRaises(ProtocolViolation):
             assert_conformant_trace(trace)
+
+    def test_catalog_declared_cancellation_slo_is_retained_exactly(self):
+        trace = MockProviderAdapter("codex").replay(Scenario.SUCCESS_STREAM)
+        declared = provider_record("codex")["cancellation"]["slo_seconds"]
+
+        self.assertEqual(declared, 5)
+        self.assertEqual(trace.slo.cancel_ack_seconds, declared)
 
     @given(st.sampled_from(tuple(provider_ids())))
     def test_property_generated_duplicate_terminal_is_rejected_for_every_provider(
