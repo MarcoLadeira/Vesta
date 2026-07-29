@@ -25,15 +25,15 @@ class ProviderContractSurfaceTests(unittest.TestCase):
             with (
                 mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
                 mock.patch("opaihub.local_runner.cached_local_models", return_value=[]),
+                mock.patch("opaihub.credentials.credential_statuses", return_value=[]),
             ):
                 picker = available_models(Path(tmp), discover_local=False)
-        doctor = provider_connection_doctor(
-            accounts=[],
-            connections=[],
-            credentials=[],
-            include_cli_versions=False,
-            include_history=False,
-        )
+                doctor = provider_connection_doctor(
+                    accounts=[],
+                    connections=[],
+                    include_cli_versions=False,
+                    include_history=False,
+                )
         doctor_by_provider = {entry["providerId"]: entry for entry in doctor}
 
         self.assertEqual(picker["providerCatalogVersion"], "v1")
@@ -118,6 +118,64 @@ class ProviderContractSurfaceTests(unittest.TestCase):
                     payload["providerContracts"],
                     contract_readouts["providerContracts"],
                 )
+
+    def test_configured_api_contract_is_identical_across_public_surfaces(self):
+        """A safe credential fact is shared without rendering its secret."""
+
+        secret = "must-not-render"
+        credential = {
+            "provider": "groq",
+            "configured": True,
+            "source": "environment",
+            "envKey": "GROQ_API_KEY",
+            "value": secret,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pyproject.toml").write_text(
+                "[project]\nname = 'surface-test'\n", encoding="utf-8"
+            )
+            with (
+                mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
+                mock.patch(
+                    "opaihub.credentials.credential_statuses",
+                    return_value=[credential],
+                ),
+            ):
+                doctor = provider_connection_doctor(
+                    accounts=[],
+                    connections=[],
+                    credentials=[credential],
+                    include_cli_versions=False,
+                    include_history=False,
+                )
+                picker = available_models(root, discover_local=False)
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    code = main(["models", "list", "--project", str(root)])
+                cli_payload = json.loads(output.getvalue())
+                bridge_payload = _models(root, discover_local=False)
+                initial_payload = boot_payload(root)
+
+        doctor_contract = next(
+            entry["providerContract"]
+            for entry in doctor
+            if entry["providerId"] == "groq"
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(doctor_contract["providerState"]["configured"])
+        for surface, contract in (
+            ("picker", picker["providerContracts"]["groq"]),
+            ("cli", cli_payload["providerContracts"]["groq"]),
+            ("web_bridge", bridge_payload["providerContracts"]["groq"]),
+            ("web_initial", initial_payload["providerContracts"]["groq"]),
+        ):
+            with self.subTest(surface=surface):
+                self.assertEqual(contract, doctor_contract)
+        self.assertNotIn(secret, json.dumps(doctor))
+        self.assertNotIn(secret, json.dumps(cli_payload))
+        self.assertNotIn(secret, json.dumps(bridge_payload))
+        self.assertNotIn(secret, json.dumps(initial_payload))
 
 
 if __name__ == "__main__":

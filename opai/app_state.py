@@ -583,7 +583,6 @@ def available_models(
         for entry in provider_connection_doctor(
             accounts=detected_accounts,
             connections=connections,
-            credentials=[],
             include_cli_versions=False,
             include_history=True,
         )
