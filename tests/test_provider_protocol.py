@@ -203,6 +203,21 @@ class ProviderProtocolTests(unittest.TestCase):
         with self.assertRaises(ProtocolViolation):
             _event(3, 0.2, EventKind.TERMINAL, {"provider_result": "failed"})
 
+    def test_provider_completion_assertion_aliases_are_rejected_as_fields_only(self):
+        # A provider cannot award a terminal outcome through a transport field.
+        # The same words remain ordinary transport *values*; OPai's canonical
+        # terminal event continues to own lifecycle truth.
+        for alias in ("done", "is_complete", "success", "finished"):
+            with self.subTest(alias=alias), self.assertRaises(ProtocolViolation):
+                _event(1, 0.0, EventKind.STARTED, {alias: True})
+
+        for alias in ("isComplete", "is-complete", "IS_COMPLETE"):
+            with self.subTest(alias=alias), self.assertRaises(ProtocolViolation):
+                _event(1, 0.0, EventKind.STARTED, {alias: True})
+
+        event = _event(1, 0.0, EventKind.TEXT_DELTA, {"text": "finished"})
+        self.assertEqual(event.payload["text"], "finished")
+
     def test_terminal_requires_one_non_success_state_and_canonical_error_codes(self):
         invalid_payloads = (
             {},
@@ -699,6 +714,10 @@ class ProviderProtocolPropertyTests(unittest.TestCase):
                 "charge_amount",
                 "provider_completion_state",
                 "sdk_completion_verdict",
+                "done",
+                "is_complete",
+                "success",
+                "finished",
             )
         ),
         st.sampled_from(("snake", "camel", "hyphen", "upper")),

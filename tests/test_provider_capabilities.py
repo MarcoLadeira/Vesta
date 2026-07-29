@@ -227,7 +227,6 @@ class CanonicalHealthMappingTests(unittest.TestCase):
         cases = {
             "connected": ProviderHealth.AUTHENTICATED,
             "detected": ProviderHealth.CONFIGURED,
-            "unknown": ProviderHealth.CONFIGURED,
             "not_configured": ProviderHealth.NOT_CONFIGURED,
             "misconfigured": ProviderHealth.DEGRADED,
             "provider_unavailable": ProviderHealth.DEGRADED,
@@ -238,6 +237,18 @@ class CanonicalHealthMappingTests(unittest.TestCase):
             self.assertEqual(
                 canonical_health(auth_status=status, cli_installed=True), expected
             )
+
+    def test_unknown_auth_status_requires_concrete_configuration_evidence(self):
+        self.assertEqual(
+            canonical_health(auth_status="unknown", cli_installed=True),
+            ProviderHealth.UNKNOWN,
+        )
+        self.assertEqual(
+            canonical_health(
+                auth_status="unknown", cli_installed=True, configured=True
+            ),
+            ProviderHealth.CONFIGURED,
+        )
 
     def test_rate_limit_code_wins_over_auth_status(self):
         self.assertEqual(

@@ -944,14 +944,20 @@ def provider_connection_doctor(
         )
         observation = {
             "installed": bool(account.get("cli_present")),
-            "authenticated": False
-            if auth_failure
-            else bool(account.get("authenticated")),
             # Only normalized local facts are retained: no error prose,
             # provider completion claim, authority claim, or cost assertion.
             "authStatus": auth_status,
             "lastErrorCode": error_code,
         }
+        # ``account[\"authenticated\"]`` is a backward-compatible presence
+        # detector (an auth artifact or token), not proof that the CLI's local
+        # sign-in check succeeded.  Preserve that legacy detector on the
+        # account/doctor fields, but make the protocol state conservative: only
+        # a successful safe status check may assert authentication.
+        if auth_failure:
+            observation["authenticated"] = False
+        elif auth_status == "connected":
+            observation["authenticated"] = True
         observed_protocol = _observed_adapter_protocol_version(connection)
         if observed_protocol is not None:
             observation["adapterProtocolVersion"] = observed_protocol

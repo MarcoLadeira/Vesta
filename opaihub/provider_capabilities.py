@@ -263,7 +263,6 @@ _AUTH_STATUS_HEALTH = {
     "authenticated": ProviderHealth.AUTHENTICATED,
     "detected": ProviderHealth.CONFIGURED,
     "configured": ProviderHealth.CONFIGURED,
-    "unknown": ProviderHealth.CONFIGURED,
     "not_configured": ProviderHealth.NOT_CONFIGURED,
     "misconfigured": ProviderHealth.DEGRADED,
     "provider_unavailable": ProviderHealth.DEGRADED,
@@ -287,6 +286,7 @@ def canonical_health(
     *,
     auth_status: str | None,
     cli_installed: bool | None = None,
+    configured: bool | None = None,
     error_code: str | None = None,
     kind: str = "",
 ) -> ProviderHealth:
@@ -294,13 +294,20 @@ def canonical_health(
 
     A missing CLI for an account provider means the binary is not installed,
     which outranks any auth string. An explicit rate-limit error code always wins
-    (a rate-limited provider is authenticated but throttled). Everything else maps
-    from ``authStatus``; anything unrecognised is honestly ``unknown``.
+    (a rate-limited provider is authenticated but throttled). A legacy
+    ``unknown`` auth label means configured only when a separate concrete local
+    detector supports that projection; catalog-only rows stay honestly unknown.
+    Everything else maps from ``authStatus``; anything unrecognised is honestly
+    ``unknown``.
     """
     if str(kind or "").lower() == "account" and cli_installed is False:
         return ProviderHealth.NOT_INSTALLED
     if str(error_code or "").strip().upper() in _RATE_LIMIT_CODES:
         return ProviderHealth.RATE_LIMITED
+    if str(auth_status or "").strip().lower() == "unknown":
+        return (
+            ProviderHealth.CONFIGURED if configured is True else ProviderHealth.UNKNOWN
+        )
     return _AUTH_STATUS_HEALTH.get(
         str(auth_status or "").strip().lower(), ProviderHealth.UNKNOWN
     )
@@ -311,6 +318,13 @@ def health_from_connection(entry: dict[str, Any]) -> ProviderHealth:
     return canonical_health(
         auth_status=entry.get("authStatus"),
         cli_installed=entry.get("cliInstalled"),
+        configured=(
+            entry.get("configured")
+            if isinstance(entry.get("configured"), bool)
+            else entry.get("detected")
+            if isinstance(entry.get("detected"), bool)
+            else None
+        ),
         error_code=entry.get("lastErrorCode"),
         kind=entry.get("kind", ""),
     )

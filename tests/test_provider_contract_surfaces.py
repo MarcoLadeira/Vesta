@@ -57,6 +57,36 @@ class ProviderContractSurfaceTests(unittest.TestCase):
                     picker["providerContracts"][provider_id],
                 )
 
+    def test_unobserved_catalog_providers_are_honestly_unknown(self):
+        """Catalog support is not a local configuration or health observation."""
+
+        doctor = provider_connection_doctor(
+            accounts=[],
+            connections=[],
+            credentials=[],
+            include_cli_versions=False,
+            include_history=False,
+        )
+        by_provider = {entry["providerId"]: entry for entry in doctor}
+        readiness_fields = (
+            "installed",
+            "configured",
+            "authenticated",
+            "authorised",
+            "healthy",
+        )
+
+        for profile in all_provider_profiles():
+            with self.subTest(provider=profile["provider_id"]):
+                entry = by_provider[profile["provider_id"]]
+                state = entry["providerContract"]["providerState"]
+
+                self.assertEqual(entry["healthState"], "unknown")
+                self.assertEqual(
+                    {field: state[field] for field in readiness_fields},
+                    {field: None for field in readiness_fields},
+                )
+
     def test_incompatible_observed_protocol_is_actionable_degraded_not_fallback(self):
         """A stale adapter version is reported, never replaced with legacy truth."""
 

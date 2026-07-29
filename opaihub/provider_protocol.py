@@ -81,6 +81,7 @@ _FORBIDDEN_PAYLOAD_FIELDS = frozenset(
         "authorized",
     }
 )
+_COMPLETION_TRUTH_FIELDS = frozenset({"done", "is_complete", "success", "finished"})
 _AUTHORITY_TRUTH_TOKENS = frozenset(
     {"authority", "authorization", "authorisation", "authorized", "authorised"}
 )
@@ -297,6 +298,7 @@ def _validate_transport_field(key: str, value: Any, *, path: str) -> None:
     tokens = frozenset(part for part in normalized.split("_") if part)
     if (
         normalized in _FORBIDDEN_PAYLOAD_FIELDS
+        or normalized in _COMPLETION_TRUTH_FIELDS
         or "completion" in tokens
         or tokens & _AUTHORITY_TRUTH_TOKENS
         or tokens & _VERIFICATION_TRUTH_TOKENS
