@@ -12,7 +12,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import re
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .loader import RegistryLoadError, load_registry
@@ -39,11 +39,29 @@ _VALID_CHECK_KINDS = frozenset(
         "custom",
     }
 )
+_VALID_CONDITIONS = frozenset(
+    {
+        "frontend_changed",
+        "backend_changed",
+        "migration_changed",
+        "security_sensitive",
+        "ship_delivery",
+        "tool_available",
+    }
+)
 _NORMAL = re.compile(r"[^a-z0-9]+")
 _HUMAN_REVIEW_PATTERNS = (
     (re.compile(r"\blegal\b.*\b(?:approve|approval|review)\b", re.I), "legal approval"),
-    (re.compile(r"\bsecurity\b.*\b(?:approve|approval|review)\b", re.I), "security review"),
-    (re.compile(r"\b(?:manual|human|maintainer)\b.*\b(?:approve|approval|review)\b", re.I), "human review"),
+    (
+        re.compile(r"\bsecurity\b.*\b(?:approve|approval|review)\b", re.I),
+        "security review",
+    ),
+    (
+        re.compile(
+            r"\b(?:manual|human|maintainer)\b.*\b(?:approve|approval|review)\b", re.I
+        ),
+        "human review",
+    ),
 )
 _SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
@@ -70,8 +88,12 @@ class PolicySource:
     status: str = "applied"
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "source", _bounded_text(self.source, field_name="source", limit=64))
-        object.__setattr__(self, "reason", _bounded_text(self.reason, field_name="reason"))
+        object.__setattr__(
+            self, "source", _bounded_text(self.source, field_name="source", limit=64)
+        )
+        object.__setattr__(
+            self, "reason", _bounded_text(self.reason, field_name="reason")
+        )
         object.__setattr__(self, "status", _normal(self.status) or "applied")
 
     def to_dict(self) -> dict[str, str]:
@@ -89,8 +111,12 @@ class PolicyFinding:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "code", _normal(self.code))
-        object.__setattr__(self, "message", _bounded_text(self.message, field_name="message"))
-        object.__setattr__(self, "source", _bounded_text(self.source, field_name="source", limit=64))
+        object.__setattr__(
+            self, "message", _bounded_text(self.message, field_name="message")
+        )
+        object.__setattr__(
+            self, "source", _bounded_text(self.source, field_name="source", limit=64)
+        )
         object.__setattr__(self, "severity", _normal(self.severity) or "error")
 
     def to_dict(self) -> dict[str, str]:
@@ -114,6 +140,8 @@ class PolicyCheck:
     command: tuple[str, ...] = ()
     conditions: tuple[str, ...] = ()
     evidence: tuple[str, ...] = ("exit_status", "output_summary")
+    environment: tuple[str, ...] = ("canonical_worktree", "bounded_environment")
+    artifacts: tuple[str, ...] = ("check_record",)
     timeout_seconds: int = 600
     retries: int = 0
 
@@ -127,21 +155,44 @@ class PolicyCheck:
             raise ValueError(f"unknown check kind: {kind or self.kind}")
         if requirement not in _VALID_REQUIREMENTS:
             raise ValueError(f"invalid check requirement: {self.requirement}")
-        if isinstance(self.timeout_seconds, bool) or self.timeout_seconds < 1 or self.timeout_seconds > 86_400:
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or self.timeout_seconds < 1
+            or self.timeout_seconds > 86_400
+        ):
             raise ValueError("timeout_seconds must be between 1 and 86400")
         if isinstance(self.retries, bool) or self.retries < 0 or self.retries > 5:
             raise ValueError("retries must be between 0 and 5")
         command = tuple(str(item).strip() for item in self.command)
         if any(not item for item in command):
             raise ValueError("command entries must be non-empty")
+        conditions = tuple(_normal(item) for item in self.conditions if _normal(item))
+        if requirement == "conditional" and not conditions:
+            raise ValueError("conditional checks require at least one condition")
+        environment = tuple(_normal(item) for item in self.environment if _normal(item))
+        artifacts = tuple(_normal(item) for item in self.artifacts if _normal(item))
+        if not environment:
+            raise ValueError("checks require a bounded environment contract")
+        if not artifacts:
+            raise ValueError("checks require at least one artifact reference")
         object.__setattr__(self, "check_id", check_id)
         object.__setattr__(self, "kind", kind)
         object.__setattr__(self, "requirement", requirement)
-        object.__setattr__(self, "reason", _bounded_text(self.reason, field_name="reason"))
-        object.__setattr__(self, "source", _bounded_text(self.source, field_name="source", limit=64))
+        object.__setattr__(
+            self, "reason", _bounded_text(self.reason, field_name="reason")
+        )
+        object.__setattr__(
+            self, "source", _bounded_text(self.source, field_name="source", limit=64)
+        )
         object.__setattr__(self, "command", command)
-        object.__setattr__(self, "conditions", tuple(_normal(item) for item in self.conditions if _normal(item)))
-        object.__setattr__(self, "evidence", tuple(_normal(item) for item in self.evidence if _normal(item)))
+        object.__setattr__(self, "conditions", conditions)
+        object.__setattr__(
+            self,
+            "evidence",
+            tuple(_normal(item) for item in self.evidence if _normal(item)),
+        )
+        object.__setattr__(self, "environment", environment)
+        object.__setattr__(self, "artifacts", artifacts)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -153,6 +204,8 @@ class PolicyCheck:
             "command": list(self.command),
             "conditions": list(self.conditions),
             "evidence": list(self.evidence),
+            "environment": list(self.environment),
+            "artifacts": list(self.artifacts),
             "timeout_seconds": self.timeout_seconds,
             "retries": self.retries,
         }
@@ -167,8 +220,14 @@ class AcceptanceCriterion:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "criterion_id", _normal(self.criterion_id))
-        object.__setattr__(self, "requirement", _bounded_text(self.requirement, field_name="requirement"))
-        object.__setattr__(self, "reason", _bounded_text(self.reason, field_name="reason"))
+        object.__setattr__(
+            self,
+            "requirement",
+            _bounded_text(self.requirement, field_name="requirement"),
+        )
+        object.__setattr__(
+            self, "reason", _bounded_text(self.reason, field_name="reason")
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -186,12 +245,24 @@ class HumanReviewRequirement:
     source: str = "task"
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "requirement", _bounded_text(self.requirement, field_name="requirement"))
-        object.__setattr__(self, "reason", _bounded_text(self.reason, field_name="reason"))
-        object.__setattr__(self, "source", _bounded_text(self.source, field_name="source", limit=64))
+        object.__setattr__(
+            self,
+            "requirement",
+            _bounded_text(self.requirement, field_name="requirement"),
+        )
+        object.__setattr__(
+            self, "reason", _bounded_text(self.reason, field_name="reason")
+        )
+        object.__setattr__(
+            self, "source", _bounded_text(self.source, field_name="source", limit=64)
+        )
 
     def to_dict(self) -> dict[str, str]:
-        return {"requirement": self.requirement, "reason": self.reason, "source": self.source}
+        return {
+            "requirement": self.requirement,
+            "reason": self.reason,
+            "source": self.source,
+        }
 
 
 @dataclass(frozen=True)
@@ -230,7 +301,9 @@ class VerificationPolicy:
         object.__setattr__(self, "findings", tuple(self.findings))
         payload = self.payload_without_digest()
         computed = sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+            json.dumps(
+                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            ).encode("utf-8")
         ).hexdigest()
         if self.digest and self.digest != computed:
             raise ValueError("verification policy digest does not match content")
@@ -248,9 +321,31 @@ class VerificationPolicy:
             "classification": dict(self.classification),
             "checks": [check.to_dict() for check in self.checks],
             "sources": [source.to_dict() for source in self.sources],
-            "acceptance_criteria": [item.to_dict() for item in self.acceptance_criteria],
+            "acceptance_criteria": [
+                item.to_dict() for item in self.acceptance_criteria
+            ],
             "human_reviews": [item.to_dict() for item in self.human_reviews],
             "findings": [item.to_dict() for item in self.findings],
+            "estimated_execution": self.estimated_execution,
+        }
+
+    @property
+    def estimated_execution(self) -> dict[str, Any]:
+        potentially_required = tuple(
+            check
+            for check in self.checks
+            if check.requirement in {"required", "conditional"}
+        )
+        return {
+            "max_duration_seconds": sum(
+                check.timeout_seconds * (check.retries + 1)
+                for check in potentially_required
+            ),
+            "estimated_cost_usd": 0.0,
+            "assumptions": [
+                "Policy resolution does not execute commands.",
+                "Command execution is local unless #539 evidence records otherwise.",
+            ],
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -263,7 +358,9 @@ class VerificationPolicy:
             "status": self.status,
             "digest": self.digest,
             "required_check_ids": [check.check_id for check in self.required_checks],
-            "human_review_requirements": [item.requirement for item in self.human_reviews],
+            "human_review_requirements": [
+                item.requirement for item in self.human_reviews
+            ],
             "finding_codes": [item.code for item in self.findings],
         }
 
@@ -296,7 +393,10 @@ def classify_repository_and_task(root: Path, *, task: str, mode: str) -> dict[st
     normalized_mode = _normal(mode) or "explain"
     lowered = task_text.lower()
     families: list[str] = []
-    if any((path / marker).exists() for marker in ("pyproject.toml", "setup.py", "setup.cfg", "requirements.txt")):
+    if any(
+        (path / marker).exists()
+        for marker in ("pyproject.toml", "setup.py", "setup.cfg", "requirements.txt")
+    ):
         families.append("python")
     if (path / "package.json").exists():
         families.append("node")
@@ -311,9 +411,9 @@ def classify_repository_and_task(root: Path, *, task: str, mode: str) -> dict[st
         risks.append("delivery")
     if re.search(r"\b(policy|verification)\w*\b", lowered):
         risks.append("policy")
-    docs_only = bool(re.search(r"\b(doc|readme|documentation)\w*\b", lowered)) and not bool(
-        re.search(r"\b(fix|implement|code|test|bug|refactor)\w*\b", lowered)
-    )
+    docs_only = bool(
+        re.search(r"\b(doc|readme|documentation)\w*\b", lowered)
+    ) and not bool(re.search(r"\b(fix|implement|code|test|bug|refactor)\w*\b", lowered))
     return {
         "repository_families": families,
         "mode": normalized_mode,
@@ -335,18 +435,17 @@ def _builtin_checks(classification: dict[str, Any]) -> list[PolicyCheck]:
         )
     ]
     families = set(classification["repository_families"])
-    if "python" in families:
+    language_names = [
+        label
+        for key, label in (("python", "Python"), ("node", "JavaScript/TypeScript"))
+        if key in families
+    ]
+    if language_names:
+        languages = " and ".join(language_names)
         checks.extend(
             [
-                PolicyCheck("lint", "lint", "required", "Lint Python changes."),
-                PolicyCheck("unit", "unit", "required", "Run Python unit tests."),
-            ]
-        )
-    if "node" in families:
-        checks.extend(
-            [
-                PolicyCheck("lint", "lint", "required", "Lint JavaScript or TypeScript changes."),
-                PolicyCheck("unit", "unit", "required", "Run JavaScript or TypeScript unit tests."),
+                PolicyCheck("lint", "lint", "required", f"Lint {languages} changes."),
+                PolicyCheck("unit", "unit", "required", f"Run {languages} unit tests."),
             ]
         )
     if classification["docs_only"]:
@@ -360,28 +459,49 @@ def _builtin_checks(classification: dict[str, Any]) -> list[PolicyCheck]:
         ]
     if "migration" in classification["risk_categories"]:
         checks.append(
-            PolicyCheck("integration", "integration", "required", "Exercise migration compatibility.")
+            PolicyCheck(
+                "integration",
+                "integration",
+                "required",
+                "Exercise migration compatibility.",
+            )
         )
     if "security" in classification["risk_categories"]:
         checks.append(
-            PolicyCheck("security", "security", "required", "Run security analysis for sensitive changes.")
+            PolicyCheck(
+                "security",
+                "security",
+                "required",
+                "Run security analysis for sensitive changes.",
+            )
         )
     return checks
 
 
-def _acceptance_from_task(task: str) -> tuple[tuple[AcceptanceCriterion, ...], tuple[HumanReviewRequirement, ...]]:
+def _acceptance_from_task(
+    task: str,
+) -> tuple[tuple[AcceptanceCriterion, ...], tuple[HumanReviewRequirement, ...]]:
     lowered = task.lower()
     criteria: list[AcceptanceCriterion] = []
     if re.search(r"\b(test|verify|verification|ci)\b", lowered):
         criteria.append(
-            AcceptanceCriterion("tests_pass", "Relevant verification checks pass", True, "Requested explicitly")
+            AcceptanceCriterion(
+                "tests_pass",
+                "Relevant verification checks pass",
+                True,
+                "Requested explicitly",
+            )
         )
     if re.search(r"\b(build|compile)\b", lowered):
-        criteria.append(AcceptanceCriterion("build", "Build succeeds", True, "Requested explicitly"))
+        criteria.append(
+            AcceptanceCriterion("build", "Build succeeds", True, "Requested explicitly")
+        )
     reviews: list[HumanReviewRequirement] = []
     for pattern, requirement in _HUMAN_REVIEW_PATTERNS:
         if pattern.search(task):
-            reviews.append(HumanReviewRequirement(requirement, "Task requires a human decision."))
+            reviews.append(
+                HumanReviewRequirement(requirement, "Task requires a human decision.")
+            )
     return tuple(criteria), tuple(reviews)
 
 
@@ -389,7 +509,9 @@ def _policy_finding(code: str, message: str, *, source: str) -> PolicyFinding:
     return PolicyFinding(code, message, source=source, severity="error")
 
 
-def _load_policy_mapping(path: Path, *, source: str) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
+def _load_policy_mapping(
+    path: Path, *, source: str
+) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
     """Load one trusted policy mapping, treating malformed content as a block."""
 
     try:
@@ -398,19 +520,25 @@ def _load_policy_mapping(path: Path, *, source: str) -> tuple[Mapping[str, Any] 
         return None, _policy_finding("malformed_policy", str(exc), source=source)
     if not isinstance(data, Mapping):
         return None, _policy_finding(
-            "invalid_policy_shape", "Verification policy content must be a mapping.", source=source
+            "invalid_policy_shape",
+            "Verification policy content must be a mapping.",
+            source=source,
         )
     return data, None
 
 
-def _overlay_from_repository(root: Path) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
+def _overlay_from_repository(
+    root: Path,
+) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
     path = root / REPOSITORY_POLICY_FILE
     if not path.exists():
         return None, None
     return _load_policy_mapping(path, source="repository")
 
 
-def _overlay_from_team(root: Path) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
+def _overlay_from_team(
+    root: Path,
+) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
     path = root / TEAM_POLICY_FILE
     if not path.exists():
         return None, None
@@ -422,7 +550,9 @@ def _overlay_from_team(root: Path) -> tuple[Mapping[str, Any] | None, PolicyFind
         return None, None
     if not isinstance(overlay, Mapping):
         return None, _policy_finding(
-            "invalid_policy_shape", "team verification_policy must be a mapping.", source="team"
+            "invalid_policy_shape",
+            "team verification_policy must be a mapping.",
+            source="team",
         )
     return overlay, None
 
@@ -444,10 +574,29 @@ def _overlay_check(
     if not isinstance(command_raw, (list, tuple)):
         raise ValueError("command must be a list")
     conditions_raw = raw.get("conditions", inherited.conditions if inherited else ())
-    evidence_raw = raw.get("evidence", inherited.evidence if inherited else ("exit_status", "output_summary"))
-    if not isinstance(conditions_raw, (list, tuple)) or not isinstance(evidence_raw, (list, tuple)):
-        raise ValueError("conditions and evidence must be lists")
-    timeout = raw.get("timeout_seconds", inherited.timeout_seconds if inherited else 600)
+    evidence_raw = raw.get(
+        "evidence",
+        inherited.evidence if inherited else ("exit_status", "output_summary"),
+    )
+    environment_raw = raw.get(
+        "environment",
+        inherited.environment
+        if inherited
+        else ("canonical_worktree", "bounded_environment"),
+    )
+    artifacts_raw = raw.get(
+        "artifacts", inherited.artifacts if inherited else ("check_record",)
+    )
+    if not all(
+        isinstance(value, (list, tuple))
+        for value in (conditions_raw, evidence_raw, environment_raw, artifacts_raw)
+    ):
+        raise ValueError(
+            "conditions, evidence, environment and artifacts must be lists"
+        )
+    timeout = raw.get(
+        "timeout_seconds", inherited.timeout_seconds if inherited else 600
+    )
     retries = raw.get("retries", inherited.retries if inherited else 0)
     return PolicyCheck(
         check_id=check_id,
@@ -458,6 +607,8 @@ def _overlay_check(
         command=tuple(str(item) for item in command_raw),
         conditions=tuple(str(item) for item in conditions_raw),
         evidence=tuple(str(item) for item in evidence_raw),
+        environment=tuple(str(item) for item in environment_raw),
+        artifacts=tuple(str(item) for item in artifacts_raw),
         timeout_seconds=timeout,
         retries=retries,
     )
@@ -483,7 +634,11 @@ def _apply_overlay(
                 )
             )
     version = overlay.get("schema_version")
-    if isinstance(version, bool) or not isinstance(version, int) or version != POLICY_SCHEMA_VERSION:
+    if (
+        isinstance(version, bool)
+        or not isinstance(version, int)
+        or version != POLICY_SCHEMA_VERSION
+    ):
         findings.append(
             _policy_finding(
                 "schema_incompatible",
@@ -500,30 +655,78 @@ def _apply_overlay(
         return
     positions = {check.check_id: index for index, check in enumerate(checks)}
     seen: set[str] = set()
+    supported_check_fields = {
+        "id",
+        "kind",
+        "requirement",
+        "reason",
+        "command",
+        "conditions",
+        "evidence",
+        "environment",
+        "artifacts",
+        "timeout_seconds",
+        "retries",
+    }
     for raw in raw_checks:
         if not isinstance(raw, Mapping):
             findings.append(
-                _policy_finding("invalid_check", "Each check must be a mapping.", source=source)
+                _policy_finding(
+                    "invalid_check", "Each check must be a mapping.", source=source
+                )
             )
             continue
         check_id = _normal(raw.get("id"))
         if not check_id:
-            findings.append(_policy_finding("invalid_check", "Check id is required.", source=source))
+            findings.append(
+                _policy_finding("invalid_check", "Check id is required.", source=source)
+            )
             continue
         if check_id in seen:
             findings.append(
-                _policy_finding("duplicate_check_id", f"Duplicate check id: {check_id}", source=source)
+                _policy_finding(
+                    "duplicate_check_id",
+                    f"Duplicate check id: {check_id}",
+                    source=source,
+                )
             )
             continue
         seen.add(check_id)
+        unexpected_fields = sorted(
+            str(field_name)
+            for field_name in raw
+            if str(field_name) not in supported_check_fields
+        )
+        if unexpected_fields:
+            findings.append(
+                _policy_finding(
+                    "unknown_check_field",
+                    "Unsupported check field(s): " + ", ".join(unexpected_fields),
+                    source=source,
+                )
+            )
+            continue
         inherited = checks[positions[check_id]] if check_id in positions else None
         try:
             candidate = _overlay_check(raw, source=source, inherited=inherited)
         except (TypeError, ValueError) as exc:
             findings.append(_policy_finding("invalid_check", str(exc), source=source))
             continue
+        unknown_conditions = sorted(set(candidate.conditions) - _VALID_CONDITIONS)
+        if unknown_conditions:
+            findings.append(
+                _policy_finding(
+                    "unknown_condition",
+                    "Unsupported condition(s): " + ", ".join(unknown_conditions),
+                    source=source,
+                )
+            )
+            continue
         if inherited is not None:
-            if inherited.requirement == "required" and candidate.requirement != "required":
+            if (
+                inherited.requirement == "required"
+                and candidate.requirement != "required"
+            ):
                 findings.append(
                     _policy_finding(
                         "required_check_downgrade",
@@ -553,14 +756,20 @@ def _overlay_human_reviews(
     raw_reviews = overlay.get("human_reviews", [])
     if not isinstance(raw_reviews, list):
         findings.append(
-            _policy_finding("invalid_human_reviews", "human_reviews must be a list.", source=source)
+            _policy_finding(
+                "invalid_human_reviews", "human_reviews must be a list.", source=source
+            )
         )
         return ()
     reviews: list[HumanReviewRequirement] = []
     for raw in raw_reviews:
         if not isinstance(raw, Mapping):
             findings.append(
-                _policy_finding("invalid_human_review", "Each human review must be a mapping.", source=source)
+                _policy_finding(
+                    "invalid_human_review",
+                    "Each human review must be a mapping.",
+                    source=source,
+                )
             )
             continue
         try:
@@ -570,14 +779,18 @@ def _overlay_human_reviews(
                 )
             )
         except ValueError as exc:
-            findings.append(_policy_finding("invalid_human_review", str(exc), source=source))
+            findings.append(
+                _policy_finding("invalid_human_review", str(exc), source=source)
+            )
     return tuple(reviews)
 
 
 def _safe_identifier(value: str, *, field_name: str) -> str:
     candidate = str(value or "").strip()
     if not _SAFE_IDENTIFIER.fullmatch(candidate):
-        raise ValueError(f"{field_name} must contain only letters, digits, '.', '_' or '-'")
+        raise ValueError(
+            f"{field_name} must contain only letters, digits, '.', '_' or '-'"
+        )
     return candidate
 
 
@@ -600,8 +813,12 @@ def persist_effective_policy(
 
     if not isinstance(policy, VerificationPolicy):
         raise TypeError("policy must be a VerificationPolicy")
-    target = _policy_artifact_path(Path(root).expanduser().resolve(), task_id=task_id, run_id=run_id)
-    payload = json.dumps(policy.to_dict(), sort_keys=True, indent=2, ensure_ascii=True) + "\n"
+    target = _policy_artifact_path(
+        Path(root).expanduser().resolve(), task_id=task_id, run_id=run_id
+    )
+    payload = (
+        json.dumps(policy.to_dict(), sort_keys=True, indent=2, ensure_ascii=True) + "\n"
+    )
     with interprocess_transaction(target):
         atomic_write_text(target, payload)
     return PolicyArtifactRef(path=target, digest=policy.digest)
@@ -624,7 +841,9 @@ def resolve_verification_policy(
     criteria, reviews = _acceptance_from_task(task)
     checks = _builtin_checks(classification)
     findings: list[PolicyFinding] = []
-    requested_schema = POLICY_SCHEMA_VERSION if schema_version is None else schema_version
+    requested_schema = (
+        POLICY_SCHEMA_VERSION if schema_version is None else schema_version
+    )
     if isinstance(requested_schema, bool) or requested_schema != POLICY_SCHEMA_VERSION:
         return VerificationPolicy(
             status="blocked",
@@ -645,7 +864,9 @@ def resolve_verification_policy(
                 ),
             ),
         )
-    if classification["edit_capable"] and set(classification["repository_families"]) == {"unknown"}:
+    if classification["edit_capable"] and set(
+        classification["repository_families"]
+    ) == {"unknown"}:
         reviews += (
             HumanReviewRequirement(
                 "verification tooling review",
@@ -660,20 +881,51 @@ def resolve_verification_policy(
                 severity="warning",
             )
         )
+    risk_reviews = {
+        "migration": "migration rollback review",
+        "security": "security review",
+        "delivery": "release review",
+        "policy": "verification policy review",
+    }
+    existing_reviews = {item.requirement for item in reviews}
+    for risk in classification["risk_categories"]:
+        requirement = risk_reviews.get(risk)
+        if requirement and requirement not in existing_reviews:
+            reviews += (
+                HumanReviewRequirement(
+                    requirement,
+                    f"High-risk {risk} changes require explicit human review.",
+                    source="builtin",
+                ),
+            )
+            existing_reviews.add(requirement)
     root_path = Path(root).expanduser().resolve()
-    sources: list[PolicySource] = [PolicySource("builtin", "Versioned OPai safe defaults")]
-    for source, loader in (("team", _overlay_from_team), ("repository", _overlay_from_repository)):
+    sources: list[PolicySource] = [
+        PolicySource("builtin", "Versioned OPai safe defaults")
+    ]
+    for source, loader in (
+        ("team", _overlay_from_team),
+        ("repository", _overlay_from_repository),
+    ):
         overlay, finding = loader(root_path)
         if finding is not None:
             findings.append(finding)
-            sources.append(PolicySource(source, "Policy could not be loaded safely", status="blocked"))
+            sources.append(
+                PolicySource(
+                    source, "Policy could not be loaded safely", status="blocked"
+                )
+            )
             continue
         if overlay is None:
             continue
         _apply_overlay(checks, overlay, source=source, findings=findings)
         reviews += _overlay_human_reviews(overlay, source=source, findings=findings)
         sources.append(PolicySource(source, "Trusted policy overlay applied"))
-    status = "blocked" if any(finding.severity == "error" for finding in findings) else "ready"
+    status = (
+        "blocked"
+        if any(finding.severity == "error" for finding in findings)
+        else "ready"
+    )
     return VerificationPolicy(
         status=status,
         classification={**classification, "delivery": normalized_delivery},

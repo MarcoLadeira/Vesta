@@ -216,7 +216,9 @@ class SelectedLocalModelTests(unittest.TestCase):
 class VerificationPolicyPipelineTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
-        self.root = make_repo(Path(self._tmp.name), files={"app.py": "value = 1\n"}, commit=True)
+        self.root = make_repo(
+            Path(self._tmp.name), files={"app.py": "value = 1\n"}, commit=True
+        )
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -243,7 +245,9 @@ class VerificationPolicyPipelineTests(unittest.TestCase):
             return mismatch
 
         with (
-            mock.patch("opaihub.gui_pipeline.persist_effective_policy", side_effect=persist),
+            mock.patch(
+                "opaihub.gui_pipeline.persist_effective_policy", side_effect=persist
+            ),
             mock.patch("opaihub.ask.run_ask", side_effect=run_provider),
         ):
             result = handle_gui_message(
@@ -257,7 +261,9 @@ class VerificationPolicyPipelineTests(unittest.TestCase):
         self.assertEqual(result["verification_policy"]["artifact"], artifact.to_dict())
 
     def test_malformed_policy_blocks_before_provider_dispatch(self):
-        (self.root / "opai-verification-policy.yaml").write_text("checks: [", encoding="utf-8")
+        (self.root / "opai-verification-policy.yaml").write_text(
+            "checks: [", encoding="utf-8"
+        )
         mismatch = {"status": "answered", "answer": "should not run"}
 
         with mock.patch("opaihub.ask.run_ask", return_value=mismatch) as provider:

@@ -15,6 +15,18 @@
 - Added matching GUI and `opai repo inspect --json` safety receipts, with
   redacted remote identity and no cleanup command exposed by either surface.
 
+### Verification policy
+
+- Added versioned, fail-closed verification-policy resolution for edit-capable
+  runs. Built-in defaults, team policy, repository policy, task risk, and
+  acceptance criteria resolve into a deterministic, redacted artifact with
+  source provenance, bounded check requirements, human-review gates, and a
+  stable digest before a provider can begin editing.
+- Added `opai verify policy --task <task> --mode <mode> --json` for the same
+  read-only effective-policy decision in CLI and CI. This command does not run
+  checks or declare completion; structured command evidence and final verdicts
+  remain a separate verification-execution responsibility.
+
 ### Provider adapters
 
 - **Provider adapter protocol v1 (2026-07-29).** Migrated the nine supported

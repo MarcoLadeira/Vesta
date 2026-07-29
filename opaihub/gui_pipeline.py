@@ -864,7 +864,11 @@ def handle_gui_message(
             )
             if effective_policy.status == "blocked":
                 finding = next(
-                    (item for item in effective_policy.findings if item.severity == "error"),
+                    (
+                        item
+                        for item in effective_policy.findings
+                        if item.severity == "error"
+                    ),
                     None,
                 )
                 verification_policy_error = (
@@ -958,7 +962,9 @@ def handle_gui_message(
             "discover relevant focused tests",
             "run full relevant suite after focused tests pass",
         ),
-        verification_policy=effective_policy.safe_summary() if effective_policy is not None else {},
+        verification_policy=effective_policy.safe_summary()
+        if effective_policy is not None
+        else {},
         last_failure=previous_workflow.last_test,
         next_action=runtime.state.next_actions[0]
         if runtime.state.next_actions
@@ -1569,7 +1575,9 @@ def handle_gui_message(
                         "detail": verification_policy_error,
                     }
                 ],
-                "next_actions": ["Repair the verification policy, then retry the task."],
+                "next_actions": [
+                    "Repair the verification policy, then retry the task."
+                ],
             }
         )
 
