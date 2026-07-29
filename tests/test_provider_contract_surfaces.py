@@ -26,6 +26,7 @@ class ProviderContractSurfaceTests(unittest.TestCase):
                 mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
                 mock.patch("opaihub.local_runner.cached_local_models", return_value=[]),
                 mock.patch("opaihub.credentials.credential_statuses", return_value=[]),
+                mock.patch("opaihub.free_models.list_free_models", return_value=[]),
             ):
                 picker = available_models(Path(tmp), discover_local=False)
                 doctor = provider_connection_doctor(
@@ -91,7 +92,15 @@ class ProviderContractSurfaceTests(unittest.TestCase):
             (root / "pyproject.toml").write_text(
                 "[project]\nname = 'surface-test'\n", encoding="utf-8"
             )
-            with mock.patch("opai.app_state.available_models", return_value=source):
+            with (
+                mock.patch("opai.app_state.available_models", return_value=source),
+                mock.patch(
+                    "opai.gui_web._cached_update_check",
+                    return_value={"checked": False, "reason": "test"},
+                ) as cached_update_check,
+                mock.patch("opai.gui_web._workspace", return_value={}) as workspace,
+                mock.patch("opai.gui_web._status", return_value={}) as status,
+            ):
                 output = io.StringIO()
                 with redirect_stdout(output):
                     code = main(["models", "list", "--project", str(root)])
@@ -100,6 +109,9 @@ class ProviderContractSurfaceTests(unittest.TestCase):
                 initial_payload = boot_payload(root)
 
         self.assertEqual(code, 0)
+        self.assertGreaterEqual(cached_update_check.call_count, 1)
+        self.assertGreaterEqual(workspace.call_count, 1)
+        self.assertGreaterEqual(status.call_count, 1)
         for surface, payload in (
             ("cli", cli_payload),
             ("web_bridge", bridge_payload),
@@ -142,11 +154,20 @@ class ProviderContractSurfaceTests(unittest.TestCase):
                     return_value=[credential],
                 ),
                 mock.patch(
+                    "opaihub.free_models.list_free_models", return_value=[]
+                ) as free_models,
+                mock.patch(
                     "opaihub.local_runner.list_local_models", return_value=[]
                 ) as live_local_models,
                 mock.patch(
                     "opaihub.local_runner.cached_local_models", return_value=[]
                 ) as cached_local_models,
+                mock.patch(
+                    "opai.gui_web._cached_update_check",
+                    return_value={"checked": False, "reason": "test"},
+                ) as cached_update_check,
+                mock.patch("opai.gui_web._workspace", return_value={}) as workspace,
+                mock.patch("opai.gui_web._status", return_value={}) as status,
             ):
                 doctor = provider_connection_doctor(
                     accounts=[],
@@ -172,6 +193,10 @@ class ProviderContractSurfaceTests(unittest.TestCase):
         self.assertTrue(doctor_contract["providerState"]["configured"])
         self.assertGreaterEqual(live_local_models.call_count, 1)
         self.assertGreaterEqual(cached_local_models.call_count, 1)
+        self.assertGreaterEqual(free_models.call_count, 1)
+        self.assertGreaterEqual(cached_update_check.call_count, 1)
+        self.assertGreaterEqual(workspace.call_count, 1)
+        self.assertGreaterEqual(status.call_count, 1)
         for surface, contract in (
             ("picker", picker["providerContracts"]["groq"]),
             ("cli", cli_payload["providerContracts"]["groq"]),
