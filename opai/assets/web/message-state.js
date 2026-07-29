@@ -74,11 +74,34 @@
     };
   }
 
+  // #295 alpha gate 7: "every attempted violation is rejected AND observable".
+  // Refusing silently satisfied only the first half — the store knew something
+  // had tried to walk an impossible path and said nothing, so the one class of
+  // bug this model exists to catch left no trace on this surface either.
+  // Bounded, with the true total kept separately so it survives truncation.
+  var MAX_REFUSALS = 64;
+  var refusals = [];
+  var refusalCount = 0;
+
   function transition(message, nextStatus) {
     var current = String((message && message.status) || "queued");
     var next = String(nextStatus || current);
-    if ((ALLOWED[current] || []).indexOf(next) === -1) return message;
+    if ((ALLOWED[current] || []).indexOf(next) === -1) {
+      refusalCount += 1;
+      refusals.push({ from: current, to: next, at: Date.now() });
+      if (refusals.length > MAX_REFUSALS) refusals.shift();
+      return message;
+    }
     return Object.assign({}, message, { status: next });
+  }
+
+  function illegalTransitions() {
+    return { count: refusalCount, recent: refusals.slice() };
+  }
+
+  function resetIllegalTransitions() {
+    refusalCount = 0;
+    refusals.length = 0;
   }
 
   function canApply(message, incomingRequestId) {
@@ -128,6 +151,8 @@
     canApply: canApply,
     fromBackendStatus: fromBackendStatus,
     transition: transition,
+    illegalTransitions: illegalTransitions,
+    resetIllegalTransitions: resetIllegalTransitions,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   global.OPaiMessageState = api;
