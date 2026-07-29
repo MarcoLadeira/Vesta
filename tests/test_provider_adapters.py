@@ -8,7 +8,13 @@ from opaihub.provider_adapters import (
     opai_mode_for_gemini_approval,
     resolve_execution_plan,
 )
-from opaihub.provider_protocol import AdapterRequest, ProtocolViolation
+from opaihub.provider_protocol import (
+    AdapterRequest,
+    EventKind,
+    ProtocolViolation,
+    ProviderEvent,
+    validate_event_stream,
+)
 
 
 class ProviderCapabilityTests(unittest.TestCase):
@@ -104,7 +110,7 @@ class AdapterProtocolBoundaryTests(unittest.TestCase):
         self.assertEqual(prepared["permission"], "on-request")
         self.assertNotIn("protocolRequest", prepared)
 
-    def test_parsed_provider_output_is_exposed_as_nonterminal_protocol_observations(
+    def test_parsed_provider_output_is_exposed_as_safe_caller_managed_observations(
         self,
     ):
         normalized = adapter_for("claude").normalize_event(
@@ -118,17 +124,45 @@ class AdapterProtocolBoundaryTests(unittest.TestCase):
         self.assertEqual(normalized["text"], "done")
         self.assertEqual(normalized["cost"], None)
         self.assertFalse(normalized["done"])
+        self.assertNotIn("protocolEvents", normalized)
+        follow_up = adapter_for("claude").normalize_event(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "next"}]},
+            }
+        )
         self.assertEqual(
-            normalized["protocolEvents"],
+            [
+                *normalized["protocolObservations"],
+                *follow_up["protocolObservations"],
+            ],
             [
                 {
-                    "sequence": 0,
-                    "timestamp": 0.0,
                     "kind": "text_delta",
                     "payload": {"text": "done"},
-                }
+                },
+                {
+                    "kind": "text_delta",
+                    "payload": {"text": "next"},
+                },
             ],
         )
+        events = [ProviderEvent(1, 0.0, EventKind.STARTED)]
+        events.extend(
+            ProviderEvent(sequence, 0.1, observation["kind"], observation["payload"])
+            for sequence, observation in enumerate(
+                [
+                    *normalized["protocolObservations"],
+                    *follow_up["protocolObservations"],
+                ],
+                start=2,
+            )
+        )
+        events.append(
+            ProviderEvent(len(events) + 1, 0.2, EventKind.TERMINAL, {"state": "failed"})
+        )
+
+        self.assertEqual(validate_event_stream(events), tuple(events))
 
 
 if __name__ == "__main__":

@@ -230,12 +230,40 @@ class ProviderAdapter:
 
         if not status:
             return ProviderHealth.UNKNOWN
-        return canonical_health(
+        legacy_health = canonical_health(
             auth_status=status.get("authStatus") or status.get("auth_status"),
             cli_installed=status.get("cliInstalled", status.get("cli_present")),
             error_code=status.get("lastErrorCode") or status.get("error_code"),
             kind=status.get("kind", self.kind),
         )
+        if not any(
+            name in status
+            for name in (
+                "installed",
+                "configured",
+                "authenticated",
+                "authorised",
+                "authorized",
+                "healthy",
+            )
+        ):
+            return legacy_health
+        readiness = self.readiness(status)
+        if readiness.installed is False:
+            return ProviderHealth.NOT_INSTALLED
+        if readiness.configured is False:
+            return ProviderHealth.NOT_CONFIGURED
+        if readiness.healthy is False or readiness.authorised is False:
+            return (
+                legacy_health
+                if legacy_health is ProviderHealth.RATE_LIMITED
+                else ProviderHealth.DEGRADED
+            )
+        if readiness.authenticated is True:
+            return ProviderHealth.AUTHENTICATED
+        if readiness.authenticated is False or readiness.configured is True:
+            return ProviderHealth.CONFIGURED
+        return legacy_health
 
     def readiness(self, status: dict[str, Any] | None = None) -> Any:
         """Return independent protocol readiness facts without inferring them.
@@ -412,8 +440,8 @@ class ProviderAdapter:
 
         Parser ``done`` and ``cost`` hints remain useful to their legacy stream
         owner, but this adapter boundary does not assert completion, price,
-        verification, or authority.  It only emits observations a later OPai
-        layer may evaluate.
+        verification, or authority.  It emits caller-managed observations that
+        a later OPai layer may assign stream sequence numbers and timestamps to.
         """
 
         from opai.activity import parse_claude_line, parse_codex_line
@@ -439,25 +467,18 @@ class ProviderAdapter:
             "error": parsed.get("error") or "",
             "cost": None,
             "done": False,
-            "protocolEvents": self._protocol_observations(parsed),
+            "protocolObservations": self._protocol_observations(parsed),
         }
 
     def _protocol_observations(self, parsed: dict[str, Any]) -> list[dict[str, Any]]:
-        """Convert only safe parser observations; never synthesize a terminal."""
+        """Convert only safe observations; stream envelope ownership stays upstream."""
 
-        from .provider_protocol import EventKind, ProviderEvent
+        from .provider_protocol import EventKind
 
         observations: list[dict[str, Any]] = []
 
         def _append(kind: EventKind, payload: dict[str, Any]) -> None:
-            observations.append(
-                ProviderEvent(
-                    sequence=len(observations),
-                    timestamp=0.0,
-                    kind=kind,
-                    payload=payload,
-                ).to_dict()
-            )
+            observations.append({"kind": kind.value, "payload": payload})
 
         text = parsed.get("text")
         if isinstance(text, str) and text:
