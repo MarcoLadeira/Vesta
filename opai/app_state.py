@@ -566,8 +566,10 @@ def available_models(
         account_models,
         connection_for_account,
         list_connected_accounts,
+        provider_contract_payload,
         provider_connection_doctor,
     )
+    from opaihub.provider_catalog import CATALOG_VERSION, PROTOCOL_VERSION, provider_ids
     from opaihub.free_models import list_free_models
     from opaihub.local_runner import cached_local_models, list_local_models
 
@@ -748,6 +750,25 @@ def available_models(
             "No AI account connected. Sign in to Claude, Codex, or Copilot (run "
             "`claude`, `codex`, or `copilot` once), or add a local model under Advanced."
         )
+    # Doctor precomputes every item with the same pure catalog contract helper.
+    # Reuse that readout rather than probing a provider or declaring
+    # completion/cost/authority/verification truth during model enumeration.
+    provider_contracts: dict[str, dict[str, Any]] = {}
+    for provider in provider_ids():
+        doctor_entry = account_health.get(provider)
+        contract = (
+            doctor_entry.get("providerContract")
+            if isinstance(doctor_entry, dict)
+            else None
+        )
+        # Older callers/tests may supply only a partial doctor record.  Rebuild
+        # it through the same canonical helper rather than falling back to a
+        # stale provider-specific profile.
+        provider_contracts[provider] = (
+            dict(contract)
+            if isinstance(contract, dict)
+            else provider_contract_payload(provider, observation=doctor_entry)
+        )
     return {
         "models": options,
         "available_models": options,
@@ -759,6 +780,9 @@ def available_models(
         "local_count": len(local),
         "setup": model_setup(project_root),
         "hint": hint,
+        "providerCatalogVersion": CATALOG_VERSION,
+        "providerProtocolVersion": PROTOCOL_VERSION,
+        "providerContracts": provider_contracts,
     }
 
 
