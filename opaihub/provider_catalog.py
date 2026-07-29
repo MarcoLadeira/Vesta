@@ -342,3 +342,87 @@ def all_catalog_records() -> tuple[Mapping[str, Any], ...]:
     """Return every immutable v1 catalog record in replay order."""
 
     return _catalog_records()
+
+
+_COVERAGE_MATRIX_HEADER = (
+    "Provider",
+    "Stream",
+    "Cancel",
+    "Usage",
+    "Tools",
+    "Structured output",
+    "Smoke",
+)
+
+
+def _coverage_matrix_row(record: Mapping[str, Any]) -> str:
+    """Render one explicit coverage row from a validated catalog record.
+
+    Usage and smoke are deliberately protocol/harness guarantees rather than
+    provider-name heuristics: v1 validates usage observations for every
+    adapter, and every adapter has deterministic conformance coverage plus an
+    optional gated live probe.  Provider-specific statuses remain direct
+    catalog values.
+    """
+
+    capabilities = record["capabilities"]
+    cells = (
+        record["provider_id"],
+        capabilities["streaming"],
+        capabilities["cancellation"],
+        "supported",
+        capabilities["tool_calling"],
+        capabilities["structured_output"],
+        "partial",
+    )
+    return "| " + " | ".join(cells) + " |"
+
+
+def render_coverage_matrix() -> str:
+    """Return the deterministic, committed provider adapter coverage evidence.
+
+    The output contains no observations, probes, timestamps, provider-name
+    heuristics, or pricing claims; it is replayed only from the immutable v1
+    catalog and protocol/harness invariants shared by every catalog record.
+    """
+
+    lines = [
+        "# Provider Adapter Conformance",
+        "",
+        "<!-- Generated from the immutable catalog "
+        "`opaihub/data/provider_catalog/v1.json` by "
+        "`opaihub.provider_catalog.render_coverage_matrix()`. Do not edit by hand. -->",
+        "",
+        f"Catalog version: `{CATALOG_VERSION}`",
+        f"Protocol version: `{PROTOCOL_VERSION}`",
+        "",
+        "## Coverage matrix",
+        "",
+        "| " + " | ".join(_COVERAGE_MATRIX_HEADER) + " |",
+        "| " + " | ".join("---" for _ in _COVERAGE_MATRIX_HEADER) + " |",
+        *(_coverage_matrix_row(record) for record in all_catalog_records()),
+        "",
+        "## Generated provenance and compatibility",
+        "",
+        "This document is the byte-for-byte output of "
+        "`render_coverage_matrix()` for the pinned catalog v1. Change the catalog "
+        "snapshot and its replay fixture before regenerating this document.",
+        "",
+        "The Stream, Cancel, Tools, and Structured output cells are the exact "
+        "`streaming`, `cancellation`, `tool_calling`, and `structured_output` "
+        "statuses in each catalog record. Usage is `supported` because protocol v1 "
+        "validates typed usage observations for every adapter; it is not a pricing, "
+        "cost, completion, authority, or verification claim. Smoke is `partial` "
+        "because every provider has deterministic offline conformance coverage, while "
+        "credentialed sandbox smoke remains explicitly opt-in and may be skipped. "
+        "These two protocol/harness values are common to every catalog record, not "
+        "inferred from provider or model names.",
+        "",
+        "To migrate, consumers must retain the announced catalog and protocol "
+        "versions and regenerate this evidence from the matching snapshot. An "
+        "unknown or incompatible version, capability, readiness, or SLO proof is "
+        "reported as degraded with an actionable upgrade or reconfiguration path; "
+        "there is no silent fallback to a weaker adapter contract.",
+        "",
+    ]
+    return "\n".join(lines)

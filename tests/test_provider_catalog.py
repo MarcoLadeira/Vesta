@@ -6,6 +6,7 @@ from importlib import metadata
 from pathlib import Path
 
 from opaihub import provider_catalog
+from opaihub.provider_catalog import render_coverage_matrix
 
 
 EXPECTED_PROVIDER_IDS = (
@@ -31,9 +32,61 @@ EXPECTED_CAPABILITIES = {
     "structured_output",
 }
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "provider_catalog" / "v1.json"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+MATRIX_PATH = REPOSITORY_ROOT / "docs" / "PROVIDER_ADAPTER_CONFORMANCE.md"
+CHANGELOG_PATH = REPOSITORY_ROOT / "CHANGELOG.md"
+MATRIX_COLUMNS = (
+    "Provider",
+    "Stream",
+    "Cancel",
+    "Usage",
+    "Tools",
+    "Structured output",
+    "Smoke",
+)
+MATRIX_STATUSES = {"supported", "partial", "unsupported"}
 
 
 class ProviderCatalogTests(unittest.TestCase):
+    def test_committed_coverage_matrix_is_rendered_from_the_v1_catalog(self):
+        self.assertEqual(
+            MATRIX_PATH.read_text(encoding="utf-8"),
+            render_coverage_matrix(),
+        )
+
+    def test_coverage_matrix_has_explicit_statuses_for_every_catalog_provider(self):
+        matrix = render_coverage_matrix()
+        table_rows = [
+            line
+            for line in matrix.splitlines()
+            if line.startswith("| ") and not line.startswith("| ---")
+        ]
+        self.assertEqual(
+            tuple(cell.strip() for cell in table_rows[0].split("|")[1:-1]),
+            MATRIX_COLUMNS,
+        )
+
+        providers_in_matrix = []
+        for row in table_rows[1:]:
+            cells = tuple(cell.strip() for cell in row.split("|")[1:-1])
+            self.assertEqual(len(cells), len(MATRIX_COLUMNS))
+            providers_in_matrix.append(cells[0])
+            self.assertTrue(
+                set(cells[1:]) <= MATRIX_STATUSES,
+                f"matrix row must use explicit statuses: {row}",
+            )
+        self.assertEqual(tuple(providers_in_matrix), provider_catalog.provider_ids())
+        self.assertIn("Generated from the immutable catalog", matrix)
+        self.assertIn("not inferred from provider or model names", matrix)
+
+    def test_protocol_v1_migration_and_degraded_compatibility_are_recorded(self):
+        changelog = CHANGELOG_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("Provider adapter protocol v1", changelog)
+        self.assertIn("catalog v1", changelog)
+        self.assertIn("degraded", changelog.lower())
+        self.assertIn("silent fallback", changelog.lower())
+
     def test_catalog_has_the_pinned_provider_inventory(self):
         self.assertEqual(provider_catalog.CATALOG_VERSION, "v1")
         self.assertEqual(provider_catalog.PROTOCOL_VERSION, 1)
