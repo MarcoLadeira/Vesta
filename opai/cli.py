@@ -174,6 +174,57 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_repo(args: argparse.Namespace) -> int:
+    """Inspect canonical repository safety without exposing destructive cleanup."""
+
+    from opaihub.repo_context import repository_safety_surface
+
+    root = _project(args.project)
+    context, safety, leases = repository_safety_surface(root)
+    command = str(getattr(args, "repo_command", "inspect") or "inspect")
+    payload: dict[str, Any] = {
+        "project": str(root),
+        "repo_context": context.to_dict(),
+        "repository_safety": safety,
+        "worktree_leases": leases,
+    }
+    if command == "worktrees":
+        recovery: list[dict[str, Any]] = []
+        if bool(getattr(args, "recover", False)) and context.is_git:
+            try:
+                from opaihub.repository_safety import build_repository_safety_receipt
+                from opaihub.worktree_leases import WorktreeManager
+
+                recovered = WorktreeManager(context.path).recover()
+                recovery = [item.to_dict() for item in recovered]
+                leases = [item.lease.to_dict() for item in recovered]
+                payload["worktree_leases"] = leases
+                payload["repository_safety"]["receipt"] = (
+                    build_repository_safety_receipt(
+                        safety,
+                        safety.get("assessment") if isinstance(safety, dict) else {},
+                        leases,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - never turn recovery into cleanup
+                payload["recovery_error"] = str(exc)[:240]
+        payload["leases"] = payload["worktree_leases"]
+        payload["recovery"] = recovery
+    if bool(getattr(args, "json", False)):
+        print_json(payload)
+    else:
+        receipt = safety.get("receipt") or {}
+        print(f"Repository: {context.path}")
+        print(f"Safety: {safety.get('status')} ({receipt.get('repository_id', '')[:12]})")
+        assessment = safety.get("assessment") or {}
+        print(f"Dirty assessment: {assessment.get('outcome') or 'unavailable'}")
+        if command == "worktrees":
+            print(f"Worktree leases: {len(payload['leases'])}")
+            if recovery:
+                print("Recovery only reconciled state; no worktree was removed.")
+    return 0
+
+
 def cmd_cockpit(args: argparse.Namespace) -> int:
     from opai.cockpit import build_cockpit, render_cockpit
 
@@ -2263,6 +2314,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--human", action="store_true", help="Show the OPai cockpit view")
     p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser(
+        "repo",
+        help="Inspect canonical repository safety and isolated worktree leases",
+    )
+    repo_sub = p.add_subparsers(dest="repo_command", required=True)
+    ri = repo_sub.add_parser("inspect", help="Show redacted repository identity and safety assessment")
+    ri.add_argument("--project", default=None, help="Project root")
+    ri.add_argument("--json", action="store_true", help="Render machine-readable output")
+    ri.set_defaults(func=cmd_repo)
+    rw = repo_sub.add_parser("worktrees", help="List isolated worktree leases without cleanup")
+    rw.add_argument("--project", default=None, help="Project root")
+    rw.add_argument(
+        "--recover",
+        action="store_true",
+        help="Reconcile lease state and show recommended non-destructive actions",
+    )
+    rw.add_argument("--json", action="store_true", help="Render machine-readable output")
+    rw.set_defaults(func=cmd_repo)
 
     p = sub.add_parser("cockpit", help="Obvious ON/OFF control panel for OPai")
     p.add_argument("--project", default=None, help="Project root")

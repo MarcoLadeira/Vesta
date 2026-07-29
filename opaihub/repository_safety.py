@@ -15,6 +15,7 @@ import os
 import subprocess  # nosec B404 - every call below uses fixed argv, never a shell
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
@@ -738,6 +739,58 @@ def require_mutation_permitted(
     raise RepositorySafetyError(
         MutationDecision(False, str(operation), validation, assessment, (reason,))
     )
+
+
+def build_repository_safety_receipt(
+    handle: RepositoryHandle | Mapping[str, Any] | None,
+    assessment: DirtyAssessment | Mapping[str, Any] | None,
+    leases: Iterable[object] = (),
+) -> dict[str, object]:
+    """Return a stable, redacted cross-surface repository-safety receipt.
+
+    The GUI and CLI deliberately derive this from the same canonical identity
+    projection. It is an observation, not authority: lease paths and actions
+    remain separate from the compact receipt so rendering it cannot imply a
+    cleanup or apply action is available.
+    """
+
+    if isinstance(handle, RepositoryHandle):
+        identity = handle.identity.to_dict()
+    elif isinstance(handle, Mapping):
+        raw_identity = handle.get("identity")
+        identity = dict(raw_identity) if isinstance(raw_identity, Mapping) else {}
+    else:
+        identity = {}
+    if isinstance(assessment, DirtyAssessment):
+        assessment_payload = assessment.to_dict()
+    elif isinstance(assessment, Mapping):
+        assessment_payload = dict(assessment)
+    else:
+        assessment_payload = _degraded_assessment("assessment_unavailable").to_dict()
+
+    states: dict[str, int] = {}
+    for raw in leases:
+        state = (
+            str(raw.get("state") or "")
+            if isinstance(raw, Mapping)
+            else str(getattr(raw, "state", "") or "")
+        )
+        if state:
+            states[state] = states.get(state, 0) + 1
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "repository_id": str(identity.get("repository_id") or ""),
+        "assessment": assessment_payload,
+        "lease_summary": {
+            "total": sum(states.values()),
+            "states": dict(sorted(states.items())),
+            "needs_review": sum(
+                count
+                for state, count in states.items()
+                if state in {"needs_review", "cleanup_failed"}
+            ),
+        },
+    }
 
 
 def _handle_path(project_root: Path, handle_id: str) -> Path:

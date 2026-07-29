@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess  # nosec B404 - fixed git argv, never a shell command
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 from urllib.parse import urlsplit, urlunsplit
@@ -15,6 +15,7 @@ from .command_runner import redact
 from .repository_safety import (
     DirtyState as CanonicalDirtyState,
     RepositoryProbeError,
+    build_repository_safety_receipt,
     capture_repository_handle,
     classify_dirty_state,
 )
@@ -127,6 +128,12 @@ def _context_from_handle(handle: Any) -> RepoContext:
     )
 
 
+def context_from_repository_handle(handle: Any) -> RepoContext:
+    """Project a previously task-bound canonical handle into legacy context."""
+
+    return _context_from_handle(handle)
+
+
 def resolve_repo_context(path: str | Path) -> RepoContext:
     """Resolve a selected folder to its enclosing Git worktree when possible."""
 
@@ -148,6 +155,47 @@ def resolve_repo_context(path: str | Path) -> RepoContext:
                 "reason": exc.reason,
             },
         )
+
+
+def repository_safety_surface(
+    path: str | Path,
+) -> tuple[RepoContext, dict[str, Any], list[dict[str, Any]]]:
+    """Build the shared, read-only repository-safety projection for a surface."""
+
+    context = resolve_repo_context(path)
+    leases: list[dict[str, Any]] = []
+    lease_error = ""
+    if context.is_git:
+        try:
+            from .worktree_leases import list_worktree_leases
+
+            leases = [lease.to_dict() for lease in list_worktree_leases(context.path)]
+        except Exception as exc:  # noqa: BLE001 - corrupted leases fail visibly, never open cleanup
+            lease_error = redact(str(exc))[:240]
+    source = context.safety if isinstance(context.safety, dict) else {}
+    identity = source.get("identity")
+    assessment = source.get("assessment")
+    dirty_state = source.get("dirty_state")
+    handle = source.get("handle")
+    safety: dict[str, Any] = {
+        "schema_version": int(source.get("schema_version") or 1),
+        "status": str(source.get("status") or "available"),
+        "handle": dict(handle) if isinstance(handle, dict) else {},
+        "identity": dict(identity) if isinstance(identity, dict) else {},
+        "dirty_state": dict(dirty_state) if isinstance(dirty_state, dict) else {},
+        "assessment": dict(assessment) if isinstance(assessment, dict) else {},
+    }
+    if not context.is_git:
+        safety["status"] = "unavailable"
+        safety["reason"] = str(source.get("reason") or "probe_unavailable")
+    if lease_error:
+        safety["lease_error"] = lease_error
+    safety["receipt"] = build_repository_safety_receipt(
+        source,
+        safety["assessment"],
+        leases,
+    )
+    return context, safety, leases
 
 
 def _active_repo_path(project_root: Path) -> Path:

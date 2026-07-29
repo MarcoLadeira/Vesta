@@ -724,6 +724,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         guard: Any = None,
         allow_command: str | None = None,
         tool_loop_policy: Any = None,
+        repository_handle: Any = None,
     ) -> dict[str, Any]:
         """Run a continuous, checkpointed repository tool loop.
 
@@ -757,6 +758,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             allow_edits=allow_edits,
             allow_github_public_read=public_read_allowed(),
             allow_command=allow_command,
+            repository_handle=repository_handle,
         )
         base_messages: list[dict[str, Any]] = []
         if system:

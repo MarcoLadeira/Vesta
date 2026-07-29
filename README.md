@@ -137,6 +137,30 @@ logs; pushes and PRs stay disabled until `allow-push on` — connecting alone
 never grants them. With consent on, chat runs gain `git_push` and `open_pr`
 tools (commits are always staged from only the files that run touched).
 
+### Repository safety and isolated worktrees
+
+Before an edit-capable run touches a repository, OPai records a canonical,
+redacted identity (physical worktree, Git metadata, remote identity, branch,
+HEAD, and porcelain-v2 dirty state). It rechecks that identity immediately
+before every provider-tool file or Git mutation. A moved branch/HEAD, changed remote,
+replaced worktree, conflicted status, unknown scope, or unrelated user change
+blocks the direct write instead of guessing; use an isolated worktree when the
+task must proceed alongside existing work.
+
+Inspect the same status shown by the GUI from the terminal:
+
+```sh
+opai repo inspect --project /path/to/repo --json
+opai repo worktrees --project /path/to/repo --json
+opai repo worktrees --project /path/to/repo --recover --json
+```
+
+`--recover` only reconciles lease records and recommends `resume` or `inspect`;
+it never cleans, deletes, force-removes, or recreates a worktree. OPai removes a
+worktree only through an owned, pristine lease after a fresh Git-registry and
+filesystem check. Modified, unknown, interrupted, or committed worktrees remain
+in place for review.
+
 ### Keyboard shortcuts
 
 | Shortcut | Action |

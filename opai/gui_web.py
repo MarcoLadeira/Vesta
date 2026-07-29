@@ -354,9 +354,9 @@ def _status(root: Path, model_label: str, mode_label: str) -> dict[str, Any]:
 
 
 def _workspace(root: Path) -> dict[str, Any]:
-    from opaihub.repo_context import resolve_repo_context, save_active_repo
+    from opaihub.repo_context import repository_safety_surface, save_active_repo
 
-    context = resolve_repo_context(root)
+    context, repository_safety, worktree_leases = repository_safety_surface(root)
     save_active_repo(root, context)
     try:
         ws = A.workspace_summary(context.path)
@@ -374,6 +374,8 @@ def _workspace(root: Path) -> dict[str, Any]:
         "remote": context.remote,
         "dirty": bool(context.dirty_paths),
         "dirty_paths": list(context.dirty_paths),
+        "repository_safety": repository_safety,
+        "worktree_leases": worktree_leases,
         "file_count": ws.get("file_count", 0),
         # OPai Build (#276): when the workspace is a scaffolded app, the GUI
         # offers Build mode — chat edits it with cheap, verified targeted diffs.
