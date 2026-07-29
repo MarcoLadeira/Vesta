@@ -476,7 +476,9 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         with mock.patch.object(accounts, "_popen", return_value=proc_obj):
             result = self._runner().stream("hi")
 
-        self.assertEqual(result["text"], "")
+        # A typed failure remains authoritative, but already-observed streamed
+        # content must remain available for the canonical partial-stream state.
+        self.assertEqual(result["text"], "Partial answer")
         self.assertEqual(result["error"]["code"], "AUTH_INVALID")
 
     def test_auth_failure_invalidates_cached_connection_probe(self):
