@@ -96,7 +96,10 @@ CLAUSES: tuple[Clause, ...] = (
     Clause(
         id="partial_output_survives",
         statement="Text already emitted is preserved when the run then fails or "
-        "is cancelled.",
+        "is cancelled — unless the provider rejected the request over the "
+        "account itself (bad or expired credentials, invalid CLI config), in "
+        "which case nothing legitimate could have streamed and the text is "
+        "noise, not work.",
         symptom="Work the user watched appear on screen vanishes, and the same "
         "tokens are paid for twice on the retry.",
     ),

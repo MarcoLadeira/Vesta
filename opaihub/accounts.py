@@ -265,6 +265,32 @@ def _popen(cmd: list[str], *, cwd: str | None, env: dict[str, str] | None = None
     )
 
 
+#: authStatus values meaning the provider rejected the request over the
+#: account/CLI setup itself, not over anything about this particular run.
+_UNTRUSTED_AUTH_STATUSES = frozenset(
+    {"not_configured", "invalid", "expired", "misconfigured"}
+)
+
+
+def _text_after_error(normalized: dict[str, Any], raw_text: str) -> str:
+    """What to report as ``text`` alongside a classified provider error.
+
+    An account/config-level rejection means the provider refused the request
+    outright: nothing legitimate could have streamed first, so parsed text is
+    noise — at best a misparse, at worst content left over from something
+    else. Showing it beside "please re-authenticate" would read as real
+    progress that never happened.
+
+    Every other classified failure (a network blip, a timeout, a mid-stream
+    abort) can happen *after* genuine content already streamed, and that
+    content is real, already-paid-for work — discarding it makes the retry
+    regenerate and re-pay for the same tokens (#295 gate 10).
+    """
+    if normalized.get("authStatus") in _UNTRUSTED_AUTH_STATUSES:
+        return ""
+    return raw_text
+
+
 def _notify(listener: Callable[[Any], None] | None, payload: Any) -> None:
     """Deliver one activity update, containing any listener failure (#295).
 
@@ -2197,7 +2223,7 @@ class AccountRunner:
             )
             _invalidate_cache_for_error(self.account_id, normalized)
             return {
-                "text": text,  # partial output survives the failure (#295)
+                "text": _text_after_error(normalized, text),  # (#295)
                 "cost": cost,
                 "error": normalized,
                 "returncode": returncode,
@@ -2213,7 +2239,7 @@ class AccountRunner:
         if returncode not in (0, None) and known_failure:
             _invalidate_cache_for_error(self.account_id, normalized)
             return {
-                "text": text,  # partial output survives the failure (#295)
+                "text": _text_after_error(normalized, text),  # (#295)
                 "cost": cost,
                 "error": normalized,
                 "returncode": returncode,

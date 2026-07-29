@@ -254,7 +254,11 @@ doesn't".
 1. **Partial output was discarded on failure.** Three error paths returned
    `text: ""` while the accumulated stream held content the user had already
    watched appear. The retry then regenerated — and re-paid for — the same
-   tokens.
+   tokens. **One deliberate exception**, caught by an existing named regression
+   the first version of this fix broke: when the provider rejects the request
+   over the account itself (bad or expired credentials, invalid CLI config),
+   nothing legitimate could have streamed first, so parsed text is noise, not
+   work, and stays suppressed.
 2. **An empty reply was a silent success.** No text, exit 0, no error: the run
    rendered as answered when nothing came back. `NO_RESPONSE` already existed in
    the error vocabulary; nothing emitted it. Tool steps are now the

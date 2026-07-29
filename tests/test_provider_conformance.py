@@ -359,6 +359,26 @@ class DefectsTheMatrixFoundTests(unittest.TestCase):
         self.assertIn("I found the ", result["text"])
         self.assertTrue(result["error"], "the failure must still be reported")
 
+    def test_partial_text_is_still_discarded_on_a_credential_rejection(self) -> None:
+        # The one deliberate exception to the rule above. A 401 means the
+        # provider refused the request over the account itself — nothing
+        # legitimate could have streamed first, so any parsed "answer" is
+        # noise, not work. Showing it beside "please re-authenticate" would
+        # read as progress that never happened. This is the regression the
+        # first version of the partial-output fix broke
+        # (test_known_stderr_failure_wins_over_partial_text_on_failed_process).
+        out, err, hang, code = _claude_lines(
+            Script(chunks=("Partial answer",), then="ok")
+        )
+        proc = _FakeProc(
+            out, ["401 Invalid authentication credentials\n"], hang=False, code=1
+        )
+        runner = AccountRunner("claude", "/nonexistent/cli", model="opus")
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            result = runner.stream("hi", timeout=5)
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["error"]["code"], "AUTH_INVALID")
+
     def test_an_empty_reply_is_a_failure_not_a_silent_success(self) -> None:
         # Was: {"text": "", "cost": None} with no error — the blank reply that
         # renders as OPai having answered when it has not.
