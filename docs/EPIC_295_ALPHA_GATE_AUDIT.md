@@ -27,16 +27,16 @@ it, and every gap names the epic that owns it.
 | 7 | Illegal transitions: 0 unhandled, observable | **Evidenced** | — |
 | 8 | Restart recovery: 100% | **Partial** | #517 replay |
 | 9 | Cancellation truth | **Partial** | #380 teardown proof |
-| 10 | Provider conformance: 100% | **Not started** | #520 adapter contract |
+| 10 | Provider conformance: 100% | **Partial** | codex + free-tier probes |
 | 11 | Verification truth | **Partial** | #522 |
 | 12 | Budget/policy fail-closed | **Evidenced** | — |
 | 13 | No hidden active work | **Partial** | #524 desktop lifecycle |
 | 14 | Receipt completeness | **Partial** | #516 / #528 |
 
 Four gates are genuinely closed (2, 5, 7, 12) — gate 5 on this Windows host,
-pending a POSIX CI run of the same fixtures. Nothing here should be read as
-"nearly done": gate 10 still has no implementation at all, and it is the one
-that decides whether a provider OPai advertises actually behaves.
+pending a POSIX CI run of the same fixtures. No gate is now at "not started":
+gate 10 has a green conformance matrix over 4 of the advertised adapters, which
+is real coverage but not the 100% the gate demands.
 
 **Two entries in this table were wrong in the first draft** — gate 5 was recorded
 as "not started" when the mechanism was already wired into the provider path,
@@ -231,9 +231,54 @@ an unconfirmed teardown reports honestly but does not raise `needs_attention`
 with evidence. `needs_attention` is not a canonical state yet because nothing
 produces it.
 
-### 10. Provider conformance: 100% — Not started
+### 10. Provider conformance: 100% — Partial (matrix exists and is green)
 
-There is no adapter conformance matrix. #520.
+`opaihub/provider_conformance.py` states the contract as **14 named clauses**,
+each recording the user-visible symptom of its breach, and
+`test_provider_conformance.py` runs every clause against every adapter with no
+network call and no spend.
+
+The gap it was written to close: the two families had silently diverged.
+
+| family | entry point | on provider failure | `available()` |
+| --- | --- | --- | --- |
+| `AccountRunner` (CLIs) | `stream()` | returns a result dict | checks a path |
+| `LocalRunner` (HTTP) | `complete()` | **raises** | **makes a network call** |
+
+Everything above them is written against *one* set of promises, so each
+divergence surfaced to the user as "sometimes it works and sometimes it
+doesn't".
+
+**The first run failed 9 of 56 cells, and four were real defects:**
+
+1. **Partial output was discarded on failure.** Three error paths returned
+   `text: ""` while the accumulated stream held content the user had already
+   watched appear. The retry then regenerated — and re-paid for — the same
+   tokens.
+2. **An empty reply was a silent success.** No text, exit 0, no error: the run
+   rendered as answered when nothing came back. `NO_RESPONSE` already existed in
+   the error vocabulary; nothing emitted it. Tool steps are now the
+   discriminator, so an edit-mode run that changes files and says nothing is
+   still not called a failure.
+3. **A throwing activity listener killed the run.** `on_text`/`on_event` were
+   called unguarded, so a rendering bug in one line destroyed an otherwise
+   healthy run. Listeners are observers and must not be able to kill what they
+   observe.
+4. **Ollama could not stream at all**, purely because it speaks NDJSON rather
+   than SSE — so a mid-run failure lost everything every other provider kept.
+   The stream reader is now protocol-agnostic and Ollama streams like the rest.
+
+The remaining two failures were faults in the harness, not the product, and are
+recorded as such: `cost_is_real_or_unknown` rejected `None`, which the clause
+itself calls conforming; and the local probe called `runner.complete` directly
+rather than through the product's own `_complete_streaming`, measuring a call
+OPai never makes.
+
+**Missing:** the matrix covers **4 of the advertised adapters** — claude and
+copilot on the CLI side, Ollama and OpenAI-compatible on the HTTP side. Codex
+(out-file protocol) and the free-tier API runner are not yet probed, so "100% of
+advertised supported adapters" is not yet true. The clause list also does not
+yet cover tool-call or heartbeat behaviour from Workstream C. #520.
 
 ### 11. Verification truth — Partial
 
