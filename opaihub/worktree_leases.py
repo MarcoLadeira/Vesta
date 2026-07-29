@@ -20,6 +20,7 @@ from .repository_safety import (
     RepositoryHandle,
     RepositorySafetyError,
     capture_repository_handle,
+    revalidate_repository_handle,
     require_mutation_permitted,
 )
 from .state import state_dir
@@ -70,6 +71,40 @@ class WorktreeLease:
         value = asdict(self)
         value["filesystem_id"] = list(self.filesystem_id) if self.filesystem_id else None
         return value
+
+
+@dataclass(frozen=True)
+class LeaseDecision:
+    """A read-only integration preview; it cannot grant apply authority."""
+
+    allowed: bool
+    reason: str
+    paths: tuple[str, ...]
+    recommended_actions: tuple[str, ...]
+    lease: WorktreeLease
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "allowed": self.allowed,
+            "reason": self.reason,
+            "paths": list(self.paths),
+            "recommended_actions": list(self.recommended_actions),
+            "lease": self.lease.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class WorktreeRecovery:
+    """Observed recovery state and non-destructive actions for one lease."""
+
+    lease: WorktreeLease
+    recommended_actions: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "lease": self.lease.to_dict(),
+            "recommended_actions": list(self.recommended_actions),
+        }
 
 
 def _now_iso() -> str:
@@ -351,10 +386,36 @@ class WorktreeManager:
                     "registry_state": "creating",
                     "repository_id": current.identity.repository_id,
                     "base_sha": base_sha,
+                    "command": [
+                        "git",
+                        "worktree",
+                        "add",
+                        str(destination),
+                        "-b",
+                        safe_branch,
+                        base_sha,
+                    ],
                     "safety": decision.to_dict(),
                 },
             )
             self._save(lease)
+            try:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                failed = replace(
+                    lease,
+                    state="cleanup_failed",
+                    heartbeat_at=_now_iso(),
+                    evidence={
+                        **lease.evidence,
+                        "registry_state": "destination_failed",
+                        "reasons": ["destination_create_failed"],
+                    },
+                )
+                self._save(failed)
+                raise WorktreeLeaseError(
+                    f"Could not create worktree destination: {redact(str(exc))[:240]}"
+                ) from exc
             result = self._git(
                 ["worktree", "add", str(destination), "-b", safe_branch, base_sha]
             )
@@ -439,6 +500,135 @@ class WorktreeManager:
     def reconcile(self, lease_id: str) -> WorktreeLease:
         with interprocess_transaction(self._lock_path()):
             return self._reconcile_loaded(self.load(lease_id))
+
+    def _diff_paths(self, root: Path, revision: str) -> tuple[str, ...]:
+        result = self._git(["diff", "--name-only", "-z", revision], cwd=root)
+        if result.returncode != 0:
+            detail = str(result.stderr or result.stdout or "Git diff failed")
+            raise WorktreeLeaseError(redact(detail)[:400])
+        return tuple(
+            dict.fromkeys(
+                value.replace("\\", "/")
+                for value in str(result.stdout or "").split("\0")
+                if value
+            )
+        )
+
+    def preview_apply(self, lease_id: str, target_handle: RepositoryHandle) -> LeaseDecision:
+        """Preview source/target divergence without changing either worktree."""
+
+        lease = self.load(lease_id)
+        if lease.state == "released":
+            return LeaseDecision(False, "lease_released", (), ("inspect",), lease)
+        validation = revalidate_repository_handle(target_handle)
+        if not validation.fresh or validation.current is None:
+            return LeaseDecision(
+                False,
+                "target_stale",
+                (),
+                ("inspect_target", "recapture_target"),
+                lease,
+            )
+        source = Path(lease.path).resolve(strict=False)
+        if source not in self._registry() or not source.is_dir():
+            reviewed = self._reconcile_loaded(lease)
+            return LeaseDecision(
+                False,
+                "source_unavailable",
+                (),
+                ("inspect", "recover"),
+                reviewed,
+            )
+        try:
+            source_paths = self._diff_paths(source, f"{lease.base_sha}..HEAD")
+            target_paths = self._diff_paths(
+                validation.current.identity.worktree_root,
+                f"{lease.base_sha}..{validation.current.identity.head_sha}",
+            )
+        except WorktreeLeaseError:
+            return LeaseDecision(
+                False,
+                "preview_unavailable",
+                (),
+                ("inspect", "retry_preview"),
+                lease,
+            )
+        overlap = tuple(sorted(set(source_paths) & set(target_paths)))
+        target_moved = validation.current.identity.head_sha != lease.base_sha
+        if target_moved and overlap:
+            return LeaseDecision(
+                False,
+                "target_diverged_overlap",
+                overlap,
+                ("inspect_conflicts", "rebase_or_merge_manually"),
+                lease,
+            )
+        if target_moved:
+            return LeaseDecision(
+                True,
+                "target_diverged_nonoverlap",
+                tuple(sorted(source_paths)),
+                ("review_preview", "request_apply_authority"),
+                lease,
+            )
+        return LeaseDecision(
+            True,
+            "safe_preview",
+            tuple(sorted(source_paths)),
+            ("review_preview", "request_apply_authority"),
+            lease,
+        )
+
+    def heartbeat(self, lease_id: str, *, owner: str) -> WorktreeLease:
+        """Renew an active owned lease without changing its worktree."""
+
+        with interprocess_transaction(self._lock_path()):
+            lease = self.load(lease_id)
+            if lease.owner != str(owner) or lease.state not in {"creating", "active"}:
+                raise WorktreeLeaseError("Only an active lease owner may renew its lease")
+            now = float(self._now())
+            return self._save(
+                replace(
+                    lease,
+                    heartbeat_at=_now_iso(),
+                    expires_at=datetime.fromtimestamp(
+                        now + self.lease_ttl_seconds, tz=timezone.utc
+                    )
+                    .replace(microsecond=0)
+                    .isoformat(),
+                )
+            )
+
+    def release(self, lease_id: str, *, owner: str) -> WorktreeLease:
+        """Mark completed work for review; this does not remove a worktree."""
+
+        with interprocess_transaction(self._lock_path()):
+            lease = self.load(lease_id)
+            if lease.owner != str(owner):
+                raise WorktreeLeaseError("Only the lease owner may release it")
+            if lease.state not in {"active", "needs_review"}:
+                raise WorktreeLeaseError("Only active or reviewable leases may be released")
+            return self._save(
+                replace(lease, state="completed", heartbeat_at=_now_iso())
+            )
+
+    def recover(self) -> list[WorktreeRecovery]:
+        """Reconcile every durable lease and recommend only non-destructive actions."""
+
+        with interprocess_transaction(self._lock_path()):
+            recovered: list[WorktreeRecovery] = []
+            for lease in self.list():
+                observed = self._reconcile_loaded(lease)
+                if observed.state == "active":
+                    actions = ("resume", "inspect")
+                elif observed.state in {"needs_review", "cleanup_failed"}:
+                    actions = ("inspect", "cleanup_after_review")
+                elif observed.state == "released":
+                    actions = ("inspect_receipt",)
+                else:
+                    actions = ("inspect",)
+                recovered.append(WorktreeRecovery(observed, actions))
+            return recovered
 
     def cleanup(self, lease_id: str, *, owner: str) -> WorktreeLease:
         """Remove only a pristine, reconciled worktree owned by this caller."""

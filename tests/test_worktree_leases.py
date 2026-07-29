@@ -184,5 +184,76 @@ class WorktreeLeaseLifecycleTests(unittest.TestCase):
         self.assertEqual(len(self.manager.list()), 1)
 
 
+class WorktreePreviewTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self._tmp.name)
+        self.repo = self.base / "repo"
+        self.repo.mkdir()
+        make_repo(self.repo, files={"src/shared.py": "base\n"}, commit=True)
+        self.manager = WorktreeManager(self.repo, min_free_bytes=0)
+        self.source_handle = capture_repository_handle(
+            self.repo, task_id="task-a", run_id="run-a"
+        )
+        self.lease = self.manager.create(
+            self.source_handle,
+            task_id="task-a",
+            run_id="run-a",
+            owner="worker-a",
+            branch="codex/task-a",
+            target=self.base / "task-a",
+            base="HEAD",
+            planned_paths=("src/",),
+        )
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_target_divergence_with_overlapping_paths_blocks_apply_preview(self) -> None:
+        source = Path(self.lease.path)
+        (source / "src" / "shared.py").write_text("source\n", encoding="utf-8")
+        _git(source, "add", "src/shared.py")
+        _git(source, "commit", "-m", "source change")
+        (self.repo / "src" / "shared.py").write_text("target\n", encoding="utf-8")
+        _git(self.repo, "add", "src/shared.py")
+        _git(self.repo, "commit", "-m", "target change")
+        target_handle = capture_repository_handle(self.repo, task_id="task-b", run_id="run-b")
+
+        preview = self.manager.preview_apply(self.lease.lease_id, target_handle)
+
+        self.assertFalse(preview.allowed)
+        self.assertEqual(preview.reason, "target_diverged_overlap")
+        self.assertEqual(preview.paths, ("src/shared.py",))
+
+
+class WorktreeRecoveryTests(unittest.TestCase):
+    def test_orphan_recovery_never_deletes_unknown_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            repo = base / "repo"
+            repo.mkdir()
+            make_repo(repo, files={"src/app.py": "base\n"}, commit=True)
+            manager = WorktreeManager(repo, min_free_bytes=0)
+            handle = capture_repository_handle(repo, task_id="task-a", run_id="run-a")
+            lease = manager.create(
+                handle,
+                task_id="task-a",
+                run_id="run-a",
+                owner="worker-a",
+                branch="codex/task-a",
+                target=base / "task-a",
+                base="HEAD",
+                planned_paths=("src/",),
+            )
+            (Path(lease.path) / "user-note.txt").write_text("preserve\n", encoding="utf-8")
+
+            recovered = manager.recover()
+
+            self.assertEqual(recovered[0].lease.state, "needs_review")
+            self.assertIn("inspect", recovered[0].recommended_actions)
+            self.assertTrue(Path(lease.path).exists())
+
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

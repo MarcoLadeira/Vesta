@@ -12,6 +12,7 @@ from opaihub.parallel_agents import (
     OwnershipError,
     SharedFileConflictError,
     claim_assignment,
+    create_assignment_lease,
     create_assignment_worktree,
     detect_shared_file_overwrites,
     ensure_no_overwrite,
@@ -23,6 +24,7 @@ from opaihub.parallel_agents import (
     save_assignment,
 )
 from opaihub.repo_context import DirtyConflictError
+from _helpers import make_repo
 
 
 def _issue(number, title, paths):
@@ -169,6 +171,7 @@ class WorktreeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
             repo.mkdir()
+            make_repo(repo, files={"auth/login.py": "original\n"}, commit=True)
             assignment = AgentAssignment(
                 assignment_id="assign-1",
                 issue_number=11,
@@ -178,16 +181,35 @@ class WorktreeTests(unittest.TestCase):
                 worktree=str(Path(tmp) / "repo-agents" / "issue-11"),
                 intended_paths=("auth/login.py",),
             )
-            calls = []
+            save_assignment(repo, assignment)
 
-            def fake_run(command, **kwargs):
-                calls.append(command)
-                return subprocess.CompletedProcess(command, 0, "", "")
-
-            command = create_assignment_worktree(repo, assignment, run=fake_run)
-            self.assertEqual(calls, [command])
+            command = create_assignment_worktree(repo, assignment, base="HEAD")
             self.assertEqual(command[:3], ["git", "worktree", "add"])
             self.assertIn("codex/issue-11-fix-login", command)
+            persisted = load_assignment(repo, assignment.assignment_id)
+            self.assertTrue(persisted.lease_id)
+            self.assertEqual(persisted.lease_state, "active")
+
+    def test_lease_creation_returns_manager_owned_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            make_repo(repo, files={"auth/login.py": "original\n"}, commit=True)
+            assignment = AgentAssignment(
+                assignment_id="assign-lease",
+                issue_number=13,
+                title="Fix login",
+                owner="agent-1",
+                branch="codex/issue-13-fix-login",
+                worktree=str(Path(tmp) / "repo-agents" / "issue-13"),
+                intended_paths=("auth/login.py",),
+            )
+
+            lease = create_assignment_lease(repo, assignment, base="HEAD")
+
+            self.assertEqual(lease.state, "active")
+            self.assertEqual(lease.owner, assignment.owner)
+            self.assertTrue(Path(lease.path).is_dir())
 
     def test_dirty_overlap_blocks_worktree_creation(self):
         with tempfile.TemporaryDirectory() as tmp:

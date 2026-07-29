@@ -7,8 +7,8 @@ file. Ownership metadata is durable and claim-based - one owner per
 assignment, bounded active concurrency - and reconciliation refuses to
 auto-merge assignments whose changed files collide, surfacing them for
 sequential human-reviewed merges instead. Nothing here resets, cleans, or
-overwrites the user's checkout; worktree creation reuses the guarded
-:func:`opaihub.repo_context.prepare_isolated_worktree` helper.
+overwrites the user's checkout; worktree creation is delegated to durable,
+reconciled OPai worktree leases.
 """
 
 from __future__ import annotations
@@ -23,8 +23,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 
 from .command_runner import redact
-from .repo_context import prepare_isolated_worktree
+from .repo_context import DirtyConflictError, classify_dirty_paths
+from .repository_safety import capture_repository_handle
 from .state import state_dir
+from .worktree_leases import WorktreeLease, WorktreeManager
 from .workflow_ledger import WorkflowLedger
 
 ASSIGNMENT_STATUSES = {"planned", "active", "completed", "abandoned"}
@@ -83,6 +85,8 @@ class AgentAssignment:
     intended_paths: tuple[str, ...]
     status: str = "planned"
     changed_files: tuple[str, ...] = ()
+    lease_id: str = ""
+    lease_state: str = ""
     created_at: str = ""
     updated_at: str = ""
 
@@ -210,6 +214,8 @@ def load_assignment(project_root: Path, assignment_id: str) -> AgentAssignment:
         intended_paths=tuple(str(item) for item in data.get("intended_paths") or ()),
         status=str(data.get("status") or "planned"),
         changed_files=tuple(str(item) for item in data.get("changed_files") or ()),
+        lease_id=str(data.get("lease_id") or ""),
+        lease_state=str(data.get("lease_state") or ""),
         created_at=str(data.get("created_at") or ""),
         updated_at=str(data.get("updated_at") or ""),
     )
@@ -320,17 +326,72 @@ def create_assignment_worktree(
     dirty_paths: Iterable[str] = (),
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> list[str]:
-    """Create the assignment's isolated worktree; never touch the checkout."""
+    """Create a leased assignment worktree, retaining legacy command evidence."""
 
-    return prepare_isolated_worktree(
+    lease = create_assignment_lease(
         repo_root,
-        Path(assignment.worktree),
-        branch=assignment.branch,
+        assignment,
         base=base,
         dirty_paths=dirty_paths,
         intended_paths=assignment.intended_paths,
         run=run,
     )
+    command = lease.evidence.get("command")
+    return list(command) if isinstance(command, list) else []
+
+
+def create_assignment_lease(
+    repo_root: Path,
+    assignment: AgentAssignment,
+    *,
+    base: str = "origin/main",
+    dirty_paths: Iterable[str] = (),
+    intended_paths: Iterable[str] | None = None,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> WorktreeLease:
+    """Create one assignment-owned durable worktree lease."""
+
+    scope = (
+        tuple(intended_paths)
+        if intended_paths is not None
+        else assignment.intended_paths
+    )
+    assessment = classify_dirty_paths(dirty_paths, scope)
+    if not assessment.can_proceed:
+        joined = ", ".join(assessment.conflicting_paths)
+        raise DirtyConflictError(f"User changes overlap requested files: {joined}")
+    root = repo_root.expanduser().resolve()
+    handle = capture_repository_handle(
+        root,
+        task_id=assignment.assignment_id,
+        run_id=assignment.assignment_id,
+        git_run=run,
+    )
+    manager = WorktreeManager(root, git_run=run, min_free_bytes=0)
+    lease = manager.create(
+        handle,
+        task_id=assignment.assignment_id,
+        run_id=assignment.assignment_id,
+        owner=assignment.owner,
+        branch=assignment.branch,
+        target=Path(assignment.worktree),
+        base=base,
+        planned_paths=scope,
+    )
+    # Assignment persistence predates durable leases. Preserve that public
+    # contract while making an already-persisted assignment point at the
+    # manager-owned record that is now authoritative for worktree lifecycle.
+    if _assignment_path(root, assignment.assignment_id).is_file():
+        save_assignment(
+            root,
+            replace(
+                assignment,
+                lease_id=lease.lease_id,
+                lease_state=lease.state,
+                updated_at=_now_iso(),
+            ),
+        )
+    return lease
 
 
 def detect_shared_file_overwrites(
