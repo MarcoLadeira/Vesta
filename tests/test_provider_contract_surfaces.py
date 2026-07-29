@@ -141,6 +141,12 @@ class ProviderContractSurfaceTests(unittest.TestCase):
                     "opaihub.credentials.credential_statuses",
                     return_value=[credential],
                 ),
+                mock.patch(
+                    "opaihub.local_runner.list_local_models", return_value=[]
+                ) as live_local_models,
+                mock.patch(
+                    "opaihub.local_runner.cached_local_models", return_value=[]
+                ) as cached_local_models,
             ):
                 doctor = provider_connection_doctor(
                     accounts=[],
@@ -164,6 +170,8 @@ class ProviderContractSurfaceTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertTrue(doctor_contract["providerState"]["configured"])
+        self.assertGreaterEqual(live_local_models.call_count, 1)
+        self.assertGreaterEqual(cached_local_models.call_count, 1)
         for surface, contract in (
             ("picker", picker["providerContracts"]["groq"]),
             ("cli", cli_payload["providerContracts"]["groq"]),
