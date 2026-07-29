@@ -26,7 +26,7 @@ from .command_runner import redact
 from .state import state_dir
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_MAX_HANDLE_AGE_SECONDS = 300.0
 
 GitRun = Callable[..., subprocess.CompletedProcess[Any]]
@@ -103,6 +103,8 @@ class RepositoryIdentity:
     detached: bool
     head_sha: str
     status_fingerprint: str
+    index_fingerprint: str
+    working_tree_fingerprint: str
     repository_id: str
 
     def to_dict(self) -> dict[str, object]:
@@ -119,6 +121,8 @@ class RepositoryIdentity:
             "detached": self.detached,
             "head_sha": self.head_sha,
             "status_fingerprint": self.status_fingerprint,
+            "index_fingerprint": self.index_fingerprint,
+            "working_tree_fingerprint": self.working_tree_fingerprint,
             "repository_id": self.repository_id,
         }
 
@@ -410,6 +414,50 @@ def _status_fingerprint(state: DirtyState) -> str:
     return hashlib.sha256(payload.encode("utf-8", "surrogateescape")).hexdigest()
 
 
+def _index_fingerprint(git_dir: Path) -> str:
+    """Hash the real index bytes so a same-path stage change is never invisible."""
+
+    index = git_dir / "index"
+    try:
+        return hashlib.sha256(index.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        # A freshly initialized repository may have no index until its first
+        # add. Treat absence as a stable observed state, not a probe failure.
+        return hashlib.sha256(b"missing-index").hexdigest()
+    except OSError as exc:
+        raise RepositoryProbeError("index_unavailable", str(exc)) from exc
+
+
+def _working_tree_fingerprint(
+    root: Path,
+    dirty: DirtyState,
+    *,
+    git_run: GitRun,
+) -> str:
+    """Hash tracked diffs and untracked blobs, not merely their status labels."""
+
+    digest = hashlib.sha256()
+    for label, args in (
+        ("staged", ["diff", "--cached", "--binary", "--no-ext-diff", "--"]),
+        ("unstaged", ["diff", "--binary", "--no-ext-diff", "--"]),
+    ):
+        digest.update(label.encode("ascii") + b"\0")
+        digest.update(_git_bytes(root, args, git_run=git_run))
+    for path in sorted(dirty.untracked):
+        # Git reads the path through its own worktree rules; ``--`` prevents a
+        # filename from becoming an option, and a failing hash is unsafe.
+        digest.update(path.encode("utf-8", "surrogateescape") + b"\0")
+        digest.update(
+            _git_text(
+                root,
+                ["hash-object", "--no-filters", "--", path],
+                git_run=git_run,
+                required=True,
+            ).encode("ascii", "replace")
+        )
+    return digest.hexdigest()
+
+
 def _repository_id(
     *,
     root: Path,
@@ -488,6 +536,10 @@ def _probe_repository(
         detached=not bool(branch),
         head_sha=head_sha,
         status_fingerprint=_status_fingerprint(dirty_state),
+        index_fingerprint=_index_fingerprint(git_dir),
+        working_tree_fingerprint=_working_tree_fingerprint(
+            root, dirty_state, git_run=git_run
+        ),
         repository_id=_repository_id(
             root=root,
             git_dir=git_dir,
@@ -564,6 +616,10 @@ def _identity_differences(
         reasons.append("head_changed")
     if before.status_fingerprint != after.status_fingerprint:
         reasons.append("dirty_state_changed")
+    if before.index_fingerprint != after.index_fingerprint:
+        reasons.append("index_changed")
+    if before.working_tree_fingerprint != after.working_tree_fingerprint:
+        reasons.append("working_tree_changed")
     if after.detached:
         reasons.append("detached_head")
     if not after.repository_id:
@@ -884,6 +940,8 @@ def _load_handle_payload(data: Any) -> RepositoryHandle:
             detached=bool(identity_raw.get("detached")),
             head_sha=str(identity_raw["head_sha"]),
             status_fingerprint=str(identity_raw["status_fingerprint"]),
+            index_fingerprint=str(identity_raw["index_fingerprint"]),
+            working_tree_fingerprint=str(identity_raw["working_tree_fingerprint"]),
             repository_id=str(identity_raw["repository_id"]),
         )
         dirty = DirtyState(

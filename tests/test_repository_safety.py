@@ -246,6 +246,19 @@ class RepositorySafetyGateTests(unittest.TestCase):
 
         self.assertIn("dirty_state_changed", context.exception.decision.reasons)
 
+    def test_revalidation_detects_changed_contents_with_the_same_dirty_status(
+        self,
+    ) -> None:
+        target = self.repo / "src" / "app.py"
+        target.write_text("print('first')\n", encoding="utf-8")
+        handle = capture_repository_handle(self.repo, task_id="task-1", run_id="run-1")
+        target.write_text("print('second')\n", encoding="utf-8")
+
+        result = revalidate_repository_handle(handle)
+
+        self.assertFalse(result.fresh)
+        self.assertIn("working_tree_changed", result.reasons)
+
     def test_gate_refuses_unrelated_user_changes_without_isolation(self) -> None:
         (self.repo / "docs" / "guide.md").write_text("user edit\n", encoding="utf-8")
         handle = capture_repository_handle(self.repo, task_id="task-1", run_id="run-1")
