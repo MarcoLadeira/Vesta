@@ -937,9 +937,20 @@ def provider_connection_doctor(
             "detected": bool(connection.get("detected")),
             "loginSupported": provider in _LOGIN_ARGV,
         }
+        auth_status = str(connection.get("authStatus") or "").strip().lower()
+        error_code = str(connection.get("lastErrorCode") or "").strip()
+        auth_failure = auth_status in {"invalid", "expired", "disconnected"} or (
+            error_code in _AUTH_FAILURE_CODES
+        )
         observation = {
             "installed": bool(account.get("cli_present")),
-            "authenticated": bool(account.get("authenticated")),
+            "authenticated": False
+            if auth_failure
+            else bool(account.get("authenticated")),
+            # Only normalized local facts are retained: no error prose,
+            # provider completion claim, authority claim, or cost assertion.
+            "authStatus": auth_status,
+            "lastErrorCode": error_code,
         }
         observed_protocol = _observed_adapter_protocol_version(connection)
         if observed_protocol is not None:

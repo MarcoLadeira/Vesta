@@ -324,6 +324,15 @@ def _models(root: Path, *, discover_local: bool = True) -> dict[str, Any]:
         "models": models,
         "accounts": data.get("accounts", []),
         "connections": data.get("connections", []),
+        **{
+            key: data[key]
+            for key in (
+                "providerCatalogVersion",
+                "providerProtocolVersion",
+                "providerContracts",
+            )
+            if key in data
+        },
     }
 
 
@@ -636,6 +645,15 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "controls": describe_controls(mode, focus),
         "accounts": models["accounts"],
         "connections": models["connections"],
+        **{
+            key: models[key]
+            for key in (
+                "providerCatalogVersion",
+                "providerProtocolVersion",
+                "providerContracts",
+            )
+            if key in models
+        },
         "status": _status(root, sel["model_label"], sel["mode_label"]),
         # Startup deferral (#246): the session inspector is non-critical — the
         # panel is hidden by default (show_control_panel) — and it re-reads the

@@ -258,6 +258,30 @@ class ConnectionDoctorTests(unittest.TestCase):
         self.assertEqual(state["degraded_reason"], "protocol_version_incompatible")
         self.assertIn("Update", state["next_action"])
 
+    def test_doctor_projects_safe_connection_failure_into_contract_readiness(self):
+        entries = provider_connection_doctor(
+            accounts=[account(authenticated=False)],
+            connections=[
+                {
+                    "providerId": "claude",
+                    "authStatus": "invalid",
+                    "cliPresent": True,
+                    "lastErrorCode": "AUTH_INVALID",
+                }
+            ],
+            credentials=[],
+            include_cli_versions=False,
+            include_history=False,
+        )
+
+        claude = next(item for item in entries if item["providerId"] == "claude")
+        state = claude["providerContract"]["providerState"]
+        self.assertFalse(state["healthy"])
+        self.assertEqual(state["degraded_reason"], "local_readiness_check_failed")
+        self.assertIn("fresh local readiness check", state["next_action"])
+        self.assertFalse(state["authenticated"])
+        self.assertIsNone(state["authorised"])
+
 
 class InteractiveProviderLoginTests(unittest.TestCase):
     def test_windows_login_uses_fixed_argv_sanitized_env_and_forced_probe(self):

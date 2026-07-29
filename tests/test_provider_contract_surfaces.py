@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import io
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
 from opai.app_state import available_models
+from opai.cli import main
+from opai.gui_web import _models, boot_payload
 from opaihub.accounts import provider_connection_doctor
 from opaihub.provider_capabilities import all_provider_profiles
 
@@ -65,6 +70,54 @@ class ProviderContractSurfaceTests(unittest.TestCase):
         self.assertEqual(state["degraded_reason"], "protocol_version_incompatible")
         self.assertIn("Update", state["next_action"])
         self.assertEqual(contract["protocolVersion"], 1)
+
+    def test_public_cli_and_web_payloads_preserve_contract_readouts(self):
+        """The public model-list, bridge, and initial payloads cannot drop v1."""
+
+        contract_readouts = {
+            "providerCatalogVersion": "v1",
+            "providerProtocolVersion": 1,
+            "providerContracts": {"claude": {"contract": {"example": True}}},
+        }
+        source = {
+            "models": [],
+            "accounts": [],
+            "connections": [],
+            "hint": None,
+            **contract_readouts,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pyproject.toml").write_text(
+                "[project]\nname = 'surface-test'\n", encoding="utf-8"
+            )
+            with mock.patch("opai.app_state.available_models", return_value=source):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    code = main(["models", "list", "--project", str(root)])
+                cli_payload = json.loads(output.getvalue())
+                bridge_payload = _models(root, discover_local=False)
+                initial_payload = boot_payload(root)
+
+        self.assertEqual(code, 0)
+        for surface, payload in (
+            ("cli", cli_payload),
+            ("web_bridge", bridge_payload),
+            ("web_initial", initial_payload),
+        ):
+            with self.subTest(surface=surface):
+                self.assertEqual(
+                    payload["providerCatalogVersion"],
+                    contract_readouts["providerCatalogVersion"],
+                )
+                self.assertEqual(
+                    payload["providerProtocolVersion"],
+                    contract_readouts["providerProtocolVersion"],
+                )
+                self.assertEqual(
+                    payload["providerContracts"],
+                    contract_readouts["providerContracts"],
+                )
 
 
 if __name__ == "__main__":
