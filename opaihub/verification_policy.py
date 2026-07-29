@@ -14,7 +14,9 @@ from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .loader import RegistryLoadError, load_registry
+from .state import state_dir
 
 
 POLICY_SCHEMA_VERSION = 1
@@ -43,6 +45,7 @@ _HUMAN_REVIEW_PATTERNS = (
     (re.compile(r"\bsecurity\b.*\b(?:approve|approval|review)\b", re.I), "security review"),
     (re.compile(r"\b(?:manual|human|maintainer)\b.*\b(?:approve|approval|review)\b", re.I), "human review"),
 )
+_SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
 
 def _normal(value: object) -> str:
@@ -263,6 +266,24 @@ class VerificationPolicy:
             "human_review_requirements": [item.requirement for item in self.human_reviews],
             "finding_codes": [item.code for item in self.findings],
         }
+
+
+@dataclass(frozen=True)
+class PolicyArtifactRef:
+    """A local durable reference to an immutable effective-policy artifact."""
+
+    path: Path
+    digest: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "path", Path(self.path).expanduser().resolve())
+        digest = str(self.digest or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("digest must be a SHA-256 hex value")
+        object.__setattr__(self, "digest", digest)
+
+    def to_dict(self) -> dict[str, str]:
+        return {"path": str(self.path), "digest": self.digest}
 
 
 def classify_repository_and_task(root: Path, *, task: str, mode: str) -> dict[str, Any]:
@@ -553,12 +574,46 @@ def _overlay_human_reviews(
     return tuple(reviews)
 
 
+def _safe_identifier(value: str, *, field_name: str) -> str:
+    candidate = str(value or "").strip()
+    if not _SAFE_IDENTIFIER.fullmatch(candidate):
+        raise ValueError(f"{field_name} must contain only letters, digits, '.', '_' or '-'")
+    return candidate
+
+
+def _policy_artifact_path(root: Path, *, task_id: str, run_id: str) -> Path:
+    safe_task = _safe_identifier(task_id, field_name="task_id")
+    safe_run = _safe_identifier(run_id, field_name="run_id")
+    target = state_dir(root) / "verification-policies" / safe_task / f"{safe_run}.json"
+    state_root = state_dir(root).resolve(strict=False)
+    try:
+        target.resolve(strict=False).relative_to(state_root)
+    except (OSError, ValueError) as exc:
+        raise OSError("verification policy artifact path escaped OPai state") from exc
+    return target
+
+
+def persist_effective_policy(
+    root: Path, policy: VerificationPolicy, *, task_id: str, run_id: str
+) -> PolicyArtifactRef:
+    """Atomically persist a redacted policy artifact before provider dispatch."""
+
+    if not isinstance(policy, VerificationPolicy):
+        raise TypeError("policy must be a VerificationPolicy")
+    target = _policy_artifact_path(Path(root).expanduser().resolve(), task_id=task_id, run_id=run_id)
+    payload = json.dumps(policy.to_dict(), sort_keys=True, indent=2, ensure_ascii=True) + "\n"
+    with interprocess_transaction(target):
+        atomic_write_text(target, payload)
+    return PolicyArtifactRef(path=target, digest=policy.digest)
+
+
 def resolve_verification_policy(
     root: Path,
     *,
     task: str,
     mode: str,
     delivery: str = "local",
+    schema_version: int | None = None,
 ) -> VerificationPolicy:
     """Resolve trusted built-in defaults for a task without command execution."""
 
@@ -569,6 +624,27 @@ def resolve_verification_policy(
     criteria, reviews = _acceptance_from_task(task)
     checks = _builtin_checks(classification)
     findings: list[PolicyFinding] = []
+    requested_schema = POLICY_SCHEMA_VERSION if schema_version is None else schema_version
+    if isinstance(requested_schema, bool) or requested_schema != POLICY_SCHEMA_VERSION:
+        return VerificationPolicy(
+            status="blocked",
+            classification={
+                **classification,
+                "delivery": normalized_delivery,
+                "requested_schema_version": requested_schema,
+            },
+            checks=tuple(checks),
+            sources=(PolicySource("builtin", "Versioned OPai safe defaults"),),
+            acceptance_criteria=criteria,
+            human_reviews=reviews,
+            findings=(
+                _policy_finding(
+                    "schema_incompatible",
+                    f"Requested policy schema {requested_schema!r} is incompatible with {POLICY_SCHEMA_VERSION}.",
+                    source="resolver",
+                ),
+            ),
+        )
     if classification["edit_capable"] and set(classification["repository_families"]) == {"unknown"}:
         reviews += (
             HumanReviewRequirement(

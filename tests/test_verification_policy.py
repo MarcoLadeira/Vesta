@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from opaihub.verification_policy import resolve_verification_policy
+from opaihub.verification_policy import (
+    RESOLVER_SEMANTICS_VERSION,
+    persist_effective_policy,
+    resolve_verification_policy,
+)
 
 
 def test_python_edit_policy_is_deterministic_and_records_provenance(
@@ -99,3 +104,26 @@ def test_team_and_repository_overlays_record_their_source_hierarchy(
         "security",
         "integration",
     }
+
+
+def test_persisted_artifact_is_atomic_redacted_and_round_trips(tmp_path: Path) -> None:
+    policy = resolve_verification_policy(
+        tmp_path, task="Fix auth without exposing a secret-token.", mode="implement"
+    )
+
+    reference = persist_effective_policy(tmp_path, policy, task_id="task-1", run_id="run-1")
+    payload = json.loads(reference.path.read_text(encoding="utf-8"))
+
+    assert reference.path.is_relative_to(tmp_path / ".opaihub" / "verification-policies")
+    assert payload["digest"] == policy.digest == reference.digest
+    assert payload["resolver_semantics_version"] == RESOLVER_SEMANTICS_VERSION
+    assert "secret-token" not in json.dumps(payload)
+
+
+def test_unknown_policy_schema_blocks_historical_task_replay(tmp_path: Path) -> None:
+    policy = resolve_verification_policy(
+        tmp_path, task="Fix parser", mode="implement", schema_version=999
+    )
+
+    assert policy.status == "blocked"
+    assert any(finding.code == "schema_incompatible" for finding in policy.findings)
