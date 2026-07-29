@@ -77,9 +77,7 @@ def operation_key(kind: str, **parts: Any) -> str:
     clean_kind = "".join(
         ch for ch in str(kind or "").lower() if ch.isalnum() or ch in "._-"
     )[:48]
-    material = {
-        str(name): _normalize(value) for name, value in sorted(parts.items())
-    }
+    material = {str(name): _normalize(value) for name, value in sorted(parts.items())}
     digest = hashlib.sha256(
         json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:32]
@@ -133,9 +131,7 @@ def _save(project_root: Path, store: dict[str, Any]) -> None:
             os.unlink(tmp)
 
 
-def status(
-    project_root: Path, key: str, *, now: float | None = None
-) -> dict[str, Any]:
+def status(project_root: Path, key: str, *, now: float | None = None) -> dict[str, Any]:
     """What is known about ``key`` without changing anything."""
     entry = _load(project_root).get(str(key))
     if not isinstance(entry, dict):

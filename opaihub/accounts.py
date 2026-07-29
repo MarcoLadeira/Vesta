@@ -265,6 +265,23 @@ def _popen(cmd: list[str], *, cwd: str | None, env: dict[str, str] | None = None
     )
 
 
+def _notify(listener: Callable[[Any], None] | None, payload: Any) -> None:
+    """Deliver one activity update, containing any listener failure (#295).
+
+    A run is expensive and often long. Letting a rendering bug in a single
+    activity line propagate out of the stream loop would destroy an otherwise
+    healthy run and lose the work with it — the listener is an observer, and an
+    observer must not be able to kill what it observes.
+
+    ``Exception`` only: ``KeyboardInterrupt`` and ``SystemExit`` still stop the
+    run, because those are the user and the OS asking it to stop.
+    """
+    if listener is None:
+        return
+    with contextlib.suppress(Exception):
+        listener(payload)
+
+
 def _is_login_sentinel(text: str) -> bool:
     """True when a CLI 'answer' is really its not-signed-in message.
 
@@ -2034,8 +2051,7 @@ class AccountRunner:
                     continue
                 part = line_parser(raw_line)
                 for event in part["events"]:
-                    if on_event:
-                        on_event(event)
+                    _notify(on_event, event)
                     etype = str(event.get("type") or "")
                     if etype in _STEP_TYPES:
                         step_ids.add(str(event.get("id") or len(step_ids)))
@@ -2051,22 +2067,22 @@ class AccountRunner:
                     )
                     if over_steps or over_time:
                         stopped = "no_progress"
-                        if on_event:
-                            on_event(
-                                make_event(
-                                    "completion",
-                                    "warning",
-                                    (
-                                        "No-progress guard: stopped after "
-                                        f"{len(step_ids)} steps without an edit "
-                                        "attempt"
-                                    ),
-                                    metadata={
-                                        "steps": len(step_ids),
-                                        "elapsed_s": int(elapsed),
-                                    },
-                                )
-                            )
+                        _notify(
+                            on_event,
+                            make_event(
+                                "completion",
+                                "warning",
+                                (
+                                    "No-progress guard: stopped after "
+                                    f"{len(step_ids)} steps without an edit "
+                                    "attempt"
+                                ),
+                                metadata={
+                                    "steps": len(step_ids),
+                                    "elapsed_s": int(elapsed),
+                                },
+                            ),
+                        )
                         break
                 if part.get("error"):
                     provider_errors.append(str(part["error"]))
@@ -2083,7 +2099,7 @@ class AccountRunner:
                     streamed_any = True
                     text_parts.append(part["text"])
                     if on_text:
-                        on_text(part["text"])
+                        _notify(on_text, part["text"])
                 if part["cost"] is not None:
                     cost = part["cost"]
             else:
@@ -2095,8 +2111,7 @@ class AccountRunner:
                         )
                     streamed_any = True
                     text_parts.append(chunk)
-                    if on_text:
-                        on_text(chunk)
+                    _notify(on_text, chunk)
 
         if terminal_provider_error is not None:
             # A terminal JSONL error is already enough to render the failure.
@@ -2121,7 +2136,11 @@ class AccountRunner:
             )
             _invalidate_cache_for_error(self.account_id, normalized)
             return {
-                "text": "",
+                # Output the user already watched appear is evidence, not an
+                # answer: `error` is set alongside it, so no caller can mistake
+                # a failed run for a successful one. Discarding it lost real
+                # work and made the retry pay for the same tokens twice (#295).
+                "text": "".join(text_parts).strip(),
                 "cost": cost,
                 "error": normalized,
                 "returncode": returncode,
@@ -2162,8 +2181,7 @@ class AccountRunner:
                 # nothing was captured — never a duplicate.
                 if final and not text and not provider_errors:
                     text = final
-                    if on_text:
-                        on_text(final)
+                    _notify(on_text, final)
             except OSError:
                 pass
             finally:
@@ -2179,7 +2197,7 @@ class AccountRunner:
             )
             _invalidate_cache_for_error(self.account_id, normalized)
             return {
-                "text": "",
+                "text": text,  # partial output survives the failure (#295)
                 "cost": cost,
                 "error": normalized,
                 "returncode": returncode,
@@ -2195,7 +2213,7 @@ class AccountRunner:
         if returncode not in (0, None) and known_failure:
             _invalidate_cache_for_error(self.account_id, normalized)
             return {
-                "text": "",
+                "text": text,  # partial output survives the failure (#295)
                 "cost": cost,
                 "error": normalized,
                 "returncode": returncode,
@@ -2235,6 +2253,26 @@ class AccountRunner:
                 "cost": cost,
                 "error": normalized,
                 "returncode": returncode,
+            }
+        # Nothing to say and nothing done. This used to return a clean, empty,
+        # *successful* result — the blank reply that looks like OPai working
+        # and isn't (#295 gate 10). A run that produced neither an answer nor a
+        # single tool step did not succeed, so it is reported as NO_RESPONSE:
+        # the vocabulary already had the code, nothing was emitting it.
+        #
+        # Steps are the discriminator. An edit-mode run can legitimately finish
+        # having changed files and said nothing, and calling that a failure
+        # would be its own lie.
+        if not step_ids:
+            # `normalized` already describes this run: an empty diagnostic with
+            # a zero exit classifies as NO_RESPONSE, the code that existed for
+            # exactly this and that nothing was emitting.
+            return {
+                "text": "",
+                "cost": cost,
+                "error": normalized,
+                "returncode": returncode,
+                "edit_denials": list(session.edit_denials),
             }
         return {
             "text": "",
