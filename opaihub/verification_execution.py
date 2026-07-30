@@ -7,10 +7,15 @@ from datetime import datetime
 from enum import Enum
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import re
-from typing import Any, Iterable
+import signal
+import subprocess  # nosec B404 - commands are validated argv and use shell=False
+from typing import Any, Callable, Iterable
 
+from .command_runner import redact
+from .proc import no_window_kwargs
 from .verification_policy import PolicyCheck, VerificationPolicy
 
 
@@ -371,3 +376,211 @@ def verification_verdict(manifest: VerificationManifest) -> VerificationVerdict:
     if any(status is not CheckStatus.PASSED for status in statuses):
         return VerificationVerdict.UNVERIFIED
     return VerificationVerdict.VERIFIED
+
+
+def _bounded_environment() -> dict[str, str]:
+    """Return the minimum inherited process environment needed to find tools."""
+
+    allowed = (
+        "PATH",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "PYTHONPATH",
+    )
+    return {
+        key: value
+        for key in allowed
+        if isinstance((value := os.environ.get(key)), str) and value
+    }
+
+
+def _environment_digest(environment: dict[str, str], worktree: Path) -> str:
+    return _sha256({"environment": environment, "worktree": str(worktree)})
+
+
+def _output_summary(stdout: object, stderr: object, *, limit: int) -> str:
+    if isinstance(limit, bool) or limit < 32:
+        raise ValueError("max_output_chars must be at least 32")
+    text = "\n".join(
+        value
+        for value in (str(stdout or "").strip(), str(stderr or "").strip())
+        if value
+    )
+    text = redact(text).strip() or "No output captured."
+    if len(text) > limit:
+        suffix = " … [truncated]"
+        text = text[: max(1, limit - len(suffix))].rstrip() + suffix
+    return text[:limit]
+
+
+def _terminate(process: subprocess.Popen[str]) -> bool:
+    """Terminate the process group and confirm the owned parent exited."""
+
+    if process.poll() is not None:
+        return True
+    try:
+        if os.name == "nt":
+            process.kill()
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        return False
+    return process.poll() is not None
+
+
+def _terminal_record(check: PolicyCheck, status: CheckStatus) -> CheckRecord:
+    return CheckRecord(
+        check_id=check.check_id,
+        kind=check.kind,
+        requirement=check.requirement,
+        status=status,
+    )
+
+
+def _run_attempt(
+    check: PolicyCheck,
+    context: VerificationExecutionContext,
+    *,
+    index: int,
+    cancel: Callable[[], bool] | None,
+    max_output_chars: int,
+) -> VerificationAttempt:
+    started = datetime.now().astimezone()
+    environment = _bounded_environment()
+    environment_digest = _environment_digest(environment, context.worktree)
+    if cancel is not None and cancel():
+        return VerificationAttempt(
+            check_id=check.check_id,
+            index=index,
+            status=CheckStatus.CANCELLED,
+            command=check.command,
+            working_directory=context.worktree,
+            started_at=started,
+            ended_at=datetime.now().astimezone(),
+            exit_status=None,
+            output_summary="Verification was cancelled before the command started.",
+            environment_digest=environment_digest,
+            teardown_verified=True,
+        )
+    kwargs: dict[str, Any] = {
+        "cwd": str(context.worktree),
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "shell": False,
+        "env": environment,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        kwargs.update(no_window_kwargs())
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        process = subprocess.Popen(list(check.command), **kwargs)  # nosec B603
+    except FileNotFoundError as exc:
+        return VerificationAttempt(
+            check_id=check.check_id,
+            index=index,
+            status=CheckStatus.UNAVAILABLE,
+            command=check.command,
+            working_directory=context.worktree,
+            started_at=started,
+            ended_at=datetime.now().astimezone(),
+            exit_status=127,
+            output_summary=_output_summary("", str(exc), limit=max_output_chars),
+            environment_digest=environment_digest,
+            teardown_verified=True,
+        )
+    except OSError as exc:
+        return VerificationAttempt(
+            check_id=check.check_id,
+            index=index,
+            status=CheckStatus.BLOCKED,
+            command=check.command,
+            working_directory=context.worktree,
+            started_at=started,
+            ended_at=datetime.now().astimezone(),
+            exit_status=None,
+            output_summary=_output_summary("", str(exc), limit=max_output_chars),
+            environment_digest=environment_digest,
+            teardown_verified=True,
+        )
+    try:
+        stdout, stderr = process.communicate(timeout=check.timeout_seconds)
+        status = CheckStatus.PASSED if process.returncode == 0 else CheckStatus.FAILED
+        teardown_verified = True
+        exit_status = process.returncode
+    except subprocess.TimeoutExpired as exc:
+        stdout, stderr = exc.stdout or "", exc.stderr or ""
+        teardown_verified = _terminate(process)
+        status = CheckStatus.TIMEOUT
+        exit_status = None
+    return VerificationAttempt(
+        check_id=check.check_id,
+        index=index,
+        status=status,
+        command=check.command,
+        working_directory=context.worktree,
+        started_at=started,
+        ended_at=datetime.now().astimezone(),
+        exit_status=exit_status,
+        output_summary=_output_summary(stdout, stderr, limit=max_output_chars),
+        environment_digest=environment_digest,
+        teardown_verified=teardown_verified,
+    )
+
+
+def execute_policy(
+    policy: VerificationPolicy,
+    context: VerificationExecutionContext,
+    *,
+    cancel: Callable[[], bool] | None = None,
+    max_output_chars: int = 65_536,
+) -> VerificationManifest:
+    """Run only declared policy argv in the bound worktree and retain attempts."""
+
+    if not isinstance(policy, VerificationPolicy):
+        raise TypeError("policy must be a VerificationPolicy")
+    if not isinstance(context, VerificationExecutionContext):
+        raise TypeError("context must be a VerificationExecutionContext")
+    records: list[CheckRecord] = []
+    for check in policy.checks:
+        if check.requirement in {"optional", "forbidden"}:
+            continue
+        if policy.status != "ready" or {
+            "canonical_worktree",
+            "bounded_environment",
+        } - set(check.environment):
+            records.append(_terminal_record(check, CheckStatus.BLOCKED))
+            continue
+        if not check.command:
+            records.append(_terminal_record(check, CheckStatus.UNAVAILABLE))
+            continue
+        attempts: list[VerificationAttempt] = []
+        for index in range(1, check.retries + 2):
+            attempt = _run_attempt(
+                check,
+                context,
+                index=index,
+                cancel=cancel,
+                max_output_chars=max_output_chars,
+            )
+            attempts.append(attempt)
+            if attempt.status is not CheckStatus.FAILED:
+                break
+        records.append(CheckRecord.from_attempts(check, attempts))
+    return VerificationManifest.from_policy(policy, context, records)

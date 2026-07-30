@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -14,6 +15,7 @@ from opaihub.verification_execution import (
     VerificationExecutionContext,
     VerificationManifest,
     VerificationVerdict,
+    execute_policy,
     verification_verdict,
 )
 from opaihub.verification_policy import PolicyCheck, PolicySource, VerificationPolicy
@@ -65,6 +67,27 @@ def _attempt(root: Path, status: CheckStatus, *, index: int = 1) -> Verification
 
 def _manifest(root: Path, records: tuple[CheckRecord, ...]) -> VerificationManifest:
     return VerificationManifest.from_policy(_policy(), _context(root), records)
+
+
+def _policy_for_command(
+    command: tuple[str, ...], *, timeout_seconds: int = 5, retries: int = 0
+) -> VerificationPolicy:
+    return VerificationPolicy(
+        status="ready",
+        classification={"mode": "implement", "edit_capable": True},
+        checks=(
+            PolicyCheck(
+                "unit",
+                "unit",
+                "required",
+                "Run the relevant unit suite.",
+                command=command,
+                timeout_seconds=timeout_seconds,
+                retries=retries,
+            ),
+        ),
+        sources=(PolicySource("builtin", "Test policy"),),
+    )
 
 
 def test_missing_required_check_is_unverified(tmp_path: Path) -> None:
@@ -127,3 +150,62 @@ def test_manifest_rejects_a_digest_that_does_not_match_its_content(
         VerificationManifest.from_policy(
             _policy(), _context(tmp_path), (passed,), digest="0" * 64
         )
+
+
+def test_runner_executes_only_declared_argv_in_the_canonical_worktree(
+    tmp_path: Path,
+) -> None:
+    policy = _policy_for_command(
+        (sys.executable, "-c", "from pathlib import Path; print(Path.cwd().name)")
+    )
+
+    manifest = execute_policy(policy, _context(tmp_path))
+    attempt = manifest.checks[0].attempts[0]
+
+    assert attempt.status is CheckStatus.PASSED
+    assert attempt.working_directory == tmp_path.resolve()
+    assert attempt.command == policy.checks[0].command
+    assert verification_verdict(manifest) is VerificationVerdict.VERIFIED
+
+
+def test_missing_executable_is_unavailable_not_success(tmp_path: Path) -> None:
+    manifest = execute_policy(
+        _policy_for_command(("opai-command-that-does-not-exist",)), _context(tmp_path)
+    )
+
+    assert manifest.checks[0].status is CheckStatus.UNAVAILABLE
+    assert verification_verdict(manifest) is VerificationVerdict.UNVERIFIED
+
+
+def test_timeout_retains_bounded_redacted_diagnostics_and_teardown(
+    tmp_path: Path,
+) -> None:
+    command = (
+        sys.executable,
+        "-c",
+        "import time; print('token=sk-12345678901234567890'); time.sleep(10)",
+    )
+
+    manifest = execute_policy(
+        _policy_for_command(command, timeout_seconds=1),
+        _context(tmp_path),
+        max_output_chars=64,
+    )
+    attempt = manifest.checks[0].attempts[0]
+
+    assert attempt.status is CheckStatus.TIMEOUT
+    assert attempt.teardown_verified is True
+    assert "12345678901234567890" not in attempt.output_summary
+    assert len(attempt.output_summary) <= 64
+    assert verification_verdict(manifest) is VerificationVerdict.TIMEOUT
+
+
+def test_cancelled_check_never_executes_as_a_pass(tmp_path: Path) -> None:
+    manifest = execute_policy(
+        _policy_for_command((sys.executable, "-c", "print('should not run')")),
+        _context(tmp_path),
+        cancel=lambda: True,
+    )
+
+    assert manifest.checks[0].status is CheckStatus.CANCELLED
+    assert verification_verdict(manifest) is VerificationVerdict.CANCELLED
