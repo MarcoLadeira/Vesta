@@ -22,10 +22,14 @@
   acceptance criteria resolve into a deterministic, redacted artifact with
   source provenance, bounded check requirements, human-review gates, and a
   stable digest before a provider can begin editing.
-- Added `opai verify policy --task <task> --mode <mode> --json` for the same
-  read-only effective-policy decision in CLI and CI. This command does not run
-  checks or declare completion; structured command evidence and final verdicts
-  remain a separate verification-execution responsibility.
+  - Added `opai verify policy --task <task> --mode <mode> --json` for the same
+    read-only effective-policy decision in CLI and CI. This command does not run
+    checks or declare completion; structured command evidence and final verdicts
+    remain a separate verification-execution responsibility.
+  - Added `opai verify run --task <task> --json`: a canonical-worktree runner
+    that executes only policy-declared argv, retains retry attempts, bounds and
+    redacts diagnostics, writes digest-checked local evidence artifacts, and
+    derives verified/non-verified truth without provider self-report.
 
 ### Provider adapters
 

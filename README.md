@@ -181,6 +181,18 @@ This is a policy-only dry run. Structured command execution, evidence bundles,
 and final verified-completion verdicts are deliberately handled by the next
 verification stage, so a resolved policy is never misrepresented as test proof.
 
+To execute only the explicit argv declared by that policy and write a local,
+redacted evidence manifest, use:
+
+```sh
+opai verify run --project /path/to/repo --task "Fix the parser" --json
+```
+
+`verified` means every required check has intact structured evidence. A model's
+prose, changed-file count, or a provider-reported test trace cannot create that
+result; unavailable, skipped, waived, flaky, timed-out, cancelled, failed, or
+damaged required evidence remains visibly non-verified.
+
 ### Keyboard shortcuts
 
 | Shortcut | Action |
