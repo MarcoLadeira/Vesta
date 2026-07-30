@@ -19,6 +19,7 @@ from opaihub.gui_pipeline import (
     request_tool_authority,
 )
 from opaihub.intent_router import safety_warnings
+from opaihub.verification_policy import PolicyArtifactRef
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +211,72 @@ class SelectedLocalModelTests(unittest.TestCase):
         self.assertEqual(result["changed_files"], [])
         self.assertEqual(result["workflow"]["phase"], "blocked")
         self.assertTrue(run.call_args.kwargs["allow_edits"])
+
+
+class VerificationPolicyPipelineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(
+            Path(self._tmp.name), files={"app.py": "value = 1\n"}, commit=True
+        )
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_edit_pipeline_persists_policy_before_provider_dispatch(self):
+        order: list[str] = []
+        artifact = PolicyArtifactRef(
+            path=self.root / ".opaihub" / "verification-policies" / "task" / "run.json",
+            digest="0" * 64,
+        )
+        mismatch = {
+            "status": "capability_mismatch",
+            "capability": "edit_files",
+            "reason": "The selected local runner cannot edit files safely.",
+            "hint": "Choose a provider with bounded repository tools.",
+        }
+
+        def persist(*args, **kwargs):
+            order.append("policy")
+            return artifact
+
+        def run_provider(*args, **kwargs):
+            order.append("provider")
+            return mismatch
+
+        with (
+            mock.patch(
+                "opaihub.gui_pipeline.persist_effective_policy", side_effect=persist
+            ),
+            mock.patch("opaihub.ask.run_ask", side_effect=run_provider),
+        ):
+            result = handle_gui_message(
+                self.root,
+                "Fix app.py and run tests.",
+                model_id="ollama:qwen-coder",
+                mode="safe-auto",
+            )
+
+        self.assertEqual(order, ["policy", "provider"])
+        self.assertEqual(result["verification_policy"]["artifact"], artifact.to_dict())
+
+    def test_malformed_policy_blocks_before_provider_dispatch(self):
+        (self.root / "opai-verification-policy.yaml").write_text(
+            "checks: [", encoding="utf-8"
+        )
+        mismatch = {"status": "answered", "answer": "should not run"}
+
+        with mock.patch("opaihub.ask.run_ask", return_value=mismatch) as provider:
+            result = handle_gui_message(
+                self.root,
+                "Fix app.py",
+                model_id="ollama:qwen-coder",
+                mode="safe-auto",
+            )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["verification_policy"]["status"], "blocked")
+        provider.assert_not_called()
 
 
 class HonestCompletionTests(unittest.TestCase):

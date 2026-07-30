@@ -19,6 +19,7 @@ class TaskPacket:
     forbidden_actions: tuple[str, ...] = ()
     done_criteria: tuple[str, ...] = ()
     tests: tuple[str, ...] = ()
+    verification_policy: dict[str, Any] = field(default_factory=dict)
     last_failure: dict[str, Any] = field(default_factory=dict)
     next_action: str = ""
 
@@ -53,6 +54,7 @@ def build_task_packet(
     forbidden_actions: Iterable[str] = (),
     done_criteria: Iterable[str] = (),
     tests: Iterable[str] = (),
+    verification_policy: Mapping[str, Any] | None = None,
     last_failure: Mapping[str, Any] | None = None,
     next_action: str = "",
 ) -> TaskPacket:
@@ -68,6 +70,7 @@ def build_task_packet(
         forbidden_actions=_strings(forbidden_actions),
         done_criteria=_strings(done_criteria),
         tests=_strings(tests),
+        verification_policy=dict(verification_policy or {}),
         last_failure=dict(last_failure or {}),
         next_action=str(next_action),
     )

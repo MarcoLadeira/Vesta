@@ -161,6 +161,26 @@ worktree only through an owned, pristine lease after a fresh Git-registry and
 filesystem check. Modified, unknown, interrupted, or committed worktrees remain
 in place for review.
 
+### Verification policy dry runs
+
+Before an edit-capable GUI run dispatches a provider, OPai resolves and stores a
+versioned verification policy for the canonical worktree. The policy names the
+required checks, human-review requirements, source precedence, bounded
+execution requirements, and a stable digest. A malformed or weakening policy
+blocks the run; provider prose and repository scripts cannot remove a required
+check.
+
+Inspect exactly the same policy decision in a terminal or CI job without
+executing repository commands:
+
+```sh
+opai verify policy --project /path/to/repo --task "Fix the parser" --mode implement --json
+```
+
+This is a policy-only dry run. Structured command execution, evidence bundles,
+and final verified-completion verdicts are deliberately handled by the next
+verification stage, so a resolved policy is never misrepresented as test proof.
+
 ### Keyboard shortcuts
 
 | Shortcut | Action |

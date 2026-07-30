@@ -227,6 +227,43 @@ def cmd_repo(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Resolve a verification policy without executing repository commands."""
+
+    from opaihub.verification_policy import resolve_verification_policy
+
+    root = _project(args.project)
+    policy = resolve_verification_policy(
+        root,
+        task=args.task,
+        mode=args.mode,
+        delivery=args.delivery,
+    )
+    payload = policy.to_dict()
+    if args.json:
+        print_json(payload)
+    else:
+        print(f"Verification policy: {payload['status']} ({payload['digest'][:12]})")
+        print(
+            "Required checks: "
+            + ", ".join(
+                item["id"]
+                for item in payload["checks"]
+                if item["requirement"] == "required"
+            )
+        )
+        if payload["human_reviews"]:
+            print(
+                "Human reviews: "
+                + ", ".join(item["requirement"] for item in payload["human_reviews"])
+            )
+        for finding in payload["findings"]:
+            print(
+                f"{finding['severity'].upper()}: {finding['code']} — {finding['message']}"
+            )
+    return 0 if policy.status == "ready" else 2
+
+
 def cmd_cockpit(args: argparse.Namespace) -> int:
     from opai.cockpit import build_cockpit, render_cockpit
 
@@ -2343,6 +2380,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Render machine-readable output"
     )
     rw.set_defaults(func=cmd_repo)
+
+    p = sub.add_parser(
+        "verify",
+        help="Resolve a verification policy without running verification commands",
+    )
+    verify_sub = p.add_subparsers(dest="verify_command", required=True)
+    vp = verify_sub.add_parser(
+        "policy", help="Inspect the effective versioned verification policy"
+    )
+    vp.add_argument("--project", default=argparse.SUPPRESS, help="Project root")
+    vp.add_argument(
+        "--task", required=True, help="Task whose verification policy to resolve"
+    )
+    vp.add_argument("--mode", default="implement", help="Requested task mode")
+    vp.add_argument(
+        "--delivery",
+        choices=("local", "ship"),
+        default="local",
+        help="Requested delivery outcome",
+    )
+    vp.add_argument(
+        "--json", action="store_true", help="Render machine-readable policy JSON"
+    )
+    vp.set_defaults(func=cmd_verify)
 
     p = sub.add_parser("cockpit", help="Obvious ON/OFF control panel for OPai")
     p.add_argument("--project", default=None, help="Project root")

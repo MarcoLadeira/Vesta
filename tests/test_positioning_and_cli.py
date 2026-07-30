@@ -1,6 +1,7 @@
 """Issue #40: positioning is consistent and every documented command exists."""
 
 import io
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -100,6 +101,44 @@ class DocumentedCommandsExistTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(target.exists())
             self.assertIn("# OPai Savings Report", target.read_text(encoding="utf-8"))
+
+
+class VerificationPolicyCliTests(unittest.TestCase):
+    def test_verify_policy_cli_matches_pure_resolver(self):
+        from opai.cli import main
+        from opaihub.verification_policy import resolve_verification_policy
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pyproject.toml").write_text(
+                "[project]\nname = 'demo'\n", encoding="utf-8"
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main(
+                    [
+                        "--project",
+                        str(root),
+                        "verify",
+                        "policy",
+                        "--task",
+                        "Fix parser and run tests.",
+                        "--mode",
+                        "implement",
+                        "--delivery",
+                        "local",
+                        "--json",
+                    ]
+                )
+
+            cli_policy = json.loads(output.getvalue())
+            direct = resolve_verification_policy(
+                root, task="Fix parser and run tests.", mode="implement"
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(cli_policy["digest"], direct.digest)
+        self.assertEqual(cli_policy["status"], "ready")
 
 
 if __name__ == "__main__":
