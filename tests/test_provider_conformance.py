@@ -15,7 +15,7 @@ from hypothesis import given, strategies as st
 from opaihub import accounts, local_runner
 from opaihub.accounts import AccountRunner
 from opaihub.ask import _complete_streaming
-from opaihub.local_runner import OllamaRunner, OpenAICompatibleRunner
+from opaihub.local_runner import FreeAPIRunner, OllamaRunner, OpenAICompatibleRunner
 from opaihub.provider_catalog import PROTOCOL_VERSION, provider_ids, provider_record
 from opaihub.provider_conformance import (
     CLAUSE_IDS,
@@ -179,28 +179,30 @@ class ProviderConformanceTests(unittest.TestCase):
             assert_conformant_trace(trace)
 
 
-"""Every supported adapter is held to the same contract (#295, gate 10).
-
-Workstream C: *"Define one adapter protocol … Conformance-test every supported
-provider/model/CLI/local runtime."* Until now there was no such matrix, and the
-two adapter families had quietly diverged:
-
-===========================  ====================  ==============================
-family                       entry point           on provider failure
-===========================  ====================  ==============================
-``AccountRunner`` (CLIs)     ``stream()``          returns a result dict
-``LocalRunner`` (HTTP)       ``complete()``        **raises**
-===========================  ====================  ==============================
-
-Everything above them is written against *one* set of promises, so wherever an
-adapter breaks one the symptom reaches the user as "sometimes it works and
-sometimes it doesn't".
-
-Each probe below wraps one real adapter and drives it through a scripted fake
-transport, at the same seams the existing suites use (`accounts._popen`,
-`local_runner._http_json_cancellable`). No CLI is launched, no socket is opened
-and nothing is spent.
-"""
+# ===========================================================================
+# Behavioural conformance matrix (#295 gate 10)
+# ===========================================================================
+# Every supported adapter is held to the same contract (#295, gate 10).
+#
+# Workstream C: *"Define one adapter protocol … Conformance-test every supported
+# provider/model/CLI/local runtime."* Until now there was no such matrix, and the
+# two adapter families had quietly diverged:
+#
+# ===========================  ====================  ==============================
+# family                       entry point           on provider failure
+# ===========================  ====================  ==============================
+# ``AccountRunner`` (CLIs)     ``stream()``          returns a result dict
+# ``LocalRunner`` (HTTP)       ``complete()``        **raises**
+# ===========================  ====================  ==============================
+#
+# Everything above them is written against *one* set of promises, so wherever an
+# adapter breaks one the symptom reaches the user as "sometimes it works and
+# sometimes it doesn't".
+#
+# Each probe below wraps one real adapter and drives it through a scripted fake
+# transport, at the same seams the existing suites use (`accounts._popen`,
+# `local_runner._http_json_cancellable`). No CLI is launched, no socket is opened
+# and nothing is spent.
 
 # ---------------------------------------------------------------------------
 # A scripted stand-in for a provider CLI's pipes
@@ -270,6 +272,39 @@ def _claude_lines(script: Script) -> tuple[list[str], list[str], bool, int]:
     if script.then == "timeout":
         return out, [], True, 0
     return out, [script.error + "\n"], False, 1
+
+
+def _codex_lines(script: Script) -> tuple[list[str], list[str], bool, int]:
+    """Render a Script as ``codex exec --json`` JSONL.
+
+    Codex is the third CLI shape and the one that differs most: text arrives
+    only on ``item.completed`` (never as deltas), the turn ends with an explicit
+    ``turn.completed``/``turn.failed``, and there is an out-file fallback for
+    when the schema drifts. It reports no dollar cost at all, which is the
+    honest `None` the cost clause is written to accept.
+    """
+    out: list[str] = [json.dumps({"type": "thread.started"}) + "\n"]
+    joined = "".join(script.chunks)
+    if joined:
+        out.append(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": joined},
+                }
+            )
+            + "\n"
+        )
+    if script.then == "ok":
+        out.append(json.dumps({"type": "turn.completed"}) + "\n")
+        return out, [], False, 0
+    if script.then == "empty":
+        # A turn that completes having said nothing at all.
+        return [json.dumps({"type": "turn.completed"}) + "\n"], [], False, 0
+    if script.then == "timeout":
+        return out, [], True, 0
+    out.append(json.dumps({"type": "turn.failed", "error": script.error}) + "\n")
+    return out, [], False, 1
 
 
 def _plain_lines(script: Script) -> tuple[list[str], list[str], bool, int]:
@@ -441,8 +476,16 @@ def _probes() -> list[Any]:
     """Every adapter shape OPai advertises support for."""
     return [
         AccountProbe("claude", _claude_lines),
+        AccountProbe("codex", _codex_lines),
         AccountProbe("copilot", _plain_lines),
         LocalProbe("ollama (HTTP)", lambda: OllamaRunner(), "ollama"),
+        LocalProbe(
+            "free-tier API (HTTP)",
+            lambda: FreeAPIRunner(
+                "https://api.example.invalid/v1", "free-model", "test-key"
+            ),
+            "openai",
+        ),
         LocalProbe(
             "openai-compatible (HTTP)",
             lambda: OpenAICompatibleRunner("http://127.0.0.1:9", model="local-model"),

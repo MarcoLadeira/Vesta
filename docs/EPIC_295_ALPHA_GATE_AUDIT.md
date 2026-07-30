@@ -1,6 +1,6 @@
 # Epic #295 — alpha gate audit
 
-**Status: the epic is NOT closeable. 4 of 14 alpha gates are fully evidenced; the rest
+**Status: the epic is NOT closeable. 5 of 14 alpha gates are fully evidenced; the rest
 are blocked on other P0 epics or on work not yet done.**
 
 #295 states plainly: *"This epic remains open and alpha remains blocked until
@@ -21,24 +21,25 @@ it, and every gap names the epic that owns it.
 | 1 | False completion: 0 | **Partial** | require a passed policy |
 | 2 | Silent message loss: 0 | **Evidenced** | — |
 | 3 | Duplicate active run: 0 | **Partial** | cross-process durability |
-| 4 | Duplicate side effect: 0 | **Partial** | git ops + #517 replay |
+| 4 | Duplicate side effect: 0 | **Partial** | provider/tool calls |
 | 5 | Orphan processes: 0 | **Evidenced (Windows)** | POSIX CI run |
 | 6 | Cross-surface terminal agreement | **Partial** | #525 shared control |
 | 7 | Illegal transitions: 0 unhandled, observable | **Evidenced** | — |
 | 8 | Restart recovery: 100% | **Partial** | #517 replay |
 | 9 | Cancellation truth | **Partial** | #380 teardown proof |
-| 10 | Provider conformance: 100% | **Partial** | codex + free-tier probes |
+| 10 | Provider conformance: 100% | **Evidenced** | — |
 | 11 | Verification truth | **Partial** | #522 |
 | 12 | Budget/policy fail-closed | **Evidenced** | — |
 | 13 | No hidden active work | **Partial** | #524 desktop lifecycle |
 | 14 | Receipt completeness | **Partial** | residual risk |
 
-Four gates are genuinely closed (2, 5, 7, 12) — gate 5 on this Windows host,
+Five gates are genuinely closed (2, 5, 7, 10, 12) — gate 5 on this Windows host,
 pending a POSIX CI run of the same fixtures. No gate is at "not started" any
-more, but "Partial" is doing real work in this table: gate 1 has closed
-provider-manufactured completion without yet *requiring* a passed policy, gate 3
-covers in-process duplicates but not cross-process ones, and gate 10 has a green
-conformance matrix over 4 of the advertised adapters rather than all of them.
+more, but "Partial" is doing real work in this table: gate 1 closed
+provider-manufactured completion and now derives acceptance from the resolved
+policy, yet a repository with no required test checks still completes on diff
+evidence alone; gate 3 covers in-process duplicates but not cross-process ones;
+gate 4 keyed the operations that write history but not provider or tool calls.
 Each of those is a genuine remaining gap, not a rounding error.
 
 **Two entries in this table were wrong in the first draft** — gate 5 was recorded
@@ -165,10 +166,29 @@ releasing the key, uncertainty expiring rather than blocking forever, results
 holding no bodies or secrets, and an unwritable store never blocking the user.
 Red-checked: neutering the guard fails 6 tests including both duplicate cases.
 
-**Missing:** `git_commit` and `git_push` are not keyed. Both have partial natural
-protection — a repeat commit of unchanged paths fails, and a repeat push is a
-no-op — but "partial natural protection" is not the gate's zero. Provider calls
-and tool invocations are unkeyed. Durable replay across processes is #517.
+`git_commit` is now keyed on staged **content** (`git write-tree`), not on the
+request — keying on paths and message would refuse a user who legitimately
+commits "wip" twice with real work in between.
+
+Measuring an unkeyed build established what that actually buys, and it is
+narrower than it first appears:
+
+    WITHOUT the key   replay.ok=False   GIT_COMMIT_FAILED
+    WITH the key      replay.ok=True    Already committed as e46fc0f
+    (commits in history: 2 either way)
+
+Git already refuses the duplicate. What the key adds is honesty — a replay used
+to be told the commit *failed* when it had landed, and the caller is usually the
+model, so a spurious failure invites it to amend or re-commit differently to fix
+a problem that does not exist — plus the crash-between-commit-and-record case,
+which git has no opinion about and which now reports uncertainty.
+
+**`git_push` is deliberately left unkeyed**: re-pushing the same ref at the same
+sha is a no-op, so a key would add bookkeeping and no safety, and ceremony that
+implies a guarantee it does not provide is worse than none.
+
+**Missing:** provider calls and tool invocations are unkeyed. Durable replay
+across processes is #517.
 
 ### 5. Orphan processes: 0 — Evidenced on Windows, logic-only on POSIX
 
@@ -332,11 +352,22 @@ itself calls conforming; and the local probe called `runner.complete` directly
 rather than through the product's own `_complete_streaming`, measuring a call
 OPai never makes.
 
-**Missing:** the matrix covers **4 of the advertised adapters** — claude and
-copilot on the CLI side, Ollama and OpenAI-compatible on the HTTP side. Codex
-(out-file protocol) and the free-tier API runner are not yet probed, so "100% of
-advertised supported adapters" is not yet true. The clause list also does not
-yet cover tool-call or heartbeat behaviour from Workstream C. #520.
+**Coverage is now complete for the advertised adapters**: claude, **codex** and
+copilot on the CLI side, Ollama, **free-tier API** and OpenAI-compatible on the
+HTTP side — 6 adapters x 14 clauses, all passing.
+
+Codex was the shape most likely to differ: text arrives only on
+`item.completed` rather than as deltas, the turn ends with an explicit
+`turn.completed`/`turn.failed`, and there is an out-file fallback. It passed on
+first run, and the probe was checked for vacuity rather than trusted — a healthy
+run parses `Hello world.` through the real parser, a failure keeps its partial
+text alongside a classified error, and an empty turn is not a success. It passes
+because the four defects found via claude and copilot were fixed in the shared
+`AccountRunner.stream()`, which all three CLIs use.
+
+**Missing:** the clause list still does not cover tool-call or heartbeat
+behaviour from Workstream C, so the *contract* is narrower than that workstream
+describes even though every adapter now satisfies it. #520.
 
 ### 11. Verification truth — Partial
 
