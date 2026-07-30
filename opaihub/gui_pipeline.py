@@ -685,13 +685,54 @@ def handle_gui_message(
     turn_id = new_id()
     _phase_id = derived_id(turn_id, "phase")
     _phase_state = {"open": False, "etype": "request_prepare"}
-    # Track this turn in the single-flight registry (#169): a retry with the same
-    # id cancels its predecessor, and the GUI can show what's running. Never let
-    # registry bookkeeping affect the turn.
-    with contextlib.suppress(Exception):  # noqa: BLE001
+    # Admission (#295 gate 3): prove this request enters the runtime once.
+    #
+    # `turn_id` is fresh per call, so the single-flight registry — which keys on
+    # it — could never see two submissions of the same task as one. A
+    # double-click, a renderer replaying a pending send after reconnecting, or a
+    # retry issued before the first reply arrived each started a second full
+    # run: two provider calls, two charges, two sets of edits over one file.
+    #
+    # The admission key is derived from the request itself, so those arrive
+    # under the same key and the second is recognised while the first is still
+    # active. It is deliberately scoped to *active* runs only: asking the same
+    # thing again after a run finishes is a real second request, and the epic
+    # requires consistency without limiting user interaction.
+    _admission = None
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
+        from .admission import admission_key, admit
         from .session_registry import registry
 
-        registry().start(turn_id, "pipeline", cancel=cancel)
+        _admission = admit(
+            registry(),
+            key=admission_key(
+                project_root=project_root,
+                task=message,
+                model=model_id,
+                mode=mode,
+            ),
+            request_id=turn_id,
+            provider="pipeline",
+            cancel=cancel,
+        )
+    if _admission is not None and _admission.duplicate:
+        # Not an error and never dropped: hand back the run already in flight so
+        # the surface attaches to it and the user sees their answer arrive.
+        # Rejecting here would be a second way to lose a message (gate 2).
+        return {
+            "status": "duplicate_request",
+            "answer": "",
+            "request_id": _admission.request_id,
+            "admission": _admission.to_dict(),
+        }
+    if _admission is None:
+        # Admission bookkeeping failed. Fall back to the pre-#295 behaviour
+        # rather than refusing the turn — losing the message would be worse
+        # than the duplicate risk this guards.
+        with contextlib.suppress(Exception):  # noqa: BLE001
+            from .session_registry import registry
+
+            registry().start(turn_id, "pipeline", cancel=cancel)
 
     def _phase(etype: str, status: str, title: str, **kw: Any) -> None:
         _phase_state["open"] = status == "running"

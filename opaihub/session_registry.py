@@ -39,6 +39,10 @@ class Session:
     pid: int | None = None
     cancel: Any = None  # a threading.Event, or anything with .set()
     finished_at: float | None = None
+    #: Identifies the *logical* request (#295 gate 3). Two submissions of the
+    #: same task carry the same key even though their request ids differ, which
+    #: is what lets a double-click or a reconnect replay be recognised as one.
+    admission_key: str | None = None
 
     @property
     def active(self) -> bool:
@@ -53,6 +57,7 @@ class Session:
             "state": self.state,
             "pid": self.pid,
             "elapsed_ms": max(0, int((end - self.started_at) * 1000)),
+            "admission_key": self.admission_key,
         }
 
 
@@ -71,29 +76,99 @@ class SessionRegistry:
         *,
         cancel: Any = None,
         pid: int | None = None,
+        admission_key: str | None = None,
     ) -> Session:
         """Register a new running session for ``request_id``.
 
         Single-flight (#169): if a session for the same id is already running —
         a retry — its cancel Event is fired and it is marked ``superseded`` so
         two processes never run for one request. Returns the new session.
+
+        This keys on the request *id*, which only dedups callers that already
+        know two submissions are the same. Use :meth:`claim` to dedup by
+        admission key, which catches the callers that do not (#295 gate 3).
         """
         rid = str(request_id)
         with self._lock:
-            previous = self._sessions.get(rid)
-            if previous is not None and previous.active:
-                self._signal_cancel(previous)
-                previous.state = SUPERSEDED
-                previous.finished_at = self._now()
-            session = Session(
-                request_id=rid,
-                provider=str(provider or "unknown"),
-                started_at=self._now(),
-                cancel=cancel,
-                pid=pid,
+            return self._start_locked(
+                rid, provider, cancel=cancel, pid=pid, admission_key=admission_key
             )
-            self._sessions[rid] = session
-            return session
+
+    def _start_locked(
+        self,
+        rid: str,
+        provider: str,
+        *,
+        cancel: Any = None,
+        pid: int | None = None,
+        admission_key: str | None = None,
+    ) -> Session:
+        """Body of :meth:`start`. Caller must hold ``self._lock``."""
+        previous = self._sessions.get(rid)
+        if previous is not None and previous.active:
+            self._signal_cancel(previous)
+            previous.state = SUPERSEDED
+            previous.finished_at = self._now()
+        session = Session(
+            request_id=rid,
+            provider=str(provider or "unknown"),
+            started_at=self._now(),
+            cancel=cancel,
+            pid=pid,
+            admission_key=(str(admission_key) if admission_key else None),
+        )
+        self._sessions[rid] = session
+        return session
+
+    def claim(
+        self,
+        admission_key: str,
+        request_id: str,
+        provider: str = "pipeline",
+        *,
+        cancel: Any = None,
+        pid: int | None = None,
+    ) -> str | None:
+        """Atomically start a run for ``admission_key``, or report the live one.
+
+        Returns ``None`` when the run was started (the key was free), or the
+        request id of the **already active** equivalent run when it was not.
+
+        Test-and-set under one lock acquisition is the entire point (#295 gate
+        3). A double-click is two near-simultaneous submissions, so a caller
+        doing ``active_by_key()`` and then ``start()`` would leave a window in
+        which both observe an idle key and both launch a paid run.
+        """
+        key = str(admission_key or "")
+        rid = str(request_id)
+        with self._lock:
+            if key:
+                existing = self._active_by_key_locked(key)
+                if existing is not None and existing.request_id != rid:
+                    return existing.request_id
+            self._start_locked(
+                rid, provider, cancel=cancel, pid=pid, admission_key=key or None
+            )
+            return None
+
+    def _active_by_key_locked(self, admission_key: str) -> Session | None:
+        """Caller must hold ``self._lock``."""
+        for session in self._sessions.values():
+            if session.active and session.admission_key == admission_key:
+                return session
+        return None
+
+    def active_by_key(self, admission_key: str) -> Session | None:
+        """The running session for ``admission_key``, if any.
+
+        Read-only: to *act* on the answer, use :meth:`claim`, which does the
+        check and the start without releasing the lock in between.
+        """
+        key = str(admission_key or "")
+        if not key:
+            return None
+        with self._lock:
+            return self._active_by_key_locked(key)
 
     def finish(self, request_id: str, *, state: str = DONE) -> None:
         """Mark a session terminal. A superseded session stays superseded (a late

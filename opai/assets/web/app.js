@@ -2479,6 +2479,16 @@ function finalize(status, r) {
     return;
   }
   if (!ANSWERED.includes(status)) {
+    // #295 gate 3: this submission was an exact duplicate of a run already in
+    // flight (a retry pressed mid-run, or a replayed send after a reconnect).
+    // The message is NOT lost — the live run is answering it — so the pending
+    // bubble is removed rather than turned into an error the user would try to
+    // debug. Starting a second run instead would double the spend and race two
+    // sets of edits over the same files.
+    if (status === "duplicate_request") {
+      el.remove();
+      return;
+    }
     // F9/F17: a policy-blocked command gets an inline approval card, not an
     // error dead-end — the user can approve the exact command once or deny it.
     if (status === "needs_command_approval") {
