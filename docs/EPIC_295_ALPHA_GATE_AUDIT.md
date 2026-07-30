@@ -20,7 +20,7 @@ it, and every gap names the epic that owns it.
 | --- | --- | --- | --- |
 | 1 | False completion: 0 | **Partial** | #522 verification policy |
 | 2 | Silent message loss: 0 | **Evidenced** | — |
-| 3 | Duplicate active run: 0 | **Partial** | #517 admission keys |
+| 3 | Duplicate active run: 0 | **Partial** | cross-process durability |
 | 4 | Duplicate side effect: 0 | **Partial** | git ops + #517 replay |
 | 5 | Orphan processes: 0 | **Evidenced (Windows)** | POSIX CI run |
 | 6 | Cross-surface terminal agreement | **Partial** | #525 shared control |
@@ -72,16 +72,46 @@ Every submission is accepted, queued, rejected or visibly blocked.
 - Dead-end failures name a model that can still run —
   `test_pipeline_consistency.py`.
 
-### 3. Duplicate active run: 0 — Partial
+### 3. Duplicate active run: 0 — Partial (in-process closed)
 
-`opaihub/session_registry.py` enforces single-flight per request id, and the GUI
-refuses a second concurrent submit (`activity.spec.js`: "Enter during generation
-does not create a duplicate request"). `opaihub/owner_lease.py` now identifies
-the owning process.
+`opaihub/admission.py` supplies the admission key the gate is worded against,
+and `SessionRegistry.claim()` enforces it.
 
-**Missing:** the gate is *per admission/idempotency key*, and there is no
-admission key — a resubmit after a reconnect is a new request id, so nothing
-deduplicates it. #517.
+**The defect.** `handle_gui_message` minted a fresh random `turn_id` per call.
+The single-flight registry keys on that id, so it could only deduplicate callers
+that *already knew* two submissions were the same — two submissions of one task
+got two ids and were, by construction, two different requests. A double-click, a
+renderer replaying a pending send after reconnecting, or Retry pressed mid-run
+(`send(retryOf)` bypasses the busy guard) each started a **second full run**: two
+provider calls, two charges, two sets of edits racing over the same files.
+
+**The key** is derived from what makes two submissions the same intent —
+repository, task text, model, mode. The path is resolved so two spellings of one
+checkout do not become two runs, and the key is a digest so no prompt text rides
+into snapshots or logs.
+
+**Scoped to active runs**, which is the design point. #295 requires consistency
+*"while not limiting user messages and interactions"*, and asking the same thing
+twice on purpose is a real second request. A submission is a duplicate only while
+an equivalent run is still live — which catches every mechanical duplicate (they
+arrive *because* the first is still running) and blocks no deliberate one.
+
+**Atomic**, because a double-click is a race. `claim()` test-and-sets inside one
+lock acquisition. A check-then-act version was written first and measured: with a
+5ms window, 4 concurrent submissions started 4 runs. That also exposed a bad
+test — a 12-thread race test passed against the broken implementation, because
+the real window is sub-microsecond — so the test now widens the check
+deterministically instead of hoping for an interleaving.
+
+**Never a dead end:** a duplicate returns the live run's id. The GUI removes the
+duplicate bubble rather than rendering an error card; the CLI exits `blocked`.
+`test_admission.py` (22 tests + 4 subtests) covers both directions.
+
+**Missing:** cross-process duplicates — GUI and CLI submitting the same task
+simultaneously — are not covered, because the guarantee is in-memory. Closing
+that needs the durable admission record the epic also asks for (*"persist the
+admission event before displaying the task as active"*), which is the same
+durability work gate 8 needs. #517.
 
 ### 4. Duplicate side effect: 0 — Partial
 
