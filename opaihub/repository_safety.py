@@ -502,7 +502,18 @@ def _probe_repository(
             root, ["rev-parse", "--git-common-dir"], git_run=git_run, required=True
         ),
     )
-    head_sha = _git_text(root, ["rev-parse", "HEAD"], git_run=git_run, required=True)
+    # An *unborn* HEAD — a repository created by `git init` with no commit yet —
+    # is a legitimate, safe worktree, not a probe failure. Requiring HEAD to
+    # resolve conflated "has history" with "is a Git repository" and blocked
+    # every edit-capable run in a brand-new project, which is one of the most
+    # common places to start ("build me an app"). The user saw only "OPai could
+    # not establish and persist a fresh repository identity", which is both
+    # wrong and unactionable.
+    #
+    # The empty string is the honest identity for "no commit yet", and it stays
+    # correct downstream: the `head_changed` comparison sees "" -> <sha> when the
+    # first commit lands, which is exactly the change it exists to detect.
+    head_sha = _git_text(root, ["rev-parse", "HEAD"], git_run=git_run, required=False)
     branch = _git_text(
         root,
         ["symbolic-ref", "--quiet", "--short", "HEAD"],

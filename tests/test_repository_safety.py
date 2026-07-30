@@ -169,6 +169,55 @@ class RepositoryCaptureTests(unittest.TestCase):
         self.assertEqual(_tree_and_index_digest(self.repo), before)
 
 
+class UnbornHeadTests(unittest.TestCase):
+    """A `git init` with no commit yet is a real repository (#295).
+
+    Requiring `rev-parse HEAD` to succeed conflated "has history" with "is a Git
+    repository". A brand-new project — one of the most common places a user
+    starts, and the exact case for "build me an app" — has an unborn HEAD, so
+    every edit-capable run in it was refused with "OPai could not establish and
+    persist a fresh repository identity": wrong, and nothing the user could act
+    on. It also turned `main` red.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name) / "fresh"
+        root.mkdir()
+        self.repo = make_repo(root, files={"app.py": "print('hi')\n"}, commit=False)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_repository_with_no_commits_can_still_be_captured(self) -> None:
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        self.assertTrue(handle.identity.repository_id)
+        self.assertEqual(handle.identity.worktree_root, self.repo.resolve())
+
+    def test_an_unborn_head_is_reported_as_empty_not_invented(self) -> None:
+        # "" is the honest identity for "no commit yet". Inventing a sha, or
+        # borrowing one from anywhere, would make the staleness check lie.
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        self.assertEqual(handle.identity.head_sha, "")
+
+    def test_an_unborn_branch_is_not_mistaken_for_a_detached_head(self) -> None:
+        # `symbolic-ref HEAD` still resolves on an unborn branch, so the run is
+        # on a branch — detached-HEAD safety rules must not fire here.
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        self.assertTrue(handle.identity.branch)
+        self.assertFalse(handle.identity.detached)
+
+    def test_the_first_commit_registers_as_a_head_change(self) -> None:
+        # The empty sha must still participate in staleness detection: "" -> sha
+        # is precisely the change the comparison exists to catch.
+        before = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-m", "first")
+        validation = revalidate_repository_handle(before)
+        self.assertFalse(validation.fresh)
+        self.assertIn("head_changed", validation.reasons)
+
+
 class RepositorySafetyGateTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
