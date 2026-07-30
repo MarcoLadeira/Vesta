@@ -757,16 +757,59 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("git_commit", paths)
         if blocked is not None:
             return blocked
+        # #295 gate 4: a replayed or resumed turn must not commit twice.
+        #
+        # The key has to identify the *content*, not just the request. Keying on
+        # paths and message alone would refuse a user who legitimately commits
+        # "wip" twice with different work in between — consistency must not cost
+        # them an interaction. `write-tree` turns the staged index into a
+        # deterministic tree id without touching the worktree or HEAD, so the
+        # same content committed twice is recognised as one operation while
+        # different content is correctly two.
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        tree = self._git(["write-tree"])
+        key = operation_key(
+            "git_commit",
+            root=str(self.repo_root),
+            paths=",".join(sorted(paths)),
+            message=message,
+            tree=tree["output"].strip() if tree["ok"] else "",
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            recorded = prior["result"]
+            return Observation(
+                "git_commit",
+                True,
+                {"paths": list(paths), "sha": recorded.get("sha", "")},
+                message=f"Already committed as {recorded.get('sha', '')}",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            # Started and never confirmed: the commit may already be in history.
+            # Committing again would duplicate it, and claiming success would
+            # assert something unverified — so report the uncertainty instead.
+            return _error(
+                "COMMIT_STATE_UNCERTAIN",
+                "An earlier attempt to commit this exact content did not "
+                "confirm. Check `git log` before retrying.",
+            )
         committed = self._git(["commit", "-m", message, "--", *paths])
         if not committed["ok"]:
+            # Nothing reached history, so the key is released and a corrected
+            # retry proceeds freely.
+            abandon(self.repo_root, key)
             return _error("GIT_COMMIT_FAILED", committed["output"])
         if not self._refresh_repository_handle():
             return self._repository_safety_blocked("git_commit")
         head = self._git(["rev-parse", "--short", "HEAD"])
+        sha = head["output"] if head["ok"] else ""
+        complete(self.repo_root, key, {"sha": sha})
         return Observation(
             "git_commit",
             True,
-            {"paths": list(paths), "sha": head["output"] if head["ok"] else ""},
+            {"paths": list(paths), "sha": sha},
             message=f"Committed {len(paths)} file(s)",
         ).to_dict()
 
