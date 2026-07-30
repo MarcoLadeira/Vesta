@@ -314,13 +314,57 @@ def classify_failure_reason(result: Mapping[str, Any] | None) -> FailureReason:
     return FailureReason.PROVIDER
 
 
-def objective_from_request(objective_text: str, *, mode: str) -> ObjectiveRecord:
-    """Create the run objective without trusting a provider's claimed success."""
+#: Policy check kinds whose *required* presence means a run must show passing
+#: tests before it may complete. Deliberately narrow: `tests_pass` is the only
+#: acceptance requirement that maps to executable proof today, so widening it
+#: without a matching evidence kind would create requirements nothing can ever
+#: satisfy — a permanent "partial" that teaches users to ignore the verdict.
+_TEST_CHECK_KINDS = frozenset({"unit", "integration", "e2e", "test", "tests"})
+
+
+def required_test_kinds(policy: Any) -> bool:
+    """Whether ``policy`` mandates a check that passing tests would satisfy.
+
+    Reads a resolved :class:`~opaihub.verification_policy.VerificationPolicy`
+    structurally, so `completion` does not import it — the verdict must not
+    depend on the policy engine being importable, or a packaging change could
+    silently relax completion.
+    """
+    for check in getattr(policy, "checks", ()) or ():
+        if _normalized(getattr(check, "requirement", "")) != "required":
+            continue
+        if _normalized(getattr(check, "kind", "")) in _TEST_CHECK_KINDS:
+            return True
+    return False
+
+
+def objective_from_request(
+    objective_text: str, *, mode: str, policy: Any = None
+) -> ObjectiveRecord:
+    """Create the run objective without trusting a provider's claimed success.
+
+    When a resolved verification ``policy`` is supplied, its **required** checks
+    decide whether passing tests are part of acceptance. Without one, the older
+    heuristic applies: ship mode, or the request mentioning tests.
+
+    That heuristic was the last way a run could complete unverified. Asking
+    OPai to "fix the crash in parser.py" never says "test", so the objective
+    required only an edit — and a diff alone was enough to report **completed**
+    on a change nobody had run. The repository's own policy knows better than a
+    regex over the request text does, and gate 1 wants completion to rest on an
+    applicable passed policy rather than on how the user happened to phrase it.
+    """
 
     normalized_mode = _normalized(mode) or "explain"
     if normalized_mode in _EDIT_MODES:
         acceptance: list[AcceptanceRequirement] = [AcceptanceRequirement.EXPECTED_EDIT]
-        if normalized_mode == "ship" or _TEST_REQUEST.search(str(objective_text)):
+        if policy is not None:
+            tests_required = required_test_kinds(policy)
+        else:
+            tests_required = normalized_mode == "ship" or bool(
+                _TEST_REQUEST.search(str(objective_text))
+            )
+        if tests_required:
             acceptance.append(AcceptanceRequirement.TESTS_PASS)
     else:
         acceptance = [AcceptanceRequirement.ANSWER_PRESENT]
