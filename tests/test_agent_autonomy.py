@@ -155,6 +155,64 @@ class AgentPolicyTests(unittest.TestCase):
                 self.assertEqual(policy.mode, AgentMode.EXPLAIN)
                 self.assertFalse(policy.allows("edit_files"))
 
+    def test_a_write_instruction_after_an_explanation_leading_question_is_honoured(
+        self,
+    ):
+        # The bug: a message opening with an explanation-sounding word ("What",
+        # "Why", "How") was forced into EXPLAIN regardless of what the rest of
+        # the message asked for, discarding an unambiguous later instruction —
+        # e.g. "What's uncommitted? Commit it and open a PR" stayed read-only
+        # and OPai reported it could not act. The write instruction is in its
+        # own, later sentence here, which is what distinguishes it from "How do
+        # I fix this bug?" below.
+        for request in (
+            "What's uncommitted right now? Create a branch, commit it, "
+            "and open a pull request for me.",
+            "What changes are pending? Please commit them and open a PR.",
+            "Why is the repo dirty? Go ahead and push a PR with these changes.",
+        ):
+            with self.subTest(request=request):
+                policy = resolve_agent_policy(request)
+                self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+                self.assertTrue(policy.allows("commit"))
+                self.assertTrue(policy.allows("push"))
+                self.assertTrue(policy.allows("create_pr"))
+
+    def test_a_write_verb_inside_the_question_itself_still_stays_read_only(self):
+        # The guard the fix must not break: "fix" here is what is being asked
+        # ABOUT ("how do I do X"), not a standalone instruction to do it. There
+        # is no sentence break between the question and the write verb, which
+        # is exactly what keeps this apart from the cases above.
+        for request in (
+            "How do I fix this bug?",
+            "What's the best way to commit this?",
+            "Why would pushing this branch help?",
+        ):
+            with self.subTest(request=request):
+                policy = resolve_agent_policy(request)
+                self.assertEqual(policy.mode, AgentMode.EXPLAIN)
+                self.assertFalse(policy.allows("edit_files"))
+
+    def test_a_negated_write_clause_after_a_question_still_stays_read_only(self):
+        # A later sentence exists, but it explicitly forbids acting — the fix
+        # must not treat "a later sentence exists" as sufficient on its own.
+        policy = resolve_agent_policy(
+            "Explain the routing flow only. Do not edit files."
+        )
+        self.assertEqual(policy.mode, AgentMode.EXPLAIN)
+        self.assertFalse(policy.allows("edit_files"))
+
+    def test_a_current_request_marker_still_overrides_a_leading_question(self):
+        # The harness-formatted path: a "Current request:" section is how a
+        # caller demarcates the live ask after prior context. A write
+        # instruction there must control regardless of what came before it.
+        policy = resolve_agent_policy(
+            "What does this repo do? Some background.\n\n"
+            "Current request: commit the pending changes and open a pull request."
+        )
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("create_pr"))
+
     def test_review_without_edits_selects_review_mode(self):
         policy = resolve_agent_policy(
             "Review this repository for correctness. Report findings only; no edits."
