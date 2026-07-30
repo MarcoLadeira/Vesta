@@ -1,6 +1,6 @@
 # Verification Execution and Evidence Engine Design
 
-**Issue:** #539 (child of #522)  
+**Issue:** #539 (child of #522)
 **Status:** Approved through the user's standing implementation approval
 
 ## Goal
