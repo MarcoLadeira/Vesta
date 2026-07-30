@@ -723,14 +723,21 @@ def _apply_overlay(
             )
             continue
         if inherited is not None:
-            if (
-                inherited.requirement == "required"
-                and candidate.requirement != "required"
+            allowed_requirements = {
+                "required": {"required"},
+                "conditional": {"conditional", "required"},
+                "forbidden": {"forbidden"},
+            }
+            if candidate.requirement not in allowed_requirements.get(
+                inherited.requirement, _VALID_REQUIREMENTS
             ):
                 findings.append(
                     _policy_finding(
-                        "required_check_downgrade",
-                        f"{check_id} is required by {inherited.source} and cannot be downgraded.",
+                        "required_check_downgrade"
+                        if inherited.requirement == "required"
+                        else "check_requirement_weakened",
+                        f"{check_id} is {inherited.requirement} by {inherited.source} "
+                        "and cannot be weakened.",
                         source=source,
                     )
                 )
@@ -740,6 +747,60 @@ def _apply_overlay(
                     _policy_finding(
                         "check_kind_conflict",
                         f"{check_id} cannot change kind from {inherited.kind} to {candidate.kind}.",
+                        source=source,
+                    )
+                )
+                continue
+            contracts = (
+                ("evidence", inherited.evidence, candidate.evidence),
+                ("environment", inherited.environment, candidate.environment),
+                ("artifacts", inherited.artifacts, candidate.artifacts),
+            )
+            weakened_contract = next(
+                (
+                    name
+                    for name, inherited_items, candidate_items in contracts
+                    if not set(inherited_items).issubset(candidate_items)
+                ),
+                None,
+            )
+            if weakened_contract is not None:
+                findings.append(
+                    _policy_finding(
+                        f"check_{weakened_contract}_weakened",
+                        f"{check_id} cannot remove inherited "
+                        f"{weakened_contract} requirements.",
+                        source=source,
+                    )
+                )
+                continue
+            if candidate.timeout_seconds < inherited.timeout_seconds:
+                findings.append(
+                    _policy_finding(
+                        "check_timeout_weakened",
+                        f"{check_id} cannot reduce its inherited timeout.",
+                        source=source,
+                    )
+                )
+                continue
+            if candidate.retries < inherited.retries:
+                findings.append(
+                    _policy_finding(
+                        "check_retries_weakened",
+                        f"{check_id} cannot reduce its inherited retry budget.",
+                        source=source,
+                    )
+                )
+                continue
+            if (
+                inherited.requirement == "conditional"
+                and candidate.requirement == "conditional"
+                and not set(inherited.conditions).issubset(candidate.conditions)
+            ):
+                findings.append(
+                    _policy_finding(
+                        "check_conditions_weakened",
+                        f"{check_id} cannot remove inherited trigger conditions.",
                         source=source,
                     )
                 )

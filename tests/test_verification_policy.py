@@ -75,6 +75,40 @@ def test_repository_overlay_cannot_downgrade_inherited_required_check(
     )
 
 
+def test_repository_overlay_cannot_weaken_inherited_evidence_contract(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname = 'demo'\n", encoding="utf-8"
+    )
+    (tmp_path / "opai-verification-policy.yaml").write_text(
+        "schema_version: 1\nchecks:\n  - id: unit\n    evidence: []\n",
+        encoding="utf-8",
+    )
+
+    policy = resolve_verification_policy(tmp_path, task="Fix code", mode="implement")
+
+    assert policy.status == "blocked"
+    assert any(finding.code == "check_evidence_weakened" for finding in policy.findings)
+
+
+def test_repository_overlay_cannot_reduce_inherited_execution_budget(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname = 'demo'\n", encoding="utf-8"
+    )
+    (tmp_path / "opai-verification-policy.yaml").write_text(
+        "schema_version: 1\nchecks:\n  - id: unit\n    timeout_seconds: 10\n",
+        encoding="utf-8",
+    )
+
+    policy = resolve_verification_policy(tmp_path, task="Fix code", mode="implement")
+
+    assert policy.status == "blocked"
+    assert any(finding.code == "check_timeout_weakened" for finding in policy.findings)
+
+
 def test_malformed_repository_policy_never_returns_permissive_policy(
     tmp_path: Path,
 ) -> None:
