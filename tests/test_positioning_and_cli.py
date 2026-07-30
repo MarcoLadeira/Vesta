@@ -140,6 +140,31 @@ class VerificationPolicyCliTests(unittest.TestCase):
         self.assertEqual(cli_policy["digest"], direct.digest)
         self.assertEqual(cli_policy["status"], "ready")
 
+    def test_verify_run_persists_an_unverified_manifest_for_missing_commands(self):
+        from _helpers import make_repo
+        from opai.cli import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main(
+                    [
+                        "--project",
+                        str(root),
+                        "verify",
+                        "run",
+                        "--task",
+                        "Fix parser",
+                        "--json",
+                    ]
+                )
+            payload = json.loads(output.getvalue())
+
+        self.assertEqual(code, 2)
+        self.assertEqual(payload["verdict"], "unverified")
+        self.assertTrue(payload["manifest"]["digest"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -95,6 +95,10 @@ def build_run_summary(record: Mapping[str, Any] | None) -> str:
         # The diff/changed-file evidence is already the files line above.
         if summary and kind != "diff":
             evidence_lines.append(f"- {summary}")
+    manifest = _mapping(verdict.get("verification_manifest"))
+    manifest_digest = str(manifest.get("digest") or "").strip().lower()
+    if manifest_digest:
+        evidence_lines.append(f"- Verification manifest: {manifest_digest[:12]}")
     if evidence_lines:
         lines += ["", "## Evidence", *evidence_lines]
 

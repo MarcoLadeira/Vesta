@@ -259,7 +259,7 @@ class _EvidenceRunner(FakeStreamingRunner):
         return dict(self._result)
 
 
-def test_pipeline_persists_one_objective_verdict_and_receipt_contract() -> None:
+def test_pipeline_persists_one_manifest_verdict_and_receipt_contract() -> None:
     from opaihub.checkpoints import load_run_checkpoint
     from opaihub.gui_pipeline import handle_gui_message, last_savings_receipt
     from opaihub.workflow_state import load_workflow_state
@@ -287,8 +287,13 @@ def test_pipeline_persists_one_objective_verdict_and_receipt_contract() -> None:
         receipt = last_savings_receipt(root)
 
     verdict = result["completion_verdict"]
-    assert verdict["verdict"] == "completed", verdict
-    assert verdict["reason_code"] == "objective_verified"
+    assert verdict["verdict"] == "partial", verdict
+    assert verdict["reason_code"] == "verification_unverified"
+    assert result["verification_manifest"]["digest"]
+    assert (
+        verdict["verification_manifest"]["digest"]
+        == result["verification_manifest"]["digest"]
+    )
     assert result["objective"]["acceptance"] == ["expected_edit", "tests_pass"]
     receipt_verdict = result["receipt"]["completion_verdict"]
     workflow_verdict = result["workflow"]["completion_verdict"]
@@ -296,10 +301,23 @@ def test_pipeline_persists_one_objective_verdict_and_receipt_contract() -> None:
     assert workflow_verdict["reason_code"] == verdict["reason_code"]
     assert "objective_text" not in receipt_verdict["objective"]
     assert "objective_text" not in workflow_verdict["objective"]
-    assert checkpoint.completion_verdict["verdict"] == "completed"
-    assert workflow.completion_verdict["reason_code"] == "objective_verified"
+    assert checkpoint.completion_verdict["verdict"] == "partial"
+    assert (
+        checkpoint.completion_verdict["verification_manifest"]["digest"]
+        == result["verification_manifest"]["digest"]
+    )
+    assert workflow.completion_verdict["reason_code"] == "verification_unverified"
+    assert (
+        workflow.completion_verdict["verification_manifest"]["digest"]
+        == result["verification_manifest"]["digest"]
+    )
     assert receipt is not None
-    assert receipt["completion_verdict"]["verdict"] == "completed"
+    assert receipt["completion_verdict"]["verdict"] == "partial"
+    assert (
+        receipt["completion_verdict"]["verification_manifest"]["digest"]
+        == result["verification_manifest"]["digest"]
+    )
+    assert result["verification_manifest"]["digest"][:12] in result["run_summary"]
 
 
 def test_partial_verdict_is_persisted_as_non_completed_checkpoint_state() -> None:
@@ -329,6 +347,33 @@ def test_partial_verdict_is_persisted_as_non_completed_checkpoint_state() -> Non
     assert result["checkpoint"]["completion_state"] != "answered"
     assert checkpoint.completion_state != "answered"
     assert checkpoint.completion_verdict["verdict"] == "partial"
+
+
+def test_gui_provider_trace_cannot_bypass_the_persisted_verification_manifest() -> None:
+    from opaihub.gui_pipeline import handle_gui_message
+
+    runner = _EvidenceRunner(
+        {
+            "text": "Parser corrected.",
+            "cost": 0.01,
+            "changed_files": ["parser.py"],
+            "tool_trace": [{"tool": "run_tests", "ok": True, "detail": "12 passed"}],
+        }
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        root = make_repo(Path(tmp), files={"parser.py": "value = 1\n"}, commit=True)
+        result = handle_gui_message(
+            root,
+            "Fix parser.py and run tests.",
+            model_id="account:claude:sonnet",
+            mode="safe-auto",
+            account_runner=runner,
+            on_text=lambda _chunk: None,
+        )
+
+    assert result["verification_manifest"]["digest"]
+    assert result["completion_verdict"]["verdict"] == "partial"
+    assert result["completion_verdict"]["reason_code"] == "verification_unverified"
 
 
 def test_provider_diagnostics_never_become_persisted_verdict_reason() -> None:

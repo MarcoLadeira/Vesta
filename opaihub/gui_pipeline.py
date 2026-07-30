@@ -70,6 +70,12 @@ from .verification_policy import (
     persist_effective_policy,
     resolve_verification_policy,
 )
+from .verification_execution import (
+    VerificationExecutionContext,
+    execute_policy,
+    load_verification_manifest,
+    persist_verification_manifest,
+)
 from .workflow_state import WorkflowState, load_workflow_state, save_workflow_state
 
 
@@ -1103,6 +1109,37 @@ def handle_gui_message(
     def _decorate(payload: dict[str, Any]) -> dict[str, Any]:
         status = str(payload.get("status") or "error")
         edit_intent = policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}
+        verification_manifest_payload: dict[str, Any] = {}
+        if (
+            status == "answered"
+            and edit_intent
+            and effective_policy is not None
+            and task_repository_handle is not None
+        ):
+            try:
+                manifest = execute_policy(
+                    effective_policy,
+                    VerificationExecutionContext.from_repository_handle(
+                        task_repository_handle
+                    ),
+                )
+                evidence_reference = persist_verification_manifest(root, manifest)
+                persisted_manifest = load_verification_manifest(evidence_reference.path)
+                verification_manifest_payload = {
+                    **persisted_manifest.to_dict(),
+                    "artifact": evidence_reference.to_dict(),
+                }
+            except (OSError, TypeError, ValueError) as exc:
+                verification_manifest_payload = {
+                    "integrity_errors": [
+                        "Verification evidence could not be created safely: "
+                        + str(exc)[:240]
+                    ]
+                }
+            payload = {
+                **payload,
+                "verification_manifest": verification_manifest_payload,
+            }
         current_repo = resolve_repo_context(root)
         save_active_repo(root, current_repo)
         changed_files = tuple(str(item) for item in payload.get("changed_files") or [])
@@ -1135,21 +1172,30 @@ def handle_gui_message(
         # provider manufacture completion?" a question about which keys happen
         # to exist today instead of a property of the design; now a new field is
         # invisible to the verdict until deliberately allowlisted.
-        evidence_payload = build_evidence_payload(
-            payload,
-            extra={
-                "changed_files": list(attributed_paths),
-                "diff_review": diff_review,
-                "repo_change": repo_change,
-                "completion_state": payload.get("completion_state")
-                or raw_terminal.get("completion_state"),
-                "stopped_reason": payload.get("stopped_reason")
-                or raw_terminal.get("stopped_reason"),
-            },
-        )
+        evidence_extra: dict[str, Any] = {
+            "changed_files": list(attributed_paths),
+            "diff_review": diff_review,
+            "repo_change": repo_change,
+            "completion_state": payload.get("completion_state")
+            or raw_terminal.get("completion_state"),
+            "stopped_reason": payload.get("stopped_reason")
+            or raw_terminal.get("stopped_reason"),
+        }
+        if verification_manifest_payload:
+            evidence_extra["verification_manifest"] = verification_manifest_payload
+        evidence_payload = build_evidence_payload(payload, extra=evidence_extra)
         verdict = evaluate_completion(objective, evidence_payload)
         verdict_payload = verdict.to_dict()
         stored_verdict = verdict.to_dict(include_objective_text=False)
+        if verification_manifest_payload:
+            manifest_reference = {
+                key: verification_manifest_payload[key]
+                for key in ("digest", "artifact")
+                if key in verification_manifest_payload
+            }
+            if manifest_reference:
+                verdict_payload["verification_manifest"] = manifest_reference
+                stored_verdict["verification_manifest"] = manifest_reference
         # Round 5 finding 2: the same turn showed a red "Failed" pill and prose
         # reading "has been successfully pushed to the origin remote". OPai cannot
         # tell from prose which one is right, so it must not let the claim stand
