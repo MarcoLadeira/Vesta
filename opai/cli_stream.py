@@ -334,6 +334,12 @@ def stream_ask(
     terminal = _terminal_verdict(result)
     if status == "cancelled":
         return exit_code_for("cancelled")
+    if status == "duplicate_request":
+        # #295 gate 3: an identical run is already in flight, so this
+        # invocation started nothing. `blocked` is the honest code — the work
+        # is not done *by this call* and retrying will hit the same guard while
+        # the original runs — and it is already the "do not retry" signal.
+        return exit_code_for("blocked")
     if terminal is not None:
         return exit_code_for(terminal[0])
     return exit_code_for("completed" if status in ANSWERED else "failed")
