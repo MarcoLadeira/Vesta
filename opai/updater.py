@@ -11,8 +11,12 @@ startup check, without ever needing a published release artifact.
 Safety contract: an update check never mutates anything and never raises —
 any failure (offline, not a git checkout, no remote) comes back as a plain
 ``checked: False`` with a human-readable reason. Applying an update refuses
-outright on a dirty working tree or a repo with no ``origin`` remote, so it
-can never discard the user's own uncommitted work.
+outright on a dirty working tree (reporting ``dirty: True`` so a caller can
+offer "update anyway") or a repo with no ``origin`` remote. Passing
+``force=True`` performs that "update anyway": local changes are stashed
+before the update and restored afterward, so nothing is ever discarded —
+only a genuine merge conflict between the stash and the update can leave
+changes sitting in the stash for the user to resolve by hand.
 """
 
 from __future__ import annotations
@@ -217,16 +221,19 @@ def apply_update(
     project_root: Path,
     *,
     branch: str = DEFAULT_BRANCH,
+    force: bool = False,
     git: GitRunner = _default_git,
     pip_install: PipInstaller | None = None,
     cache_path: Path | None = None,
 ) -> dict[str, Any]:
     """Fast-forward to ``origin/<branch>`` and refresh the editable install.
 
-    Refuses outright on any uncommitted change or a repo not tracking
-    ``origin`` — this can never discard local work. A successful update
-    requires an app restart to take effect (the running process already has
-    the old code loaded in memory).
+    Refuses on any uncommitted change unless ``force=True`` — the "update
+    anyway" choice — in which case local changes are stashed before the
+    update and restored afterward, so nothing is discarded. Refuses outright
+    on a repo not tracking ``origin`` regardless of ``force``. A successful
+    update requires an app restart to take effect (the running process
+    already has the old code loaded in memory).
     """
 
     root = Path(project_root)
@@ -234,17 +241,36 @@ def apply_update(
         return {"ok": False, "error": "OPai isn't running from a git checkout."}
     if not _has_origin(root, git):
         return {"ok": False, "error": "No 'origin' remote is configured."}
-    if _working_tree_dirty(root, git):
+
+    dirty = _working_tree_dirty(root, git)
+    if dirty and not force:
         return {
             "ok": False,
+            "dirty": True,
             "error": "There are uncommitted local changes — commit, stash, or discard them before updating.",
         }
+
+    stashed = False
+    if dirty:
+        stash = git(
+            root, ["stash", "push", "--include-untracked", "-m", "opai-update-autostash"]
+        )
+        if stash.returncode != 0:
+            return {
+                "ok": False,
+                "error": f"Could not set aside your local changes to update anyway: {stash.stderr.strip()}",
+            }
+        stashed = True
 
     try:
         fetch = git(root, ["fetch", "--quiet", "origin", branch])
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
+        if stashed:
+            git(root, ["stash", "pop"])
         return {"ok": False, "error": f"Could not reach the update server: {exc}"}
     if fetch.returncode != 0:
+        if stashed:
+            git(root, ["stash", "pop"])
         return {
             "ok": False,
             "error": "Could not reach the update server — check your connection.",
@@ -252,6 +278,8 @@ def apply_update(
 
     checkout = git(root, ["checkout", branch])
     if checkout.returncode != 0:
+        if stashed:
+            git(root, ["stash", "pop"])
         return {
             "ok": False,
             "error": f"Could not switch to '{branch}': {checkout.stderr.strip()}",
@@ -259,10 +287,26 @@ def apply_update(
 
     merged = git(root, ["merge", "--ff-only", f"origin/{branch}"])
     if merged.returncode != 0:
+        if stashed:
+            git(root, ["stash", "pop"])
         return {
             "ok": False,
             "error": "Could not fast-forward to the latest version — local history has diverged.",
         }
+
+    if stashed:
+        pop = git(root, ["stash", "pop"])
+        if pop.returncode != 0:
+            return {
+                "ok": False,
+                "code_updated": True,
+                "error": (
+                    "Updated to the latest version, but your local changes couldn't be "
+                    "restored automatically because they now conflict with it. They're "
+                    "safe in the git stash — run 'git stash pop' yourself to resolve, "
+                    "then restart OPai."
+                ),
+            }
 
     installer = pip_install or _default_pip_install
     try:
@@ -302,4 +346,7 @@ def apply_update(
             "reason": None,
         },
     )
-    return {"ok": True, "restart_required": True, "installed_version": new_version}
+    result = {"ok": True, "restart_required": True, "installed_version": new_version}
+    if stashed:
+        result["local_changes_restored"] = True
+    return result

@@ -753,13 +753,15 @@ def cmd_update(args: argparse.Namespace) -> int:
     Operates on OPai's own running source checkout, never the project passed
     to other commands with ``--project``. Bare ``opai update`` checks and
     reports; ``opai update --apply`` fetches, fast-forwards, and reinstalls —
-    refusing outright on any uncommitted local change.
+    refusing outright on any uncommitted local change unless ``--force`` is
+    also given, in which case those changes are stashed before the update
+    and restored afterward.
     """
     from opai.updater import apply_update, check_for_update, install_root
 
     root = install_root()
     if getattr(args, "apply", False):
-        result = apply_update(root)
+        result = apply_update(root, force=getattr(args, "force", False))
         print_json(result)
         return 0 if result.get("ok") else 1
 
@@ -3279,6 +3281,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--apply",
         action="store_true",
         help="Fetch, fast-forward, and reinstall (refuses on uncommitted local changes)",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="With --apply: update anyway on uncommitted local changes, stashing and restoring them",
     )
     p.add_argument(
         "--cached",

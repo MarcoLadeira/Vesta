@@ -2218,6 +2218,63 @@
           });
         };
       var applyBtn = q("#settingsApplyUpdate");
+      function runApplyUpdate(force) {
+        applyBtn.disabled = true;
+        applyBtn.textContent = "Updating…";
+        bridge.applyUpdate(!!force, function (json2) {
+          var result = {};
+          try {
+            result = JSON.parse(json2);
+          } catch (_e) {
+            /* keep {} */
+          }
+          if (!result.ok) {
+            applyBtn.textContent = "Update now";
+            // Uncommitted local changes: offer the "update anyway" choice
+            // instead of a dead-end toast. It stashes local changes,
+            // updates, and restores them — nothing is discarded.
+            if (!force && result.dirty) {
+              var dirtyHost = applyBtn.closest(".update-card") || applyBtn.parentElement;
+              ctx
+                .inlineConfirm(dirtyHost, {
+                  title: "Update anyway?",
+                  body: "You have uncommitted local changes. OPai can set them aside with a git stash, apply the update, and restore them afterward — nothing is discarded, unless the update conflicts with your changes, in which case they stay safe in the stash for you to resolve by hand.",
+                  confirmLabel: "Update anyway",
+                  danger: true,
+                })
+                .then(function (okAnyway) {
+                  if (!okAnyway) {
+                    applyBtn.disabled = false;
+                    return;
+                  }
+                  runApplyUpdate(true);
+                });
+              return;
+            }
+            applyBtn.disabled = false;
+            toast(result.error || "Could not update OPai");
+            return;
+          }
+          if (updateCard)
+            updateCard.innerHTML =
+              '<div class="update-card ok" data-update-status="restart"><div class="update-head"><span class="update-dot"></span><span class="update-title">Updated to ' +
+              esc(result.installed_version || "the latest version") +
+              ' — restart to finish</span></div>' +
+              (result.local_changes_restored
+                ? '<div class="update-desc">Your uncommitted local changes were restored.</div>'
+                : "") +
+              '<div class="actions"><button class="btn primary" id="settingsRestartOpai">Restart now</button></div></div>';
+          if (global.__opai && global.__opai.renderUpdateBanner)
+            global.__opai.renderUpdateBanner({ checked: true, up_to_date: true });
+          var restartBtn = q("#settingsRestartOpai");
+          if (restartBtn)
+            restartBtn.onclick = function () {
+              restartBtn.disabled = true;
+              restartBtn.textContent = "Restarting…";
+              bridge.restartOPai();
+            };
+        });
+      }
       if (applyBtn)
         applyBtn.onclick = function () {
           var host = applyBtn.closest(".update-card") || applyBtn.parentElement;
@@ -2233,35 +2290,7 @@
                 applyBtn.disabled = false;
                 return;
               }
-              applyBtn.textContent = "Updating…";
-              bridge.applyUpdate(function (json2) {
-                var result = {};
-                try {
-                  result = JSON.parse(json2);
-                } catch (_e) {
-                  /* keep {} */
-                }
-                if (!result.ok) {
-                  applyBtn.disabled = false;
-                  applyBtn.textContent = "Update now";
-                  toast(result.error || "Could not update OPai");
-                  return;
-                }
-                if (updateCard)
-                  updateCard.innerHTML =
-                    '<div class="update-card ok" data-update-status="restart"><div class="update-head"><span class="update-dot"></span><span class="update-title">Updated to ' +
-                    esc(result.installed_version || "the latest version") +
-                    ' — restart to finish</span></div><div class="actions"><button class="btn primary" id="settingsRestartOpai">Restart now</button></div></div>';
-                if (global.__opai && global.__opai.renderUpdateBanner)
-                  global.__opai.renderUpdateBanner({ checked: true, up_to_date: true });
-                var restartBtn = q("#settingsRestartOpai");
-                if (restartBtn)
-                  restartBtn.onclick = function () {
-                    restartBtn.disabled = true;
-                    restartBtn.textContent = "Restarting…";
-                    bridge.restartOPai();
-                  };
-              });
+              runApplyUpdate(false);
             });
         };
     }

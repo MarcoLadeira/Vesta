@@ -83,6 +83,40 @@ test("cancelling the update confirm applies nothing", async ({ page }) => {
   await expect(page.locator('[data-update-status="available"]')).toBeVisible();
 });
 
+test("uncommitted local changes offer an Update anyway choice that stashes and restores them", async ({ page }) => {
+  await openApp(page, {
+    settings: {
+      about: {
+        version: "0.2.0a1",
+        release_stage: "alpha.1",
+        update: {
+          current_version: "0.2.0a1", checked: true, up_to_date: false,
+          latest_version: "0.3.0", commits_behind: 5, branch: "main", reason: null,
+        },
+      },
+    },
+    applyUpdateDirty: true,
+    applyUpdateResponse: {
+      ok: true, restart_required: true, installed_version: "0.3.0",
+      local_changes_restored: true,
+    },
+  });
+  await openSettings(page, "about");
+
+  await page.locator("#settingsApplyUpdate").click();
+  await page.locator(".inline-confirm [data-ic=\"ok\"]").click();
+
+  // First attempt refuses (dirty) and offers "Update anyway" instead of a dead end.
+  const anywayConfirm = page.locator(".inline-confirm");
+  await expect(anywayConfirm).toBeVisible();
+  await expect(anywayConfirm).toContainText("Update anyway");
+  await anywayConfirm.getByRole("button", { name: "Update anyway" }).click();
+
+  await expect.poll(() => page.evaluate(() => window.__mock.updateApplyForce)).toEqual([false, true]);
+  await expect(page.locator('[data-update-status="restart"]')).toBeVisible();
+  await expect(page.locator("#settingsPage")).toContainText("restored", seen);
+});
+
 test("Check for updates always forces a live check, never the stale cache", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "about");

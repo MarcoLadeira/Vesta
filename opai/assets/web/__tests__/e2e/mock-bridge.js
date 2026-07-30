@@ -216,8 +216,16 @@
         latest_version: "0.2.1a1", commits_behind: 0, branch: "main", reason: null,
       }));
     },
-    applyUpdate: function (cb) {
+    applyUpdate: function (force, cb) {
       window.__mock.updateApplies++;
+      window.__mock.updateApplyForce.push(!!force);
+      if (!force && scenario.applyUpdateDirty) {
+        cb(JSON.stringify(scenario.applyUpdateDirtyResponse || {
+          ok: false, dirty: true,
+          error: "There are uncommitted local changes — commit, stash, or discard them before updating.",
+        }));
+        return;
+      }
       cb(JSON.stringify(scenario.applyUpdateResponse || {
         ok: true, restart_required: true, installed_version: "0.3.0",
       }));
@@ -458,7 +466,7 @@
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
     dashboardRequests: [], settingsRequests: [], statusRequests: [],
-    updateChecks: [], updateApplies: 0, updateRestarts: 0, usageRefreshes: 0,
+    updateChecks: [], updateApplies: 0, updateApplyForce: [], updateRestarts: 0, usageRefreshes: 0,
     workspaceStateCalls: 0,
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
