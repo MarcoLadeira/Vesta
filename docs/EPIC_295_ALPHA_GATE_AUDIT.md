@@ -18,7 +18,7 @@ it, and every gap names the epic that owns it.
 
 | # | Gate | Status | Owner of the gap |
 | --- | --- | --- | --- |
-| 1 | False completion: 0 | **Partial** | #522 verification policy |
+| 1 | False completion: 0 | **Partial** | require a passed policy |
 | 2 | Silent message loss: 0 | **Evidenced** | — |
 | 3 | Duplicate active run: 0 | **Partial** | cross-process durability |
 | 4 | Duplicate side effect: 0 | **Partial** | git ops + #517 replay |
@@ -31,12 +31,15 @@ it, and every gap names the epic that owns it.
 | 11 | Verification truth | **Partial** | #522 |
 | 12 | Budget/policy fail-closed | **Evidenced** | — |
 | 13 | No hidden active work | **Partial** | #524 desktop lifecycle |
-| 14 | Receipt completeness | **Partial** | #516 / #528 |
+| 14 | Receipt completeness | **Partial** | residual risk |
 
 Four gates are genuinely closed (2, 5, 7, 12) — gate 5 on this Windows host,
-pending a POSIX CI run of the same fixtures. No gate is now at "not started":
-gate 10 has a green conformance matrix over 4 of the advertised adapters, which
-is real coverage but not the 100% the gate demands.
+pending a POSIX CI run of the same fixtures. No gate is at "not started" any
+more, but "Partial" is doing real work in this table: gate 1 has closed
+provider-manufactured completion without yet *requiring* a passed policy, gate 3
+covers in-process duplicates but not cross-process ones, and gate 10 has a green
+conformance matrix over 4 of the advertised adapters rather than all of them.
+Each of those is a genuine remaining gap, not a rounding error.
 
 **Two entries in this table were wrong in the first draft** — gate 5 was recorded
 as "not started" when the mechanism was already wired into the provider path,
@@ -48,17 +51,42 @@ itself verified is just a second opinion.
 
 ## Gate-by-gate
 
-### 1. False completion: 0 — Partial
+### 1. False completion: 0 — Partial (provider-manufactured completion closed)
 
 `completed` is computed from a verdict, never from model prose
 (`opaihub/completion.py`), and the pipeline emits the canonical run state
 alongside it. `test_completion_contract.py` and `test_run_state.py` hold the
 one-for-one mapping between terminal states and verdicts.
 
-**Missing:** the verdict is only as strong as the verification policy behind it,
-and that policy lives in #522. Until an applicable passed policy is *required*,
-"technically impossible to complete without proof" (the gate's own wording) is
-not yet true.
+**A provider can no longer manufacture one.** `evaluate_completion` promised in
+its own docstring that only evidence from OPai's execution path could return
+`COMPLETED`, and two things contradicted that:
+
+- `_has_successful_test` accepted a bare `{"tests": {"status": "passed"}}` —
+  a status string with no provenance was enough to satisfy `tests_pass` and
+  stamp the run completed. Measured against the old code, both that and the
+  legacy `test_results` spelling returned `COMPLETED` on nothing but a claim.
+- The call site built the verdict's input as `{**payload, ...}`, spreading the
+  whole provider-influenced result, so whether that key was reachable depended
+  on which fields happened to exist rather than on the design. The old spread
+  carried `tests` *and* a provider-supplied `completion_verdict` straight in.
+
+Nothing populated those keys on the live path, so it was not exploitable —
+which is exactly the distinction removed. Unreachable-today is one refactor from
+reachable, and the gate asks for *impossible*. Test evidence now requires a
+record of something OPai ran (its own tool trace, or a check carrying the exit
+status it observed), and `evidence_payload()` allowlists what the verdict may
+read, so a new field is invisible to it until deliberately added to
+`MEASURED_EVIDENCE_KEYS`. `test_false_completion_guards.py` (14 tests + 6
+subtests) covers both directions — including that honest runs still complete,
+since a guard that fails real work gets deleted.
+
+**Missing:** the verdict is still only as strong as the policy behind it. #590
+now *resolves* a versioned verification policy, but nothing yet **requires** an
+applicable passed policy: an implement-mode run whose text does not mention
+tests still completes on diff evidence alone. Wiring the resolved policy into
+the acceptance requirements is the remaining step, with the check runner in the
+rest of #539.
 
 ### 2. Silent message loss: 0 — Evidenced
 
@@ -341,11 +369,33 @@ work means input is never silently dropped.
 **Missing:** the gate is about renderer/window failure specifically — that a
 desktop crash cannot leave paid work undiscoverable. Proving it needs #524.
 
-### 14. Receipt completeness — Partial
+### 14. Receipt completeness — Partial (evidence and authority landed)
 
-Receipts carry route, cost, changed files and verdict, and `message_contract`
-now records the lane and its reason. Approvals, residual risk and full
-verification evidence are not consistently present. #516 / #528.
+Receipts carry route, cost, model and the verdict, and `message_contract`
+records the lane and its reason. Probing a real run showed `evidence`,
+`changed_files` and `approvals` were all absent — a receipt stating an outcome
+without the evidence behind it, or what the run was allowed to do, asks the user
+to take OPai's word for it, which is what a receipt exists to avoid.
+
+Receipts now carry:
+
+- **`evidence`** — the same `EvidenceRef` list the verdict was computed from, so
+  the reasoning is checkable rather than asserted. This is the visible half of
+  gate 1's work: the verdict trusts only observed evidence, and now the user can
+  see it.
+- **`changed_files`** — measured from the repository, not claimed.
+- **`authority`** — every one-shot grant the turn used, with its scope. The
+  approved command is redacted and bounded first: it can carry a token in a
+  flag, and a receipt is durable, so it must not become where a secret rests.
+  `approvals_recorded` is stated explicitly, because an empty list otherwise
+  cannot distinguish "nothing was approved" from "we did not record approvals".
+
+`test_receipt_evidence.py` (11 tests) covers those, plus the existing promise
+that no raw prompt reaches the receipt.
+
+**Missing:** residual risk is still not represented — it needs a risk model that
+does not exist yet — and full verification-run evidence arrives with the check
+runner in the rest of #539. #516 / #528.
 
 ---
 
