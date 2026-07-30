@@ -1172,18 +1172,18 @@ def handle_gui_message(
         # provider manufacture completion?" a question about which keys happen
         # to exist today instead of a property of the design; now a new field is
         # invisible to the verdict until deliberately allowlisted.
-        evidence_payload = build_evidence_payload(
-            payload,
-            extra={
-                "changed_files": list(attributed_paths),
-                "diff_review": diff_review,
-                "repo_change": repo_change,
-                "completion_state": payload.get("completion_state")
-                or raw_terminal.get("completion_state"),
-                "stopped_reason": payload.get("stopped_reason")
-                or raw_terminal.get("stopped_reason"),
-            },
-        )
+        evidence_extra: dict[str, Any] = {
+            "changed_files": list(attributed_paths),
+            "diff_review": diff_review,
+            "repo_change": repo_change,
+            "completion_state": payload.get("completion_state")
+            or raw_terminal.get("completion_state"),
+            "stopped_reason": payload.get("stopped_reason")
+            or raw_terminal.get("stopped_reason"),
+        }
+        if verification_manifest_payload:
+            evidence_extra["verification_manifest"] = verification_manifest_payload
+        evidence_payload = build_evidence_payload(payload, extra=evidence_extra)
         verdict = evaluate_completion(objective, evidence_payload)
         verdict_payload = verdict.to_dict()
         stored_verdict = verdict.to_dict(include_objective_text=False)

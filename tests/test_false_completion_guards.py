@@ -189,6 +189,22 @@ class EvidenceAllowlistTests(unittest.TestCase):
         self.assertIn("repo_change", built)
         self.assertNotIn("sneaky", built)
 
+    def test_provider_cannot_supply_a_verification_manifest(self) -> None:
+        provider_claim = {"digest": "a" * 64, "checks": []}
+
+        self.assertNotIn(
+            "verification_manifest",
+            evidence_payload({"verification_manifest": provider_claim}),
+        )
+        pipeline_evidence = evidence_payload(
+            {"verification_manifest": provider_claim},
+            extra={"verification_manifest": {"digest": "b" * 64}},
+        )
+
+        self.assertEqual(
+            pipeline_evidence["verification_manifest"], {"digest": "b" * 64}
+        )
+
     def test_the_allowlist_excludes_every_claim_shaped_key(self) -> None:
         # Named explicitly so adding one back is a visible, deliberate act.
         for key in (
