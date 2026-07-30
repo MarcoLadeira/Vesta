@@ -247,3 +247,26 @@ def test_missing_persisted_output_artifact_downgrades_to_unverified(
     restored = load_verification_manifest(reference.path)
 
     assert verification_verdict(restored) is VerificationVerdict.UNVERIFIED
+
+
+def test_provider_tool_trace_cannot_override_an_unverified_manifest(
+    tmp_path: Path,
+) -> None:
+    from opaihub.completion import (
+        CompletionVerdict,
+        evaluate_completion,
+        objective_from_request,
+    )
+
+    result = evaluate_completion(
+        objective_from_request("Fix parser.py and run tests.", mode="implement"),
+        {
+            "status": "answered",
+            "changed_files": ["parser.py"],
+            "tool_trace": [{"tool": "run_tests", "ok": True}],
+            "verification_manifest": _manifest(tmp_path, ()).to_dict(),
+        },
+    )
+
+    assert result.verdict is CompletionVerdict.PARTIAL
+    assert result.reason_code == "verification_unverified"

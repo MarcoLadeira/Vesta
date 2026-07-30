@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import signal
 import subprocess  # nosec B404 - commands are validated argv and use shell=False
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from .command_runner import redact
 from .atomic_io import atomic_write_text, interprocess_transaction
@@ -721,7 +721,16 @@ def _manifest_from_dict(payload: dict[str, Any]) -> VerificationManifest:
         context=context,
         checks=tuple(records),
         digest=payload.get("digest") or "",
+        integrity_errors=tuple(payload.get("integrity_errors") or ()),
     )
+
+
+def verification_manifest_from_dict(payload: Mapping[str, Any]) -> VerificationManifest:
+    """Parse a manifest payload while preserving integrity findings for consumers."""
+
+    if not isinstance(payload, Mapping):
+        raise TypeError("verification manifest must be a mapping")
+    return _manifest_from_dict(dict(payload))
 
 
 def persist_verification_manifest(

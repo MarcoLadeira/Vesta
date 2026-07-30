@@ -606,10 +606,43 @@ def evidence_payload(
     payload = {
         key: value for key, value in measured.items() if key in MEASURED_EVIDENCE_KEYS
     }
+    # Evidence manifests are deliberately accepted from ``extra`` only.  A
+    # provider can construct a self-consistent JSON digest, but only the
+    # pipeline may add the manifest it executed and persisted itself.
+    internal_only = {"verification_manifest"}
     for key, value in (extra or {}).items():
-        if key in MEASURED_EVIDENCE_KEYS:
+        if key in MEASURED_EVIDENCE_KEYS or key in internal_only:
             payload[key] = value
     return payload
+
+
+def _manifest_verdict(payload: Mapping[str, Any]) -> tuple[str, str] | None:
+    """Return a validated #539 manifest verdict, never a provider claim."""
+
+    raw = payload.get("verification_manifest")
+    if not isinstance(raw, Mapping):
+        return None
+    try:
+        from .verification_execution import (
+            VerificationVerdict,
+            verification_manifest_from_dict,
+            verification_verdict,
+        )
+
+        value = verification_verdict(verification_manifest_from_dict(raw))
+    except (TypeError, ValueError):
+        return "invalid", "Verification evidence could not be validated."
+    if value is VerificationVerdict.VERIFIED:
+        return None
+    messages = {
+        VerificationVerdict.PARTIALLY_VERIFIED: "Required verification is only partially satisfied.",
+        VerificationVerdict.BLOCKED: "Verification was blocked before required checks completed.",
+        VerificationVerdict.FAILED: "A required verification check failed.",
+        VerificationVerdict.CANCELLED: "Verification was cancelled before required checks completed.",
+        VerificationVerdict.TIMEOUT: "A required verification check timed out.",
+        VerificationVerdict.UNVERIFIED: "Required verification evidence is missing, unavailable, or damaged.",
+    }
+    return value.value, messages[value]
 
 
 def evaluate_completion(
@@ -701,6 +734,27 @@ def evaluate_completion(
             objective,
             evidence,
             next_action,
+        )
+
+    if (manifest_outcome := _manifest_verdict(result)) is not None:
+        manifest_status, manifest_reason = manifest_outcome
+        if manifest_status == "blocked":
+            verdict = CompletionVerdict.BLOCKED
+        elif manifest_status == "failed":
+            verdict = CompletionVerdict.FAILED
+        elif manifest_status == "cancelled":
+            verdict = CompletionVerdict.CANCELLED
+        elif manifest_status == "timeout":
+            verdict = CompletionVerdict.TIMEOUT
+        else:
+            verdict = CompletionVerdict.PARTIAL
+        return _verdict(
+            verdict,
+            "verification_" + manifest_status,
+            manifest_reason,
+            objective,
+            evidence,
+            "Repair or rerun the required verification checks.",
         )
 
     kinds = {item.kind for item in evidence}
