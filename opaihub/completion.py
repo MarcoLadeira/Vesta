@@ -620,8 +620,15 @@ def _manifest_verdict(payload: Mapping[str, Any]) -> tuple[str, str] | None:
     """Return a validated #539 manifest verdict, never a provider claim."""
 
     raw = payload.get("verification_manifest")
-    if not isinstance(raw, Mapping):
+    if not isinstance(raw, Mapping) or not raw:
         return None
+    creation_error = str(raw.get("creation_error") or "").strip()
+    if creation_error:
+        # The harness never produced a manifest. Say so, rather than claiming
+        # the evidence failed validation — nothing was there to validate, and
+        # the distinction is what tells the user whether to look at their run
+        # or at OPai.
+        return "unavailable", creation_error
     try:
         from .verification_execution import (
             VerificationVerdict,
@@ -736,6 +743,25 @@ def evaluate_completion(
             next_action,
         )
 
+    kinds = {item.kind for item in evidence}
+    # The requested change is checked *before* verification evidence. If the
+    # edit never happened, that is the specific, actionable truth; whether the
+    # check harness also had a problem is secondary, and reporting only the
+    # harness sends the user to debug OPai when nothing was changed at all.
+    # Once the edit is present, verification governs — the block below.
+    if (
+        AcceptanceRequirement.EXPECTED_EDIT in objective.acceptance
+        and "diff" not in kinds
+    ):
+        return _verdict(
+            CompletionVerdict.PARTIAL,
+            "change_not_verified",
+            "OPai received a response but no changed-file or diff evidence verifies the requested edit.",
+            objective,
+            evidence,
+            "Review the tool trace or ask OPai to apply the change.",
+        )
+
     if (manifest_outcome := _manifest_verdict(result)) is not None:
         manifest_status, manifest_reason = manifest_outcome
         if manifest_status == "blocked":
@@ -755,20 +781,6 @@ def evaluate_completion(
             objective,
             evidence,
             "Repair or rerun the required verification checks.",
-        )
-
-    kinds = {item.kind for item in evidence}
-    if (
-        AcceptanceRequirement.EXPECTED_EDIT in objective.acceptance
-        and "diff" not in kinds
-    ):
-        return _verdict(
-            CompletionVerdict.PARTIAL,
-            "change_not_verified",
-            "OPai received a response but no changed-file or diff evidence verifies the requested edit.",
-            objective,
-            evidence,
-            "Review the tool trace or ask OPai to apply the change.",
         )
     if (
         AcceptanceRequirement.TESTS_PASS in objective.acceptance
