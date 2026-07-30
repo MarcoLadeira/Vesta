@@ -26,6 +26,7 @@ from .completion import (
     answer_contradicts_verdict,
     completion_state_from_legacy,
     evaluate_completion,
+    evidence_payload as build_evidence_payload,
     objective_from_request,
     result_is_completed,
     result_meets_objective,
@@ -1129,16 +1130,23 @@ def handle_gui_message(
         # instead: a moved HEAD is proof a commit landed, and a changed dirty set
         # is proof the tree moved, whichever shell did the work.
         repo_change = _repo_change_evidence(current_repo)
-        evidence_payload = {
-            **payload,
-            "changed_files": list(attributed_paths),
-            "diff_review": diff_review,
-            "repo_change": repo_change,
-            "completion_state": payload.get("completion_state")
-            or raw_terminal.get("completion_state"),
-            "stopped_reason": payload.get("stopped_reason")
-            or raw_terminal.get("stopped_reason"),
-        }
+        # #539 / gate 1: the verdict reads an allowlist of OPai-measured fields
+        # rather than a spread of the whole result. Spreading made "can a
+        # provider manufacture completion?" a question about which keys happen
+        # to exist today instead of a property of the design; now a new field is
+        # invisible to the verdict until deliberately allowlisted.
+        evidence_payload = build_evidence_payload(
+            payload,
+            extra={
+                "changed_files": list(attributed_paths),
+                "diff_review": diff_review,
+                "repo_change": repo_change,
+                "completion_state": payload.get("completion_state")
+                or raw_terminal.get("completion_state"),
+                "stopped_reason": payload.get("stopped_reason")
+                or raw_terminal.get("stopped_reason"),
+            },
+        )
         verdict = evaluate_completion(objective, evidence_payload)
         verdict_payload = verdict.to_dict()
         stored_verdict = verdict.to_dict(include_objective_text=False)

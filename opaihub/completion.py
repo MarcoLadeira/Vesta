@@ -331,12 +331,44 @@ def objective_from_request(objective_text: str, *, mode: str) -> ObjectiveRecord
     )
 
 
+#: Keys that carry *verification* truth into the verdict. Only OPai's own
+#: execution path may populate them, and :func:`evidence_payload` is the one
+#: place that decides what goes in — see its docstring for why the allowlist is
+#: the guarantee rather than a convention.
+MEASURED_EVIDENCE_KEYS = frozenset(
+    {
+        "answer",
+        "changed_files",
+        "diff_review",
+        "repo_change",
+        "tool_trace",
+        "verification",
+        "status",
+        "completion_state",
+        "stopped_reason",
+        "error",
+    }
+)
+
+
 def _has_successful_test(payload: Mapping[str, Any]) -> bool:
-    tests = payload.get("tests") or payload.get("test_results")
-    if isinstance(tests, Mapping):
-        status = _normalized(tests.get("status") or tests.get("result"))
-        if status in {"passed", "pass", "success", "successful"}:
-            return True
+    """Whether OPai *observed* tests pass — never whether something said so.
+
+    The ``tests``/``test_results`` mapping this used to accept was a bare
+    status string with no provenance: any payload carrying
+    ``{"tests": {"status": "passed"}}`` manufactured a passing-test evidence
+    ref, which was enough to satisfy the ``tests_pass`` acceptance requirement
+    and stamp a run **completed**. Nothing populates that key on the live path
+    today, so it was not exploitable — but gate 1 asks for completion to be
+    *technically impossible* without evidence, not merely unreached, and
+    ``evidence_payload`` used to spread the whole provider-influenced result
+    into the verdict, so one refactor introducing a ``tests`` key anywhere
+    would have made it live.
+
+    Evidence now has to come from a record of something OPai ran: an entry in
+    its own tool trace, or a structured verification result carrying the exit
+    status it observed.
+    """
     for item in payload.get("tool_trace") or ():
         if not isinstance(item, Mapping):
             continue
@@ -346,6 +378,18 @@ def _has_successful_test(payload: Mapping[str, Any]) -> bool:
             item.get("ok") is True or status in {"success", "passed"}
         ):
             return True
+    # A structured verification record from OPai's own check runner (#539).
+    # `exit_status` is required: it is the part a claim cannot fabricate,
+    # because only the process that ran the command can report it.
+    verification = payload.get("verification")
+    if isinstance(verification, Mapping):
+        for check in verification.get("checks") or ():
+            if not isinstance(check, Mapping):
+                continue
+            if _normalized(check.get("kind")) not in {"tests", "test", "unit"}:
+                continue
+            if check.get("exit_status") == 0 and check.get("observed_by") == "opai":
+                return True
     return False
 
 
@@ -540,6 +584,32 @@ def _verdict(
         evidence=evidence,
         next_action=next_action,
     )
+
+
+def evidence_payload(
+    measured: Mapping[str, Any], *, extra: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """Build the payload the verdict may read, by allowlist.
+
+    The call site used to spread the whole result — ``{**payload, ...}`` —
+    which meant the verdict read whatever keys the provider path happened to
+    put there. That is the wrong default for a function whose entire job is to
+    decide whether work was really done: it makes "can a provider manufacture
+    completion?" a question about what keys exist *today* rather than a
+    property of the design.
+
+    Allowlisting inverts it. A new field is invisible to the verdict until
+    someone adds it to :data:`MEASURED_EVIDENCE_KEYS`, which is a deliberate,
+    reviewable act — so the safe outcome is the default and the unsafe one
+    requires a decision.
+    """
+    payload = {
+        key: value for key, value in measured.items() if key in MEASURED_EVIDENCE_KEYS
+    }
+    for key, value in (extra or {}).items():
+        if key in MEASURED_EVIDENCE_KEYS:
+            payload[key] = value
+    return payload
 
 
 def evaluate_completion(
