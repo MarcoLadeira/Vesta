@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
@@ -210,6 +211,56 @@ def test_cancelled_check_never_executes_as_a_pass(tmp_path: Path) -> None:
     )
 
     assert manifest.checks[0].status is CheckStatus.CANCELLED
+    assert verification_verdict(manifest) is VerificationVerdict.CANCELLED
+
+
+def test_non_required_checks_are_explicitly_skipped_without_affecting_verdict(
+    tmp_path: Path,
+) -> None:
+    policy = _policy_for_command((sys.executable, "-c", "print('required')"))
+    policy = replace(
+        policy,
+        digest="",
+        checks=policy.checks
+        + (
+            PolicyCheck(
+                "optional-lint",
+                "lint",
+                "optional",
+                "Optional lint is not selected for this task.",
+                command=(sys.executable, "-c", "raise SystemExit(1)"),
+            ),
+        ),
+    )
+
+    manifest = execute_policy(policy, _context(tmp_path))
+
+    assert manifest.checks[1].status is CheckStatus.SKIPPED
+    assert not manifest.checks[1].attempts
+    assert verification_verdict(manifest) is VerificationVerdict.VERIFIED
+
+
+def test_cancellation_terminates_an_already_running_check(tmp_path: Path) -> None:
+    cancellation_checks = 0
+
+    def cancel() -> bool:
+        nonlocal cancellation_checks
+        cancellation_checks += 1
+        return cancellation_checks >= 2
+
+    manifest = execute_policy(
+        _policy_for_command(
+            (sys.executable, "-c", "import time; time.sleep(10)"),
+            timeout_seconds=5,
+        ),
+        _context(tmp_path),
+        cancel=cancel,
+    )
+    attempt = manifest.checks[0].attempts[0]
+
+    assert cancellation_checks >= 2
+    assert attempt.status is CheckStatus.CANCELLED
+    assert attempt.teardown_verified is True
     assert verification_verdict(manifest) is VerificationVerdict.CANCELLED
 
 

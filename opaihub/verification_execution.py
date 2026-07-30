@@ -14,6 +14,7 @@ import re
 import signal
 import subprocess  # nosec B404 - commands are validated argv and use shell=False
 import sys
+import time
 from typing import Any, Callable, Iterable, Mapping
 
 from .command_runner import redact
@@ -669,16 +670,33 @@ def _run_attempt(
             environment_digest=environment_digest,
             teardown_verified=True,
         )
-    try:
-        stdout, stderr = process.communicate(timeout=check.timeout_seconds)
-        status = CheckStatus.PASSED if process.returncode == 0 else CheckStatus.FAILED
-        teardown_verified = True
-        exit_status = process.returncode
-    except subprocess.TimeoutExpired as exc:
-        stdout, stderr = exc.stdout or "", exc.stderr or ""
-        teardown_verified = _terminate(process)
-        status = CheckStatus.TIMEOUT
-        exit_status = None
+    deadline = time.monotonic() + check.timeout_seconds
+    stdout = ""
+    stderr = ""
+    while True:
+        remaining = deadline - time.monotonic()
+        try:
+            stdout, stderr = process.communicate(
+                timeout=max(0.001, min(0.1, remaining))
+            )
+            status = (
+                CheckStatus.PASSED if process.returncode == 0 else CheckStatus.FAILED
+            )
+            teardown_verified = True
+            exit_status = process.returncode
+            break
+        except subprocess.TimeoutExpired as exc:
+            stdout, stderr = exc.stdout or stdout, exc.stderr or stderr
+            if cancel is not None and cancel():
+                teardown_verified = _terminate(process)
+                status = CheckStatus.CANCELLED
+                exit_status = None
+                break
+            if time.monotonic() >= deadline:
+                teardown_verified = _terminate(process)
+                status = CheckStatus.TIMEOUT
+                exit_status = None
+                break
     return VerificationAttempt(
         check_id=check.check_id,
         index=index,
@@ -710,6 +728,7 @@ def execute_policy(
     records: list[CheckRecord] = []
     for check in policy.checks:
         if check.requirement in {"optional", "forbidden"}:
+            records.append(_terminal_record(check, CheckStatus.SKIPPED))
             continue
         if policy.status != "ready" or {
             "canonical_worktree",
