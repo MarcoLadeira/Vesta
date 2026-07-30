@@ -952,6 +952,15 @@ def handle_gui_message(
             verification_policy_payload = _verification_policy_payload(
                 effective_policy, policy_artifact
             )
+            # #295 gate 1: the repository's own policy decides whether passing
+            # tests are part of acceptance. Until now that came from a regex
+            # over the request text, so "fix the crash in parser.py" -- which
+            # never says "test" -- required only an edit, and a diff alone
+            # reported *completed* on a change nobody had run. The objective is
+            # rebuilt here because the policy only exists after this point.
+            turn_objective = objective_from_request(
+                message, mode=policy.mode.value, policy=effective_policy
+            )
             if effective_policy.status == "blocked":
                 finding = next(
                     (
