@@ -1656,13 +1656,18 @@ def _run_gui(
                     {"checked": False, "up_to_date": True, "reason": str(exc)}
                 )
 
-        @QtCore.Slot(result=str)
-        def applyUpdate(self) -> str:
-            """Fetch, fast-forward, and reinstall — the same steps install.ps1 runs."""
+        @QtCore.Slot(bool, result=str)
+        def applyUpdate(self, force: bool) -> str:
+            """Fetch, fast-forward, and reinstall — the same steps install.ps1 runs.
+
+            ``force=True`` is the "update anyway" choice offered when a
+            plain attempt refuses on uncommitted local changes: it stashes
+            them before updating and restores them afterward.
+            """
             from opai.updater import apply_update, install_root
 
             try:
-                return json.dumps(apply_update(install_root()))
+                return json.dumps(apply_update(install_root(), force=bool(force)))
             except Exception as exc:  # noqa: BLE001 - never crash the page
                 return json.dumps({"ok": False, "error": str(exc)})
 

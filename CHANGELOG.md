@@ -54,7 +54,11 @@
   fetches, fast-forwards, and reinstalls — refusing outright on any
   uncommitted local change — and a **Restart now** action to relaunch on the
   new version. `opai update` / `opai update --apply` do the same from a
-  terminal.
+  terminal. When it refuses on uncommitted local changes, an **Update
+  anyway** choice stashes them, applies the update, and restores them
+  afterward — nothing is discarded, though a genuine conflict between the
+  stash and the update leaves the changes safe in the stash for manual
+  resolution. `opai update --apply --force` is the same choice from the CLI.
 - Added a **Model Usage** settings page: a per-provider dashboard of each AI
   tool's real usage window — Claude's rolling 5-hour session, free-tier daily
   request limits, prepaid credit, weekly/monthly plan allowances — using the

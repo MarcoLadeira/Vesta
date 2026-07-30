@@ -238,6 +238,97 @@ class ApplyUpdateTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertIn("diverged", result["error"].lower())
 
+    def test_dirty_refusal_reports_dirty_flag_for_update_anyway(self):
+        with _Root() as (root, cache_path):
+            git = _fake_git(
+                {("status", "--porcelain"): _completed(0, "M some/file.py\n")}
+            )
+            result = updater.apply_update(root, git=git, cache_path=cache_path)
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["dirty"])
+
+    def test_force_stashes_dirty_tree_updates_and_restores_changes(self):
+        with _Root() as (root, cache_path):
+            (root / "opai").mkdir()
+            (root / "opai" / "__init__.py").write_text(
+                '__version__ = "0.3.0"\n', encoding="utf-8"
+            )
+            calls: list[tuple] = []
+
+            def recording_git(root_arg, args):
+                calls.append(tuple(args))
+                return _fake_git(
+                    {
+                        ("status", "--porcelain"): _completed(0, "M some/file.py\n"),
+                        ("stash", "push", "--include-untracked", "-m", "opai-update-autostash"): _completed(0),
+                        ("fetch", "--quiet", "origin", "main"): _completed(0),
+                        ("checkout", "main"): _completed(0),
+                        ("merge", "--ff-only", "origin/main"): _completed(0),
+                        ("stash", "pop"): _completed(0),
+                    }
+                )(root_arg, args)
+
+            result = updater.apply_update(
+                root,
+                force=True,
+                git=recording_git,
+                pip_install=lambda r: _completed(0),
+                cache_path=cache_path,
+            )
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["local_changes_restored"])
+            self.assertIn(
+                ("stash", "push", "--include-untracked", "-m", "opai-update-autostash"),
+                calls,
+            )
+            self.assertIn(("stash", "pop"), calls)
+
+    def test_force_reports_stash_conflict_without_discarding_changes(self):
+        with _Root() as (root, cache_path):
+            git = _fake_git(
+                {
+                    ("status", "--porcelain"): _completed(0, "M some/file.py\n"),
+                    ("stash", "push", "--include-untracked", "-m", "opai-update-autostash"): _completed(0),
+                    ("fetch", "--quiet", "origin", "main"): _completed(0),
+                    ("checkout", "main"): _completed(0),
+                    ("merge", "--ff-only", "origin/main"): _completed(0),
+                    ("stash", "pop"): _completed(1, "", "conflict"),
+                }
+            )
+            result = updater.apply_update(root, force=True, git=git, cache_path=cache_path)
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["code_updated"])
+            self.assertIn("git stash pop", result["error"])
+
+    def test_force_without_dirty_tree_behaves_like_normal_update(self):
+        with _Root() as (root, cache_path):
+            (root / "opai").mkdir()
+            (root / "opai" / "__init__.py").write_text(
+                '__version__ = "0.3.0"\n', encoding="utf-8"
+            )
+            calls: list[tuple] = []
+
+            def recording_git(root_arg, args):
+                calls.append(tuple(args))
+                return _fake_git(
+                    {
+                        ("fetch", "--quiet", "origin", "main"): _completed(0),
+                        ("checkout", "main"): _completed(0),
+                        ("merge", "--ff-only", "origin/main"): _completed(0),
+                    }
+                )(root_arg, args)
+
+            result = updater.apply_update(
+                root,
+                force=True,
+                git=recording_git,
+                pip_install=lambda r: _completed(0),
+                cache_path=cache_path,
+            )
+            self.assertTrue(result["ok"])
+            self.assertNotIn("local_changes_restored", result)
+            self.assertFalse(any(c[:1] == ("stash",) for c in calls))
+
     def test_pip_install_failure_reports_code_updated_but_not_ok(self):
         with _Root() as (root, cache_path):
             (root / "opai").mkdir()
