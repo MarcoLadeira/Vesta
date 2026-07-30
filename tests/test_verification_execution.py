@@ -231,6 +231,11 @@ def test_persisted_manifest_round_trips_with_bounded_redacted_output(
     )
     assert restored.digest == reference.digest
     assert "12345678901234567890" not in reference.path.read_text(encoding="utf-8")
+    fingerprint = restored.context.environment_fingerprint
+    assert {"os", "architecture", "python", "repository_id", "head_sha"} <= set(
+        fingerprint
+    )
+    assert fingerprint["head_sha"] == "a" * 40
     assert verification_verdict(restored) is VerificationVerdict.VERIFIED
 
 

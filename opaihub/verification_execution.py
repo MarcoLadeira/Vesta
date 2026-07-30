@@ -9,9 +9,11 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import signal
 import subprocess  # nosec B404 - commands are validated argv and use shell=False
+import sys
 from typing import Any, Callable, Iterable, Mapping
 
 from .command_runner import redact
@@ -114,6 +116,54 @@ def _redacted_policy_payload(policy: VerificationPolicy) -> dict[str, Any]:
     return payload
 
 
+def _file_digest(path: Path) -> str:
+    try:
+        if not path.is_file() or path.stat().st_size > 10_000_000:
+            return ""
+        return sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
+def _environment_fingerprint(
+    worktree: Path, *, repository_id: str, head_sha: str
+) -> dict[str, Any]:
+    """Portable, content-free facts needed to reproduce a verification run."""
+
+    lock_names = (
+        "poetry.lock",
+        "uv.lock",
+        "requirements.lock",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "Cargo.lock",
+    )
+    config_names = (
+        "pyproject.toml",
+        "opai-verification-policy.yaml",
+        "opai-team-policy.yaml",
+    )
+    return {
+        "os": platform.system() or os.name,
+        "architecture": platform.machine() or "unknown",
+        "python": platform.python_version(),
+        "python_executable": str(Path(sys.executable).resolve()),
+        "repository_id": repository_id,
+        "head_sha": head_sha,
+        "dependency_locks": {
+            name: digest
+            for name in lock_names
+            if (digest := _file_digest(worktree / name))
+        },
+        "config_digests": {
+            name: digest
+            for name in config_names
+            if (digest := _file_digest(worktree / name))
+        },
+    }
+
+
 @dataclass(frozen=True)
 class VerificationExecutionContext:
     """Task/run binding and canonical repository facts for check execution."""
@@ -123,6 +173,7 @@ class VerificationExecutionContext:
     worktree: Path
     repository_id: str
     head_sha: str
+    environment_fingerprint: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -143,6 +194,12 @@ class VerificationExecutionContext:
         if not re.fullmatch(r"[0-9a-f]{40,64}", head_sha):
             raise ValueError("head_sha must be a Git SHA")
         object.__setattr__(self, "head_sha", head_sha)
+        fingerprint = dict(self.environment_fingerprint or {})
+        if not fingerprint:
+            fingerprint = _environment_fingerprint(
+                root, repository_id=repository_id, head_sha=head_sha
+            )
+        object.__setattr__(self, "environment_fingerprint", fingerprint)
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -151,6 +208,7 @@ class VerificationExecutionContext:
             "worktree": str(self.worktree),
             "repository_id": self.repository_id,
             "head_sha": self.head_sha,
+            "environment_fingerprint": self.environment_fingerprint,
         }
 
     @classmethod
@@ -696,6 +754,7 @@ def _manifest_from_dict(payload: dict[str, Any]) -> VerificationManifest:
         worktree=Path(context_raw.get("worktree") or ""),
         repository_id=context_raw.get("repository_id"),
         head_sha=context_raw.get("head_sha"),
+        environment_fingerprint=dict(context_raw.get("environment_fingerprint") or {}),
     )
     records: list[CheckRecord] = []
     for raw in payload.get("checks") or ():

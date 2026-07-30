@@ -581,7 +581,7 @@ class EditIntentHonestyTests(unittest.TestCase):
         # tests_status still surfaces honestly.
         self.assertEqual(result["workflow"]["tests_status"], "not_verified")
 
-    def test_implement_run_with_real_changes_stays_green(self):
+    def test_implement_run_with_real_changes_needs_policy_evidence(self):
         from opaihub.gui_pipeline import handle_gui_message
 
         class EditingRunner(FakeAccountRunner):
@@ -605,10 +605,17 @@ class EditIntentHonestyTests(unittest.TestCase):
                 on_event=events.append,
             )
 
-        # #378: the green marker is the evidence-backed completion verdict.
+        # #539: changed files and provider prose do not replace the required
+        # policy evidence manifest. The default policy has no declared command,
+        # so this must remain visibly unverified.
         verdicts = [e for e in events if e.get("type") == "completion_verdict"]
         self.assertTrue(verdicts, [e.get("type") for e in events])
-        self.assertEqual(verdicts[-1]["status"], "success")
+        self.assertEqual(verdicts[-1]["status"], "warning")
+        self.assertEqual(result["completion_verdict"]["verdict"], "partial")
+        self.assertEqual(
+            result["completion_verdict"]["reason_code"], "verification_unverified"
+        )
+        self.assertTrue(result["verification_manifest"]["digest"])
         self.assertEqual(result["completion_note"], "")
         self.assertEqual(result["workflow"]["phase"], "reviewing_diff")
         self.assertTrue(result["changed_files"])
