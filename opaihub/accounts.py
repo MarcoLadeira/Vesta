@@ -16,6 +16,7 @@ account model and sends.
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import os
 import queue
@@ -354,7 +355,12 @@ ACCOUNT_SPECS: list[dict[str, Any]] = [
 ]
 
 
+@functools.lru_cache(maxsize=16)
 def _which(name: str) -> str | None:
+    # PATH is effectively constant for a running process, and this was being
+    # re-scanned (every directory on PATH, several extensions each on Windows)
+    # once per account spec on every model-list build — a few CLIs made this
+    # tens of milliseconds of redundant filesystem probing per call.
     return shutil.which(name)
 
 

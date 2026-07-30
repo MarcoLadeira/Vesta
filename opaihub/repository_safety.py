@@ -16,6 +16,7 @@ import subprocess  # nosec B404 - every call below uses fixed argv, never a shel
 import sys
 import time
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
@@ -333,6 +334,7 @@ def _run_git(
     *,
     git_run: GitRun,
     text: bool = True,
+    input_text: str | None = None,
 ) -> subprocess.CompletedProcess[Any]:
     kwargs: dict[str, Any] = {
         "cwd": str(root),
@@ -342,6 +344,8 @@ def _run_git(
     }
     if text:
         kwargs.update({"text": True, "encoding": "utf-8", "errors": "replace"})
+    if input_text is not None:
+        kwargs["input"] = input_text
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:
@@ -386,29 +390,6 @@ def _resolve_git_path(root: Path, value: str) -> Path:
     return candidate.resolve(strict=False)
 
 
-def _remotes(root: Path, *, git_run: GitRun) -> tuple[tuple[str, str], ...]:
-    names = _git_text(root, ["remote"], git_run=git_run, required=False).splitlines()
-    values: list[tuple[str, str]] = []
-    for name in sorted(value.strip() for value in names if value.strip()):
-        url = _git_text(
-            root, ["remote", "get-url", name], git_run=git_run, required=False
-        )
-        values.append((name, _safe_remote(url)))
-    return tuple(values)
-
-
-def _default_branch(root: Path, branch: str, *, git_run: GitRun) -> str:
-    remote_head = _git_text(
-        root,
-        ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-        git_run=git_run,
-        required=False,
-    )
-    if remote_head.startswith("origin/"):
-        return remote_head.removeprefix("origin/")
-    return branch
-
-
 def _status_fingerprint(state: DirtyState) -> str:
     payload = json.dumps(state.to_dict(), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8", "surrogateescape")).hexdigest()
@@ -428,33 +409,68 @@ def _index_fingerprint(git_dir: Path) -> str:
         raise RepositoryProbeError("index_unavailable", str(exc)) from exc
 
 
+def _hash_objects(root: Path, paths: list[str], *, git_run: GitRun) -> dict[str, str]:
+    """Hash many untracked paths in as few processes as possible.
+
+    One ``git hash-object`` spawn per untracked path made a dirty tree with
+    many untracked files the single largest cost in a GUI boot (each Windows
+    process spawn runs tens of milliseconds; a few hundred untracked files
+    made this multi-second). ``--stdin-paths`` hashes an arbitrary number of
+    paths in one process. A path containing a literal newline cannot be
+    represented unambiguously in that newline-delimited stream (this git
+    build's ``hash-object`` has no ``-z`` mode), so those rare paths still
+    fall back to one call each — correctness over batching for that edge case.
+    """
+
+    if not paths:
+        return {}
+    batchable = [path for path in paths if "\n" not in path]
+    exceptional = [path for path in paths if "\n" in path]
+    hashes: dict[str, str] = {}
+    if batchable:
+        result = _run_git(
+            root,
+            ["hash-object", "--no-filters", "--stdin-paths"],
+            git_run=git_run,
+            input_text="\n".join(batchable) + "\n",
+        )
+        if result.returncode != 0:
+            detail = str(result.stderr or result.stdout or "Git command failed")
+            raise RepositoryProbeError("probe_unavailable", detail)
+        lines = str(result.stdout or "").splitlines()
+        if len(lines) != len(batchable):
+            raise RepositoryProbeError(
+                "probe_unavailable",
+                "hash-object returned an unexpected number of hashes",
+            )
+        hashes.update(zip(batchable, lines))
+    for path in exceptional:
+        hashes[path] = _git_text(
+            root,
+            ["hash-object", "--no-filters", "--", path],
+            git_run=git_run,
+            required=True,
+        )
+    return hashes
+
+
 def _working_tree_fingerprint(
-    root: Path,
-    dirty: DirtyState,
-    *,
-    git_run: GitRun,
+    staged_diff: bytes,
+    unstaged_diff: bytes,
+    sorted_untracked: list[str],
+    untracked_hashes: dict[str, str],
 ) -> str:
     """Hash tracked diffs and untracked blobs, not merely their status labels."""
 
     digest = hashlib.sha256()
-    for label, args in (
-        ("staged", ["diff", "--cached", "--binary", "--no-ext-diff", "--"]),
-        ("unstaged", ["diff", "--binary", "--no-ext-diff", "--"]),
-    ):
+    for label, chunk in (("staged", staged_diff), ("unstaged", unstaged_diff)):
         digest.update(label.encode("ascii") + b"\0")
-        digest.update(_git_bytes(root, args, git_run=git_run))
-    for path in sorted(dirty.untracked):
-        # Git reads the path through its own worktree rules; ``--`` prevents a
-        # filename from becoming an option, and a failing hash is unsafe.
+        digest.update(chunk)
+    for path in sorted_untracked:
+        # Git reads the path through its own worktree rules; a missing hash
+        # for a path git status just reported as untracked is unsafe.
         digest.update(path.encode("utf-8", "surrogateescape") + b"\0")
-        digest.update(
-            _git_text(
-                root,
-                ["hash-object", "--no-filters", "--", path],
-                git_run=git_run,
-                required=True,
-            ).encode("ascii", "replace")
-        )
+        digest.update(untracked_hashes[path].encode("ascii", "replace"))
     return digest.hexdigest()
 
 
@@ -492,36 +508,50 @@ def _probe_repository(
     if not top:
         raise RepositoryProbeError("probe_unavailable", "Path is not a Git worktree")
     root = Path(top).resolve(strict=True)
-    git_dir = _resolve_git_path(
-        root,
-        _git_text(root, ["rev-parse", "--git-dir"], git_run=git_run, required=True),
-    )
-    common_git_dir = _resolve_git_path(
-        root,
-        _git_text(
-            root, ["rev-parse", "--git-common-dir"], git_run=git_run, required=True
-        ),
-    )
-    # An *unborn* HEAD — a repository created by `git init` with no commit yet —
-    # is a legitimate, safe worktree, not a probe failure. Requiring HEAD to
-    # resolve conflated "has history" with "is a Git repository" and blocked
-    # every edit-capable run in a brand-new project, which is one of the most
-    # common places to start ("build me an app"). The user saw only "OPai could
-    # not establish and persist a fresh repository identity", which is both
-    # wrong and unactionable.
-    #
-    # The empty string is the honest identity for "no commit yet", and it stays
-    # correct downstream: the `head_changed` comparison sees "" -> <sha> when the
-    # first commit lands, which is exactly the change it exists to detect.
-    head_sha = _git_text(root, ["rev-parse", "HEAD"], git_run=git_run, required=False)
-    branch = _git_text(
-        root,
-        ["symbolic-ref", "--quiet", "--short", "HEAD"],
-        git_run=git_run,
-        required=False,
-    )
-    dirty_state = parse_porcelain_v2(
-        _git_bytes(
+
+    # None of the calls below depend on each other's output, only on `root` —
+    # each spawns a `git.exe` process, and on Windows that spawn latency (tens
+    # of ms) dominates a capture once it is paid a dozen times over in series.
+    # Running them concurrently overlaps that latency instead of stacking it.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        git_dir_future = pool.submit(
+            _git_text,
+            root,
+            ["rev-parse", "--git-dir"],
+            git_run=git_run,
+            required=True,
+        )
+        common_git_dir_future = pool.submit(
+            _git_text,
+            root,
+            ["rev-parse", "--git-common-dir"],
+            git_run=git_run,
+            required=True,
+        )
+        # An *unborn* HEAD — a repository created by `git init` with no commit
+        # yet — is a legitimate, safe worktree, not a probe failure. Requiring
+        # HEAD to resolve conflated "has history" with "is a Git repository"
+        # and blocked every edit-capable run in a brand-new project, which is
+        # one of the most common places to start ("build me an app"). The
+        # user saw only "OPai could not establish and persist a fresh
+        # repository identity", which is both wrong and unactionable.
+        #
+        # The empty string is the honest identity for "no commit yet", and it
+        # stays correct downstream: the `head_changed` comparison sees ""
+        # -> <sha> when the first commit lands, which is exactly the change
+        # it exists to detect.
+        head_sha_future = pool.submit(
+            _git_text, root, ["rev-parse", "HEAD"], git_run=git_run, required=False
+        )
+        branch_future = pool.submit(
+            _git_text,
+            root,
+            ["symbolic-ref", "--quiet", "--short", "HEAD"],
+            git_run=git_run,
+            required=False,
+        )
+        status_future = pool.submit(
+            _git_bytes,
             root,
             [
                 "status",
@@ -533,8 +563,67 @@ def _probe_repository(
             ],
             git_run=git_run,
         )
-    )
-    remotes = _remotes(root, git_run=git_run)
+        remote_names_future = pool.submit(
+            _git_text, root, ["remote"], git_run=git_run, required=False
+        )
+        remote_head_future = pool.submit(
+            _git_text,
+            root,
+            ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+            git_run=git_run,
+            required=False,
+        )
+        staged_diff_future = pool.submit(
+            _git_bytes,
+            root,
+            ["diff", "--cached", "--binary", "--no-ext-diff", "--"],
+            git_run=git_run,
+        )
+        unstaged_diff_future = pool.submit(
+            _git_bytes,
+            root,
+            ["diff", "--binary", "--no-ext-diff", "--"],
+            git_run=git_run,
+        )
+
+        git_dir = _resolve_git_path(root, git_dir_future.result())
+        common_git_dir = _resolve_git_path(root, common_git_dir_future.result())
+        head_sha = head_sha_future.result()
+        branch = branch_future.result()
+        dirty_state = parse_porcelain_v2(status_future.result())
+
+        remote_names = sorted(
+            value.strip()
+            for value in remote_names_future.result().splitlines()
+            if value.strip()
+        )
+        remote_url_futures = {
+            name: pool.submit(
+                _git_text,
+                root,
+                ["remote", "get-url", name],
+                git_run=git_run,
+                required=False,
+            )
+            for name in remote_names
+        }
+        remotes = tuple(
+            (name, _safe_remote(remote_url_futures[name].result()))
+            for name in remote_names
+        )
+
+        remote_head = remote_head_future.result()
+        default_branch = (
+            remote_head.removeprefix("origin/")
+            if remote_head.startswith("origin/")
+            else branch
+        )
+
+        sorted_untracked = sorted(dirty_state.untracked)
+        untracked_hashes = _hash_objects(root, sorted_untracked, git_run=git_run)
+        staged_diff = staged_diff_future.result()
+        unstaged_diff = unstaged_diff_future.result()
+
     filesystem_id = _filesystem_id(root)
     identity = RepositoryIdentity(
         worktree_root=root,
@@ -542,14 +631,14 @@ def _probe_repository(
         common_git_dir=common_git_dir,
         filesystem_id=filesystem_id,
         remotes=remotes,
-        default_branch=_default_branch(root, branch, git_run=git_run),
+        default_branch=default_branch,
         branch=branch,
         detached=not bool(branch),
         head_sha=head_sha,
         status_fingerprint=_status_fingerprint(dirty_state),
         index_fingerprint=_index_fingerprint(git_dir),
         working_tree_fingerprint=_working_tree_fingerprint(
-            root, dirty_state, git_run=git_run
+            staged_diff, unstaged_diff, sorted_untracked, untracked_hashes
         ),
         repository_id=_repository_id(
             root=root,

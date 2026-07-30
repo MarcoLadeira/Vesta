@@ -29,6 +29,7 @@ import tempfile
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -590,8 +591,15 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     focus = str(prefs.get("default_task_mode") or DEFAULT_TASK_MODE)
     fmt = str(prefs.get("default_output_format") or DEFAULT_OUTPUT_FORMAT)
     _STARTUP.mark("boot:prefs")
-    models = _models(root, discover_local=False)
-    _STARTUP.mark("boot:models")
+    # _workspace() (git probe) and _models() (account/keyring lookups) only
+    # need `root` — not each other's output — so they run side by side. Each
+    # is a few hundred ms of subprocess/keyring latency; run in series they
+    # used to stack into a boot the user felt as a stall.
+    with ThreadPoolExecutor(max_workers=2) as boot_pool:
+        workspace_future = boot_pool.submit(_workspace, root)
+        models = _models(root, discover_local=False)
+        _STARTUP.mark("boot:models")
+        workspace_payload = workspace_future.result()
     mode_labels = MODE_LABELS
     sel_model = next(
         (m for m in models["models"] if m["id"] == prefs.get("default_model")),
@@ -614,7 +622,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     workflow = load_workflow_state(root)
     _STARTUP.mark("boot:workflow")
     payload = {
-        "workspace": _workspace(root),
+        "workspace": workspace_payload,
         "workflow": workflow.to_dict(),
         "resume": _resume_payload(root),
         "models": models["models"],
