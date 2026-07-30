@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
 from hashlib import sha256
@@ -15,7 +15,9 @@ import subprocess  # nosec B404 - commands are validated argv and use shell=Fals
 from typing import Any, Callable, Iterable
 
 from .command_runner import redact
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .proc import no_window_kwargs
+from .state import state_dir
 from .verification_policy import PolicyCheck, VerificationPolicy
 
 
@@ -44,6 +46,46 @@ class VerificationVerdict(str, Enum):
     UNVERIFIED = "unverified"
 
 
+@dataclass(frozen=True)
+class ArtifactReference:
+    path: str
+    digest: str
+
+    def __post_init__(self) -> None:
+        path = str(self.path or "").replace("\\", "/").strip("/")
+        if (
+            not path
+            or path.startswith("../")
+            or "/../" in path
+            or Path(path).is_absolute()
+        ):
+            raise ValueError("artifact path must be relative and contained")
+        digest = str(self.digest or "").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("artifact digest must be a SHA-256 hex value")
+        object.__setattr__(self, "path", path)
+        object.__setattr__(self, "digest", digest)
+
+    def to_dict(self) -> dict[str, str]:
+        return {"path": self.path, "digest": self.digest}
+
+
+@dataclass(frozen=True)
+class EvidenceManifestReference:
+    path: Path
+    digest: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "path", Path(self.path).expanduser().resolve())
+        digest = str(self.digest or "").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("manifest digest must be a SHA-256 hex value")
+        object.__setattr__(self, "digest", digest)
+
+    def to_dict(self) -> dict[str, str]:
+        return {"path": str(self.path), "digest": self.digest}
+
+
 def _identifier(value: object, *, field_name: str) -> str:
     text = str(value or "").strip()
     if not _SAFE_IDENTIFIER.fullmatch(text):
@@ -58,6 +100,18 @@ def _sha256(payload: object) -> str:
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     ).encode("utf-8")
     return sha256(encoded).hexdigest()
+
+
+def _redacted_policy_payload(policy: VerificationPolicy) -> dict[str, Any]:
+    """Keep policy provenance while ensuring argv never persists a secret."""
+
+    payload = policy.to_dict()
+    for check in payload.get("checks") or ():
+        if isinstance(check, dict):
+            check["command"] = [
+                redact(str(part)) for part in check.get("command") or ()
+            ]
+    return payload
 
 
 @dataclass(frozen=True)
@@ -115,6 +169,7 @@ class VerificationAttempt:
     output_summary: str
     environment_digest: str
     teardown_verified: bool
+    artifacts: tuple[ArtifactReference, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -147,13 +202,18 @@ class VerificationAttempt:
         if not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ValueError("environment_digest must be a SHA-256 hex value")
         object.__setattr__(self, "environment_digest", digest)
+        artifacts = tuple(
+            item if isinstance(item, ArtifactReference) else ArtifactReference(**item)
+            for item in self.artifacts
+        )
+        object.__setattr__(self, "artifacts", artifacts)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "check_id": self.check_id,
             "index": self.index,
             "status": self.status.value,
-            "command": list(self.command),
+            "command": [redact(part) for part in self.command],
             "working_directory": str(self.working_directory),
             "started_at": self.started_at.isoformat(),
             "ended_at": self.ended_at.isoformat(),
@@ -161,6 +221,7 @@ class VerificationAttempt:
             "output_summary": self.output_summary,
             "environment_digest": self.environment_digest,
             "teardown_verified": self.teardown_verified,
+            "artifacts": [item.to_dict() for item in self.artifacts],
         }
 
 
@@ -281,6 +342,7 @@ class VerificationManifest:
     context: VerificationExecutionContext
     checks: tuple[CheckRecord, ...]
     digest: str = ""
+    integrity_errors: tuple[str, ...] = field(default_factory=tuple, compare=False)
 
     def __post_init__(self) -> None:
         policy = dict(self.policy)
@@ -299,6 +361,11 @@ class VerificationManifest:
             raise ValueError("manifest record is not declared by policy")
         object.__setattr__(self, "policy", policy)
         object.__setattr__(self, "checks", checks)
+        object.__setattr__(
+            self,
+            "integrity_errors",
+            tuple(str(item)[:300] for item in self.integrity_errors),
+        )
         computed = _sha256(self.payload_without_digest())
         supplied = str(self.digest or "").lower()
         if supplied and supplied != computed:
@@ -317,7 +384,7 @@ class VerificationManifest:
         if not isinstance(policy, VerificationPolicy):
             raise TypeError("policy must be a VerificationPolicy")
         return cls(
-            policy=policy.to_dict(),
+            policy=_redacted_policy_payload(policy),
             context=context,
             checks=tuple(checks),
             digest=digest,
@@ -331,7 +398,15 @@ class VerificationManifest:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        return {**self.payload_without_digest(), "digest": self.digest}
+        return {
+            **self.payload_without_digest(),
+            "digest": self.digest,
+            **(
+                {"integrity_errors": list(self.integrity_errors)}
+                if self.integrity_errors
+                else {}
+            ),
+        }
 
 
 def verification_verdict(manifest: VerificationManifest) -> VerificationVerdict:
@@ -339,6 +414,8 @@ def verification_verdict(manifest: VerificationManifest) -> VerificationVerdict:
 
     if not isinstance(manifest, VerificationManifest):
         raise TypeError("manifest must be a VerificationManifest")
+    if manifest.integrity_errors:
+        return VerificationVerdict.UNVERIFIED
     records = {item.check_id: item for item in manifest.checks}
     required = [
         item
@@ -584,3 +661,126 @@ def execute_policy(
                 break
         records.append(CheckRecord.from_attempts(check, attempts))
     return VerificationManifest.from_policy(policy, context, records)
+
+
+def _evidence_directory(root: Path, context: VerificationExecutionContext) -> Path:
+    state_root = state_dir(root).resolve(strict=False)
+    target = state_root / "verification-evidence" / context.task_id / context.run_id
+    try:
+        target.resolve(strict=False).relative_to(state_root)
+    except (OSError, ValueError) as exc:
+        raise ValueError("verification evidence path escaped state directory") from exc
+    return target
+
+
+def _manifest_from_dict(payload: dict[str, Any]) -> VerificationManifest:
+    context_raw = payload.get("context") or {}
+    context = VerificationExecutionContext(
+        task_id=context_raw.get("task_id"),
+        run_id=context_raw.get("run_id"),
+        worktree=Path(context_raw.get("worktree") or ""),
+        repository_id=context_raw.get("repository_id"),
+        head_sha=context_raw.get("head_sha"),
+    )
+    records: list[CheckRecord] = []
+    for raw in payload.get("checks") or ():
+        attempts = []
+        for item in raw.get("attempts") or ():
+            attempts.append(
+                VerificationAttempt(
+                    check_id=item.get("check_id"),
+                    index=item.get("index"),
+                    status=item.get("status"),
+                    command=tuple(item.get("command") or ()),
+                    working_directory=Path(item.get("working_directory") or ""),
+                    started_at=datetime.fromisoformat(item.get("started_at")),
+                    ended_at=datetime.fromisoformat(item.get("ended_at")),
+                    exit_status=item.get("exit_status"),
+                    output_summary=item.get("output_summary"),
+                    environment_digest=item.get("environment_digest"),
+                    teardown_verified=bool(item.get("teardown_verified")),
+                    artifacts=tuple(
+                        ArtifactReference(**artifact)
+                        for artifact in item.get("artifacts") or ()
+                    ),
+                )
+            )
+        status = raw.get("status")
+        records.append(
+            CheckRecord(
+                check_id=raw.get("check_id"),
+                kind=raw.get("kind"),
+                requirement=raw.get("requirement"),
+                attempts=tuple(attempts),
+                status=None if status == "missing" else status,
+                waiver=dict(raw.get("waiver") or {}),
+            )
+        )
+    return VerificationManifest(
+        policy=dict(payload.get("policy") or {}),
+        context=context,
+        checks=tuple(records),
+        digest=payload.get("digest") or "",
+    )
+
+
+def persist_verification_manifest(
+    root: Path, manifest: VerificationManifest
+) -> EvidenceManifestReference:
+    """Atomically persist bounded output artifacts and one canonical manifest."""
+
+    root = Path(root).expanduser().resolve()
+    if root != manifest.context.worktree:
+        raise ValueError("evidence root must be the canonical verification worktree")
+    directory = _evidence_directory(root, manifest.context)
+    target = directory / "manifest.json"
+    records: list[CheckRecord] = []
+    with interprocess_transaction(target):
+        for record in manifest.checks:
+            attempts: list[VerificationAttempt] = []
+            for attempt in record.attempts:
+                relative = f"outputs/{attempt.check_id}-{attempt.index}.txt"
+                output_path = directory / relative
+                content = attempt.output_summary + "\n"
+                atomic_write_text(output_path, content)
+                artifact = ArtifactReference(
+                    path=relative, digest=sha256(output_path.read_bytes()).hexdigest()
+                )
+                attempts.append(replace(attempt, artifacts=(artifact,)))
+            records.append(replace(record, attempts=tuple(attempts)))
+        persisted = VerificationManifest(
+            policy=manifest.policy, context=manifest.context, checks=tuple(records)
+        )
+        atomic_write_text(
+            target,
+            json.dumps(persisted.to_dict(), indent=2, sort_keys=True, ensure_ascii=True)
+            + "\n",
+        )
+    return EvidenceManifestReference(path=target, digest=persisted.digest)
+
+
+def load_verification_manifest(path: Path) -> VerificationManifest:
+    """Load a manifest and mark any missing/replaced evidence as unverified."""
+
+    target = Path(path).expanduser().resolve()
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("manifest must be a JSON object")
+        manifest = _manifest_from_dict(payload)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid verification manifest: {exc}") from exc
+    errors: list[str] = []
+    for record in manifest.checks:
+        for attempt in record.attempts:
+            for artifact in attempt.artifacts:
+                candidate = (target.parent / artifact.path).resolve(strict=False)
+                try:
+                    candidate.relative_to(target.parent)
+                    actual = sha256(candidate.read_bytes()).hexdigest()
+                except (OSError, ValueError):
+                    errors.append(f"artifact unavailable: {artifact.path}")
+                    continue
+                if actual != artifact.digest:
+                    errors.append(f"artifact digest mismatch: {artifact.path}")
+    return replace(manifest, integrity_errors=tuple(errors))

@@ -16,6 +16,8 @@ from opaihub.verification_execution import (
     VerificationManifest,
     VerificationVerdict,
     execute_policy,
+    load_verification_manifest,
+    persist_verification_manifest,
     verification_verdict,
 )
 from opaihub.verification_policy import PolicyCheck, PolicySource, VerificationPolicy
@@ -209,3 +211,39 @@ def test_cancelled_check_never_executes_as_a_pass(tmp_path: Path) -> None:
 
     assert manifest.checks[0].status is CheckStatus.CANCELLED
     assert verification_verdict(manifest) is VerificationVerdict.CANCELLED
+
+
+def test_persisted_manifest_round_trips_with_bounded_redacted_output(
+    tmp_path: Path,
+) -> None:
+    manifest = execute_policy(
+        _policy_for_command(
+            (sys.executable, "-c", "print('token=sk-12345678901234567890')")
+        ),
+        _context(tmp_path),
+    )
+
+    reference = persist_verification_manifest(tmp_path, manifest)
+    restored = load_verification_manifest(reference.path)
+
+    assert reference.path.is_relative_to(
+        tmp_path / ".opaihub" / "verification-evidence"
+    )
+    assert restored.digest == reference.digest
+    assert "12345678901234567890" not in reference.path.read_text(encoding="utf-8")
+    assert verification_verdict(restored) is VerificationVerdict.VERIFIED
+
+
+def test_missing_persisted_output_artifact_downgrades_to_unverified(
+    tmp_path: Path,
+) -> None:
+    manifest = execute_policy(
+        _policy_for_command((sys.executable, "-c", "print('ok')")), _context(tmp_path)
+    )
+    reference = persist_verification_manifest(tmp_path, manifest)
+    artifact = next(reference.path.parent.glob("outputs/*.txt"))
+    artifact.unlink()
+
+    restored = load_verification_manifest(reference.path)
+
+    assert verification_verdict(restored) is VerificationVerdict.UNVERIFIED
