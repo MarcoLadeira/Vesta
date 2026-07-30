@@ -241,3 +241,67 @@ class PipelineWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class ManifestHonestyTests(unittest.TestCase):
+    """A verification problem must name itself accurately, and not mask the run.
+
+    Both regressions here had `main` red. The pipeline stored an
+    `{"integrity_errors": [...]}` dict under the *manifest* key when manifest
+    creation failed. That is not a manifest, so the verdict tried to validate it,
+    failed, and reported "verification evidence could not be validated" — naming
+    the wrong problem (creation, not validation) and replacing the run's own more
+    specific reason with a vaguer one.
+    """
+
+    def _edit_objective(self):
+        return objective_from_request("Fix the parser", mode="implement")
+
+    def test_a_creation_failure_says_unavailable_not_invalid(self) -> None:
+        verdict = evaluate_completion(
+            self._edit_objective(),
+            {
+                "status": "answered",
+                "answer": "done",
+                "changed_files": ["parser.py"],
+                "verification_manifest": {"creation_error": "disk full"},
+            },
+        )
+        self.assertEqual(verdict.reason_code, "verification_unavailable")
+        self.assertIn("disk full", verdict.reason)
+
+    def test_a_missing_edit_outranks_a_verification_problem(self) -> None:
+        # The run changed nothing. That is the actionable truth; a harness
+        # problem reported instead sends the user to debug OPai.
+        verdict = evaluate_completion(
+            self._edit_objective(),
+            {
+                "status": "answered",
+                "answer": "I changed it.",
+                "changed_files": [],
+                "verification_manifest": {"creation_error": "disk full"},
+            },
+        )
+        self.assertEqual(verdict.reason_code, "change_not_verified")
+
+    def test_verification_still_governs_once_the_edit_landed(self) -> None:
+        # The reorder must not let a broken manifest through when work exists.
+        verdict = evaluate_completion(
+            self._edit_objective(),
+            {
+                "status": "answered",
+                "answer": "done",
+                "changed_files": ["parser.py"],
+                "verification_manifest": {"schema_version": 1, "not": "a manifest"},
+            },
+        )
+        self.assertIsNot(verdict.verdict, CompletionVerdict.COMPLETED)
+        self.assertEqual(verdict.reason_code, "verification_invalid")
+
+    def test_an_empty_manifest_is_not_treated_as_a_failed_one(self) -> None:
+        # `{}` means the harness never ran, not that verification failed.
+        verdict = evaluate_completion(
+            objective_from_request("What does this do?", mode="explain"),
+            {"status": "answered", "answer": "It parses.", "verification_manifest": {}},
+        )
+        self.assertIs(verdict.verdict, CompletionVerdict.COMPLETED)

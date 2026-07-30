@@ -1172,11 +1172,18 @@ def handle_gui_message(
                     "artifact": evidence_reference.to_dict(),
                 }
             except (OSError, TypeError, ValueError) as exc:
+                # Creating the manifest failed, so there *is* no manifest.
+                # Storing an `integrity_errors` dict under the manifest key made
+                # the verdict try to validate it, fail, and report "verification
+                # evidence could not be validated" — which names the wrong
+                # problem (creation, not validation) and replaced the run's own
+                # more specific reason with a vaguer one. A creation failure is
+                # now carried under its own key and reported as what it is.
                 verification_manifest_payload = {
-                    "integrity_errors": [
+                    "creation_error": (
                         "Verification evidence could not be created safely: "
                         + str(exc)[:240]
-                    ]
+                    )
                 }
             payload = {
                 **payload,
