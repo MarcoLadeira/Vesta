@@ -473,6 +473,48 @@ def build_savings_receipt(
     }
 
 
+def _authority_record(
+    *, command_grant: str | None, edit_grant: bool, mode: str
+) -> dict[str, Any]:
+    """What this turn was authorised to do, for the receipt (#295 gate 14).
+
+    A receipt that records cost and outcome but not *authority* cannot answer
+    the question a user actually asks afterwards — "what did I approve?" — and
+    an approval nobody can audit is barely an approval.
+
+    The approved command is redacted before it is recorded. It was typed or
+    confirmed by a human and can carry a token in a flag; a receipt is a
+    durable artifact, so it must not become the place a secret comes to rest.
+    """
+    from .command_runner import redact
+
+    approvals: list[dict[str, str]] = []
+    if command_grant:
+        approvals.append(
+            {
+                "kind": "command_once",
+                "detail": redact(str(command_grant))[:300],
+                "scope": "this command, this turn",
+            }
+        )
+    if edit_grant:
+        approvals.append(
+            {
+                "kind": "edits_once",
+                "detail": "File edits allowed for this turn",
+                "scope": "this turn",
+            }
+        )
+    return {
+        "mode": str(mode),
+        "approvals": approvals,
+        # Stated explicitly rather than left to be inferred from an empty list:
+        # "nothing was approved" and "approvals were not recorded" are very
+        # different claims, and only one of them is honest here.
+        "approvals_recorded": True,
+    }
+
+
 def _gate_receipt_savings(
     receipt: dict[str, Any], *, completed: bool
 ) -> dict[str, Any]:
@@ -1201,6 +1243,17 @@ def handle_gui_message(
                 completed=verdict.verdict is CompletionVerdict.COMPLETED,
             )
             gated["completion_verdict"] = stored_verdict
+            # #295 gate 14: a receipt that states a verdict without the evidence
+            # behind it asks the user to take OPai's word for it. #539 made the
+            # verdict trust only evidence OPai observed; this is the half that
+            # lets the user *see* that evidence and check the reasoning.
+            gated["evidence"] = [ref.to_dict() for ref in verdict.evidence]
+            gated["changed_files"] = list(attributed_paths)
+            gated["authority"] = _authority_record(
+                command_grant=command_grant,
+                edit_grant=edit_grant,
+                mode=policy.mode.value,
+            )
             payload = {**payload, "receipt": gated}
         if status == "answered" and isinstance(payload.get("receipt"), Mapping):
             # The receipt is durable only after the objective verdict exists;
