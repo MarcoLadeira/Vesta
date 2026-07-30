@@ -153,6 +153,21 @@ class VerificationExecutionContext:
             "head_sha": self.head_sha,
         }
 
+    @classmethod
+    def from_repository_handle(cls, handle: Any) -> "VerificationExecutionContext":
+        """Bind check execution to the canonical worktree captured by #521."""
+
+        identity = getattr(handle, "identity", None)
+        if identity is None:
+            raise ValueError("repository handle is required for verification")
+        return cls(
+            task_id=getattr(handle, "task_id", ""),
+            run_id=getattr(handle, "run_id", ""),
+            worktree=getattr(identity, "worktree_root", ""),
+            repository_id=getattr(identity, "repository_id", ""),
+            head_sha=getattr(identity, "head_sha", ""),
+        )
+
 
 @dataclass(frozen=True)
 class VerificationAttempt:

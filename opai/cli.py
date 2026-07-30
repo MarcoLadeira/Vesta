@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+from hashlib import sha256
 import json
 import os
 import re
 import shutil
 import subprocess  # nosec B404
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -228,9 +230,12 @@ def cmd_repo(args: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    """Resolve a verification policy without executing repository commands."""
+    """Resolve or execute the canonical verification policy."""
 
-    from opaihub.verification_policy import resolve_verification_policy
+    from opaihub.verification_policy import (
+        persist_effective_policy,
+        resolve_verification_policy,
+    )
 
     root = _project(args.project)
     policy = resolve_verification_policy(
@@ -240,6 +245,51 @@ def cmd_verify(args: argparse.Namespace) -> int:
         delivery=args.delivery,
     )
     payload = policy.to_dict()
+    if args.verify_command == "run":
+        from opaihub.repository_safety import (
+            RepositoryProbeError,
+            capture_repository_handle,
+        )
+        from opaihub.verification_execution import (
+            VerificationExecutionContext,
+            execute_policy,
+            load_verification_manifest,
+            persist_verification_manifest,
+            verification_verdict,
+        )
+
+        task_id = "verify-" + sha256(args.task.encode("utf-8")).hexdigest()[:16]
+        run_id = uuid.uuid4().hex[:16]
+        try:
+            handle = capture_repository_handle(root, task_id=task_id, run_id=run_id)
+            persist_effective_policy(root, policy, task_id=task_id, run_id=run_id)
+            manifest = execute_policy(
+                policy, VerificationExecutionContext.from_repository_handle(handle)
+            )
+            reference = persist_verification_manifest(root, manifest)
+            persisted = load_verification_manifest(reference.path)
+            verdict = verification_verdict(persisted)
+            output = {
+                "policy": payload,
+                "manifest": {**persisted.to_dict(), "artifact": reference.to_dict()},
+                "verdict": verdict.value,
+            }
+        except (OSError, TypeError, ValueError, RepositoryProbeError) as exc:
+            output = {
+                "policy": payload,
+                "manifest": {},
+                "verdict": "blocked",
+                "error": str(exc)[:400],
+            }
+        if args.json:
+            print_json(output)
+        else:
+            print(f"Verification verdict: {output['verdict']}")
+            if output["manifest"]:
+                print("Evidence manifest: " + output["manifest"]["artifact"]["path"])
+            elif output.get("error"):
+                print("ERROR: " + output["error"])
+        return 0 if output["verdict"] == "verified" else 2
     if args.json:
         print_json(payload)
     else:
@@ -2404,6 +2454,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Render machine-readable policy JSON"
     )
     vp.set_defaults(func=cmd_verify)
+    vr = verify_sub.add_parser(
+        "run", help="Execute declared verification argv and persist evidence"
+    )
+    vr.add_argument("--project", default=argparse.SUPPRESS, help="Project root")
+    vr.add_argument("--task", required=True, help="Task whose checks to execute")
+    vr.add_argument("--mode", default="implement", help="Requested task mode")
+    vr.add_argument(
+        "--delivery",
+        choices=("local", "ship"),
+        default="local",
+        help="Requested delivery outcome",
+    )
+    vr.add_argument("--json", action="store_true", help="Render manifest JSON")
+    vr.set_defaults(func=cmd_verify)
 
     p = sub.add_parser("cockpit", help="Obvious ON/OFF control panel for OPai")
     p.add_argument("--project", default=None, help="Project root")
