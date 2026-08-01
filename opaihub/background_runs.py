@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .run_state import TERMINAL_STATES, RunState, transition
 from .state import state_dir
@@ -231,17 +232,17 @@ def _schedules_path(project_root: Path) -> Path:
 
 def _save_run(project_root: Path, run: AutomationRun) -> Path:
     path = _run_path(project_root, run.run_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(run.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    temporary.replace(path)
+    with interprocess_transaction(path):
+        atomic_write_text(
+            path, json.dumps(run.to_dict(), indent=2, sort_keys=True) + "\n"
+        )
     return path
 
 
 def load_run(project_root: Path, run_id: str) -> AutomationRun:
-    data = json.loads(_run_path(project_root, run_id).read_text(encoding="utf-8"))
+    path = _run_path(project_root, run_id)
+    with interprocess_transaction(path):
+        data = json.loads(path.read_text(encoding="utf-8"))
     status = str(data.get("status") or "queued")
     # Missing is a backwards-compatible migration; an explicit invalid state is
     # not silently accepted as a harmless status string.
@@ -364,33 +365,38 @@ def _transition_run(
     the corresponding interprocess transaction/locking layer.
     """
 
-    current = load_run(project_root, run_id)
-    current_state = _coerce_run_state(current.run_state)
-    if current_state in TERMINAL_STATES:
-        return current
-    next_state = transition(current_state, target, source="background_runs")
-    if next_state is current_state:
-        return current
-    now = _now_iso()
-    history = tuple(
-        [
-            *current.state_history,
-            _state_event(next_state, at=now, reason_code=reason_code),
-        ][-_MAX_STATE_HISTORY:]
-    )
-    legacy_status = str(
-        changes.pop("legacy_status", _LEGACY_STATUS_FOR_RUN_STATE[next_state])
-    )
-    updated_changes = {
-        **changes,
-        "status": legacy_status,
-        "run_state": next_state.value,
-        "reason_code": _reason_code(reason_code, fallback="unknown"),
-        "state_history": history,
-    }
-    if message is not None:
-        updated_changes["message"] = str(redact_structure(str(message)))
-    return _update_run(project_root, current, **updated_changes)
+    path = _run_path(project_root, run_id)
+    # The read/check/write is one transaction: a late finalizer or recovery
+    # sweep must observe a cancellation/terminal state written by another OPai
+    # process before it decides whether it may advance the lifecycle.
+    with interprocess_transaction(path):
+        current = load_run(project_root, run_id)
+        current_state = _coerce_run_state(current.run_state)
+        if current_state in TERMINAL_STATES:
+            return current
+        next_state = transition(current_state, target, source="background_runs")
+        if next_state is current_state:
+            return current
+        now = _now_iso()
+        history = tuple(
+            [
+                *current.state_history,
+                _state_event(next_state, at=now, reason_code=reason_code),
+            ][-_MAX_STATE_HISTORY:]
+        )
+        legacy_status = str(
+            changes.pop("legacy_status", _LEGACY_STATUS_FOR_RUN_STATE[next_state])
+        )
+        updated_changes = {
+            **changes,
+            "status": legacy_status,
+            "run_state": next_state.value,
+            "reason_code": _reason_code(reason_code, fallback="unknown"),
+            "state_history": history,
+        }
+        if message is not None:
+            updated_changes["message"] = str(redact_structure(str(message)))
+        return _update_run(project_root, current, **updated_changes)
 
 
 def enqueue_automation(
@@ -427,9 +433,11 @@ def enqueue_automation(
             _state_event(RunState.QUEUED, at=created_at, reason_code="queued"),
         ),
     )
-    if _run_path(project_root, run.run_id).exists():
-        raise FileExistsError(f"Background run already exists: {run.run_id}")
-    _save_run(project_root, run)
+    path = _run_path(project_root, run.run_id)
+    with interprocess_transaction(path):
+        if path.exists():
+            raise FileExistsError(f"Background run already exists: {run.run_id}")
+        _save_run(project_root, run)
     _notify(project_root, run, "Background run queued")
     return run
 
@@ -767,23 +775,20 @@ def pipeline_executor(
 
 def _read_schedules(project_root: Path) -> list[dict[str, Any]]:
     path = _schedules_path(project_root)
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
+    with interprocess_transaction(path):
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
     return data if isinstance(data, list) else []
 
 
 def _write_schedules(project_root: Path, schedules: list[dict[str, Any]]) -> Path:
     path = _schedules_path(project_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(schedules, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    temporary.replace(path)
+    with interprocess_transaction(path):
+        atomic_write_text(path, json.dumps(schedules, indent=2, sort_keys=True) + "\n")
     return path
 
 
@@ -820,9 +825,11 @@ def schedule_automation(
         "last_enqueued_at": "",
         "notes": "No daemon runs this; tick_automations enqueues due work.",
     }
-    schedules = _read_schedules(project_root)
-    schedules.append(schedule)
-    _write_schedules(project_root, schedules)
+    path = _schedules_path(project_root)
+    with interprocess_transaction(path):
+        schedules = _read_schedules(project_root)
+        schedules.append(schedule)
+        _write_schedules(project_root, schedules)
     return schedule
 
 
@@ -836,31 +843,33 @@ def tick_automations(
     """Enqueue due scheduled runs, at most once per cadence window."""
 
     moment = (now or _now()).astimezone(timezone.utc)
-    schedules = _read_schedules(project_root)
-    enqueued = []
-    for schedule in schedules:
-        cadence = str(schedule.get("cadence") or "manual")
-        window = CADENCE_SECONDS.get(cadence)
-        if not schedule.get("enabled", True) or window is None:
-            continue
-        last_raw = str(schedule.get("last_enqueued_at") or "")
-        if last_raw:
-            try:
-                last = datetime.fromisoformat(last_raw)
-            except ValueError:
-                last = None
-            if last is not None and (moment - last).total_seconds() < window:
+    path = _schedules_path(project_root)
+    with interprocess_transaction(path):
+        schedules = _read_schedules(project_root)
+        enqueued = []
+        for schedule in schedules:
+            cadence = str(schedule.get("cadence") or "manual")
+            window = CADENCE_SECONDS.get(cadence)
+            if not schedule.get("enabled", True) or window is None:
                 continue
-        run = enqueue_automation(
-            project_root,
-            str(schedule.get("workflow_id") or ""),
-            str(schedule.get("task") or ""),
-            allow_cloud=bool(schedule.get("allow_cloud", False)),
-            cloud_confirmed=bool(schedule.get("allow_cloud", False)),
-            schedule_id=str(schedule.get("id") or ""),
-        )
-        schedule["last_enqueued_at"] = moment.isoformat()
-        enqueued.append(run)
-    if enqueued:
-        _write_schedules(project_root, schedules)
+            last_raw = str(schedule.get("last_enqueued_at") or "")
+            if last_raw:
+                try:
+                    last = datetime.fromisoformat(last_raw)
+                except ValueError:
+                    last = None
+                if last is not None and (moment - last).total_seconds() < window:
+                    continue
+            run = enqueue_automation(
+                project_root,
+                str(schedule.get("workflow_id") or ""),
+                str(schedule.get("task") or ""),
+                allow_cloud=bool(schedule.get("allow_cloud", False)),
+                cloud_confirmed=bool(schedule.get("allow_cloud", False)),
+                schedule_id=str(schedule.get("id") or ""),
+            )
+            schedule["last_enqueued_at"] = moment.isoformat()
+            enqueued.append(run)
+        if enqueued:
+            _write_schedules(project_root, schedules)
     return enqueued
