@@ -12,6 +12,8 @@ from pathlib import Path
 from opaihub.background_runs import (
     AutomationRun,
     BackgroundRunner,
+    RUN_STATUSES,
+    _RUN_STATE_FOR_LEGACY_STATUS,
     enqueue_automation,
     list_automation_schedules,
     list_runs,
@@ -22,6 +24,7 @@ from opaihub.background_runs import (
     schedule_automation,
     tick_automations,
 )
+from opaihub.run_state import RunState
 
 
 def _completed_executor(project_root, run, cancel_event):
@@ -29,6 +32,17 @@ def _completed_executor(project_root, run, cancel_event):
 
 
 class EnqueueTests(unittest.TestCase):
+    def test_every_background_compatibility_status_has_a_canonical_mapping(self):
+        # A new status without an explicit mapping would be a new, hidden state
+        # machine. Keep the compatibility vocabulary closed over RunState.
+        self.assertEqual(set(_RUN_STATE_FOR_LEGACY_STATUS), RUN_STATUSES)
+        self.assertTrue(
+            all(
+                isinstance(state, RunState)
+                for state in _RUN_STATE_FOR_LEGACY_STATUS.values()
+            )
+        )
+
     def test_enqueue_rejects_unknown_workflow_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
@@ -41,6 +55,11 @@ class EnqueueTests(unittest.TestCase):
 
             restored = load_run(root, run.run_id)
             self.assertEqual(restored.status, "queued")
+            self.assertEqual(restored.run_state, RunState.QUEUED.value)
+            self.assertEqual(restored.reason_code, "queued")
+            self.assertEqual(
+                [item["state"] for item in restored.state_history], ["queued"]
+            )
             self.assertEqual(restored.workflow_id, "bug_fix")
             self.assertEqual(restored.owner, "user")
             self.assertFalse(restored.allow_cloud)
@@ -88,6 +107,8 @@ class CancellationTests(unittest.TestCase):
             run = enqueue_automation(root, "bug_fix", "task")
             cancelled = request_cancel(root, run.run_id)
             self.assertEqual(cancelled.status, "cancelled")
+            self.assertEqual(cancelled.run_state, RunState.CANCELLED.value)
+            self.assertEqual(cancelled.reason_code, "cancelled_before_start")
 
             runner = BackgroundRunner(root, executor=_completed_executor)
             with self.assertRaises(ValueError):
@@ -133,21 +154,98 @@ class RunnerTests(unittest.TestCase):
                 run.run_id
             )
             self.assertEqual(final.status, "completed")
+            self.assertEqual(final.run_state, RunState.COMPLETED.value)
+            self.assertEqual(final.reason_code, "background_completed")
+            self.assertEqual(
+                [item["state"] for item in final.state_history],
+                ["queued", "preparing", "running", "completed"],
+            )
             self.assertEqual(final.result["changed_files"], ["app.py"])
+            self.assertEqual(final.result["run_state"], RunState.COMPLETED.value)
+            self.assertEqual(final.result["reason_code"], "background_completed")
             statuses = [note["status"] for note in read_notifications(root)]
             self.assertEqual(statuses, ["queued", "running", "completed"])
+            self.assertEqual(
+                read_notifications(root)[-1]["run_state"], RunState.COMPLETED.value
+            )
 
-    def test_confirmation_needing_results_block_and_are_never_auto_approved(self):
+    def test_partial_and_timeout_keep_their_canonical_terminal_meaning(self):
+        for provider_status, expected in (
+            ("partial", RunState.PARTIAL),
+            ("timeout", RunState.TIMEOUT),
+        ):
+            with (
+                self.subTest(provider_status=provider_status),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
+                root = Path(tmp)
+                run = enqueue_automation(root, "bug_fix", "task")
+                final = BackgroundRunner(
+                    root,
+                    executor=lambda _root, _run, _cancel: {"status": provider_status},
+                ).run_now(run.run_id)
+
+                self.assertEqual(final.status, expected.value)
+                self.assertEqual(final.run_state, expected.value)
+                self.assertEqual(final.result["run_state"], expected.value)
+
+    def test_pipeline_canonical_verdict_beats_legacy_answer_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run = enqueue_automation(root, "bug_fix", "task")
+            final = BackgroundRunner(
+                root,
+                executor=lambda _root, _run, _cancel: {
+                    "status": "answered",
+                    "run_state": "partial",
+                    "completion_verdict": {
+                        "verdict": "partial",
+                        "reason_code": "change_not_verified",
+                    },
+                },
+            ).run_now(run.run_id)
 
-            def gated_executor(project_root, current, cancel_event):
-                return {"status": "needs_auto_confirmation", "cloudStarted": False}
+            self.assertEqual(final.status, "partial")
+            self.assertEqual(final.run_state, RunState.PARTIAL.value)
+            self.assertEqual(final.reason_code, "change_not_verified")
 
-            final = BackgroundRunner(root, executor=gated_executor).run_now(run.run_id)
-            self.assertEqual(final.status, "blocked")
-            self.assertIn("confirmation", final.message.lower())
+    def test_stale_worker_cannot_resurrect_a_run_cancelled_before_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+            cancelled = request_cancel(root, run.run_id)
+            calls = []
+
+            def executor(_root, _run, _cancel_event):
+                calls.append(True)
+                return {"status": "answered"}
+
+            # The stale object is the one a thread received before cancellation.
+            BackgroundRunner(root, executor=executor)._execute(run)
+
+            restored = load_run(root, run.run_id)
+            self.assertEqual(calls, [])
+            self.assertEqual(restored, cancelled)
+
+    def test_confirmation_needing_results_block_and_are_never_auto_approved(self):
+        for status in (
+            "needs_auto_confirmation",
+            "needs_command_approval",
+            "needs_edit_approval",
+        ):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                run = enqueue_automation(root, "bug_fix", "task")
+
+                def gated_executor(project_root, current, cancel_event):
+                    return {"status": status, "cloudStarted": False}
+
+                final = BackgroundRunner(root, executor=gated_executor).run_now(
+                    run.run_id
+                )
+                self.assertEqual(final.status, "blocked")
+                self.assertEqual(final.run_state, RunState.BLOCKED.value)
+                self.assertIn("confirmation", final.message.lower())
 
     def test_executor_exceptions_fail_closed_with_redacted_error(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -197,6 +295,34 @@ class DurabilityTests(unittest.TestCase):
             recovered = recover_interrupted_runs(root)
             self.assertEqual([item.run_id for item in recovered], [run.run_id])
             self.assertEqual(load_run(root, run.run_id).status, "interrupted")
+            restored = load_run(root, run.run_id)
+            self.assertEqual(restored.run_state, RunState.FAILED.value)
+            self.assertEqual(restored.reason_code, "interrupted")
+
+    def test_legacy_record_without_run_state_is_migrated_from_its_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+            path = (
+                root
+                / ".opaihub"
+                / "agent"
+                / "background"
+                / "runs"
+                / f"{run.run_id}.json"
+            )
+            data = json.loads(path.read_text("utf-8"))
+            data.pop("run_state")
+            data.pop("reason_code")
+            data.pop("state_history")
+            data["status"] = "interrupted"
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+            restored = load_run(root, run.run_id)
+            self.assertEqual(restored.status, "interrupted")
+            self.assertEqual(restored.run_state, RunState.FAILED.value)
+            self.assertEqual(restored.reason_code, "interrupted")
+            self.assertEqual(restored.state_history[-1]["state"], "failed")
 
     def test_active_runs_are_not_recovered(self):
         with tempfile.TemporaryDirectory() as tmp:

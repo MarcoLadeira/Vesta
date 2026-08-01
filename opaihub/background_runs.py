@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .command_runner import redact
+from .run_state import TERMINAL_STATES, RunState, transition
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger, redact_structure
 from .workflow_templates import workflow_templates
@@ -33,12 +34,64 @@ RUN_STATUSES = {
     "queued",
     "running",
     "completed",
+    "partial",
     "failed",
     "cancelled",
     "blocked",
+    "timeout",
     "interrupted",
 }
-TERMINAL_STATUSES = {"completed", "failed", "cancelled", "blocked", "interrupted"}
+TERMINAL_STATUSES = {
+    "completed",
+    "partial",
+    "failed",
+    "cancelled",
+    "blocked",
+    "timeout",
+    "interrupted",
+}
+
+# ``status`` is the compatibility vocabulary exposed by the pre-#379
+# automation CLI. ``run_state`` is authoritative for every newly persisted
+# record. Keeping the projection at this boundary lets older callers remain
+# readable while new GUI/CLI/history consumers never infer a terminal meaning.
+_RUN_STATE_FOR_LEGACY_STATUS = {
+    "queued": RunState.QUEUED,
+    "running": RunState.RUNNING,
+    "completed": RunState.COMPLETED,
+    "partial": RunState.PARTIAL,
+    "failed": RunState.FAILED,
+    "cancelled": RunState.CANCELLED,
+    "blocked": RunState.BLOCKED,
+    "timeout": RunState.TIMEOUT,
+    # Interrupted is a compatibility label, not a second canonical terminal.
+    "interrupted": RunState.FAILED,
+}
+_LEGACY_STATUS_FOR_RUN_STATE = {
+    RunState.QUEUED: "queued",
+    RunState.PREPARING: "queued",
+    RunState.RUNNING: "running",
+    RunState.AWAITING_INPUT: "blocked",
+    RunState.CANCEL_REQUESTED: "running",
+    RunState.COMPLETED: "completed",
+    RunState.PARTIAL: "partial",
+    RunState.BLOCKED: "blocked",
+    RunState.FAILED: "failed",
+    RunState.CANCELLED: "cancelled",
+    RunState.TIMEOUT: "timeout",
+}
+_DEFAULT_REASON_FOR_LEGACY_STATUS = {
+    "queued": "queued",
+    "running": "execution_started",
+    "completed": "background_completed",
+    "partial": "background_partial",
+    "failed": "background_failed",
+    "cancelled": "cancelled_by_user",
+    "blocked": "background_blocked",
+    "timeout": "background_timeout",
+    "interrupted": "interrupted",
+}
+_MAX_STATE_HISTORY = 32
 
 # Pipeline statuses that mean "a human must approve before anything spends or
 # escalates". A background run must park on these, never answer for the user.
@@ -46,7 +99,9 @@ CONFIRMATION_STATUSES = {
     "blocked",
     "confirmation_required",
     "needs_auto_confirmation",
+    "needs_command_approval",
     "needs_confirmation",
+    "needs_edit_approval",
     "needs_free_confirmation",
     "needs_limit_confirmation",
 }
@@ -82,6 +137,8 @@ class AutomationRun:
     workflow_id: str
     task: str
     status: str = "queued"
+    run_state: str = RunState.QUEUED.value
+    reason_code: str = "queued"
     owner: str = "user"
     schedule_id: str = ""
     allow_cloud: bool = False
@@ -91,9 +148,12 @@ class AutomationRun:
     started_at: str = ""
     finished_at: str = ""
     result: dict[str, Any] = field(default_factory=dict)
+    state_history: tuple[dict[str, str], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["state_history"] = [dict(item) for item in self.state_history]
+        return data
 
 
 def _background_dir(project_root: Path) -> Path:
@@ -102,6 +162,63 @@ def _background_dir(project_root: Path) -> Path:
 
 def _run_path(project_root: Path, run_id: str) -> Path:
     return _background_dir(project_root) / "runs" / f"{_valid_run_id(run_id)}.json"
+
+
+def _coerce_run_state(value: Any) -> RunState:
+    """Return a declared canonical state; unknown explicit data is corrupt."""
+
+    return RunState(str(getattr(value, "value", value) or "").strip().lower())
+
+
+def _legacy_state(status: Any) -> RunState:
+    """Migrate a pre-#379 record that has no canonical state field."""
+
+    normalized = str(status or "").strip().lower()
+    return _RUN_STATE_FOR_LEGACY_STATUS.get(normalized, RunState.FAILED)
+
+
+def _reason_code(value: Any, *, fallback: str) -> str:
+    """Keep reason codes typed, bounded, and safe for receipts/notifications."""
+
+    normalized = re.sub(r"[^a-z0-9_.-]+", "_", str(value or "").lower()).strip("_.-")
+    return normalized[:80] or fallback
+
+
+def _state_event(state: RunState, *, at: str, reason_code: str) -> dict[str, str]:
+    return {"state": state.value, "at": str(at or ""), "reason_code": reason_code}
+
+
+def _load_state_history(
+    raw_history: Any,
+    *,
+    state: RunState,
+    reason_code: str,
+    created_at: str,
+) -> tuple[dict[str, str], ...]:
+    if not isinstance(raw_history, list):
+        return (_state_event(state, at=created_at, reason_code=reason_code),)
+    history: list[dict[str, str]] = []
+    for item in raw_history[-_MAX_STATE_HISTORY:]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            item_state = _coerce_run_state(item.get("state"))
+        except ValueError:
+            continue
+        history.append(
+            _state_event(
+                item_state,
+                at=str(item.get("at") or ""),
+                reason_code=_reason_code(item.get("reason_code"), fallback="unknown"),
+            )
+        )
+    return tuple(history) or (
+        _state_event(state, at=created_at, reason_code=reason_code),
+    )
+
+
+def _is_terminal_run(run: "AutomationRun") -> bool:
+    return _coerce_run_state(run.run_state) in TERMINAL_STATES
 
 
 def _notifications_path(project_root: Path) -> Path:
@@ -125,20 +242,41 @@ def _save_run(project_root: Path, run: AutomationRun) -> Path:
 
 def load_run(project_root: Path, run_id: str) -> AutomationRun:
     data = json.loads(_run_path(project_root, run_id).read_text(encoding="utf-8"))
+    status = str(data.get("status") or "queued")
+    # Missing is a backwards-compatible migration; an explicit invalid state is
+    # not silently accepted as a harmless status string.
+    state = (
+        _coerce_run_state(data.get("run_state"))
+        if "run_state" in data
+        else _legacy_state(status)
+    )
+    reason = _reason_code(
+        data.get("reason_code"),
+        fallback=_DEFAULT_REASON_FOR_LEGACY_STATUS.get(status, "legacy_unknown_status"),
+    )
+    created_at = str(data.get("created_at") or "")
     return AutomationRun(
         run_id=str(data["run_id"]),
         workflow_id=str(data.get("workflow_id") or ""),
         task=str(data.get("task") or ""),
-        status=str(data.get("status") or "queued"),
+        status=status,
+        run_state=state.value,
+        reason_code=reason,
         owner=str(data.get("owner") or "user"),
         schedule_id=str(data.get("schedule_id") or ""),
         allow_cloud=bool(data.get("allow_cloud", False)),
         cancel_requested=bool(data.get("cancel_requested", False)),
         message=str(data.get("message") or ""),
-        created_at=str(data.get("created_at") or ""),
+        created_at=created_at,
         started_at=str(data.get("started_at") or ""),
         finished_at=str(data.get("finished_at") or ""),
         result=dict(data.get("result") or {}),
+        state_history=_load_state_history(
+            data.get("state_history"),
+            state=state,
+            reason_code=reason,
+            created_at=created_at,
+        ),
     )
 
 
@@ -166,6 +304,8 @@ def _notify(project_root: Path, run: AutomationRun, message: str) -> dict[str, A
         "workflow_id": run.workflow_id,
         "schedule_id": run.schedule_id,
         "status": run.status,
+        "run_state": run.run_state,
+        "reason_code": run.reason_code,
         "message": str(redact_structure(str(message))),
     }
     path = _notifications_path(project_root)
@@ -178,6 +318,8 @@ def _notify(project_root: Path, run: AutomationRun, message: str) -> dict[str, A
         metadata={
             "workflow_id": run.workflow_id,
             "status": run.status,
+            "run_state": run.run_state,
+            "reason_code": run.reason_code,
             "schedule_id": run.schedule_id,
             "allow_cloud": run.allow_cloud,
         },
@@ -206,6 +348,51 @@ def _update_run(
     return updated
 
 
+def _transition_run(
+    project_root: Path,
+    run_id: str,
+    *,
+    target: RunState,
+    reason_code: str,
+    message: str | None = None,
+    **changes: Any,
+) -> AutomationRun:
+    """Persist one legal background-run lifecycle transition.
+
+    Reloading before each write prevents stale queued-worker and finalizer
+    events from resurrecting a terminal run in the current process. #439 owns
+    the corresponding interprocess transaction/locking layer.
+    """
+
+    current = load_run(project_root, run_id)
+    current_state = _coerce_run_state(current.run_state)
+    if current_state in TERMINAL_STATES:
+        return current
+    next_state = transition(current_state, target, source="background_runs")
+    if next_state is current_state:
+        return current
+    now = _now_iso()
+    history = tuple(
+        [
+            *current.state_history,
+            _state_event(next_state, at=now, reason_code=reason_code),
+        ][-_MAX_STATE_HISTORY:]
+    )
+    legacy_status = str(
+        changes.pop("legacy_status", _LEGACY_STATUS_FOR_RUN_STATE[next_state])
+    )
+    updated_changes = {
+        **changes,
+        "status": legacy_status,
+        "run_state": next_state.value,
+        "reason_code": _reason_code(reason_code, fallback="unknown"),
+        "state_history": history,
+    }
+    if message is not None:
+        updated_changes["message"] = str(redact_structure(str(message)))
+    return _update_run(project_root, current, **updated_changes)
+
+
 def enqueue_automation(
     project_root: Path,
     workflow_id: str,
@@ -226,6 +413,7 @@ def enqueue_automation(
             "Cloud or paid escalation for a background run requires explicit "
             "confirmation (cloud_confirmed=True)"
         )
+    created_at = _now_iso()
     run = AutomationRun(
         run_id=_valid_run_id(run_id or uuid.uuid4().hex[:16]),
         workflow_id=workflow,
@@ -234,7 +422,10 @@ def enqueue_automation(
         schedule_id=str(schedule_id or ""),
         allow_cloud=bool(allow_cloud),
         message="Queued and waiting for a user-owned runner",
-        created_at=_now_iso(),
+        created_at=created_at,
+        state_history=(
+            _state_event(RunState.QUEUED, at=created_at, reason_code="queued"),
+        ),
     )
     if _run_path(project_root, run.run_id).exists():
         raise FileExistsError(f"Background run already exists: {run.run_id}")
@@ -247,20 +438,27 @@ def request_cancel(project_root: Path, run_id: str) -> AutomationRun:
     """Cancel durably: queued runs stop now, running runs get the signal."""
 
     run = load_run(project_root, run_id)
-    if run.status in TERMINAL_STATUSES:
+    if _is_terminal_run(run):
         return run
-    if run.status == "queued":
-        run = _update_run(
+    if _coerce_run_state(run.run_state) is RunState.QUEUED:
+        run = _transition_run(
             project_root,
-            run,
-            status="cancelled",
-            cancel_requested=True,
+            run.run_id,
+            target=RunState.CANCELLED,
+            reason_code="cancelled_before_start",
             message="Cancelled before it started",
             finished_at=_now_iso(),
+            cancel_requested=True,
         )
         _notify(project_root, run, "Cancelled before it started")
         return run
-    run = _update_run(project_root, run, cancel_requested=True)
+    run = _transition_run(
+        project_root,
+        run.run_id,
+        target=RunState.CANCEL_REQUESTED,
+        reason_code="cancellation_requested",
+        cancel_requested=True,
+    )
     with _ACTIVE_LOCK:
         event = _ACTIVE_CANCEL_EVENTS.get(
             (str(project_root.expanduser().resolve()), run.run_id)
@@ -271,7 +469,9 @@ def request_cancel(project_root: Path, run_id: str) -> AutomationRun:
     return run
 
 
-def _bounded_result(payload: dict[str, Any]) -> dict[str, Any]:
+def _bounded_result(
+    payload: dict[str, Any], *, run_state: RunState, reason_code: str
+) -> dict[str, Any]:
     error = payload.get("error")
     if isinstance(error, dict):
         error = {
@@ -282,6 +482,8 @@ def _bounded_result(payload: dict[str, Any]) -> dict[str, Any]:
         redact_structure(
             {
                 "status": str(payload.get("status") or ""),
+                "run_state": run_state.value,
+                "reason_code": reason_code,
                 "changed_files": [
                     str(item) for item in payload.get("changed_files") or []
                 ],
@@ -291,6 +493,55 @@ def _bounded_result(payload: dict[str, Any]) -> dict[str, Any]:
                 "error": error or "",
             }
         )
+    )
+
+
+def _terminal_from_payload(
+    payload: dict[str, Any], *, cancelled: bool
+) -> tuple[RunState, str, str]:
+    """Classify a background result without collapsing canonical endings."""
+
+    if cancelled:
+        return RunState.CANCELLED, "cancelled_by_user", "Stopped by you"
+
+    raw_state = payload.get("run_state")
+    if not raw_state and isinstance(payload.get("completion_verdict"), dict):
+        raw_state = payload["completion_verdict"].get("verdict")
+    try:
+        reported_state = _coerce_run_state(raw_state) if raw_state else None
+    except ValueError:
+        reported_state = None
+    if reported_state in TERMINAL_STATES:
+        default_reason = f"background_{reported_state.value}"
+        if isinstance(payload.get("completion_verdict"), dict):
+            default_reason = _reason_code(
+                payload["completion_verdict"].get("reason_code"),
+                fallback=default_reason,
+            )
+        return reported_state, default_reason, f"Background run {reported_state.value}"
+
+    status = str(payload.get("status") or "").strip().lower()
+    if status == "cancelled":
+        return RunState.CANCELLED, "cancelled_by_user", "Stopped by you"
+    if status in CONFIRMATION_STATUSES or reported_state is RunState.AWAITING_INPUT:
+        return (
+            RunState.BLOCKED,
+            "approval_required",
+            "Paused: this run needs your explicit confirmation before any "
+            "paid, cloud, or gated action. Nothing was approved for you.",
+        )
+    if status in _SUCCESS_STATUSES:
+        return RunState.COMPLETED, "background_completed", "Background run completed"
+    if status == "partial":
+        return RunState.PARTIAL, "background_partial", "Background run partial"
+    if status == "timeout":
+        return RunState.TIMEOUT, "background_timeout", "Background run timed out"
+    if status == "blocked":
+        return RunState.BLOCKED, "background_blocked", "Background run blocked"
+    return (
+        RunState.FAILED,
+        "background_failed",
+        f"Background run failed ({status or 'no status'})",
     )
 
 
@@ -321,7 +572,7 @@ class BackgroundRunner:
 
     def start(self, run_id: str) -> threading.Thread:
         run = load_run(self.project_root, run_id)
-        if run.status != "queued":
+        if _coerce_run_state(run.run_state) is not RunState.QUEUED:
             raise ValueError(f"Only queued runs can start (got {run.status!r})")
         with self._lock:
             if len(self.active_run_ids()) >= self.max_concurrent:
@@ -339,86 +590,118 @@ class BackgroundRunner:
         """Synchronous execution for CLI use; same gates as threaded runs."""
 
         run = load_run(self.project_root, run_id)
-        if run.status != "queued":
+        if _coerce_run_state(run.run_state) is not RunState.QUEUED:
             raise ValueError(f"Only queued runs can start (got {run.status!r})")
         self._execute(run)
         return load_run(self.project_root, run_id)
 
     def _execute(self, run: AutomationRun) -> None:
+        # A thread receives a snapshot while queued. Reload before touching the
+        # executor so a cancellation that won the race cannot be resurrected.
+        current = load_run(self.project_root, run.run_id)
+        if _is_terminal_run(current):
+            return
         key = (str(self.project_root), run.run_id)
         cancel_event = threading.Event()
-        if run.cancel_requested:
+        if current.cancel_requested:
             cancel_event.set()
         with _ACTIVE_LOCK:
             _ACTIVE_CANCEL_EVENTS[key] = cancel_event
-        run = _update_run(
-            self.project_root,
-            run,
-            status="running",
-            message="Running in a user-owned session",
-            started_at=_now_iso(),
-        )
-        _notify(self.project_root, run, "Background run started")
         try:
+            run = _transition_run(
+                self.project_root,
+                run.run_id,
+                target=RunState.PREPARING,
+                reason_code="preparing_execution",
+                message="Preparing a user-owned session",
+            )
+            if _is_terminal_run(run):
+                return
+            if run.cancel_requested:
+                self._finish(
+                    run,
+                    run_state=RunState.CANCELLED,
+                    reason_code="cancelled_before_execution",
+                    message="Stopped by you",
+                    payload={},
+                )
+                return
+            run = _transition_run(
+                self.project_root,
+                run.run_id,
+                target=RunState.RUNNING,
+                reason_code="execution_started",
+                message="Running in a user-owned session",
+                started_at=_now_iso(),
+            )
+            if _is_terminal_run(run):
+                return
+            if run.cancel_requested:
+                self._finish(
+                    run,
+                    run_state=RunState.CANCELLED,
+                    reason_code="cancelled_before_execution",
+                    message="Stopped by you",
+                    payload={},
+                )
+                return
+            _notify(self.project_root, run, "Background run started")
             payload = self.executor(self.project_root, run, cancel_event)
         except Exception as exc:  # noqa: BLE001 - a background run must fail closed
             self._finish(
-                run, status="failed", message=f"Executor error: {exc}", payload={}
+                run,
+                run_state=RunState.FAILED,
+                reason_code="executor_error",
+                message=f"Executor error: {exc}",
+                payload={},
             )
             return
         finally:
             with _ACTIVE_LOCK:
                 _ACTIVE_CANCEL_EVENTS.pop(key, None)
-        status = str((payload or {}).get("status") or "")
-        if cancel_event.is_set() or status == "cancelled":
-            self._finish(
-                run,
-                status="cancelled",
-                message="Stopped by you",
-                payload=payload or {},
-            )
-        elif status in CONFIRMATION_STATUSES:
-            self._finish(
-                run,
-                status="blocked",
-                message=(
-                    "Paused: this run needs your explicit confirmation before any "
-                    "paid, cloud, or gated action. Nothing was approved for you."
-                ),
-                payload=payload or {},
-            )
-        elif status in _SUCCESS_STATUSES:
-            self._finish(
-                run,
-                status="completed",
-                message="Background run completed",
-                payload=payload or {},
-            )
-        else:
-            self._finish(
-                run,
-                status="failed",
-                message=f"Background run failed ({status or 'no status'})",
-                payload=payload or {},
-            )
+        final_run = load_run(self.project_root, run.run_id)
+        state, reason_code, message = _terminal_from_payload(
+            payload or {},
+            cancelled=(
+                cancel_event.is_set()
+                or final_run.cancel_requested
+                or _coerce_run_state(final_run.run_state) is RunState.CANCEL_REQUESTED
+            ),
+        )
+        self._finish(
+            run,
+            run_state=state,
+            reason_code=reason_code,
+            message=message,
+            payload=payload or {},
+        )
 
     def _finish(
         self,
         run: AutomationRun,
         *,
-        status: str,
+        run_state: RunState,
+        reason_code: str,
         message: str,
         payload: dict[str, Any],
-    ) -> None:
-        finished = _update_run(
+    ) -> AutomationRun:
+        current = load_run(self.project_root, run.run_id)
+        if _is_terminal_run(current):
+            return current
+        finished = _transition_run(
             self.project_root,
-            load_run(self.project_root, run.run_id),
-            status=status,
-            message=str(redact_structure(str(message))),
+            run.run_id,
+            target=run_state,
+            reason_code=reason_code,
+            message=message,
             finished_at=_now_iso(),
-            result=_bounded_result(payload),
+            result=_bounded_result(
+                payload, run_state=run_state, reason_code=reason_code
+            ),
         )
-        _notify(self.project_root, finished, message)
+        if _is_terminal_run(finished):
+            _notify(self.project_root, finished, message)
+        return finished
 
 
 def recover_interrupted_runs(
@@ -430,12 +713,16 @@ def recover_interrupted_runs(
     for run in list_runs(project_root, status="running"):
         if run.run_id in active_run_ids:
             continue
-        updated = _update_run(
+        if _is_terminal_run(run):
+            continue
+        updated = _transition_run(
             project_root,
-            run,
-            status="interrupted",
+            run.run_id,
+            target=RunState.FAILED,
+            reason_code="interrupted",
             message="Interrupted: the owning session ended before it finished",
             finished_at=_now_iso(),
+            legacy_status="interrupted",
         )
         _notify(project_root, updated, "Run interrupted; re-enqueue to retry")
         recovered.append(updated)
