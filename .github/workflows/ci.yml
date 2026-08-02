@@ -145,7 +145,10 @@ jobs:
     # The committed Playwright visual baselines are Windows Chromium images;
     # running them elsewhere turns renderer/font variation into false failures.
     runs-on: windows-latest
-    timeout-minutes: 20
+    # Two workers retain meaningful browser parallelism without oversubscribing
+    # the hosted Windows Chromium runner, which otherwise turns normal app
+    # boot into a false 15-second test timeout.
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -180,9 +183,10 @@ jobs:
         run: npx playwright install chromium
 
       - name: Run Chromium end-to-end tests
-        # Playwright defaults to one worker under CI, which makes this complete
-        # 457-test required suite exceed a bounded PR window on Windows.
-        run: npm run test:e2e -- --workers=4
+        # Four workers saturate the hosted Windows browser runner. Two keeps
+        # the full 457-test suite concurrent while allowing real app boots to
+        # complete within their assertion-level timeout.
+        run: npm run test:e2e -- --workers=2
 
       - name: Upload redacted browser failure evidence
         if: failure()
