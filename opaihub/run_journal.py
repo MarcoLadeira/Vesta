@@ -455,25 +455,31 @@ def replay(
     return projection
 
 
-def append(
+def append_if(
     journal_path: Path,
-    event: Mapping[str, Any],
+    build_event: Callable[[dict[str, Any]], dict[str, Any] | None],
     *,
     reduce: Reduce,
     empty: Empty,
     validate: Validate | None = None,
     quarantine_dir: Path | None = None,
     snapshot_dir: Path | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Durably append one event, returning ``(event_with_sequence, projection)``.
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Append one event chosen from the *current* projection, atomically.
 
-    ``event`` must not itself contain ``sequence`` — the next monotonic value
-    is assigned here, under the same lock used to recover the prior state, so
-    two processes appending concurrently can never assign the same sequence.
+    ``build_event`` receives the just-recovered projection — under the same
+    lock that recovered it — and returns either the event to append, or
+    ``None`` to append nothing. That is the difference between this and
+    calling :func:`load` followed by :func:`append`: a caller that reads the
+    projection first and decides afterward leaves a window between the read
+    and the write for a second caller to act on the same stale read, and both
+    append. Two threads racing to move the same not-yet-cancelled scope to
+    ``cancelled`` are exactly this shape of bug — this closes it by making
+    "read current state, decide, write" one atomic step.
+
+    Returns ``None`` when ``build_event`` declined (nothing was appended).
     """
 
-    if "sequence" in event:
-        raise ValueError("event must not pre-assign a sequence")
     with interprocess_transaction(_lock_path(journal_path)):
         recovery = _recover(
             journal_path,
@@ -483,6 +489,11 @@ def append(
             quarantine_dir=quarantine_dir,
             snapshot_dir=snapshot_dir,
         )
+        event = build_event(recovery.projection)
+        if event is None:
+            return None
+        if "sequence" in event:
+            raise ValueError("event must not pre-assign a sequence")
         record = {**dict(event), "sequence": recovery.sequence + 1}
         if validate is not None and not validate(record):
             raise ValueError("event failed validation")
@@ -500,6 +511,46 @@ def append(
             json.dumps(head, indent=2, sort_keys=True, allow_nan=False) + "\n",
         )
     return record, projection
+
+
+def append(
+    journal_path: Path,
+    event: Mapping[str, Any],
+    *,
+    reduce: Reduce,
+    empty: Empty,
+    validate: Validate | None = None,
+    quarantine_dir: Path | None = None,
+    snapshot_dir: Path | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Durably append one event, returning ``(event_with_sequence, projection)``.
+
+    ``event`` must not itself contain ``sequence`` — the next monotonic value
+    is assigned here, under the same lock used to recover the prior state, so
+    two processes appending concurrently can never assign the same sequence.
+    Unconditional: for an append whose *content* depends on the current
+    projection (not just its sequence number), use :func:`append_if` instead.
+    """
+
+    if "sequence" in event:
+        raise ValueError("event must not pre-assign a sequence")
+    fixed = dict(event)
+    result = append_if(
+        journal_path,
+        lambda _projection: fixed,
+        reduce=reduce,
+        empty=empty,
+        validate=validate,
+        quarantine_dir=quarantine_dir,
+        snapshot_dir=snapshot_dir,
+    )
+    if result is None:
+        # Unreachable: the callback above always returns ``fixed``, never
+        # None. Guarded explicitly (not with `assert`, which vanishes under
+        # `-O`) because a silent `None` here would surface as a confusing
+        # `NoneType is not iterable` at the caller instead of this message.
+        raise RuntimeError("append_if unexpectedly declined an unconditional append")
+    return result
 
 
 def compact(

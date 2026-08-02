@@ -11,7 +11,17 @@ from typing import Any, Callable, Iterable, Mapping
 
 from .command_runner import redact
 from .proc import no_window_kwargs
+from .process_tree import adopt, isolated_group_kwargs, terminate_tree
 from .safety_gates import is_destructive_command
+
+# How often a cancel-aware command call re-checks the cancellation token and
+# the overall deadline while a subprocess is running. Small enough that
+# cancellation acknowledgement latency (#380) stays sub-second; large enough
+# not to spin.
+_POLL_INTERVAL_SECONDS = 0.05
+# Grace window given to a cancelled or timed-out process to exit on its own
+# (the "draining" phase, #380) before the whole tree is force-terminated.
+_DEFAULT_DRAIN_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -35,12 +45,18 @@ class AgentComputerInterface:
         repo_root: Path,
         *,
         run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
         on_event: Callable[[dict[str, Any]], Any] | None = None,
         timeout: float = 120.0,
         max_output_chars: int = 120_000,
     ) -> None:
         self.repo_root = repo_root.expanduser().resolve()
         self._run = run
+        # Separate from ``_run``: a cancel-aware call needs to poll a live
+        # process rather than block inside one library call, so it is built
+        # on Popen instead. Injectable for the same reason ``_run`` is — no
+        # test should have to spawn a real process to exercise this path.
+        self._popen = popen
         self._on_event = on_event
         self.timeout = timeout
         self.max_output_chars = max_output_chars
@@ -313,7 +329,9 @@ class AgentComputerInterface:
             result.duration_ms,
         )
 
-    def run_tests(self, command: Iterable[str], *, scope: str) -> Observation:
+    def run_tests(
+        self, command: Iterable[str], *, scope: str, cancel: Any = None
+    ) -> Observation:
         from opai.activity import emit_event
 
         safe_scope = " ".join(redact(str(scope or "selected")).split())[:120]
@@ -326,7 +344,7 @@ class AgentComputerInterface:
             f"Running {safe_scope} tests",
             metadata={"operation": "run_tests", "scope": safe_scope},
         )
-        result = self.run_command(command, purpose=f"{scope} tests")
+        result = self.run_command(command, purpose=f"{scope} tests", cancel=cancel)
         emit_event(
             self._on_event,
             "validation",
@@ -349,6 +367,35 @@ class AgentComputerInterface:
             result.duration_ms,
         )
 
+    def _observation_from_output(
+        self,
+        argv: list[str],
+        purpose: str,
+        returncode: int,
+        stdout: str,
+        stderr: str,
+        *,
+        started: float,
+    ) -> Observation:
+        clean_stdout = redact(str(stdout or ""))[: self.max_output_chars]
+        clean_stderr = redact(str(stderr or ""))[: self.max_output_chars]
+        return Observation(
+            "command",
+            returncode == 0,
+            {
+                "command": [redact(item) for item in argv],
+                "purpose": purpose,
+                "returncode": int(returncode),
+                "stdout": clean_stdout,
+                "stderr": clean_stderr,
+                "truncated": len(str(stdout or "")) + len(str(stderr or ""))
+                > self.max_output_chars,
+            },
+            "COMMAND_FAILED" if returncode else "",
+            clean_stderr if returncode else "",
+            int((time.monotonic() - started) * 1000),
+        )
+
     def run_command(
         self,
         command: Iterable[str],
@@ -356,6 +403,8 @@ class AgentComputerInterface:
         purpose: str,
         input_text: str | None = None,
         environment: Mapping[str, str] | None = None,
+        cancel: Any = None,
+        drain_seconds: float = _DEFAULT_DRAIN_SECONDS,
     ) -> Observation:
         argv = [str(item) for item in command]
         if not argv:
@@ -370,6 +419,42 @@ class AgentComputerInterface:
                 "DESTRUCTIVE_COMMAND",
                 "Destructive commands require a separate explicit approval boundary",
             )
+        if cancel is not None and cancel.is_set():
+            return Observation(
+                "command",
+                False,
+                {"command": argv, "purpose": purpose},
+                "CANCELLED",
+                "Command was cancelled before it started",
+            )
+        child_environment: dict[str, str] | None = None
+        if environment:
+            child_environment = os.environ.copy()
+            child_environment.update(
+                {str(name): str(value) for name, value in environment.items()}
+            )
+        if cancel is None:
+            return self._run_blocking(
+                argv, purpose, input_text=input_text, environment=child_environment
+            )
+        return self._run_cancellable(
+            argv,
+            purpose,
+            input_text=input_text,
+            environment=child_environment,
+            cancel=cancel,
+            drain_seconds=drain_seconds,
+        )
+
+    def _run_blocking(
+        self,
+        argv: list[str],
+        purpose: str,
+        *,
+        input_text: str | None,
+        environment: dict[str, str] | None,
+    ) -> Observation:
+        """The original, unconditional path: no cancellation to watch for."""
         started = time.monotonic()
         kwargs: dict[str, Any] = {
             "cwd": str(self.repo_root),
@@ -383,12 +468,8 @@ class AgentComputerInterface:
         }
         if input_text is not None:
             kwargs["input"] = input_text
-        if environment:
-            child_environment = os.environ.copy()
-            child_environment.update(
-                {str(name): str(value) for name, value in environment.items()}
-            )
-            kwargs["env"] = child_environment
+        if environment is not None:
+            kwargs["env"] = environment
         try:
             completed = self._run(argv, **kwargs)
         except subprocess.TimeoutExpired:
@@ -407,22 +488,121 @@ class AgentComputerInterface:
                 "SPAWN_FAILED",
                 redact(str(exc)),
             )
-        stdout = redact(str(completed.stdout or ""))[: self.max_output_chars]
-        stderr = redact(str(completed.stderr or ""))[: self.max_output_chars]
-        return Observation(
-            "command",
-            completed.returncode == 0,
-            {
-                "command": [redact(item) for item in argv],
-                "purpose": purpose,
-                "returncode": int(completed.returncode),
-                "stdout": stdout,
-                "stderr": stderr,
-                "truncated": len(str(completed.stdout or ""))
-                + len(str(completed.stderr or ""))
-                > self.max_output_chars,
-            },
-            "COMMAND_FAILED" if completed.returncode else "",
-            stderr if completed.returncode else "",
-            int((time.monotonic() - started) * 1000),
+        return self._observation_from_output(
+            argv,
+            purpose,
+            completed.returncode,
+            completed.stdout,
+            completed.stderr,
+            started=started,
+        )
+
+    def _run_cancellable(
+        self,
+        argv: list[str],
+        purpose: str,
+        *,
+        input_text: str | None,
+        environment: dict[str, str] | None,
+        cancel: Any,
+        drain_seconds: float = _DEFAULT_DRAIN_SECONDS,
+    ) -> Observation:
+        """Poll a real process tree so a cancellation actually stops it.
+
+        The blocking path above cannot do this even in principle: a single
+        library call either returns or it does not, with no point at which to
+        notice the token flipped. This spawns the child isolated in its own
+        process group/job (:func:`isolated_group_kwargs`, :func:`adopt`) and
+        polls, so a cancellation observed mid-flight reaches every descendant
+        via :func:`terminate_tree` (#108) — not just the direct child, and not
+        just refusing the *next* tool call the way a pre-flight check alone
+        would (#380's own stated problem: "cancel requested" that leaves
+        child processes running is not cancellation).
+        """
+        started = time.monotonic()
+        kwargs: dict[str, Any] = {
+            "cwd": str(self.repo_root),
+            "stdin": subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            **no_window_kwargs(),
+            **isolated_group_kwargs(),
+        }
+        if environment is not None:
+            kwargs["env"] = environment
+        try:
+            proc = self._popen(argv, **kwargs)
+        except OSError as exc:
+            return Observation(
+                "command",
+                False,
+                {"command": argv, "purpose": purpose},
+                "SPAWN_FAILED",
+                redact(str(exc)),
+            )
+        adopt(proc)
+
+        deadline = started + self.timeout
+        pending_input = input_text
+        stdout = stderr = ""
+        outcome = "completed"
+        while True:
+            try:
+                stdout, stderr = proc.communicate(
+                    input=pending_input, timeout=_POLL_INTERVAL_SECONDS
+                )
+                break
+            except subprocess.TimeoutExpired:
+                pending_input = None  # already sent; communicate() forbids resending
+                if cancel.is_set():
+                    outcome = "cancelled"
+                    break
+                if time.monotonic() >= deadline:
+                    outcome = "timed_out"
+                    break
+
+        if outcome != "completed":
+            drain_deadline = time.monotonic() + drain_seconds
+            while proc.poll() is None and time.monotonic() < drain_deadline:
+                time.sleep(_POLL_INTERVAL_SECONDS)
+            if proc.poll() is None:
+                terminate_tree(proc)
+            try:
+                stdout, stderr = proc.communicate(timeout=max(2.0, drain_seconds))
+            except subprocess.TimeoutExpired:
+                pass  # best effort: report whatever was captured before this
+            if outcome == "cancelled":
+                return Observation(
+                    "command",
+                    False,
+                    {
+                        "command": argv,
+                        "purpose": purpose,
+                        "stdout": redact(str(stdout or ""))[: self.max_output_chars],
+                        "stderr": redact(str(stderr or ""))[: self.max_output_chars],
+                    },
+                    "CANCELLED",
+                    "Command was cancelled",
+                    int((time.monotonic() - started) * 1000),
+                )
+            return Observation(
+                "command",
+                False,
+                {
+                    "command": argv,
+                    "purpose": purpose,
+                    "stdout": redact(str(stdout or ""))[: self.max_output_chars],
+                    "stderr": redact(str(stderr or ""))[: self.max_output_chars],
+                },
+                "TIMEOUT",
+                "Command timed out",
+                int((time.monotonic() - started) * 1000),
+            )
+
+        returncode = proc.returncode if proc.returncode is not None else 1
+        return self._observation_from_output(
+            argv, purpose, returncode, stdout, stderr, started=started
         )

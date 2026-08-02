@@ -360,5 +360,80 @@ class CompactionTests(_Temp):
         self.assertEqual(recovery.sequence, 0)
 
 
+class AppendIfTests(_Temp):
+    """The conditional-append primitive concurrent callers actually need.
+
+    ``load()`` then ``append()`` is not safe under a race: the projection is
+    read under one lock and written under a second, separate one, leaving a
+    window for another caller to act on the same stale read. ``append_if``
+    exists because a real caller (#380's cancellation tracker) needed to
+    "advance only if nothing else already has" as a single atomic step.
+    """
+
+    def test_the_event_is_built_from_the_current_projection(self) -> None:
+        self.append(5)
+        self.append(7)
+        record, projection = journal.append_if(
+            self.path,
+            lambda current: {"amount": 100 - current["total"]},
+            reduce=_reduce,
+            empty=_empty,
+        )
+        self.assertEqual(record["sequence"], 3)
+        self.assertEqual(projection["total"], 100)
+
+    def test_declining_appends_nothing_and_returns_none(self) -> None:
+        self.append(1)
+        result = journal.append_if(
+            self.path, lambda _current: None, reduce=_reduce, empty=_empty
+        )
+        self.assertIsNone(result)
+        self.assertEqual(self.load().sequence, 1)
+
+    def test_a_pre_assigned_sequence_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            journal.append_if(
+                self.path,
+                lambda _current: {"amount": 1, "sequence": 5},
+                reduce=_reduce,
+                empty=_empty,
+            )
+
+    def test_two_racing_callers_never_both_win_a_guarded_append(self) -> None:
+        import threading
+
+        barrier = threading.Barrier(2)
+        results: list[tuple[dict, dict] | None] = []
+        lock = threading.Lock()
+
+        def claim_once() -> None:
+            barrier.wait(timeout=5)
+            outcome = journal.append_if(
+                self.path,
+                lambda current: None if current["seen"] else {"amount": 1},
+                reduce=_reduce,
+                empty=_empty,
+            )
+            with lock:
+                results.append(outcome)
+
+        threads = [threading.Thread(target=claim_once) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        winners = [item for item in results if item is not None]
+        self.assertEqual(len(winners), 1)
+        self.assertEqual(self.load().sequence, 1)
+
+    def test_append_itself_is_now_implemented_on_top_of_append_if(self) -> None:
+        # Not a change in append()'s observable contract — just proving the
+        # refactor that fixed the race above didn't move append()'s goalposts.
+        record, projection = self.append(3)
+        self.assertEqual(record["sequence"], 1)
+        self.assertEqual(projection["total"], 3)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
