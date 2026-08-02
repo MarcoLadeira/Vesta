@@ -2038,6 +2038,110 @@ def cmd_team(args: argparse.Namespace) -> int:
     return 0
 
 
+def _models_overrides_command(args: argparse.Namespace) -> int:
+    """Manage the user-owned model list (`opai models add/hide/reset`).
+
+    The built-in registry is a table compiled into the release, so a model a
+    provider ships tomorrow is unreachable until OPai itself is updated. These
+    write `~/.opai/models.json`, which is layered over it -- the picker, routing
+    and validation all read the merged view.
+    """
+    from opai.model_overrides import load_overrides, overrides_path, save_overrides
+
+    report = load_overrides()
+    if report.errors:
+        # Refuse to write over a file we could not parse: the user's existing
+        # entries are in there, and a blind overwrite would discard them.
+        print_json(
+            {
+                "status": "overrides_unreadable",
+                "path": str(report.path or overrides_path()),
+                "errors": list(report.errors),
+                "hint": "Fix or delete the file, then retry.",
+            }
+        )
+        return 2
+
+    providers: dict[str, list[dict[str, object]]] = {
+        name: [
+            {
+                "id": spec.id,
+                "display": spec.display,
+                "full": spec.full,
+                "capability": spec.capability,
+                "aliases": list(spec.aliases),
+            }
+            for spec in specs
+        ]
+        for name, specs in report.models.items()
+    }
+    hide = {name: sorted(ids) for name, ids in report.hidden.items()}
+
+    if args.models_command == "reset":
+        target = overrides_path()
+        existed = target.exists()
+        target.unlink(missing_ok=True)
+        print_json(
+            {
+                "status": "reset" if existed else "nothing_to_reset",
+                "path": str(target),
+            }
+        )
+        return 0
+
+    provider = str(args.provider).strip().lower()
+    model_id = str(args.model_id).strip()
+    if not provider or not model_id:
+        print_json({"status": "invalid", "error": "provider and model id are required"})
+        return 2
+
+    if args.models_command == "hide":
+        hidden = set(hide.get(provider, []))
+        hidden.add(model_id.lower())
+        hide[provider] = sorted(hidden)
+    else:
+        entries = [
+            e
+            for e in providers.get(provider, [])
+            if e["id"].lower() != model_id.lower()
+        ]
+        entries.append(
+            {
+                "id": model_id,
+                "display": args.display or model_id,
+                "full": args.full or args.display or model_id,
+                "capability": args.capability,
+                "aliases": list(args.alias or []),
+            }
+        )
+        providers[provider] = entries
+        # Adding a model back un-hides it; otherwise the add would look like a
+        # no-op and the user would have no way to see why.
+        if model_id.lower() in set(hide.get(provider, [])):
+            hide[provider] = sorted(set(hide[provider]) - {model_id.lower()})
+
+    try:
+        path = save_overrides(providers, hide=hide)
+    except (OSError, ValueError) as exc:
+        print_json({"status": "write_failed", "error": str(exc)[:400]})
+        return 2
+
+    from opai.model_registry import models_for
+
+    print_json(
+        {
+            "status": "updated",
+            "path": str(path),
+            "provider": provider,
+            "models": [
+                {"id": m.id, "display": m.display, "capability": m.capability}
+                for m in models_for(provider)
+            ],
+        }
+    )
+    return 0
+
+
 def cmd_models(args: argparse.Namespace) -> int:
     root = _project(args.project)
     if args.models_command == "list":
@@ -2134,6 +2238,8 @@ def cmd_models(args: argparse.Namespace) -> int:
             return 2
         prefs = save_gui_preferences(root, {"default_model": args.model_id})
         print_json({"status": "updated", "preferences": prefs})
+    elif args.models_command in {"add", "hide", "reset"}:
+        return _models_overrides_command(args)
     elif args.models_command == "discover-local":
         from opaihub.local_models import discover_local_models
 
@@ -3197,6 +3303,32 @@ def build_parser() -> argparse.ArgumentParser:
         "set-default", help="Set the default model for OPai GUI/account routing"
     )
     mo.add_argument("model_id")
+    mo.add_argument("--project", default=None, help="Project root")
+    mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser(
+        "add",
+        help="Add or override a provider model (survives OPai updates)",
+    )
+    mo.add_argument("provider", help="claude, codex, copilot, or a free provider")
+    mo.add_argument("model_id", help="Exactly what the provider CLI accepts")
+    mo.add_argument("--display", default=None, help="Short picker label")
+    mo.add_argument("--full", default=None, help="Longer diagnostic name")
+    mo.add_argument(
+        "--capability",
+        default="balanced",
+        choices=["fast", "balanced", "best", "preview"],
+    )
+    mo.add_argument(
+        "--alias", action="append", default=None, help="Alternate id (repeatable)"
+    )
+    mo.add_argument("--project", default=None, help="Project root")
+    mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser("hide", help="Hide a model a provider no longer offers")
+    mo.add_argument("provider")
+    mo.add_argument("model_id")
+    mo.add_argument("--project", default=None, help="Project root")
+    mo.set_defaults(func=cmd_models)
+    mo = models_sub.add_parser("reset", help="Remove all local model overrides")
     mo.add_argument("--project", default=None, help="Project root")
     mo.set_defaults(func=cmd_models)
     mo = models_sub.add_parser(

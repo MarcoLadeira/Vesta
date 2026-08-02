@@ -115,15 +115,18 @@ class BudgetConfigTests(unittest.TestCase):
             caps = load_budget(root)
             self.assertEqual(caps["daily_usd_limit"], 2.5)
             self.assertEqual(caps["monthly_usd_limit"], 35.0)
-            self.assertEqual(json.loads(budget_path(root).read_text(encoding="utf-8")), {
-                key: caps[key]
-                for key in (
-                    "daily_usd_limit",
-                    "monthly_usd_limit",
-                    "per_task_hard_limit_usd",
-                    "panic",
-                )
-            })
+            self.assertEqual(
+                json.loads(budget_path(root).read_text(encoding="utf-8")),
+                {
+                    key: caps[key]
+                    for key in (
+                        "daily_usd_limit",
+                        "monthly_usd_limit",
+                        "per_task_hard_limit_usd",
+                        "panic",
+                    )
+                },
+            )
 
 
 class BudgetCapValidationTests(unittest.TestCase):

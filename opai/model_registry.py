@@ -92,6 +92,13 @@ _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
             ("claude-haiku", "haiku-4.5", "claude-haiku-4-5"),
         ),
         ModelSpec(
+            "claude-opus-5",
+            "Opus 5",
+            "Claude Opus 5",
+            "best",
+            ("opus-5", "opus5", "claude-opus-5-latest"),
+        ),
+        ModelSpec(
             "claude-fable-5", "Fable 5", "Claude Fable 5", "fast", ("fable", "fable-5")
         ),
     ),
@@ -200,8 +207,21 @@ def free_providers() -> tuple[str, ...]:
 
 
 def models_for(provider: str) -> tuple[ModelSpec, ...]:
-    """Ordered model specs for a provider (empty for unknown providers)."""
-    return _REGISTRY.get(str(provider or "").lower(), ())
+    """Ordered model specs for a provider (empty for unknown providers).
+
+    The built-in table is layered with the user's own list
+    (``~/.opai/models.json``) so a model a provider ships after this release
+    can be used without waiting for an OPai update. Import is local and
+    failure is swallowed on purpose: the registry is imported by nearly every
+    layer, and a convenience file must never be able to break model lookup.
+    """
+    builtin = _REGISTRY.get(str(provider or "").lower(), ())
+    try:
+        from opai.model_overrides import apply_overrides
+
+        return apply_overrides(provider, builtin)
+    except Exception:  # noqa: BLE001 - overrides are additive, never load-bearing
+        return builtin
 
 
 def _index(provider: str) -> dict[str, ModelSpec]:

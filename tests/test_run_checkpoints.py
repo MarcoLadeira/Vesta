@@ -65,7 +65,9 @@ def _recover_stale_checkpoint_in_child(
             completion_state="interrupted",
             outcome="Run interrupted before finalizing; review before reuse",
             changed_files=stale.baseline_changed_files,
-            recovery_actions=("inspect the working tree against the recorded git head",),
+            recovery_actions=(
+                "inspect the working tree against the recorded git head",
+            ),
         )
         results.put(("ok", checkpoint.completion_state))
     except Exception as exc:  # pragma: no cover - asserted in parent process
@@ -233,8 +235,12 @@ class CheckpointContractTests(unittest.TestCase):
                 outcome="completed normally",
                 changed_files=["finished.py"],
             )
-            path = root / ".opaihub" / "agent" / "checkpoints" / (
-                f"{pending.checkpoint_id}.json"
+            path = (
+                root
+                / ".opaihub"
+                / "agent"
+                / "checkpoints"
+                / (f"{pending.checkpoint_id}.json")
             )
             before_recovery = path.read_bytes()
 
@@ -245,10 +251,14 @@ class CheckpointContractTests(unittest.TestCase):
             ):
                 self.assertEqual(recover_interrupted_checkpoints(root), [])
 
-            self.assertEqual(load_run_checkpoint(root, pending.checkpoint_id), finalized)
+            self.assertEqual(
+                load_run_checkpoint(root, pending.checkpoint_id), finalized
+            )
             self.assertEqual(path.read_bytes(), before_recovery)
 
-    def test_recovery_process_cannot_overwrite_a_checkpoint_finalized_mid_recovery(self):
+    def test_recovery_process_cannot_overwrite_a_checkpoint_finalized_mid_recovery(
+        self,
+    ):
         """The recovery race is protected even when the contenders are processes."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -291,7 +301,9 @@ class CheckpointContractTests(unittest.TestCase):
             self.assertFalse(recovery.is_alive(), "recovery process timed out")
             self.assertEqual(recovery.exitcode, 0)
             self.assertEqual(results.get(timeout=5), ("ok", "answered"))
-            self.assertEqual(load_run_checkpoint(root, pending.checkpoint_id), finalized)
+            self.assertEqual(
+                load_run_checkpoint(root, pending.checkpoint_id), finalized
+            )
 
     def test_concurrent_finalizers_leave_one_readable_terminal_checkpoint(self):
         """Unique temporary files and a per-checkpoint lock survive real processes."""
@@ -374,8 +386,12 @@ class CheckpointContractTests(unittest.TestCase):
 
             self.assertFalse(replay.is_alive(), "duplicate creator timed out")
             self.assertEqual(replay.exitcode, 0)
-            self.assertEqual(results.get(timeout=5), ("ok", "answered", "completed normally"))
-            self.assertEqual(load_run_checkpoint(root, checkpoint.checkpoint_id), finalized)
+            self.assertEqual(
+                results.get(timeout=5), ("ok", "answered", "completed normally")
+            )
+            self.assertEqual(
+                load_run_checkpoint(root, checkpoint.checkpoint_id), finalized
+            )
 
     def test_invalid_checkpoint_id_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

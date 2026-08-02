@@ -253,7 +253,8 @@ def apply_update(
     stashed = False
     if dirty:
         stash = git(
-            root, ["stash", "push", "--include-untracked", "-m", "opai-update-autostash"]
+            root,
+            ["stash", "push", "--include-untracked", "-m", "opai-update-autostash"],
         )
         if stash.returncode != 0:
             return {
