@@ -24,9 +24,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .command_runner import redact
 from .completion import CompletionVerdict
 from .generated_lifecycle import (
+    DEGRADED_INPUTS,
     EXIT_CODES,
     LEGACY_STATE_MAP,
     LEGACY_STATUS_MAP,
@@ -131,9 +131,13 @@ def transition(
     trace. ``source`` is an optional caller label for the record.
     """
 
-    current_state = _coerce(current)
-    next_state = _coerce(nxt)
-    if transition_spec(current_state.value, next_state.value) is not None:
+    current_state, unknown_current = _coerce_transition(current)
+    next_state, unknown_next = _coerce_transition(nxt)
+    unknown_input = unknown_current or unknown_next
+    if (
+        not unknown_input
+        and transition_spec(current_state.value, next_state.value) is not None
+    ):
         return next_state
     _record_refusal(current_state, next_state, source)
     if project_root is not None:
@@ -145,7 +149,7 @@ def transition(
             next_state.value,
             source,
         )
-    return current_state
+    return RunState.NEEDS_ATTENTION if unknown_input else current_state
 
 
 # Refused transitions, newest last. Bounded so a runaway caller cannot grow it
@@ -159,6 +163,8 @@ _refusal_lock = threading.Lock()
 
 
 def _record_refusal(current: RunState, nxt: RunState, source: str) -> None:
+    from .lifecycle_diagnostics import source_label
+
     global _refusal_count
     entry = {
         "from": current.value,
@@ -166,12 +172,7 @@ def _record_refusal(current: RunState, nxt: RunState, source: str) -> None:
         # A closed label, never free text from a provider or a prompt: this
         # record is read by diagnostics and must not become a place a secret
         # can land.
-        "source": "".join(
-            ch
-            for ch in redact(str(source or "unknown")).lower()
-            if ch.isalnum() or ch in "._-"
-        )[:64]
-        or "unknown",
+        "source": source_label(source),
         "at": time.time(),
     }
     with _refusal_lock:
@@ -336,3 +337,11 @@ def _coerce(state: Any) -> RunState:
     if isinstance(state, RunState):
         return state
     return RunState(str(getattr(state, "value", state) or "").strip().lower())
+
+
+def _coerce_transition(state: Any) -> tuple[RunState, bool]:
+    try:
+        return _coerce(state), False
+    except ValueError:
+        degraded = DEGRADED_INPUTS["unknown_state"]["state"]
+        return RunState(str(degraded)), True

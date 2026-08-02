@@ -8,10 +8,18 @@ from typing import Any
 
 from . import run_journal
 from .state import state_dir
-from .workflow_ledger import redact_structure
 
 _EVENT_TYPE = "illegal_lifecycle_transition"
 _MAX_RECENT = 64
+_SOURCE_LABELS = frozenset(
+    {
+        "background_runs",
+        "pipeline",
+        "test",
+        "workflow_runner",
+        "workflow_runner.step",
+    }
+)
 
 
 def _path(project_root: Path) -> Path:
@@ -43,12 +51,11 @@ def _valid(event: dict[str, Any]) -> bool:
     )
 
 
-def _safe_source(source: object) -> str:
-    redacted = str(redact_structure(str(source or "unknown"))).lower()
-    return (
-        "".join(ch for ch in redacted if ch.isalnum() or ch in "._-")[:64]
-        or "unknown"
-    )
+def source_label(source: object) -> str:
+    """Project caller input onto the closed, non-sensitive source vocabulary."""
+
+    candidate = str(source or "").strip().lower()
+    return candidate if candidate in _SOURCE_LABELS else "unknown"
 
 
 def record_illegal_transition(
@@ -63,7 +70,7 @@ def record_illegal_transition(
         "event_type": _EVENT_TYPE,
         "from": str(from_state),
         "to": str(to_state),
-        "source": _safe_source(source),
+        "source": source_label(source),
         "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
     }
     record, _projection = run_journal.append(

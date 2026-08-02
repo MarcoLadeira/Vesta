@@ -18,6 +18,7 @@ from opaihub.run_state import (
     RunState,
     can_transition,
     cancel,
+    illegal_transitions,
     is_terminal,
     label,
     run_state_for_verdict,
@@ -156,3 +157,41 @@ def test_terminal_attack_preserves_state_and_writes_durable_diagnostic() -> None
     assert (event["from"], event["to"]) == ("completed", "running")
     assert event["event_type"] == "illegal_lifecycle_transition"
     assert "sk-secret-value-1234567890" not in str(event)
+
+
+def test_unknown_transition_target_degrades_and_writes_durable_evidence() -> None:
+    from opaihub.lifecycle_diagnostics import read_diagnostics
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        result = transition(
+            "running",
+            "future_state",
+            project_root=root,
+            source="pipeline",
+        )
+        event = read_diagnostics(root)[-1]
+
+    assert result is RunState.NEEDS_ATTENTION
+    assert (event["from"], event["to"]) == ("running", "needs_attention")
+    assert event["source"] == "pipeline"
+
+
+def test_diagnostics_persist_only_closed_source_labels() -> None:
+    from opaihub.lifecycle_diagnostics import read_diagnostics
+
+    caller_text = "contact alice@example.com about this transition"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        transition(
+            "completed",
+            "running",
+            project_root=root,
+            source=caller_text,
+        )
+        event = read_diagnostics(root)[-1]
+
+    assert event["source"] == "unknown"
+    assert "alice" not in str(event)
+    assert "example" not in str(event)
+    assert illegal_transitions()["recent"][-1]["source"] == "unknown"
