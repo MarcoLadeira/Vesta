@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import json
 import math
+import multiprocessing
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +17,24 @@ from opaihub.budget import (
     set_budget,
 )
 from opaihub.ledger import record_model_call, record_route_decision, rollup_ledger
+
+
+def _set_budget_in_child(
+    project_root: str,
+    daily_usd: float | None,
+    monthly_usd: float | None,
+    start: multiprocessing.synchronize.Event,
+    results: multiprocessing.queues.Queue,
+) -> None:
+    """Spawn-compatible worker for the cross-window budget race regression."""
+    start.wait(timeout=15)
+    try:
+        caps = set_budget(
+            Path(project_root), daily_usd=daily_usd, monthly_usd=monthly_usd
+        )
+        results.put(("ok", caps["daily_usd_limit"], caps["monthly_usd_limit"]))
+    except Exception as exc:  # pragma: no cover - asserted in parent process
+        results.put(("error", repr(exc)))
 
 
 class BudgetCorruptionRecoveryTests(unittest.TestCase):
@@ -67,6 +88,43 @@ class BudgetConfigTests(unittest.TestCase):
         self.assertEqual(caps["daily_usd_limit"], 1.5)
         self.assertEqual(caps["monthly_usd_limit"], 20.0)
 
+    def test_concurrent_windows_preserve_independent_cap_updates(self):
+        """Concurrent daily/monthly edits must merge, never last-writer-win."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = multiprocessing.get_context("spawn")
+            start = context.Event()
+            results = context.Queue()
+            workers = [
+                context.Process(
+                    target=_set_budget_in_child,
+                    args=(str(root), daily_usd, monthly_usd, start, results),
+                )
+                for daily_usd, monthly_usd in ((2.5, None), (None, 35.0))
+            ]
+            for worker in workers:
+                worker.start()
+            start.set()
+            for worker in workers:
+                worker.join(timeout=20)
+                self.assertFalse(worker.is_alive(), "budget writer timed out")
+                self.assertEqual(worker.exitcode, 0)
+
+            outcomes = [results.get(timeout=5) for _ in workers]
+            self.assertTrue(all(outcome[0] == "ok" for outcome in outcomes), outcomes)
+            caps = load_budget(root)
+            self.assertEqual(caps["daily_usd_limit"], 2.5)
+            self.assertEqual(caps["monthly_usd_limit"], 35.0)
+            self.assertEqual(json.loads(budget_path(root).read_text(encoding="utf-8")), {
+                key: caps[key]
+                for key in (
+                    "daily_usd_limit",
+                    "monthly_usd_limit",
+                    "per_task_hard_limit_usd",
+                    "panic",
+                )
+            })
+
 
 class BudgetCapValidationTests(unittest.TestCase):
     """#469: a NaN/infinite/negative cap must never reach a comparison — every
@@ -81,6 +139,11 @@ class BudgetCapValidationTests(unittest.TestCase):
                         set_budget(root, **{kwarg: bad})
             # A rejected set never wrote a budget file.
             self.assertFalse(budget_path(root).exists())
+            set_budget(root, daily_usd=1.0)
+            with self.assertRaises(ValueError):
+                set_budget(root, monthly_usd=float("inf"))
+            # A bad request cannot replace an already durable valid update.
+            self.assertEqual(load_budget(root)["daily_usd_limit"], 1.0)
 
     def test_persisted_budget_json_is_never_nan(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import json
 import math
-import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .cost_model import is_degraded, is_local_tier, load_cost_model
 from .ledger import EVENT_MODEL_CALL, read_events
 from .policy import evaluate_action, resolve_policy
@@ -143,21 +142,6 @@ def load_budget(project_root: Path) -> dict[str, Any]:
     return caps
 
 
-def _atomic_write(path: Path, text: str) -> None:
-    """Write ``text`` to ``path`` atomically (temp file + os.replace), so a
-    crash mid-write can never leave a torn, unparseable budget file."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        os.replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-
-
 def set_budget(
     project_root: Path,
     *,
@@ -167,26 +151,36 @@ def set_budget(
     panic: bool | None = None,
 ) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
-    caps = load_budget(root)
+    updates: dict[str, Any] = {}
+    # Validate before acquiring the transaction or reading durable state: a bad
+    # request must fail without writing an old snapshot over another window's
+    # valid change.
     if daily_usd is not None:
-        caps["daily_usd_limit"] = _validate_cap(daily_usd, name="daily_usd")
+        updates["daily_usd_limit"] = _validate_cap(daily_usd, name="daily_usd")
     if monthly_usd is not None:
-        caps["monthly_usd_limit"] = _validate_cap(monthly_usd, name="monthly_usd")
+        updates["monthly_usd_limit"] = _validate_cap(
+            monthly_usd, name="monthly_usd"
+        )
     if per_task_usd is not None:
-        caps["per_task_hard_limit_usd"] = _validate_cap(
+        updates["per_task_hard_limit_usd"] = _validate_cap(
             per_task_usd, name="per_task_usd"
         )
     if panic is not None:
-        caps["panic"] = bool(panic)
+        updates["panic"] = bool(panic)
     path = budget_path(root)
-    # allow_nan=False makes a non-finite value fail loudly at write time rather
-    # than emit invalid JSON that would parse back to a fail-open cap.
-    payload = json.dumps(caps, indent=2, sort_keys=True, allow_nan=False) + "\n"
-    # Atomic write + a last-known-good backup: a crash mid-write can't tear the
-    # file, and a later corruption is recoverable from the backup (#470).
-    _atomic_write(path, payload)
-    _atomic_write(_backup_path(root), payload)
-    return {"status": "updated", **caps, "path": str(path)}
+    with interprocess_transaction(path):
+        # The lock covers the full read–merge–write transaction, so separate
+        # windows changing different caps cannot lose each other's update.
+        caps = load_budget(root)
+        caps.update(updates)
+        # allow_nan=False makes a non-finite value fail loudly at write time
+        # rather than emit invalid JSON that would parse back to a fail-open cap.
+        payload = json.dumps(caps, indent=2, sort_keys=True, allow_nan=False) + "\n"
+        # The shared writer uses a unique same-directory temporary and durable
+        # replacement. Keep primary and its recovery backup in this transaction.
+        atomic_write_text(path, payload)
+        atomic_write_text(_backup_path(root), payload)
+        return {"status": "updated", **caps, "path": str(path)}
 
 
 def _spent(project_root: Path, *, period: str) -> float:
