@@ -9,7 +9,11 @@ from opaihub.completion import (
     completion_state_from_legacy,
     legacy_status_for_completion,
 )
-from opaihub.legacy_status import legacy_status_to_result, legacy_status_usage
+from opaihub.legacy_status import (
+    legacy_status_for_completion_state,
+    legacy_status_to_result,
+    legacy_status_usage,
+)
 
 
 class LegacyStatusBoundaryTests(unittest.TestCase):
@@ -58,6 +62,48 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
         self.assertEqual(result.compatibility["legacy_status"], "provider_unavailable")
         self.assertEqual(result.compatibility["state"], "legacy_import")
 
+    def test_unknown_schema_version_precedes_answered_and_cancelled_strings(self) -> None:
+        result = legacy_status_to_result(
+            {
+                "schema_version": 999,
+                "status": "answered",
+                "stopped_reason": "cancelled",
+                "verification": {
+                    "applicable": False,
+                    "verdict": "not_applicable",
+                },
+                "delivery": {
+                    "applicable": True,
+                    "verdict": "delivered",
+                    "record_ref": {"kind": "delivery", "id": "delivery-1"},
+                },
+                "economics": {
+                    "integrity": "reconciled",
+                    "record_ref": {"kind": "economics", "id": "economics-1"},
+                },
+            }
+        )
+
+        self.assertEqual(result.lifecycle["state"], "needs_attention")
+        self.assertEqual(result.compatibility["state"], "incompatible")
+        self.assertEqual(result.compatibility["source_schema_version"], 999)
+        self.assertFalse(result.recovery["automatic_retry"])
+
+    def test_cancelled_stop_reason_precedes_answered_status(self) -> None:
+        result = legacy_status_to_result(
+            {
+                "schema_version": 0,
+                "status": "answered",
+                "stopped_reason": "cancelled",
+                "finished_at": "2026-08-02T12:34:56Z",
+            }
+        )
+
+        self.assertEqual(result.schema_version, 0)
+        self.assertEqual(result.lifecycle["state"], "cancelled")
+        self.assertEqual(result.compatibility["state"], "legacy_import")
+        self.assertEqual(result.compatibility["source_schema_version"], 0)
+
     def test_legacy_completed_status_cannot_bypass_terminal_evidence(self) -> None:
         result = legacy_status_to_result({"status": "answered"})
 
@@ -100,6 +146,62 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
         self.assertEqual(status, "answered")
         self.assertGreaterEqual(after["imports"], before["imports"] + 1)
         self.assertGreaterEqual(after["exports"], before["exports"] + 1)
+
+    def test_unknown_legacy_input_and_output_are_explicitly_incompatible(self) -> None:
+        imported = completion_state_from_legacy({"status": "future_vendor_state"})
+        exported = legacy_status_for_completion_state("future_terminal_state")
+        public_export = legacy_status_for_completion("future_terminal_state")
+
+        self.assertIs(imported, CompletionState.NEEDS_ATTENTION)
+        self.assertEqual(exported, "needs_attention")
+        self.assertEqual(public_export, "needs_attention")
+
+    def test_canonical_compatibility_values_are_total_and_truth_preserving(self) -> None:
+        expected = {
+            "awaiting_input": CompletionState.AWAITING_INPUT,
+            "blocked": CompletionState.BLOCKED,
+            "cancelled": CompletionState.CANCELLED,
+            "completed": CompletionState.COMPLETED,
+            "failed": CompletionState.FAILED,
+            "needs_attention": CompletionState.NEEDS_ATTENTION,
+            "partial": CompletionState.PARTIAL,
+            "timeout": CompletionState.TIMEOUT,
+        }
+
+        for state, completion_state in expected.items():
+            with self.subTest(state=state):
+                self.assertIs(
+                    completion_state_from_legacy({"completion_state": state}),
+                    completion_state,
+                )
+
+        outputs = {
+            "awaiting_input": "needs_user_input",
+            "blocked": "provider_blocked",
+            "cancelled": "cancelled",
+            "completed": "answered",
+            "failed": "failed",
+            "needs_attention": "needs_attention",
+            "partial": "incomplete",
+            "timeout": "timeout",
+        }
+        for state, status in outputs.items():
+            with self.subTest(output_state=state):
+                self.assertEqual(legacy_status_for_completion_state(state), status)
+
+    def test_active_canonical_values_degrade_without_crashing(self) -> None:
+        for state in (
+            "queued",
+            "preparing",
+            "running",
+            "verifying",
+            "cancel_requested",
+        ):
+            with self.subTest(state=state):
+                self.assertIs(
+                    completion_state_from_legacy({"completion_state": state}),
+                    CompletionState.NEEDS_ATTENTION,
+                )
 
 
 if __name__ == "__main__":  # pragma: no cover

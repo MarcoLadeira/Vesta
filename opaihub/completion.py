@@ -23,6 +23,11 @@ from .legacy_status import (
 
 class CompletionState(str, Enum):
     COMPLETED = "completed"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    TIMEOUT = "timeout"
+    NEEDS_ATTENTION = "needs_attention"
+    AWAITING_INPUT = "awaiting_input"
     CANCELLED = "cancelled"
     NEEDS_USER_INPUT = "needs_user_input"
     NEEDS_CONSENT = "needs_consent"

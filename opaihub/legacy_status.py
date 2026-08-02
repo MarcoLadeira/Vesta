@@ -13,11 +13,19 @@ import math
 from threading import Lock
 from typing import Any, Mapping
 
-from .generated_lifecycle import LEGACY_STATUS_MAP, TERMINAL_STATE_IDS
+from .generated_lifecycle import (
+    ACCEPTED_LEGACY_SCHEMA_VERSIONS,
+    LEGACY_STATUS_MAP,
+    SCHEMA_VERSION,
+    TERMINAL_STATE_IDS,
+)
 from .run_result import RunResult
 
 
 REMOVAL_GATE = "zero authoritative legacy reads and writes for one supported release"
+_ACCEPTED_SCHEMA_VERSIONS = frozenset(
+    {SCHEMA_VERSION, *ACCEPTED_LEGACY_SCHEMA_VERSIONS}
+)
 
 _COUNTERS = {
     "imports": 0,
@@ -63,6 +71,7 @@ _RETRYABLE = frozenset(
 )
 _BLOCKED = frozenset({"blocked", "provider_blocked"})
 _STUCK = frozenset({"incomplete", "stuck", "stuck_no_progress"})
+_FAILED = frozenset({"error", "fail_open", "failed"})
 
 _CANCELLED_REASONS = _CANCELLED | {"cancel_requested"}
 _USER_INPUT_REASONS = _USER_INPUT
@@ -99,7 +108,7 @@ _LEGACY_OUTPUT_BY_STATE = {
     "cancelled": "cancelled",
     "completed": "answered",
     "failed": "failed",
-    "needs_attention": "failed",
+    "needs_attention": "needs_attention",
     "partial": "incomplete",
     "timeout": "timeout",
     # Existing CompletionState vocabulary during the migration window.
@@ -109,6 +118,22 @@ _LEGACY_OUTPUT_BY_STATE = {
     "retryable_provider_error": "retryable_provider_error",
     "stuck_no_progress": "incomplete",
 }
+
+_CANONICAL_COMPLETION_STATES = frozenset(
+    {
+        "awaiting_input",
+        "blocked",
+        "cancelled",
+        "completed",
+        "failed",
+        "needs_attention",
+        "partial",
+        "timeout",
+    }
+)
+_ACTIVE_CANONICAL_STATES = frozenset(
+    {"cancel_requested", "preparing", "queued", "running", "verifying"}
+)
 
 
 def _normalized(value: Any) -> str:
@@ -190,6 +215,29 @@ def _degraded_legacy_result(
     )
 
 
+def _validated_schema_version(payload: Mapping[str, Any]) -> int | None:
+    version = payload.get("schema_version", 0)
+    if isinstance(version, bool) or not isinstance(version, int):
+        return None
+    return version if version in _ACCEPTED_SCHEMA_VERSIONS else None
+
+
+def _canonical_state_from_stop_reason(reason: str) -> str | None:
+    if reason in _CANCELLED_REASONS:
+        return "cancelled"
+    if reason in _USER_INPUT_REASONS or reason in _CONSENT_REASONS:
+        return "awaiting_input"
+    if reason in _BLOCKED_REASONS:
+        return "blocked"
+    if reason in {"timeout", "controller_timeout"}:
+        return "timeout"
+    if reason in _RETRYABLE_REASONS:
+        return "failed"
+    if reason in _STUCK_REASONS:
+        return "partial"
+    return None
+
+
 def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
     """Import one legacy terminal payload without granting its status authority.
 
@@ -202,8 +250,29 @@ def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
     if not isinstance(payload, Mapping):
         raise TypeError("legacy status payload must be a mapping")
     _count("imports")
+    version = _validated_schema_version(payload)
     status = _normalized(payload.get("status"))
-    state = LEGACY_STATUS_MAP.get(status)
+    if version is None:
+        return _degraded_legacy_result(
+            payload,
+            status=status,
+            compatibility="incompatible",
+            detail="Legacy schema version is incompatible.",
+        )
+
+    stopped_reason = _normalized(payload.get("stopped_reason"))
+    state = (
+        _canonical_state_from_stop_reason(stopped_reason)
+        if stopped_reason
+        else LEGACY_STATUS_MAP.get(status)
+    )
+    if stopped_reason and state is None:
+        return _degraded_legacy_result(
+            payload,
+            status=status,
+            compatibility="incompatible",
+            detail="Legacy stopped reason is incompatible with this lifecycle schema.",
+        )
     if state is None:
         return _degraded_legacy_result(
             payload,
@@ -220,10 +289,19 @@ def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
         )
 
     authority = payload.get("authority")
-    mutating = bool(
-        payload.get("mutating")
-        or (authority.get("mutating") if isinstance(authority, Mapping) else False)
+    authority_mutating = (
+        authority.get("mutating") if isinstance(authority, Mapping) else None
     )
+    mutating = payload.get("mutating", authority_mutating)
+    if mutating is None:
+        mutating = False
+    if not isinstance(mutating, bool):
+        return _degraded_legacy_result(
+            payload,
+            status=status,
+            compatibility="incompatible",
+            detail="Legacy mutating evidence must be a boolean.",
+        )
     try:
         return RunResult.from_payload(
             state=state,
@@ -247,10 +325,11 @@ def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
             diagnostics=(payload.get("diagnostics") if isinstance(payload.get("diagnostics"), Mapping) else None),
             compatibility={
                 "state": "legacy_import",
-                "source_schema_version": payload.get("schema_version", 0),
+                "source_schema_version": version,
                 "legacy_status": status,
                 "automatic_retry": False,
             },
+            schema_version=version,
         )
     except (TypeError, ValueError) as exc:
         return _degraded_legacy_result(
@@ -266,6 +345,8 @@ def legacy_completion_state(payload: Mapping[str, Any] | None) -> str:
 
     _count("imports")
     data = payload or {}
+    if "schema_version" in data and _validated_schema_version(data) is None:
+        return "needs_attention"
     reason = _normalized(data.get("stopped_reason"))
     if reason:
         if reason in _CANCELLED_REASONS:
@@ -280,13 +361,19 @@ def legacy_completion_state(payload: Mapping[str, Any] | None) -> str:
             return "retryable_provider_error"
         if reason in _STUCK_REASONS:
             return "stuck_no_progress"
-        return "failed"
+        return "needs_attention"
 
     explicit = _normalized(data.get("completion_state"))
-    if explicit in _LEGACY_OUTPUT_BY_STATE:
+    if explicit in _CANONICAL_COMPLETION_STATES or explicit in {
+        "needs_consent",
+        "needs_user_input",
+        "provider_blocked",
+        "retryable_provider_error",
+        "stuck_no_progress",
+    }:
         return explicit
-    if explicit:
-        return "failed"
+    if explicit in _ACTIVE_CANONICAL_STATES or explicit:
+        return "needs_attention"
 
     status = _normalized(data.get("status"))
     if status in _ANSWERED:
@@ -303,7 +390,11 @@ def legacy_completion_state(payload: Mapping[str, Any] | None) -> str:
         return "provider_blocked"
     if status in _STUCK:
         return "stuck_no_progress"
-    return "failed"
+    if status in _FAILED:
+        return "failed"
+    if status == "needs_attention":
+        return "needs_attention"
+    return "needs_attention"
 
 
 def legacy_status_for_completion_state(
@@ -316,4 +407,4 @@ def legacy_status_for_completion_state(
     if canonical == "completed":
         preferred = _normalized(completed_status)
         return completed_status if preferred in _ANSWERED else "answered"
-    return _LEGACY_OUTPUT_BY_STATE.get(canonical, "failed")
+    return _LEGACY_OUTPUT_BY_STATE.get(canonical, "needs_attention")

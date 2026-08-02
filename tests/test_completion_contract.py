@@ -489,9 +489,9 @@ def test_legacy_statuses_map_explicitly(
 def test_unknown_legacy_status_fails_closed() -> None:
     assert (
         completion_state_from_legacy({"status": "probably fine"})
-        is CompletionState.FAILED
+        is CompletionState.NEEDS_ATTENTION
     )
-    assert completion_state_from_legacy({}) is CompletionState.FAILED
+    assert completion_state_from_legacy({}) is CompletionState.NEEDS_ATTENTION
 
 
 @pytest.mark.parametrize(
@@ -506,7 +506,7 @@ def test_unknown_legacy_status_fails_closed() -> None:
         ("approval_required", CompletionState.NEEDS_CONSENT),
         ("repeated_failure", CompletionState.STUCK_NO_PROGRESS),
         ("repeated_success", CompletionState.STUCK_NO_PROGRESS),
-        ("unclassified stop", CompletionState.FAILED),
+        ("unclassified stop", CompletionState.NEEDS_ATTENTION),
     ],
 )
 def test_stopped_reason_takes_precedence_over_answered_status(

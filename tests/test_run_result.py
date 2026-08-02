@@ -105,6 +105,20 @@ class RunResultTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "reconciled"):
             RunResult.from_payload(**_completed_payload(reconciled="yes"))
 
+    def test_from_dict_rejects_integer_mutating_as_a_boolean_impostor(self) -> None:
+        payload = RunResult.from_payload(**_completed_payload()).to_dict()
+        payload["authority"]["mutating"] = 1
+        payload["verification"] = {}
+
+        with self.assertRaisesRegex(TypeError, "mutating"):
+            RunResult.from_dict(payload)
+
+    def test_from_payload_rejects_authority_boolean_impostor(self) -> None:
+        payload = _completed_payload(authority={"mutating": 1})
+
+        with self.assertRaisesRegex(TypeError, "mutating"):
+            RunResult.from_payload(**payload)
+
     def test_result_envelope_is_terminal_only(self) -> None:
         payload = _completed_payload(state="cancel_requested")
 
@@ -149,6 +163,73 @@ class RunResultTests(unittest.TestCase):
         self.assertFalse(result.recovery["automatic_retry"])
         self.assertEqual(result.recovery["reason"], "manual_review")
 
+    def test_automatic_retry_requires_a_real_boolean(self) -> None:
+        payload = _completed_payload(
+            state="failed",
+            recovery={"automatic_retry": "false", "reason": "network"},
+            verification={},
+            delivery={},
+            economics={},
+        )
+
+        with self.assertRaisesRegex(TypeError, "automatic_retry"):
+            RunResult.from_payload(**payload)
+
+    def test_completed_result_cannot_schedule_a_terminal_timeout_retry(self) -> None:
+        payload = _completed_payload(
+            recovery={"automatic_retry": True, "reason": "timeout"}
+        )
+
+        with self.assertRaisesRegex(ValueError, "automatic retry"):
+            RunResult.from_payload(**payload)
+
+    def test_incompatible_terminal_result_cannot_schedule_automatic_retry(self) -> None:
+        payload = RunResult.from_payload(
+            state="needs_attention",
+            reason_detail="Unknown input.",
+            final_transition_at=FINAL_AT,
+            recovery={"automatic_retry": False, "reason": "manual_review"},
+            compatibility={
+                "state": "incompatible",
+                "source_schema_version": 99,
+                "automatic_retry": False,
+            },
+        ).to_dict()
+        payload["recovery"] = {"automatic_retry": True, "reason": "network"}
+
+        with self.assertRaisesRegex(ValueError, "automatic retry"):
+            RunResult.from_dict(payload)
+
+    def test_incompatible_metadata_cannot_claim_automatic_retry(self) -> None:
+        payload = RunResult.from_payload(
+            state="needs_attention",
+            reason_detail="Unknown input.",
+            final_transition_at=FINAL_AT,
+            compatibility={
+                "state": "incompatible",
+                "source_schema_version": 99,
+                "automatic_retry": False,
+            },
+        ).to_dict()
+        payload["compatibility"]["automatic_retry"] = True
+
+        with self.assertRaisesRegex(ValueError, "automatic retry"):
+            RunResult.from_dict(payload)
+
+    def test_failed_result_may_reference_a_safe_new_attempt_retry(self) -> None:
+        result = RunResult.from_payload(
+            **_completed_payload(
+                state="failed",
+                recovery={"automatic_retry": True, "reason": "network"},
+                verification={},
+                delivery={},
+                economics={},
+            )
+        )
+
+        self.assertTrue(result.recovery["automatic_retry"])
+        self.assertEqual(result.recovery["reason"], "network")
+
     def test_provider_evidence_is_a_reference_not_a_mutable_snapshot(self) -> None:
         payload = _completed_payload(
             provider={
@@ -165,6 +246,54 @@ class RunResultTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "record reference"):
             RunResult.from_payload(**payload)
+
+    def test_reference_values_must_be_nonempty_scalars(self) -> None:
+        payload = _completed_payload(
+            provider={"record_ref": {"kind": "provider", "id": {"nested": "x"}}}
+        )
+
+        with self.assertRaisesRegex(ValueError, "scalar"):
+            RunResult.from_payload(**payload)
+
+    def test_reference_shape_rejects_unlisted_nested_metadata(self) -> None:
+        payload = _completed_payload(
+            verification={
+                "applicable": True,
+                "verdict": "verified",
+                "record_ref": {
+                    "kind": "verification",
+                    "id": "verify-1",
+                    "metadata": {"output": "raw provider output"},
+                },
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "reference"):
+            RunResult.from_payload(**payload)
+
+    def test_digest_without_record_id_path_or_uri_is_not_a_reference(self) -> None:
+        payload = _completed_payload(
+            provider={"record_ref": {"digest": "a" * 64}}
+        )
+
+        with self.assertRaisesRegex(ValueError, "reference"):
+            RunResult.from_payload(**payload)
+
+    def test_provider_rejects_raw_output_payload_and_metadata_at_any_depth(self) -> None:
+        raw_values = (
+            {"record_ref": _reference("provider"), "output": "raw"},
+            {"record_ref": _reference("provider"), "payload": {"text": "raw"}},
+            {
+                "record_ref": _reference("provider"),
+                "metadata": {"nested": {"response": "raw"}},
+            },
+        )
+        for provider in raw_values:
+            with self.subTest(provider=provider):
+                with self.assertRaisesRegex(ValueError, "provider"):
+                    RunResult.from_payload(
+                        **_completed_payload(provider=provider)
+                    )
 
     def test_terminal_timestamp_must_be_timezone_qualified_iso_8601(self) -> None:
         payload = _completed_payload(final_transition_at="yesterday")

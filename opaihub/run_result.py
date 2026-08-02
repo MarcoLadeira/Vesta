@@ -37,9 +37,23 @@ _VERIFIED = frozenset({"passed", "verified"})
 _DELIVERED = frozenset({"delivered", "verified"})
 _COST_RECONCILED = frozenset({"reconciled", "verified"})
 _REFERENCE_KEYS = frozenset({"digest", "id", "path", "uri"})
+_REFERENCE_ID_KEYS = frozenset({"id", "path", "uri"})
+_REFERENCE_FIELDS = _REFERENCE_KEYS | {"kind"}
+_PROVIDER_FIELDS = frozenset({"adapter_id", "model_id", "provider_id", "record_ref"})
 _SNAPSHOT_KEYS = frozenset(
-    {"messages", "raw", "raw_response", "response", "snapshot", "transcript"}
+    {
+        "messages",
+        "metadata",
+        "output",
+        "payload",
+        "raw",
+        "raw_response",
+        "response",
+        "snapshot",
+        "transcript",
+    }
 )
+_AUTOMATIC_RETRY_STATES = frozenset({"failed", "timeout"})
 
 
 def _normalized(value: Any) -> str:
@@ -77,11 +91,44 @@ def _mapping(value: Mapping[str, Any] | None, field_name: str) -> dict[str, Any]
 
 
 def _validate_reference(value: Any, field_name: str) -> None:
-    if not isinstance(value, Mapping) or not any(
-        str(key) in _REFERENCE_KEYS and str(item or "").strip()
-        for key, item in value.items()
-    ):
+    if not isinstance(value, Mapping):
         raise ValueError(f"{field_name} must contain a stable record reference")
+    keys = {str(key) for key in value}
+    if not keys or not keys <= _REFERENCE_FIELDS or not keys & _REFERENCE_ID_KEYS:
+        raise ValueError(f"{field_name} has an invalid record reference shape")
+    for item in value.values():
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(
+                f"{field_name} reference values must be nonempty scalar strings"
+            )
+
+
+def _contains_snapshot_key(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return any(
+            _normalized(key) in _SNAPSHOT_KEYS or _contains_snapshot_key(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_contains_snapshot_key(item) for item in value)
+    return False
+
+
+def _validate_provider(mapping: Mapping[str, Any]) -> None:
+    if not mapping:
+        return
+    if _contains_snapshot_key(mapping):
+        raise ValueError("provider raw output/payload/metadata snapshots are forbidden")
+    keys = {str(key) for key in mapping}
+    if not keys <= _PROVIDER_FIELDS:
+        raise ValueError("provider contains an unlisted field; use record_ref")
+    if "record_ref" not in mapping:
+        raise ValueError("provider must contain a stable record reference")
+    _validate_reference(mapping["record_ref"], "provider.record_ref")
+    for key in keys - {"record_ref"}:
+        value = mapping[key]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"provider.{key} must be a nonempty scalar string")
 
 
 def _validate_optional_record(
@@ -89,7 +136,7 @@ def _validate_optional_record(
 ) -> None:
     if not mapping:
         return
-    if any(str(key) in _SNAPSHOT_KEYS for key in mapping):
+    if _contains_snapshot_key(mapping):
         raise ValueError(f"{field_name} snapshot data is forbidden; use record_ref")
     if require_reference and "record_ref" not in mapping:
         raise ValueError(f"{field_name} must contain a stable record reference")
@@ -193,6 +240,10 @@ class RunResult:
         if state not in TERMINAL_STATE_IDS:
             raise ValueError("RunResult requires a canonical terminal state")
 
+        mutating = fields["authority"].get("mutating")
+        if not isinstance(mutating, bool):
+            raise TypeError("authority.mutating must be a boolean")
+
         self._validate_completed_evidence(state, fields)
 
         reason = _normalized(fields["lifecycle"].get("reason"))
@@ -204,7 +255,9 @@ class RunResult:
         if _normalized(fields["lifecycle"].get("reconciliation")) != "reconciled":
             raise ValueError("terminal lifecycle requires reconciliation")
 
-        retry = bool(fields["recovery"].get("automatic_retry", False))
+        retry = fields["recovery"].get("automatic_retry", False)
+        if not isinstance(retry, bool):
+            raise TypeError("recovery.automatic_retry must be a boolean")
         retry_reason = _normalized(fields["recovery"].get("reason") or "none")
         if retry_reason not in _RETRY_REASONS:
             if retry:
@@ -212,12 +265,23 @@ class RunResult:
                     "automatic retry has an unknown or disallowed retry reason"
                 )
             retry_reason = "manual_review"
+        compatibility_retry = fields["compatibility"].get("automatic_retry", False)
+        if not isinstance(compatibility_retry, bool):
+            raise TypeError("compatibility.automatic_retry must be a boolean")
+        compatibility_state = _normalized(fields["compatibility"].get("state"))
+        if retry and (
+            state not in _AUTOMATIC_RETRY_STATES
+            or compatibility_state == "incompatible"
+        ):
+            raise ValueError(
+                "automatic retry is incompatible with this terminal lifecycle state"
+            )
+        if compatibility_state == "incompatible" and compatibility_retry:
+            raise ValueError("incompatible input cannot claim automatic retry")
         fields["recovery"]["automatic_retry"] = retry
         fields["recovery"]["reason"] = retry_reason
 
-        _validate_optional_record(
-            fields["provider"], "provider", require_reference=True
-        )
+        _validate_provider(fields["provider"])
         for field_name in ("verification", "delivery", "economics", "authority"):
             _validate_optional_record(fields[field_name], field_name)
         refs = fields["diagnostics"].get("record_refs", ())
@@ -242,7 +306,7 @@ class RunResult:
         verification = fields["verification"]
         delivery = fields["delivery"]
         economics = fields["economics"]
-        mutating = fields["authority"].get("mutating") is True
+        mutating = fields["authority"]["mutating"]
 
         verification_verdict = _normalized(
             verification.get("verdict") or verification.get("status")
@@ -327,6 +391,10 @@ class RunResult:
             )
 
         authority_value = _mapping(authority, "authority")
+        if "mutating" in authority_value and not isinstance(
+            authority_value["mutating"], bool
+        ):
+            raise TypeError("authority.mutating must be a boolean")
         if "mutating" in authority_value and authority_value["mutating"] is not mutating:
             raise ValueError("authority mutating flag conflicts with payload")
         authority_value["mutating"] = mutating
