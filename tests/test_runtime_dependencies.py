@@ -259,7 +259,10 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("mandatory-hostile-environment", workflow["jobs"])
         self.assertIn("web-test", workflow["jobs"])
         self.assertIn("--profile fast", str(workflow["jobs"]["mandatory-python"]))
-        self.assertIn("windows-latest", workflow["jobs"]["mandatory-python"]["runs-on"])
+        self.assertEqual(
+            workflow["jobs"]["mandatory-python"]["runs-on"], "ubuntu-latest"
+        )
+        self.assertIn("persist-credentials: false", source)
         self.assertNotIn("actions/checkout@v4", source)
 
     def test_self_hosted_workflow_never_runs_untrusted_pull_requests(self):
@@ -332,7 +335,7 @@ class WorkflowContractTests(unittest.TestCase):
 
         for name in PROVIDER_ENV - {"GH_TOKEN", "GITHUB_TOKEN"}:
             self.assertIn(name, job["env"])
-        self.assertEqual(job["runs-on"], "windows-latest")
+        self.assertEqual(job["runs-on"], "ubuntu-latest")
         self.assertNotIn("GH_TOKEN", job["env"])
         self.assertNotIn("GITHUB_TOKEN", job["env"])
         self.assertIn("unittest discover -s tests", command_text)
