@@ -264,7 +264,7 @@ def _probe_moonshot(api_key: str) -> tuple[float, str] | None:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=4.0) as response:  # noqa: S310 - fixed HTTPS URL
+        with urllib.request.urlopen(request, timeout=4.0) as response:  # noqa: S310  # nosec B310 - fixed HTTPS URL
             payload = json.loads(response.read().decode("utf-8"))
     except Exception:  # noqa: BLE001 - any transport/parse failure means "no data"
         return None

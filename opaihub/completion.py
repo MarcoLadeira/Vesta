@@ -43,7 +43,7 @@ class AcceptanceRequirement(str, Enum):
 
     ANSWER_PRESENT = "answer_present"
     EXPECTED_EDIT = "expected_edit"
-    TESTS_PASS = "tests_pass"
+    TESTS_PASS = "tests_pass"  # nosec B105 - completion-state label, never a credential
 
 
 class CompletionVerdict(str, Enum):

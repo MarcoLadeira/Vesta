@@ -16,7 +16,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import os
-import subprocess
+import subprocess  # nosec B404 - process calls below use fixed argv/no shell
 from pathlib import Path
 from typing import Any
 
