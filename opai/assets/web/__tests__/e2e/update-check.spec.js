@@ -140,3 +140,25 @@ test("an unknown check state is honest, not a false up-to-date claim", async ({ 
   await expect(status).toContainText("You may be offline.");
   await expect(page.locator('[data-update-status="up-to-date"]')).toHaveCount(0);
 });
+
+test("automatic updates can be turned on from Settings", async ({ page }) => {
+  await openApp(page);
+  await openSettings(page, "about");
+  const row = page.locator('[data-autoupdate-key="auto_update"]');
+  await expect(row).toContainText("Automatic updates");
+  // The label must be honest about the two things a user would otherwise
+  // assume: that it might touch their local work, and when it takes effect.
+  await expect(row).toContainText("never touches uncommitted changes");
+  await expect(row).toContainText("next restart");
+
+  await row.getByRole("button", { name: "On" }).click();
+  const saved = await page.evaluate(() => window.__mock.savedPrefs);
+  expect(saved).toContainEqual(["auto_update", "true"]);
+});
+
+test("automatic updates are off by default in Settings", async ({ page }) => {
+  await openApp(page);
+  await openSettings(page, "about");
+  const row = page.locator('[data-autoupdate-key="auto_update"]');
+  await expect(row.getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");
+});

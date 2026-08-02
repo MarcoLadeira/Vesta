@@ -479,6 +479,32 @@ kbd {
 }
 .resume-summary ul { color: var(--muted); font-size: var(--type-caption); margin: var(--space-1) 0 0; padding-left: var(--space-4); }
 .msg .role { display: flex; align-items: center; gap: var(--space-2); font-size: var(--type-caption); font-weight: 700; margin-bottom: var(--space-2); }
+/* Saved-chat banner: an archived transcript must not be mistakable for the
+   live thread, or the next message looks like it will continue this chat. */
+.conv-note {
+  display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+  color: var(--muted); font-size: var(--type-caption);
+  border: 1px dashed var(--border); border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+/* Copy-response control (#chat): sits in the role row so it is in the same
+   place on every answer regardless of how long the answer is. Revealed on
+   hover/focus so a quiet thread stays quiet, but always reachable by keyboard. */
+.msg .role .msg-copy {
+  margin-left: auto; flex-shrink: 0; background: none; border: 0; cursor: pointer;
+  color: var(--faint); padding: var(--space-1); border-radius: 6px; line-height: 0;
+  opacity: 0; transition: opacity 0.15s var(--ease), color 0.15s var(--ease);
+}
+.msg:hover .role .msg-copy, .msg .role .msg-copy:focus-visible { opacity: 1; }
+.msg .role .msg-copy:hover { color: var(--accent); }
+.msg .role .msg-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.msg .role .msg-copy svg { width: 15px; height: 15px; }
+/* Keyboard and touch users get no hover, and reduced-motion users opted out of
+   things appearing and disappearing — show it outright in both cases. */
+@media (hover: none) { .msg .role .msg-copy { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .msg .role .msg-copy { opacity: 1; transition: none; } }
+
 .msg .role .av {
   width: 20px; height: 20px; border-radius: 7px; display: grid; place-items: center;
   font-size: var(--type-caption); font-weight: 800; box-shadow: var(--inset-hi);

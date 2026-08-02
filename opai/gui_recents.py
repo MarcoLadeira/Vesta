@@ -17,6 +17,7 @@ import re
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 
 from opaihub.owner_lease import new_lease, owned_by_this_process
@@ -26,6 +27,12 @@ from pathlib import Path
 from typing import Any, BinaryIO, Iterator
 
 MAX_RECENTS = 12
+#: How many finished conversations the sidebar keeps per workspace. Bounded for
+#: the same reason the prompt list is: this is local history the user did not
+#: ask to accumulate, and it is read on every boot.
+MAX_CONVERSATIONS = 20
+CONVERSATION_SCHEMA_VERSION = 1
+MAX_CONVERSATION_TITLE_CHARS = 120
 THREAD_SCHEMA_VERSION = 1
 MAX_THREAD_MESSAGES = 40
 MAX_THREAD_TEXT_CHARS = 12_000
@@ -311,10 +318,16 @@ def _thread_payload(
     active_request_id: str = "",
     state: str = "idle",
     lease: dict[str, Any] | None = None,
+    conversation_id: str = "",
 ) -> dict[str, Any]:
     return {
         "schema_version": THREAD_SCHEMA_VERSION,
         "task_id": _clean_id(task_id),
+        # Identifies the *conversation* this thread is, stable across its turns
+        # and replaced when a new chat starts. `task_id` cannot do this job: it
+        # falls back to the per-turn request id, so archiving on it produced one
+        # saved chat per reply, each holding the whole accumulated transcript.
+        "conversation_id": _clean_id(conversation_id, limit=64),
         "mode": _clean_text(mode, limit=40) or "safe-auto",
         "messages": _clean_messages(messages),
         "checkpoint_id": _clean_id(checkpoint_id, limit=64),
@@ -388,6 +401,7 @@ def _load_thread_unlocked(root: Path, target: Path) -> dict[str, Any]:
     return {
         "schema_version": THREAD_SCHEMA_VERSION,
         "task_id": _clean_id(raw.get("task_id")),
+        "conversation_id": _clean_id(raw.get("conversation_id"), limit=64),
         "mode": _clean_text(raw.get("mode"), limit=40) or "safe-auto",
         "messages": messages,
         "checkpoint_id": _clean_id(raw.get("checkpoint_id"), limit=64),
@@ -577,9 +591,19 @@ def begin_thread_turn(
             # running, so there is never a window where a run looks active
             # with nobody accountable for it (#295 invariant 4).
             lease=new_lease(),
+            # A thread with no id yet is a new chat; later turns inherit it, so
+            # the whole conversation archives as one entry.
+            conversation_id=str(current.get("conversation_id") or "")
+            or uuid.uuid4().hex[:16],
         )
         _write_thread_payload(root, target, payload)
-        return _load_thread_unlocked(root, target)
+        started = _load_thread_unlocked(root, target)
+    # Archived as soon as the turn starts, not only when it finishes. The chat
+    # then appears in the sidebar the moment it is sent — matching what the old
+    # prompt list did — and a question survives a crash mid-answer instead of
+    # being recoverable only through the separate resume path.
+    archive_conversation(root, started)
+    return started
 
 
 def refresh_thread_lease(workspace_root: str | Path, *, request_id: str) -> bool:
@@ -618,6 +642,7 @@ def refresh_thread_lease(workspace_root: str | Path, *, request_id: str) -> bool
                 active_request_id=str(current.get("active_request_id") or ""),
                 state="running",
                 lease=touch_lease(existing),
+                conversation_id=str(current.get("conversation_id") or ""),
             )
             _write_thread_payload(root, target, payload)
             return True
@@ -664,9 +689,15 @@ def finish_thread_turn(
             plan=plan or current.get("plan") or (),
             changed_files=changed_files or current.get("changed_files") or (),
             state="complete",
+            conversation_id=str(current.get("conversation_id") or ""),
         )
         _write_thread_payload(root, target, payload)
-        return _load_thread_unlocked(root, target)
+        finished = _load_thread_unlocked(root, target)
+    # Archive outside the thread transaction: the conversation folder is a
+    # different resource, and holding the thread lock across it would let a
+    # slow archive write block the next turn from starting.
+    archive_conversation(root, finished)
+    return finished
 
 
 def _discard_legacy_global_history() -> None:
@@ -720,4 +751,215 @@ def clear_recents(workspace_root: str | Path) -> list[str]:
 
     _discard_legacy_global_history()
     recents_path(workspace_root).unlink(missing_ok=True)
+    clear_conversations(workspace_root)
     return []
+
+
+# --------------------------------------------------------------------------- #
+# Saved conversations
+#
+# The sidebar called itself "Recent chats" while storing only prompt *strings*,
+# so selecting one re-typed the question and threw the answer away. There was
+# exactly one resumable conversation per workspace (``thread.json``), replaced
+# in place by the next one — the transcript the user was looking for had
+# already been overwritten by the time they went looking.
+#
+# A conversation is archived on every finished turn rather than when the user
+# remembers to press "New chat", because history that depends on the user
+# performing a bookkeeping step is history that is missing precisely when it
+# matters. Archiving upserts on ``task_id``, so a multi-turn chat stays one
+# entry that grows instead of becoming one entry per reply.
+# --------------------------------------------------------------------------- #
+
+
+def conversations_dir(workspace_root: str | Path) -> Path:
+    from opaihub.state import state_dir
+
+    root = Path(workspace_root).expanduser().resolve()
+    return state_dir(root) / "gui" / "conversations"
+
+
+def _conversation_target(workspace_root: str | Path, conversation_id: str) -> Path:
+    """Resolve one conversation file, refusing any id that escapes the folder.
+
+    ``conversation_id`` reaches this from the front-end, so it is treated as
+    untrusted input: only the sanitized id is ever joined to a path, and the
+    result is re-checked for containment afterwards.
+    """
+
+    clean = _clean_id(conversation_id, limit=64)
+    if not clean:
+        raise ValueError("conversation id is required")
+    folder = conversations_dir(workspace_root)
+    target = folder / f"{clean}.json"
+    try:
+        _resolved_for_containment(target).relative_to(_resolved_for_containment(folder))
+    except (OSError, ValueError) as exc:
+        raise ValueError("conversation state must stay inside the workspace") from exc
+    return target
+
+
+def _conversation_title(messages: list[dict[str, str]]) -> str:
+    """Title a conversation by its first question, the way the user recalls it."""
+
+    for item in messages:
+        if item.get("role") == "user":
+            text = " ".join(str(item.get("text") or "").split())
+            if text:
+                return text[:MAX_CONVERSATION_TITLE_CHARS]
+    return "Untitled chat"
+
+
+def _conversation_payload(root: Path, thread: dict[str, Any]) -> dict[str, Any]:
+    messages = _clean_messages(thread.get("messages"))
+    return {
+        "schema_version": CONVERSATION_SCHEMA_VERSION,
+        "id": _clean_id(thread.get("conversation_id"), limit=64),
+        "title": _conversation_title(messages),
+        "mode": _clean_text(thread.get("mode"), limit=40) or "safe-auto",
+        "messages": messages,
+        "plan": _clean_plan(thread.get("plan")),
+        "changed_files": _clean_changed_files(root, thread.get("changed_files")),
+        "updated_at": _now(),
+        # `updated_at` is second-granularity, so two chats finished in the same
+        # second tie and the sidebar order becomes arbitrary. Ordering gets its
+        # own precise value rather than making the displayed timestamp noisier.
+        "updated_ts": time.time(),
+    }
+
+
+def archive_conversation(
+    workspace_root: str | Path, thread: dict[str, Any]
+) -> dict[str, Any]:
+    """Upsert ``thread`` into this workspace's saved conversations.
+
+    Never raises: an archive write failing must not take down the turn that
+    just succeeded. The conversation is history, not the result.
+    """
+
+    if not isinstance(thread, dict):
+        return {}
+    root = Path(workspace_root).expanduser().resolve()
+    payload = _conversation_payload(root, thread)
+    if not payload["id"] or not payload["messages"]:
+        return {}
+    try:
+        target = _conversation_target(workspace_root, payload["id"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _write_thread_payload(target.parent, target, payload)
+        _prune_conversations(workspace_root)
+    except (OSError, ValueError):
+        return {}
+    return payload
+
+
+def _conversation_files(workspace_root: str | Path) -> list[Path]:
+    folder = conversations_dir(workspace_root)
+    try:
+        return [p for p in folder.glob("*.json") if p.is_file()]
+    except OSError:
+        return []
+
+
+def _read_conversation(path: Path) -> dict[str, Any]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if (
+        not isinstance(raw, dict)
+        or raw.get("schema_version") != CONVERSATION_SCHEMA_VERSION
+    ):
+        return {}
+    messages = _clean_messages(raw.get("messages"))
+    if not messages:
+        return {}
+    return {
+        "schema_version": CONVERSATION_SCHEMA_VERSION,
+        "id": _clean_id(raw.get("id"), limit=64),
+        "title": _clean_text(raw.get("title"), limit=MAX_CONVERSATION_TITLE_CHARS)
+        or _conversation_title(messages),
+        "mode": _clean_text(raw.get("mode"), limit=40) or "safe-auto",
+        "messages": messages,
+        "plan": _clean_plan(raw.get("plan")),
+        "updated_at": str(raw.get("updated_at") or "")[:64],
+        "updated_ts": float(raw.get("updated_ts") or 0.0)
+        if isinstance(raw.get("updated_ts"), (int, float))
+        else 0.0,
+    }
+
+
+def list_conversations(workspace_root: str | Path) -> list[dict[str, Any]]:
+    """Saved conversations, newest first, without their message bodies.
+
+    The sidebar only needs enough to choose one, and a transcript per entry
+    would be read on every boot for chats the user never opens.
+    """
+
+    summaries: list[dict[str, Any]] = []
+    for path in _conversation_files(workspace_root):
+        record = _read_conversation(path)
+        if not record.get("id"):
+            continue
+        summaries.append(
+            {
+                "id": record["id"],
+                "title": record["title"],
+                "mode": record["mode"],
+                "message_count": len(record["messages"]),
+                "updated_at": record["updated_at"],
+                "updated_ts": record["updated_ts"],
+            }
+        )
+    summaries.sort(key=lambda item: item.get("updated_ts") or 0.0, reverse=True)
+    return summaries[:MAX_CONVERSATIONS]
+
+
+def load_conversation(
+    workspace_root: str | Path, conversation_id: str
+) -> dict[str, Any]:
+    """One saved conversation with its full transcript, or ``{}`` if unusable."""
+
+    try:
+        target = _conversation_target(workspace_root, conversation_id)
+    except ValueError:
+        return {}
+    if not target.exists():
+        return {}
+    return _read_conversation(target)
+
+
+def _prune_conversations(workspace_root: str | Path) -> None:
+    """Keep the newest ``MAX_CONVERSATIONS``; drop unreadable files too."""
+
+    entries: list[tuple[str, Path]] = []
+    for path in _conversation_files(workspace_root):
+        record = _read_conversation(path)
+        if not record.get("id"):
+            # Corrupt or foreign-schema: it can never be listed or opened, so
+            # leaving it would only grow the folder forever.
+            with _suppress_os_error():
+                path.unlink(missing_ok=True)
+            continue
+        entries.append((record.get("updated_ts") or 0.0, path))
+    entries.sort(key=lambda item: item[0], reverse=True)
+    for _, path in entries[MAX_CONVERSATIONS:]:
+        with _suppress_os_error():
+            path.unlink(missing_ok=True)
+
+
+def clear_conversations(workspace_root: str | Path) -> bool:
+    """Delete every saved conversation for this workspace."""
+
+    for path in _conversation_files(workspace_root):
+        with _suppress_os_error():
+            path.unlink(missing_ok=True)
+    return True
+
+
+@contextmanager
+def _suppress_os_error() -> Iterator[None]:
+    try:
+        yield
+    except OSError:
+        pass

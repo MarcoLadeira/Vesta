@@ -361,6 +361,13 @@ export function fullScenario(overrides = {}) {
         { id: "concise", label: "Concise" },
       ],
       accounts: CONNECTED_ACCOUNTS,
+      // The prompt list feeds the composer's Up-arrow history; `conversations`
+      // is what the sidebar lists. They are deliberately different data.
+      recents: ["third prompt", "second prompt", "first prompt"],
+      conversations: [
+        { id: "c2", title: "How does routing work?", message_count: 4, updated_at: "2026-08-02" },
+        { id: "c1", title: "Explain the budget guard", message_count: 2, updated_at: "2026-08-01" },
+      ],
       status: { on: true, line: "Auto · Safe Auto · $0.42 today · $12.34 saved" },
       inspector: {
         rows: [

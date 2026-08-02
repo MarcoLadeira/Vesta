@@ -682,6 +682,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "defaultView": DEFAULT_VIEW,
         "initialTask": initial_task or "",
         "recents": _recents(root),
+        # The sidebar's real chat history. `recents` above stays the prompt
+        # list, which is what the composer's up-arrow history reads.
+        "conversations": _conversations(root),
         "brand": _brand(),
         "build": asset_build_identity(),
         "tools": [
@@ -1248,6 +1251,16 @@ def _recents(root: Path) -> list[str]:
     return load_recents(root)
 
 
+def _conversations(root: Path) -> list[dict[str, Any]]:
+    """Saved chats for the sidebar. Never fails a boot over history."""
+    from opai.gui_recents import list_conversations
+
+    try:
+        return list_conversations(root)
+    except (OSError, ValueError):
+        return []
+
+
 def _brand() -> dict[str, str]:
     from opai.brand import boot_brand
 
@@ -1679,6 +1692,26 @@ def _run_gui(
             except Exception as exc:  # noqa: BLE001 - never crash the page
                 return json.dumps({"ok": False, "error": str(exc)})
 
+        @QtCore.Slot(result=str)
+        def runAutoUpdate(self) -> str:
+            """Run the opt-in launch update, if this workspace enabled it.
+
+            Called once after boot rather than during it: an update touches the
+            network and the checkout, and neither belongs on the path between
+            the user launching OPai and seeing a window.
+            """
+            from opai.auto_update import auto_update_enabled, run_auto_update
+            from opai.updater import install_root
+
+            try:
+                return json.dumps(
+                    run_auto_update(
+                        install_root(), enabled=auto_update_enabled(self.root)
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - never crash the page
+                return json.dumps({"outcome": "failed", "message": str(exc)[:200]})
+
         @QtCore.Slot()
         def restartOPai(self) -> None:
             """Relaunch OPai on the updated code, then quit this process.
@@ -1824,6 +1857,7 @@ def _run_gui(
                 "reduced_motion",
                 "onboarding_seen",
                 "composer_style",
+                "auto_update",
             }
             if key not in allowed:
                 return
@@ -2230,6 +2264,37 @@ def _run_gui(
             if result.get("ok"):
                 self._resume_context_active = False
             return json.dumps(result)
+
+        @QtCore.Slot(result=str)
+        def listConversations(self) -> str:
+            """Saved chats for the sidebar, without their transcripts."""
+            from opai.gui_recents import list_conversations
+
+            try:
+                return json.dumps(
+                    {"ok": True, "conversations": list_conversations(self.root)}
+                )
+            except (OSError, ValueError) as exc:
+                # History is not the product. If it cannot be listed, say so
+                # and let the user keep working rather than failing the view.
+                return json.dumps(
+                    {"ok": False, "conversations": [], "error": str(exc)[:200]}
+                )
+
+        @QtCore.Slot(str, result=str)
+        def loadConversation(self, conversation_id: str) -> str:
+            """One saved chat's full transcript, for reopening it read-only."""
+            from opai.gui_recents import load_conversation
+
+            try:
+                record = load_conversation(self.root, str(conversation_id or ""))
+            except (OSError, ValueError) as exc:
+                return json.dumps({"ok": False, "error": str(exc)[:200]})
+            if not record:
+                return json.dumps(
+                    {"ok": False, "error": "That chat is no longer available."}
+                )
+            return json.dumps({"ok": True, "conversation": record})
 
         @QtCore.Slot(result=str)
         def clearSession(self) -> str:
