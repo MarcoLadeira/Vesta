@@ -1412,6 +1412,34 @@
     );
   }
 
+  // Automatic updates (opt-in). Deliberately narrow: OPai applies a clean
+  // fast-forward and nothing else. `apply_update(force=True)` — the "update
+  // anyway" path that stashes and restores local changes — stays behind the
+  // button a present user just pressed, because an unattended stash/pop can
+  // conflict, and resolving a conflict in the user's own uncommitted work is
+  // not something to spring on someone who is not watching.
+  function autoUpdateHtml(esc, d) {
+    var on = !!(d.prefs && d.prefs.auto_update);
+    var option = function (value, label, active) {
+      return (
+        '<button type="button" class="seg-btn' + (active ? " active" : "") + '"' +
+        ' data-value="' + value + '" aria-pressed="' + (active ? "true" : "false") + '">' +
+        esc(label) + "</button>"
+      );
+    };
+    return (
+      '<div class="appearance-row" data-autoupdate-key="auto_update">' +
+      '<div class="appearance-label"><span class="k">Automatic updates</span>' +
+      '<span class="hint">Check on launch and install updates that fast-forward cleanly. ' +
+      "OPai never touches uncommitted changes to do it — if this checkout is dirty you'll be " +
+      'told, and updating stays your call. Takes effect on the next restart.</span></div>' +
+      '<div class="seg" role="group" aria-label="Automatic updates">' +
+      option("off", "Off", !on) +
+      option("on", "On", on) +
+      "</div></div>"
+    );
+  }
+
   function aboutHtml(d, ctx) {
     var esc = ctx.esc;
     if (!(d.about && d.about.version)) return "";
@@ -1448,6 +1476,7 @@
       '<div id="settingsUpdateCard">' +
       updateStatusHtml(esc, d.about.update) +
       "</div>" +
+      autoUpdateHtml(esc, d) +
       // Replay the first-run tour on demand (#250).
       '<div class="set-head">Tour</div>' +
       '<div class="set-note">New here, or want a refresher? Replay the three-step welcome tour.</div>' +
@@ -2361,6 +2390,28 @@
             current[name] = active ? active.dataset.value : "";
           });
           ctx.applyAppearance(current);
+        };
+      });
+    });
+
+    // Automatic updates: a preference only. Flipping it on does not update
+    // anything right now — the check runs at the next launch, which is what the
+    // label says, so the toggle never implies an action it did not take.
+    page.querySelectorAll("[data-autoupdate-key]").forEach(function (segment) {
+      var key = segment.dataset.autoupdateKey;
+      segment.querySelectorAll("button").forEach(function (button) {
+        button.onclick = function () {
+          segment.querySelectorAll("button").forEach(function (other) {
+            other.classList.toggle("active", other === button);
+            other.setAttribute("aria-pressed", other === button ? "true" : "false");
+          });
+          var on = button.dataset.value === "on";
+          // savePref is Slot(str, str) and parses "true"/"false" itself.
+          bridge.savePref(key, on ? "true" : "false");
+          if (ctx.d && ctx.d.prefs) ctx.d.prefs.auto_update = on;
+          if (ctx.toast) {
+            ctx.toast(on ? "Automatic updates on — applied at next launch" : "Automatic updates off");
+          }
         };
       });
     });

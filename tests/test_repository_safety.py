@@ -218,6 +218,68 @@ class UnbornHeadTests(unittest.TestCase):
         self.assertIn("head_changed", validation.reasons)
 
 
+class IndexFingerprintStabilityTests(unittest.TestCase):
+    """The index fingerprint tracks staged content, not git's bookkeeping.
+
+    It used to hash the raw ``.git/index`` bytes, which carry each entry's stat
+    cache. Git rewrites that cache on its own schedule -- refreshing "racily
+    clean" entries, and rolling the index back when a partial ``git commit``
+    fails. The observed failure: ``git add`` refreshed the cache, a handle was
+    captured, the commit failed with "nothing to commit", git restored the
+    previous index, and the next perfectly ordinary edit was refused as
+    REPOSITORY_SAFETY_BLOCKED / index_changed. Nothing unsafe had happened.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name) / "repo"
+        root.mkdir()
+        self.repo = make_repo(root, files={"app.py": "x = 1\n"}, commit=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_failed_partial_commit_does_not_invalidate_the_handle(self) -> None:
+        # The exact sequence that was blocking edits.
+        _git(self.repo, "add", "--", "app.py")
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        # Fails: nothing staged differs from HEAD. Git restores the index.
+        # `_git` asserts success, and this command is *meant* to fail.
+        subprocess.run(  # nosec B603 B607 - fixed argv, throwaway test repo
+            ["git", "commit", "-m", "nothing", "--", "app.py"],
+            cwd=self.repo,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertTrue(revalidate_repository_handle(handle).fresh)
+
+    def test_repeated_probes_agree_when_nothing_changed(self) -> None:
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        for _ in range(5):
+            self.assertTrue(revalidate_repository_handle(handle).fresh)
+
+    def test_staging_different_content_is_still_caught(self) -> None:
+        # The property the fingerprint exists for. A guard that stopped noticing
+        # real staging changes would be worse than no guard at all.
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        (self.repo / "app.py").write_text("x = 999\n", encoding="utf-8")
+        _git(self.repo, "add", "--", "app.py")
+
+        validation = revalidate_repository_handle(handle)
+        self.assertFalse(validation.fresh)
+        self.assertIn("index_changed", validation.reasons)
+
+    def test_staging_a_new_file_is_still_caught(self) -> None:
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        (self.repo / "new.py").write_text("y = 1\n", encoding="utf-8")
+        _git(self.repo, "add", "--", "new.py")
+
+        validation = revalidate_repository_handle(handle)
+        self.assertFalse(validation.fresh)
+        self.assertIn("index_changed", validation.reasons)
+
+
 class RepositorySafetyGateTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

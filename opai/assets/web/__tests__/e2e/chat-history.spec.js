@@ -1,0 +1,201 @@
+import { test, expect } from "@playwright/test";
+
+import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
+
+/* Three things the chat surface was missing.
+ *
+ * 1. There was no way to copy an answer. Selecting long markdown by hand in a
+ *    scrolling pane is exactly the interaction a "copy" button exists to avoid.
+ *
+ * 2. "Recent chats" listed prompt *strings*. Selecting one re-typed the
+ *    question into the composer and discarded the answer — the sidebar's name
+ *    described something the app did not have.
+ *
+ * 3. The prompt list was genuinely useful, just in the wrong place: it is shell
+ *    history, so it now lives on the composer's Up arrow.
+ */
+
+test("an answer can be copied", async ({ page }) => {
+  await openApp(page);
+  const id = await sendPrompt(page, "explain the router");
+  await finishRequest(page, id, { answer: "The router picks the cheapest capable model." });
+
+  await page.locator('.msg [data-a="copy-answer"]').last().click();
+  const copied = await page.evaluate(() => window.__mock.copiedTexts);
+  expect(copied).toContain("The router picks the cheapest capable model.");
+});
+
+test("copying yields the markdown the model wrote, not rendered HTML", async ({ page }) => {
+  // Pasting `<p>`/`<pre>` soup into an editor or an issue is useless; the raw
+  // text is what the user came for.
+  await openApp(page);
+  const id = await sendPrompt(page, "show me code");
+  await finishRequest(page, id, { answer: "Use `router.pick()`:\n\n```py\nrouter.pick()\n```" });
+
+  await page.locator('.msg [data-a="copy-answer"]').last().click();
+  const copied = await page.evaluate(() => window.__mock.copiedTexts);
+  expect(copied.at(-1)).toContain("```py");
+  expect(copied.at(-1)).not.toContain("<pre");
+});
+
+test("the copy control is reachable without a mouse", async ({ page }) => {
+  // It is revealed on hover, which is nothing at all for keyboard users.
+  await openApp(page);
+  const id = await sendPrompt(page, "explain the router");
+  await finishRequest(page, id, { answer: "An answer." });
+
+  const copy = page.locator('.msg [data-a="copy-answer"]').last();
+  await copy.focus();
+  await expect(copy).toBeFocused();
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => window.__mock.copiedTexts)).toContain("An answer.");
+});
+
+test("the sidebar lists saved chats, not prompts", async ({ page }) => {
+  await openApp(page);
+  const recents = page.locator("#recents .recent");
+  await expect(recents.first()).toContainText("How does routing work?");
+  // The prompt strings are history for the composer now — they must not be
+  // masquerading as chats in the sidebar.
+  await expect(page.locator("#recents")).not.toContainText("third prompt");
+});
+
+test("selecting a saved chat restores the conversation, not just the question", async ({ page }) => {
+  // The actual bug: this used to re-type the prompt and lose the answer.
+  await openApp(page, {
+    conversationTranscripts: {
+      c2: {
+        id: "c2",
+        title: "How does routing work?",
+        updated_at: "2026-08-02T10:00:00+00:00",
+        messages: [
+          { role: "user", text: "How does routing work?", status: "complete" },
+          { role: "assistant", text: "Auto scores each capable model.", status: "complete" },
+        ],
+      },
+    },
+  });
+
+  await page.locator("#recents .recent").first().click();
+  const thread = page.locator("#thread");
+  await expect(thread).toContainText("How does routing work?");
+  await expect(thread).toContainText("Auto scores each capable model.");
+  // And it did not silently refill the composer the old way.
+  await expect(page.locator("#input")).toHaveValue("");
+});
+
+test("a reopened chat says it is history", async ({ page }) => {
+  // Otherwise an old transcript is indistinguishable from the live thread, and
+  // the next message looks like it will continue this chat.
+  await openApp(page, {
+    conversationTranscripts: {
+      c2: { id: "c2", title: "t", updated_at: "2026-08-02T10:00:00+00:00", messages: [{ role: "user", text: "q", status: "complete" }] },
+    },
+  });
+  await page.locator("#recents .recent").first().click();
+  await expect(page.locator(".conv-note")).toContainText("saved chat");
+});
+
+test("a chat that can no longer be opened says so and stops being offered", async ({ page }) => {
+  await openApp(page, { conversationTranscripts: {} });
+  await page.locator("#recents .recent").first().click();
+  await expect(page.locator("#toast")).toContainText("no longer available");
+  expect(await page.evaluate(() => window.__mock.conversationLists)).toBeGreaterThan(0);
+});
+
+test("Up recalls the previous prompt, like a shell", async ({ page }) => {
+  await openApp(page);
+  await page.click("#input");
+  await page.press("#input", "ArrowUp");
+  await expect(page.locator("#input")).toHaveValue("third prompt");
+  await page.press("#input", "ArrowUp");
+  await expect(page.locator("#input")).toHaveValue("second prompt");
+});
+
+test("Down walks back and restores what was being typed", async ({ page }) => {
+  // Losing an in-progress draft to a history walk would make the feature a
+  // trap rather than a convenience.
+  await openApp(page);
+  await page.fill("#input", "half-written thought");
+  await page.press("#input", "ArrowUp");
+  await expect(page.locator("#input")).toHaveValue("third prompt");
+  await page.press("#input", "ArrowDown");
+  await expect(page.locator("#input")).toHaveValue("half-written thought");
+});
+
+test("Escape abandons the history walk", async ({ page }) => {
+  await openApp(page);
+  await page.fill("#input", "my draft");
+  await page.press("#input", "ArrowUp");
+  await page.press("#input", "Escape");
+  await expect(page.locator("#input")).toHaveValue("my draft");
+});
+
+test("Up past the oldest prompt stays there", async ({ page }) => {
+  await openApp(page);
+  await page.click("#input");
+  for (let i = 0; i < 6; i += 1) await page.press("#input", "ArrowUp");
+  await expect(page.locator("#input")).toHaveValue("first prompt");
+});
+
+test("Up still moves the caret inside a multi-line draft", async ({ page }) => {
+  // The correctness constraint: stealing Up here would make the composer
+  // unusable for exactly the long prompts most worth recalling.
+  await openApp(page);
+  await page.fill("#input", "line one\nline two");
+  await page.press("#input", "ArrowUp");
+  await expect(page.locator("#input")).toHaveValue("line one\nline two");
+});
+
+test("typing adopts the recalled prompt as your own draft", async ({ page }) => {
+  await openApp(page);
+  await page.click("#input");
+  await page.press("#input", "ArrowUp");
+  await page.type("#input", " extra");
+  await page.press("#input", "ArrowDown");
+  // Down no longer walks history — the text is the user's now.
+  await expect(page.locator("#input")).toHaveValue("third prompt extra");
+});
+
+test("sending restarts history at the newest prompt", async ({ page }) => {
+  await openApp(page);
+  const id = await sendPrompt(page, "brand new prompt");
+  await finishRequest(page, id, { answer: "done" });
+  await page.click("#input");
+  await page.press("#input", "ArrowUp");
+  await expect(page.locator("#input")).toHaveValue("brand new prompt");
+});
+
+test("clearing history removes saved chats from the sidebar too", async ({ page }) => {
+  // The privacy control promises to delete this workspace's history. Leaving
+  // the transcripts listed would mean the user asked to delete their chats and
+  // still saw them — caught by folder.spec before this test existed.
+  await openApp(page);
+  await expect(page.locator("#recents .recent").first()).toContainText("How does routing work?");
+  await page.click("#clearRecents");
+  await page.locator("#recents .inline-confirm").locator('[data-ic="ok"]').click();
+  await expect(page.locator("#recents")).toContainText("No saved chats yet");
+  await expect(page.locator("#recents")).not.toContainText("How does routing work?");
+});
+
+test("automatic updates are off unless the workspace opted in", async ({ page }) => {
+  // The launch check must not run for someone who never enabled it: it reaches
+  // the network and can mutate the checkout.
+  await openApp(page);
+  const result = await page.evaluate(() => window.__mock.autoUpdateRuns);
+  expect(result).toBe(1); // asked once
+  // ...and the mock's default answer is "disabled", so nothing was applied.
+  await expect(page.locator("#toast")).not.toContainText("updated");
+});
+
+test("an automatic update that applied asks for a restart", async ({ page }) => {
+  await openApp(page, { autoUpdateResult: { outcome: "applied", applied: true, restart_required: true } });
+  await expect(page.locator("#toast")).toContainText("restart");
+});
+
+test("an automatic update blocked by local changes says so", async ({ page }) => {
+  // Silence here would mean automatic updates quietly stop working and the
+  // user has no way to know they are on old code.
+  await openApp(page, { autoUpdateResult: { outcome: "blocked_dirty", applied: false } });
+  await expect(page.locator("#toast")).toContainText("uncommitted changes");
+});

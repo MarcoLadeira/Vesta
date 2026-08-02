@@ -60,6 +60,10 @@ const state = {
   expandedGroups: new Set(), stripColor: "",
   resumePending: false,
   contextHints: [],
+  // Shell-style prompt history for the composer. `index` is -1 when the user
+  // is editing their own text; `draft` holds that text so stepping back down
+  // past the newest entry restores it instead of losing it.
+  history: { index: -1, draft: "" },
 };
 const providerLoginRequests = new Map();
 let doctorRefreshRequestId = null;
@@ -221,6 +225,9 @@ function boot() {
     }
     // #246: signal cold-start-to-interactive to the (opt-in) startup trace.
     if (bridge.markInteractive) { try { bridge.markInteractive(); } catch (_e) { /* trace is best-effort */ } }
+    // Opt-in automatic update, after the window is usable. It is a no-op unless
+    // the workspace enabled it, and it never blocks the boot path.
+    maybeAutoUpdate();
   });
   bridge.replyReady.connect(onReply);
   if (bridge.buildReady) bridge.buildReady.connect(onBuildReply);
@@ -344,6 +351,9 @@ function updateSendLabel() {
 function submitComposer() {
   if (composerBlockReason()) return;
   const text = $("#input").value.trim();
+  // A sent prompt starts history over, so the next Up recalls what was just
+  // sent rather than resuming a half-finished walk through older entries.
+  historyReset();
   // #295: "OPai must not silently ignore a new instruction because an older run
   // is active." Enter used to be dropped on the floor mid-run — the keystroke
   // vanished with no trace, which is the worst outcome for someone correcting
@@ -459,7 +469,11 @@ function renderSidebar() {
 function renderRecents() {
   const rec = $("#recents");
   if (!rec) return;
-  const list = state.boot.recents || [];
+  // Saved *conversations*, not prompt strings. The sidebar called itself
+  // "Recent chats" while listing prompts, so selecting one re-typed the
+  // question and discarded the answer. The prompt list still exists — it is
+  // the composer's Up-arrow history, which is what it was always good for.
+  const list = state.boot.conversations || [];
   if (!list.length) {
     renderViewState(rec, {
       kind: "empty",
@@ -472,12 +486,15 @@ function renderRecents() {
     return;
   }
   rec.innerHTML = "";
-  list.forEach((text) => {
+  list.forEach((conv) => {
+    const title = String(conv.title || "Untitled chat");
     const b = document.createElement("button");
     b.className = "recent";
-    b.textContent = text.length > 34 ? text.slice(0, 33) + "…" : text;
-    b.title = text;
-    b.onclick = () => { switchView("chat"); setComposerDraft(text, { focus: true }); };
+    b.dataset.conversationId = conv.id;
+    const turns = Number(conv.message_count) || 0;
+    b.textContent = title.length > 34 ? title.slice(0, 33) + "…" : title;
+    b.title = `${title}\n${turns} message${turns === 1 ? "" : "s"}`;
+    b.onclick = () => openConversation(conv.id);
     rec.appendChild(b);
   });
   // Privacy control (#145): history is per-workspace and deletable only after
@@ -509,6 +526,10 @@ function renderRecents() {
           return;
         }
         state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
+        // Clearing history deletes saved conversations too (the backend does
+        // it in clear_recents). Leaving them on screen would mean the user
+        // asked to delete their chats and still saw them listed.
+        state.boot.conversations = Array.isArray(response) ? [] : (response.conversations || []);
         state.boot.resume = (!Array.isArray(response) && response.resume)
           ? response.resume : { available: false, requires_choice: false };
         setResumeGate(false);
@@ -1268,6 +1289,71 @@ function startNewChat() {
   startFreshSession();
 }
 
+/* ---------- saved conversations ---------- */
+
+// Reopen a saved chat as a readable transcript.
+//
+// Deliberately a *view*, not a resumed session: continuing an archived chat
+// would need its execution context (plan, changed files, checkpoint) restored
+// too, and quietly attaching a new turn to old state is how a run ends up
+// acting on a repository that has moved on since. Resuming the interrupted
+// thread is a separate, explicit affordance that already exists.
+function openConversation(conversationId) {
+  if (state.busy) { toast("Finish or stop the current run first"); return; }
+  if (!bridge || !bridge.loadConversation) { toast("Saved chats are unavailable"); return; }
+  bridge.loadConversation(String(conversationId || ""), (raw) => {
+    let payload = {};
+    try { payload = JSON.parse(raw || "{}"); } catch (_e) { payload = {}; }
+    if (!payload.ok || !payload.conversation) {
+      toast(payload.error || "That chat could not be opened");
+      // A conversation that cannot be loaded should stop being offered.
+      refreshConversations();
+      return;
+    }
+    renderConversation(payload.conversation);
+  });
+}
+
+function renderConversation(conv) {
+  switchView("chat");
+  clearChat();
+  const messages = (conv && conv.messages) || [];
+  $("#empty").style.display = "none";
+  messages.forEach((m) => {
+    const text = String(m.text || "");
+    if (m.role === "user") {
+      appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
+      return;
+    }
+    const el = appendMsg(
+      roleHeader("OPai", "var(--muted)", { copy: true }) +
+      `<div class="body">${mdToHtml(text)}</div>`
+    );
+    wireAnswerCopy(el, text);
+    enhanceCodeBlocks(el);
+  });
+  // Say plainly that this is history. Without it, an old transcript is
+  // indistinguishable from the live thread and the next message looks like it
+  // will continue this chat when it starts a new one.
+  appendMsg(
+    `<div class="conv-note">Viewing a saved chat` +
+    (conv.updated_at ? ` from ${esc(String(conv.updated_at).slice(0, 10))}` : "") +
+    `. Sending a message starts a new chat.` +
+    ` <button class="btn ghost" type="button" data-a="new-chat">New chat</button></div>`
+  ).querySelector('[data-a="new-chat"]').onclick = () => startNewChat();
+}
+
+function refreshConversations() {
+  if (!bridge || !bridge.listConversations) return;
+  bridge.listConversations((raw) => {
+    let payload = {};
+    try { payload = JSON.parse(raw || "{}"); } catch (_e) { payload = {}; }
+    if (!state.boot) return;
+    state.boot.conversations = (payload && payload.conversations) || [];
+    renderRecents();
+  });
+}
+
 /* ---------- OPai Build: New app (#276) ----------
    Describe an app; the runnable skeleton is scaffolded deterministically for
    zero tokens, then features are built with cheap targeted prompts. */
@@ -1490,9 +1576,27 @@ function appendMsg(html, cls) {
   if (follow) sc.scrollTop = sc.scrollHeight;
   return d;
 }
-function roleHeader(label, color) {
+function roleHeader(label, color, opts) {
   const av = `<span class="av" style="background:${color};color:#06160f">${esc((label[0] || "O"))}</span>`;
-  return `<div class="role" style="color:${color}">${av}${esc(label)}</div>`;
+  // The copy control lives in the role row so it sits at a predictable place on
+  // every answer, rather than after however much content the answer produced.
+  const copy = (opts && opts.copy)
+    ? `<button class="msg-copy" type="button" data-a="copy-answer" title="Copy this response" aria-label="Copy this response">${uiIcon("copy")}</button>`
+    : "";
+  return `<div class="role" style="color:${color}">${av}${esc(label)}${copy}</div>`;
+}
+
+// Copy the answer the model actually wrote — the markdown source, not the
+// rendered HTML. Pasting `<p>`/`<pre>` soup into an editor or an issue is
+// useless, and the raw text is what the user came for.
+function wireAnswerCopy(el, answer) {
+  const btn = el.querySelector('[data-a="copy-answer"]');
+  if (!btn) return;
+  btn.onclick = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    copyText(answer);
+    toast("Response copied");
+  };
 }
 const ICON = { pending: "pending", running: "running", success: "check", warning: "warning", error: "error", cancelled: "cancelled" };
 const ANSWERED = ["answered", "cache_hit", "answered_by_account", "answered_by_free_api", "answered_locally"];
@@ -1541,8 +1645,11 @@ function send(retryOf) {
   if (!retryOf) {
     appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
     if (bridge.saveRecent) bridge.saveRecent(text);
+    // The prompt list feeds the composer's Up-arrow history; the sidebar lists
+    // saved conversations. The backend archives the chat as the turn starts, so
+    // re-read it rather than guessing the entry from here.
     state.boot.recents = [text].concat((state.boot.recents || []).filter((r) => r !== text)).slice(0, 12);
-    renderRecents();
+    refreshConversations();
   }
   const requestId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "r" + Date.now() + Math.random();
   state.currentRequest = requestId;
@@ -2518,7 +2625,7 @@ function finalize(status, r) {
     : "OPai";
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
-  let html = roleHeader(label, color) + activitySummaryHtml() + completionVerdictHtml(r) +
+  let html = roleHeader(label, color, { copy: true }) + activitySummaryHtml() + completionVerdictHtml(r) +
     unverifiedClaimHtml(r) + `<div class="body">${mdToHtml(answer)}</div>`;
   const changed = (r && r.changed_files) || [];
   // A changeset card (below, via workflowCardHtml) already shows every file in
@@ -2531,6 +2638,7 @@ function finalize(status, r) {
   if (planSteps.length) html += planCardHtml(planSteps);
   html += metaFooter(r, sel, durMs);
   el.innerHTML = html;
+  wireAnswerCopy(el, answer);
   wireActivitySummary(el);
   wireFilesCard(el);
   wireReceipt(el, sel, r);
@@ -2909,6 +3017,9 @@ function onReply(json) {
   setBusy(false);
   finalize(backendStatus, d.result || {});
   maybeFlushQueued(d.result || {});
+  // The backend archives the conversation as the turn finishes, so the sidebar
+  // is re-read here rather than guessed at from the client's own state.
+  refreshConversations();
   refreshStatus(); refreshInspector(); refreshWorkspaceBadge();
 }
 
@@ -3507,6 +3618,98 @@ function setComposerDraft(value, options = {}) {
   if (options.focus) input.focus();
 }
 
+/* ---------- opt-in automatic update ---------- */
+
+// Reports only what actually happened. An update that could not be applied
+// because the checkout is dirty is surfaced as a real outcome, not swallowed —
+// otherwise "automatic updates" silently stops updating and the user has no way
+// to know why they are on old code.
+function maybeAutoUpdate() {
+  if (!bridge || !bridge.runAutoUpdate) return;
+  bridge.runAutoUpdate((raw) => {
+    let result = {};
+    try { result = JSON.parse(raw || "{}"); } catch (_e) { return; }
+    if (result.outcome === "applied") {
+      toast("OPai updated — restart to use the new version");
+      // The banner already knows how to offer a restart.
+      renderUpdateBanner({ checked: true, up_to_date: false, updated: true });
+      return;
+    }
+    if (result.outcome === "blocked_dirty") {
+      toast("Update available — this checkout has uncommitted changes");
+    }
+  });
+}
+
+/* ---------- composer prompt history (shell-style Up/Down) ---------- */
+
+// `state.boot.recents` is the list of prompts this workspace has sent, newest
+// first — which is exactly a shell's history, and is what the sidebar used to
+// show under the wrong name. Index -1 means "editing my own text".
+function historyEntries() {
+  return (state.boot && state.boot.recents) || [];
+}
+
+// Only take over the arrow keys when the caret is on the edge line, the way a
+// terminal and every editor with history does. Inside a multi-line draft, Up
+// must still move the caret — stealing it there would make the composer
+// unusable for exactly the long prompts most worth recalling.
+function caretOnFirstLine(input) {
+  if (input.selectionStart !== input.selectionEnd) return false;
+  return input.value.lastIndexOf("\n", Math.max(0, input.selectionStart - 1)) === -1;
+}
+function caretOnLastLine(input) {
+  if (input.selectionStart !== input.selectionEnd) return false;
+  return input.value.indexOf("\n", input.selectionStart) === -1;
+}
+
+function historyApply(input, index) {
+  const list = historyEntries();
+  state.history.index = index;
+  const text = index < 0 ? state.history.draft : String(list[index] || "");
+  setComposerDraft(text);
+  // Caret to the end: the user is recalling a prompt to send or extend, not to
+  // edit from the front.
+  try { input.setSelectionRange(input.value.length, input.value.length); } catch (_e) { /* ignore */ }
+}
+
+function historyCancel() {
+  const input = $("#input");
+  if (!input) return;
+  historyApply(input, -1);
+}
+
+function historyKey(e) {
+  const input = $("#input");
+  if (!input) return;
+  const list = historyEntries();
+  if (!list.length) return;
+  const browsing = state.history.index >= 0;
+
+  if (e.key === "ArrowUp") {
+    if (!browsing && !caretOnFirstLine(input)) return;
+    if (browsing && !caretOnFirstLine(input)) return;
+    if (state.history.index + 1 >= list.length) { e.preventDefault(); return; }
+    if (!browsing) state.history.draft = input.value;
+    e.preventDefault();
+    historyApply(input, state.history.index + 1);
+    return;
+  }
+
+  // ArrowDown only does anything while browsing; otherwise it is ordinary
+  // caret movement in the user's own draft.
+  if (!browsing || !caretOnLastLine(input)) return;
+  e.preventDefault();
+  historyApply(input, state.history.index - 1);
+}
+
+// Any ordinary typing means the user has adopted the recalled text as their
+// own draft, so Down should stop walking history back toward it.
+function historyReset() {
+  state.history.index = -1;
+  state.history.draft = "";
+}
+
 function wire() {
   if (isCompactShell()) $("#sidebarToggle").setAttribute("aria-expanded", "false");
   $("#newChat").onclick = startNewChat;
@@ -3524,11 +3727,17 @@ function wire() {
   $("#wsMenu").addEventListener("click", (e) => e.stopPropagation());
   document.addEventListener("click", closeWsMenu);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWsMenu(); });
-  $("#input").addEventListener("input", () => { autoSize(); updateComposerAvailability(); });
+  $("#input").addEventListener("input", () => {
+    // Typing adopts the recalled prompt as the user's own draft.
+    if (state.history.index >= 0) historyReset();
+    autoSize(); updateComposerAvailability();
+  });
   $("#input").addEventListener("keydown", (e) => {
     // Enter sends. While a request is active the text is queued rather than
     // discarded (#295) — still no second concurrent request.
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComposer(); }
+    else if (e.key === "ArrowUp" || e.key === "ArrowDown") historyKey(e);
+    else if (e.key === "Escape" && state.history.index >= 0) { e.preventDefault(); historyCancel(); }
   });
   const contextPath = $("#contextPath");
   $("#addContext").onclick = () => {

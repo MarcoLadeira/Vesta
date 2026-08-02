@@ -55,10 +55,13 @@ test("a recent project switches workspace", async ({ page }) => {
   expect(await page.evaluate(() => window.__mock.switched)).toContain("/other/proj");
 });
 
-test("chat history: recents render and reload into the composer", async ({ page }) => {
+test("chat history: a saved chat opens its transcript, not the composer", async ({ page }) => {
+  // This test used to assert the bug: clicking a "recent chat" re-typed the
+  // prompt into the composer and discarded the answer. Selecting a saved chat
+  // now reopens it; recalling a prompt is the composer's Up arrow.
   await expect(page.locator("#recents .recent").first()).toContainText("summarize my changes");
   await page.locator("#recents .recent").first().click();
-  await expect(page.locator("#input")).toHaveValue("summarize my changes");
+  await expect(page.locator("#input")).toHaveValue("");
 });
 
 test("chat history clear requires explicit confirmation (#145)", async ({ page }) => {
@@ -89,6 +92,8 @@ test("sending a prompt saves it to history", async ({ page }) => {
   await page.click("#send");
   await page.waitForSelector(".gen-stop");
   expect(await page.evaluate(() => window.__mock.savedRecents)).toContain("brand new prompt");
+  // The chat appears as soon as it is sent, before any answer — the backend
+  // archives the turn at its start, so a question survives a crash mid-answer.
   await expect(page.locator("#recents .recent").first()).toContainText("brand new prompt");
 });
 

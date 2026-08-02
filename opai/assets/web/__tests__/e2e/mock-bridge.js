@@ -27,6 +27,9 @@
   var defaultBoot = {
     workspace: { label: "demo", root: "/demo", name: "demo", branch: "main", file_count: 3, recents: [{ path: "/other/proj", label: "other/proj" }] },
     recents: ["summarize my changes"],
+    conversations: [
+      { id: "conv-1", title: "summarize my changes", message_count: 2, updated_at: "2026-08-02" },
+    ],
     update: {
       current_version: "0.2.1a1", checked: true, up_to_date: true,
       latest_version: "0.2.1a1", commits_behind: 0, branch: "main", reason: null,
@@ -415,7 +418,27 @@
     toggleMaximizeWindow: function () { window.__mock.windowMaximizes++; },
     closeWindow: function () { window.__mock.windowCloses++; },
     recents: function (cb) { cb(JSON.stringify(boot.recents)); },
-    saveRecent: function (t) { window.__mock.savedRecents.push(t); },
+    listConversations: function (cb) {
+      window.__mock.conversationLists++;
+      if (cb) cb(JSON.stringify({ ok: true, conversations: boot.conversations || [] }));
+    },
+    loadConversation: function (id, cb) {
+      window.__mock.openedConversations.push(id);
+      var canned = (scenario.conversationTranscripts || {})[id];
+      if (!canned) { if (cb) cb(JSON.stringify({ ok: false, error: "That chat is no longer available." })); return; }
+      if (cb) cb(JSON.stringify({ ok: true, conversation: canned }));
+    },
+    runAutoUpdate: function (cb) {
+      window.__mock.autoUpdateRuns++;
+      if (cb) cb(JSON.stringify(scenario.autoUpdateResult || { outcome: "disabled", applied: false }));
+    },
+    saveRecent: function (t) {
+      window.__mock.savedRecents.push(t);
+      // Mirror the backend: begin_thread_turn archives the chat as the turn
+      // starts, so the sidebar has an entry before any answer arrives.
+      boot.conversations = [{ id: "live-" + window.__mock.savedRecents.length, title: t, message_count: 1, updated_at: "2026-08-02" }]
+        .concat(boot.conversations || []);
+    },
     clearRecents: function (cb) {
       window.__mock.clearedRecents++;
       if (scenario.clearRecentsResult) {
@@ -423,6 +446,8 @@
         return;
       }
       boot.recents = [];
+      // Mirror clear_recents, which deletes saved conversations as well.
+      boot.conversations = [];
       boot.resume = { available: false, requires_choice: false, thread: {}, workflow: {}, checkpoint: {} };
       if (cb) cb(JSON.stringify(Object.assign({}, boot, { ok: true })));
     },
@@ -457,6 +482,7 @@
     },
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
     clearedRecents: 0, resumedSessions: 0, clearedSessions: 0,
+    conversationLists: 0, openedConversations: [], autoUpdateRuns: 0,
     copiedTexts: [], contextFilePicks: 0, contextFolderPicks: 0,
     fullAutoPins: 0, fullAutoUnpins: 0,
     windowMoves: 0, windowResizes: [], windowMinimizes: 0,

@@ -112,7 +112,7 @@ test("degraded settings has a manual retry and does not retry by itself", async 
 });
 
 test("empty recents teaches the fastest next step", async ({ page }) => {
-  await openApp(page, { boot: { recents: [] } });
+  await openApp(page, { boot: { recents: [], conversations: [] } });
 
   const card = page.locator("#recents .state-card");
   await expect(card).toHaveAttribute("role", "status");
