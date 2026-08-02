@@ -96,6 +96,7 @@ class ContractTests(unittest.TestCase):
                 "partial": 3,
                 "blocked": 4,
                 "timeout": 5,
+                "needs_attention": 6,
                 "cancelled": 130,
             },
         )

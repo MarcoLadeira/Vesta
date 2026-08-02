@@ -124,9 +124,9 @@ class StateMachineTests(unittest.TestCase):
         # dress a genuine dead end up as a question.
         self.assertFalse(is_awaiting_input("needs_model"))
 
-    def test_every_awaiting_status_is_resumed_by_an_added_authority(self) -> None:
-        # The property that makes AWAITING_INPUT honest: each of these is
-        # re-sent as the same task plus one grant, so the run continues.
+    def test_generated_legacy_awaiting_statuses_project_to_the_interrupt(self) -> None:
+        # These compatibility strings are a boundary projection, never another
+        # state vocabulary maintained by the reducer.
         self.assertEqual(
             AWAITING_INPUT_STATUSES,
             {
@@ -136,6 +136,12 @@ class StateMachineTests(unittest.TestCase):
                 "needs_auto_confirmation",
                 "needs_limit_confirmation",
                 "needs_confirmation",
+                "needs_paid_confirmation",
+                "needs_consent",
+                "needs_input",
+                "needs_user_input",
+                "question",
+                "read_only",
             },
         )
 
