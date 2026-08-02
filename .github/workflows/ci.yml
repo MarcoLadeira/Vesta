@@ -180,7 +180,9 @@ jobs:
         run: npx playwright install chromium
 
       - name: Run Chromium end-to-end tests
-        run: npm run test:e2e
+        # Playwright defaults to one worker under CI, which makes this complete
+        # 457-test required suite exceed a bounded PR window on Windows.
+        run: npm run test:e2e -- --workers=4
 
       - name: Upload redacted browser failure evidence
         if: failure()

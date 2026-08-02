@@ -26,6 +26,7 @@ class WebCiContractTests(unittest.TestCase):
             "design token lint": "npm run test:tokens",
             "Windows Chromium install": "playwright install chromium",
             "browser E2E tests": "npm run test:e2e",
+            "bounded parallel browser workers": "--workers=4",
             "failure artifacts": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
         }
         for behavior, marker in required_contract.items():
