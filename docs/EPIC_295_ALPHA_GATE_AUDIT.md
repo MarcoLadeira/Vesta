@@ -25,7 +25,7 @@ it, and every gap names the epic that owns it.
 | 5 | Orphan processes: 0 | **Evidenced (Windows)** | POSIX CI run |
 | 6 | Cross-surface terminal agreement | **Partial** | #525 shared control |
 | 7 | Illegal transitions: 0 unhandled, observable | **Evidenced** | — |
-| 8 | Restart recovery: 100% | **Partial** | #517 replay |
+| 8 | Restart recovery: 100% | **Partial** | #517 resume decision + reconciliation |
 | 9 | Cancellation truth | **Partial** | #380 teardown proof |
 | 10 | Provider conformance: 100% | **Evidenced** | — |
 | 11 | Verification truth | **Partial** | #522 |
@@ -291,11 +291,32 @@ Both halves now hold.
 
 Session resume exists and is covered by `session-resume.spec.js`.
 `owner_lease.py` now supplies the evidence needed to tell an abandoned run from
-one a sibling window owns.
+one a sibling window owns, and now also issues durable, fenced leases
+(`owner_lease.acquire/renew/is_current`) so a superseded supervisor can be
+detected rather than trusted on its own heartbeat — `test_owner_lease.py`'s
+`TwoProcessLeaseRaceTests` and `ClockSkewTests` cover the split-brain and
+clock-jitter cases #517 calls out explicitly.
 
-**Missing:** nothing yet *acts* on a stale lease, and there are no kill-and-resume
-fixtures at each lifecycle phase. Deciding what to do with abandoned work needs
-replay guarantees from #517 to be safe.
+Workflow runs (#379's canonical run/step machine) are now backed by an
+append-only journal (`opaihub/run_journal.py`) with monotonic sequence
+numbers, atomic fsync'd appends, and a fenced supervisor lease per run
+(`workflow_runner.workflow_journal_path` / `workflow_lease_path`), additive to
+the existing snapshot file so no prior consumer changed. `replay_workflow_run`
+reconstructs a run's canonical state purely from the journal and is proven —
+not assumed — to agree with the persisted snapshot, including on a failed run,
+by `RunJournalReplayTests` in `test_workflow_log_persistence.py`. A corrupt or
+unrecognized record is quarantined (moved aside with a manifest, never
+silently dropped or guessed past) rather than accepted, and the pipeline
+recovers on the very next transition — `test_run_journal.py` (26 tests) covers
+crash recovery at every durable write boundary, a truncated tail, a corrupt
+interior record, and repeated recovery converging identically.
+
+**Missing:** nothing yet *acts* on a stale lease or a quarantined journal —
+both are observable (`read_workflow_log(...)["lease"]`,
+`Recovery.quarantined`) but no resume flow decides what to do with them yet.
+There are still no kill-and-resume fixtures at each lifecycle phase, and
+reconciliation after restart against live provider subprocesses and GitHub
+(worktrees already reconcile via `worktree_leases.py`, #537) remains open.
 
 ### 9. Cancellation truth — Partial
 

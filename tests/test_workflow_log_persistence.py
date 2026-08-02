@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import workflow_runner
+from opaihub import run_journal, workflow_runner
 from opaihub.run_state import TERMINAL_STATES, RunState, exit_code_for
 from opaihub.workflow_runner import read_workflow_log, run_workflow
 
@@ -498,3 +498,158 @@ class WorkflowCliParityTests(unittest.TestCase):
                 "reason_code": "workflow_steps_unmapped",
             }
             self.assertEqual(cmd_workflow(args), exit_code_for(RunState.PARTIAL))
+
+
+class RunJournalReplayTests(unittest.TestCase):
+    """The journal (#517) must independently reconstruct what the snapshot says.
+
+    Every existing test above exercises the snapshot file exactly as before —
+    the journal is additive evidence, not a replacement, so none of that
+    coverage should have needed to change. These prove the new evidence is
+    trustworthy on its own terms: replay determinism, restart-safety lease
+    visibility, and quarantine of corruption without stalling the pipeline.
+    """
+
+    def _run_synthetic(self, root: Path, run_id: str) -> dict[str, object]:
+        with (
+            mock.patch.object(
+                workflow_runner, "workflow_plan", return_value=_synthetic_plan()
+            ),
+            mock.patch.object(
+                workflow_runner,
+                "run_policy_command",
+                return_value=_CompletedCommand(f"output from {run_id}"),
+            ),
+        ):
+            return run_workflow(root, "synthetic", execute=True, run_id=run_id)
+
+    def test_replay_matches_the_snapshots_run_state_and_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._run_synthetic(root, "replay-run")
+            snapshot = read_workflow_log(root, "replay-run")["run"]
+            projection = workflow_runner.replay_workflow_run(root, "replay-run")
+
+            self.assertEqual(projection["run_state"], snapshot["run_state"])
+            self.assertEqual(projection["reason_code"], snapshot["reason_code"])
+            self.assertEqual(projection["state_history"], snapshot["state_history"])
+            for index, step in enumerate(snapshot["steps"]):
+                replayed_step = projection["steps"][str(index)]
+                self.assertEqual(replayed_step["run_state"], step["run_state"])
+                self.assertEqual(replayed_step["reason_code"], step["reason_code"])
+                self.assertEqual(replayed_step["state_history"], step["state_history"])
+
+    def test_replay_matches_the_snapshot_for_a_failed_run_too(self) -> None:
+        """Determinism must hold on the unhappy path, not just a clean success."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                mock.patch.object(
+                    workflow_runner, "workflow_plan", return_value=_synthetic_plan()
+                ),
+                mock.patch.object(
+                    workflow_runner, "run_policy_command", return_value=_FailedCommand()
+                ),
+            ):
+                run_workflow(root, "synthetic", execute=True, run_id="failed-run")
+            snapshot = read_workflow_log(root, "failed-run")["run"]
+            self.assertEqual(snapshot["run_state"], RunState.FAILED.value)
+            projection = workflow_runner.replay_workflow_run(root, "failed-run")
+            self.assertEqual(projection["run_state"], RunState.FAILED.value)
+            self.assertEqual(projection["state_history"], snapshot["state_history"])
+
+    def test_repeated_replay_and_load_always_converge_to_the_same_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._run_synthetic(root, "converge-run")
+            journal_path = workflow_runner.workflow_journal_path(root, "converge-run")
+
+            first = workflow_runner.replay_workflow_run(root, "converge-run")
+            second = workflow_runner.replay_workflow_run(root, "converge-run")
+            loaded = run_journal.load(
+                journal_path,
+                reduce=workflow_runner._reduce_workflow_journal,
+                empty=workflow_runner._empty_workflow_projection,
+                validate=workflow_runner._validate_workflow_journal_event,
+            )
+            self.assertEqual(first, second)
+            self.assertEqual(first, loaded.projection)
+
+    def test_the_lease_is_acquired_and_observable_through_read_workflow_log(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._run_synthetic(root, "lease-run")
+            evidence = read_workflow_log(root, "lease-run")
+            self.assertIn("lease", evidence)
+            self.assertTrue(evidence["lease"]["ownerIsThisProcess"])
+            self.assertFalse(evidence["lease"]["stale"])
+            self.assertEqual(evidence["lease"]["reason"], "owned_here")
+
+    def test_a_corrupted_journal_is_quarantined_and_the_pipeline_still_advances(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshot = workflow_runner._reserve_workflow_run(
+                root,
+                "synthetic",
+                "quarantine-run",
+                task_id="task-quarantine",
+                plan_steps=[{"step": "one"}],
+            )
+            snapshot, _ = workflow_runner._advance_workflow_run(
+                root, snapshot, RunState.PREPARING, reason_code="preparing_execution"
+            )
+            snapshot, _ = workflow_runner._advance_workflow_run(
+                root, snapshot, RunState.RUNNING, reason_code="execution_started"
+            )
+
+            journal_path = workflow_runner.workflow_journal_path(root, "quarantine-run")
+            lines = journal_path.read_text(encoding="utf-8").splitlines()
+            self.assertGreaterEqual(len(lines), 2)
+            lines[0] = "not valid json at all, injected corruption"
+            journal_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            with self.assertRaises(run_journal.JournalCorruption):
+                workflow_runner.replay_workflow_run(root, "quarantine-run")
+
+            # The corruption is in evidence, not the run: the very next
+            # transition succeeds, quarantining the bad journal instead of
+            # blocking the workflow that depends on it.
+            snapshot, _ = workflow_runner._advance_workflow_run(
+                root, snapshot, RunState.VERIFYING, reason_code="verifying_workflow"
+            )
+
+            quarantine_dir = journal_path.parent / "quarantine"
+            self.assertTrue(quarantine_dir.is_dir())
+            quarantined = list(quarantine_dir.glob("*.manifest.json"))
+            self.assertEqual(len(quarantined), 1)
+            manifest = json.loads(quarantined[0].read_text(encoding="utf-8"))
+            self.assertEqual(manifest["original_path"], str(journal_path))
+
+            # And the fresh journal that replaced it is healthy again.
+            projection = workflow_runner.replay_workflow_run(root, "quarantine-run")
+            self.assertEqual(projection["run_state"], RunState.VERIFYING.value)
+
+    def test_snapshot_and_journal_are_never_written_as_only_one_of_the_two(
+        self,
+    ) -> None:
+        """A caller must never observe durable-snapshot evidence with no
+        corresponding journal entry, or vice versa, for any transition."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._run_synthetic(root, "paired-run")
+            snapshot = read_workflow_log(root, "paired-run")["run"]
+            projection = workflow_runner.replay_workflow_run(root, "paired-run")
+            self.assertEqual(
+                len(projection["state_history"]), len(snapshot["state_history"])
+            )
+            for index, step in enumerate(snapshot["steps"]):
+                self.assertEqual(
+                    len(projection["steps"][str(index)]["state_history"]),
+                    len(step["state_history"]),
+                )

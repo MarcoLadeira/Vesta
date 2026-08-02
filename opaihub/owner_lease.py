@@ -35,10 +35,14 @@ still alive? — and the decision about what to do belongs to the caller.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any
+
+from .atomic_io import atomic_write_text, interprocess_transaction
 
 # The owner restamps its lease at least this often while it is working.
 HEARTBEAT_INTERVAL_SECONDS = 10.0
@@ -150,3 +154,120 @@ def _as_int(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return int(value)
+
+
+# --- Durable, fenced leases (#517) -----------------------------------------
+#
+# Everything above is a pure, dict-based liveness check: the caller owns
+# persistence, and a lease's only defence against a stale writer is its own
+# heartbeat going quiet. That is enough for a single GUI thread file guarded
+# by one cross-process write lock (see ``opai.gui_recents``), where at most
+# one process is ever meant to hold the lease at a time and the write lock
+# itself serializes acquisition.
+#
+# A run supervisor is a different shape of problem: #517 asks for leases that
+# can prove, after the fact, that a write came from the *current* owner and
+# not a process that has since been superseded — a stale supervisor that
+# wakes from a suspend, or two processes racing to pick up the same abandoned
+# run after a restart, must not both believe they are in charge. A heartbeat
+# alone cannot prove that: a stale process's heartbeat still *looks* fresh to
+# itself right up until it writes.
+#
+# A fencing token closes that gap. Each acquisition at a given ``path`` is
+# assigned a token strictly greater than every token ever issued there
+# before, including ones held by processes that are now dead. A writer that
+# captured an older token can be shown, cheaply and without asking it
+# anything, that someone else now holds the lease — the classic fencing-token
+# pattern (Chubby/ZooKeeper-style), applied to a local file instead of a
+# distributed lock service, since that is the durability substrate this
+# module already trusts.
+
+
+def lease_path(root: Any, resource_id: str) -> Path:
+    """The durable lease file for one resource, under a project's state dir."""
+    from .state import state_dir
+
+    clean = "".join(ch for ch in str(resource_id) if ch.isalnum() or ch in "-_.")[:128]
+    if not clean or clean != str(resource_id):
+        raise ValueError(f"unsafe lease resource id: {resource_id!r}")
+    return state_dir(Path(root)) / "health" / "leases" / f"{clean}.json"
+
+
+def _read_lease_file(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _write_lease_file(path: Path, lease: dict[str, Any]) -> None:
+    atomic_write_text(path, json.dumps(lease, sort_keys=True) + "\n")
+
+
+def acquire(path: Path, *, now: float | None = None) -> dict[str, Any]:
+    """Durably acquire (or re-acquire) the fenced lease at ``path``.
+
+    Assigns a fencing token one higher than the highest ever issued at this
+    path — read-modify-write under the same cross-process lock every other
+    durable state file in this codebase uses, so two processes racing to
+    acquire can never be handed the same token. The caller becomes the
+    current owner unconditionally: acquiring is how a fresh supervisor takes
+    over an abandoned run, so it does not (and safely cannot) check whether a
+    prior owner's heartbeat was still warm — that judgment belongs to
+    whatever caller decided this lease was worth acquiring.
+    """
+    path = Path(path)
+    with interprocess_transaction(path):
+        existing = _read_lease_file(path)
+        prior_fence = _as_int(existing.get("fence")) or 0
+        acquired = {**new_lease(now=now), "fence": prior_fence + 1}
+        _write_lease_file(path, acquired)
+    return acquired
+
+
+def current(path: Path) -> dict[str, Any]:
+    """The durable lease at ``path`` without acquiring or changing it.
+
+    An absent or unreadable file reads as ``{}`` — the same "no owner
+    recorded" shape :func:`is_stale`/:func:`describe` already treat as stale,
+    so a caller never needs a separate existence check.
+    """
+    return _read_lease_file(Path(path))
+
+
+def renew(
+    path: Path, lease: dict[str, Any], *, now: float | None = None
+) -> dict[str, Any]:
+    """Heartbeat a durably-acquired lease this process believes it owns.
+
+    Refuses — and returns the file's actual current lease unchanged — unless
+    both the process identity *and* the fencing token still match what is on
+    disk. A token mismatch means someone else has since acquired the lease
+    (this owner has been fenced out); overwriting their heartbeat with ours
+    would be exactly the split-brain write this mechanism exists to prevent.
+    The caller must compare the return value's ``fence`` to its own before
+    trusting that the renewal actually took effect.
+    """
+    path = Path(path)
+    with interprocess_transaction(path):
+        on_disk = _read_lease_file(path)
+        if not owned_by_this_process(on_disk) or _as_int(
+            on_disk.get("fence")
+        ) != _as_int(lease.get("fence")):
+            return on_disk
+        touched = {**touch(on_disk, now=now), "fence": on_disk["fence"]}
+        _write_lease_file(path, touched)
+    return touched
+
+
+def is_current(path: Path, fence: Any) -> bool:
+    """True when ``fence`` is still the latest fencing token issued at ``path``."""
+    on_disk = _read_lease_file(Path(path))
+    disk_fence = _as_int(on_disk.get("fence"))
+    caller_fence = _as_int(fence)
+    return (
+        disk_fence is not None
+        and caller_fence is not None
+        and disk_fence == caller_fence
+    )

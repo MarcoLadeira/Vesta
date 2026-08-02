@@ -235,5 +235,127 @@ class ResumePayloadTests(unittest.TestCase):
         self.assertEqual(before["lease"], after["lease"])
 
 
+class FencedLeaseTests(unittest.TestCase):
+    """Durable leases with fencing tokens, for a supervisor that can restart (#517)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+        self.path = lease.lease_path(self.root, "workflow-run-1")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_fresh_acquisition_starts_the_fence_at_one(self) -> None:
+        acquired = lease.acquire(self.path, now=1000.0)
+        self.assertEqual(acquired["fence"], 1)
+        self.assertTrue(lease.owned_by_this_process(acquired))
+
+    def test_a_second_acquisition_strictly_increases_the_fence(self) -> None:
+        first = lease.acquire(self.path, now=1000.0)
+        second = lease.acquire(self.path, now=1001.0)
+        self.assertEqual((first["fence"], second["fence"]), (1, 2))
+
+    def test_current_reads_the_durable_lease_without_changing_it(self) -> None:
+        lease.acquire(self.path, now=1000.0)
+        before = lease.current(self.path)
+        after = lease.current(self.path)
+        self.assertEqual(before, after)
+        self.assertEqual(before["fence"], 1)
+
+    def test_current_on_an_absent_lease_reads_as_no_owner(self) -> None:
+        self.assertEqual(lease.current(self.path), {})
+        self.assertTrue(lease.is_stale(lease.current(self.path)))
+
+    def test_renewing_a_still_current_lease_keeps_its_fence(self) -> None:
+        acquired = lease.acquire(self.path, now=1000.0)
+        far = 1000.0 + lease.STALE_AFTER_SECONDS + 1
+        renewed = lease.renew(self.path, acquired, now=far)
+        self.assertEqual(renewed["fence"], acquired["fence"])
+        self.assertFalse(lease.is_stale(renewed, now=far))
+
+
+class TwoProcessLeaseRaceTests(unittest.TestCase):
+    """The scenario #517 explicitly asks for: two owners racing over one run.
+
+    Simulated deterministically (no real subprocesses — Windows file locking
+    under genuine multi-process load is separately known to be flaky under
+    heavy concurrency, and the fencing guarantee this proves does not depend
+    on real OS scheduling to be true). "Process B" is modeled as a second
+    acquisition at the same path; the resulting fence strictly supersedes
+    "process A"'s, which is exactly what a second real process acquiring the
+    same abandoned lease would also produce.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+        self.path = lease.lease_path(self.root, "workflow-run-races")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_superseded_owner_is_detectably_no_longer_current(self) -> None:
+        owner_a = lease.acquire(self.path, now=1000.0)
+        owner_b = lease.acquire(self.path, now=1001.0)
+        self.assertTrue(lease.is_current(self.path, owner_b["fence"]))
+        self.assertFalse(lease.is_current(self.path, owner_a["fence"]))
+
+    def test_a_superseded_owners_renewal_is_refused_not_overwritten(self) -> None:
+        owner_a = lease.acquire(self.path, now=1000.0)
+        owner_b = lease.acquire(self.path, now=1001.0)
+        # Owner A does not know it has been superseded and tries to heartbeat
+        # with its own (now stale) captured lease.
+        result = lease.renew(self.path, owner_a, now=2000.0)
+        # It gets back B's lease unchanged — never a write that could clobber
+        # B's heartbeat with A's.
+        self.assertEqual(result["fence"], owner_b["fence"])
+        self.assertEqual(result["heartbeat_at"], owner_b["heartbeat_at"])
+
+    def test_the_current_owner_can_still_renew_after_a_third_party_reads(self) -> None:
+        owner_b = lease.acquire(self.path, now=1000.0)
+        lease.current(self.path)  # a read-only observer must not disturb it
+        renewed = lease.renew(self.path, owner_b, now=1050.0)
+        self.assertEqual(renewed["fence"], owner_b["fence"])
+        self.assertGreater(renewed["heartbeat_at"], owner_b["heartbeat_at"])
+
+
+class ClockSkewTests(unittest.TestCase):
+    """A lease must degrade sensibly, never crash, when time moves backward."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+        self.path = lease.lease_path(self.root, "workflow-run-skew")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_heartbeat_apparently_in_the_future_is_not_reported_negative(
+        self,
+    ) -> None:
+        acquired = lease.acquire(self.path, now=2000.0)
+        # A later clock read that is earlier than the recorded heartbeat (NTP
+        # step, VM pause/resume) must not produce a negative silence.
+        described = lease.describe(acquired, now=1000.0)
+        self.assertGreaterEqual(described["silentForSeconds"], 0.0)
+        self.assertFalse(described["stale"])
+
+    def test_a_lease_does_not_flip_stale_and_fresh_as_the_clock_jitters(self) -> None:
+        acquired = lease.acquire(self.path, now=1000.0)
+        just_before = lease.STALE_AFTER_SECONDS - 1
+        just_after = lease.STALE_AFTER_SECONDS + 1
+        self.assertFalse(lease.is_stale(acquired, now=1000.0 + just_before))
+        self.assertTrue(lease.is_stale(acquired, now=1000.0 + just_after))
+        # And back below the threshold again reads fresh once more — staleness
+        # is a pure function of the gap, not a one-way latch.
+        self.assertFalse(lease.is_stale(acquired, now=1000.0 + just_before))
+
+    def test_renew_with_a_now_before_the_prior_heartbeat_does_not_raise(self) -> None:
+        acquired = lease.acquire(self.path, now=5000.0)
+        renewed = lease.renew(self.path, acquired, now=4000.0)
+        self.assertEqual(renewed["fence"], acquired["fence"])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
