@@ -319,7 +319,7 @@ class RunCommandToolTests(unittest.TestCase):
             def __init__(self):
                 self.calls = []
 
-            def run_command(self, argv, *, purpose, environment=None):
+            def run_command(self, argv, *, purpose, environment=None, cancel=None):
                 self.calls.append((argv, purpose, environment))
                 return Observation(
                     "command",
