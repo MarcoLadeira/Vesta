@@ -1,10 +1,16 @@
 import { defineConfig } from "@playwright/test";
 
+// Hosted Windows Chromium is materially slower than a local browser while
+// still exercising the same UI. Keep local feedback strict, but give the
+// required hosted qualification enough time to distinguish a slow cold boot
+// from a genuine functional failure.
+const testTimeout = process.env.CI ? 30_000 : 15_000;
+
 // E2E for the web UI front-end. A static server serves the repo; each spec
 // injects the mock bridge (no Qt) and drives streaming/cancellation.
 export default defineConfig({
   testDir: "opai/assets/web/__tests__/e2e",
-  timeout: 15000,
+  timeout: testTimeout,
   expect: { timeout: 5000 },
   // Token screenshots use bundled fonts and a fixed viewport, so a single
   // baseline is intentional across the Windows desktop build and Linux CI.

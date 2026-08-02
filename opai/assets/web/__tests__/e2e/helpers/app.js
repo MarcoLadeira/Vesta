@@ -5,6 +5,7 @@ import { fullScenario } from "./fixtures.js";
 
 export const MOCK_PATH = "opai/assets/web/__tests__/e2e/mock-bridge.js";
 export const APP_PATH = "/opai/assets/web/index.html";
+const APP_READY_TIMEOUT = process.env.CI ? 20_000 : 10_000;
 
 export async function openApp(page, overrides = {}) {
   const diagnostics = { consoleErrors: [], pageErrors: [] };
@@ -26,7 +27,7 @@ export async function openApp(page, overrides = {}) {
   await page.waitForSelector("#input");
   await page.waitForFunction(() => (
     Boolean(window.__opai) && document.querySelector("#modelSel")?.options.length > 0
-  ), undefined, { timeout: 10_000 });
+  ), undefined, { timeout: APP_READY_TIMEOUT });
   return diagnostics;
 }
 
