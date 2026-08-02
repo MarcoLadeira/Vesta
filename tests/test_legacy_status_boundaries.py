@@ -146,6 +146,39 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
                     result.lifecycle["state"],
                 )
 
+    def test_conflicting_explicit_cancel_request_fails_closed(self) -> None:
+        payload = {
+            "schema_version": 0,
+            "completion_state": "cancelled",
+            "state": "cancel_requested",
+            "status": "cancelled",
+            "finished_at": "2026-08-02T12:34:56Z",
+        }
+
+        result = legacy_status_to_result(payload)
+        compatibility_state = completion_state_from_legacy(payload)
+
+        self.assertEqual(result.lifecycle["state"], "needs_attention")
+        self.assertEqual(result.compatibility["state"], "incompatible")
+        self.assertFalse(result.recovery["automatic_retry"])
+        self.assertIs(compatibility_state, CompletionState.NEEDS_ATTENTION)
+
+    def test_agreeing_explicit_terminal_states_preserve_terminal_mapping(self) -> None:
+        payload = {
+            "schema_version": 0,
+            "completion_state": "cancelled",
+            "state": "cancelled",
+            "status": "cancelled",
+            "finished_at": "2026-08-02T12:34:56Z",
+        }
+
+        result = legacy_status_to_result(payload)
+        compatibility_state = completion_state_from_legacy(payload)
+
+        self.assertEqual(result.lifecycle["state"], "cancelled")
+        self.assertEqual(result.compatibility["state"], "legacy_import")
+        self.assertIs(compatibility_state, CompletionState.CANCELLED)
+
     def test_legacy_completed_status_cannot_bypass_terminal_evidence(self) -> None:
         result = legacy_status_to_result({"status": "answered"})
 
@@ -238,7 +271,7 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
                     "status": "answered",
                 }
             ),
-            CompletionState.FAILED,
+            CompletionState.NEEDS_ATTENTION,
         )
 
         outputs = {

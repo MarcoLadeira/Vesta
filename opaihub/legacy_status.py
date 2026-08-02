@@ -246,13 +246,17 @@ def _canonical_state_from_stop_reason(reason: str) -> str | None:
 
 
 def _explicit_state(payload: Mapping[str, Any]) -> tuple[bool, str]:
+    selected = ""
     for field_name in ("completion_state", "state"):
         if field_name not in payload:
             continue
         value = _normalized(payload.get(field_name))
-        if value:
-            return True, value
-    return False, ""
+        if not value:
+            continue
+        if selected and value != selected:
+            return True, ""
+        selected = value
+    return bool(selected), selected
 
 
 def _explicit_canonical_state(payload: Mapping[str, Any]) -> tuple[bool, str | None]:
