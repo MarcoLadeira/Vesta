@@ -33,6 +33,9 @@ _RETRY_REASONS = frozenset(
         "user_requested",
     }
 )
+_AUTOMATIC_RETRY_REASONS = frozenset(
+    {"network", "provider_transient", "rate_limit", "timeout"}
+)
 _VERIFIED = frozenset({"passed", "verified"})
 _DELIVERED = frozenset({"delivered", "verified"})
 _COST_RECONCILED = frozenset({"reconciled", "verified"})
@@ -54,6 +57,7 @@ _SNAPSHOT_KEYS = frozenset(
     }
 )
 _AUTOMATIC_RETRY_STATES = frozenset({"failed", "timeout"})
+_DIAGNOSTIC_FIELDS = frozenset({"codes", "count", "record_refs", "truncated"})
 
 
 def _normalized(value: Any) -> str:
@@ -129,6 +133,32 @@ def _validate_provider(mapping: Mapping[str, Any]) -> None:
         value = mapping[key]
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"provider.{key} must be a nonempty scalar string")
+
+
+def _validate_diagnostics(mapping: Mapping[str, Any]) -> None:
+    if _contains_snapshot_key(mapping):
+        raise ValueError("diagnostics raw output/payload/metadata is forbidden")
+    keys = {str(key) for key in mapping}
+    if not keys <= _DIAGNOSTIC_FIELDS:
+        raise ValueError("diagnostics contains an unlisted field")
+
+    refs = mapping.get("record_refs", ())
+    if not isinstance(refs, (list, tuple)):
+        raise TypeError("diagnostics.record_refs must be a sequence")
+    for reference in refs:
+        _validate_reference(reference, "diagnostics.record_refs entry")
+
+    count = mapping.get("count", 0)
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise TypeError("diagnostics.count must be a non-negative integer")
+    truncated = mapping.get("truncated", False)
+    if not isinstance(truncated, bool):
+        raise TypeError("diagnostics.truncated must be a boolean")
+    codes = mapping.get("codes", ())
+    if not isinstance(codes, (list, tuple)) or any(
+        not isinstance(code, str) or not code.strip() for code in codes
+    ):
+        raise TypeError("diagnostics.codes must contain nonempty scalar strings")
 
 
 def _validate_optional_record(
@@ -235,6 +265,11 @@ class RunResult:
             "presentation": _mapping(self.presentation, "presentation"),
             "compatibility": _mapping(self.compatibility, "compatibility"),
         }
+        for field_name, field_value in fields.items():
+            if field_name != "provider" and _contains_snapshot_key(field_value):
+                raise ValueError(
+                    f"{field_name} raw output/payload/metadata is forbidden"
+                )
 
         state = _normalized(fields["lifecycle"].get("state"))
         if state not in TERMINAL_STATE_IDS:
@@ -269,26 +304,26 @@ class RunResult:
         if not isinstance(compatibility_retry, bool):
             raise TypeError("compatibility.automatic_retry must be a boolean")
         compatibility_state = _normalized(fields["compatibility"].get("state"))
-        if retry and (
-            state not in _AUTOMATIC_RETRY_STATES
-            or compatibility_state == "incompatible"
-        ):
+        safe_retry_pair = (
+            state in _AUTOMATIC_RETRY_STATES
+            and retry_reason in _AUTOMATIC_RETRY_REASONS
+            and compatibility_state != "incompatible"
+        )
+        if retry and not safe_retry_pair:
             raise ValueError(
                 "automatic retry is incompatible with this terminal lifecycle state"
             )
-        if compatibility_state == "incompatible" and compatibility_retry:
-            raise ValueError("incompatible input cannot claim automatic retry")
+        if compatibility_retry and (not retry or not safe_retry_pair):
+            raise ValueError(
+                "compatibility automatic retry requires a retry-safe terminal pair"
+            )
         fields["recovery"]["automatic_retry"] = retry
         fields["recovery"]["reason"] = retry_reason
 
         _validate_provider(fields["provider"])
         for field_name in ("verification", "delivery", "economics", "authority"):
             _validate_optional_record(fields[field_name], field_name)
-        refs = fields["diagnostics"].get("record_refs", ())
-        if not isinstance(refs, (list, tuple)):
-            raise TypeError("diagnostics.record_refs must be a sequence")
-        for reference in refs:
-            _validate_reference(reference, "diagnostics.record_refs entry")
+        _validate_diagnostics(fields["diagnostics"])
 
         expected_presentation = _presentation(state)
         if fields["presentation"] != expected_presentation:

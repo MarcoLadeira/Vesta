@@ -138,9 +138,9 @@ def test_typed_provider_failure_preserves_its_actionable_user_message() -> None:
             "capability_mismatch",
         ),
         (
-            {"status": "cancelled", "stopped_reason": "cancel_requested"},
+            {"status": "cancelled", "stopped_reason": "cancelled"},
             CompletionVerdict.CANCELLED,
-            "cancel_requested",
+            "cancelled",
         ),
         (
             {"status": "retryable_provider_error", "stopped_reason": "timeout"},

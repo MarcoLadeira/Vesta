@@ -104,6 +104,22 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
         self.assertEqual(result.compatibility["state"], "legacy_import")
         self.assertEqual(result.compatibility["source_schema_version"], 0)
 
+    def test_cancel_requested_never_manufactures_terminal_reconciliation(self) -> None:
+        payload = {
+            "schema_version": 0,
+            "status": "cancelled",
+            "stopped_reason": "cancel_requested",
+            "finished_at": "2026-08-02T12:34:56Z",
+        }
+
+        result = legacy_status_to_result(payload)
+        compatibility_state = completion_state_from_legacy(payload)
+
+        self.assertEqual(result.lifecycle["state"], "needs_attention")
+        self.assertEqual(result.compatibility["state"], "incompatible")
+        self.assertFalse(result.recovery["automatic_retry"])
+        self.assertIs(compatibility_state, CompletionState.NEEDS_ATTENTION)
+
     def test_legacy_completed_status_cannot_bypass_terminal_evidence(self) -> None:
         result = legacy_status_to_result({"status": "answered"})
 

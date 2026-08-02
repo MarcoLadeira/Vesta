@@ -230,6 +230,72 @@ class RunResultTests(unittest.TestCase):
         self.assertTrue(result.recovery["automatic_retry"])
         self.assertEqual(result.recovery["reason"], "network")
 
+    def test_automatic_retry_requires_retry_safe_state_and_reason_pair(self) -> None:
+        valid_pairs = (
+            ("failed", "network"),
+            ("failed", "provider_transient"),
+            ("failed", "rate_limit"),
+            ("timeout", "timeout"),
+        )
+        invalid_pairs = (
+            ("failed", "none"),
+            ("failed", "manual_review"),
+            ("failed", "user_requested"),
+            ("timeout", "none"),
+            ("timeout", "manual_review"),
+            ("timeout", "user_requested"),
+            ("partial", "network"),
+            ("completed", "timeout"),
+        )
+
+        for state, reason in valid_pairs:
+            with self.subTest(valid=(state, reason)):
+                payload = _completed_payload(
+                    state=state,
+                    recovery={"automatic_retry": True, "reason": reason},
+                )
+                if state != "completed":
+                    payload.update(verification={}, delivery={}, economics={})
+                result = RunResult.from_payload(**payload)
+                self.assertTrue(result.recovery["automatic_retry"])
+
+        for state, reason in invalid_pairs:
+            with self.subTest(invalid=(state, reason)):
+                payload = _completed_payload(
+                    state=state,
+                    recovery={"automatic_retry": True, "reason": reason},
+                )
+                if state != "completed":
+                    payload.update(verification={}, delivery={}, economics={})
+                with self.assertRaisesRegex(ValueError, "automatic retry"):
+                    RunResult.from_payload(**payload)
+
+    def test_compatibility_retry_requires_the_same_safe_terminal_pair(self) -> None:
+        completed = _completed_payload(
+            compatibility={
+                "state": "compatible",
+                "source_schema_version": 1,
+                "automatic_retry": True,
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "automatic retry"):
+            RunResult.from_payload(**completed)
+
+        retryable = _completed_payload(
+            state="failed",
+            recovery={"automatic_retry": True, "reason": "network"},
+            verification={},
+            delivery={},
+            economics={},
+            compatibility={
+                "state": "compatible",
+                "source_schema_version": 1,
+                "automatic_retry": True,
+            },
+        )
+        result = RunResult.from_payload(**retryable)
+        self.assertTrue(result.compatibility["automatic_retry"])
+
     def test_provider_evidence_is_a_reference_not_a_mutable_snapshot(self) -> None:
         payload = _completed_payload(
             provider={
@@ -268,7 +334,7 @@ class RunResultTests(unittest.TestCase):
             }
         )
 
-        with self.assertRaisesRegex(ValueError, "reference"):
+        with self.assertRaisesRegex(ValueError, "reference|raw output"):
             RunResult.from_payload(**payload)
 
     def test_digest_without_record_id_path_or_uri_is_not_a_reference(self) -> None:
@@ -294,6 +360,95 @@ class RunResultTests(unittest.TestCase):
                     RunResult.from_payload(
                         **_completed_payload(provider=provider)
                     )
+
+    def test_diagnostics_rejects_direct_and_nested_raw_snapshot_fields(self) -> None:
+        diagnostics_values = (
+            {"record_refs": [], "output": "raw provider output"},
+            {"record_refs": [], "payload": {"text": "raw provider payload"}},
+            {"record_refs": [], "note": "undeclared even though scalar"},
+            {
+                "record_refs": [],
+                "extra": {"nested": {"metadata": {"response": "raw"}}},
+            },
+        )
+        for diagnostics in diagnostics_values:
+            with self.subTest(diagnostics=diagnostics):
+                with self.assertRaisesRegex(ValueError, "diagnostics"):
+                    RunResult.from_payload(
+                        **_completed_payload(diagnostics=diagnostics)
+                    )
+
+    def test_diagnostics_accepts_only_declared_safe_primitive_fields(self) -> None:
+        result = RunResult.from_payload(
+            **_completed_payload(
+                diagnostics={
+                    "record_refs": [_reference("diagnostic")],
+                    "codes": ["illegal_lifecycle_transition"],
+                    "count": 1,
+                    "truncated": False,
+                }
+            )
+        )
+
+        self.assertEqual(result.diagnostics["count"], 1)
+        self.assertEqual(
+            result.diagnostics["codes"], ("illegal_lifecycle_transition",)
+        )
+
+    def test_all_non_provider_evidence_domains_reject_nested_raw_fields(self) -> None:
+        cases = (
+            {"identity": {"run_id": "run-1", "metadata": {"output": "raw"}}},
+            {
+                "recovery": {
+                    "automatic_retry": False,
+                    "reason": "none",
+                    "payload": {"raw": "provider"},
+                }
+            },
+            {
+                "verification": {
+                    "applicable": True,
+                    "verdict": "verified",
+                    "record_ref": _reference("verification"),
+                    "output": "raw",
+                }
+            },
+            {
+                "delivery": {
+                    "applicable": True,
+                    "verdict": "delivered",
+                    "record_ref": _reference("delivery"),
+                    "metadata": {"response": "raw"},
+                }
+            },
+            {
+                "economics": {
+                    "integrity": "reconciled",
+                    "record_ref": _reference("economics"),
+                    "payload": {"raw": "provider"},
+                }
+            },
+            {
+                "authority": {
+                    "mutating": True,
+                    "record_ref": _reference("authority"),
+                    "metadata": {"transcript": "raw"},
+                }
+            },
+            {
+                "compatibility": {
+                    "state": "compatible",
+                    "source_schema_version": 1,
+                    "automatic_retry": False,
+                    "payload": {"output": "raw"},
+                }
+            },
+        )
+
+        for replacement in cases:
+            with self.subTest(domain=next(iter(replacement))):
+                with self.assertRaisesRegex(ValueError, "raw output"):
+                    RunResult.from_payload(**_completed_payload(**replacement))
 
     def test_terminal_timestamp_must_be_timezone_qualified_iso_8601(self) -> None:
         payload = _completed_payload(final_transition_at="yesterday")

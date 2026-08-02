@@ -73,7 +73,7 @@ _BLOCKED = frozenset({"blocked", "provider_blocked"})
 _STUCK = frozenset({"incomplete", "stuck", "stuck_no_progress"})
 _FAILED = frozenset({"error", "fail_open", "failed"})
 
-_CANCELLED_REASONS = _CANCELLED | {"cancel_requested"}
+_CANCELLED_REASONS = _CANCELLED
 _USER_INPUT_REASONS = _USER_INPUT
 _CONSENT_REASONS = _CONSENT | {"approval_required", "consent_required"}
 _RETRYABLE_REASONS = _RETRYABLE | {
