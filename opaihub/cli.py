@@ -162,7 +162,24 @@ def cmd_agent(args: argparse.Namespace) -> int:
 
 def cmd_workflow(args: argparse.Namespace) -> int:
     root = _project(args.project)
-    print_json(run_workflow(root, args.id, execute=args.execute, timeout=args.timeout))
+    result = run_workflow(
+        root,
+        args.id,
+        execute=args.execute,
+        timeout=args.timeout,
+        task_id=getattr(args, "task_id", None),
+    )
+    print_json(result)
+    if args.execute:
+        from .run_state import exit_code_for
+
+        try:
+            return exit_code_for(str(result["run_state"]))
+        except (KeyError, ValueError):
+            # A workflow that could not create a durable run has no terminal
+            # lifecycle outcome. Preserve the CLI's generic execution-error
+            # contract rather than reporting a false success.
+            return 2
     return 0
 
 
@@ -560,6 +577,10 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("id")
     w.add_argument("--execute", action="store_true")
     w.add_argument("--timeout", type=int, default=120)
+    w.add_argument(
+        "--task-id",
+        help="stable task identity; reuse it for a new retry attempt",
+    )
     w.set_defaults(func=cmd_workflow)
 
     p = sub.add_parser("mcp")
