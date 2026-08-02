@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import subprocess
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from opaihub.checkpoints import (
     COMPLETION_STATES,
@@ -19,6 +21,77 @@ from opaihub.checkpoints import (
 )
 
 from tests._helpers import FakeAccountRunner, make_repo
+
+
+def _finalize_checkpoint_in_child(
+    project_root: str,
+    checkpoint_id: str,
+    completion_state: str,
+    start: multiprocessing.synchronize.Event,
+    results: multiprocessing.queues.Queue,
+) -> None:
+    """Race worker kept at module scope so Windows ``spawn`` can import it."""
+    start.wait(timeout=15)
+    try:
+        checkpoint = finalize_run_checkpoint(
+            Path(project_root),
+            checkpoint_id,
+            completion_state=completion_state,
+            outcome=f"finalized as {completion_state}",
+        )
+        results.put(("ok", checkpoint.completion_state))
+    except Exception as exc:  # pragma: no cover - asserted in parent process
+        results.put(("error", repr(exc)))
+
+
+def _recover_stale_checkpoint_in_child(
+    project_root: str,
+    checkpoint_id: str,
+    snapshot_taken: multiprocessing.synchronize.Event,
+    continue_recovery: multiprocessing.synchronize.Event,
+    results: multiprocessing.queues.Queue,
+) -> None:
+    """Model recovery after it has already observed a pending checkpoint."""
+    try:
+        stale = load_run_checkpoint(Path(project_root), checkpoint_id)
+        if stale.completion_state != "pending":
+            results.put(("error", "recovery worker did not observe pending state"))
+            return
+        snapshot_taken.set()
+        continue_recovery.wait(timeout=15)
+        checkpoint = finalize_run_checkpoint(
+            Path(project_root),
+            checkpoint_id,
+            completion_state="interrupted",
+            outcome="Run interrupted before finalizing; review before reuse",
+            changed_files=stale.baseline_changed_files,
+            recovery_actions=("inspect the working tree against the recorded git head",),
+        )
+        results.put(("ok", checkpoint.completion_state))
+    except Exception as exc:  # pragma: no cover - asserted in parent process
+        results.put(("error", repr(exc)))
+
+
+def _replay_checkpoint_creation_in_child(
+    project_root: str,
+    checkpoint_id: str,
+    results: multiprocessing.queues.Queue,
+) -> None:
+    """Replay a same-id create as a separate process after a prior attempt."""
+    try:
+        checkpoint = create_run_checkpoint(
+            Path(project_root),
+            task="replayed start request",
+            task_id="task-race",
+            edit_capable=True,
+            mode="implement",
+            model="hermetic",
+            checkpoint_id=checkpoint_id,
+            read_budget=False,
+        )
+        results.put(("ok", checkpoint.completion_state, checkpoint.outcome))
+    except Exception as exc:  # pragma: no cover - asserted in parent process
+        results.put(("error", repr(exc)))
 
 
 class CheckpointContractTests(unittest.TestCase):
@@ -139,6 +212,170 @@ class CheckpointContractTests(unittest.TestCase):
             self.assertTrue(recovered[0].recovery_actions)
             # A second sweep is idempotent (nothing pending remains).
             self.assertEqual(recover_interrupted_checkpoints(root), [])
+
+    def test_stale_recovery_cannot_overwrite_a_checkpoint_that_just_finished(self):
+        """Recovery's stale pending snapshot must lose to a real finalization."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            pending = create_run_checkpoint(
+                root,
+                task="finish safely",
+                task_id="task-race",
+                edit_capable=True,
+                mode="implement",
+                model="hermetic",
+                read_budget=False,
+            )
+            finalized = finalize_run_checkpoint(
+                root,
+                pending.checkpoint_id,
+                completion_state="answered",
+                outcome="completed normally",
+                changed_files=["finished.py"],
+            )
+            path = root / ".opaihub" / "agent" / "checkpoints" / (
+                f"{pending.checkpoint_id}.json"
+            )
+            before_recovery = path.read_bytes()
+
+            # This models a recovery process which enumerated the checkpoint
+            # while it was pending, then raced a normal finalizer to commit.
+            with mock.patch(
+                "opaihub.checkpoints.list_run_checkpoints", return_value=[pending]
+            ):
+                self.assertEqual(recover_interrupted_checkpoints(root), [])
+
+            self.assertEqual(load_run_checkpoint(root, pending.checkpoint_id), finalized)
+            self.assertEqual(path.read_bytes(), before_recovery)
+
+    def test_recovery_process_cannot_overwrite_a_checkpoint_finalized_mid_recovery(self):
+        """The recovery race is protected even when the contenders are processes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pending = create_run_checkpoint(
+                root,
+                task="finish safely",
+                task_id="task-race",
+                edit_capable=True,
+                mode="implement",
+                model="hermetic",
+                checkpoint_id="recovery-race",
+                read_budget=False,
+            )
+            context = multiprocessing.get_context("spawn")
+            snapshot_taken = context.Event()
+            continue_recovery = context.Event()
+            results = context.Queue()
+            recovery = context.Process(
+                target=_recover_stale_checkpoint_in_child,
+                args=(
+                    str(root),
+                    pending.checkpoint_id,
+                    snapshot_taken,
+                    continue_recovery,
+                    results,
+                ),
+            )
+            recovery.start()
+            self.assertTrue(snapshot_taken.wait(timeout=15))
+            finalized = finalize_run_checkpoint(
+                root,
+                pending.checkpoint_id,
+                completion_state="answered",
+                outcome="completed normally",
+                changed_files=["finished.py"],
+            )
+            continue_recovery.set()
+            recovery.join(timeout=20)
+
+            self.assertFalse(recovery.is_alive(), "recovery process timed out")
+            self.assertEqual(recovery.exitcode, 0)
+            self.assertEqual(results.get(timeout=5), ("ok", "answered"))
+            self.assertEqual(load_run_checkpoint(root, pending.checkpoint_id), finalized)
+
+    def test_concurrent_finalizers_leave_one_readable_terminal_checkpoint(self):
+        """Unique temporary files and a per-checkpoint lock survive real processes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pending = create_run_checkpoint(
+                root,
+                task="finish once",
+                task_id="task-race",
+                edit_capable=True,
+                mode="implement",
+                model="hermetic",
+                checkpoint_id="finalize-race",
+                read_budget=False,
+            )
+            context = multiprocessing.get_context("spawn")
+            start = context.Event()
+            results = context.Queue()
+            states = ("answered", "partial", "failed", "interrupted")
+            workers = [
+                context.Process(
+                    target=_finalize_checkpoint_in_child,
+                    args=(str(root), pending.checkpoint_id, state, start, results),
+                )
+                for state in states
+            ]
+            for worker in workers:
+                worker.start()
+            start.set()
+            for worker in workers:
+                worker.join(timeout=20)
+                self.assertFalse(worker.is_alive(), "checkpoint finalizer timed out")
+                self.assertEqual(worker.exitcode, 0)
+
+            outcomes = [results.get(timeout=5) for _ in workers]
+            self.assertTrue(all(outcome[0] == "ok" for outcome in outcomes), outcomes)
+            persisted = load_run_checkpoint(root, pending.checkpoint_id)
+            self.assertIn(persisted.completion_state, states)
+            self.assertEqual(
+                {outcome[1] for outcome in outcomes}, {persisted.completion_state}
+            )
+            self.assertEqual(
+                list(
+                    (root / ".opaihub" / "agent" / "checkpoints").glob(
+                        f".{pending.checkpoint_id}.json.*.tmp"
+                    )
+                ),
+                [],
+            )
+
+    def test_replayed_creator_cannot_reset_a_terminal_checkpoint(self):
+        """A duplicate start request cannot turn terminal evidence back to pending."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = create_run_checkpoint(
+                root,
+                task="finish once",
+                task_id="task-race",
+                edit_capable=True,
+                mode="implement",
+                model="hermetic",
+                checkpoint_id="create-race",
+                read_budget=False,
+            )
+            finalized = finalize_run_checkpoint(
+                root,
+                checkpoint.checkpoint_id,
+                completion_state="answered",
+                outcome="completed normally",
+                changed_files=["finished.py"],
+            )
+            context = multiprocessing.get_context("spawn")
+            results = context.Queue()
+            replay = context.Process(
+                target=_replay_checkpoint_creation_in_child,
+                args=(str(root), checkpoint.checkpoint_id, results),
+            )
+            replay.start()
+            replay.join(timeout=20)
+
+            self.assertFalse(replay.is_alive(), "duplicate creator timed out")
+            self.assertEqual(replay.exitcode, 0)
+            self.assertEqual(results.get(timeout=5), ("ok", "answered", "completed normally"))
+            self.assertEqual(load_run_checkpoint(root, checkpoint.checkpoint_id), finalized)
 
     def test_invalid_checkpoint_id_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

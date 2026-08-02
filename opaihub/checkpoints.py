@@ -28,6 +28,7 @@ from .command_runner import redact
 from .ledger import task_fingerprint
 from .proc import no_window_kwargs
 from .state import state_dir
+from .atomic_io import atomic_write_text, interprocess_transaction
 
 GitRunner = Callable[..., "subprocess.CompletedProcess[str]"]
 
@@ -108,13 +109,11 @@ def _checkpoint_path(project_root: Path, checkpoint_id: str) -> Path:
 
 def _save(project_root: Path, checkpoint: RunCheckpoint) -> Path:
     path = _checkpoint_path(project_root, checkpoint.checkpoint_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(checkpoint.to_dict(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    with interprocess_transaction(path):
+        atomic_write_text(
+            path,
+            json.dumps(checkpoint.to_dict(), indent=2, sort_keys=True) + "\n",
+        )
     return path
 
 
@@ -210,8 +209,15 @@ def create_run_checkpoint(
         baseline_changed_files=tuple(baseline),
         created_at=_now(),
     )
-    _save(root, checkpoint)
-    return checkpoint
+    path = _checkpoint_path(root, checkpoint.checkpoint_id)
+    with interprocess_transaction(path):
+        # A replayed start request must not reset a checkpoint which another
+        # process has already finalized. Returning the durable record also
+        # makes a same-id create retry harmless.
+        if path.is_file():
+            return _load_checkpoint(path)
+        _save(root, checkpoint)
+        return checkpoint
 
 
 def redact_policy(policy: dict[str, Any]) -> dict[str, Any]:
@@ -241,32 +247,69 @@ def finalize_run_checkpoint(
     recovery_actions: Any = (),
 ) -> RunCheckpoint:
     """Record the run's result: changed files, diff summary, completion (#75)."""
-    if completion_state not in COMPLETION_STATES:
-        raise ValueError(f"Unknown completion state: {completion_state!r}")
-    checkpoint = load_run_checkpoint(project_root, checkpoint_id)
-    resulting = _redact_paths(changed_files)
-    baseline = set(checkpoint.baseline_changed_files)
-    # Files changed *during* the run are those not already dirty at baseline.
-    during = [path for path in resulting if path not in baseline]
-    finalized = replace(
-        checkpoint,
+    finalized, _ = _finalize_pending_checkpoint(
+        project_root,
+        checkpoint_id,
         completion_state=completion_state,
-        outcome=redact(str(outcome)),
-        result_changed_files=tuple(resulting),
-        changed_during_run=tuple(during),
-        diff_summary=dict(diff_summary or {}),
-        completion_verdict=dict(completion_verdict or {}),
-        recovery_actions=tuple(redact(str(item)) for item in (recovery_actions or ())),
-        finalized_at=_now(),
+        outcome=outcome,
+        changed_files=changed_files,
+        diff_summary=diff_summary,
+        completion_verdict=completion_verdict,
+        recovery_actions=recovery_actions,
     )
-    _save(project_root, finalized)
     return finalized
 
 
+def _finalize_pending_checkpoint(
+    project_root: Path,
+    checkpoint_id: str,
+    *,
+    completion_state: str,
+    outcome: str = "",
+    changed_files: Any = (),
+    diff_summary: dict[str, Any] | None = None,
+    completion_verdict: dict[str, Any] | None = None,
+    recovery_actions: Any = (),
+) -> tuple[RunCheckpoint, bool]:
+    """Finalize once, returning whether this caller made the durable change."""
+    if completion_state not in COMPLETION_STATES:
+        raise ValueError(f"Unknown completion state: {completion_state!r}")
+    path = _checkpoint_path(project_root, checkpoint_id)
+    with interprocess_transaction(path):
+        checkpoint = _load_checkpoint(path)
+        # A terminal checkpoint is immutable: normal completion wins over a
+        # stale recovery snapshot, and duplicate finalize calls are idempotent.
+        if checkpoint.completion_state != "pending":
+            return checkpoint, False
+        resulting = _redact_paths(changed_files)
+        baseline = set(checkpoint.baseline_changed_files)
+        # Files changed *during* the run are those not already dirty at baseline.
+        during = [path for path in resulting if path not in baseline]
+        finalized = replace(
+            checkpoint,
+            completion_state=completion_state,
+            outcome=redact(str(outcome)),
+            result_changed_files=tuple(resulting),
+            changed_during_run=tuple(during),
+            diff_summary=dict(diff_summary or {}),
+            completion_verdict=dict(completion_verdict or {}),
+            recovery_actions=tuple(
+                redact(str(item)) for item in (recovery_actions or ())
+            ),
+            finalized_at=_now(),
+        )
+        _save(project_root, finalized)
+        return finalized, True
+
+
 def load_run_checkpoint(project_root: Path, checkpoint_id: str) -> RunCheckpoint:
-    data = json.loads(
-        _checkpoint_path(project_root, checkpoint_id).read_text(encoding="utf-8")
-    )
+    path = _checkpoint_path(project_root, checkpoint_id)
+    with interprocess_transaction(path):
+        return _load_checkpoint(path)
+
+
+def _load_checkpoint(path: Path) -> RunCheckpoint:
+    data = json.loads(path.read_text(encoding="utf-8"))
     return RunCheckpoint(
         checkpoint_id=str(data["checkpoint_id"]),
         task_id=str(data.get("task_id") or ""),
@@ -308,16 +351,16 @@ def recover_interrupted_checkpoints(project_root: Path) -> list[RunCheckpoint]:
     recovered = []
     for checkpoint in list_run_checkpoints(project_root):
         if checkpoint.completion_state == "pending":
-            recovered.append(
-                finalize_run_checkpoint(
-                    project_root,
-                    checkpoint.checkpoint_id,
-                    completion_state="interrupted",
-                    outcome="Run interrupted before finalizing; review before reuse",
-                    changed_files=checkpoint.baseline_changed_files,
-                    recovery_actions=(
-                        "inspect the working tree against the recorded git head",
-                    ),
-                )
+            finalized, recovered_here = _finalize_pending_checkpoint(
+                project_root,
+                checkpoint.checkpoint_id,
+                completion_state="interrupted",
+                outcome="Run interrupted before finalizing; review before reuse",
+                changed_files=checkpoint.baseline_changed_files,
+                recovery_actions=(
+                    "inspect the working tree against the recorded git head",
+                ),
             )
+            if recovered_here:
+                recovered.append(finalized)
     return recovered

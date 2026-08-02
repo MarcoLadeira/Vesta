@@ -948,10 +948,28 @@ def run_build_request(
         allow_cloud=allow_cloud,
         allow_limit=allow_limit,
         resume_context=resume_context,
+        defer_checkpoint_finalization=True,
     )
     status = str(result.get("status") or "error")
     answer = str(result.get("answer") or "")
     receipt = result.get("receipt") or {}
+
+    def _pipeline_completion_state() -> str:
+        """Map the shared pipeline verdict to the checkpoint's terminal state."""
+        verdict = result.get("completion_verdict")
+        verdict_name = (
+            str(verdict.get("verdict") or "").lower()
+            if isinstance(verdict, dict)
+            else ""
+        )
+        return {
+            "completed": "answered",
+            "partial": "partial",
+            "blocked": "blocked",
+            "failed": "failed",
+            "cancelled": "cancelled_before_edit",
+            "timeout": "timeout",
+        }.get(verdict_name, "failed")
 
     def _continuity(
         *,
@@ -1070,7 +1088,10 @@ def run_build_request(
             "error": result.get("error"),
             "context": context_stats,
             **gate_fields,
-            **_continuity(),
+            **_continuity(
+                final_status=status,
+                completion_state=_pipeline_completion_state(),
+            ),
         }
     edits = parse_file_blocks(answer)
     if not edits:
@@ -1081,7 +1102,7 @@ def run_build_request(
             "answer": answer,
             "context": context_stats,
             "receipt": receipt,
-            **_continuity(),
+            **_continuity(final_status="no_edits", completion_state="answered"),
         }
     outcome = apply_edits(root, edits, manifest)
     verify: dict[str, Any] | None = None

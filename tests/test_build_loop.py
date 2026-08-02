@@ -33,6 +33,7 @@ from opaihub.build_loop import (
     save_app_manifest,
     select_context,
 )
+from opaihub.checkpoints import load_run_checkpoint
 
 
 def _scaffold(tmp: str):
@@ -576,6 +577,12 @@ class RunBuildRequestTests(unittest.TestCase):
             self.assertEqual(
                 (Path(result.root) / "app.js").read_text(encoding="utf-8"), before
             )
+            checkpoint = load_run_checkpoint(
+                Path(result.root), report["checkpoint_id"]
+            )
+            self.assertEqual(checkpoint.completion_state, "answered")
+            self.assertEqual(checkpoint.outcome, "no_edits")
+            self.assertEqual(checkpoint.result_changed_files, ())
 
     def test_not_an_app_is_a_clean_error(self):
         with tempfile.TemporaryDirectory() as tmp:

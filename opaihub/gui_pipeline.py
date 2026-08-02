@@ -702,6 +702,7 @@ def handle_gui_message(
     allowCommand: str | None = None,
     allow_edits_once: bool = False,
     allowEditsOnce: bool = False,
+    defer_checkpoint_finalization: bool = False,
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -1521,17 +1522,18 @@ def handle_gui_message(
         else:
             completion = "failed"
         recovery = (verdict.next_action,) if verdict.next_action else ()
-        with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
-            finalize_run_checkpoint(
-                root,
-                checkpoint.checkpoint_id,
-                completion_state=completion,
-                outcome=str(payload.get("status") or ""),
-                changed_files=changed_files,
-                diff_summary=diff_review.get("summary") or {},
-                completion_verdict=stored_verdict,
-                recovery_actions=recovery,
-            )
+        if not defer_checkpoint_finalization:
+            with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a turn
+                finalize_run_checkpoint(
+                    root,
+                    checkpoint.checkpoint_id,
+                    completion_state=completion,
+                    outcome=str(payload.get("status") or ""),
+                    changed_files=changed_files,
+                    diff_summary=diff_review.get("summary") or {},
+                    completion_verdict=stored_verdict,
+                    recovery_actions=recovery,
+                )
         # One terminal task-outcome per turn (#288), keyed by the turn id so it
         # is idempotent and reconcilable to the authoritative model_call spend.
         # A pre-work cancel or awaiting-input turn records nothing (honest no-op).
