@@ -15,6 +15,7 @@ class WebCiContractTests(unittest.TestCase):
         self.assertIn("contents: read", workflow)
         self.assertIn("\n  web-test:\n", workflow)
         web_job = workflow.split("\n  web-test:\n", maxsplit=1)[1]
+        self.assertIn("runs-on: windows-latest", web_job)
 
         required_contract = {
             "supported Node runtime": 'node-version: "22"',
@@ -23,7 +24,7 @@ class WebCiContractTests(unittest.TestCase):
             "high-severity audit": "npm audit --audit-level=high",
             "unit tests": "npm run test:unit",
             "design token lint": "npm run test:tokens",
-            "Chromium dependencies": "playwright install --with-deps chromium",
+            "Windows Chromium install": "playwright install chromium",
             "browser E2E tests": "npm run test:e2e",
             "failure artifacts": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
         }

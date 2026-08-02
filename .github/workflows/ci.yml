@@ -139,7 +139,9 @@ jobs:
     if: >-
       github.event_name != 'schedule' &&
       (github.event_name != 'workflow_dispatch' || inputs.profile == 'fast')
-    runs-on: ubuntu-latest
+    # The committed Playwright visual baselines are Windows Chromium images;
+    # running them elsewhere turns renderer/font variation into false failures.
+    runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -169,8 +171,8 @@ jobs:
       - name: Run JavaScript unit tests
         run: npm run test:unit
 
-      - name: Install Chromium and system dependencies
-        run: npx playwright install --with-deps chromium
+      - name: Install Chromium for the Windows visual baseline
+        run: npx playwright install chromium
 
       - name: Run Chromium end-to-end tests
         run: npm run test:e2e
