@@ -11,6 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger, redact_structure
 
@@ -140,20 +141,51 @@ class AgentRuntime:
         self.task_id = _valid_task_id(task_id or uuid.uuid4().hex[:16])
         self.state = AgentRuntimeState(task_id=self.task_id)
         self.ledger = WorkflowLedger(self.project_root, task_id=self.task_id)
-        self._persist()
+        with interprocess_transaction(self.path):
+            if self.path.exists():
+                self.state = self._read_state(self.path, self.task_id)
+            else:
+                self._write_state(self.state)
 
     @property
     def path(self) -> Path:
         return state_dir(self.project_root) / "agent" / "tasks" / f"{self.task_id}.json"
 
-    def _persist(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps(self.state.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+    def _write_state(self, state: AgentRuntimeState) -> None:
+        atomic_write_text(
+            self.path,
+            json.dumps(state.to_dict(), indent=2, sort_keys=True) + "\n",
         )
-        temporary.replace(self.path)
+
+    @classmethod
+    def _read_state(cls, path: Path, task_id: str) -> AgentRuntimeState:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        persisted_task_id = _valid_task_id(str(data["task_id"]))
+        if persisted_task_id != task_id:
+            raise ValueError("Persisted runtime state has a mismatched task id")
+        history = tuple(
+            RuntimeEvent(
+                sequence=int(item["sequence"]),
+                from_phase=str(item["from_phase"]),
+                phase=str(item["phase"]),
+                message=str(item["message"]),
+                metadata=dict(item.get("metadata") or {}),
+                blocker=str(item.get("blocker") or ""),
+                next_actions=tuple(item.get("next_actions") or ()),
+                created_at=str(item.get("created_at") or ""),
+            )
+            for item in data.get("history") or ()
+        )
+        return AgentRuntimeState(
+            task_id=persisted_task_id,
+            phase=RuntimePhase(data.get("phase", "idle")),
+            message=str(data.get("message") or ""),
+            metadata=dict(data.get("metadata") or {}),
+            blocker=str(data.get("blocker") or ""),
+            next_actions=tuple(data.get("next_actions") or ()),
+            history=history,
+            updated_at=str(data.get("updated_at") or ""),
+        )
 
     def _move(
         self,
@@ -165,40 +197,43 @@ class AgentRuntime:
         next_actions: Iterable[str] = (),
         validate: bool = True,
     ) -> AgentRuntimeState:
-        previous = self.state.phase
-        allowed = _FORWARD.get(previous, set()) | {
-            RuntimePhase.BLOCKED,
-            RuntimePhase.FAILED,
-        }
-        if validate and phase not in allowed:
-            raise ValueError(
-                f"Invalid runtime transition: {previous.value} -> {phase.value}"
+        with interprocess_transaction(self.path):
+            self.state = self._read_state(self.path, self.task_id)
+            previous = self.state.phase
+            allowed = _FORWARD.get(previous, set()) | {
+                RuntimePhase.BLOCKED,
+                RuntimePhase.FAILED,
+            }
+            if validate and phase not in allowed:
+                raise ValueError(
+                    f"Invalid runtime transition: {previous.value} -> {phase.value}"
+                )
+            created = _now()
+            safe_metadata = redact_structure(dict(metadata or {}))
+            event = RuntimeEvent(
+                sequence=len(self.state.history) + 1,
+                from_phase=previous.value,
+                phase=phase.value,
+                message=str(redact_structure(str(message))),
+                metadata=dict(safe_metadata),
+                blocker=str(redact_structure(str(blocker))),
+                next_actions=tuple(
+                    str(redact_structure(str(item))) for item in next_actions
+                ),
+                created_at=created,
             )
-        created = _now()
-        safe_metadata = redact_structure(dict(metadata or {}))
-        event = RuntimeEvent(
-            sequence=len(self.state.history) + 1,
-            from_phase=previous.value,
-            phase=phase.value,
-            message=str(redact_structure(str(message))),
-            metadata=dict(safe_metadata),
-            blocker=str(redact_structure(str(blocker))),
-            next_actions=tuple(
-                str(redact_structure(str(item))) for item in next_actions
-            ),
-            created_at=created,
-        )
-        self.state = AgentRuntimeState(
-            task_id=self.task_id,
-            phase=phase,
-            message=event.message,
-            metadata=event.metadata,
-            blocker=event.blocker,
-            next_actions=event.next_actions,
-            history=(*self.state.history, event),
-            updated_at=created,
-        )
-        self._persist()
+            next_state = AgentRuntimeState(
+                task_id=self.task_id,
+                phase=phase,
+                message=event.message,
+                metadata=event.metadata,
+                blocker=event.blocker,
+                next_actions=event.next_actions,
+                history=(*self.state.history, event),
+                updated_at=created,
+            )
+            self._write_state(next_state)
+            self.state = next_state
         self.ledger.append(
             "state_transition",
             task=self.task,
@@ -262,35 +297,12 @@ class AgentRuntime:
         root = project_root.expanduser().resolve()
         task_id = _valid_task_id(task_id)
         path = state_dir(root) / "agent" / "tasks" / f"{task_id}.json"
-        data = json.loads(path.read_text(encoding="utf-8"))
         instance = cls.__new__(cls)
         instance.project_root = root
         instance.task = ""
         instance.task_id = str(task_id)
         instance.ledger = WorkflowLedger(root, task_id=str(task_id))
-        history = tuple(
-            RuntimeEvent(
-                sequence=int(item["sequence"]),
-                from_phase=str(item["from_phase"]),
-                phase=str(item["phase"]),
-                message=str(item["message"]),
-                metadata=dict(item.get("metadata") or {}),
-                blocker=str(item.get("blocker") or ""),
-                next_actions=tuple(item.get("next_actions") or ()),
-                created_at=str(item.get("created_at") or ""),
-            )
-            for item in data.get("history") or ()
-        )
-        instance.state = AgentRuntimeState(
-            task_id=str(data["task_id"]),
-            phase=RuntimePhase(data.get("phase", "idle")),
-            message=str(data.get("message") or ""),
-            metadata=dict(data.get("metadata") or {}),
-            blocker=str(data.get("blocker") or ""),
-            next_actions=tuple(data.get("next_actions") or ()),
-            history=history,
-            updated_at=str(data.get("updated_at") or ""),
-        )
+        instance.state = cls._read_state(path, task_id)
         return instance
 
 
