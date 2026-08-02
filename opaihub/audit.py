@@ -5,16 +5,23 @@ actions, evidence packets, confirmations - so a team or auditor can answer "what
 did the agent do, and did it follow policy?". Each entry hashes the previous
 one, so any edit or deletion breaks the chain. Privacy-safe: string fields are
 redacted and no raw prompts are stored. Exports can be signed.
+
+The audit log and its head checkpoint are updated under one transaction. A
+process crash after the durable log append but before checkpoint replacement can
+only leave a stale checkpoint; :func:`recover_audit_checkpoint` rebuilds it
+after the complete hash chain has been verified. It never repairs a damaged log.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .state import state_dir
 
@@ -71,16 +78,13 @@ def _last_entry(project_root: Path) -> dict[str, Any] | None:
 
 def _write_checkpoint(project_root: Path, entry: dict[str, Any]) -> Path:
     path = checkpoint_path(project_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
     checkpoint = {
         "schema_version": 1,
         "updated_at": _now_iso(),
         "length": int(entry.get("seq", 0)),
         "head_hash": entry.get("entry_hash", GENESIS),
     }
-    path.write_text(
-        json.dumps(checkpoint, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    atomic_write_text(path, json.dumps(checkpoint, indent=2, sort_keys=True) + "\n")
     return path
 
 
@@ -95,6 +99,16 @@ def _read_checkpoint(project_root: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else {"invalid": True}
 
 
+def _append_entry(path: Path, entry: dict[str, Any]) -> None:
+    """Append and fsync one entry while the audit transaction is held."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def record_audit_event(
     project_root: Path,
     event_type: str,
@@ -104,26 +118,25 @@ def record_audit_event(
 ) -> dict[str, Any]:
     """Append a redacted, hash-chained governance event. Append-only write."""
     root = project_root.expanduser().resolve()
-    last = _last_entry(root)
-    prev_hash = last.get("entry_hash", GENESIS) if last else GENESIS
-    seq = (last.get("seq", 0) + 1) if last else 1
-
-    entry: dict[str, Any] = {
-        "seq": seq,
-        "created_at": _now_iso(),
-        "event_type": event_type,
-        "actor": actor,
-        "prev_hash": prev_hash,
-    }
-    for key, value in fields.items():
-        entry[key] = redact(value) if isinstance(value, str) else value
-    entry["entry_hash"] = _entry_hash(prev_hash, entry)
-
     path = audit_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry, sort_keys=True) + "\n")
-    _write_checkpoint(root, entry)
+    with interprocess_transaction(path):
+        last = _last_entry(root)
+        prev_hash = last.get("entry_hash", GENESIS) if last else GENESIS
+        seq = (last.get("seq", 0) + 1) if last else 1
+
+        entry: dict[str, Any] = {
+            "seq": seq,
+            "created_at": _now_iso(),
+            "event_type": event_type,
+            "actor": actor,
+            "prev_hash": prev_hash,
+        }
+        for key, value in fields.items():
+            entry[key] = redact(value) if isinstance(value, str) else value
+        entry["entry_hash"] = _entry_hash(prev_hash, entry)
+
+        _append_entry(path, entry)
+        _write_checkpoint(root, entry)
     return entry
 
 
@@ -165,10 +178,12 @@ def read_audit(project_root: Path, limit: int | None = None) -> list[dict[str, A
     return _read_audit(project_root, limit)[0]
 
 
-def verify_chain(project_root: Path) -> dict[str, Any]:
-    """Verify the audit hash chain is intact (tamper-evidence)."""
-    root = project_root.expanduser().resolve()
-    path = audit_path(root)
+def _verify_audit_log(
+    project_root: Path,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Verify the audit log without consulting its derived head checkpoint."""
+
+    path = audit_path(project_root)
     events: list[dict[str, Any]] = []
     if path.exists():
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -178,14 +193,14 @@ def verify_chain(project_root: Path) -> dict[str, Any]:
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
-                return {
+                return events, {
                     "ok": False,
                     "length": len(events),
                     "broken_at": line_no - 1,
                     "reason": "malformed audit entry",
                 }
             if not isinstance(entry, dict):
-                return {
+                return events, {
                     "ok": False,
                     "length": len(events),
                     "broken_at": line_no - 1,
@@ -195,7 +210,7 @@ def verify_chain(project_root: Path) -> dict[str, Any]:
     prev_hash = GENESIS
     for index, entry in enumerate(events):
         if entry.get("prev_hash") != prev_hash:
-            return {
+            return events, {
                 "ok": False,
                 "length": len(events),
                 "broken_at": index,
@@ -203,34 +218,73 @@ def verify_chain(project_root: Path) -> dict[str, Any]:
             }
         recomputed = _entry_hash(prev_hash, entry)
         if recomputed != entry.get("entry_hash"):
-            return {
+            return events, {
                 "ok": False,
                 "length": len(events),
                 "broken_at": index,
                 "reason": "entry_hash mismatch",
             }
         prev_hash = entry["entry_hash"]
-    checkpoint = _read_checkpoint(root)
-    if checkpoint is not None:
+    return events, {"ok": True, "length": len(events), "head_hash": prev_hash}
+
+
+def verify_chain(project_root: Path) -> dict[str, Any]:
+    """Verify the audit hash chain and checkpoint as one consistent snapshot."""
+
+    root = project_root.expanduser().resolve()
+    with interprocess_transaction(audit_path(root)):
+        events, result = _verify_audit_log(root)
+        if not result["ok"]:
+            return result
+        checkpoint = _read_checkpoint(root)
+        if checkpoint is None:
+            return result
         if checkpoint.get("invalid"):
             return {
                 "ok": False,
-                "length": len(events),
-                "head_hash": prev_hash,
+                "length": result["length"],
+                "head_hash": result["head_hash"],
                 "reason": "checkpoint invalid",
             }
         expected_length = checkpoint.get("length")
         expected_hash = checkpoint.get("head_hash")
-        if expected_length != len(events) or expected_hash != prev_hash:
+        if expected_length != result["length"] or expected_hash != result["head_hash"]:
             return {
                 "ok": False,
-                "length": len(events),
-                "head_hash": prev_hash,
+                "length": result["length"],
+                "head_hash": result["head_hash"],
                 "checkpoint_length": expected_length,
                 "checkpoint_head_hash": expected_hash,
                 "reason": "checkpoint mismatch",
             }
-    return {"ok": True, "length": len(events), "head_hash": prev_hash}
+        return result
+
+
+def recover_audit_checkpoint(project_root: Path) -> dict[str, Any]:
+    """Rebuild only a stale audit checkpoint from an intact, durable log.
+
+    This is the crash-recovery path for an append that reached the audit log
+    before its atomic checkpoint replacement. A malformed or hash-inconsistent
+    log stays failed closed and is never rewritten into an apparently valid head.
+    """
+
+    root = project_root.expanduser().resolve()
+    with interprocess_transaction(audit_path(root)):
+        events, result = _verify_audit_log(root)
+        if not result["ok"]:
+            return {**result, "recovered": False}
+        checkpoint = _read_checkpoint(root)
+        stale = (
+            checkpoint is None
+            or checkpoint.get("invalid")
+            or checkpoint.get("length") != result["length"]
+            or checkpoint.get("head_hash") != result["head_hash"]
+        )
+        if stale:
+            _write_checkpoint(
+                root, events[-1] if events else {"seq": 0, "entry_hash": GENESIS}
+            )
+        return {**result, "recovered": stale}
 
 
 def summarize_audit(project_root: Path) -> dict[str, Any]:
