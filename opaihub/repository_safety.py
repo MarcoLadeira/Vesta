@@ -349,7 +349,19 @@ def _run_git(
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:
-        return git_run(["git", *args], **kwargs)
+        # `--no-optional-locks` is what makes these probes genuinely read-only.
+        # `git status` and `git diff` opportunistically *refresh the index* --
+        # they take `.git/index.lock` and rewrite `.git/index` to update its
+        # stat cache. Sequentially that was invisible. Run concurrently (the
+        # probe issues them in parallel) they contend for that lock and rewrite
+        # the index underneath each other, so `index_fingerprint` changed
+        # between capturing a repository handle and revalidating it, and a
+        # perfectly ordinary edit was refused as `REPOSITORY_SAFETY_BLOCKED`.
+        #
+        # The flag tells git to skip every lock it only wanted as an
+        # optimisation, which is exactly the guarantee the parallel probe
+        # assumed it already had.
+        return git_run(["git", "--no-optional-locks", *args], **kwargs)
     except (OSError, subprocess.SubprocessError) as exc:
         raise RepositoryProbeError("probe_unavailable", str(exc)) from exc
 
@@ -395,8 +407,32 @@ def _status_fingerprint(state: DirtyState) -> str:
     return hashlib.sha256(payload.encode("utf-8", "surrogateescape")).hexdigest()
 
 
-def _index_fingerprint(git_dir: Path) -> str:
-    """Hash the real index bytes so a same-path stage change is never invisible."""
+def _index_fingerprint(root: Path, git_dir: Path, *, git_run: GitRun) -> str:
+    """Fingerprint what the index *means*: staged mode, blob, stage and path.
+
+    This used to hash the raw ``.git/index`` bytes, which carry each entry's
+    stat cache (mtime, ctime, size, inode) alongside its content identity. Git
+    rewrites that cache whenever it feels like it — refreshing entries it
+    considers "racily clean", or rolling the index back when a partial
+    ``git commit`` fails — so the fingerprint changed while nothing about the
+    user's staged content did.
+
+    The observed failure: ``git add`` refreshed the stat cache, a handle was
+    captured against the new bytes, the commit then failed with "nothing to
+    commit" and git restored the previous index, and the next edit was refused
+    as ``REPOSITORY_SAFETY_BLOCKED`` with ``index_changed``. Nothing unsafe had
+    happened; the safety gate was reacting to git's own bookkeeping.
+
+    ``ls-files --stage`` is the content identity the docstring always claimed
+    to want: a same-path stage change still alters the blob sha and is caught,
+    while stat churn is invisible. Falling back to the raw bytes keeps the
+    check strict (never silently absent) if the command is unavailable.
+    """
+
+    listing = _run_git(root, ["ls-files", "--stage", "-z"], git_run=git_run, text=False)
+    if listing.returncode == 0:
+        payload = listing.stdout or b""
+        return hashlib.sha256(b"staged\0" + payload).hexdigest()
 
     index = git_dir / "index"
     try:
@@ -636,7 +672,7 @@ def _probe_repository(
         detached=not bool(branch),
         head_sha=head_sha,
         status_fingerprint=_status_fingerprint(dirty_state),
-        index_fingerprint=_index_fingerprint(git_dir),
+        index_fingerprint=_index_fingerprint(root, git_dir, git_run=git_run),
         working_tree_fingerprint=_working_tree_fingerprint(
             staged_diff, unstaged_diff, sorted_untracked, untracked_hashes
         ),
