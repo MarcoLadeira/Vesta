@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import uuid
 
+from . import owner_lease, run_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import run_policy_command
 from .loader import registry_items
@@ -336,6 +337,136 @@ def workflow_log_path(project_root: Path, run_id: str) -> Path:
     )
 
 
+def workflow_journal_path(project_root: Path, run_id: str) -> Path:
+    """The append-only journal backing one run's snapshot (#517).
+
+    A sibling of :func:`workflow_log_path`, not a replacement — the snapshot
+    file remains the fast-read projection every existing caller already
+    depends on. The journal exists so that projection can be *proven*
+    correct by replay (:func:`replay_workflow_run`) instead of trusted on
+    faith, and so a crash mid-transition leaves durable, monotonically
+    ordered evidence independent of whatever the snapshot rewrite managed to
+    get to disk.
+    """
+    return (
+        state_dir(project_root)
+        / "logs"
+        / "workflows"
+        / f"{_valid_run_id(run_id)}.journal.jsonl"
+    )
+
+
+def workflow_lease_path(project_root: Path, run_id: str) -> Path:
+    """The durable, fenced supervisor lease for one run (#517)."""
+    return owner_lease.lease_path(project_root, f"workflow-{_valid_run_id(run_id)}")
+
+
+def _empty_workflow_projection() -> dict[str, Any]:
+    return {"run_state": None, "reason_code": None, "state_history": [], "steps": {}}
+
+
+def _reduce_workflow_journal(
+    projection: dict[str, Any], event: dict[str, Any]
+) -> dict[str, Any]:
+    """Fold one durable journal event onto the run/step projection it refines.
+
+    Deliberately narrow: the journal is evidence for *state*, not a second
+    home for step commands, output tails or results — those stay exactly
+    where they already live, in the snapshot file, which remains authoritative
+    for anything beyond the canonical state machine.
+    """
+    entry = {
+        "state": event["state"],
+        "at": event["at"],
+        "reason_code": event["reason_code"],
+    }
+    if event["kind"] == "run":
+        return {
+            **projection,
+            "run_state": event["state"],
+            "reason_code": event["reason_code"],
+            "state_history": [*projection["state_history"], entry],
+        }
+    steps = dict(projection["steps"])
+    index = str(event["step_index"])
+    step = dict(
+        steps.get(index)
+        or {"run_state": None, "reason_code": None, "state_history": []}
+    )
+    step["run_state"] = event["state"]
+    step["reason_code"] = event["reason_code"]
+    step["state_history"] = [*step["state_history"], entry]
+    steps[index] = step
+    return {**projection, "steps": steps}
+
+
+def _validate_workflow_journal_event(event: dict[str, Any]) -> bool:
+    if event.get("kind") not in {"run", "step"}:
+        return False
+    try:
+        RunState(str(event.get("state") or "").strip().lower())
+    except ValueError:
+        return False
+    if not isinstance(event.get("at"), str) or not event["at"]:
+        return False
+    if not isinstance(event.get("reason_code"), str) or not event["reason_code"]:
+        return False
+    if event["kind"] == "step":
+        index = event.get("step_index")
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+            return False
+    return True
+
+
+def _append_workflow_journal(
+    project_root: Path, run_id: str, event: dict[str, Any]
+) -> dict[str, Any]:
+    _record, projection = run_journal.append(
+        workflow_journal_path(project_root, run_id),
+        event,
+        reduce=_reduce_workflow_journal,
+        empty=_empty_workflow_projection,
+        validate=_validate_workflow_journal_event,
+    )
+    return projection
+
+
+def replay_workflow_run(project_root: Path, run_id: str) -> dict[str, Any]:
+    """Reconstruct one run's canonical state purely from its journal (#517).
+
+    Ignores the persisted snapshot entirely — this is what proves replay
+    determinism rather than assuming it: for any run, this must agree with
+    the snapshot's ``run_state``, ``reason_code``, and both the run- and
+    step-level ``state_history``.
+    """
+    root = project_root.expanduser().resolve()
+    return run_journal.replay(
+        workflow_journal_path(root, _valid_run_id(run_id)),
+        reduce=_reduce_workflow_journal,
+        empty=_empty_workflow_projection,
+        validate=_validate_workflow_journal_event,
+    )
+
+
+def _renew_workflow_lease(project_root: Path, run_id: str) -> dict[str, Any]:
+    """Best-effort heartbeat for a run's supervisor lease.
+
+    A run's lease is durable evidence for restart recovery, not (yet) a
+    correctness gate this pipeline enforces — refusing to advance a run
+    because a lease renewal lost a race would be a new way for ordinary,
+    single-owner work to fail. A stale or missing lease is claimed rather
+    than renewed, which is always safe today: nothing currently drives the
+    same ``run_id`` from two processes at once (:func:`_reserve_workflow_run`
+    refuses a colliding id outright), so "not owned by us" only happens here
+    if the lease was never acquired in the first place.
+    """
+    path = workflow_lease_path(project_root, run_id)
+    held = owner_lease.current(path)
+    if owner_lease.owned_by_this_process(held):
+        return owner_lease.renew(path, held)
+    return owner_lease.acquire(path)
+
+
 def _read_json_object(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     if not path.exists():
         return None, "missing"
@@ -469,6 +600,29 @@ def _reserve_workflow_run(
         }
         _write_workflow_snapshot(project_root, snapshot)
         _write_workflow_pointer(project_root, snapshot)
+        _append_workflow_journal(
+            project_root,
+            run_id,
+            {
+                "kind": "run",
+                "state": RunState.QUEUED.value,
+                "at": now,
+                "reason_code": "queued",
+            },
+        )
+        for step_index in range(len(snapshot["steps"])):
+            _append_workflow_journal(
+                project_root,
+                run_id,
+                {
+                    "kind": "step",
+                    "step_index": step_index,
+                    "state": RunState.QUEUED.value,
+                    "at": now,
+                    "reason_code": "queued",
+                },
+            )
+        owner_lease.acquire(workflow_lease_path(project_root, run_id))
     return snapshot
 
 
@@ -531,6 +685,18 @@ def _advance_workflow_run(
             _state_event(target, at=now, reason_code=reason_code),
         ],
     }
+    run_id = str(snapshot["run_id"])
+    _append_workflow_journal(
+        project_root,
+        run_id,
+        {
+            "kind": "run",
+            "state": target.value,
+            "at": now,
+            "reason_code": _reason_code(reason_code, fallback="unknown"),
+        },
+    )
+    _renew_workflow_lease(project_root, run_id)
     return updated, _persist_workflow_snapshot(project_root, updated)
 
 
@@ -553,14 +719,27 @@ def _advance_workflow_step(
             f"illegal workflow-step transition: {current.value} -> {target.value}"
         )
     now = _now_iso()
+    clean_reason = _reason_code(reason_code, fallback="unknown")
     step["run_state"] = target.value
-    step["reason_code"] = _reason_code(reason_code, fallback="unknown")
+    step["reason_code"] = clean_reason
     step["state_history"] = [
         *step["state_history"],
         _state_event(target, at=now, reason_code=reason_code),
     ]
     steps[step_index] = step
     updated = {**snapshot, "updated_at": now, "steps": steps}
+    _append_workflow_journal(
+        project_root,
+        str(snapshot["run_id"]),
+        {
+            "kind": "step",
+            "step_index": step_index,
+            "state": target.value,
+            "at": now,
+            "reason_code": clean_reason,
+        },
+    )
+    _renew_workflow_lease(project_root, str(snapshot["run_id"]))
     return updated, _persist_workflow_snapshot(project_root, updated)
 
 
@@ -690,11 +869,16 @@ def read_workflow_log(project_root: Path, run_id: str | None = None) -> dict[str
                 "current_run_id": pointer["run_id"],
                 "current_revision": pointer["revision"],
             }
+        lease = owner_lease.current(workflow_lease_path(root, target_run_id))
         return {
             "state": "current" if target_run_id == pointer["run_id"] else "previous",
             "current_run_id": pointer["run_id"],
             "current_revision": pointer["revision"],
             "run": snapshot,
+            # Restart safety (#517): lets a resume flow tell "abandoned mid-run"
+            # (stale) apart from "another live process is working on this"
+            # (owner_alive_elsewhere) instead of guessing from run_state alone.
+            "lease": owner_lease.describe(lease),
         }
 
 
