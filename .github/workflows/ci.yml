@@ -39,9 +39,9 @@ jobs:
     if: >-
       github.event_name != 'schedule' &&
       (github.event_name != 'workflow_dispatch' || inputs.profile == 'fast')
-    runs-on: >-
-      ${{ (github.event_name == 'pull_request' && 'ubuntu-latest')
-        || 'windows-latest' }}
+    # The canonical Python suite contains Windows desktop contracts, so the
+    # required PR member must run on Windows too (not only post-merge).
+    runs-on: windows-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -100,7 +100,8 @@ jobs:
     if: >-
       github.event_name != 'schedule' &&
       (github.event_name != 'workflow_dispatch' || inputs.profile == 'fast')
-    runs-on: ubuntu-latest
+    # Use the same supported OS as the canonical desktop-contract suite.
+    runs-on: windows-latest
     timeout-minutes: 25
     env:
       # Deliberately fake values prove that no live provider credential is read.
@@ -108,8 +109,6 @@ jobs:
       GOOGLE_API_KEY: hostile-google # pragma: allowlist secret
       GROQ_API_KEY: hostile-groq # pragma: allowlist secret
       MISTRAL_API_KEY: hostile-mistral # pragma: allowlist secret
-      GH_TOKEN: hostile-gh # pragma: allowlist secret
-      GITHUB_TOKEN: hostile-github # pragma: allowlist secret
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
