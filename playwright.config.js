@@ -21,7 +21,12 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "python -m http.server 8099",
+    // Four browser workers fetch the application bundle at once.  The
+    // standard `http.server` CLI is single-threaded, which makes those first
+    // loads serialize on slower hosted Windows runners and causes false test
+    // timeouts.  Keep the zero-dependency server, but handle each request in
+    // its own thread just as the production web server would.
+    command: "python -c \"from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(('localhost', 8099), SimpleHTTPRequestHandler).serve_forever()\"",
     port: 8099,
     reuseExistingServer: true,
     timeout: 20000,
