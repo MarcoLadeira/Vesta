@@ -204,9 +204,27 @@ class PipelineTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_a_cloud_consent_turn_is_waiting_not_blocked(self) -> None:
-        with mock.patch(
-            "opaihub.ask.run_ask",
-            return_value={"status": "confirmation_required", "message": "send?"},
+        # Auto needs a named, available paid model before it can present its
+        # consent card.  Pin that catalog instead of inheriting whichever
+        # accounts happen to be signed in on the machine running the suite.
+        catalog = {
+            "models": [
+                {
+                    "id": "account:claude:sonnet",
+                    "label": "Claude · Sonnet",
+                    "kind": "account",
+                    "provider": "claude",
+                    "paid": True,
+                    "available": True,
+                }
+            ]
+        }
+        with (
+            mock.patch(
+                "opaihub.ask.run_ask",
+                return_value={"status": "confirmation_required", "message": "send?"},
+            ),
+            mock.patch("opai.app_state.available_models", return_value=catalog),
         ):
             result = handle_gui_message(
                 self.root, "explain this repo", model_id="auto", mode="ask"
