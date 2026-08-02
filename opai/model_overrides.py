@@ -105,6 +105,28 @@ def _spec_from(
     return ModelSpec(model_id, display, full, capability, aliases), ""
 
 
+#: Cache keyed by (path, mtime_ns, size). `models_for()` is called on every
+#: model lookup — picker builds, routing decisions, validation — and re-reading
+#: the file each time cost ~68us per call, which is real work to do thousands of
+#: times for a file that changes when the user edits it and not otherwise.
+#: Keying on mtime and size rather than time means an edit still takes effect
+#: immediately: no staleness window to reason about, and nothing to invalidate.
+_CACHE: dict[tuple[str, int, int], OverrideReport] = {}
+_CACHE_MAX = 8
+
+#: There is deliberately *no* cache for the absent-file case, even though it is
+#: the common one. A synthetic benchmark made it look urgent — 0.2us to 57us per
+#: call — but measuring a real operation showed `models_for()` is called 6 times,
+#: for 0.13ms against a 724ms operation: 0.02%. Caching a missing file needs a
+#: time-based TTL (there is no mtime to key on), and a staleness window where a
+#: file the user just created is ignored is a bad trade for 0.13ms.
+
+
+def clear_cache() -> None:
+    """Drop cached state. For tests and for anything that writes the file."""
+    _CACHE.clear()
+
+
 def load_overrides(path: Path | None = None) -> OverrideReport:
     """Read the user's model list. Never raises; never partially applies.
 
@@ -113,8 +135,20 @@ def load_overrides(path: Path | None = None) -> OverrideReport:
     user's intent.
     """
     target = path or overrides_path()
-    if not target.exists():
+
+    try:
+        stat = target.stat()
+        key: tuple[str, int, int] | None = (
+            str(target),
+            stat.st_mtime_ns,
+            stat.st_size,
+        )
+    except OSError:
+        # Missing is the common case and is not an error; anything else that
+        # cannot be stat'ed is treated the same way — no overrides.
         return OverrideReport(models={}, hidden={}, path=target)
+    if key is not None and key in _CACHE:
+        return _CACHE[key]
 
     try:
         raw = json.loads(target.read_text(encoding="utf-8"))
@@ -190,8 +224,16 @@ def load_overrides(path: Path | None = None) -> OverrideReport:
         # All-or-nothing: applying the readable half of a file the user got
         # wrong would give them a model list matching neither their intent nor
         # the built-in default, and no clear way to reason about which.
-        return OverrideReport(models={}, hidden={}, errors=tuple(errors), path=target)
-    return OverrideReport(models=models, hidden=hidden, path=target)
+        report = OverrideReport(models={}, hidden={}, errors=tuple(errors), path=target)
+    else:
+        report = OverrideReport(models=models, hidden=hidden, path=target)
+    if key is not None:
+        if len(_CACHE) >= _CACHE_MAX:
+            # Bounded: each edit produces a new key, so an unbounded map would
+            # grow for the lifetime of the process.
+            _CACHE.clear()
+        _CACHE[key] = report
+    return report
 
 
 def apply_overrides(
@@ -253,4 +295,5 @@ def save_overrides(
         temporary.unlink(missing_ok=True)
         raise ValueError("; ".join(check.errors))
     temporary.replace(target)
+    clear_cache()
     return target

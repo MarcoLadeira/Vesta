@@ -279,3 +279,61 @@ class BuiltinFreshnessTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class CacheTests(_Temp):
+    """The parse is cached by mtime; a missing file deliberately is not."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        from opai.model_overrides import clear_cache
+
+        clear_cache()
+
+    def test_an_edit_takes_effect_immediately(self) -> None:
+        # Keyed on mtime and size, so there is no staleness window to reason
+        # about — the point of not using a time-based cache.
+        self.write(
+            {"providers": {"codex": {"models": [{"id": "one", "capability": "best"}]}}}
+        )
+        self.assertEqual(
+            [m.id for m in load_overrides(self.path).models["codex"]], ["one"]
+        )
+
+        self.write(
+            {"providers": {"codex": {"models": [{"id": "two", "capability": "best"}]}}}
+        )
+        self.assertEqual(
+            [m.id for m in load_overrides(self.path).models["codex"]], ["two"]
+        )
+
+    def test_creating_the_file_is_seen_without_clearing_anything(self) -> None:
+        # Why the absent case is not cached: a TTL would ignore a file the user
+        # just created, to save 0.13ms on a 724ms operation.
+        self.assertEqual(load_overrides(self.path).models, {})
+        self.write(
+            {"providers": {"codex": {"models": [{"id": "new", "capability": "best"}]}}}
+        )
+        self.assertIn("codex", load_overrides(self.path).models)
+
+    def test_saving_makes_the_new_list_visible_at_once(self) -> None:
+        save_overrides(
+            {"codex": [{"id": "saved", "capability": "best"}]}, path=self.path
+        )
+        self.assertEqual(
+            [m.id for m in load_overrides(self.path).models["codex"]], ["saved"]
+        )
+
+    def test_the_cache_is_bounded(self) -> None:
+        from opai.model_overrides import _CACHE, _CACHE_MAX
+
+        for index in range(_CACHE_MAX + 4):
+            self.write(
+                {
+                    "providers": {
+                        "codex": {"models": [{"id": f"m{index}", "capability": "fast"}]}
+                    }
+                }
+            )
+            load_overrides(self.path)
+        self.assertLessEqual(len(_CACHE), _CACHE_MAX)
