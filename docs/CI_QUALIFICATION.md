@@ -95,6 +95,14 @@ be selected in GitHub's UI. The canonical machine-readable list is
 [`required-checks.json`](../.github/required-checks.json); its repository test
 keeps the list, workflow display names and this documentation aligned.
 
+At the time this guide was updated, GitHub returned HTTP 403 for both the
+ruleset and legacy branch-protection APIs on this private repository because the
+current plan does not include those features. Until the repository is made
+public or moved to a plan with branch protection, this workflow still produces
+automatic evidence but GitHub cannot enforce it as a merge requirement. Record
+the successful ruleset/branch-protection configuration as release-governance
+evidence once that platform prerequisite is available.
+
 ## Trust, release and recovery rules
 
 - Fork PRs get only the hosted `pull_request` jobs, a read-only token and no
