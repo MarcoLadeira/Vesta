@@ -134,6 +134,13 @@ _CANONICAL_COMPLETION_STATES = frozenset(
 _ACTIVE_CANONICAL_STATES = frozenset(
     {"cancel_requested", "preparing", "queued", "running", "verifying"}
 )
+_EXPLICIT_COMPLETION_STATE_MAP = {
+    "needs_consent": "awaiting_input",
+    "needs_user_input": "awaiting_input",
+    "provider_blocked": "blocked",
+    "retryable_provider_error": "failed",
+    "stuck_no_progress": "partial",
+}
 
 
 def _normalized(value: Any) -> str:
@@ -238,6 +245,17 @@ def _canonical_state_from_stop_reason(reason: str) -> str | None:
     return None
 
 
+def _explicit_canonical_state(payload: Mapping[str, Any]) -> tuple[bool, str | None]:
+    for field_name in ("completion_state", "state"):
+        if field_name not in payload:
+            continue
+        value = _normalized(payload.get(field_name))
+        if value in _CANONICAL_COMPLETION_STATES or value in _ACTIVE_CANONICAL_STATES:
+            return True, value
+        return True, _EXPLICIT_COMPLETION_STATE_MAP.get(value)
+    return False, None
+
+
 def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
     """Import one legacy terminal payload without granting its status authority.
 
@@ -261,11 +279,16 @@ def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
         )
 
     stopped_reason = _normalized(payload.get("stopped_reason"))
-    state = (
-        _canonical_state_from_stop_reason(stopped_reason)
-        if stopped_reason
-        else LEGACY_STATUS_MAP.get(status)
-    )
+    explicit_present, explicit_state = _explicit_canonical_state(payload)
+    if stopped_reason:
+        state = _canonical_state_from_stop_reason(stopped_reason)
+        state_source = "stopped_reason"
+    elif explicit_present:
+        state = explicit_state
+        state_source = "explicit"
+    else:
+        state = LEGACY_STATUS_MAP.get(status)
+        state_source = "status"
     if stopped_reason and state is None:
         return _degraded_legacy_result(
             payload,
@@ -278,14 +301,24 @@ def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
             payload,
             status=status,
             compatibility="incompatible",
-            detail="Legacy status is incompatible with this lifecycle schema.",
+            detail=(
+                "Explicit legacy lifecycle state is incompatible with this schema."
+                if state_source == "explicit"
+                else "Legacy status is incompatible with this lifecycle schema."
+            ),
         )
     if state not in TERMINAL_STATE_IDS:
         return _degraded_legacy_result(
             payload,
             status=status,
-            compatibility="degraded",
-            detail="Legacy status is non-terminal and cannot form a RunResult.",
+            compatibility=(
+                "incompatible" if state_source == "explicit" else "degraded"
+            ),
+            detail=(
+                "Explicit legacy lifecycle state is non-terminal and cannot form a RunResult."
+                if state_source == "explicit"
+                else "Legacy status is non-terminal and cannot form a RunResult."
+            ),
         )
 
     authority = payload.get("authority")

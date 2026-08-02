@@ -303,6 +303,10 @@ class RunResult:
         compatibility_retry = fields["compatibility"].get("automatic_retry", False)
         if not isinstance(compatibility_retry, bool):
             raise TypeError("compatibility.automatic_retry must be a boolean")
+        if compatibility_retry is not retry:
+            raise ValueError(
+                "automatic retry truth must match recovery and compatibility metadata"
+            )
         compatibility_state = _normalized(fields["compatibility"].get("state"))
         safe_retry_pair = (
             state in _AUTOMATIC_RETRY_STATES
@@ -434,13 +438,25 @@ class RunResult:
             raise ValueError("authority mutating flag conflicts with payload")
         authority_value["mutating"] = mutating
         economics_value = economics if economics is not None else cost
-        compatibility_value = _mapping(compatibility, "compatibility") or {
-            "state": (
-                "compatible" if schema_version == SCHEMA_VERSION else "compatible_previous"
-            ),
-            "source_schema_version": schema_version,
+        recovery_value = _mapping(recovery, "recovery") or {
             "automatic_retry": False,
+            "reason": "none",
         }
+        compatibility_value = _mapping(compatibility, "compatibility")
+        if compatibility_value:
+            compatibility_value.setdefault(
+                "automatic_retry", recovery_value.get("automatic_retry", False)
+            )
+        else:
+            compatibility_value = {
+                "state": (
+                    "compatible"
+                    if schema_version == SCHEMA_VERSION
+                    else "compatible_previous"
+                ),
+                "source_schema_version": schema_version,
+                "automatic_retry": recovery_value.get("automatic_retry", False),
+            }
         lifecycle = {
             "state": normalized_state,
             "reason": _normalized(reason),
@@ -453,8 +469,7 @@ class RunResult:
             identity=_mapping(identity, "identity"),
             lifecycle=lifecycle,
             provider=_mapping(provider, "provider"),
-            recovery=_mapping(recovery, "recovery")
-            or {"automatic_retry": False, "reason": "none"},
+            recovery=recovery_value,
             verification=_mapping(verification, "verification"),
             delivery=_mapping(delivery, "delivery"),
             economics=_mapping(economics_value, "economics"),

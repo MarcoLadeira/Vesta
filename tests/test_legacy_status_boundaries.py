@@ -120,6 +120,34 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
         self.assertFalse(result.recovery["automatic_retry"])
         self.assertIs(compatibility_state, CompletionState.NEEDS_ATTENTION)
 
+    def test_explicit_cancel_request_precedes_cancelled_legacy_status(self) -> None:
+        for field_name in ("completion_state", "state"):
+            with self.subTest(field_name=field_name):
+                payload = {
+                    "schema_version": 0,
+                    field_name: "cancel_requested",
+                    "status": "cancelled",
+                    "finished_at": "2026-08-02T12:34:56Z",
+                }
+
+                result = legacy_status_to_result(payload)
+
+                self.assertEqual(result.lifecycle["state"], "needs_attention")
+                self.assertEqual(result.compatibility["state"], "incompatible")
+                self.assertNotEqual(result.compatibility["state"], "legacy_import")
+                self.assertFalse(result.recovery["automatic_retry"])
+
+        self.assertIs(
+            completion_state_from_legacy(
+                {
+                    "schema_version": 0,
+                    "completion_state": "cancel_requested",
+                    "status": "cancelled",
+                }
+            ),
+            CompletionState.NEEDS_ATTENTION,
+        )
+
     def test_legacy_completed_status_cannot_bypass_terminal_evidence(self) -> None:
         result = legacy_status_to_result({"status": "answered"})
 

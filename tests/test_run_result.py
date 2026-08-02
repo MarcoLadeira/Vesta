@@ -229,6 +229,36 @@ class RunResultTests(unittest.TestCase):
 
         self.assertTrue(result.recovery["automatic_retry"])
         self.assertEqual(result.recovery["reason"], "network")
+        self.assertTrue(result.compatibility["automatic_retry"])
+
+    def test_retry_truth_must_match_compatibility_metadata(self) -> None:
+        cases = (
+            (True, False, "network"),
+            (False, True, "none"),
+        )
+        for recovery_retry, compatibility_retry, reason in cases:
+            with self.subTest(
+                recovery_retry=recovery_retry,
+                compatibility_retry=compatibility_retry,
+            ):
+                payload = _completed_payload(
+                    state="failed",
+                    recovery={
+                        "automatic_retry": recovery_retry,
+                        "reason": reason,
+                    },
+                    compatibility={
+                        "state": "compatible",
+                        "source_schema_version": 1,
+                        "automatic_retry": compatibility_retry,
+                    },
+                    verification={},
+                    delivery={},
+                    economics={},
+                )
+
+                with self.assertRaisesRegex(ValueError, "retry truth"):
+                    RunResult.from_payload(**payload)
 
     def test_automatic_retry_requires_retry_safe_state_and_reason_pair(self) -> None:
         valid_pairs = (
