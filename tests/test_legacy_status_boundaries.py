@@ -131,22 +131,20 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
                 }
 
                 result = legacy_status_to_result(payload)
+                compatibility_state = completion_state_from_legacy(payload)
 
                 self.assertEqual(result.lifecycle["state"], "needs_attention")
                 self.assertEqual(result.compatibility["state"], "incompatible")
                 self.assertNotEqual(result.compatibility["state"], "legacy_import")
                 self.assertFalse(result.recovery["automatic_retry"])
-
-        self.assertIs(
-            completion_state_from_legacy(
-                {
-                    "schema_version": 0,
-                    "completion_state": "cancel_requested",
-                    "status": "cancelled",
-                }
-            ),
-            CompletionState.NEEDS_ATTENTION,
-        )
+                self.assertIs(
+                    compatibility_state,
+                    CompletionState.NEEDS_ATTENTION,
+                )
+                self.assertEqual(
+                    compatibility_state.value,
+                    result.lifecycle["state"],
+                )
 
     def test_legacy_completed_status_cannot_bypass_terminal_evidence(self) -> None:
         result = legacy_status_to_result({"status": "answered"})
@@ -191,6 +189,16 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
         self.assertGreaterEqual(after["imports"], before["imports"] + 1)
         self.assertGreaterEqual(after["exports"], before["exports"] + 1)
 
+    def test_empty_explicit_placeholders_preserve_terminal_status_fallback(self) -> None:
+        for field_name, value in (("completion_state", None), ("state", "")):
+            with self.subTest(field_name=field_name):
+                self.assertIs(
+                    completion_state_from_legacy(
+                        {field_name: value, "status": "blocked"}
+                    ),
+                    CompletionState.PROVIDER_BLOCKED,
+                )
+
     def test_unknown_legacy_input_and_output_are_explicitly_incompatible(self) -> None:
         imported = completion_state_from_legacy({"status": "future_vendor_state"})
         exported = legacy_status_for_completion_state("future_terminal_state")
@@ -212,12 +220,26 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
             "timeout": CompletionState.TIMEOUT,
         }
 
-        for state, completion_state in expected.items():
-            with self.subTest(state=state):
-                self.assertIs(
-                    completion_state_from_legacy({"completion_state": state}),
-                    completion_state,
-                )
+        for field_name in ("completion_state", "state"):
+            for state, completion_state in expected.items():
+                with self.subTest(field_name=field_name, state=state):
+                    self.assertIs(
+                        completion_state_from_legacy(
+                            {field_name: state, "status": "cancelled"}
+                        ),
+                        completion_state,
+                    )
+
+        self.assertIs(
+            completion_state_from_legacy(
+                {
+                    "completion_state": "failed",
+                    "state": "cancelled",
+                    "status": "answered",
+                }
+            ),
+            CompletionState.FAILED,
+        )
 
         outputs = {
             "awaiting_input": "needs_user_input",

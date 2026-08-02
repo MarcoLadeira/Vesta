@@ -245,15 +245,23 @@ def _canonical_state_from_stop_reason(reason: str) -> str | None:
     return None
 
 
-def _explicit_canonical_state(payload: Mapping[str, Any]) -> tuple[bool, str | None]:
+def _explicit_state(payload: Mapping[str, Any]) -> tuple[bool, str]:
     for field_name in ("completion_state", "state"):
         if field_name not in payload:
             continue
         value = _normalized(payload.get(field_name))
-        if value in _CANONICAL_COMPLETION_STATES or value in _ACTIVE_CANONICAL_STATES:
+        if value:
             return True, value
-        return True, _EXPLICIT_COMPLETION_STATE_MAP.get(value)
-    return False, None
+    return False, ""
+
+
+def _explicit_canonical_state(payload: Mapping[str, Any]) -> tuple[bool, str | None]:
+    present, value = _explicit_state(payload)
+    if not present:
+        return False, None
+    if value in _CANONICAL_COMPLETION_STATES or value in _ACTIVE_CANONICAL_STATES:
+        return True, value
+    return True, _EXPLICIT_COMPLETION_STATE_MAP.get(value)
 
 
 def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
@@ -396,7 +404,7 @@ def legacy_completion_state(payload: Mapping[str, Any] | None) -> str:
             return "stuck_no_progress"
         return "needs_attention"
 
-    explicit = _normalized(data.get("completion_state"))
+    explicit_present, explicit = _explicit_state(data)
     if explicit in _CANONICAL_COMPLETION_STATES or explicit in {
         "needs_consent",
         "needs_user_input",
@@ -405,7 +413,7 @@ def legacy_completion_state(payload: Mapping[str, Any] | None) -> str:
         "stuck_no_progress",
     }:
         return explicit
-    if explicit in _ACTIVE_CANONICAL_STATES or explicit:
+    if explicit_present:
         return "needs_attention"
 
     status = _normalized(data.get("status"))
