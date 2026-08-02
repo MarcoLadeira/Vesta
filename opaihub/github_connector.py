@@ -434,6 +434,8 @@ def create_pull_request(
     slug = repo_slug(project_root)
     if not slug:
         return {"ok": False, "error": "The origin remote is not a GitHub repository"}
+    from opai.authorship import with_pr_attribution
+
     clean_title = redact(str(title or "").strip())[:256]
     if not clean_title:
         return {"ok": False, "error": "A PR title is required"}
@@ -443,7 +445,10 @@ def create_pull_request(
         token,
         {
             "title": clean_title,
-            "body": redact(str(body or ""))[:20_000],
+            # #contributor: say plainly that OPai opened this. A reviewer
+            # should not have to read `git log` to learn whether a human or an
+            # assistant wrote what they are reviewing.
+            "body": redact(with_pr_attribution(str(body or "")))[:20_000],
             "head": str(head or "").strip(),
             "base": str(base or "main").strip(),
         },

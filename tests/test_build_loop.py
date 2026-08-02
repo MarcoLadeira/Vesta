@@ -577,9 +577,7 @@ class RunBuildRequestTests(unittest.TestCase):
             self.assertEqual(
                 (Path(result.root) / "app.js").read_text(encoding="utf-8"), before
             )
-            checkpoint = load_run_checkpoint(
-                Path(result.root), report["checkpoint_id"]
-            )
+            checkpoint = load_run_checkpoint(Path(result.root), report["checkpoint_id"])
             self.assertEqual(checkpoint.completion_state, "answered")
             self.assertEqual(checkpoint.outcome, "no_edits")
             self.assertEqual(checkpoint.result_changed_files, ())

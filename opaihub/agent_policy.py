@@ -97,6 +97,13 @@ _EXPLAIN_SIGNAL = re.compile(
 _EXPLANATION_LEADER = re.compile(
     r"^(?:what|why|how|explain|describe|summari[sz]e)\b", re.IGNORECASE
 )
+# Marks the end of the interrogative/explanation clause an EXPLANATION_LEADER
+# opens, so a write instruction in a later, independent sentence can still be
+# honoured. `;` is included for consistency with this file's other clause
+# splits (`_last_positive_publish`, `_last_positive_ship`); `?`/`!` are added
+# because an explanation-leading message overwhelmingly ends its question
+# there, not with `.`.
+_SENTENCE_BREAK = re.compile(r"[.?!;\n]")
 
 # Pure conversational small-talk: a greeting, thanks, or pleasantry with no task
 # content. Such a message must be answered directly (EXPLAIN/chat), never forced
@@ -233,10 +240,37 @@ def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> Agen
     """
 
     text = " ".join(str(message or "").split())
+
+    # Computed up front (pure, order-independent) so the explanation-leader
+    # check below can consult the same write/publish/ship signals the general
+    # scoring further down already relies on, instead of only the narrower
+    # write check it used to see in isolation.
+    ship_at = _last_positive_ship(text)
+    if _last_match(_SHIP_PROHIBITION_SIGNAL, text) >= ship_at:
+        ship_at = -1
+    implement_at = _last_positive_write(text)
+    publish_at = _last_positive_publish(text)
+    read_only_at = _last_match(_READ_ONLY_SIGNAL, text)
+    review_at = _last_match(_REVIEW_SIGNAL, text)
+    explain_at = _last_match(_EXPLAIN_SIGNAL, text)
+
     if _EXPLANATION_LEADER.search(text):
         current_request_at = text.lower().rfind("current request:")
-        later_write_at = _last_positive_write(text)
-        if current_request_at < 0 or later_write_at < current_request_at:
+        latest_write_signal = max(ship_at, implement_at, publish_at)
+        if current_request_at >= 0:
+            boundary_at = current_request_at
+        else:
+            # No harness marker: a real single message. A write instruction
+            # still overrides a leading explanation-sounding opener ("What's
+            # pending? Please commit it and open a PR.") — but only once it
+            # appears in its own, later sentence. Never merely later in the
+            # SAME clause as the question, or "How do I fix this bug?" would
+            # be read as an instruction to fix the bug rather than a question
+            # about it: "fix" there is what is being asked ABOUT, not
+            # something to carry out.
+            first_break = _SENTENCE_BREAK.search(text)
+            boundary_at = first_break.end() if first_break else len(text)
+        if latest_write_signal < 0 or latest_write_signal < boundary_at:
             return AgentPolicy(
                 AgentMode.EXPLAIN,
                 _CAPABILITIES[AgentMode.EXPLAIN],
@@ -249,15 +283,6 @@ def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> Agen
             requires_confirmation=True,
             rationale="The request contains a destructive or irreversible action.",
         )
-
-    ship_at = _last_positive_ship(text)
-    if _last_match(_SHIP_PROHIBITION_SIGNAL, text) >= ship_at:
-        ship_at = -1
-    implement_at = _last_positive_write(text)
-    publish_at = _last_positive_publish(text)
-    read_only_at = _last_match(_READ_ONLY_SIGNAL, text)
-    review_at = _last_match(_REVIEW_SIGNAL, text)
-    explain_at = _last_match(_EXPLAIN_SIGNAL, text)
 
     latest_write = max(ship_at, implement_at, publish_at)
     latest_read_only = max(read_only_at, review_at, explain_at)

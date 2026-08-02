@@ -260,7 +260,13 @@ class ApplyUpdateTests(unittest.TestCase):
                 return _fake_git(
                     {
                         ("status", "--porcelain"): _completed(0, "M some/file.py\n"),
-                        ("stash", "push", "--include-untracked", "-m", "opai-update-autostash"): _completed(0),
+                        (
+                            "stash",
+                            "push",
+                            "--include-untracked",
+                            "-m",
+                            "opai-update-autostash",
+                        ): _completed(0),
                         ("fetch", "--quiet", "origin", "main"): _completed(0),
                         ("checkout", "main"): _completed(0),
                         ("merge", "--ff-only", "origin/main"): _completed(0),
@@ -288,14 +294,22 @@ class ApplyUpdateTests(unittest.TestCase):
             git = _fake_git(
                 {
                     ("status", "--porcelain"): _completed(0, "M some/file.py\n"),
-                    ("stash", "push", "--include-untracked", "-m", "opai-update-autostash"): _completed(0),
+                    (
+                        "stash",
+                        "push",
+                        "--include-untracked",
+                        "-m",
+                        "opai-update-autostash",
+                    ): _completed(0),
                     ("fetch", "--quiet", "origin", "main"): _completed(0),
                     ("checkout", "main"): _completed(0),
                     ("merge", "--ff-only", "origin/main"): _completed(0),
                     ("stash", "pop"): _completed(1, "", "conflict"),
                 }
             )
-            result = updater.apply_update(root, force=True, git=git, cache_path=cache_path)
+            result = updater.apply_update(
+                root, force=True, git=git, cache_path=cache_path
+            )
             self.assertFalse(result["ok"])
             self.assertTrue(result["code_updated"])
             self.assertIn("git stash pop", result["error"])

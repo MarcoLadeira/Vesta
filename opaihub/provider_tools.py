@@ -795,7 +795,14 @@ class RepositoryToolExecutor:
                 "An earlier attempt to commit this exact content did not "
                 "confirm. Check `git log` before retrying.",
             )
-        committed = self._git(["commit", "-m", message, "--", *paths])
+        # #contributor: credit OPai on work OPai did. GitHub reads this trailer
+        # and attributes the commit, which is how an assistant appears in a
+        # repository's contributor list and on its pull requests. The user stays
+        # the author -- they asked for the change and are accountable for it.
+        from opai.authorship import with_coauthor
+
+        commit_message = with_coauthor(message)
+        committed = self._git(["commit", "-m", commit_message, "--", *paths])
         if not committed["ok"]:
             # Nothing reached history, so the key is released and a corrected
             # retry proceeds freely.

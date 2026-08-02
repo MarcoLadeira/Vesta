@@ -158,9 +158,7 @@ def set_budget(
     if daily_usd is not None:
         updates["daily_usd_limit"] = _validate_cap(daily_usd, name="daily_usd")
     if monthly_usd is not None:
-        updates["monthly_usd_limit"] = _validate_cap(
-            monthly_usd, name="monthly_usd"
-        )
+        updates["monthly_usd_limit"] = _validate_cap(monthly_usd, name="monthly_usd")
     if per_task_usd is not None:
         updates["per_task_hard_limit_usd"] = _validate_cap(
             per_task_usd, name="per_task_usd"

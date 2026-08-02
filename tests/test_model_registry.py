@@ -56,6 +56,9 @@ class ResolveAndDisplayTests(unittest.TestCase):
                 "opus": "Opus 4.8",
                 "claude-sonnet-5": "Sonnet 5",
                 "haiku": "Haiku 4.5",
+                # The registry topped out at Opus 4.8 while Opus 5 was current,
+                # so the picker could not reach the flagship at all.
+                "claude-opus-5": "Opus 5",
                 "claude-fable-5": "Fable 5",
             },
         )
