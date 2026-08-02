@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +14,31 @@ from opaihub.test_loop import TestLoop, parse_test_failure
 from opaihub.provider_adapters import ExecutionRequest, adapter_for
 from opaihub.workflow_ledger import WorkflowLedger
 from opaihub.workflow_templates import workflow_templates
+
+
+def _concurrent_transition_worker(
+    project_root: str,
+    task_id: str,
+    ready: object,
+    start: object,
+    outcomes: object,
+    reason: str,
+) -> None:
+    """Transition one shared task after both spawned workers are initialized."""
+
+    announced_ready = False
+    try:
+        runtime = AgentRuntime(Path(project_root), task="shared task", task_id=task_id)
+        ready.put("ready")
+        announced_ready = True
+        if not start.wait(timeout=20):
+            raise TimeoutError("timed out waiting to start the shared transition")
+        state = runtime.block(reason)
+        outcomes.put({"ok": True, "phase": state.phase.value})
+    except BaseException as exc:
+        if not announced_ready:
+            ready.put({"error": repr(exc)})
+        outcomes.put({"ok": False, "error": repr(exc)})
 
 
 class RuntimeStateMachineTests(unittest.TestCase):
@@ -94,6 +120,55 @@ class RuntimeStateMachineTests(unittest.TestCase):
             runtime.resume(RuntimePhase.REPO_RESOLVED, message="Worktree ready")
             self.assertEqual(runtime.state.phase, RuntimePhase.REPO_RESOLVED)
             self.assertEqual(runtime.state.blocker, "")
+
+    def test_concurrent_workers_preserve_each_task_transition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task_id = "shared-task"
+            AgentRuntime(root, task="shared task", task_id=task_id)
+            context = multiprocessing.get_context("spawn")
+            ready = context.Queue()
+            start = context.Event()
+            outcomes = context.Queue()
+            workers = [
+                context.Process(
+                    target=_concurrent_transition_worker,
+                    args=(
+                        str(root),
+                        task_id,
+                        ready,
+                        start,
+                        outcomes,
+                        f"worker {number} needs attention",
+                    ),
+                )
+                for number in range(2)
+            ]
+            try:
+                for worker in workers:
+                    worker.start()
+                for _ in workers:
+                    self.assertEqual(ready.get(timeout=30), "ready")
+                start.set()
+                worker_outcomes = [outcomes.get(timeout=30) for _ in workers]
+            finally:
+                start.set()
+                for worker in workers:
+                    worker.join(timeout=30)
+
+            self.assertTrue(all(not worker.is_alive() for worker in workers))
+            self.assertEqual(
+                [outcome["ok"] for outcome in worker_outcomes], [True, True]
+            )
+            restored = AgentRuntime.load(root, task_id)
+            self.assertEqual(restored.state.phase, RuntimePhase.BLOCKED)
+            self.assertEqual(
+                [event.sequence for event in restored.state.history], [1, 2]
+            )
+            self.assertEqual(
+                {event.blocker for event in restored.state.history},
+                {"worker 0 needs attention", "worker 1 needs attention"},
+            )
 
     def test_workbench_react_loop_turns_observations_into_runtime_transitions(self):
         with tempfile.TemporaryDirectory() as tmp:
