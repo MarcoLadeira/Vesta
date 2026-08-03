@@ -315,5 +315,95 @@ class CommentPrTests(unittest.TestCase):
         self.assertEqual(len(attempts), 2)
 
 
+class GithubCommentToolTests(unittest.TestCase):
+    """provider_tools._github_comment (#541): the path the live agent tool
+    dispatch actually calls. CommentPrTests above proves the begin/complete/
+    abandon pattern on GitHubAdapter.comment_pr, but that class has no
+    production caller -- this is its production sibling.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _executor(self):
+        from opaihub.provider_tools import RepositoryToolExecutor
+
+        return RepositoryToolExecutor(
+            self.root, allow_edits=False, allow_github_write=True
+        )
+
+    def test_a_retried_turn_does_not_post_the_comment_twice(self) -> None:
+        calls: list[dict] = []
+
+        def fake_add(root, number, body, **kwargs):
+            calls.append({"number": number, "body": body})
+            return {"ok": True, "url": "https://example/pr/5#comment"}
+
+        executor = self._executor()
+        executor.grant_command_once("gh pr comment 5")
+        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+            first = executor._github_comment({"number": 5, "body": "hi"})
+            second = executor._github_comment({"number": 5, "body": "hi"})
+
+        self.assertEqual(len(calls), 1, "the second attempt must not POST again")
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["ok"])
+
+    def test_an_uncertain_earlier_attempt_is_reported_not_repeated(self) -> None:
+        executor = self._executor()
+        executor.grant_command_once("gh pr comment 5")
+
+        def die(root, number, body, **kwargs):
+            raise RuntimeError("connection lost after the request was sent")
+
+        with mock.patch("opaihub.github_connector.add_comment", side_effect=die):
+            with self.assertRaises(RuntimeError):
+                executor._github_comment({"number": 5, "body": "hi"})
+
+        calls: list[dict] = []
+
+        def fake_add(root, number, body, **kwargs):
+            calls.append({"number": number, "body": body})
+            return {"ok": True, "url": "https://example/pr/5#comment"}
+
+        executor.grant_command_once("gh pr comment 5")
+        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+            retry = executor._github_comment({"number": 5, "body": "hi"})
+
+        self.assertEqual(calls, [], "an unconfirmed comment must not be posted again")
+        self.assertFalse(retry["ok"])
+        self.assertEqual(retry["error_code"], "COMMENT_STATE_UNCERTAIN")
+        self.assertIn("may already be on GitHub", retry["message"])
+
+    def test_an_unapproved_retry_still_asks_for_approval_not_uncertain(self) -> None:
+        # No grant at all: both calls must hit COMMAND_NEEDS_APPROVAL, never a
+        # false "uncertain" -- nothing was ever sent to GitHub either time.
+        executor = self._executor()
+        first = executor._github_comment({"number": 5, "body": "hi"})
+        second = executor._github_comment({"number": 5, "body": "hi"})
+        for result in (first, second):
+            self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL")
+
+    def test_a_genuinely_different_comment_is_not_blocked(self) -> None:
+        calls: list[dict] = []
+
+        def fake_add(root, number, body, **kwargs):
+            calls.append({"number": number, "body": body})
+            return {"ok": True, "url": f"https://example/pr/5#{len(calls)}"}
+
+        executor = self._executor()
+        executor.grant_command_once("gh pr comment 5")
+        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+            executor._github_comment({"number": 5, "body": "First thought"})
+        executor.grant_command_once("gh pr comment 5")
+        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+            executor._github_comment({"number": 5, "body": "Second thought"})
+        self.assertEqual(len(calls), 2)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

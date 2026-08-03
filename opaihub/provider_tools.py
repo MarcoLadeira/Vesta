@@ -1313,6 +1313,32 @@ class RepositoryToolExecutor:
         body = str(arguments.get("body") or "").strip()
         if not body:
             return _error("INVALID_TOOL_ARGUMENTS", "A comment body is required")
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        # #295 gate 4 / #541: a retried, resumed or reconnected turn must not
+        # post the same comment twice — it is outward and not undoable by OPai.
+        # Checked before approval so a completed or in-flight retry is answered
+        # directly instead of re-prompting to approve a comment that already
+        # posted (or might have).
+        key = operation_key(
+            "github_comment", root=str(self.repo_root), number=number, body=body
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            recorded = prior["result"]
+            return Observation(
+                "github_comment",
+                True,
+                {"url": recorded.get("url", "")},
+                message=f"Already commented on #{number}",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            return _error(
+                "COMMENT_STATE_UNCERTAIN",
+                "An earlier attempt to post this comment did not confirm. "
+                "It may already be on GitHub — check before retrying.",
+            )
         # The approval card shows this reason verbatim, so it carries a preview of
         # the actual text: the Round 5 report's headline was a *fabricated* claim
         # of having posted a comment, and seeing the words before they go out is
@@ -1324,12 +1350,18 @@ class RepositoryToolExecutor:
             f"“{preview}{'…' if len(body) > len(preview) else ''}”",
         )
         if approval is not None:
+            # No request reached GitHub, so the key must not linger as
+            # in_flight — that would misreport an unapproved comment as
+            # uncertain and block a corrected or newly-approved retry.
+            abandon(self.repo_root, key)
             return approval
         from .github_connector import add_comment
 
         result = add_comment(self.repo_root, number, body)
         if not result.get("ok"):
+            abandon(self.repo_root, key)
             return _error("GITHUB_WRITE_FAILED", str(result.get("error") or "failed"))
+        complete(self.repo_root, key, {"url": result.get("url", "")})
         return Observation(
             "github_comment",
             True,
