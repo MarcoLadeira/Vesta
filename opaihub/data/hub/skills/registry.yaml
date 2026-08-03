@@ -35,6 +35,7 @@
     {"id": "tool-installer", "name": "Tool Installer", "path": "skills/tool-installer/SKILL.md", "category": "tools", "description": "Install free/local tools safely with health checks.", "cost_policy": "L0; ask before network", "enabled_by_default": true},
     {"id": "local-model-setup", "name": "Local Model Setup", "path": "skills/local-model-setup/SKILL.md", "category": "local-models", "description": "Configure Ollama, LM Studio, vLLM, or llama.cpp.", "cost_policy": "free local; ask before downloads", "enabled_by_default": true},
     {"id": "cloud-model-gate", "name": "Cloud Model Gate", "path": "skills/cloud-model-gate/SKILL.md", "category": "model-routing", "description": "Require confirmation before cloud or paid model calls.", "cost_policy": "confirmation required", "enabled_by_default": true},
-    {"id": "issue-to-implementation", "name": "Issue To Implementation", "path": "skills/issue-to-implementation/SKILL.md", "category": "workflow", "description": "Turn issues into scoped plans, tests, and PR-ready changes.", "cost_policy": "L1/L2", "enabled_by_default": true}
+    {"id": "issue-to-implementation", "name": "Issue To Implementation", "path": "skills/issue-to-implementation/SKILL.md", "category": "workflow", "description": "Turn issues into scoped plans, tests, and PR-ready changes.", "cost_policy": "L1/L2", "enabled_by_default": true},
+    {"id": "graphify-code-graph", "name": "Graphify Code Graph", "path": "skills/graphify-code-graph/SKILL.md", "category": "context", "description": "Query the local graphify knowledge graph for codebase questions before reading files or escalating to models.", "cost_policy": "L0 first", "enabled_by_default": true}
   ]
 }

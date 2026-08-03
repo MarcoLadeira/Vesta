@@ -597,11 +597,16 @@ class GitHubWorkflowTests(unittest.TestCase):
                 argv, 0, "https://github.test/pr/5\n", ""
             )
 
-        adapter = GitHubAdapter(Path("C:/repo"), run=fake_run)
-        linked = adapter.find_linked_pr(11)
-        checks = adapter.pr_checks(5)
-        adapter.update_pr(5, title="Better title", body="Updated")
-        adapter.comment_pr(5, "Tests passed")
+        # `comment_pr` intentionally persists an idempotency record.  A fixed
+        # literal root made the unittest run's record visible to the following
+        # pytest run in the hostile CI lane, so the second harness correctly
+        # skipped the outward call and this mock contract became order-dependent.
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = GitHubAdapter(Path(tmp), run=fake_run)
+            linked = adapter.find_linked_pr(11)
+            checks = adapter.pr_checks(5)
+            adapter.update_pr(5, title="Better title", body="Updated")
+            adapter.comment_pr(5, "Tests passed")
 
         self.assertEqual(linked["number"], 5)
         self.assertEqual(checks[0]["state"], "SUCCESS")

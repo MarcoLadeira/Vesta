@@ -1,1 +1,6 @@
-* @MarcoLadeira
+# CI/release trust-boundary changes require the repository owner's review.
+/.github/workflows/ @MarcoLadeira
+/.github/required-checks.json @MarcoLadeira
+/scripts/ci_local.py @MarcoLadeira
+/requirements-ci.txt @MarcoLadeira
+/docs/CI_QUALIFICATION.md @MarcoLadeira

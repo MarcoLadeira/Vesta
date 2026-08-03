@@ -341,6 +341,12 @@ def _completed_detail(completed: subprocess.CompletedProcess[str]) -> str:
     return detail[-1000:]
 
 
+def _is_windows() -> bool:
+    """Keep platform selection mockable without changing process-global ``os.name``."""
+
+    return os.name == "nt"
+
+
 def native_platform_signature_problems(
     bundle: Path,
     platform_name: str,
@@ -367,7 +373,7 @@ def native_platform_signature_problems(
             r"[0-9A-F]{40}", expected_thumbprint
         ):
             return ["expected Windows signer thumbprint is required"]
-        if os.name != "nt":
+        if not _is_windows():
             return ["a Windows artifact can only be signature-verified on Windows"]
         targets = sorted(
             path

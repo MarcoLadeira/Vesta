@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
+import subprocess  # nosec B404 - fixed git/pip argv, never a shell
 import sys
 import time
 from pathlib import Path

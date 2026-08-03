@@ -299,6 +299,11 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
                 "Push the current branch",
                 model_id="account:claude:sonnet",
                 mode="full-auto",
+                # The provider call is mocked above.  Supplying an injected
+                # runner makes the preflight contract explicit too: this test
+                # is about the command-consent handshake, not a developer's
+                # locally configured Claude account.
+                account_runner=FakeAccountRunner(),
                 **kwargs,
             )
 
@@ -361,6 +366,7 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
                     model_id="account:claude:sonnet",
                     mode="full-auto",
                     allowCommand="git push origin main",
+                    account_runner=FakeAccountRunner(),
                 )
 
         self.assertEqual(armed["command"], "git push origin main")
@@ -401,6 +407,7 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
                     "Push the current branch",
                     model_id="account:claude:sonnet",
                     mode="full-auto",
+                    account_runner=FakeAccountRunner(),
                 )
 
         verdict = result["completion_verdict"]
@@ -429,6 +436,7 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
                     "What does app.py do?",
                     model_id="account:claude:sonnet",
                     mode="ask",
+                    account_runner=FakeAccountRunner(),
                 )
 
         self.assertEqual(result["completion_verdict"]["verdict"], "completed")

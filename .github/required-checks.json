@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "protected_branch": "main",
+  "workflow": ".github/workflows/ci.yml",
+  "required_checks": [
+    "Required - Python quality (3.13)",
+    "Required - hostile-environment Python suites",
+    "Required - web UI security and E2E"
+  ],
+  "notes": [
+    "The Python check is a matrix job; 3.13 is the PR-required member.",
+    "Scheduled, self-hosted, native, provider and release jobs are release-evidence gates, not PR status checks."
+  ]
+}

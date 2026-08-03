@@ -1,117 +1,131 @@
 name: OPai CI (hosted)
 
-# GitHub-hosted CI. Manual-only for now: this private repo's Actions minutes are
-# capped, so on push/pull_request every job aborts at startup (0 steps) and shows
-# red even though the code is fine. Day-to-day CI runs on the self-hosted runner
-# (ci-selfhosted.yml) at $0. Run this full hosted matrix on demand — e.g. before
-# a release, or once the Actions spending limit is raised — via the Actions tab
-# ("Run workflow"). To restore automatic hosted CI, add back the `pull_request:`
-# and `push:` triggers below.
+# The credential-free fast lane is the required PR/main gate.  The scheduled
+# full/native lane is intentionally separate: expensive platform evidence must
+# be current, but it must not give an untrusted pull request a privileged runner
+# or provider/signing secret.
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
   workflow_dispatch:
+    inputs:
+      profile:
+        description: "Qualification profile to run"
+        required: true
+        default: fast
+        type: choice
+        options: [fast, full]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 permissions:
   contents: read
 
 concurrency:
-  group: opai-ci-${{ github.workflow }}-${{ github.ref }}
+  # A cancelled run never produces a green check for its successor: GitHub
+  # records the newer SHA as a distinct required check run.
+  group: opai-ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Test and package
-    # Pull requests run on Linux (billed 1x) for cheap, fast feedback. Push to
-    # main and manual dispatch run on Windows (2x) -- OPai is a Windows-first
-    # desktop app with Windows-specific process handling (CREATE_NO_WINDOW,
-    # taskkill, process-group kills), so the platform that actually ships is the
-    # one that gates code landing on main. Nothing merges without a Windows run.
-    runs-on: >-
-      ${{ (github.event_name == 'pull_request' && 'ubuntu-latest')
-        || 'windows-latest' }}
+  mandatory-python:
+    name: Required - Python quality (${{ matrix.python-version }})
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'workflow_dispatch' || inputs.profile == 'fast')
+    # The hosted gate is Linux-native; Windows/macOS wheel evidence is supplied
+    # by the separate native matrix rather than a privileged PR environment.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # Fast feedback on pull requests runs the min-supported and current
-        # Python only where it is cheapest. The full span (3.10 + 3.13) runs on
-        # push to main and on manual dispatch, so nothing merges to main without
-        # both being exercised. Windows minutes bill at 2x on private repos, so
-        # halving the PR matrix is the single biggest per-PR saving.
         python-version: >-
           ${{ (github.event_name == 'pull_request'
             && fromJSON('["3.13"]'))
             || fromJSON('["3.10", "3.13"]') }}
-
     steps:
+      # actions/checkout v4.2.2, pinned to its immutable commit SHA.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
 
+      # actions/setup-python v5.6.0, pinned to its immutable commit SHA.
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install Python check tools
+      - name: Install locked CI tools and OPai test dependencies
         run: |
           python -m pip install --upgrade pip
-          # Pin ruff so the format check is deterministic. Unpinned, CI grabs the
-          # latest ruff each run, and its evolving formatter drifts files out of
-          # compliance even when nothing changed — the recurring "format always
-          # fails" failure. Bump this deliberately and reformat in the same PR.
-          python -m pip install "ruff==0.15.9" bandit pip-audit detect-secrets
+          python -m pip install -r requirements-ci.txt
+          python -m pip install -e ".[test]"
 
-      - name: Install OPai editable
-        run: python -m pip install -e ".[test]"
+      - name: Run mandatory fast profile
+        run: python scripts/ci_local.py --profile fast --manifest ci-fast-evidence.json
 
-      - name: Format check
-        run: python -m ruff format --check .
+      - name: Publish typed CI summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          evidence = json.loads(Path("ci-fast-evidence.json").read_text())
+          print("### OPai fast qualification")
+          print(f"- Verdict: `{evidence['verdict']}`")
+          print(f"- Classification: `{evidence['classification']}`")
+          print(f"- Reason: `{evidence['reason']}`")
+          print(f"- Commit: `{evidence['commit_sha']}`")
+          PY
 
-      - name: Lint
-        run: python -m ruff check .
+      # actions/upload-artifact v4.6.2, pinned to its immutable commit SHA.
+      - name: Upload bounded CI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-fast-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.python-version }}
+          path: ci-fast-evidence.json
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Tests
-        run: python -m unittest discover -s tests
-
-      - name: Registry validation
-        run: python -m opaihub validate
-
-      - name: Security scan
-        run: python -m bandit -r opai opaihub opcoding -q
-
-      - name: Dependency audit
-        run: python -m pip_audit . --progress-spinner off --skip-editable
-
-      - name: Secret scan
-        run: >
-          detect-secrets scan --all-files
-          --exclude-files "(^|[\\/])\\.opcoding-tools([\\/]|$)|(^|[\\/])\\.ruff_cache([\\/]|$)|(^|[\\/])\\.opcoding([\\/]|$)|(^|[\\/])\\.opaihub([\\/]|$)|(^|[\\/])opai[\\/]assets[\\/].*\\.png$"
-          --exclude-lines "MORPH_API_KEY|api_key_env|api_key_present"
-
-  hermetic-tests:
-    name: Hostile-environment Python suites
+  mandatory-hostile-environment:
+    name: Required - hostile-environment Python suites
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'workflow_dispatch' || inputs.profile == 'fast')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
+      # Deliberately fake values prove that no live provider credential is read.
       MOONSHOT_API_KEY: hostile-moonshot # pragma: allowlist secret
       GOOGLE_API_KEY: hostile-google # pragma: allowlist secret
       GROQ_API_KEY: hostile-groq # pragma: allowlist secret
       MISTRAL_API_KEY: hostile-mistral # pragma: allowlist secret
-      GH_TOKEN: hostile-gh # pragma: allowlist secret
-      GITHUB_TOKEN: hostile-github # pragma: allowlist secret
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.13"
 
-      - name: Install OPai and pytest
-        run: python -m pip install -e ".[test]" pytest
+      - name: Install locked CI tools and OPai test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-ci.txt
+          python -m pip install -e ".[test]"
 
       - name: Run canonical unittest suite with populated keyring
         env:
@@ -123,56 +137,33 @@ jobs:
           PYTHONPATH: tests/fixtures/hostile_keyring
         run: python -m pytest tests -q
 
-  clean-install:
-    name: Clean wheel install (${{ matrix.os }})
-    # The three-OS wheel matrix includes a macOS runner, billed at 10x private-
-    # repo minutes — by far the most expensive job here. It proves cross-OS
-    # packaging, which only needs to hold at the point code lands on main (or a
-    # deliberate pre-release dispatch), not on every PR push. PRs still get the
-    # full test/lint/security gate plus web E2E; they just skip cross-OS wheels.
-    if: github.event_name != 'pull_request'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - windows-latest
-          - ubuntu-latest
-          - macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Upgrade package installer
-        run: python -m pip install --upgrade pip
-
-      - name: Build, install, and smoke the wheel in isolation
-        run: python scripts/smoke-install.py
-
   web-test:
-    name: Web UI security and E2E
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    name: Required - web UI security and E2E
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'workflow_dispatch' || inputs.profile == 'fast')
+    # The committed Playwright visual baselines are Windows Chromium images;
+    # running them elsewhere turns renderer/font variation into false failures.
+    runs-on: windows-latest
+    # Two workers retain meaningful browser parallelism without oversubscribing
+    # the hosted Windows Chromium runner, which otherwise turns normal app
+    # boot into a false 15-second test timeout.
+    timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
 
+      # actions/setup-node v4.4.0, pinned to its immutable commit SHA.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
           cache: npm
 
       - name: Set up Python for the Playwright web server
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.13"
 
@@ -188,19 +179,122 @@ jobs:
       - name: Run JavaScript unit tests
         run: npm run test:unit
 
-      - name: Install Chromium and system dependencies
-        run: npx playwright install --with-deps chromium
+      - name: Install Chromium for the Windows visual baseline
+        run: npx playwright install chromium
 
       - name: Run Chromium end-to-end tests
-        run: npm run test:e2e
+        # Four workers saturate the hosted Windows browser runner. Two keeps
+        # the full 457-test suite concurrent while allowing real app boots to
+        # complete within their assertion-level timeout.
+        run: npm run test:e2e -- --workers=2
 
-      - name: Upload browser failure evidence
+      - name: Upload redacted browser failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: playwright-failure-evidence
+          name: playwright-failure-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  scheduled-full:
+    name: Scheduled - full Python qualification
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.profile == 'full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+
+      - name: Install locked CI tools and OPai test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-ci.txt
+          python -m pip install -e ".[test]"
+
+      - name: Run full qualification profile
+        run: python scripts/ci_local.py --profile full --manifest ci-full-evidence.json
+
+      - name: Publish typed CI summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          evidence = json.loads(Path("ci-full-evidence.json").read_text())
+          print("### OPai full qualification")
+          print(f"- Verdict: `{evidence['verdict']}`")
+          print(f"- Classification: `{evidence['classification']}`")
+          print(f"- Reason: `{evidence['reason']}`")
+          print(f"- Commit: `{evidence['commit_sha']}`")
+          PY
+
+      - name: Upload bounded CI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-full-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-full-evidence.json
+          if-no-files-found: error
+          retention-days: 14
+
+  scheduled-native:
+    name: Scheduled - native wheel qualification (${{ matrix.os }})
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.profile == 'full')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+
+      - name: Run isolated wheel qualification
+        run: python scripts/ci_local.py --profile native --manifest ci-native-evidence.json
+
+      - name: Publish typed CI summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          evidence = json.loads(Path("ci-native-evidence.json").read_text())
+          print("### OPai native qualification")
+          print(f"- Verdict: `{evidence['verdict']}`")
+          print(f"- Classification: `{evidence['classification']}`")
+          print(f"- Reason: `{evidence['reason']}`")
+          print(f"- Commit: `{evidence['commit_sha']}`")
+          PY
+
+      - name: Upload bounded native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-native-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}
+          path: ci-native-evidence.json
+          if-no-files-found: error
+          retention-days: 14

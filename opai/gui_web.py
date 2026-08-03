@@ -1720,7 +1720,7 @@ def _run_gui(
             new window opens with the just-installed version, then closes the
             current window — never leaves the user without a running app.
             """
-            import subprocess
+            import subprocess  # nosec B404 - fixed argv/no shell below
             import sys
 
             try:

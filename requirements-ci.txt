@@ -1,0 +1,9 @@
+# Deterministic tools used by scripts/ci_local.py and hosted/self-hosted CI.
+# Update a pin only in a reviewed CI change that also proves the relevant profile.
+bandit==1.9.4
+detect-secrets==1.5.0
+hypothesis==6.160.0
+pip-audit==2.10.0
+PyYAML==6.0.3
+pytest==9.0.2
+ruff==0.15.9

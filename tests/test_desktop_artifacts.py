@@ -554,7 +554,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             executable = str((Path("C:/tools/powershell.exe")).resolve())
             completed = CompletedProcess([], 0, stdout="", stderr="")
             with (
-                patch("opaihub.desktop_artifacts.os.name", "nt"),
+                patch("opaihub.desktop_artifacts._is_windows", return_value=True),
                 patch(
                     "opaihub.desktop_artifacts.shutil.which", return_value=executable
                 ),
@@ -584,7 +584,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             target = bundle / "cli" / "opai.exe"
             target.parent.mkdir(parents=True)
             target.write_bytes(b"signed test binary")
-            with patch("opaihub.desktop_artifacts.os.name", "nt"):
+            with patch("opaihub.desktop_artifacts._is_windows", return_value=True):
                 problems = desktop_artifacts.native_platform_signature_problems(
                     bundle, "windows"
                 )
@@ -611,7 +611,15 @@ class DesktopArtifactContractTests(unittest.TestCase):
         module = module_from_spec(spec)
         spec.loader.exec_module(module)
         completed = CompletedProcess([], 0, stdout="", stderr="")
-        with patch.object(module.subprocess, "run", return_value=completed) as run:
+        with (
+            patch.object(module, "_is_windows", return_value=True),
+            patch.object(
+                module,
+                "_system_executable",
+                return_value=str((Path("C:/Windows/System32/tasklist.exe")).resolve()),
+            ),
+            patch.object(module.subprocess, "run", return_value=completed) as run,
+        ):
             self.assertEqual(module._webengine_helpers(), set())
 
         command = run.call_args.args[0]

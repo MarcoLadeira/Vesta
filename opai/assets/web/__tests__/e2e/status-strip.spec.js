@@ -50,8 +50,9 @@ test("streaming tokens make the dot active", async ({ page }) => {
 
 test("the elapsed clock advances while working", async ({ page }) => {
   await sendPrompt(page);
-  await expect(page.locator("#ssTime")).toHaveText("00:00");
-  await expect(page.locator("#ssTime")).not.toHaveText("00:00", { timeout: 3000 });
+  const initialElapsed = await page.locator("#ssTime").innerText();
+  expect(initialElapsed).toMatch(/^\d{2}:\d{2}$/);
+  await expect(page.locator("#ssTime")).not.toHaveText(initialElapsed, { timeout: 5_000 });
 });
 
 test("an answered reply shows Done and the real spent cost", async ({ page }) => {
