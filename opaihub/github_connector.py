@@ -697,6 +697,7 @@ def get_issue(
         "body": redact(str(issue.get("body") or ""))[:5000],
         "labels": labels,
         "url": str(issue.get("html_url") or ""),
+        "content_trust": "untrusted_quoted_data",
     }
     if include_comments:
         c_code, raw_comments = http(
