@@ -41,6 +41,17 @@ def load_generated():
     return module
 
 
+def run_node(script: str) -> dict[str, object]:
+    result = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
 class LifecycleGenerationTests(unittest.TestCase):
     def test_generator_write_repairs_projection_and_exits_zero(self):
         original = GENERATED_PYTHON.read_bytes()
@@ -127,28 +138,79 @@ class LifecycleGenerationTests(unittest.TestCase):
         self.assertEqual(load_fixture()["degraded_inputs"], expected)
 
     def test_browser_projection_executes_the_same_repair_and_terminal_contract(self):
-        script = """
-require('./opai/assets/web/generated-lifecycle.js');
-const lifecycle = globalThis.OPaiLifecycle;
-process.stdout.write(JSON.stringify({
-  repair: lifecycle.transitionSpec('verifying', 'running'),
-  terminal: lifecycle.isTerminal('cancelled'),
-  cancellingTerminal: lifecycle.isTerminal('cancel_requested'),
-  illegal: lifecycle.canTransition('completed', 'running')
-}));
-"""
-        result = subprocess.run(
-            ["node", "-e", script],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
+        contract = run_node(
+            "require('./opai/assets/web/generated-lifecycle.js');"
+            "const lifecycle = globalThis.OPaiLifecycle;"
+            "process.stdout.write(JSON.stringify({"
+            "repair: lifecycle.transitionSpec('verifying', 'running'),"
+            "terminal: lifecycle.isTerminal('cancelled'),"
+            "cancellingTerminal: lifecycle.isTerminal('cancel_requested'),"
+            "illegal: lifecycle.canTransition('completed', 'running')"
+            "}));"
         )
-        contract = json.loads(result.stdout)
         self.assertEqual(contract["repair"]["reason"], "verification_repair")
         self.assertTrue(contract["terminal"])
         self.assertFalse(contract["cancellingTerminal"])
         self.assertFalse(contract["illegal"])
+
+    def test_the_full_transition_matrix_is_identical_cross_language(self):
+        """Every (state, state) pair, not a handful of spot checks.
+
+        #612 asks for golden vectors fed identically to both reducers and
+        compared canonically. 13 states means 169 pairs - cheap enough to
+        run exhaustively rather than sample, so a single mistranslated edge
+        anywhere in the table cannot hide between the cases someone thought
+        to hand-pick.
+        """
+        generated = load_generated()
+        states = generated.STATE_IDS
+        separator = "->"
+        python_matrix = {
+            source + separator + target: generated.transition_spec(source, target)
+            for source in states
+            for target in states
+        }
+
+        browser_matrix = run_node(
+            "require('./opai/assets/web/generated-lifecycle.js');"
+            "const lifecycle = globalThis.OPaiLifecycle;"
+            "const states = lifecycle.stateIds;"
+            "const matrix = {};"
+            "for (const source of states) {"
+            "  for (const target of states) {"
+            "    matrix[source + '->' + target] = lifecycle.transitionSpec(source, target);"
+            "  }"
+            "}"
+            "process.stdout.write(JSON.stringify(matrix));"
+        )
+
+        self.assertEqual(set(python_matrix), set(browser_matrix))
+        mismatches = [
+            edge
+            for edge in python_matrix
+            if json.dumps(python_matrix[edge], sort_keys=True)
+            != json.dumps(browser_matrix[edge], sort_keys=True)
+        ]
+        self.assertEqual(
+            mismatches, [], f"cross-language disagreement on: {mismatches}"
+        )
+
+    def test_terminal_and_exit_code_facts_are_identical_cross_language(self):
+        generated = load_generated()
+        browser = run_node(
+            "require('./opai/assets/web/generated-lifecycle.js');"
+            "const lifecycle = globalThis.OPaiLifecycle;"
+            "process.stdout.write(JSON.stringify({"
+            "terminalStateIds: lifecycle.terminalStateIds.slice().sort(),"
+            "exitCodes: lifecycle.exitCodes,"
+            "schemaVersion: lifecycle.schemaVersion"
+            "}));"
+        )
+        self.assertEqual(
+            browser["terminalStateIds"], sorted(generated.TERMINAL_STATE_IDS)
+        )
+        self.assertEqual(browser["exitCodes"], generated.EXIT_CODES)
+        self.assertEqual(browser["schemaVersion"], generated.SCHEMA_VERSION)
 
 
 if __name__ == "__main__":

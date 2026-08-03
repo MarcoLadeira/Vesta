@@ -71,6 +71,9 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
+      - name: Lifecycle projections are not stale (#612)
+        run: python scripts/generate_lifecycle.py --check
+
       - name: Tests
         run: python -m unittest discover -s tests
 

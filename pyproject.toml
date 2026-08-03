@@ -52,6 +52,10 @@ opai = [
 opaihub = [
     "data/hub/**/*",
     "data/provider_catalog/*.json",
+    # The generated cross-language lifecycle fixture (#612) — packaging must
+    # ship it or a packaged install silently falls back to nothing, rather
+    # than to a hardcoded graph, per its own startup-failure contract.
+    "data/lifecycle-fixtures.json",
     # Wildcards do not match dotfiles; parity fixtures require these manifests.
     "data/hub/benchmarks/parity/*/repo/.opai-app.json",
 ]
