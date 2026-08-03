@@ -62,7 +62,9 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
         self.assertEqual(result.compatibility["legacy_status"], "provider_unavailable")
         self.assertEqual(result.compatibility["state"], "legacy_import")
 
-    def test_unknown_schema_version_precedes_answered_and_cancelled_strings(self) -> None:
+    def test_unknown_schema_version_precedes_answered_and_cancelled_strings(
+        self,
+    ) -> None:
         result = legacy_status_to_result(
             {
                 "schema_version": 999,
@@ -210,7 +212,9 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
         after["imports"] = -1
         self.assertNotEqual(legacy_status_usage()["imports"], -1)
 
-    def test_completion_compatibility_functions_delegate_to_boundary_adapter(self) -> None:
+    def test_completion_compatibility_functions_delegate_to_boundary_adapter(
+        self,
+    ) -> None:
         before = legacy_status_usage()
 
         state = completion_state_from_legacy({"status": "needs_confirmation"})
@@ -222,7 +226,9 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
         self.assertGreaterEqual(after["imports"], before["imports"] + 1)
         self.assertGreaterEqual(after["exports"], before["exports"] + 1)
 
-    def test_empty_explicit_placeholders_preserve_terminal_status_fallback(self) -> None:
+    def test_empty_explicit_placeholders_preserve_terminal_status_fallback(
+        self,
+    ) -> None:
         for field_name, value in (("completion_state", None), ("state", "")):
             with self.subTest(field_name=field_name):
                 self.assertIs(
@@ -241,7 +247,9 @@ class LegacyStatusBoundaryTests(unittest.TestCase):
         self.assertEqual(exported, "needs_attention")
         self.assertEqual(public_export, "needs_attention")
 
-    def test_canonical_compatibility_values_are_total_and_truth_preserving(self) -> None:
+    def test_canonical_compatibility_values_are_total_and_truth_preserving(
+        self,
+    ) -> None:
         expected = {
             "awaiting_input": CompletionState.AWAITING_INPUT,
             "blocked": CompletionState.BLOCKED,

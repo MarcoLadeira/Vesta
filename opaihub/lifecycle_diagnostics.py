@@ -23,7 +23,11 @@ _SOURCE_LABELS = frozenset(
 
 
 def _path(project_root: Path) -> Path:
-    return state_dir(project_root.expanduser().resolve()) / "agent" / "lifecycle-diagnostics.jsonl"
+    return (
+        state_dir(project_root.expanduser().resolve())
+        / "agent"
+        / "lifecycle-diagnostics.jsonl"
+    )
 
 
 def _empty() -> dict[str, Any]:

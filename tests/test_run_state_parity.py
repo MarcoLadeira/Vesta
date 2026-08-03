@@ -97,9 +97,10 @@ def test_js_and_python_agree_on_which_statuses_are_awaiting_input() -> None:
     from opaihub.run_state import AWAITING_INPUT_STATUSES
 
     for status in AWAITING_INPUT_STATUSES:
-        assert _browser_eval(
-            "reducer.fromBackendStatus(process.argv[3])", status
-        ) == RunState.AWAITING_INPUT.value
+        assert (
+            _browser_eval("reducer.fromBackendStatus(process.argv[3])", status)
+            == RunState.AWAITING_INPUT.value
+        )
 
 
 def test_the_js_store_does_not_treat_waiting_as_an_ending() -> None:
