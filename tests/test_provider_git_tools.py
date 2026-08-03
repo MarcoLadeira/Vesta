@@ -425,5 +425,81 @@ class SchemaAndContractTests(unittest.TestCase):
         self.assertNotIn("Callable tools", contract)
 
 
+class GuardDecisionAuditTests(unittest.TestCase):
+    """A live tool call leaves a real audit-trail entry, not just a return
+    value (#546). Before this, opaihub.audit's tamper-evident chain only
+    recorded entries from the manual `opai guard` CLI command -- an actual
+    autonomous run's own decisions left no trace at all."""
+
+    def test_a_permitted_write_is_recorded_as_guard_allow(self):
+        from opaihub.audit import GUARD_ALLOW, read_audit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            result = _executor(root).invoke(
+                "write_file", {"path": "a.txt", "content": "hello"}
+            )
+            self.assertTrue(result["ok"], result)
+            events = [e for e in read_audit(root) if e["event_type"] == GUARD_ALLOW]
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["operation"], "write_file")
+        self.assertEqual(events[0]["actor"], "agent")
+
+    def test_a_blocked_write_is_recorded_as_guard_deny_with_a_reason(self):
+        # DIRTY_PATH_CONFLICT (a *different*, earlier check on the planned
+        # path itself) never reaches _mutation_gate at all -- the scenario
+        # that actually exercises require_mutation_permitted's own deny path
+        # is an *unrelated* foreign dirty file blocking an unrelated planned
+        # write, exactly like test_repository_safety.py's
+        # test_gate_refuses_unrelated_user_changes_without_isolation.
+        from opaihub.audit import GUARD_DENY, read_audit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"docs/guide.md": "guide"}, commit=True)
+            executor = _executor(root)
+            (root / "docs" / "guide.md").write_text("user edit", encoding="utf-8")
+            result = executor.invoke(
+                "write_file", {"path": "src/app.py", "content": "print(1)"}
+            )
+            self.assertFalse(result["ok"], result)
+            events = [e for e in read_audit(root) if e["event_type"] == GUARD_DENY]
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["operation"], "write_file")
+        self.assertTrue(events[0]["reason"])
+
+    def test_denied_and_allowed_entries_share_one_tamper_evident_chain(self):
+        # Not two independent logs -- one hash-chained sequence a later
+        # entry's prev_hash depends on, proving nothing was inserted or
+        # reordered after the fact.
+        from opaihub.audit import verify_chain
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"docs/guide.md": "guide"}, commit=True)
+            executor = _executor(root)
+            executor.invoke("write_file", {"path": "new.txt", "content": "ok"})
+            (root / "docs" / "guide.md").write_text("user edit", encoding="utf-8")
+            executor.invoke("write_file", {"path": "src/app.py", "content": "print(1)"})
+            chain = verify_chain(root)
+
+        self.assertTrue(chain["ok"], chain)
+        self.assertGreaterEqual(chain["length"], 2)
+
+    def test_an_executed_confirm_class_command_is_recorded_as_evidence(self):
+        from opaihub.audit import EVIDENCE_PACKET, read_audit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = _executor(root, allow_git_ops=True)
+            executor.grant_command_once("git push origin HEAD")
+            executor.invoke("run_command", {"command": "git push origin HEAD"})
+            events = [e for e in read_audit(root) if e["event_type"] == EVIDENCE_PACKET]
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["operation"], "one_shot_grant_consumed")
+        self.assertIn("git push", events[0]["command"])
+
+
 if __name__ == "__main__":
     unittest.main()
