@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .aci import AgentComputerInterface, Observation
+from .audit import EVIDENCE_PACKET, GUARD_ALLOW, GUARD_DENY, record_audit_event
 from .command_runner import redact
 from .proc import no_window_kwargs
 from .repo_context import classify_dirty_paths, resolve_repo_context
@@ -332,12 +333,41 @@ class RepositoryToolExecutor:
             message,
         ).to_dict()
 
+    def _record_guard_decision(
+        self, *, allowed: bool, operation: str, reason: str = ""
+    ) -> None:
+        """Best-effort governance audit entry for an authority decision (#546).
+
+        The decision has already been made by the time this is called; a
+        failure here must never retroactively change or block it. This is
+        the first live-run wiring of opaihub.audit's tamper-evident trail --
+        previously it only recorded entries from the manual ``opai guard``
+        CLI command, so decisions made during an actual autonomous run left
+        no audit trail at all.
+        """
+        try:
+            handle = self._repository_handle
+            record_audit_event(
+                self.repo_root,
+                GUARD_ALLOW if allowed else GUARD_DENY,
+                actor="agent",
+                operation=operation,
+                task_id=getattr(handle, "task_id", "") or "",
+                run_id=getattr(handle, "run_id", "") or "",
+                reason=reason,
+            )
+        except (OSError, TimeoutError, ValueError):
+            pass  # observational only, never load-bearing
+
     def _mutation_gate(
         self, operation: str, planned_paths: tuple[str, ...]
     ) -> dict[str, Any] | None:
         """Fail closed immediately before every local write or Git mutation."""
 
         if self._repository_handle is None:
+            self._record_guard_decision(
+                allowed=False, operation=operation, reason="handle_unavailable"
+            )
             return self._repository_safety_blocked(operation)
         # Branch/ref operations have no file list, but their authority is still
         # explicitly bounded so an unknown scope never grants a mutation.
@@ -350,7 +380,12 @@ class RepositoryToolExecutor:
                 opai_owned_paths=tuple(self.written_paths),
             )
         except RepositorySafetyError as exc:
+            reason = ", ".join(exc.decision.reasons) or exc.decision.assessment.rule_id
+            self._record_guard_decision(
+                allowed=False, operation=operation, reason=reason
+            )
             return self._repository_safety_blocked(operation, exc)
+        self._record_guard_decision(allowed=True, operation=operation)
         return None
 
     def _test_commands(self) -> dict[str, list[str]]:
@@ -1056,6 +1091,22 @@ class RepositoryToolExecutor:
         grant = self._allowed_once
         if grant and grant_permits(grant, raw):
             self._allowed_once = None  # single-use: exactly this command, once
+            # #546: an executed, explicitly user-approved confirm-class action
+            # (git push, gh mutations, ...) -- proof of what was approved and
+            # actually run, not just that approval existed at some point.
+            try:
+                handle = self._repository_handle
+                record_audit_event(
+                    self.repo_root,
+                    EVIDENCE_PACKET,
+                    actor="agent",
+                    operation="one_shot_grant_consumed",
+                    command=raw,
+                    task_id=getattr(handle, "task_id", "") or "",
+                    run_id=getattr(handle, "run_id", "") or "",
+                )
+            except (OSError, TimeoutError, ValueError):
+                pass  # observational only, never load-bearing
             return True
         return False
 
@@ -1126,11 +1177,17 @@ class RepositoryToolExecutor:
                 return blocked
             # 'deny', shell-operator forms, and unrecognized commands stay
             # hard-blocked: the allowlist remains the only autonomous path.
+            self._record_guard_decision(
+                allowed=False,
+                operation="run_command",
+                reason=str(verdict.get("decision") or "unrecognized"),
+            )
             return _error(
                 "COMMAND_BLOCKED",
                 "Only bounded local Git reads are allowed. Use dedicated build, "
                 "test, and consent-aware GitHub tools for other operations.",
             )
+        self._record_guard_decision(allowed=True, operation="run_command")
         git_executable = resolve_trusted_git_executable(self.repo_root)
         if git_executable is None:
             return _error(
