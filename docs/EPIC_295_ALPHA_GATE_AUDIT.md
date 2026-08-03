@@ -236,6 +236,17 @@ provider crash, retry. Two deliberate choices make the proof mean something:
 Plus `test_process_tree.py` (26 tests) for the logic, adoption failure modes,
 single-release of the handle, and the self-group guard.
 
+**A second call site had the same defect (#539).** The primitive above was
+proven for `aci.py`'s command path, but `opaihub/verification_execution.py`'s
+check runner had never been wired to it: on Windows, a timed-out or cancelled
+verification check called a bare `process.kill()` — direct child only, same
+class of bug `terminate_tree` exists to fix, just not reached from here. Fixed
+by routing `_run_attempt`/`_terminate` through
+`isolated_group_kwargs`/`adopt`/`terminate_tree` like every other call site.
+`test_verification_execution.py::test_cancelling_a_running_check_reaps_the_grandchild_not_just_the_child`
+spawns a real grandchild and proves it — confirmed failing against the old
+`process.kill()`-only code before the fix, passing after.
+
 **Missing:** the real-process fixtures run on this Windows host; the POSIX
 paths are covered by logic tests and by the same fixtures when run on POSIX
 CI, which has not yet happened. Browser workers and temporary servers are not

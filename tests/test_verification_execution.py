@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
+import signal
+import subprocess
 import sys
+import time
 
 import pytest
 
 from opaihub.verification_execution import (
+    ArtifactReference,
     CheckRecord,
     CheckStatus,
     VerificationAttempt,
@@ -305,6 +311,29 @@ def test_missing_persisted_output_artifact_downgrades_to_unverified(
     assert verification_verdict(restored) is VerificationVerdict.UNVERIFIED
 
 
+def test_invalid_json_manifest_fails_closed_not_silently(tmp_path: Path) -> None:
+    # An app restart that finds a manifest half-written by a crash (or one
+    # corrupted on disk) must fail closed, never silently parse as verified.
+    target = tmp_path / "manifest.json"
+    target.write_text("not json at all {{{", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid verification manifest"):
+        load_verification_manifest(target)
+
+
+def test_evidence_directory_rejects_a_path_that_escapes_the_state_root(
+    tmp_path: Path,
+) -> None:
+    from opaihub.verification_execution import _evidence_directory
+
+    class _EscapingContext:
+        task_id = "../../.."
+        run_id = "run-1"
+
+    with pytest.raises(ValueError, match="escaped state directory"):
+        _evidence_directory(tmp_path, _EscapingContext())
+
+
 def test_provider_tool_trace_cannot_override_an_unverified_manifest(
     tmp_path: Path,
 ) -> None:
@@ -326,3 +355,189 @@ def test_provider_tool_trace_cannot_override_an_unverified_manifest(
 
     assert result.verdict is CompletionVerdict.PARTIAL
     assert result.reason_code == "verification_unverified"
+
+
+# -- real process-tree teardown (#108, #380, #539) ---------------------------
+#
+# The tests above prove `attempt.teardown_verified` for the *direct* check
+# process. That flag alone cannot distinguish "the whole tree died" from "the
+# root died and its children kept running" — exactly the gap that let a
+# Windows-only bug through: `_terminate()` used to call `process.kill()`,
+# which reaches only the direct child, never a grandchild the check command
+# spawned (a test worker, a browser, a language server). This spawns a real
+# parent + grandchild pair and proves both die on cancellation.
+
+_WORKER = """
+import subprocess, sys, time
+
+beat = sys.argv[1]
+if len(sys.argv) > 2:
+    kid = subprocess.Popen([sys.executable, __file__, sys.argv[2]])
+    with open(sys.argv[3], "w") as fh:
+        fh.write(str(kid.pid))
+while True:
+    with open(beat, "a") as fh:
+        fh.write(".")
+        fh.flush()
+    time.sleep(0.02)
+"""
+
+_QUIET = 0.7  # a stopped process writes nothing in this window
+
+
+def _assert_stopped(path: Path, who: str) -> None:
+    deadline = time.monotonic() + 8.0
+    while time.monotonic() < deadline:
+        first = path.stat().st_size
+        time.sleep(_QUIET)
+        if path.stat().st_size == first:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"{who} is still running — that is an orphan")
+
+
+def _hard_kill(pid_file: Path) -> None:
+    """Never leak a real process out of the test suite, even on failure."""
+    try:
+        stray = int(pid_file.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return
+    if sys.platform == "win32":
+        subprocess.run(  # nosec B603 B607 - fixed argv, no shell
+            ["taskkill", "/F", "/T", "/PID", str(stray)],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    else:
+        with contextlib.suppress(OSError):
+            os.kill(stray, signal.SIGKILL)
+
+
+def test_cancelling_a_running_check_reaps_the_grandchild_not_just_the_child(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "worker.py"
+    script.write_text(_WORKER, encoding="utf-8")
+    parent_beat = tmp_path / "parent.beat"
+    child_beat = tmp_path / "child.beat"
+    child_pid_file = tmp_path / "child.pid"
+
+    def cancel_once_both_are_alive() -> bool:
+        return (
+            parent_beat.exists()
+            and parent_beat.stat().st_size > 0
+            and child_beat.exists()
+            and child_beat.stat().st_size > 0
+        )
+
+    try:
+        manifest = execute_policy(
+            _policy_for_command(
+                (
+                    sys.executable,
+                    str(script),
+                    str(parent_beat),
+                    str(child_beat),
+                    str(child_pid_file),
+                ),
+                timeout_seconds=30,
+            ),
+            _context(tmp_path),
+            cancel=cancel_once_both_are_alive,
+        )
+        attempt = manifest.checks[0].attempts[0]
+
+        assert attempt.status is CheckStatus.CANCELLED
+        assert attempt.teardown_verified is True
+        # Prove the orphan would have been real: both were alive at the
+        # moment cancellation fired, not just the direct check process.
+        assert parent_beat.stat().st_size > 0
+        assert child_beat.stat().st_size > 0
+        _assert_stopped(parent_beat, "the check process")
+        _assert_stopped(child_beat, "the grandchild it spawned")
+    finally:
+        _hard_kill(child_pid_file)
+
+
+# -- cross-platform path, encoding and shell differences (#539 addendum) -----
+#
+# Real multi-OS runners aren't available on this dev machine, so rather than
+# skip-marked per-OS tests, each fixture targets the concrete risk a platform
+# difference poses and runs everywhere: Windows-style path separators (the
+# most common real divergence), invalid/undecodable byte sequences a child
+# can emit under any locale or codepage, and shell metacharacter handling
+# (neutralized entirely by never invoking a platform shell, cmd.exe or
+# POSIX). Real per-OS process-tree behavior (job objects vs process groups)
+# is already proven with skipUnless/skipIf fixtures in test_process_tree.py
+# and test_orphan_processes.py, which `_terminate()` now delegates to.
+
+
+def test_artifact_reference_normalizes_windows_style_backslash_paths() -> None:
+    ref = ArtifactReference(path="outputs\\sub\\file.txt", digest="0" * 64)
+
+    assert ref.path == "outputs/sub/file.txt"
+
+
+def test_invalid_utf8_check_output_is_replaced_not_a_crash(tmp_path: Path) -> None:
+    command = (
+        sys.executable,
+        "-c",
+        "import sys; sys.stdout.buffer.write(b'before' + bytes([0xFF]) + b'after'); "
+        "sys.stdout.buffer.flush()",
+    )
+
+    manifest = execute_policy(_policy_for_command(command), _context(tmp_path))
+    attempt = manifest.checks[0].attempts[0]
+
+    assert attempt.status is CheckStatus.PASSED
+    assert "before" in attempt.output_summary
+    assert "after" in attempt.output_summary
+
+
+def test_command_arguments_are_never_shell_interpreted(tmp_path: Path) -> None:
+    # If this ever ran through a shell (cmd.exe or POSIX), these metacharacters
+    # would be parsed as control operators rather than reach argv intact.
+    payload = "a && b; $(echo pwned) | cat"
+    command = (
+        sys.executable,
+        "-c",
+        "import sys; print(sys.argv[1])",
+        payload,
+    )
+
+    manifest = execute_policy(_policy_for_command(command), _context(tmp_path))
+    attempt = manifest.checks[0].attempts[0]
+
+    assert attempt.status is CheckStatus.PASSED
+    assert payload in attempt.output_summary
+
+
+def test_truncated_redacted_failure_preserves_exit_status_and_artifact_link(
+    tmp_path: Path,
+) -> None:
+    command = (
+        sys.executable,
+        "-c",
+        "import sys; print('token=sk-12345678901234567890' + 'x' * 200); sys.exit(7)",
+    )
+
+    manifest = execute_policy(
+        _policy_for_command(command), _context(tmp_path), max_output_chars=64
+    )
+    attempt = manifest.checks[0].attempts[0]
+
+    assert attempt.status is CheckStatus.FAILED
+    assert attempt.exit_status == 7
+    assert "12345678901234567890" not in attempt.output_summary
+    assert len(attempt.output_summary) <= 64
+
+    reference = persist_verification_manifest(tmp_path, manifest)
+    restored = load_verification_manifest(reference.path)
+    restored_attempt = restored.checks[0].attempts[0]
+
+    assert restored.integrity_errors == ()
+    assert restored_attempt.status is CheckStatus.FAILED
+    assert restored_attempt.exit_status == 7
+    assert "12345678901234567890" not in reference.path.read_text(encoding="utf-8")
+    assert verification_verdict(restored) is VerificationVerdict.FAILED

@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import platform
 import re
-import signal
 import subprocess  # nosec B404 - commands are validated argv and use shell=False
 import sys
 import time
@@ -19,7 +18,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from .command_runner import redact
 from .atomic_io import atomic_write_text, interprocess_transaction
-from .proc import no_window_kwargs
+from .process_tree import adopt, isolated_group_kwargs, terminate_tree
 from .state import state_dir
 from .verification_policy import PolicyCheck, VerificationPolicy
 
@@ -572,17 +571,17 @@ def _output_summary(stdout: object, stderr: object, *, limit: int) -> str:
 
 
 def _terminate(process: subprocess.Popen[str]) -> bool:
-    """Terminate the process group and confirm the owned parent exited."""
+    """Terminate the whole owned process tree and confirm the parent exited.
+
+    Uses :func:`process_tree.terminate_tree` rather than killing the direct
+    child alone: a timed-out or cancelled check can have spawned grandchildren
+    (test workers, browsers, language servers) that survive a plain
+    ``kill()`` on Windows and are left running as orphans (#108, #539).
+    """
 
     if process.poll() is not None:
         return True
-    try:
-        if os.name == "nt":
-            process.kill()
-        else:
-            os.killpg(process.pid, signal.SIGKILL)
-    except (OSError, ProcessLookupError):
-        pass
+    terminate_tree(process, timeout=5)
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
@@ -635,11 +634,7 @@ def _run_attempt(
         "shell": False,
         "env": environment,
     }
-    if os.name == "nt":
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        kwargs.update(no_window_kwargs())
-    else:
-        kwargs["start_new_session"] = True
+    kwargs.update(isolated_group_kwargs())
     try:
         process = subprocess.Popen(list(check.command), **kwargs)  # nosec B603
     except FileNotFoundError as exc:
@@ -670,6 +665,7 @@ def _run_attempt(
             environment_digest=environment_digest,
             teardown_verified=True,
         )
+    adopt(process)
     deadline = time.monotonic() + check.timeout_seconds
     stdout = ""
     stderr = ""
