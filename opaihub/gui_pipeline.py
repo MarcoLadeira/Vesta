@@ -555,11 +555,13 @@ def _record_gui_route(
     *,
     tier: str,
     receipt: dict[str, Any],
-    tool_trace: list[dict[str, Any]],
-    model_id: str,
-    mode: str,
 ) -> None:
-    event = record_route_decision(
+    # #381: record_route_decision fsyncs its event to disk before returning
+    # it, so mutating the returned dict with receipt/tool_trace/model/mode
+    # (as this used to do) silently discarded those fields. gui_receipt
+    # (written by _decorate, later in the same turn) is the event that
+    # actually carries the receipt — recording it here too was dead code.
+    record_route_decision(
         project_root,
         task,
         model_tier=tier,
@@ -569,12 +571,6 @@ def _record_gui_route(
         repo=project_root.resolve().name,
         source="gui",
     )
-    event["receipt"] = receipt
-    event["tool_trace"] = [
-        {"id": item.get("id"), "label": item.get("label")} for item in tool_trace
-    ]
-    event["selected_model"] = model_id
-    event["selected_mode"] = mode
 
 
 def _outcome_category(status: str, *, had_work: bool, verdict: str = "") -> str | None:
@@ -2312,9 +2308,6 @@ def handle_gui_message(
                         message,
                         tier="L2",
                         receipt=receipt,
-                        tool_trace=tool_trace,
-                        model_id=selected_model,
-                        mode=selected_mode,
                     )
                 # Free APIs report no dollars here, so the telemetry is honestly
                 # labelled estimated (#178) - never presented as a real spend.
@@ -2842,9 +2835,6 @@ def handle_gui_message(
                     message,
                     tier=tier,
                     receipt=receipt,
-                    tool_trace=tool_trace,
-                    model_id=selected_model,
-                    mode=selected_mode,
                 )
             if result_is_completed(result):
                 if policy.mode in {
