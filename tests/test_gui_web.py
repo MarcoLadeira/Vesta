@@ -706,13 +706,16 @@ class AppearancePreferenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             saved = save_gui_preferences(
-                root, {"density": "compact", "reduced_motion": "on"}
+                root,
+                {"density": "compact", "reduced_motion": "on", "activity_copy": "off"},
             )
             self.assertEqual(saved["density"], "compact")
             self.assertEqual(saved["reduced_motion"], "on")
+            self.assertEqual(saved["activity_copy"], "off")
             prefs = boot_payload(root)["prefs"]
             self.assertEqual(prefs["density"], "compact")
             self.assertEqual(prefs["reducedMotion"], "on")
+            self.assertEqual(prefs["activityCopy"], "off")
 
     def test_invalid_appearance_values_sanitize_to_defaults(self):
         from opaihub.gui_preferences import save_gui_preferences
@@ -720,13 +723,20 @@ class AppearancePreferenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             saved = save_gui_preferences(
-                root, {"density": "microscopic", "reduced_motion": "sometimes"}
+                root,
+                {
+                    "density": "microscopic",
+                    "reduced_motion": "sometimes",
+                    "activity_copy": "sometimes",
+                },
             )
             self.assertEqual(saved["density"], "comfortable")
             self.assertEqual(saved["reduced_motion"], "system")
+            self.assertEqual(saved["activity_copy"], "on")
             prefs = boot_payload(root)["prefs"]
             self.assertEqual(prefs["density"], "comfortable")
             self.assertEqual(prefs["reducedMotion"], "system")
+            self.assertEqual(prefs["activityCopy"], "on")
 
     def test_defaults_present_without_any_saved_preferences(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -734,6 +744,7 @@ class AppearancePreferenceTests(unittest.TestCase):
             prefs = boot_payload(root)["prefs"]
         self.assertEqual(prefs["density"], "comfortable")
         self.assertEqual(prefs["reducedMotion"], "system")
+        self.assertEqual(prefs["activityCopy"], "on")
 
 
 @unittest.skipUnless(
