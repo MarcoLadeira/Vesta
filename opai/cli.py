@@ -747,6 +747,37 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_support_bundle(args: argparse.Namespace) -> int:
+    """Preview or write a bounded, redacted diagnostic bundle (#551).
+
+    Prints the bundle by default so the user can inspect exactly what would
+    be shared before anything touches disk; ``--out`` writes it to a file
+    instead. Every source this composes (audit events, ledger events) was
+    already redacted at write time -- no raw prompts, command output, or
+    credentials are ever included.
+    """
+    from opaihub.atomic_io import atomic_write_text
+    from opaihub.support_bundle import build_support_bundle
+
+    root = _project(args.project)
+    bundle = build_support_bundle(root)
+    bundle["brand"] = __brand__
+    bundle["version"] = __version__
+    bundle["release_stage"] = __release_stage__
+    out = getattr(args, "out", None)
+    if not out:
+        print_json(bundle)
+        return 0
+    target = Path(out).expanduser().resolve()
+    atomic_write_text(
+        target, json.dumps(bundle, indent=2, sort_keys=True, default=str) + "\n"
+    )
+    print_json(
+        {"status": "written", "path": str(target), "bytes": target.stat().st_size}
+    )
+    return 0
+
+
 def cmd_update(args: argparse.Namespace) -> int:
     """Check for, or apply, an OPai update — the desktop Settings button's CLI twin.
 
@@ -3417,6 +3448,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--project", default=None, help="Project root")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser(
+        "support-bundle",
+        help="Preview or write a bounded, redacted diagnostic bundle for support requests",
+    )
+    p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--out",
+        default=None,
+        metavar="PATH",
+        help="Write the bundle to this file instead of printing it",
+    )
+    p.set_defaults(func=cmd_support_bundle)
 
     p = sub.add_parser(
         "update",
