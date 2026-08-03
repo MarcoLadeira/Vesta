@@ -8,6 +8,7 @@ assets reference the font and bridge correctly.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import tempfile
 import unittest
@@ -733,6 +734,52 @@ class AppearancePreferenceTests(unittest.TestCase):
             prefs = boot_payload(root)["prefs"]
         self.assertEqual(prefs["density"], "comfortable")
         self.assertEqual(prefs["reducedMotion"], "system")
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("PySide6") is not None,
+    "PySide6 not installed (desktop GUI extra)",
+)
+class RuntimeIndexUrlTests(unittest.TestCase):
+    """A missing packaged web asset must fail loudly, not open a blank window
+    (#365). Before this, index.html's own absence was indistinguishable from
+    "the cache-busted copy could not be written" -- both were silently
+    swallowed as the same OSError, and the window opened anyway pointed at a
+    file that does not exist."""
+
+    def test_missing_index_html_raises_instead_of_loading_nothing(self):
+        from opai.gui_web import _runtime_index_url
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(FileNotFoundError):
+                _runtime_index_url(Path(tmp))
+
+    def test_present_index_html_still_resolves_to_an_existing_file(self):
+        from opai.gui_web import _runtime_index_url
+
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp)
+            (web_dir / "index.html").write_text(
+                "<html><body>ok</body></html>", encoding="utf-8"
+            )
+            url = _runtime_index_url(web_dir)
+            resolved = Path(url.toLocalFile())
+            self.assertTrue(resolved.is_file())
+            self.assertIn("ok", resolved.read_text(encoding="utf-8"))
+
+    def test_unwritable_directory_falls_back_to_the_plain_file_not_an_error(self):
+        # The narrower except OSError still does its original job: an
+        # existing source file plus a write failure degrades gracefully.
+        from opai.gui_web import _runtime_index_url
+
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp)
+            (web_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            with mock.patch(
+                "pathlib.Path.write_text", side_effect=OSError("read-only")
+            ):
+                url = _runtime_index_url(web_dir)
+            self.assertEqual(Path(url.toLocalFile()).name, "index.html")
 
 
 if __name__ == "__main__":
