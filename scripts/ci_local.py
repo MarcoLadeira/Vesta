@@ -63,6 +63,10 @@ FAST_STEPS = (
         required_modules=("ruff",),
     ),
     Step(
+        "lifecycle-projection-drift",
+        [sys.executable, "scripts/generate_lifecycle.py", "--check"],
+    ),
+    Step(
         "python-unittest", [sys.executable, "-m", "unittest", "discover", "-s", "tests"]
     ),
     Step(

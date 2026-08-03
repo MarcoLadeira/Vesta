@@ -8,9 +8,8 @@ The lifecycle is deliberately coarse and honest::
 
     queued -> preparing -> running -> verifying -> <terminal>
 
-with the terminals matching the completion verdict (#378/#402) one-for-one so a
-run's live state and its final verdict speak the same words:
-``completed | partial | blocked | failed | cancelled | timeout``.
+with completion verdicts projecting directly to same-named terminals and an
+additional ``needs_attention`` terminal for incompatible canonical data.
 
 Presentation-layer detail (the Calm Stream phases in ``activity.py`` —
 authenticating/streaming/tool_call/…) stays underneath this model; it refines
@@ -22,9 +21,20 @@ from __future__ import annotations
 import threading
 import time
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
-from .completion import CompletionVerdict, verdict_label
+from .completion import CompletionVerdict
+from .generated_lifecycle import (
+    DEGRADED_INPUTS,
+    EXIT_CODES,
+    LEGACY_STATE_MAP,
+    LEGACY_STATUS_MAP,
+    STATE_IDS,
+    STATE_SPECS,
+    TERMINAL_STATE_IDS,
+    transition_spec,
+)
 
 
 class RunState(str, Enum):
@@ -56,115 +66,18 @@ class RunState(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     TIMEOUT = "timeout"
+    # Typed degraded/incompatible terminal for canonical data this version
+    # cannot safely interpret.
+    NEEDS_ATTENTION = "needs_attention"
 
+
+if {state.value for state in RunState} != set(STATE_IDS):
+    raise RuntimeError("RunState facade is stale relative to generated lifecycle states")
 
 TERMINAL_STATES: frozenset[RunState] = frozenset(
-    {
-        RunState.COMPLETED,
-        RunState.PARTIAL,
-        RunState.BLOCKED,
-        RunState.FAILED,
-        RunState.CANCELLED,
-        RunState.TIMEOUT,
-    }
+    RunState(state_id) for state_id in TERMINAL_STATE_IDS
 )
-
 NON_TERMINAL_STATES: frozenset[RunState] = frozenset(RunState) - TERMINAL_STATES
-
-# The active-phase order; a run advances forward through these, but may reach a
-# terminal from any of them (a provider can fail during preparing, a user can
-# cancel while running, verification can find no evidence, ...).
-_ACTIVE_ORDER: tuple[RunState, ...] = (
-    RunState.QUEUED,
-    RunState.PREPARING,
-    RunState.RUNNING,
-    RunState.VERIFYING,
-)
-
-
-# Non-terminal states that sit outside the linear phase order. Both are
-# *interruptions* of the progression rather than steps in it, so they are
-# reachable from any live phase and can hand control back to any of them.
-_INTERRUPT_STATES: frozenset[RunState] = frozenset(
-    {RunState.AWAITING_INPUT, RunState.CANCEL_REQUESTED}
-)
-
-
-def _legal_transitions() -> dict[RunState, frozenset[RunState]]:
-    table: dict[RunState, frozenset[RunState]] = {}
-    for index, state in enumerate(_ACTIVE_ORDER):
-        # Forward to any later active phase, plus any terminal state.
-        forward = set(_ACTIVE_ORDER[index + 1 :])
-        allowed = forward | set(TERMINAL_STATES)
-        # Stop can be pressed during any live phase, verification included.
-        allowed.add(RunState.CANCEL_REQUESTED)
-        # The repair loop. #295's lifecycle writes it `verifying ↔ repairing?`:
-        # verification finds a problem, work resumes to fix it, and the evidence
-        # is judged again. The engine already does exactly this
-        # (`reviewing_diff -> implementing/testing` in agent_runtime._FORWARD),
-        # so forbidding it here made the canonical machine describe a lifecycle
-        # the product does not have. Caught by test_runtime_phase_parity's
-        # graph-projection check.
-        if state is RunState.VERIFYING:
-            allowed.add(RunState.RUNNING)
-        # Asking the user is only legal *before* verification. Verification
-        # produces a verdict on evidence that already exists — it can send the
-        # run back to work (above), but it has no question of its own to ask.
-        if state is not RunState.VERIFYING:
-            allowed.add(RunState.AWAITING_INPUT)
-        table[state] = frozenset(allowed)
-    # Answering resumes the work: a run returns to a live phase (an approved
-    # command resumes execution) or ends. Not back into verifying, for the same
-    # reason it cannot stop to ask from there.
-    table[RunState.AWAITING_INPUT] = frozenset(
-        {RunState.QUEUED, RunState.PREPARING, RunState.RUNNING}
-        | {RunState.CANCEL_REQUESTED}
-        | set(TERMINAL_STATES)
-    )
-    # A requested cancel only ends. It may still end as COMPLETED: pressing Stop
-    # while the last step was already finishing is a race, and reporting that as
-    # cancelled would be a lie about what actually happened.
-    table[RunState.CANCEL_REQUESTED] = frozenset(TERMINAL_STATES)
-    # Terminal states are immutable — no legal transition leaves them.
-    for state in TERMINAL_STATES:
-        table[state] = frozenset()
-    return table
-
-
-_TRANSITIONS = _legal_transitions()
-
-# Non-terminal labels; terminal labels come from the shared verdict vocabulary
-# (#396) so the live state and the final verdict never disagree ("Timed out").
-_ACTIVE_LABELS = {
-    RunState.QUEUED: "Queued",
-    RunState.PREPARING: "Preparing",
-    RunState.RUNNING: "Running",
-    # Names the user as the thing being waited on, not the run as stuck.
-    RunState.AWAITING_INPUT: "Waiting for you",
-    RunState.CANCEL_REQUESTED: "Stopping",
-    RunState.VERIFYING: "Verifying",
-}
-
-
-# One exit code per terminal state, so a script can branch on *which* ending it
-# got (#295 Workstream H: "CLI exit codes map deterministically to canonical
-# terminal states"). Every non-completed ending used to collapse to 2, which
-# made `timeout` — worth retrying — indistinguishable from `blocked`, which is
-# a refusal that retrying will hit again, and from `partial`, where work
-# actually landed.
-#
-# Chosen to keep the ordinary idiom working: 0 is success and everything else is
-# non-zero, so `if ! opai ask ...` behaves exactly as before. 2 stays on
-# `failed`, the code it already meant. 130 is the shell's SIGINT convention and
-# was already returned for Ctrl+C, so cancellation keeps it.
-_EXIT_CODES: dict[RunState, int] = {
-    RunState.COMPLETED: 0,
-    RunState.FAILED: 2,
-    RunState.PARTIAL: 3,
-    RunState.BLOCKED: 4,
-    RunState.TIMEOUT: 5,
-    RunState.CANCELLED: 130,
-}
 
 
 def exit_code_for(state: RunState | str) -> int:
@@ -179,7 +92,7 @@ def exit_code_for(state: RunState | str) -> int:
     run_state = _coerce(state)
     if run_state not in TERMINAL_STATES:
         raise ValueError(f"{run_state.value} is not a terminal state")
-    return _EXIT_CODES[run_state]
+    return EXIT_CODES[run_state.value]
 
 
 def is_terminal(state: RunState | str) -> bool:
@@ -195,11 +108,16 @@ def can_transition(current: RunState | str, nxt: RunState | str) -> bool:
     legal from any non-terminal state (see :func:`cancel`).
     """
 
-    return _coerce(nxt) in _TRANSITIONS[_coerce(current)]
+    prior, target = _coerce(current), _coerce(nxt)
+    return transition_spec(prior.value, target.value) is not None
 
 
 def transition(
-    current: RunState | str, nxt: RunState | str, *, source: str = ""
+    current: RunState | str,
+    nxt: RunState | str,
+    *,
+    source: str = "",
+    project_root: Path | None = None,
 ) -> RunState:
     """Apply a transition, returning the new state, or the current one unchanged
     when the move is illegal — the machine never raises on a bad edge, it simply
@@ -213,12 +131,25 @@ def transition(
     trace. ``source`` is an optional caller label for the record.
     """
 
-    current_state = _coerce(current)
-    next_state = _coerce(nxt)
-    if can_transition(current_state, next_state):
+    current_state, unknown_current = _coerce_transition(current)
+    next_state, unknown_next = _coerce_transition(nxt)
+    unknown_input = unknown_current or unknown_next
+    if (
+        not unknown_input
+        and transition_spec(current_state.value, next_state.value) is not None
+    ):
         return next_state
     _record_refusal(current_state, next_state, source)
-    return current_state
+    if project_root is not None:
+        from .lifecycle_diagnostics import record_illegal_transition
+
+        record_illegal_transition(
+            Path(project_root),
+            current_state.value,
+            next_state.value,
+            source,
+        )
+    return RunState.NEEDS_ATTENTION if unknown_input else current_state
 
 
 # Refused transitions, newest last. Bounded so a runaway caller cannot grow it
@@ -232,6 +163,8 @@ _refusal_lock = threading.Lock()
 
 
 def _record_refusal(current: RunState, nxt: RunState, source: str) -> None:
+    from .lifecycle_diagnostics import source_label
+
     global _refusal_count
     entry = {
         "from": current.value,
@@ -239,10 +172,7 @@ def _record_refusal(current: RunState, nxt: RunState, source: str) -> None:
         # A closed label, never free text from a provider or a prompt: this
         # record is read by diagnostics and must not become a place a secret
         # can land.
-        "source": "".join(
-            ch for ch in str(source or "unknown").lower() if ch.isalnum() or ch in "._-"
-        )[:64]
-        or "unknown",
+        "source": source_label(source),
         "at": time.time(),
     }
     with _refusal_lock:
@@ -272,17 +202,16 @@ def reset_illegal_transitions() -> None:
 
 
 def cancel(current: RunState | str) -> RunState:
-    """Cancel from any non-terminal state; a terminal state is left untouched
-    (you cannot un-finish a run)."""
+    """Acknowledge cancellation without claiming teardown is reconciled."""
 
     current_state = _coerce(current)
     if current_state in TERMINAL_STATES:
         return current_state
-    return RunState.CANCELLED
+    return RunState.CANCEL_REQUESTED
 
 
 def run_state_for_verdict(verdict: CompletionVerdict | str) -> RunState:
-    """Map a completion verdict to its canonical terminal run state (1:1)."""
+    """Map a completion verdict to its same-named canonical terminal state."""
 
     value = str(getattr(verdict, "value", verdict) or "").strip().lower()
     return RunState(value)
@@ -296,18 +225,7 @@ def run_state_for_verdict(verdict: CompletionVerdict | str) -> RunState:
 # state, it never invents a new one. Canonical and terminal states map to
 # themselves.
 _PRESENTATION_TO_CANONICAL = {
-    "retrying": RunState.QUEUED,
-    "authenticating": RunState.PREPARING,
-    "sending": RunState.RUNNING,
-    "waiting": RunState.RUNNING,
-    "streaming": RunState.RUNNING,
-    # #295 names these `waiting_user` / `awaiting_approval` / `cancel_requested`.
-    # Accepting the epic's words as aliases means a surface or document written
-    # against the epic converges here instead of starting a rival vocabulary.
-    "waiting_user": RunState.AWAITING_INPUT,
-    "awaiting_approval": RunState.AWAITING_INPUT,
-    "awaiting_input": RunState.AWAITING_INPUT,
-    "cancel_requested": RunState.CANCEL_REQUESTED,
+    alias: RunState(canonical) for alias, canonical in LEGACY_STATE_MAP.items()
 }
 
 # `opaihub.agent_runtime.RuntimePhase` is the engine's *working* vocabulary: a
@@ -379,14 +297,9 @@ def canonical_for_runtime_phase(phase: Any) -> RunState:
 # make the `resumable` flag a false claim and would dress a genuine dead end up
 # as a question, which is the opposite of the honesty this state exists for.
 AWAITING_INPUT_STATUSES: frozenset[str] = frozenset(
-    {
-        "needs_command_approval",
-        "needs_edit_approval",
-        "needs_free_confirmation",
-        "needs_auto_confirmation",
-        "needs_limit_confirmation",
-        "needs_confirmation",
-    }
+    status
+    for status, canonical in LEGACY_STATUS_MAP.items()
+    if canonical == RunState.AWAITING_INPUT.value
 )
 
 
@@ -417,12 +330,18 @@ def label(state: RunState | str) -> str:
     """The one user-facing label for a run state, shared by every surface."""
 
     run_state = _coerce(state)
-    if run_state in TERMINAL_STATES:
-        return verdict_label(run_state.value)
-    return _ACTIVE_LABELS[run_state]
+    return str(STATE_SPECS[run_state.value]["label"])
 
 
 def _coerce(state: Any) -> RunState:
     if isinstance(state, RunState):
         return state
     return RunState(str(getattr(state, "value", state) or "").strip().lower())
+
+
+def _coerce_transition(state: Any) -> tuple[RunState, bool]:
+    try:
+        return _coerce(state), False
+    except ValueError:
+        degraded = DEGRADED_INPUTS["unknown_state"]["state"]
+        return RunState(str(degraded)), True

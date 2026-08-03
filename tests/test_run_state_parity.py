@@ -9,57 +9,82 @@ that parity, so the two can't silently drift apart.
 
 from __future__ import annotations
 
-import re
+import json
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest import mock
 
-from _helpers import FakeLocalRunner, make_repo
+from tests._helpers import FakeLocalRunner, make_repo
 
 from opaihub.run_state import TERMINAL_STATES, RunState, canonical_for, is_terminal
 
 _MESSAGE_STATE_JS = (
     Path(__file__).resolve().parents[1] / "opai" / "assets" / "web" / "message-state.js"
 )
+_GENERATED_LIFECYCLE_JS = _MESSAGE_STATE_JS.with_name("generated-lifecycle.js")
 
 
-def _js_block(name: str) -> str:
-    text = _MESSAGE_STATE_JS.read_text(encoding="utf-8")
-    match = re.search(rf"var {name} = \{{(.*?)\}};", text, re.DOTALL)
-    assert match, f"message-state.js must define {name}"
-    return match.group(1)
+def _browser_eval(expression: str, *arguments: str):
+    script = f"""
+require(process.argv[1]);
+const reducer = require(process.argv[2]);
+const result = ({expression});
+process.stdout.write(JSON.stringify(result));
+"""
+    completed = subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(_GENERATED_LIFECYCLE_JS),
+            str(_MESSAGE_STATE_JS),
+            *arguments,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
 
 
-def _js_keys(name: str) -> set[str]:
-    # Strip `//` comments first. Without this, ordinary prose inside the block
-    # ("evidence that already exists: ...") is scraped as if it were a state
-    # name, and the guard fails on a comment rather than on real drift.
-    body = re.sub(r"//[^\n]*", "", _js_block(name))
-    return set(re.findall(r"(\w+):", body))
+def _browser_reduce(current: str, target: str) -> str:
+    return str(
+        _browser_eval(
+            'reducer.transition({requestId: "r1", status: process.argv[3]}, process.argv[4]).status',
+            current,
+            target,
+        )
+    )
 
 
 def test_js_terminal_states_match_the_canonical_terminals_exactly() -> None:
-    assert _js_keys("TERMINAL") == {state.value for state in TERMINAL_STATES}
+    browser = set(_browser_eval("reducer.lifecycle.terminalStateIds"))
+    assert browser == {state.value for state in TERMINAL_STATES}
 
 
 def test_js_verdict_state_map_covers_exactly_the_canonical_terminals() -> None:
-    assert _js_keys("VERDICT_STATE") == {state.value for state in TERMINAL_STATES}
+    for terminal in TERMINAL_STATES:
+        projected = _browser_eval(
+            "reducer.fromBackendStatus('failed', process.argv[3])", terminal.value
+        )
+        assert projected == terminal.value
 
 
 def test_every_js_store_state_maps_to_a_canonical_run_state() -> None:
     # ALLOWED's keys are the full state vocabulary of the GUI store. Each must
     # resolve to a canonical run state (directly or as a presentation refinement)
     # — the store never invents a lifecycle state the backend doesn't own.
-    js_states = _js_keys("ALLOWED")
-    assert js_states, "message-state.js must define an ALLOWED transition table"
-    for state in js_states:
+    browser_aliases = _browser_eval("reducer.lifecycle.legacyMappings.states")
+    assert browser_aliases
+    for state in browser_aliases:
         resolved = canonical_for(state)  # raises if the state is unknown
         assert isinstance(resolved, RunState)
 
 
 def test_js_carries_no_terminal_outside_the_canonical_set() -> None:
     # A JS terminal the backend can't produce would be an untrackable dead-end.
-    js_terminals = _js_keys("TERMINAL")
+    js_terminals = set(_browser_eval("reducer.lifecycle.terminalStateIds"))
     for terminal in js_terminals:
         assert RunState(terminal) in TERMINAL_STATES
 
@@ -71,14 +96,26 @@ def test_js_and_python_agree_on_which_statuses_are_awaiting_input() -> None:
     # kill, reintroduced one status at a time.
     from opaihub.run_state import AWAITING_INPUT_STATUSES
 
-    assert _js_keys("AWAITING_STATUS") == set(AWAITING_INPUT_STATUSES)
+    for status in AWAITING_INPUT_STATUSES:
+        assert _browser_eval(
+            "reducer.fromBackendStatus(process.argv[3])", status
+        ) == RunState.AWAITING_INPUT.value
 
 
 def test_the_js_store_does_not_treat_waiting_as_an_ending() -> None:
     # canApply() refuses updates to a terminal message, so a waiting run listed
     # as terminal would be unaddressable by the answer that resumes it.
-    assert "awaiting_input" not in _js_keys("TERMINAL")
-    assert "awaiting_input" in _js_keys("ALLOWED")
+    assert not _browser_eval("reducer.lifecycle.isTerminal('awaiting_input')")
+    assert _browser_eval(
+        "reducer.canApply({requestId: 'r1', status: 'awaiting_input'}, 'r1')"
+    )
+
+
+def test_repair_vector_is_legal_in_python_and_browser() -> None:
+    from opaihub.run_state import can_transition
+
+    assert can_transition("verifying", "running")
+    assert _browser_reduce("verifying", "running") == "running"
 
 
 def test_pipeline_emits_the_canonical_run_state_alongside_the_verdict() -> None:

@@ -15,9 +15,19 @@ import re
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from .legacy_status import (
+    legacy_completion_state,
+    legacy_status_for_completion_state,
+)
+
 
 class CompletionState(str, Enum):
     COMPLETED = "completed"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    TIMEOUT = "timeout"
+    NEEDS_ATTENTION = "needs_attention"
+    AWAITING_INPUT = "awaiting_input"
     CANCELLED = "cancelled"
     NEEDS_USER_INPUT = "needs_user_input"
     NEEDS_CONSENT = "needs_consent"
@@ -909,51 +919,6 @@ def evaluate_completion(
     )
 
 
-_ANSWERED_STATUSES = {
-    "answered",
-    "answered_by_account",
-    "answered_by_free_api",
-    "answered_locally",
-    "cache_hit",
-    "done",
-    "completed",
-}
-_CANCELLED_STATUSES = {"cancelled", "canceled", "user_cancelled", "aborted"}
-_USER_INPUT_STATUSES = {"needs_user_input", "needs_input", "question"}
-_CONSENT_STATUSES = {
-    "needs_confirmation",
-    "needs_paid_confirmation",
-    "needs_consent",
-    "read_only",
-}
-_RETRYABLE_STATUSES = {
-    "retryable_provider_error",
-    "provider_unavailable",
-    "temporarily_unavailable",
-    "timeout",
-}
-_BLOCKED_STATUSES = {"provider_blocked", "blocked"}
-_STUCK_STATUSES = {"incomplete", "stuck", "stuck_no_progress"}
-
-_CANCELLED_REASONS = _CANCELLED_STATUSES | {"cancel_requested"}
-_USER_INPUT_REASONS = _USER_INPUT_STATUSES
-_CONSENT_REASONS = _CONSENT_STATUSES | {"consent_required", "approval_required"}
-_RETRYABLE_REASONS = _RETRYABLE_STATUSES | {
-    "transient_error",
-    "network_error",
-    "connection_error",
-}
-_BLOCKED_REASONS = {reason.value for reason in ProviderBlockedReason}
-_STUCK_REASONS = _STUCK_STATUSES | {
-    "tool_budget_exhausted",
-    "repeated_failure",
-    "repeated_success",
-    "no_progress",
-    "exploration_limit",
-    "controller_timeout",
-}
-
-
 def _normalized(value: Any) -> str:
     return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
 
@@ -980,22 +945,6 @@ def _thaw(value: Any) -> Any:
     return value
 
 
-def _state_for_stop_reason(reason: str) -> CompletionState:
-    if reason in _CANCELLED_REASONS:
-        return CompletionState.CANCELLED
-    if reason in _USER_INPUT_REASONS:
-        return CompletionState.NEEDS_USER_INPUT
-    if reason in _CONSENT_REASONS:
-        return CompletionState.NEEDS_CONSENT
-    if reason in _BLOCKED_REASONS:
-        return CompletionState.PROVIDER_BLOCKED
-    if reason in _RETRYABLE_REASONS:
-        return CompletionState.RETRYABLE_PROVIDER_ERROR
-    if reason in _STUCK_REASONS:
-        return CompletionState.STUCK_NO_PROGRESS
-    return CompletionState.FAILED
-
-
 def completion_state_from_legacy(result: Mapping[str, Any] | None) -> CompletionState:
     """Read a typed or legacy result without ever inferring false success.
 
@@ -1003,45 +952,7 @@ def completion_state_from_legacy(result: Mapping[str, Any] | None) -> Completion
     payload as answered.  Unknown legacy states fail closed.
     """
 
-    payload = result or {}
-    stopped_reason = _normalized(payload.get("stopped_reason"))
-    if stopped_reason:
-        return _state_for_stop_reason(stopped_reason)
-
-    explicit = _normalized(payload.get("completion_state"))
-    if explicit:
-        try:
-            return CompletionState(explicit)
-        except ValueError:
-            return CompletionState.FAILED
-
-    status = _normalized(payload.get("status"))
-    if status in _ANSWERED_STATUSES:
-        return CompletionState.COMPLETED
-    if status in _CANCELLED_STATUSES:
-        return CompletionState.CANCELLED
-    if status in _USER_INPUT_STATUSES:
-        return CompletionState.NEEDS_USER_INPUT
-    if status in _CONSENT_STATUSES:
-        return CompletionState.NEEDS_CONSENT
-    if status in _RETRYABLE_STATUSES:
-        return CompletionState.RETRYABLE_PROVIDER_ERROR
-    if status in _BLOCKED_STATUSES:
-        return CompletionState.PROVIDER_BLOCKED
-    if status in _STUCK_STATUSES:
-        return CompletionState.STUCK_NO_PROGRESS
-    return CompletionState.FAILED
-
-
-_LEGACY_STATUS_BY_STATE = {
-    CompletionState.CANCELLED: "cancelled",
-    CompletionState.NEEDS_USER_INPUT: "needs_user_input",
-    CompletionState.NEEDS_CONSENT: "needs_confirmation",
-    CompletionState.RETRYABLE_PROVIDER_ERROR: "retryable_provider_error",
-    CompletionState.PROVIDER_BLOCKED: "provider_blocked",
-    CompletionState.STUCK_NO_PROGRESS: "incomplete",
-    CompletionState.FAILED: "failed",
-}
+    return CompletionState(legacy_completion_state(result))
 
 
 def result_is_completed(result: Mapping[str, Any] | None) -> bool:
@@ -1080,16 +991,10 @@ def legacy_status_for_completion(
 ) -> str:
     """Return the temporary compatibility status for a canonical state."""
 
-    try:
-        canonical = (
-            state if isinstance(state, CompletionState) else CompletionState(state)
-        )
-    except ValueError:
-        return "failed"
-    if canonical is CompletionState.COMPLETED:
-        candidate = _normalized(completed_status)
-        return completed_status if candidate in _ANSWERED_STATUSES else "answered"
-    return _LEGACY_STATUS_BY_STATE[canonical]
+    return legacy_status_for_completion_state(
+        state,
+        completed_status=completed_status,
+    )
 
 
 @dataclass(frozen=True)

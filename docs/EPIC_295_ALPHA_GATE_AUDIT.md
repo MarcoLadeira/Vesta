@@ -23,7 +23,7 @@ it, and every gap names the epic that owns it.
 | 3 | Duplicate active run: 0 | **Partial** | cross-process durability |
 | 4 | Duplicate side effect: 0 | **Partial** | provider/tool calls |
 | 5 | Orphan processes: 0 | **Evidenced (Windows)** | POSIX CI run |
-| 6 | Cross-surface terminal agreement | **Partial** | #525 shared control |
+| 6 | Cross-surface terminal agreement | **Partial** | #525 shared control + #618 surface adoption |
 | 7 | Illegal transitions: 0 unhandled, observable | **Evidenced** | — |
 | 8 | Restart recovery: 100% | **Partial** | #517 resume decision + reconciliation |
 | 9 | Cancellation truth | **Partial** | #380 teardown proof |
@@ -270,8 +270,43 @@ errors, and a lifecycle outcome must not be confused with a mistyped command.
 `test_cli_exit_codes.py` (16 tests + 29 subtests) pins the values as the public
 contract they are and drives each ending through the real CLI.
 
+**#612/#618 landed on top of this:** the hand-maintained tables gate 6 describes
+above are now themselves generated from one versioned source
+(`opaihub/lifecycle_schema.json`) rather than kept in sync by hand — Python
+(`opaihub/generated_lifecycle.py`) and the browser
+(`opai/assets/web/generated-lifecycle.js`) read the *same* transition table,
+terminal set, and exit codes, with a CI drift check
+(`scripts/generate_lifecycle.py --check`, wired into `ci_local.py`'s fast
+profile) failing the build if either projection is stale or hand-edited. This
+is what actually fixes the defect #612 opened on: the engine previously
+allowed a `verifying -> running` repair the browser's own hand-written graph
+rejected; both now read one `verification_repair` edge, proven identical by an
+exhaustive 169-pair cross-language golden test
+(`test_lifecycle_generation.py`) and 40,000+ property-generated random walks
+(`test_lifecycle_properties.py`) that assert a terminal state can never
+regress and the transition facade never crashes on untrusted input. Illegal
+transitions are now persisted as durable diagnostic events through the #517
+journal (`opaihub/lifecycle_diagnostics.py`), not just held in process memory.
+
+`opaihub/run_result.py` (#618) adds the canonical, schema-validated `RunResult`
+envelope terminal evidence must satisfy — `completed` cannot be claimed
+without reconciled verification (for mutating tasks), delivery, and cost
+evidence, all referenced by stable `record_ref`s rather than embedded raw
+snapshots — plus `opaihub/legacy_status.py`, an explicit, telemetried
+import/export boundary so legacy status strings stop being able to manufacture
+completion. `opaihub/run_result_projection.py` is the boundary projector
+(verdict + evidence reference -> validated `RunResult`) every execution
+surface is meant to converge on.
+
 **Missing:** the rest of Workstream H — starting a task on one surface and
-controlling it from the other, and rehydrating shared state on reconnect. #525.
+controlling it from the other, and rehydrating shared state on reconnect
+(#525) — plus #618's own hardest requirement, adopting the projector at every
+execution surface (GUI pipeline, background runs, the CLI/`ask` free-tier exit
+code, receipts) so each stops deciding completion truth from its own slice of
+evidence. `gui_pipeline.py` alone is ~2,900 lines with several distinct
+terminal-construction points; that adoption is intentionally scoped as its own
+follow-up rather than rushed through in the same change as the generated
+contract itself.
 
 ### 7. Illegal transitions: 0 unhandled, every violation observable — Evidenced
 

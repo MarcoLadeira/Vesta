@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
-from opaihub.completion import CompletionVerdict, verdict_label
+import tempfile
+from pathlib import Path
+
+from opaihub.completion import CompletionVerdict
+from opaihub.generated_lifecycle import (
+    EXIT_CODES,
+    STATE_IDS,
+    STATE_SPECS,
+    TERMINAL_STATE_IDS,
+)
 from opaihub.run_state import (
     NON_TERMINAL_STATES,
     TERMINAL_STATES,
     RunState,
     can_transition,
     cancel,
+    illegal_transitions,
     is_terminal,
     label,
     run_state_for_verdict,
@@ -16,10 +26,20 @@ from opaihub.run_state import (
 )
 
 
-def test_terminal_states_are_one_for_one_with_the_completion_verdict() -> None:
-    # The live model and the final verdict must speak the same words, so every
-    # terminal run state is a verdict and vice versa.
-    assert {s.value for s in TERMINAL_STATES} == {v.value for v in CompletionVerdict}
+def test_completion_verdicts_project_to_generated_terminal_states() -> None:
+    # Existing verdicts keep their same-named state while generated lifecycle
+    # truth may add a typed degraded terminal for incompatible data.
+    assert {v.value for v in CompletionVerdict} <= {s.value for s in TERMINAL_STATES}
+    assert {s.value for s in TERMINAL_STATES} == set(TERMINAL_STATE_IDS)
+
+
+def test_run_state_and_exit_codes_are_generated_contract_projections() -> None:
+    from opaihub.run_state import exit_code_for
+
+    assert {state.value for state in RunState} == set(STATE_IDS)
+    assert {
+        state.value: exit_code_for(state) for state in TERMINAL_STATES
+    } == EXIT_CODES
 
 
 def test_states_partition_into_terminal_and_non_terminal() -> None:
@@ -86,7 +106,7 @@ def test_verifying_leads_to_an_outcome_a_repair_or_an_acknowledged_stop() -> Non
 
 def test_cancel_is_legal_from_any_non_terminal_and_a_no_op_when_terminal() -> None:
     for state in NON_TERMINAL_STATES:
-        assert cancel(state) is RunState.CANCELLED
+        assert cancel(state) is RunState.CANCEL_REQUESTED
     for terminal in TERMINAL_STATES:
         # You cannot un-finish a completed/failed/... run by cancelling it.
         assert cancel(terminal) is terminal
@@ -100,10 +120,10 @@ def test_every_verdict_maps_to_its_terminal_state() -> None:
 
 
 def test_labels_are_shared_with_the_verdict_vocabulary() -> None:
-    # Terminal labels come from the one verdict vocabulary (#396) — "Timed out",
-    # never "Timeout" — and every state has a non-empty label.
+    # Labels come from the generated state specs — "Timed out", never
+    # "Timeout" — and every state has a non-empty label.
     for terminal in TERMINAL_STATES:
-        assert label(terminal) == verdict_label(terminal.value)
+        assert label(terminal) == STATE_SPECS[terminal.value]["label"]
     assert label(RunState.TIMEOUT) == "Timed out"
     assert label(RunState.RUNNING) == "Running"
     for state in RunState:
@@ -112,6 +132,66 @@ def test_labels_are_shared_with_the_verdict_vocabulary() -> None:
 
 def test_transition_and_helpers_accept_raw_strings() -> None:
     assert transition("running", "verifying") is RunState.VERIFYING
-    assert cancel("preparing") is RunState.CANCELLED
+    assert cancel("preparing") is RunState.CANCEL_REQUESTED
     assert is_terminal("completed") is True
     assert run_state_for_verdict("partial") is RunState.PARTIAL
+
+
+def test_terminal_attack_preserves_state_and_writes_durable_diagnostic() -> None:
+    # A missing project_root write, or a write which accidentally stores the
+    # caller's raw source text, must make this fail. The rejected state update
+    # and its durable evidence are one behavior, not two best-effort features.
+    from opaihub.lifecycle_diagnostics import read_diagnostics
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        result = transition(
+            "completed",
+            "running",
+            project_root=root,
+            source="api_key=sk-secret-value-1234567890 lifecycle reducer",
+        )
+        event = read_diagnostics(root)[-1]
+
+    assert result is RunState.COMPLETED
+    assert (event["from"], event["to"]) == ("completed", "running")
+    assert event["event_type"] == "illegal_lifecycle_transition"
+    assert "sk-secret-value-1234567890" not in str(event)
+
+
+def test_unknown_transition_target_degrades_and_writes_durable_evidence() -> None:
+    from opaihub.lifecycle_diagnostics import read_diagnostics
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        result = transition(
+            "running",
+            "future_state",
+            project_root=root,
+            source="pipeline",
+        )
+        event = read_diagnostics(root)[-1]
+
+    assert result is RunState.NEEDS_ATTENTION
+    assert (event["from"], event["to"]) == ("running", "needs_attention")
+    assert event["source"] == "pipeline"
+
+
+def test_diagnostics_persist_only_closed_source_labels() -> None:
+    from opaihub.lifecycle_diagnostics import read_diagnostics
+
+    caller_text = "contact alice@example.com about this transition"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        transition(
+            "completed",
+            "running",
+            project_root=root,
+            source=caller_text,
+        )
+        event = read_diagnostics(root)[-1]
+
+    assert event["source"] == "unknown"
+    assert "alice" not in str(event)
+    assert "example" not in str(event)
+    assert illegal_transitions()["recent"][-1]["source"] == "unknown"

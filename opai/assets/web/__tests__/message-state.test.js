@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import "../generated-lifecycle.js";
 import OPaiMessageState from "../message-state.js";
 
 const { beginRequest, canApply, fromBackendStatus, transition } = OPaiMessageState;
@@ -12,10 +13,20 @@ describe("message terminal truth", () => {
 
   it("falls back to legacy buckets when no verdict is present", () => {
     expect(fromBackendStatus("failed")).toBe("failed");
-    expect(fromBackendStatus("account_error")).toBe("failed");
-    expect(fromBackendStatus("account_not_connected")).toBe("failed");
     expect(fromBackendStatus("answered")).toBe("completed");
     expect(fromBackendStatus("cancelled")).toBe("cancelled");
+  });
+
+  it("degrades unknown backend truth instead of inventing a failure", () => {
+    expect(fromBackendStatus("account_error")).toBe("needs_attention");
+    expect(fromBackendStatus("totally_new_status")).toBe("needs_attention");
+  });
+
+  it("normalizes unknown message states to the incompatible terminal", () => {
+    const unknown = { requestId: "r1", status: "future_state" };
+    expect(canApply(unknown, "r1")).toBe(false);
+    expect(transition(unknown, "running").status).toBe("needs_attention");
+    expect(transition({ requestId: "r1", status: "running" }, "future_state").status).toBe("needs_attention");
   });
 
   it("honors the completion verdict over the legacy status (#402)", () => {
@@ -36,8 +47,8 @@ describe("message terminal truth", () => {
       // Terminal: a late reply must not mutate it, and completed cannot follow.
       expect(canApply(done, "r1")).toBe(false);
       expect(transition(done, "completed").status).toBe(end);
-      // But a retry is offered from each of them.
-      expect(transition(done, "retrying").status).toBe("retrying");
+      // A retry is a new request, never an outbound edge from a terminal.
+      expect(transition(done, "retrying").status).toBe(end);
     }
   });
 
@@ -47,6 +58,16 @@ describe("message terminal truth", () => {
     // verifying is not terminal — the real verdict still applies.
     expect(canApply(verifying, "r1")).toBe(true);
     expect(transition(verifying, "partial").status).toBe("partial");
+  });
+
+  it("uses the generated repair transition", () => {
+    expect(transition({ requestId: "r1", status: "verifying" }, "running").status).toBe("running");
+  });
+
+  it("recognizes the generated degraded terminal", () => {
+    const degraded = transition({ requestId: "r1", status: "running" }, "needs_attention");
+    expect(degraded.status).toBe("needs_attention");
+    expect(canApply(degraded, "r1")).toBe(false);
   });
 
   it("keeps retry identity separate from the failed request", () => {

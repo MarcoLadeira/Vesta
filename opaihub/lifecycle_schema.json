@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "accepted_legacy_schema_versions": [0],
+  "degraded_inputs": {
+    "unknown_schema_version": {"state": "needs_attention", "compatibility": "incompatible", "automatic_retry": false},
+    "unknown_state": {"state": "needs_attention", "compatibility": "incompatible", "automatic_retry": false},
+    "unknown_status": {"state": "needs_attention", "compatibility": "incompatible", "automatic_retry": false}
+  },
+  "states": [
+    {"id": "queued", "classification": "active", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "pending", "label": "Queued"},
+    {"id": "preparing", "classification": "active", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "progress", "label": "Preparing"},
+    {"id": "running", "classification": "active", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "progress", "label": "Running"},
+    {"id": "awaiting_input", "classification": "interrupt", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "waiting", "label": "Waiting for you"},
+    {"id": "cancel_requested", "classification": "interrupt", "terminal": false, "cancellation_eligible": false, "requires_reconciliation": false, "exit_code": null, "presentation_category": "stopping", "label": "Stopping"},
+    {"id": "verifying", "classification": "active", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "progress", "label": "Verifying"},
+    {"id": "completed", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 0, "presentation_category": "success", "label": "Completed"},
+    {"id": "partial", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 3, "presentation_category": "warning", "label": "Partially completed"},
+    {"id": "blocked", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 4, "presentation_category": "warning", "label": "Blocked"},
+    {"id": "failed", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 2, "presentation_category": "error", "label": "Failed"},
+    {"id": "cancelled", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 130, "presentation_category": "neutral", "label": "Cancelled"},
+    {"id": "timeout", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 5, "presentation_category": "warning", "label": "Timed out"},
+    {"id": "needs_attention", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 6, "presentation_category": "degraded", "label": "Needs attention"}
+  ],
+  "reason_classes": [
+    {"id": "lifecycle_progress", "requires_detail": false, "description": "Normal forward lifecycle progress."},
+    {"id": "input_requested", "requires_detail": true, "description": "The run paused for user input or authority."},
+    {"id": "input_resumed", "requires_detail": false, "description": "User input resumed the same run."},
+    {"id": "cancellation_requested", "requires_detail": false, "description": "Cancellation was acknowledged but teardown is not reconciled."},
+    {"id": "terminal_resolution", "requires_detail": true, "description": "Observed evidence reconciled the run to a terminal result."},
+    {"id": "verification_repair", "requires_detail": true, "description": "Verification found work that must return to execution for repair."}
+  ],
+  "transitions": [
+    {"from": "queued", "to": ["preparing"], "reason": "lifecycle_progress", "creates_new_attempt": true, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
+    {"from": "queued", "to": ["running", "verifying"], "reason": "lifecycle_progress", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
+    {"from": "queued", "to": ["awaiting_input"], "reason": "input_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
+    {"from": "queued", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
+    {"from": "queued", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
+
+    {"from": "preparing", "to": ["running", "verifying"], "reason": "lifecycle_progress", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
+    {"from": "preparing", "to": ["awaiting_input"], "reason": "input_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
+    {"from": "preparing", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
+    {"from": "preparing", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
+
+    {"from": "running", "to": ["verifying"], "reason": "lifecycle_progress", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "pending", "delivery": "not_required", "reconciliation": "not_required"}},
+    {"from": "running", "to": ["awaiting_input"], "reason": "input_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
+    {"from": "running", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
+    {"from": "running", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
+
+    {"from": "awaiting_input", "to": ["queued", "preparing", "running"], "reason": "input_resumed", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
+    {"from": "awaiting_input", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
+    {"from": "awaiting_input", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
+
+    {"from": "verifying", "to": ["running"], "reason": "verification_repair", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "repair_required", "delivery": "not_required", "reconciliation": "not_required"}},
+    {"from": "verifying", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "recorded_if_available", "delivery": "not_required", "reconciliation": "pending"}},
+    {"from": "verifying", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required", "delivery": "required_if_applicable", "reconciliation": "required"}},
+
+    {"from": "cancel_requested", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": false, "guards": {"verification": "recorded_if_available", "delivery": "recorded_if_available", "reconciliation": "required"}}
+  ],
+  "legacy_mappings": {
+    "states": {
+      "retrying": "queued",
+      "authenticating": "preparing",
+      "sending": "running",
+      "waiting": "running",
+      "streaming": "running",
+      "waiting_user": "awaiting_input",
+      "awaiting_approval": "awaiting_input"
+    },
+    "statuses": {
+      "answered": "completed",
+      "answered_by_account": "completed",
+      "answered_by_free_api": "completed",
+      "answered_locally": "completed",
+      "cache_hit": "completed",
+      "done": "completed",
+      "completed": "completed",
+      "cancelled": "cancelled",
+      "canceled": "cancelled",
+      "user_cancelled": "cancelled",
+      "aborted": "cancelled",
+      "needs_user_input": "awaiting_input",
+      "needs_input": "awaiting_input",
+      "question": "awaiting_input",
+      "needs_confirmation": "awaiting_input",
+      "needs_paid_confirmation": "awaiting_input",
+      "needs_consent": "awaiting_input",
+      "needs_command_approval": "awaiting_input",
+      "needs_edit_approval": "awaiting_input",
+      "needs_free_confirmation": "awaiting_input",
+      "needs_auto_confirmation": "awaiting_input",
+      "needs_limit_confirmation": "awaiting_input",
+      "read_only": "awaiting_input",
+      "provider_blocked": "blocked",
+      "blocked": "blocked",
+      "retryable_provider_error": "failed",
+      "provider_unavailable": "failed",
+      "temporarily_unavailable": "failed",
+      "timeout": "timeout",
+      "incomplete": "partial",
+      "stuck": "partial",
+      "stuck_no_progress": "partial",
+      "failed": "failed",
+      "error": "failed"
+    },
+    "unknown": {
+      "state": "needs_attention",
+      "compatibility": "incompatible",
+      "automatic_retry": false
+    }
+  }
+}

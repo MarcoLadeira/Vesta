@@ -2,68 +2,33 @@
 (function (global) {
   "use strict";
 
-  // #402: partial/blocked/timeout are honest terminal outcomes distinct from a
-  // flat "failed", and "verifying" is the transient evidence-check state emitted
-  // before a terminal verdict. A verdict that only some surfaces honor is a
-  // verdict that fails under real use, so the message state machine carries the
-  // same vocabulary as the completion verdict.
-  var TERMINAL = {
-    completed: true,
-    partial: true,
-    blocked: true,
-    timeout: true,
-    failed: true,
-    cancelled: true,
-  };
-  // Terminal outcomes reachable from any live phase (verifying is pre-terminal,
-  // so it is not itself an end state).
-  var ENDS = ["completed", "partial", "blocked", "timeout", "failed", "cancelled"];
-  var RETRYABLE_ENDS = ["partial", "blocked", "timeout", "failed", "cancelled"];
-  // #295: a run that handed control back to the user is waiting, not finished.
-  // Keeping it out of TERMINAL is the point — canApply() refuses updates to a
-  // terminal message, so recording an approval card as "blocked" made the very
-  // run the user is about to resume unaddressable.
+  var lifecycle = global.OPaiLifecycle;
+  if (!lifecycle) throw new Error("generated lifecycle contract must load first");
+
   var AWAITING = "awaiting_input";
-  // #380: Stop was accepted but teardown is unproven. Non-terminal on purpose —
-  // the run is only "cancelled" once the worker has actually returned, so Stop
-  // must be reachable from every live phase and lead only to an ending.
   var CANCELLING = "cancel_requested";
-  var INTERRUPTS = [AWAITING, CANCELLING];
-  var LIVE = ["preparing", "authenticating", "sending", "verifying"];
-  var ALLOWED = {
-    queued: LIVE.concat(INTERRUPTS, ENDS),
-    // A retry re-enters the pipeline; it never jumps straight to "completed".
-    retrying: LIVE.concat(INTERRUPTS, RETRYABLE_ENDS),
-    preparing: ["authenticating", "sending", "verifying"].concat(INTERRUPTS, ENDS),
-    authenticating: ["sending", "verifying"].concat(INTERRUPTS, ENDS),
-    sending: ["waiting", "streaming", "verifying"].concat(INTERRUPTS, ENDS),
-    waiting: ["streaming", "verifying"].concat(INTERRUPTS, ENDS),
-    streaming: ["verifying"].concat(INTERRUPTS, ENDS),
-    // Answering resumes the work; it never skips ahead to verifying, and the
-    // run can still be stopped or end here.
-    awaiting_input: ["preparing", "authenticating", "sending"].concat(CANCELLING, ENDS),
-    cancel_requested: ENDS.slice(),
-    // Verification judges evidence that already exists: it never returns to
-    // work and has no question to ask, but Stop still reaches it.
-    verifying: [CANCELLING].concat(ENDS),
-    failed: ["retrying"],
-    cancelled: ["retrying"],
-    partial: ["retrying"],
-    blocked: ["retrying"],
-    timeout: ["retrying"],
-    completed: [],
+  var PRESENTATION_ORDER = {
+    queued: ["queued", "retrying"],
+    preparing: ["preparing", "authenticating"],
+    running: ["running", "sending", "waiting", "streaming"],
   };
-  // The completion verdict (#378/#402) is authoritative: when a reply carries
-  // one, the message state mirrors it exactly instead of collapsing every
-  // non-answered outcome to "failed".
-  var VERDICT_STATE = {
-    completed: "completed",
-    partial: "partial",
-    blocked: "blocked",
-    timeout: "timeout",
-    failed: "failed",
-    cancelled: "cancelled",
-  };
+
+  function knownCanonicalState(status) {
+    var value = String(status || "").toLowerCase();
+    if (lifecycle.stateIds.indexOf(value) !== -1) return value;
+    return lifecycle.legacyMappings.states[value] || null;
+  }
+
+  function canonicalState(status) {
+    return knownCanonicalState(status) || lifecycle.degradedInputs.unknown_state.state;
+  }
+
+  function isPresentationProgress(current, next, canonical) {
+    var order = PRESENTATION_ORDER[canonical] || [];
+    var fromIndex = order.indexOf(current);
+    var toIndex = order.indexOf(next);
+    return fromIndex !== -1 && toIndex !== -1 && toIndex >= fromIndex;
+  }
 
   function beginRequest(requestId, options) {
     options = options || {};
@@ -86,13 +51,24 @@
   function transition(message, nextStatus) {
     var current = String((message && message.status) || "queued");
     var next = String(nextStatus || current);
-    if ((ALLOWED[current] || []).indexOf(next) === -1) {
+    var knownCurrent = knownCanonicalState(current);
+    var knownNext = knownCanonicalState(next);
+    var currentCanonical = knownCurrent || lifecycle.degradedInputs.unknown_state.state;
+    var nextCanonical = knownNext || lifecycle.degradedInputs.unknown_state.state;
+    if (!knownCurrent) {
+      return Object.assign({}, message, { status: currentCanonical });
+    }
+    var allowed = (
+      lifecycle.canTransition(currentCanonical, nextCanonical) ||
+      (currentCanonical === nextCanonical && isPresentationProgress(current, next, currentCanonical))
+    );
+    if (!allowed) {
       refusalCount += 1;
       refusals.push({ from: current, to: next, at: Date.now() });
       if (refusals.length > MAX_REFUSALS) refusals.shift();
       return message;
     }
-    return Object.assign({}, message, { status: next });
+    return Object.assign({}, message, { status: knownNext ? next : nextCanonical });
   }
 
   function illegalTransitions() {
@@ -105,7 +81,7 @@
   }
 
   function canApply(message, incomingRequestId) {
-    if (!message || TERMINAL[message.status]) return false;
+    if (!message || lifecycle.isTerminal(canonicalState(message.status))) return false;
     // #380: a stopping run accepts no more content. The old stop() dropped the
     // request id to get this, which also made the teardown unobservable; the id
     // is now kept so the confirmation can be matched, and the stale-overwrite
@@ -115,38 +91,22 @@
     return !!message.requestId && message.requestId === incomingRequestId;
   }
 
-  // #295: statuses whose run is not over — the user's answer re-sends the same
-  // task plus one grant and the work continues. Mirrors
-  // opaihub/run_state.AWAITING_INPUT_STATUSES; the Python guard test asserts
-  // the two lists stay identical.
-  var AWAITING_STATUS = {
-    needs_command_approval: true,
-    needs_edit_approval: true,
-    needs_free_confirmation: true,
-    needs_auto_confirmation: true,
-    needs_limit_confirmation: true,
-    needs_confirmation: true,
-  };
-
   function fromBackendStatus(status, verdict) {
     // Checked before the verdict: an awaiting run has not reached a terminal,
     // so its verdict is provisional. Reading the verdict first is exactly what
     // recorded "shall I run this command?" as blocked.
-    if (AWAITING_STATUS[status]) return AWAITING;
+    var mappedStatus = lifecycle.legacyMappings.statuses[String(status || "").toLowerCase()];
+    if (mappedStatus === AWAITING) return AWAITING;
     // Prefer the authoritative completion verdict when the reply carries one so
     // a partial/blocked/timeout run is rendered honestly, never as "failed".
     var raw = verdict && typeof verdict === "object" ? verdict.verdict : verdict;
     var v = String(raw || "").toLowerCase();
-    if (VERDICT_STATE[v]) return VERDICT_STATE[v];
-    if (["answered", "cache_hit", "answered_by_account", "answered_locally"].indexOf(status) !== -1) {
-      return "completed";
-    }
-    if (status === "cancelled") return "cancelled";
-    return "failed";
+    if (v) return lifecycle.isTerminal(v) ? v : lifecycle.degradedInputs.unknown_state.state;
+    return mappedStatus || lifecycle.degradedInputs.unknown_status.state;
   }
 
   var api = {
-    ALLOWED: ALLOWED,
+    lifecycle: lifecycle,
     beginRequest: beginRequest,
     canApply: canApply,
     fromBackendStatus: fromBackendStatus,
@@ -156,4 +116,4 @@
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   global.OPaiMessageState = api;
-})(typeof window !== "undefined" ? window : this);
+})(typeof window !== "undefined" ? window : globalThis);
