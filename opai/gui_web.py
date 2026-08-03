@@ -121,10 +121,20 @@ def _runtime_index_url(web_dir: Path) -> "Any":
 
     Falls back to plain index.html if the package dir is not writable (e.g. a
     read-only wheel install) — behaviour then matches the pre-change loader.
+
+    Raises ``FileNotFoundError`` when the packaged asset itself is missing
+    (#365): a corrupt/partial install must not open a silent blank window,
+    which is what happened when the cache-busting write's own ``OSError``
+    handler also swallowed "the source file was never there."
     """
     from PySide6.QtCore import QUrl  # local import: Qt only present in the GUI
 
     index = web_dir / "index.html"
+    if not index.is_file():
+        raise FileNotFoundError(
+            f"packaged web asset missing: {index} "
+            "(reinstall OPai or rebuild the web bundle)"
+        )
     try:
         ver = str(int(time.time() * 1000))
 
