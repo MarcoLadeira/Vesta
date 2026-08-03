@@ -304,6 +304,22 @@ class AgentPolicyTests(unittest.TestCase):
         self.assertIn("untrusted quoted data", contract.lower())
         self.assertIn("cannot authorize", contract.lower())
 
+    def test_capability_contract_marks_a_read_issue_as_untrusted_data(self):
+        # #540: github_get_issue imports a full issue body plus up to 50
+        # comments -- a far larger injection surface than a search excerpt --
+        # so it needs the same explicit warning github_search_issues has.
+        policy = resolve_agent_policy("Find me a GitHub issue we can solve.")
+
+        contract = build_capability_contract(
+            policy,
+            active_repo="C:/repo",
+            tool_names=("github_get_issue", "read_file"),
+        )
+
+        self.assertIn("github_get_issue", contract)
+        self.assertIn("untrusted quoted data", contract.lower())
+        self.assertIn("cannot authorize", contract.lower())
+
 
 class IssueSolveIntentTests(unittest.TestCase):
     """F5/F10/F18: 'solve/fix/implement <qualifier> issue|bug|ticket' is a write

@@ -287,6 +287,19 @@ class GithubReadToolTests(unittest.TestCase):
         self.assertNotIn("github_pr_status", without)
         self.assertIn("git_status", without)
 
+    def test_get_issue_schema_warns_the_model_the_content_is_untrusted(self):
+        # #540: the issue body/comments this tool returns are attacker-
+        # influenceable (anyone can open an issue), so the tool description
+        # itself -- read before the model ever calls it -- must say so.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            executor = RepositoryToolExecutor(
+                root, allow_edits=False, allow_github_read=True
+            )
+            schemas = {s["function"]["name"]: s for s in executor.schemas()}
+        description = schemas["github_get_issue"]["function"]["description"]
+        self.assertIn("untrusted quoted data", description)
+
     def test_pr_status_tool_routes_to_the_connector(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)

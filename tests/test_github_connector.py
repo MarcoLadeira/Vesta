@@ -281,6 +281,10 @@ class ReadToolTests(unittest.TestCase):
         # A secret pasted into an issue body must be redacted before it reaches
         # the model.
         self.assertNotIn("sk-abcdef1234567890abcd", result["body"])
+        # #540: an issue body is attacker-influenceable (anyone can open one on
+        # a public repo), so it must carry the same untrusted-data marker
+        # search_issues already does.
+        self.assertEqual(result["content_trust"], "untrusted_quoted_data")
 
     def test_get_issue_without_comments_never_calls_comments_endpoint(self):
         calls = []
