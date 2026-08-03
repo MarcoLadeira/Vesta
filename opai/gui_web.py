@@ -785,48 +785,6 @@ def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> No
         pass
 
 
-# The completion verdict (#378/#402) is the authoritative terminal truth. When a
-# turn carries one, the persisted thread status is derived from it — so a run the
-# receipt calls PARTIAL/BLOCKED/TIMEOUT is never persisted (and later resumed) as
-# "complete". These labels must be whitelisted in gui_recents._THREAD_STATUSES or
-# finish_thread_turn coerces them to "failed".
-_VERDICT_THREAD_STATUS = {
-    "completed": "complete",
-    "partial": "partial",
-    "blocked": "blocked",
-    "timeout": "timeout",
-    "cancelled": "cancelled",
-    "failed": "failed",
-}
-_ANSWERED_THREAD_STATUSES = {
-    "answered",
-    "cache_hit",
-    "answered_by_account",
-    "answered_by_free_api",
-    "answered_locally",
-    "applied",
-    "no_edits",
-}
-
-
-def _thread_status_for(status: str, completion_verdict: Any) -> str:
-    """Honest thread status for a finished turn.
-
-    The completion verdict wins when present (#402): a stuck/partial run whose
-    legacy status is still "answered" persists with its verdict label, never
-    "complete". Falls back to the legacy status buckets for paths that carry no
-    verdict (e.g. the deterministic build pipeline).
-    """
-    if isinstance(completion_verdict, dict):
-        verdict = str(completion_verdict.get("verdict") or "").strip().lower()
-        mapped = _VERDICT_THREAD_STATUS.get(verdict)
-        if mapped is not None:
-            return mapped
-    if status in _ANSWERED_THREAD_STATUSES:
-        return "complete"
-    return "cancelled" if status == "cancelled" else "failed"
-
-
 def _persist_turn_result(
     root: Path,
     request_id: str,
@@ -837,7 +795,7 @@ def _persist_turn_result(
 ) -> None:
     """Persist the user-visible outcome, excluding provider/tool internals."""
 
-    from opai.gui_recents import finish_thread_turn
+    from opai.gui_recents import finish_thread_turn, thread_status_for_result
 
     status = str(result.get("status") or "failed")
     if build:
@@ -897,7 +855,7 @@ def _persist_turn_result(
         for step in plan_steps
         if str(step).strip()
     ]
-    thread_status = _thread_status_for(status, result.get("completion_verdict"))
+    thread_status = thread_status_for_result(status, result.get("completion_verdict"))
     try:
         finish_thread_turn(
             root,

@@ -1039,6 +1039,21 @@ class CliResumeParityTests(_ThreadAPI):
             self.assertIn("Resumable session", out)
             self.assertIn("continue yesterday's implementation", out)
 
+    def test_cli_markdown_shows_this_process_as_owner_for_a_running_thread(self):
+        # #545: the addendum's "ownership/lease view" -- a second terminal
+        # running `opai resume` while a turn is active (from either surface)
+        # can tell "still running, owned right here" from an abandoned one.
+        # begin_thread_turn is what actually claims a live lease (#295
+        # invariant 4); save_thread always persists an empty one.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self._callable("begin_thread_turn")(
+                root, request_id="req-owner", text="a live task", mode="safe-auto"
+            )
+            code, out = self._run_cli(root, "--markdown")
+            self.assertEqual(code, 0)
+            self.assertIn("Owner: this process", out)
+
 
 if __name__ == "__main__":
     unittest.main()

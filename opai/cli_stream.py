@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
@@ -169,6 +170,19 @@ def stream_ask(
     events: list[dict[str, Any]] = []
     # One lock so activity lines, streamed text, and heartbeats never interleave.
     out_lock = threading.Lock()
+
+    # #545: register this turn in the same durable thread store + owner lease
+    # the GUI already writes, so a CLI-started task is discoverable from the
+    # GUI (and `opai resume`, from a second terminal) instead of vanishing
+    # the moment this process exits. Best-effort throughout -- a durability
+    # write must never break the actual request it is describing.
+    request_id = uuid.uuid4().hex[:12]
+    try:
+        from opai.gui_recents import begin_thread_turn
+
+        begin_thread_turn(root, request_id=request_id, text=task, mode=mode)
+    except (OSError, TypeError, ValueError):
+        pass
     state = {
         "streaming": False,
         "last_line_open": False,
@@ -257,6 +271,12 @@ def stream_ask(
     try:
         while not done.wait(0.2):
             elapsed = time.monotonic() - started
+            try:
+                from opai.gui_recents import refresh_thread_lease
+
+                refresh_thread_lease(root, request_id=request_id)
+            except (OSError, TypeError, ValueError):
+                pass
             if not json_out and not state["streaming"] and elapsed >= next_reassure:
                 sm = stage_message(elapsed, model_label=model_id)
                 _line(f"… {sm['stage']} · {int(elapsed)}s elapsed (Ctrl+C to stop)")
@@ -268,6 +288,24 @@ def stream_ask(
 
     result = result_box or {"status": "error", "answer": "No result."}
     elapsed_s = time.monotonic() - started
+    try:
+        from opai.gui_recents import finish_thread_turn, thread_status_for_result
+
+        finish_thread_turn(
+            root,
+            request_id=request_id,
+            answer=str(result.get("answer") or ""),
+            status=thread_status_for_result(
+                str(result.get("status") or "failed"),
+                result.get("completion_verdict"),
+            ),
+            task_id=str((result.get("workflow") or {}).get("task_id") or request_id),
+            mode=str((result.get("workflow") or {}).get("mode") or mode),
+            checkpoint_id=str(result.get("checkpoint_id") or ""),
+            changed_files=result.get("changed_files") or (),
+        )
+    except (OSError, TypeError, ValueError):
+        pass
     status = str(result.get("status") or "error")
 
     if json_out:

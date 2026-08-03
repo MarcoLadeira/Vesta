@@ -17,6 +17,7 @@ from unittest import mock
 from _helpers import isolated_home, make_repo
 
 from opai import gui_permissions
+from opai.gui_recents import thread_status_for_result
 from opai.gui_web import (
     WEB_DIR,
     asset_build_identity,
@@ -25,7 +26,6 @@ from opai.gui_web import (
     settings_payload,
     web_available,
 )
-from opai.gui_web import _thread_status_for
 
 
 class WebAvailableTests(unittest.TestCase):
@@ -41,23 +41,23 @@ class ThreadStatusHonestyTests(unittest.TestCase):
         # The exact leak #402 targets: legacy status "answered" but the verdict
         # says the objective was not actually met.
         self.assertEqual(
-            _thread_status_for("answered", {"verdict": "partial"}), "partial"
+            thread_status_for_result("answered", {"verdict": "partial"}), "partial"
         )
         self.assertEqual(
-            _thread_status_for("answered", {"verdict": "blocked"}), "blocked"
+            thread_status_for_result("answered", {"verdict": "blocked"}), "blocked"
         )
         self.assertEqual(
-            _thread_status_for("answered", {"verdict": "timeout"}), "timeout"
+            thread_status_for_result("answered", {"verdict": "timeout"}), "timeout"
         )
         self.assertEqual(
-            _thread_status_for("answered", {"verdict": "completed"}), "complete"
+            thread_status_for_result("answered", {"verdict": "completed"}), "complete"
         )
 
     def test_falls_back_to_legacy_buckets_without_a_verdict(self):
-        self.assertEqual(_thread_status_for("answered", None), "complete")
-        self.assertEqual(_thread_status_for("no_edits", None), "complete")
-        self.assertEqual(_thread_status_for("cancelled", None), "cancelled")
-        self.assertEqual(_thread_status_for("failed", None), "failed")
+        self.assertEqual(thread_status_for_result("answered", None), "complete")
+        self.assertEqual(thread_status_for_result("no_edits", None), "complete")
+        self.assertEqual(thread_status_for_result("cancelled", None), "cancelled")
+        self.assertEqual(thread_status_for_result("failed", None), "failed")
 
     def test_partial_verdict_persists_as_partial_not_complete(self):
         from opai.gui_recents import begin_thread_turn, load_thread

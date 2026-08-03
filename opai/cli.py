@@ -1525,6 +1525,19 @@ def cmd_resume(args: argparse.Namespace) -> int:
         f"- Last task: {last_user[:120] or '(none)'}",
         f"- Workflow: {workflow.get('phase', 'idle')} — {workflow.get('message', '')}",
     ]
+    if thread.get("state") == "running":
+        # #545: which surface owns this run, so a second terminal (or the GUI)
+        # can tell "still active elsewhere" from "abandoned" before offering
+        # to touch it. The JSON form already carried this; markdown did not.
+        owner = payload.get("owner") or {}
+        if owner.get("ownerIsThisProcess"):
+            lines.append("- Owner: this process")
+        elif owner.get("reason") == "owner_alive_elsewhere":
+            lines.append("- Owner: another process, still active")
+        else:
+            silent = owner.get("silentForSeconds")
+            silent_for = f", silent for {int(silent)}s" if silent is not None else ""
+            lines.append(f"- Owner: none currently alive{silent_for}")
     if checkpoint:
         lines.append(
             f"- Checkpoint: {checkpoint.get('id', '')} "

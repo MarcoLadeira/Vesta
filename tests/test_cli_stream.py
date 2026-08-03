@@ -311,5 +311,109 @@ class CmdAskWiringTests(unittest.TestCase):
         self.assertEqual(captured["mode"], "plan")
 
 
+class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
+    """A CLI turn registers in the same durable record the GUI reads (#545).
+
+    Before this, a CLI-started turn existed only in this process's memory:
+    `opai resume` (and the GUI's own boot/resume view, which reads the exact
+    same thread store) had no way to know it was running or how it ended.
+    """
+
+    def test_a_completed_cli_turn_is_discoverable_via_the_shared_thread_store(
+        self,
+    ) -> None:
+        from opai.gui_recents import load_thread
+
+        buf = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            with redirect_stdout(buf):
+                code = stream_ask(
+                    root,
+                    "summarize this",
+                    model="claude:opus",
+                    account_runner=FakeStreamingRunner(chunks=["Hello ", "world."]),
+                    printer=lambda _line: None,
+                )
+            thread = load_thread(root)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(thread["state"], "complete")
+        self.assertEqual(thread["messages"][0]["role"], "user")
+        self.assertEqual(thread["messages"][0]["text"], "summarize this")
+        self.assertEqual(thread["messages"][-1]["role"], "assistant")
+        self.assertIn("Hello world.", thread["messages"][-1]["text"])
+
+    def test_a_running_cli_turn_is_visible_with_this_process_as_owner(self) -> None:
+        # The other half of "discoverable": not just after the fact, but while
+        # it is still running -- a second terminal's `opai resume` (or the
+        # GUI's own boot/resume view, reading this same thread store) must be
+        # able to see it and know who owns it, not just its final result.
+        from opai.gui_recents import load_thread
+        from opaihub.owner_lease import describe as describe_lease
+
+        runner = FakeStreamingRunner(chunks=["partial "], block=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+
+            def call() -> None:
+                stream_ask(
+                    root,
+                    "long task",
+                    model="claude:opus",
+                    account_runner=runner,
+                    printer=lambda _line: None,
+                )
+
+            worker = threading.Thread(target=call, daemon=True)
+            worker.start()
+            try:
+                deadline = time.monotonic() + 5.0
+                running_thread: dict = {}
+                while time.monotonic() < deadline:
+                    running_thread = load_thread(root)
+                    if running_thread.get("state") == "running":
+                        break
+                    time.sleep(0.01)
+
+                self.assertEqual(running_thread.get("state"), "running")
+                self.assertEqual(
+                    running_thread.get("messages", [{}])[0].get("text"), "long task"
+                )
+                owner = describe_lease(running_thread.get("lease"))
+                self.assertTrue(owner["ownerIsThisProcess"])
+                self.assertEqual(owner["reason"], "owned_here")
+            finally:
+                runner._block = False
+                worker.join(timeout=5.0)
+
+    def test_a_cancelled_cli_turn_persists_as_cancelled_not_silently_lost(
+        self,
+    ) -> None:
+        from opai.gui_recents import load_thread
+
+        class InstantCancel(FakeStreamingRunner):
+            def stream(self, prompt, **kwargs):
+                cancel = kwargs.get("cancel")
+                if cancel is not None:
+                    cancel.set()
+                return {"text": "part", "cost": None, "cancelled": True}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            code = stream_ask(
+                root,
+                "long task",
+                model="claude:opus",
+                account_runner=InstantCancel(),
+                printer=lambda _line: None,
+            )
+            thread = load_thread(root)
+
+        self.assertEqual(code, 130)
+        self.assertEqual(thread["state"], "complete")
+        self.assertEqual(thread["messages"][-1]["status"], "cancelled")
+
+
 if __name__ == "__main__":
     unittest.main()
