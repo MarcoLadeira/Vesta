@@ -23,7 +23,11 @@ from unittest import mock
 from _helpers import FakeAccountRunner, make_repo
 from opaihub.budget import budget_status
 from opaihub.cost_model import estimate_route_savings
-from opaihub.gui_pipeline import build_savings_receipt, handle_gui_message
+from opaihub.gui_pipeline import (
+    _record_gui_route,
+    build_savings_receipt,
+    handle_gui_message,
+)
 from opaihub.ledger import (
     EVENT_MODEL_CALL,
     EVENT_ROUTE,
@@ -622,6 +626,23 @@ class RecordAfterOutcomeTests(unittest.TestCase):
         self.assertGreaterEqual(routes[0]["estimated_savings_usd"], 0)
         self.assertEqual(summarize_ledger(self.root)["route_count"], 1)
 
+    def test_answered_local_run_records_exactly_one_receipt_event(self):
+        # #381 audit: _record_gui_route used to mutate the dict returned by
+        # record_route_decision with receipt/tool_trace/model/mode fields, but
+        # that dict is already fsynced to the ledger file by the time it is
+        # returned — the mutation never reached disk. gui_receipt (written by
+        # _decorate) is the only event that actually carries the receipt.
+        with mock.patch(
+            "opaihub.ask.run_ask",
+            return_value={"status": "answered_locally", "answer": "hi"},
+        ):
+            result = handle_gui_message(self.root, "task", model_id="auto", mode="ask")
+        self.assertEqual(result["status"], "answered")
+        self.assertEqual(len(self._receipt_events()), 1)
+        routes = self._routes()
+        self.assertEqual(len(routes), 1)
+        self.assertNotIn("receipt", routes[0])
+
     def test_free_confirmation_prompt_records_nothing(self):
         result = handle_gui_message(
             self.root,
@@ -650,6 +671,35 @@ class RecordAfterOutcomeTests(unittest.TestCase):
         routes = self._routes()
         self.assertEqual(len(routes), 1)
         self.assertEqual(routes[0]["model_tier"], "L2")
+
+    def test_answered_free_call_records_exactly_one_receipt_event(self):
+        with mock.patch(
+            "opai.app_state.ask",
+            return_value={"status": "answered_by_free_api", "answer": "4"},
+        ):
+            result = handle_gui_message(
+                self.root,
+                "task",
+                model_id="free:gemini:gemini-3.1-flash-lite",
+                mode="ask",
+                allow_cloud=True,
+            )
+        self.assertEqual(result["status"], "answered")
+        self.assertEqual(len(self._receipt_events()), 1)
+        routes = self._routes()
+        self.assertEqual(len(routes), 1)
+        self.assertNotIn("receipt", routes[0])
+
+    def test_record_gui_route_only_needs_tier_and_receipt(self):
+        _record_gui_route(
+            self.root,
+            "task",
+            tier="L1",
+            receipt={"estimated_tokens": 42},
+        )
+        routes = self._routes()
+        self.assertEqual(len(routes), 1)
+        self.assertNotIn("receipt", routes[0])
 
     def test_gui_free_call_records_one_route_and_one_spend_event(self):
         class FakeFreeRunner:
