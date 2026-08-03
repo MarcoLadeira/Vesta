@@ -72,7 +72,9 @@ class RunState(str, Enum):
 
 
 if {state.value for state in RunState} != set(STATE_IDS):
-    raise RuntimeError("RunState facade is stale relative to generated lifecycle states")
+    raise RuntimeError(
+        "RunState facade is stale relative to generated lifecycle states"
+    )
 
 TERMINAL_STATES: frozenset[RunState] = frozenset(
     RunState(state_id) for state_id in TERMINAL_STATE_IDS

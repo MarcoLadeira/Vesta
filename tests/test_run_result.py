@@ -368,14 +368,14 @@ class RunResultTests(unittest.TestCase):
             RunResult.from_payload(**payload)
 
     def test_digest_without_record_id_path_or_uri_is_not_a_reference(self) -> None:
-        payload = _completed_payload(
-            provider={"record_ref": {"digest": "a" * 64}}
-        )
+        payload = _completed_payload(provider={"record_ref": {"digest": "a" * 64}})
 
         with self.assertRaisesRegex(ValueError, "reference"):
             RunResult.from_payload(**payload)
 
-    def test_provider_rejects_raw_output_payload_and_metadata_at_any_depth(self) -> None:
+    def test_provider_rejects_raw_output_payload_and_metadata_at_any_depth(
+        self,
+    ) -> None:
         raw_values = (
             {"record_ref": _reference("provider"), "output": "raw"},
             {"record_ref": _reference("provider"), "payload": {"text": "raw"}},
@@ -387,9 +387,7 @@ class RunResultTests(unittest.TestCase):
         for provider in raw_values:
             with self.subTest(provider=provider):
                 with self.assertRaisesRegex(ValueError, "provider"):
-                    RunResult.from_payload(
-                        **_completed_payload(provider=provider)
-                    )
+                    RunResult.from_payload(**_completed_payload(provider=provider))
 
     def test_diagnostics_rejects_direct_and_nested_raw_snapshot_fields(self) -> None:
         diagnostics_values = (
@@ -421,9 +419,7 @@ class RunResultTests(unittest.TestCase):
         )
 
         self.assertEqual(result.diagnostics["count"], 1)
-        self.assertEqual(
-            result.diagnostics["codes"], ("illegal_lifecycle_transition",)
-        )
+        self.assertEqual(result.diagnostics["codes"], ("illegal_lifecycle_transition",))
 
     def test_all_non_provider_evidence_domains_reject_nested_raw_fields(self) -> None:
         cases = (

@@ -35,7 +35,9 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
     if not isinstance(states, list) or not states:
         raise ValueError("states must be a non-empty list")
     state_ids = [state.get("id") for state in states if isinstance(state, dict)]
-    if len(state_ids) != len(states) or any(not isinstance(item, str) for item in state_ids):
+    if len(state_ids) != len(states) or any(
+        not isinstance(item, str) for item in state_ids
+    ):
         raise ValueError("every state requires a string id")
     if len(state_ids) != len(set(state_ids)):
         raise ValueError("state ids must be unique")
@@ -44,7 +46,10 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
     if by_state.get("cancel_requested", {}).get("terminal") is not False:
         raise ValueError("cancel_requested must be non-terminal")
     cancelled = by_state.get("cancelled", {})
-    if cancelled.get("terminal") is not True or cancelled.get("requires_reconciliation") is not True:
+    if (
+        cancelled.get("terminal") is not True
+        or cancelled.get("requires_reconciliation") is not True
+    ):
         raise ValueError("cancelled must be terminal and require reconciliation")
 
     for state in states:
@@ -63,14 +68,14 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
         if state["terminal"] and not isinstance(state["exit_code"], int):
             raise ValueError(f"terminal state {state['id']} requires an exit code")
         if not state["terminal"] and state["exit_code"] is not None:
-            raise ValueError(f"non-terminal state {state['id']} cannot have an exit code")
+            raise ValueError(
+                f"non-terminal state {state['id']} cannot have an exit code"
+            )
 
     reasons = schema.get("reason_classes")
     if not isinstance(reasons, list) or not reasons:
         raise ValueError("reason_classes must be a non-empty list")
-    reason_ids = {
-        reason.get("id") for reason in reasons if isinstance(reason, dict)
-    }
+    reason_ids = {reason.get("id") for reason in reasons if isinstance(reason, dict)}
     if len(reason_ids) != len(reasons) or None in reason_ids:
         raise ValueError("reason class ids must be unique strings")
 
@@ -83,7 +88,9 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
         if source not in by_state or not isinstance(targets, list) or not targets:
             raise ValueError("transition rules require known source and targets")
         if by_state[source]["terminal"]:
-            raise ValueError(f"terminal state {source} cannot have outgoing transitions")
+            raise ValueError(
+                f"terminal state {source} cannot have outgoing transitions"
+            )
         if rule.get("reason") not in reason_ids:
             raise ValueError(f"transition from {source} has an unknown reason class")
         if not isinstance(rule.get("creates_new_attempt"), bool):
@@ -91,8 +98,13 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
         if not isinstance(rule.get("cancellation_eligible"), bool):
             raise ValueError("transition cancellation_eligible must be boolean")
         guards = rule.get("guards")
-        if not isinstance(guards, dict) or not {"verification", "delivery"} <= guards.keys():
-            raise ValueError("every transition requires verification and delivery guards")
+        if (
+            not isinstance(guards, dict)
+            or not {"verification", "delivery"} <= guards.keys()
+        ):
+            raise ValueError(
+                "every transition requires verification and delivery guards"
+            )
         for target in targets:
             if target not in by_state:
                 raise ValueError(f"transition targets unknown state {target}")
@@ -102,7 +114,11 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
             edges.add(edge)
 
     repair = _expanded_transitions(schema)
-    repair = [item for item in repair if item["from"] == "verifying" and item["to"] == "running"]
+    repair = [
+        item
+        for item in repair
+        if item["from"] == "verifying" and item["to"] == "running"
+    ]
     if len(repair) != 1 or repair[0]["reason"] != "verification_repair":
         raise ValueError("verifying -> running must use verification_repair")
 
@@ -110,7 +126,10 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
     unknown = mappings.get("unknown") if isinstance(mappings, dict) else None
     if not isinstance(unknown, dict) or unknown.get("state") != "needs_attention":
         raise ValueError("unknown legacy data must degrade to needs_attention")
-    if unknown.get("compatibility") != "incompatible" or unknown.get("automatic_retry") is not False:
+    if (
+        unknown.get("compatibility") != "incompatible"
+        or unknown.get("automatic_retry") is not False
+    ):
         raise ValueError("unknown legacy data must be incompatible and non-retryable")
     degraded_inputs = schema.get("degraded_inputs")
     required_degradations = {
@@ -118,7 +137,10 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
         "unknown_state",
         "unknown_status",
     }
-    if not isinstance(degraded_inputs, dict) or set(degraded_inputs) != required_degradations:
+    if (
+        not isinstance(degraded_inputs, dict)
+        or set(degraded_inputs) != required_degradations
+    ):
         raise ValueError("schema, state, and status degradation rules are required")
     for input_class, rule in degraded_inputs.items():
         if rule != {
@@ -126,7 +148,9 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
             "compatibility": "incompatible",
             "automatic_retry": False,
         }:
-            raise ValueError(f"{input_class} must degrade incompatibly to needs_attention")
+            raise ValueError(
+                f"{input_class} must degrade incompatibly to needs_attention"
+            )
 
 
 def _expanded_transitions(schema: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -155,7 +179,9 @@ def _render_python(schema: Mapping[str, Any], transitions: list[dict[str, Any]])
     state_ids = tuple(state["id"] for state in states)
     terminals = tuple(state["id"] for state in states if state["terminal"])
     state_specs = {state["id"]: dict(state) for state in states}
-    exit_codes = {state["id"]: state["exit_code"] for state in states if state["terminal"]}
+    exit_codes = {
+        state["id"]: state["exit_code"] for state in states if state["terminal"]
+    }
     legacy = schema["legacy_mappings"]
     return f'''# {GENERATED_NOTICE}
 """Canonical lifecycle data generated at build time."""
@@ -194,7 +220,9 @@ def _json_text(value: Any, *, indent: int = 2) -> str:
     return json.dumps(value, indent=indent, sort_keys=True, ensure_ascii=False) + "\n"
 
 
-def _render_browser(schema: Mapping[str, Any], transitions: list[dict[str, Any]]) -> str:
+def _render_browser(
+    schema: Mapping[str, Any], transitions: list[dict[str, Any]]
+) -> str:
     states = schema["states"]
     payload = {
         "schemaVersion": schema["schema_version"],
@@ -203,13 +231,15 @@ def _render_browser(schema: Mapping[str, Any], transitions: list[dict[str, Any]]
         "terminalStateIds": [state["id"] for state in states if state["terminal"]],
         "stateSpecs": {state["id"]: state for state in states},
         "transitions": transitions,
-        "exitCodes": {state["id"]: state["exit_code"] for state in states if state["terminal"]},
+        "exitCodes": {
+            state["id"]: state["exit_code"] for state in states if state["terminal"]
+        },
         "reasonClasses": {item["id"]: item for item in schema["reason_classes"]},
         "legacyMappings": schema["legacy_mappings"],
         "degradedInputs": schema["degraded_inputs"],
     }
     encoded = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
-    return f'''// {GENERATED_NOTICE}
+    return f"""// {GENERATED_NOTICE}
 (function (global) {{
   "use strict";
 
@@ -236,10 +266,12 @@ def _render_browser(schema: Mapping[str, Any], transitions: list[dict[str, Any]]
   }};
   global.OPaiLifecycle = Object.freeze(data);
 }})(typeof window !== "undefined" ? window : globalThis);
-'''
+"""
 
 
-def _render_fixture(schema: Mapping[str, Any], transitions: list[dict[str, Any]]) -> str:
+def _render_fixture(
+    schema: Mapping[str, Any], transitions: list[dict[str, Any]]
+) -> str:
     terminal_states = sorted(
         state["id"] for state in schema["states"] if state["terminal"]
     )
@@ -263,7 +295,9 @@ def _render_fixture(schema: Mapping[str, Any], transitions: list[dict[str, Any]]
     return _json_text(fixture)
 
 
-def _render_markdown(schema: Mapping[str, Any], transitions: list[dict[str, Any]]) -> str:
+def _render_markdown(
+    schema: Mapping[str, Any], transitions: list[dict[str, Any]]
+) -> str:
     lines = [
         f"<!-- {GENERATED_NOTICE} -->",
         "# Canonical lifecycle schema",
@@ -284,7 +318,9 @@ def _render_markdown(schema: Mapping[str, Any], transitions: list[dict[str, Any]
                 classification=state["classification"],
                 terminal="yes" if state["terminal"] else "no",
                 cancel="yes" if state["cancellation_eligible"] else "no",
-                reconcile="required" if state["requires_reconciliation"] else "not required",
+                reconcile="required"
+                if state["requires_reconciliation"]
+                else "not required",
                 exit_code=state["exit_code"] if state["exit_code"] is not None else "—",
                 presentation_category=state["presentation_category"],
             )
@@ -344,9 +380,15 @@ def _render_markdown(schema: Mapping[str, Any], transitions: list[dict[str, Any]
 def render_all(schema: Mapping[str, Any]) -> dict[Path, str]:
     transitions = _expanded_transitions(schema)
     return {
-        ROOT / "opaihub" / "generated_lifecycle.py": _render_python(schema, transitions),
-        ROOT / "opai" / "assets" / "web" / "generated-lifecycle.js": _render_browser(schema, transitions),
-        ROOT / "opaihub" / "data" / "lifecycle-fixtures.json": _render_fixture(schema, transitions),
+        ROOT / "opaihub" / "generated_lifecycle.py": _render_python(
+            schema, transitions
+        ),
+        ROOT / "opai" / "assets" / "web" / "generated-lifecycle.js": _render_browser(
+            schema, transitions
+        ),
+        ROOT / "opaihub" / "data" / "lifecycle-fixtures.json": _render_fixture(
+            schema, transitions
+        ),
         ROOT / "docs" / "lifecycle-schema.md": _render_markdown(schema, transitions),
     }
 
@@ -368,7 +410,9 @@ def write_or_check(outputs: Mapping[Path, str], *, check: bool) -> bool:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="fail if projections are stale")
+    parser.add_argument(
+        "--check", action="store_true", help="fail if projections are stale"
+    )
     args = parser.parse_args(argv)
     outputs = render_all(load_schema(SCHEMA_PATH))
     return 1 if write_or_check(outputs, check=args.check) else 0

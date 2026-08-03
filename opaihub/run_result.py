@@ -359,7 +359,9 @@ class RunResult:
             )
         if verification_applicable:
             if verification_verdict not in _VERIFIED:
-                raise ValueError("completed result has conflicting verification evidence")
+                raise ValueError(
+                    "completed result has conflicting verification evidence"
+                )
             _validate_reference(
                 verification.get("record_ref"), "verification.record_ref"
             )
@@ -370,13 +372,17 @@ class RunResult:
                 "completed result must record verification as not_applicable"
             )
 
-        delivery_verdict = _normalized(delivery.get("verdict") or delivery.get("status"))
+        delivery_verdict = _normalized(
+            delivery.get("verdict") or delivery.get("status")
+        )
         if delivery.get("applicable") is not True or delivery_verdict not in _DELIVERED:
             raise ValueError("completed result requires reconciled delivery evidence")
         _validate_reference(delivery.get("record_ref"), "delivery.record_ref")
 
         if _normalized(economics.get("integrity")) not in _COST_RECONCILED:
-            raise ValueError("completed result requires reconciled cost integrity evidence")
+            raise ValueError(
+                "completed result requires reconciled cost integrity evidence"
+            )
         _validate_reference(economics.get("record_ref"), "economics.record_ref")
 
     @classmethod
@@ -434,7 +440,10 @@ class RunResult:
             authority_value["mutating"], bool
         ):
             raise TypeError("authority.mutating must be a boolean")
-        if "mutating" in authority_value and authority_value["mutating"] is not mutating:
+        if (
+            "mutating" in authority_value
+            and authority_value["mutating"] is not mutating
+        ):
             raise ValueError("authority mutating flag conflicts with payload")
         authority_value["mutating"] = mutating
         economics_value = economics if economics is not None else cost
@@ -474,8 +483,7 @@ class RunResult:
             delivery=_mapping(delivery, "delivery"),
             economics=_mapping(economics_value, "economics"),
             authority=authority_value,
-            diagnostics=_mapping(diagnostics, "diagnostics")
-            or {"record_refs": []},
+            diagnostics=_mapping(diagnostics, "diagnostics") or {"record_refs": []},
             presentation=_mapping(presentation, "presentation")
             or _presentation(normalized_state),
             compatibility=compatibility_value,

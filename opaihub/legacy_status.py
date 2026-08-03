@@ -144,15 +144,21 @@ _EXPLICIT_COMPLETION_STATE_MAP = {
 
 
 def _normalized(value: Any) -> str:
-    return str(getattr(value, "value", value) or "").strip().lower().replace(
-        "-", "_"
-    ).replace(" ", "_")
+    return (
+        str(getattr(value, "value", value) or "")
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
 
 
 def _count(kind: str) -> None:
     with _COUNTER_LOCK:
         _COUNTERS[kind] += 1
-        authority = "authoritative_reads" if kind == "imports" else "authoritative_writes"
+        authority = (
+            "authoritative_reads" if kind == "imports" else "authoritative_writes"
+        )
         _COUNTERS[authority] += 1
 
 
@@ -355,10 +361,22 @@ def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
             reconciled=True,
             mutating=mutating,
             identity=_identity(payload),
-            provider=(payload.get("provider") if isinstance(payload.get("provider"), Mapping) else None),
+            provider=(
+                payload.get("provider")
+                if isinstance(payload.get("provider"), Mapping)
+                else None
+            ),
             recovery={"automatic_retry": False, "reason": "none"},
-            verification=(payload.get("verification") if isinstance(payload.get("verification"), Mapping) else None),
-            delivery=(payload.get("delivery") if isinstance(payload.get("delivery"), Mapping) else None),
+            verification=(
+                payload.get("verification")
+                if isinstance(payload.get("verification"), Mapping)
+                else None
+            ),
+            delivery=(
+                payload.get("delivery")
+                if isinstance(payload.get("delivery"), Mapping)
+                else None
+            ),
             economics=(
                 payload.get("economics")
                 if isinstance(payload.get("economics"), Mapping)
@@ -367,7 +385,11 @@ def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
                 else None
             ),
             authority=(authority if isinstance(authority, Mapping) else None),
-            diagnostics=(payload.get("diagnostics") if isinstance(payload.get("diagnostics"), Mapping) else None),
+            diagnostics=(
+                payload.get("diagnostics")
+                if isinstance(payload.get("diagnostics"), Mapping)
+                else None
+            ),
             compatibility={
                 "state": "legacy_import",
                 "source_schema_version": version,
