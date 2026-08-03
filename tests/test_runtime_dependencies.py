@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import builtins
 import importlib.util
+import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -44,6 +46,28 @@ def _load_smoke_module():
 
 
 class RuntimeDependencyMetadataTests(unittest.TestCase):
+    def test_packaged_skill_registry_stays_in_lockstep_with_the_source_registry(self):
+        source_root = ROOT / "hub" / "skills"
+        package_root = ROOT / "opaihub" / "data" / "hub" / "skills"
+        source_files = {
+            path.relative_to(source_root)
+            for path in source_root.rglob("*")
+            if path.is_file()
+        }
+        package_files = {
+            path.relative_to(package_root)
+            for path in package_root.rglob("*")
+            if path.is_file()
+        }
+
+        self.assertEqual(source_files, package_files)
+        for relative_path in sorted(source_files):
+            with self.subTest(path=relative_path):
+                self.assertEqual(
+                    (source_root / relative_path).read_text(encoding="utf-8"),
+                    (package_root / relative_path).read_text(encoding="utf-8"),
+                )
+
     def test_pyyaml_is_a_bounded_core_runtime_dependency(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
@@ -211,28 +235,109 @@ class HermeticTestEnvironmentTests(unittest.TestCase):
 
 
 class WorkflowContractTests(unittest.TestCase):
-    def test_ci_has_three_platform_clean_install_matrix(self):
+    def test_ci_has_scheduled_three_platform_native_qualification(self):
         workflow = yaml.safe_load(
             (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         )
-        clean_install = workflow["jobs"]["clean-install"]
-        operating_systems = set(clean_install["strategy"]["matrix"]["os"])
+        native = workflow["jobs"]["scheduled-native"]
+        operating_systems = set(native["strategy"]["matrix"]["os"])
 
         self.assertEqual(
             operating_systems, {"windows-latest", "ubuntu-latest", "macos-latest"}
         )
-        command_text = str(clean_install)
-        self.assertIn("scripts/smoke-install.py", command_text)
+        command_text = str(native)
+        self.assertIn("--profile native", command_text)
+
+    def test_hosted_workflow_automatically_runs_the_required_pr_and_main_gates(self):
+        source = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        workflow = yaml.safe_load(source)
+
+        self.assertIn("pull_request:\n    branches: [main]", source)
+        self.assertIn("push:\n    branches: [main]", source)
+        self.assertIn("schedule:", source)
+        self.assertIn("mandatory-python", workflow["jobs"])
+        self.assertIn("mandatory-hostile-environment", workflow["jobs"])
+        self.assertIn("web-test", workflow["jobs"])
+        self.assertIn("--profile fast", str(workflow["jobs"]["mandatory-python"]))
+        self.assertEqual(
+            workflow["jobs"]["mandatory-python"]["runs-on"], "ubuntu-latest"
+        )
+        self.assertIn("persist-credentials: false", source)
+        self.assertNotIn("actions/checkout@v4", source)
+
+    def test_self_hosted_workflow_never_runs_untrusted_pull_requests(self):
+        source = (ROOT / ".github" / "workflows" / "ci-selfhosted.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("push:\n    branches: [main]", source)
+        self.assertNotIn("pull_request:", source)
+        self.assertIn("--profile fast", source)
+
+    def test_required_check_manifest_matches_the_hosted_workflow_and_governance_docs(
+        self,
+    ):
+        manifest = json.loads(
+            (ROOT / ".github" / "required-checks.json").read_text(encoding="utf-8")
+        )
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        governance = (ROOT / "docs" / "CI_QUALIFICATION.md").read_text(encoding="utf-8")
+
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["protected_branch"], "main")
+        self.assertEqual(
+            manifest["required_checks"][0], "Required - Python quality (3.13)"
+        )
+        for check in manifest["required_checks"]:
+            with self.subTest(check=check):
+                self.assertIn(check, governance)
+        self.assertIn(
+            "Required - Python quality (${{ matrix.python-version }})", workflow
+        )
+        self.assertIn("Required - hostile-environment Python suites", workflow)
+        self.assertIn("Required - web UI security and E2E", workflow)
+
+    def test_ci_trust_boundary_files_are_code_owned(self):
+        codeowners = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+
+        for path in (
+            "/.github/workflows/",
+            "/.github/required-checks.json",
+            "/scripts/ci_local.py",
+            "/requirements-ci.txt",
+            "/docs/CI_QUALIFICATION.md",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(path, codeowners)
+        self.assertIn("@MarcoLadeira", codeowners)
+
+    def test_qualification_workflow_actions_are_pinned_to_commit_shas(self):
+        for filename in ("ci.yml", "ci-selfhosted.yml", "release-preflight.yml"):
+            with self.subTest(workflow=filename):
+                source = (ROOT / ".github" / "workflows" / filename).read_text(
+                    encoding="utf-8"
+                )
+                actions = re.findall(r"uses:\s+[^\s@]+@([^\s#]+)", source)
+                self.assertTrue(actions)
+                self.assertTrue(
+                    all(re.fullmatch(r"[0-9a-f]{40}", action) for action in actions),
+                    actions,
+                )
 
     def test_ci_runs_both_python_harnesses_under_hostile_provider_state(self):
         workflow = yaml.safe_load(
             (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         )
-        job = workflow["jobs"]["hermetic-tests"]
+        job = workflow["jobs"]["mandatory-hostile-environment"]
         command_text = str(job)
 
-        for name in PROVIDER_ENV:
+        for name in PROVIDER_ENV - {"GH_TOKEN", "GITHUB_TOKEN"}:
             self.assertIn(name, job["env"])
+        self.assertEqual(job["runs-on"], "ubuntu-latest")
+        self.assertNotIn("GH_TOKEN", job["env"])
+        self.assertNotIn("GITHUB_TOKEN", job["env"])
         self.assertIn("unittest discover -s tests", command_text)
         self.assertIn("pytest tests", command_text)
         self.assertIn("fixtures/hostile_keyring", command_text)

@@ -1,47 +1,57 @@
-name: OPai CI (self-hosted)
+name: OPai CI (trusted self-hosted)
 
-# Runs the CI gate on a self-hosted runner you register on your own machine, so
-# it works at $0 with no GitHub-hosted Actions minutes (see docs/SELF_HOSTED_CI.md).
-#
-# Manual-only (same policy as the hosted ci.yml): the desktop runner's broker
-# long-poll wedges and auto-triggered runs queue forever (#264). The merge gate
-# is the local one — `python scripts/ci_local.py` plus the web suites — run
-# before every merge; dispatch this workflow when an on-runner check is wanted.
-
+# This workflow is intentionally never a pull-request target. A self-hosted
+# workspace is a privileged trust boundary, so it only observes code already
+# merged to main or an explicitly reviewed maintainer dispatch. The hosted
+# workflow owns the untrusted PR gate.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: opai-ci-selfhosted-${{ github.ref }}
+  group: opai-ci-selfhosted-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  gate:
-    name: Local gate (ruff, tests, validate, bandit)
+  trusted-gate:
+    name: Trusted - self-hosted fast qualification
     runs-on: [self-hosted]
     timeout-minutes: 30
     steps:
+      # actions/checkout v4.2.2, pinned to its immutable commit SHA.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       # A per-run venv keeps the gate hermetic: installing `-e .` with the
-      # machine's user Python replaced the developer's real opai install with
-      # an editable pointer into this runner workspace (#260).
-      - name: Install OPai and check tools (isolated venv)
+      # machine's user Python would replace a developer's real opai install
+      # with an editable pointer into this runner workspace (#260).
+      - name: Install locked tools and OPai (isolated venv)
         shell: bash
         run: |
           python -m venv .venv
           PY=./.venv/bin/python
           [ -f ./.venv/Scripts/python.exe ] && PY=./.venv/Scripts/python.exe
           "$PY" -m pip install --upgrade pip
-          "$PY" -m pip install -e ".[test]" "ruff==0.15.9" bandit
+          "$PY" -m pip install -r requirements-ci.txt
+          "$PY" -m pip install -e ".[test]"
 
-      - name: Run the CI gate
+      - name: Run the trusted fast gate
         shell: bash
         run: |
           PY=./.venv/bin/python
           [ -f ./.venv/Scripts/python.exe ] && PY=./.venv/Scripts/python.exe
-          "$PY" scripts/ci_local.py
+          "$PY" scripts/ci_local.py --profile fast --manifest self-hosted-evidence.json
+
+      # actions/upload-artifact v4.6.2, pinned to its immutable commit SHA.
+      - name: Upload bounded trusted-runner evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: self-hosted-fast-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: self-hosted-evidence.json
+          if-no-files-found: error
+          retention-days: 14

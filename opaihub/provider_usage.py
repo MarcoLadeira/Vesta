@@ -318,7 +318,7 @@ def _probe_headers(provider: str, api_key: str) -> dict[str, Any] | None:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=5.0) as response:  # noqa: S310 - fixed HTTPS hosts
+        with urllib.request.urlopen(request, timeout=5.0) as response:  # noqa: S310  # nosec B310 - fixed HTTPS hosts
             response.read(1)
             return parse_quota_headers(_headers_of(response))
     except Exception:  # noqa: BLE001 - a usage probe must never break Settings

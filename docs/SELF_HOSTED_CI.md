@@ -1,19 +1,16 @@
-# Self-hosted CI runner (green checks at $0)
+# Self-hosted CI runner (trusted post-merge evidence)
 
-This private repo's GitHub-hosted Actions minutes are capped, so hosted runners
-abort every job at startup (`0 steps`, ~2s) and show red — even though the code
-is fine and merges land normally. A **self-hosted runner** runs the CI gate on
-your own machine instead, so checks go **green at no cost** while the repo stays
-private.
+The self-hosted runner provides a post-merge trusted-machine signal. The hosted
+credential-free workflow is the mandatory PR gate; this runner never evaluates
+untrusted pull-request code.
 
-- `.github/workflows/ci-selfhosted.yml` runs on `[self-hosted]` for every push,
-  pull request, and manual dispatch. It installs OPai + the check tools and runs
-  `python scripts/ci_local.py` (ruff format + check, the full unittest suite,
-  `opaihub validate`, bandit).
-- `.github/workflows/ci.yml` (the hosted matrix) is **manual-only** now, so it no
-  longer fills the Actions tab with red. Trigger it from the Actions tab when you
-  want the full Windows + cross-OS wheel matrix (e.g. before a release, or once
-  you raise the Actions spending limit).
+- `.github/workflows/ci-selfhosted.yml` runs on `[self-hosted]` after each push
+  to `main`, and by deliberate manual dispatch. It creates an isolated venv,
+  installs the pinned `requirements-ci.txt` toolchain and runs the fail-closed
+  `fast` profile with a JSON evidence artifact.
+- `.github/workflows/ci.yml` automatically runs the hosted PR/main gate and the
+  scheduled full/native lanes. Its runners have read-only repository access and
+  no protected provider or signing credentials.
 
 ## One-time setup (~2 minutes)
 
@@ -54,21 +51,17 @@ it uses a registration token tied to your account.
 
 - The runner shows **Idle** at
   `https://github.com/MarcoLadeira/OPai/settings/actions/runners`.
-- Trigger a run: Actions tab → **OPai CI (self-hosted)** → **Run workflow**, or
-  just push a commit. The job runs on your machine and reports green/red.
+- Trigger a run: Actions tab → **OPai CI (trusted self-hosted)** → **Run
+  workflow**, or push a commit to `main`. The job runs on your machine and
+  reports green/red with an evidence artifact.
 
 ## Security notes
 
-- A self-hosted runner executes whatever CI a branch defines. Keep it on a repo
-  where you trust the code (your own solo repo is fine). If you ever accept
-  outside pull requests, require approval before running workflows on them
-  (Settings → Actions → *Fork pull request workflows*).
+- A self-hosted runner executes whatever trusted `main` code defines. Do not add
+  a `pull_request` trigger or expose it to fork PRs: a contributor could alter a
+  workflow and execute arbitrary code in the long-lived workspace.
 - The runner needs outbound network to reach GitHub; it does not open any inbound
   ports.
 
-## Turning hosted CI back on
-
-If you raise the Actions spending limit or make the repo public later, restore
-automatic hosted CI by adding the `pull_request:` and `push:` triggers back to
-`.github/workflows/ci.yml` (see the comment at the top of that file), and you can
-retire the self-hosted runner if you no longer want it.
+For the required check names, release evidence rules and GitHub ruleset setup,
+see [CI qualification and merge governance](CI_QUALIFICATION.md).

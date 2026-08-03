@@ -31,9 +31,15 @@ from opaihub.desktop_artifacts import (  # noqa: E402
 from opaihub.proc import no_window_kwargs  # noqa: E402
 
 
+def _is_windows() -> bool:
+    """Keep OS-specific smoke behavior testable without mutating ``os.name``."""
+
+    return os.name == "nt"
+
+
 def _system_executable(name: str) -> str:
     """Resolve a platform command before invoking it from release verification."""
-    if os.name == "nt":
+    if _is_windows():
         system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
         if system_root:
             candidate = Path(system_root) / "System32" / name
@@ -46,7 +52,7 @@ def _system_executable(name: str) -> str:
 
 
 def _webengine_helpers() -> set[str]:
-    if os.name == "nt":
+    if _is_windows():
         completed = subprocess.run(  # nosec B603 - fixed Windows process query
             [
                 _system_executable("tasklist.exe"),

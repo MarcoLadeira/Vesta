@@ -317,25 +317,28 @@ op status
 This installs OPai's small core runtime dependency set. Desktop Qt and terminal
 image support remain opt-in through the `desktop-gui` and `terminal-ui` extras.
 
-**Run the CI gate locally.** `scripts/ci_local.py` runs the same checks as the
-GitHub "Test and package" job, so you get a green/red verdict without spending
-GitHub Actions minutes:
+**Run a CI profile locally.** `scripts/ci_local.py` runs fail-closed checks and
+writes machine-readable evidence; a required tool that is missing is a red
+result, not a skipped green check:
 
 ```powershell
-python scripts/ci_local.py          # ruff format+check, tests, validate, bandit
-python scripts/ci_local.py --fast   # skip bandit for a quicker inner loop
-python scripts/ci_local.py --full   # also run pip-audit + detect-secrets (network)
+python scripts/ci_local.py --profile fast    # PR-equivalent Python quality gate
+python scripts/ci_local.py --profile full    # + pytest, pip-audit, detect-secrets
+python scripts/ci_local.py --profile native  # isolated wheel smoke on this OS
 ```
 
-It fails fast on the first red step and exits non-zero unless every step passes —
-the same contract as CI. Install the check tools once with
-`python -m pip install "ruff==0.15.9" bandit pip-audit detect-secrets`.
+It exits 0 only when every required selected check passes. Install the pinned
+toolchain with `python -m pip install -r requirements-ci.txt`; `--fast` and
+`--full` remain compatibility aliases. See
+[CI qualification and merge governance](docs/CI_QUALIFICATION.md) for evidence,
+required checks and the administrator ruleset setup.
 
-**Green checks without GitHub minutes.** The GitHub-hosted matrix
-(`.github/workflows/ci.yml`) is manual-only, and a self-hosted runner workflow
-(`.github/workflows/ci-selfhosted.yml`) runs this same gate on your own machine
-for every push/PR at $0. See [docs/SELF_HOSTED_CI.md](docs/SELF_HOSTED_CI.md) for
-the ~2-minute runner setup.
+**CI qualification.** Hosted CI automatically runs the credential-free required
+lane for every PR to `main` and every `main` push, with scheduled full and
+cross-platform native qualification. The self-hosted runner is deliberately
+limited to trusted `main` updates and reviewed dispatches. See
+[CI qualification and merge governance](docs/CI_QUALIFICATION.md) and
+[self-hosted runner setup](docs/SELF_HOSTED_CI.md).
 
 Optional free local tools:
 
