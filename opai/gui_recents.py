@@ -44,7 +44,7 @@ _THREAD_LOCKS: dict[str, threading.RLock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
 # "partial", "blocked", "timeout" carry the completion verdict (#402) into the
 # persisted thread so a non-completed run is never coerced to "complete" (or, via
-# the old whitelist, to "failed"). See opai.gui_web._thread_status_for.
+# the old whitelist, to "failed"). See thread_status_for_result() below.
 _THREAD_STATUSES = {
     "complete",
     "partial",
@@ -56,6 +56,27 @@ _THREAD_STATUSES = {
     "interrupted",
 }
 _PLAN_STATUSES = {"pending", "in_progress", "completed", "blocked"}
+
+# completion_verdict (#378/#402) wins over the legacy status when both are
+# present -- a stuck/partial run whose legacy status is still "answered"
+# persists with its verdict label, never "complete".
+_VERDICT_THREAD_STATUS = {
+    "completed": "complete",
+    "partial": "partial",
+    "blocked": "blocked",
+    "timeout": "timeout",
+    "cancelled": "cancelled",
+    "failed": "failed",
+}
+_ANSWERED_THREAD_STATUSES = {
+    "answered",
+    "cache_hit",
+    "answered_by_account",
+    "answered_by_free_api",
+    "answered_locally",
+    "applied",
+    "no_edits",
+}
 
 
 def legacy_recents_path() -> Path:
@@ -650,6 +671,23 @@ def refresh_thread_lease(workspace_root: str | Path, *, request_id: str) -> bool
         # A heartbeat is an optimization on top of the real work; failing to
         # write one must never break the run it is describing.
         return False
+
+
+def thread_status_for_result(status: str, completion_verdict: Any) -> str:
+    """The honest thread status for a finished turn, shared by every surface.
+
+    GUI and CLI turns both finish through this (#545) so "complete" means the
+    same thing regardless of which surface ran the turn -- previously this
+    lived only in opai.gui_web, reachable by GUI turns alone.
+    """
+    if isinstance(completion_verdict, dict):
+        verdict = str(completion_verdict.get("verdict") or "").strip().lower()
+        mapped = _VERDICT_THREAD_STATUS.get(verdict)
+        if mapped is not None:
+            return mapped
+    if status in _ANSWERED_THREAD_STATUSES:
+        return "complete"
+    return "cancelled" if status == "cancelled" else "failed"
 
 
 def finish_thread_turn(
