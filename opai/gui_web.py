@@ -653,6 +653,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             # Appearance (#241): applied to the document root at boot.
             "density": str(prefs.get("density") or "comfortable"),
             "reducedMotion": str(prefs.get("reduced_motion") or "system"),
+            # Activity copy: lets the activity rail be drag-selected/copied for
+            # debugging. On by default; applied to the document root at boot.
+            "activityCopy": str(prefs.get("activity_copy") or "on"),
             # Composer layout (Composer Redesign): one of the three directions
             # — "toolbar" (quiet toolbar, default), "single" (single line),
             # "command" (command bar). Applied to the composer at boot and live.
@@ -1823,6 +1826,7 @@ def _run_gui(
                 "show_control_panel",
                 "density",
                 "reduced_motion",
+                "activity_copy",
                 "onboarding_seen",
                 "composer_style",
                 "auto_update",

@@ -31,6 +31,11 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     # "off" force-enables them). Applied live by the GUI, no restart.
     "density": "comfortable",
     "reduced_motion": "system",
+    # Activity copy: lets a user drag-select and copy the whole AI activity
+    # rail (stage line + step-by-step timeline), not just the final answer —
+    # much easier to hand someone for debugging than retyping what happened.
+    # On by default; "off" restores the app's normal no-select chrome there.
+    "activity_copy": "on",
     # First-run onboarding (#250): the three-step tour shows once on a fresh
     # profile and never again after it is completed or skipped.
     "onboarding_seen": False,
@@ -79,6 +84,7 @@ _ALLOWED_KEYS = {
     "auto_tools",
     "density",
     "reduced_motion",
+    "activity_copy",
     "onboarding_seen",
     "auto_update",
     "usage_limits",
@@ -107,6 +113,8 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
         clean["density"] = "comfortable"
     if clean.get("reduced_motion") not in {"system", "on", "off"}:
         clean["reduced_motion"] = "system"
+    if clean.get("activity_copy") not in {"on", "off"}:
+        clean["activity_copy"] = "on"
     clean["onboarding_seen"] = bool(clean.get("onboarding_seen"))
     clean["auto_update"] = bool(clean.get("auto_update"))
     safe = clean.get("safe_auto")

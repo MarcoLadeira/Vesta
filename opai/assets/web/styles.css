@@ -807,6 +807,13 @@ kbd {
 .cli-mirror:hover .cm-copy { opacity: 1; }
 
 /* ---------- AI activity: status head + the rail ---------- */
+/* Copy activity: the whole rail (stage line, reassurance, timeline) is
+   drag-selectable by default, so it can be copied for debugging — not just
+   the final answer. .timeline is targeted separately too since the frozen
+   post-completion summary (activitySummaryHtml) renders it outside .gen.
+   The "Copy activity" setting opts back out via html.activity-select-off. */
+.gen, .timeline { user-select: text; }
+html.activity-select-off .gen, html.activity-select-off .timeline { user-select: none; }
 .gen { display: flex; flex-direction: column; gap: var(--space-2); }
 .gen-head {
   display: flex; align-items: center; gap: var(--space-2);

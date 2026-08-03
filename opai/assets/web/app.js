@@ -145,6 +145,9 @@ function applyAppearance(prefs) {
   const motion = p.reducedMotion === "on" || p.reducedMotion === "off" ? p.reducedMotion : "system";
   if (motion === "system") delete root.dataset.motion;
   else root.dataset.motion = motion;
+  // Activity copy: off only by explicit choice — any other value (including
+  // absence, e.g. an older saved prefs blob) keeps the rail selectable.
+  root.classList.toggle("activity-select-off", p.activityCopy === "off");
 }
 
 // #238: a default changed on the settings Models page must show in the composer
@@ -3814,6 +3817,7 @@ if (typeof window !== "undefined") {
     // sync (F16/F4) and the derived next-run agent mode preview (F21).
     applyBootSelection: (b) => applyBootSelection(b),
     derivedAgentMode: () => derivedAgentMode(),
+    applyAppearance: (p) => applyAppearance(p),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).
     runCommand: (id) => runCommand(id),
     // Context picker actions stay native so Chromium never receives arbitrary

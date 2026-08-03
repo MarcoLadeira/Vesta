@@ -1283,6 +1283,7 @@
       prefs.reduced_motion === "on" || prefs.reduced_motion === "off"
         ? prefs.reduced_motion
         : "system";
+    var activityCopy = prefs.activity_copy === "off" ? "off" : "on";
     var seg = function (key, current, options) {
       return (
         '<div class="seg" role="group" data-appearance-key="' +
@@ -1361,6 +1362,13 @@
       '<div class="appearance-row"><div class="appearance-label"><span class="k">Reduced motion</span><span class="hint">System follows your OS setting. On disables animations everywhere; Off keeps them on.</span></div>' +
       seg("reduced_motion", motion, [
         { id: "system", label: "System" },
+        { id: "on", label: "On" },
+        { id: "off", label: "Off" },
+      ]) +
+      "</div>";
+    h +=
+      '<div class="appearance-row"><div class="appearance-label"><span class="k">Copy activity</span><span class="hint">Lets you drag-select and copy the whole AI activity rail — stage line and every step — not just the final answer. Handy for debugging; off restores the app\'s normal no-select chrome there.</span></div>' +
+      seg("activity_copy", activityCopy, [
         { id: "on", label: "On" },
         { id: "off", label: "Off" },
       ]) +
@@ -2386,7 +2394,9 @@
             var name =
               other.dataset.appearanceKey === "reduced_motion"
                 ? "reducedMotion"
-                : other.dataset.appearanceKey;
+                : other.dataset.appearanceKey === "activity_copy"
+                  ? "activityCopy"
+                  : other.dataset.appearanceKey;
             current[name] = active ? active.dataset.value : "";
           });
           ctx.applyAppearance(current);
