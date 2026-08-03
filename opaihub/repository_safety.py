@@ -445,6 +445,26 @@ def _index_fingerprint(root: Path, git_dir: Path, *, git_run: GitRun) -> str:
         raise RepositoryProbeError("index_unavailable", str(exc)) from exc
 
 
+def _nested_repository_marker(root: Path, relative: str, *, git_run: GitRun) -> str:
+    """A stable marker for an untracked path git reports as a directory.
+
+    ``--untracked-files=all`` normally expands every untracked directory into
+    its individual files; the one case it does not is a nested repository (a
+    plain vendored/cloned ``.git``, not a registered submodule) — git stops
+    at that boundary and reports the directory itself. That path cannot be
+    content-hashed (``git hash-object`` refuses a directory with "Unable to
+    hash (NULL)", which used to crash the whole capture), so its own HEAD is
+    folded in instead: detectable when the nested repository's committed
+    state moves, stable when it does not, and never a crash (#536).
+    """
+
+    nested_root = root / relative.rstrip("/")
+    head = _git_text(
+        nested_root, ["rev-parse", "HEAD"], git_run=git_run, required=False
+    )
+    return f"nested-repository:{head}" if head else "unhashable-directory"
+
+
 def _hash_objects(root: Path, paths: list[str], *, git_run: GitRun) -> dict[str, str]:
     """Hash many untracked paths in as few processes as possible.
 
@@ -460,9 +480,14 @@ def _hash_objects(root: Path, paths: list[str], *, git_run: GitRun) -> dict[str,
 
     if not paths:
         return {}
-    batchable = [path for path in paths if "\n" not in path]
-    exceptional = [path for path in paths if "\n" in path]
-    hashes: dict[str, str] = {}
+    directories = {path for path in paths if (root / path.rstrip("/")).is_dir()}
+    hashes: dict[str, str] = {
+        path: _nested_repository_marker(root, path, git_run=git_run)
+        for path in directories
+    }
+    files = [path for path in paths if path not in directories]
+    batchable = [path for path in files if "\n" not in path]
+    exceptional = [path for path in files if "\n" in path]
     if batchable:
         result = _run_git(
             root,

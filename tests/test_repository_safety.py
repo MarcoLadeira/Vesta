@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -167,6 +169,23 @@ class RepositoryCaptureTests(unittest.TestCase):
 
         self.assertTrue(result.fresh)
         self.assertEqual(_tree_and_index_digest(self.repo), before)
+
+    def test_capture_and_revalidation_never_touch_git_hooks(self) -> None:
+        # Addendum: a command classified as read-only must not mutate hooks.
+        hook = self.repo / ".git" / "hooks" / "pre-commit"
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        before = hook.read_bytes()
+
+        handle = capture_repository_handle(self.repo, task_id="task-1", run_id="run-1")
+        revalidate_repository_handle(handle)
+
+        self.assertEqual(hook.read_bytes(), before)
+
+    def test_a_repository_with_no_remote_captures_an_empty_remote_set(self) -> None:
+        handle = capture_repository_handle(self.repo, task_id="task-1", run_id="run-1")
+
+        self.assertEqual(handle.identity.remotes, ())
 
 
 class UnbornHeadTests(unittest.TestCase):
@@ -431,6 +450,336 @@ class RepositorySafetyPropertyTests(unittest.TestCase):
             DirtyState(untracked=tuple(paths)), planned_paths=None
         )
         self.assertEqual(assessment.outcome, "block")
+
+    @given(st.binary(max_size=2000))
+    def test_the_porcelain_parser_never_raises_on_arbitrary_bytes(
+        self, raw: bytes
+    ) -> None:
+        # Untrusted git output, not just well-formed records: unusual
+        # encodings and truncated/garbage input must surface as
+        # malformed_records, never as an unhandled exception (#536 addendum).
+        state = parse_porcelain_v2(raw)
+        self.assertIsInstance(state, DirtyState)
+
+    @given(
+        st.lists(
+            st.text(min_size=1, max_size=80).filter(lambda s: "\0" not in s),
+            max_size=300,
+        )
+    )
+    def test_the_classifier_never_raises_on_large_fuzzed_untracked_sets(
+        self, paths: list[str]
+    ) -> None:
+        assessment = classify_dirty_state(
+            DirtyState(untracked=tuple(paths)), planned_paths=("src/app.py",)
+        )
+        self.assertIn(
+            assessment.classification,
+            {"clean", "compatible", "unrelated", "overlapping", "unsafe", "unknown"},
+        )
+
+
+class IdentityInvalidationTests(unittest.TestCase):
+    """Every invalidation event the addendum names, proven individually (#536)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name) / "repo"
+        root.mkdir()
+        self.repo = make_repo(root, files={"app.py": "print('x')\n"}, commit=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_switching_branches_is_reported_as_branch_changed(self) -> None:
+        _git(self.repo, "checkout", "-b", "feature")
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        _git(self.repo, "checkout", "-")
+
+        result = revalidate_repository_handle(handle)
+
+        self.assertFalse(result.fresh)
+        self.assertIn("branch_changed", result.reasons)
+
+    def test_replacing_the_repository_at_the_same_path_is_detected(self) -> None:
+        # The path-substitution attack the addendum names: delete (or move
+        # away) and reinitialize a different repository at the same location.
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        shutil.move(str(self.repo), str(self.repo.parent / "displaced"))
+        self.repo.mkdir()
+        make_repo(self.repo, files={"app.py": "print('replaced')\n"}, commit=True)
+
+        result = revalidate_repository_handle(handle)
+
+        self.assertFalse(result.fresh)
+        self.assertIn("repository_replaced", result.reasons)
+
+    def test_a_handle_older_than_its_max_age_expires(self) -> None:
+        clock = [1_000.0]
+        handle = capture_repository_handle(
+            self.repo,
+            task_id="t",
+            run_id="r",
+            max_age_seconds=30.0,
+            now=lambda: clock[0],
+        )
+        clock[0] += 31.0
+
+        result = revalidate_repository_handle(handle, now=lambda: clock[0])
+
+        self.assertFalse(result.fresh)
+        self.assertIn("handle_expired", result.reasons)
+
+    def test_a_handle_within_its_max_age_does_not_expire(self) -> None:
+        clock = [1_000.0]
+        handle = capture_repository_handle(
+            self.repo,
+            task_id="t",
+            run_id="r",
+            max_age_seconds=30.0,
+            now=lambda: clock[0],
+        )
+        clock[0] += 10.0
+
+        result = revalidate_repository_handle(handle, now=lambda: clock[0])
+
+        self.assertNotIn("handle_expired", result.reasons)
+
+    def test_detached_head_is_captured_and_never_silently_fresh(self) -> None:
+        sha = _git(self.repo, "rev-parse", "HEAD")
+        _git(self.repo, "checkout", sha)
+
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        self.assertTrue(handle.identity.detached)
+
+        result = revalidate_repository_handle(handle)
+        self.assertFalse(result.fresh)
+        self.assertIn("detached_head", result.reasons)
+
+
+class NestedRepositoryTests(unittest.TestCase):
+    """Nested repositories are separate identities; no parent/child traversal (#536)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        outer = Path(self._tmp.name) / "outer"
+        outer.mkdir()
+        self.outer = make_repo(outer, files={"outer.py": "1\n"}, commit=True)
+        inner = self.outer / "vendor" / "inner"
+        inner.mkdir(parents=True)
+        self.inner = make_repo(inner, files={"inner.py": "2\n"}, commit=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_nested_repository_resolves_its_own_identity_not_its_parents(
+        self,
+    ) -> None:
+        inner_handle = capture_repository_handle(self.inner, task_id="t", run_id="r")
+        outer_handle = capture_repository_handle(self.outer, task_id="t", run_id="r")
+
+        self.assertEqual(inner_handle.identity.worktree_root, self.inner.resolve())
+        self.assertNotEqual(
+            inner_handle.identity.repository_id, outer_handle.identity.repository_id
+        )
+
+    def test_capturing_from_inside_the_nested_repository_never_traverses_to_the_parent(
+        self,
+    ) -> None:
+        subdir = self.inner / "src"
+        subdir.mkdir()
+
+        handle = capture_repository_handle(subdir, task_id="t", run_id="r")
+
+        self.assertEqual(handle.identity.worktree_root, self.inner.resolve())
+
+
+class GitNativeWorktreeTests(unittest.TestCase):
+    """A `git worktree add` linked worktree is captured correctly (#536)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name) / "repo"
+        root.mkdir()
+        self.repo = make_repo(root, files={"app.py": "1\n"}, commit=True)
+        self.linked = Path(self._tmp.name) / "linked-worktree"
+        _git(self.repo, "worktree", "add", "-b", "linked", str(self.linked))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_linked_worktree_has_its_own_git_dir_but_shares_the_common_one(
+        self,
+    ) -> None:
+        primary = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        linked = capture_repository_handle(self.linked, task_id="t", run_id="r")
+
+        self.assertEqual(linked.identity.worktree_root, self.linked.resolve())
+        self.assertNotEqual(linked.identity.git_dir, primary.identity.git_dir)
+        self.assertEqual(
+            linked.identity.common_git_dir, primary.identity.common_git_dir
+        )
+        self.assertEqual(linked.identity.branch, "linked")
+
+
+class MultipleRemotesTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name) / "repo"
+        root.mkdir()
+        self.repo = make_repo(root, files={"app.py": "1\n"}, commit=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_all_remotes_are_captured_with_credentials_stripped(self) -> None:
+        _git(
+            self.repo,
+            "remote",
+            "add",
+            "origin",
+            "https://tok1@github.com/acme/demo.git",
+        )
+        _git(
+            self.repo,
+            "remote",
+            "add",
+            "upstream",
+            "https://tok2@github.com/upstream/demo.git",
+        )
+
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+
+        names = {name for name, _ in handle.identity.remotes}
+        self.assertEqual(names, {"origin", "upstream"})
+        self.assertNotIn("tok1", repr(handle))
+        self.assertNotIn("tok2", repr(handle))
+
+    def test_a_remote_added_after_capture_is_detected_as_remote_changed(self) -> None:
+        _git(self.repo, "remote", "add", "origin", "https://github.com/acme/demo.git")
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+        _git(
+            self.repo,
+            "remote",
+            "add",
+            "upstream",
+            "https://github.com/upstream/demo.git",
+        )
+
+        result = revalidate_repository_handle(handle)
+
+        self.assertFalse(result.fresh)
+        self.assertIn("remote_changed", result.reasons)
+
+
+class MergeConflictTests(unittest.TestCase):
+    """A real (not hand-crafted) git merge conflict is captured and blocks (#536)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name) / "repo"
+        root.mkdir()
+        self.repo = make_repo(root, files={"app.py": "base\n"}, commit=True)
+        _git(self.repo, "checkout", "-b", "feature")
+        (self.repo / "app.py").write_text("feature\n", encoding="utf-8")
+        _git(self.repo, "commit", "-am", "feature change")
+        _git(self.repo, "checkout", "-")
+        (self.repo / "app.py").write_text("main\n", encoding="utf-8")
+        _git(self.repo, "commit", "-am", "main change")
+        subprocess.run(  # nosec B603 B607 - fixed argv, throwaway test repo
+            ["git", "merge", "feature", "-m", "merge"],
+            cwd=self.repo,
+            capture_output=True,
+            check=False,
+        )
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_real_merge_conflict_is_captured_as_conflicted(self) -> None:
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+
+        self.assertIn("app.py", handle.dirty_state.conflicted)
+
+    def test_a_real_merge_conflict_blocks_as_unsafe(self) -> None:
+        handle = capture_repository_handle(self.repo, task_id="t", run_id="r")
+
+        assessment = classify_dirty_state(handle.dirty_state, planned_paths=("app.py",))
+
+        self.assertEqual(assessment.classification, "unsafe")
+        self.assertEqual(assessment.outcome, "block")
+        self.assertEqual(assessment.rule_id, "git_conflict")
+
+
+class SymlinkedWorktreeTests(unittest.TestCase):
+    """A symlinked path to a repository resolves to the real identity (#536)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        real = base / "real-repo"
+        real.mkdir()
+        self.real = make_repo(real, files={"app.py": "1\n"}, commit=True)
+        self.link = base / "link-to-repo"
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_symlinked_path_to_the_repository_resolves_to_the_same_identity(
+        self,
+    ) -> None:
+        try:
+            self.link.symlink_to(self.real, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"directory symlinks unavailable: {exc}")
+
+        via_link = capture_repository_handle(self.link, task_id="t", run_id="r")
+        via_real = capture_repository_handle(self.real, task_id="t", run_id="r")
+
+        self.assertEqual(via_link.identity.worktree_root, self.real.resolve())
+        self.assertEqual(
+            via_link.identity.repository_id, via_real.identity.repository_id
+        )
+
+
+class CaseInsensitiveIdentityTests(unittest.TestCase):
+    """Case-variant paths to the same repository never fork identity (#536)."""
+
+    @unittest.skipUnless(
+        sys.platform == "win32", "os.path.normcase is a no-op on POSIX"
+    )
+    def test_repository_id_collapses_case_variant_paths(self) -> None:
+        from opaihub.repository_safety import _repository_id
+
+        common = {
+            "git_dir": Path("C:/Repo/.git"),
+            "common_git_dir": Path("C:/Repo/.git"),
+            "filesystem_id": (1, 2),
+            "remotes": (),
+        }
+        lower = _repository_id(root=Path("C:/somewhere/repo"), **common)
+        upper = _repository_id(root=Path("C:/SOMEWHERE/REPO"), **common)
+
+        self.assertEqual(lower, upper)
+
+    @unittest.skipUnless(
+        sys.platform != "win32", "case sensitivity is intentional here"
+    )
+    def test_repository_id_does_not_collapse_case_on_a_case_sensitive_platform(
+        self,
+    ) -> None:
+        from opaihub.repository_safety import _repository_id
+
+        common = {
+            "git_dir": Path("/repo/.git"),
+            "common_git_dir": Path("/repo/.git"),
+            "filesystem_id": (1, 2),
+            "remotes": (),
+        }
+        lower = _repository_id(root=Path("/somewhere/repo"), **common)
+        upper = _repository_id(root=Path("/somewhere/REPO"), **common)
+
+        self.assertNotEqual(lower, upper)
 
 
 if __name__ == "__main__":  # pragma: no cover
