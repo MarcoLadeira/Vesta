@@ -325,7 +325,43 @@ Immediate acknowledgement is evidenced: `stop()` moves to `cancel_requested`
 only when the backend confirms the worker returned — `cancel-teardown.spec.js`
 (7 tests), plus twelve updated regressions.
 
-**Missing:** bounded teardown is a 10s client-side timer, not a platform SLO, and
+**#380, first slice landed:** the gap the epic actually names — *"'Cancel
+requested' is not cancellation if provider calls, child processes... continue"*
+— is closed for the highest-risk case. `AgentComputerInterface.run_command`
+(`opaihub/aci.py`) now polls a real, isolated process tree and calls
+`terminate_tree` (#108) the moment a cancellation or timeout fires, instead of
+blocking inside one uninterruptible `subprocess.run` call; `test_aci_cancellation.py`
+proves this against a real spawned grandchild, not just injected logic — the
+actual "runner-wedge" evidence #264 asks for. `RepositoryToolExecutor.invoke()`
+used to check the token exactly once before dispatch, so nothing downstream
+ever looked again once a git or test command had started; `cancel` is now
+threaded through every tool method that can act on it (`_run_command`,
+`_git_commit`, `_git_push`, `_git_create_branch`, `_open_pr`), closing "between
+push and PR creation" and the same shape of gap one level down, between two
+git calls inside one commit (`test_provider_tools_cancellation.py`). A
+cancelled attempt is reported as `CANCELLED`, distinct from an ordinary
+failure — required so a retry policy can never retry a cancellation — and
+leaves no idempotency residue (a cancelled commit's key is abandoned, not left
+`in_flight`).
+
+`opaihub/cancellation_lifecycle.py` adds the durable, ordered phase model the
+epic asks for — `requested -> acknowledged -> draining -> force_terminating ->
+terminated`, refining `CANCEL_REQUESTED` the way `RuntimePhase` refines the
+rest of the lifecycle — backed by the #517 journal, so "cancellation
+acknowledgement latency" and "hard-stop latency" (the epic's own named
+metrics) are computed from durable timestamps. `test_cancellation_lifecycle.py`
+covers phase legality, metrics, and — after `run_journal.append_if` was added
+to fix a real race the test caught — two callers racing to cancel the same
+scope converging on one consistent history.
+
+**Missing:** the phase tracker is not yet wired into the live GUI/CLI turn
+lifecycle (`local_runner.py`'s existing `LocalRunCancelled`-based streaming
+cancellation and `background_runs.py`'s `cancel_event` continue to work
+exactly as before, untouched, rather than risked in the same change) — that
+integration, plus mid-flight cancellation of `git push` specifically (a
+network call bounded by a 120s timeout today, not yet pollable the way
+`run_command` now is) and provider-adapter-level token propagation (#533),
+remain open. Bounded teardown is a 10s client-side timer, not a platform SLO, and
 an unconfirmed teardown reports honestly but does not raise `needs_attention`
 with evidence. `needs_attention` is not a canonical state yet because nothing
 produces it.

@@ -109,6 +109,13 @@ def _error(code: str, message: str, *, kind: str = "provider_tool") -> dict[str,
     ).to_dict()
 
 
+def _cancelled_error(kind: str = "provider_tool") -> dict[str, Any]:
+    """The one error code a caller must be able to tell apart from a real
+    failure (#380): a retry policy must never retry a cancellation, but a
+    transient git/network failure may be worth retrying."""
+    return _error("CANCELLED", "Command was cancelled", kind=kind)
+
+
 def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int | None:
     if value is None:
         return default
@@ -693,8 +700,21 @@ class RepositoryToolExecutor:
             message=f"{'Created' if created else 'Replaced'} {relative}",
         ).to_dict()
 
-    def _git(self, argv: list[str], *, timeout: float = 60.0) -> dict[str, Any]:
-        """Run one fixed git command in the repository; argv only, no shell."""
+    def _git(
+        self, argv: list[str], *, timeout: float = 60.0, cancel: Any = None
+    ) -> dict[str, Any]:
+        """Run one fixed git command in the repository; argv only, no shell.
+
+        A commit or push is usually a short chain of several of these calls
+        (stage, write-tree, commit, resolve HEAD; or approve, then push).
+        Checking ``cancel`` here — not just once at the top of ``invoke()`` —
+        means a cancellation landing *between* two of those calls is caught
+        before the next one starts, rather than only before the next whole
+        tool call (#380: "between push and PR creation" is the same shape of
+        gap one step down, between two git calls inside one tool).
+        """
+        if cancel is not None and cancel.is_set():
+            return {"ok": False, "output": "Command was cancelled", "cancelled": True}
         try:
             completed = self._git_run(
                 ["git", *argv],
@@ -712,14 +732,16 @@ class RepositoryToolExecutor:
         output = ((completed.stdout or "") + "\n" + (completed.stderr or "")).strip()
         return {"ok": completed.returncode == 0, "output": redact(output)[-2_000:]}
 
-    def _git_create_branch(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    def _git_create_branch(
+        self, arguments: dict[str, Any], *, cancel: Any = None
+    ) -> dict[str, Any]:
         name = _valid_branch(arguments.get("name"))
         if name is None:
             return _error("INVALID_BRANCH_NAME", "Branch name is not a valid git ref")
         blocked = self._mutation_gate("git_create_branch", tuple(self.written_paths))
         if blocked is not None:
             return blocked
-        result = self._git(["checkout", "-b", name])
+        result = self._git(["checkout", "-b", name], cancel=cancel)
         if result["ok"] and not self._refresh_repository_handle():
             return self._repository_safety_blocked("git_create_branch")
         return Observation(
@@ -730,7 +752,9 @@ class RepositoryToolExecutor:
             result["output"] if not result["ok"] else f"Created branch {name}",
         ).to_dict()
 
-    def _git_commit(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    def _git_commit(
+        self, arguments: dict[str, Any], *, cancel: Any = None
+    ) -> dict[str, Any]:
         message = redact(str(arguments.get("message") or "").strip())[:500]
         if not message:
             return _error("INVALID_TOOL_ARGUMENTS", "A commit message is required")
@@ -749,8 +773,10 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("git_add", paths)
         if blocked is not None:
             return blocked
-        staged = self._git(["add", "--", *paths])
+        staged = self._git(["add", "--", *paths], cancel=cancel)
         if not staged["ok"]:
+            if staged.get("cancelled"):
+                return _cancelled_error()
             return _error("GIT_ADD_FAILED", staged["output"])
         if not self._refresh_repository_handle():
             return self._repository_safety_blocked("git_commit")
@@ -769,7 +795,9 @@ class RepositoryToolExecutor:
         from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
         from .idempotency import operation_key
 
-        tree = self._git(["write-tree"])
+        tree = self._git(["write-tree"], cancel=cancel)
+        if tree.get("cancelled"):
+            return _cancelled_error()
         key = operation_key(
             "git_commit",
             root=str(self.repo_root),
@@ -802,15 +830,21 @@ class RepositoryToolExecutor:
         from opai.authorship import with_coauthor
 
         commit_message = with_coauthor(message)
-        committed = self._git(["commit", "-m", commit_message, "--", *paths])
+        committed = self._git(
+            ["commit", "-m", commit_message, "--", *paths], cancel=cancel
+        )
         if not committed["ok"]:
-            # Nothing reached history, so the key is released and a corrected
-            # retry proceeds freely.
+            # Nothing reached history — true of an ordinary failure, and
+            # (since `_git`'s cancel check runs before the subprocess ever
+            # spawns) equally true of a cancellation, so the key is released
+            # either way and a corrected retry proceeds freely.
             abandon(self.repo_root, key)
+            if committed.get("cancelled"):
+                return _cancelled_error()
             return _error("GIT_COMMIT_FAILED", committed["output"])
         if not self._refresh_repository_handle():
             return self._repository_safety_blocked("git_commit")
-        head = self._git(["rev-parse", "--short", "HEAD"])
+        head = self._git(["rev-parse", "--short", "HEAD"], cancel=cancel)
         sha = head["output"] if head["ok"] else ""
         complete(self.repo_root, key, {"sha": sha})
         return Observation(
@@ -824,7 +858,9 @@ class RepositoryToolExecutor:
         result = self._git(["branch", "--show-current"])
         return result["output"].strip() if result["ok"] else ""
 
-    def _git_push(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    def _git_push(
+        self, arguments: dict[str, Any], *, cancel: Any = None
+    ) -> dict[str, Any]:
         branch = arguments.get("branch")
         name = _valid_branch(branch) if branch else self._current_branch()
         if not name:
@@ -838,7 +874,9 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("git_push", tuple(self.written_paths))
         if blocked is not None:
             return blocked
-        result = self._git(["push", "-u", "origin", name], timeout=120.0)
+        result = self._git(["push", "-u", "origin", name], timeout=120.0, cancel=cancel)
+        if result.get("cancelled"):
+            return _cancelled_error()
         if result["ok"] and not self._refresh_repository_handle():
             return self._repository_safety_blocked("git_push")
         return Observation(
@@ -849,7 +887,9 @@ class RepositoryToolExecutor:
             result["output"] if not result["ok"] else f"Pushed {name} to origin",
         ).to_dict()
 
-    def _open_pr(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    def _open_pr(
+        self, arguments: dict[str, Any], *, cancel: Any = None
+    ) -> dict[str, Any]:
         from .github_connector import create_pull_request
 
         title = str(arguments.get("title") or "").strip()
@@ -859,6 +899,14 @@ class RepositoryToolExecutor:
         if not head:
             return _error("GIT_PR_FAILED", "Could not resolve the current branch")
         base = str(arguments.get("base") or "main")
+        # Checked again here, not just once at the top of invoke(): this is
+        # exactly the "between push and PR creation" gap #380 names — a push
+        # can land, and then a cancellation must stop the PR from ever being
+        # opened, not just be noticed too late to matter. A network call
+        # cannot be process-tree-killed the way a subprocess can, so the
+        # right granularity for it is refusing before it starts, not during.
+        if cancel is not None and cancel.is_set():
+            return _cancelled_error()
         # Deliberately NOT gated behind a second approval. A PR can only be opened
         # from a branch that reached the remote, and that push went through the
         # approval card — so the outward step the user was shown is the push. An
@@ -1032,7 +1080,9 @@ class RepositoryToolExecutor:
         blocked["approval_reason"] = reason
         return blocked
 
-    def _run_command(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    def _run_command(
+        self, arguments: dict[str, Any], *, cancel: Any = None
+    ) -> dict[str, Any]:
         """Run one canonical local Git read without a shell.
 
         Builds/tests have fixed tools and remote operations have consent-aware
@@ -1065,7 +1115,7 @@ class RepositoryToolExecutor:
                 verdict.get("decision") or ""
             ) == "confirm" and not _SHELL_OPERATORS.search(raw):
                 if self._consume_one_shot_grant(raw):
-                    return self._run_granted_command(argv, arguments)
+                    return self._run_granted_command(argv, arguments, cancel=cancel)
                 blocked = _error(
                     "COMMAND_NEEDS_APPROVAL",
                     f"{reason} Command: {raw}",
@@ -1113,10 +1163,11 @@ class RepositoryToolExecutor:
             hardened_argv,
             purpose=purpose,
             environment=git_environment,
+            cancel=cancel,
         ).to_dict()
 
     def _run_granted_command(
-        self, argv: list[str], arguments: dict[str, Any]
+        self, argv: list[str], arguments: dict[str, Any], *, cancel: Any = None
     ) -> dict[str, Any]:
         """Execute a confirm-class command the user explicitly granted once.
 
@@ -1125,11 +1176,24 @@ class RepositoryToolExecutor:
         the granted argv directly: still no shell, still confined to the
         repository, output redacted and bounded. Uses the executor's
         injectable runner (``git_run``) so tests never spawn a real process.
+
+        Rare and always user-approved just before this call, so a pre-check
+        (not the full mid-flight polling ``aci.run_command`` does) is the
+        right amount of ceremony: cancelling in the instant between the grant
+        and this dispatch must still refuse it.
         """
         import time
 
         argv = [str(item) for item in argv]
         purpose = str(arguments.get("purpose") or "user-approved command")[:200]
+        if cancel is not None and cancel.is_set():
+            return Observation(
+                "command",
+                False,
+                {"command": argv, "purpose": purpose},
+                "CANCELLED",
+                "Command was cancelled",
+            ).to_dict()
         started = time.monotonic()
         try:
             completed = self._git_run(
@@ -1325,13 +1389,13 @@ class RepositoryToolExecutor:
         if name == "write_file":
             return self._write_file(arguments)
         if name == "git_create_branch":
-            return self._git_create_branch(arguments)
+            return self._git_create_branch(arguments, cancel=cancel)
         if name == "git_commit":
-            return self._git_commit(arguments)
+            return self._git_commit(arguments, cancel=cancel)
         if name == "git_push":
-            return self._git_push(arguments)
+            return self._git_push(arguments, cancel=cancel)
         if name == "open_pr":
-            return self._open_pr(arguments)
+            return self._open_pr(arguments, cancel=cancel)
         if name == "github_pr_status":
             return self._github_read("github_pr_status", arguments)
         if name == "github_get_issue":
@@ -1343,7 +1407,7 @@ class RepositoryToolExecutor:
         if name == "github_request_review":
             return self._github_request_review(arguments)
         if name == "run_command":
-            return self._run_command(arguments)
+            return self._run_command(arguments, cancel=cancel)
         command_id = arguments.get("command_id")
         if not isinstance(command_id, str) or command_id not in self.test_commands:
             return _error(
@@ -1351,7 +1415,9 @@ class RepositoryToolExecutor:
                 "Only repository-detected test command identifiers are allowed",
             )
         scope = str(arguments.get("scope") or command_id)[:120]
-        return self.aci.run_tests(self.test_commands[command_id], scope=scope).to_dict()
+        return self.aci.run_tests(
+            self.test_commands[command_id], scope=scope, cancel=cancel
+        ).to_dict()
 
     def invoke_call(
         self, call: dict[str, Any], *, cancel: Any = None
