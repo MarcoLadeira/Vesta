@@ -1,0 +1,165 @@
+name: Self-healing recovery gap
+description: Report a convergence, diagnosis, recovery, checkpoint, capability-drift or recovery-evaluation gap under epic #569.
+title: "[RECOVERY] "
+labels:
+  - importance:P1-high
+  - area:reliability
+  - type:feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form only for work owned by #569. Do not create a second runtime, router, ledger, verifier, event vocabulary or UI-side source of truth.
+
+  - type: input
+    id: parent
+    attributes:
+      label: Canonical parent and owner
+      description: Link #569 and the canonical subsystem owner such as #564, #565, #520, #522, #618 or #234.
+      placeholder: "#569; canonical owner: #..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed_failure
+    attributes:
+      label: Observed failure and evidence
+      description: Describe the real trajectory, trigger, expected behavior and evidence. Separate the trigger from the suspected root cause.
+      placeholder: |
+        Trigger:
+        Observed trajectory:
+        Expected outcome:
+        Evidence/log/screenshot references:
+    validations:
+      required: true
+
+  - type: dropdown
+    id: failure_family
+    attributes:
+      label: Primary failure family
+      options:
+        - Intent or missing information
+        - Planning or decomposition
+        - Progress stagnation
+        - Context selection or drift
+        - Tool invocation
+        - Tool compatibility or version drift
+        - Provider health, authentication, quota or transport
+        - Environment or dependency
+        - Repository identity or conflict
+        - Implementation
+        - Verification
+        - Authority, privacy, policy or budget
+        - Persistence, process or cancellation
+        - Delivery
+        - Unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: canonical_contract
+    attributes:
+      label: Canonical contract and data flow
+      description: Identify required inputs, outputs, IDs, states, schemas, evidence and the subsystem that remains authoritative.
+      placeholder: |
+        Inputs:
+        Outputs:
+        Canonical owner:
+        Schema/versioning:
+        No new source of truth because:
+    validations:
+      required: true
+
+  - type: textarea
+    id: recovery
+    attributes:
+      label: Recovery behavior
+      description: Define bounded recovery, checkpoint reuse, reconciliation and terminal behavior.
+      placeholder: |
+        Preconditions:
+        Allowed recovery actions:
+        Prohibited actions:
+        Maximum attempts/time/spend:
+        Success evidence:
+        Honest terminal fallback:
+    validations:
+      required: true
+
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety, privacy, authority and cost boundaries
+      placeholder: |
+        Authority/approval impact:
+        Privacy/redaction impact:
+        Repository/side-effect impact:
+        Cost/budget impact:
+        Cancellation/restart behavior:
+    validations:
+      required: true
+
+  - type: textarea
+    id: tests
+    attributes:
+      label: Named executable test scenarios
+      description: Specify scenario counts and mandatory fixtures. Assertions alone are not separate scenarios.
+      placeholder: |
+        Minimum scenario count:
+        Unit/property:
+        Integration:
+        Crash/fault:
+        GUI/CLI/accessibility:
+        Security/poisoning:
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria and measurable release gates
+      placeholder: |
+        - [ ] ...
+        Metrics/gates:
+    validations:
+      required: true
+
+  - type: textarea
+    id: rollout
+    attributes:
+      label: Migration, shadow mode, canary and rollback
+      placeholder: |
+        Current path inventory:
+        Shadow comparison:
+        Canary boundary:
+        Promotion evidence:
+        Rollback:
+        Legacy deletion criteria:
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of Done and evidence required
+      placeholder: |
+        Done only when:
+        Required artifacts/reports:
+        Known non-goals:
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Programme invariants
+      options:
+        - label: I am not introducing a duplicate runtime, router, ledger, verifier, event vocabulary or UI-side truth.
+          required: true
+        - label: Unknown failures will not default to provider blame.
+          required: true
+        - label: Recovery will not repeat uncertain non-idempotent effects without reconciliation.
+          required: true
+        - label: Failed, blocked, partial and cancelled runs remain included in cost and evaluation.
+          required: true
+        - label: Learned behavior will remain offline/shadow until independently verified and rollbackable.
+          required: true
