@@ -946,6 +946,7 @@ def _ask_free_model(
         # vocabulary and a real tool loop instead of narrating fake calls.
         tool_calling_enabled=tool_calling_enabled,
         allow_command=allow_command,
+        provider_id=(spec or {}).get("provider"),
         mode=mode or ("safe-auto" if allow_edits else "ask"),
         record=record_route,
         cancel=cancel,
@@ -980,30 +981,38 @@ def _ask_free_model(
     if result.get("status") == "answered_locally":
         result["status"] = "answered_by_free_api"
         result["source"] = "free_api"
-        with contextlib.suppress(Exception):
-            from opaihub.cost_model import estimate_tokens
-            from opaihub.ledger import record_model_call
+        # Task 6/7: a tool-loop run already recorded one sequenced ledger event
+        # per provider turn (opaihub/local_runner.py). Both writers append to
+        # the SAME ledger event type usage.py aggregates, so also writing this
+        # legacy aggregate here would double-count tokens/cost/model_calls.
+        # Only write it for runners that don't yet self-record per turn.
+        if not result.get("ledger_recorded_per_turn"):
+            with contextlib.suppress(Exception):
+                from opaihub.cost_model import estimate_tokens
+                from opaihub.ledger import record_model_call
 
-            usage = dict(getattr(runner, "last_usage", {}) or {})
-            answer = str(result.get("answer") or "")
-            tokens = int(usage.get("tokens") or estimate_tokens(task + "\n" + answer))
-            record_model_call(
-                project_root,
-                task,
-                model_tier="L2",
-                provider_type="free_api",
-                tokens=tokens,
-                input_tokens=usage.get("input_tokens"),
-                output_tokens=usage.get("output_tokens"),
-                confirmed=True,
-                model_id=model_id,
-                provider_id=(spec or {}).get("provider"),
-                measurement=str(usage.get("measurement") or "estimated"),
-                quota_snapshot=usage.get("quota_snapshot"),
-                # #334: a multi-step tool run is many provider calls; record the
-                # count so the summed token figure reads honestly.
-                model_calls=int(usage.get("model_calls") or 1),
-            )
+                usage = dict(getattr(runner, "last_usage", {}) or {})
+                answer = str(result.get("answer") or "")
+                tokens = int(
+                    usage.get("tokens") or estimate_tokens(task + "\n" + answer)
+                )
+                record_model_call(
+                    project_root,
+                    task,
+                    model_tier="L2",
+                    provider_type="free_api",
+                    tokens=tokens,
+                    input_tokens=usage.get("input_tokens"),
+                    output_tokens=usage.get("output_tokens"),
+                    confirmed=True,
+                    model_id=model_id,
+                    provider_id=(spec or {}).get("provider"),
+                    measurement=str(usage.get("measurement") or "estimated"),
+                    quota_snapshot=usage.get("quota_snapshot"),
+                    # #334: a multi-step tool run is many provider calls; record
+                    # the count so the summed token figure reads honestly.
+                    model_calls=int(usage.get("model_calls") or 1),
+                )
         result["changed_files"] = (
             sorted(set(_changed_files(project_root)) - before) if allow_edits else []
         )

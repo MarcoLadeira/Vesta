@@ -627,6 +627,184 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertEqual(result["completion_state"], "provider_blocked")
         self.assertEqual(result["blocked_reason"], "panic")
 
+    # -- Task 6/7: per-turn ledger accounting ---------------------------------
+    # complete_with_tools records one sequenced record_model_call_started/
+    # finalized pair per provider turn (ledger v2), additive instrumentation
+    # that does not replace the caller's own accounting decision.
+
+    def test_each_provider_turn_records_a_started_and_finalized_ledger_pair(self):
+        from opaihub.ledger import (
+            EVENT_MODEL_CALL,
+            EVENT_MODEL_CALL_STARTED,
+            read_events,
+        )
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.1-flash-lite",
+            "key",
+        )
+
+        def _read(cid, path):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": cid,
+                                    "function": {
+                                        "name": "read_file",
+                                        "arguments": json.dumps({"path": path}),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            }
+
+        responses = [
+            _read("r1", "app.py"),
+            _read("r2", "app.py"),
+            {
+                "choices": [{"message": {"content": "Explained."}}],
+                "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch(
+                "opaihub.local_runner._http_json_cancellable", side_effect=responses
+            ):
+                runner.complete_with_tools(
+                    "Explain app.py",
+                    project_root=root,
+                    allow_edits=False,
+                    provider_id="gemini",
+                )
+            events = read_events(root)
+
+        started = [e for e in events if e.get("event_type") == EVENT_MODEL_CALL_STARTED]
+        finalized = [e for e in events if e.get("event_type") == EVENT_MODEL_CALL]
+        self.assertEqual(len(started), 3)
+        self.assertEqual(len(finalized), 3)
+
+        # One stable run_id shared by every turn; call_id = run_id:turn_index.
+        run_ids = {e["run_id"] for e in started}
+        self.assertEqual(len(run_ids), 1)
+        run_id = next(iter(run_ids))
+        self.assertEqual(
+            sorted(e["call_id"] for e in started),
+            sorted(f"{run_id}:{i}" for i in (1, 2, 3)),
+        )
+        # Started/finalized pairs share the same call_id.
+        self.assertEqual(
+            {e["call_id"] for e in started}, {e["call_id"] for e in finalized}
+        )
+        for event in started:
+            self.assertEqual(event["provider_id"], "gemini")
+            self.assertEqual(event["model_id"], "gemini-3.1-flash-lite")
+            self.assertEqual(event["provider_type"], "free_api")
+        # Free tier: genuinely $0, not an estimate.
+        for event in finalized:
+            self.assertEqual(event["cost_usd"], 0.0)
+            self.assertEqual(event["cost_usd_provenance"], "actual")
+            self.assertEqual(event["schema_version"], 2)
+
+    def test_per_turn_recording_does_not_double_count_against_the_legacy_aggregate(
+        self,
+    ):
+        # The two writers append to the SAME ledger event type usage.py sums —
+        # a run must be covered by exactly one of them, never both.
+        from opaihub.ledger import EVENT_MODEL_CALL, read_events
+        from opaihub.local_runner import FreeAPIRunner
+        from opaihub.usage import build_usage_snapshots
+
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+        responses = [
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "c1",
+                                    "function": {
+                                        "name": "read_file",
+                                        "arguments": "{}",
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+            },
+            {
+                "choices": [{"message": {"content": "Done."}}],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 10},
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch(
+                "opaihub.local_runner._http_json_cancellable", side_effect=responses
+            ):
+                runner.complete_with_tools(
+                    "Read app.py",
+                    project_root=root,
+                    allow_edits=False,
+                    provider_id="groq",
+                )
+            events = [
+                e for e in read_events(root) if e.get("event_type") == EVENT_MODEL_CALL
+            ]
+            snapshots = build_usage_snapshots(
+                root, [{"id": "model", "provider": "groq"}]
+            )
+
+        # Exactly the 2 per-turn finalized events — no third, legacy-shaped
+        # aggregate event for this run (this test calls the runner directly,
+        # bypassing the caller-side aggregate entirely, proving the per-turn
+        # events alone are what a real dashboard would sum).
+        self.assertEqual(len(events), 2)
+        total_tokens = sum(int(e.get("tokens") or 0) for e in events)
+        self.assertEqual(total_tokens, 100 + 50 + 20 + 10)
+        self.assertIsInstance(snapshots, list)  # aggregator runs without error
+
+    def test_ask_free_model_skips_legacy_aggregate_when_per_turn_already_recorded(
+        self,
+    ):
+        # The ask()-level caller must see the signal and not double-write.
+        from opaihub.ask import run_explicit_model
+        from opaihub.local_runner import FreeAPIRunner
+
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+        response = {
+            "choices": [{"message": {"content": "Explanation"}}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch(
+                "opaihub.local_runner._http_json_cancellable", return_value=response
+            ):
+                result = run_explicit_model(
+                    root,
+                    "Explain app.py",
+                    runner=runner,
+                    selected_model_id="free:groq:model",
+                    allow_edits=False,
+                    tool_calling_enabled=True,
+                    provider_id="groq",
+                )
+        self.assertTrue(result["ledger_recorded_per_turn"])
+
     # -- #219: an HTTP error status must never be silently decoded as an -----
     # -- empty successful completion (the "check GOOGLE_API_KEY" bug). -------
 

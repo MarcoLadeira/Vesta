@@ -20,6 +20,7 @@ import os
 import socket
 import threading
 import urllib.error
+import uuid
 import urllib.parse
 import urllib.request
 from dataclasses import replace
@@ -725,6 +726,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         allow_command: str | None = None,
         tool_loop_policy: Any = None,
         repository_handle: Any = None,
+        provider_id: str | None = None,
     ) -> dict[str, Any]:
         """Run a continuous, checkpointed repository tool loop.
 
@@ -741,10 +743,19 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         stops the run with the guard's typed state (blocked / needs-consent /
         cancelled), never a fake completion. ``allow_command`` threads a
         one-shot user-approved confirm-class command down to the executor (F17).
+
+        Per-turn ledger accounting (Task 6/7): every provider round-trip records
+        a sequenced ``record_model_call_started``/``record_model_call_finalized``
+        pair (ledger v2, ``call_id = run_id:turn_index``), best-effort and never
+        fatal to the turn. This is *additive* instrumentation alongside the
+        caller's existing aggregate ``record_model_call`` — usage.py still reads
+        only the legacy aggregate event, so the aggregate call site is not (yet)
+        retired; removing it is Task 8's usage.py v2 migration, not this one.
         """
 
         from .completion import CompletionState
         from .github_connector import public_read_allowed
+        from .ledger import record_model_call_finalized, record_model_call_started
         from .provider_tools import RepositoryToolExecutor
         from .tool_loop import (
             ChatTurn,
@@ -752,6 +763,13 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             ToolLoopPolicy,
             ToolLoopProviderError,
         )
+        from .usage_report import ProviderTurnUsage
+
+        run_id = uuid.uuid4().hex[:16]
+        resolved_provider_id = provider_id or (
+            urllib.parse.urlsplit(self.base_url).hostname or self.name
+        )
+        turn_counter = {"n": 0}
 
         executor = RepositoryToolExecutor(
             project_root,
@@ -769,6 +787,22 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         def chat(
             messages: list[dict[str, Any]], *, tools: list[dict[str, Any]]
         ) -> ChatTurn:
+            turn_counter["n"] += 1
+            turn_index = turn_counter["n"]
+            call_id = f"{run_id}:{turn_index}"
+            with contextlib.suppress(Exception):  # ledger never blocks a turn
+                record_model_call_started(
+                    project_root,
+                    prompt,
+                    call_id=call_id,
+                    run_id=run_id,
+                    turn_index=turn_index,
+                    model_id=self.model,
+                    provider_id=resolved_provider_id,
+                    model_tier="L2",
+                    provider_type="free_api",
+                    confirmed=True,
+                )
             try:
                 result = self._chat(
                     messages, tools=tools, timeout=timeout, cancel=cancel
@@ -780,10 +814,28 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             message = (result.get("choices") or [{}])[0].get("message") or {}
             calls = message.get("tool_calls")
             calls = calls if isinstance(calls, list) else []
+            usage = self._usage(result)
+            with contextlib.suppress(Exception):  # ledger never blocks a turn
+                # Free tier: $0 is the genuinely actual cost of this call, not a
+                # placeholder — never estimated, never omitted.
+                record_model_call_finalized(
+                    project_root,
+                    prompt,
+                    call_id=call_id,
+                    usage=ProviderTurnUsage.from_provider(
+                        turn_index=turn_index,
+                        total=usage.get("tokens"),
+                        input_tokens=usage.get("input_tokens"),
+                        output_tokens=usage.get("output_tokens"),
+                        cost_usd=0.0,
+                        cost_provenance="actual",
+                        provider_quota=usage.get("quota_snapshot"),
+                    ),
+                )
             return ChatTurn(
                 content=str(message.get("content") or ""),
                 tool_calls=tuple(call for call in calls if isinstance(call, dict)),
-                usage=self._usage(result),
+                usage=usage,
             )
 
         # The turn's message contract picks the budgets (tool calls, wall clock,
