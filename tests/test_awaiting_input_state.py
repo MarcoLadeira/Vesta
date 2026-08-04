@@ -127,6 +127,16 @@ class StateMachineTests(unittest.TestCase):
     def test_generated_legacy_awaiting_statuses_project_to_the_interrupt(self) -> None:
         # These compatibility strings are a boundary projection, never another
         # state vocabulary maintained by the reducer.
+        #
+        # `confirmation_required` joined on 2026-08-04 (#379 adoption). It is
+        # what ask.py/app_state.py actually return when a free-tier call needs
+        # cloud consent, and it passes the membership test exactly: the user's
+        # "yes" re-dispatches the *same* task with allow_cloud=True, so the run
+        # genuinely continues with one added authority. gui_pipeline already
+        # translated it to `needs_free_confirmation`/`needs_confirmation` for
+        # its own surfaces; mapping the raw form makes it interpretable on the
+        # paths that skip that translation (ask.py's direct return, the CLI and
+        # background runs), where it previously degraded to needs_attention.
         self.assertEqual(
             AWAITING_INPUT_STATUSES,
             {
@@ -136,6 +146,7 @@ class StateMachineTests(unittest.TestCase):
                 "needs_auto_confirmation",
                 "needs_limit_confirmation",
                 "needs_confirmation",
+                "confirmation_required",
                 "needs_paid_confirmation",
                 "needs_consent",
                 "needs_input",
