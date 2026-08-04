@@ -37,6 +37,36 @@ def _inside_window(event: dict[str, Any], window: str, now: datetime) -> bool:
     return created >= start
 
 
+# Ledger `measurement` values that mean a real number came back from the
+# provider, as opposed to one OPai derived itself.
+_MEASURED_PROVENANCE = frozenset({"provider", "actual"})
+
+
+def _tracked_confidence(window_events: list[dict[str, Any]]) -> str:
+    """How trustworthy the OPai-tracked total is, from the events themselves.
+
+    Returns ``no-data`` when nothing was recorded, ``measured`` when every
+    in-window call reported real provider usage, ``estimated`` when none did,
+    and ``mixed`` when the window contains both. A mixed window is reported as
+    mixed rather than rounded up to measured: a total is only as trustworthy as
+    its weakest contributing number.
+    """
+
+    if not window_events:
+        return "no-data"
+    measured = 0
+    estimated = 0
+    for event in window_events:
+        provenance = str(event.get("measurement") or "estimated").strip().lower()
+        if provenance in _MEASURED_PROVENANCE:
+            measured += 1
+        else:
+            estimated += 1
+    if measured and estimated:
+        return "mixed"
+    return "measured" if measured else "estimated"
+
+
 def build_usage_snapshots(
     project_root: Path,
     models: list[dict[str, Any]],
@@ -93,7 +123,11 @@ def build_usage_snapshots(
             remaining = max(0.0, limit - used) if limit is not None else None
             window = str(soft.get("window") or "month")
             source = "opai"
-            confidence = "measured" if matched else "no-data"
+            # #381: report how these numbers were actually produced. Claiming
+            # "measured" for tokens OPai merely estimated is the exact
+            # dishonesty the cost ledger exists to prevent — the provenance is
+            # already on every event, so read it instead of assuming.
+            confidence = _tracked_confidence(window_events)
             requires_confirmation = bool(limit is not None and used >= limit)
         percent = round(min(100.0, 100.0 * used / limit), 1) if limit else None
         snapshots.append(
