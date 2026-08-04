@@ -303,6 +303,7 @@ def _call_tool_loop(
     allow_command: str | None,
     tool_loop_policy: Any = None,
     repository_handle: Any = None,
+    provider_id: str | None = None,
 ) -> dict[str, Any]:
     """Invoke the runner's tool loop, threading a one-shot command grant.
 
@@ -310,6 +311,8 @@ def _call_tool_loop(
     executor permits it once. Older runners without the parameter simply never
     receive it — the grant is additive, never a behavior change on its own.
     ``tool_loop_policy`` (the turn's contract budgets) is threaded the same way.
+    ``provider_id`` names the real provider (e.g. "gemini") for the per-turn
+    ledger record; older runners fall back to their own best-effort identity.
     """
 
     kwargs: dict[str, Any] = {
@@ -336,6 +339,8 @@ def _call_tool_loop(
         kwargs["tool_loop_policy"] = tool_loop_policy
     if repository_handle is not None and _accepts("repository_handle"):
         kwargs["repository_handle"] = repository_handle
+    if provider_id and _accepts("provider_id"):
+        kwargs["provider_id"] = provider_id
     return complete_with_tools(task, **kwargs)
 
 
@@ -356,6 +361,7 @@ def run_explicit_model(
     allow_command: str | None = None,
     tool_loop_policy: Any = None,
     repository_handle: Any = None,
+    provider_id: str | None = None,
 ) -> dict[str, Any]:
     """Run an explicitly selected model without Auto routing or prose caching.
 
@@ -388,6 +394,12 @@ def run_explicit_model(
     completion_state = ""
     blocked_reason = ""
     approval: dict[str, str] | None = None
+    # Task 6/7: the tool-loop path self-records a per-turn ledger entry for
+    # every provider round-trip (opaihub/local_runner.py). When that ran, the
+    # caller must not also write a legacy aggregate entry — same events would
+    # double-count usage. Runners that predate per-turn recording (no
+    # ``provider_id`` parameter) still need the caller's legacy aggregate call.
+    ledger_recorded_per_turn = False
     try:
         complete_with_tools = getattr(runner, "complete_with_tools", None)
         if use_tools and callable(complete_with_tools):
@@ -412,7 +424,17 @@ def run_explicit_model(
                 allow_command=allow_command,
                 tool_loop_policy=tool_loop_policy,
                 repository_handle=repository_handle,
+                provider_id=provider_id,
             )
+            # A runner accepting provider_id is one that self-records per-turn
+            # ledger entries (opaihub/local_runner.py); a runner without it
+            # (predates Task 6/7) still needs the caller's legacy aggregate call.
+            try:
+                ledger_recorded_per_turn = (
+                    "provider_id" in inspect.signature(complete_with_tools).parameters
+                )
+            except (TypeError, ValueError):
+                ledger_recorded_per_turn = False
             answer = str(completed.get("text") or "")
             tool_trace = list(completed.get("tool_trace") or [])
             stopped_reason = str(completed.get("stopped_reason") or "")
@@ -476,6 +498,10 @@ def run_explicit_model(
         # guard-blocked turn also carries the ProviderBlockedReason.
         "completion_state": completion_state,
         "blocked_reason": blocked_reason,
+        # Task 6/7: tells the caller whether per-turn ledger events already
+        # cover this run's usage, so it does not also write a legacy aggregate
+        # entry (which would double-count against the same ledger event type).
+        "ledger_recorded_per_turn": ledger_recorded_per_turn,
     }
     if approval is not None:
         result["command_approval"] = approval
