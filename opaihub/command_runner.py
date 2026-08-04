@@ -14,14 +14,28 @@ from .sandbox import classify_command
 
 
 SECRET_PATTERNS = [
+    # Keyword assignment. The trailing [A-Za-z0-9_]* matters: real variable
+    # names bury the keyword mid-word (aws_secret_access_key, access_token,
+    # api_key_id), and without it the keyword had to sit immediately before the
+    # separator to match at all.
     re.compile(
-        r"(?i)(api[_-]?key|secret|token|password|passwd)\s*[:=]\s*['\"]?([A-Za-z0-9_\-./+=]{16,})"
+        r"(?i)(api[_-]?key|secret|token|password|passwd)[A-Za-z0-9_]*\s*[:=]\s*['\"]?([A-Za-z0-9_\-./+=]{16,})"
     ),
     re.compile(r"(?i)(authorization:\s*bearer\s+)([A-Za-z0-9_\-./+=]{16,})"),
     re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
+    # GitHub fine-grained PATs are `github_pat_` + a long body containing an
+    # underscore — the gh[pousr]_ pattern above does not reach them.
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
     # OpenAI project keys (sk-proj-*) and Anthropic keys (sk-ant-api03-*)
     # contain internal hyphens/underscores, unlike legacy sk-* keys.
     re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{20,}\b"),
+    # Providers OPai itself asks the user to configure. A leaked GOOGLE_API_KEY
+    # or GROQ_API_KEY is a leak of a credential OPai requested, so these are
+    # not optional extras.
+    re.compile(r"\bAIza[A-Za-z0-9_\-]{30,}"),  # Google API key
+    re.compile(r"\bgsk_[A-Za-z0-9]{20,}"),  # Groq
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),  # AWS access key id
+    re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),  # Slack
     re.compile(r"-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----"),
 ]
 
