@@ -74,16 +74,22 @@ class ProviderErrorContractTests(unittest.TestCase):
         self.assertFalse(error["retryable"])
 
     def test_secret_values_are_redacted(self):
+        # #622: this delegates to opaihub.command_runner.redact, the one
+        # canonical redactor — assignment values need to be realistically
+        # long (a real cookie/token isn't 6 characters) since that pattern's
+        # 16-char minimum is a deliberate anti-over-redaction guard, not an
+        # oversight (a short bare value is indistinguishable from a hash).
         text = (
             "Authorization: Bearer sk-live-secret123456 "
-            "api_key=token_verysecretvalue cookie=session-secret"
+            "api_key=token_verysecretvalue1234567890 "
+            "cookie=session-secretvalue1234567890"
         )
 
         safe = redact_secrets(text)
 
         self.assertNotIn("sk-live-secret123456", safe)
-        self.assertNotIn("token_verysecretvalue", safe)
-        self.assertNotIn("session-secret", safe)
+        self.assertNotIn("token_verysecretvalue1234567890", safe)
+        self.assertNotIn("session-secretvalue1234567890", safe)
         self.assertIn("[REDACTED]", safe)
 
     def test_repeated_provider_error_is_collapsed(self):

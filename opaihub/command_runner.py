@@ -17,18 +17,31 @@ SECRET_PATTERNS = [
     # Keyword assignment. The trailing [A-Za-z0-9_]* matters: real variable
     # names bury the keyword mid-word (aws_secret_access_key, access_token,
     # api_key_id), and without it the keyword had to sit immediately before the
-    # separator to match at all.
+    # separator to match at all. cookie/session added, and the value floor
+    # lowered 16 -> 8, when opai.provider_contract.redact_secrets (#622) was
+    # folded into this as the one canonical redactor: that module's own
+    # (now-removed) pattern list had no minimum length at all, and three
+    # independent, pre-existing test suites (test_activity.py,
+    # test_reliable_ai_controls.py, test_run_summary.py) already asserted
+    # real 14-16 char example secrets get redacted. 8 is still a real floor
+    # against over-redacting short incidental strings (see BENIGN in
+    # test_secret_canaries.py) — the keyword requirement is what actually
+    # carries the precision here, not the length alone. A session cookie is
+    # exactly as capable of granting account access as an API key.
     re.compile(
-        r"(?i)(api[_-]?key|secret|token|password|passwd)[A-Za-z0-9_]*\s*[:=]\s*['\"]?([A-Za-z0-9_\-./+=]{16,})"
+        r"(?i)(api[_-]?key|secret|token|password|passwd|cookie|session)[A-Za-z0-9_]*\s*[:=]\s*['\"]?([A-Za-z0-9_\-./+=]{8,})"
     ),
-    re.compile(r"(?i)(authorization:\s*bearer\s+)([A-Za-z0-9_\-./+=]{16,})"),
+    re.compile(r"(?i)(authorization:\s*bearer\s+)([A-Za-z0-9_\-./+=]{8,})"),
     re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
     # GitHub fine-grained PATs are `github_pat_` + a long body containing an
     # underscore — the gh[pousr]_ pattern above does not reach them.
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
     # OpenAI project keys (sk-proj-*) and Anthropic keys (sk-ant-api03-*)
-    # contain internal hyphens/underscores, unlike legacy sk-* keys.
-    re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{20,}\b"),
+    # contain internal hyphens/underscores, unlike legacy sk-* keys. Floor is
+    # 8, not 20 (see comment above) — "sk-" itself is a distinctive enough
+    # prefix that a short body is still worth redacting, not a false-positive
+    # risk the way a bare unprefixed 8-char string would be.
+    re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
     # Providers OPai itself asks the user to configure. A leaked GOOGLE_API_KEY
     # or GROQ_API_KEY is a leak of a credential OPai requested, so these are
     # not optional extras.
