@@ -102,7 +102,13 @@ class ErrorMapperTests(unittest.TestCase):
         card = error_card("unauthorized", detail=repeated)
 
         self.assertNotIn("sk-secretvalue123", card["detail"])
-        self.assertEqual(card["detail"].count("[REDACTED]"), 1)
+        # #622: the canonical redactor (opaihub.command_runner.redact) marks
+        # a bare prefix-only match (no assignment context) "[REDACTED_SECRET]"
+        # and only an assignment's *value* "[REDACTED]" — this is a bare
+        # "sk-" match, so it's the former. Either way, the point under test
+        # is that dedup collapsed the two identical repeated lines into one
+        # redacted occurrence, not which exact marker word was used.
+        self.assertEqual(card["detail"].count("[REDACTED"), 1)
 
     def test_classify_error_maps_common_strings(self):
         self.assertEqual(classify_error("HTTP 429 rate limit exceeded"), "rate_limit")

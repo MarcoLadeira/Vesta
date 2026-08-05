@@ -96,7 +96,12 @@ def test_secrets_are_redacted_before_the_summary_can_leave() -> None:
     )
     text = build_run_summary(record)
     assert "sk-abcdef0123456789" not in text
-    assert "[REDACTED]" in text
+    # #622: opaihub.command_runner.redact (the canonical redactor, since this
+    # module was folded into it) marks a bare prefix-only match like this one
+    # "[REDACTED_SECRET]", not "[REDACTED]" — that distinction is about
+    # whether an assignment's keyword/value was separable, not whether
+    # redaction happened.
+    assert "[REDACTED" in text
 
 
 def test_cost_badge_reflects_measurement_confidence() -> None:

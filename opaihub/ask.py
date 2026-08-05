@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import result_cache
+from .command_runner import redact
 from .cost_model import is_local_tier, load_cost_model
 from .cancellation import LocalRunCancelled
 from .evidence import collect_evidence
@@ -229,7 +230,13 @@ def run_ask(
         except LocalRunCancelled:
             return {**base, "status": "cancelled", "answer": ""}
         except Exception as exc:  # noqa: BLE001 - report any runner failure cleanly
-            return {**base, "status": "runner_error", "error": str(exc)}
+            # #622: redact at the boundary, not downstream. This return value
+            # reaches the CLI's plain-text render_ask() path unmodified — a
+            # raw provider exception (which can contain a bearer token, a
+            # signed URL, or an env-var-style key=value pair) must never
+            # leave this function un-redacted, since a later consumer has no
+            # way to know it still needs masking.
+            return {**base, "status": "runner_error", "error": redact(str(exc))}
         if store_answer:
             result_cache.store(
                 root,
@@ -495,7 +502,9 @@ def run_explicit_model(
     except LocalRunCancelled:
         return {**base, "status": "cancelled", "answer": ""}
     except Exception as exc:  # noqa: BLE001 - normalize provider failures upstream
-        return {**base, "status": "runner_error", "error": str(exc)}
+        # #622: same boundary-redaction requirement as _complete_streaming's
+        # caller above — this is the tool-loop/edit path's failure return.
+        return {**base, "status": "runner_error", "error": redact(str(exc))}
     if record:
         _record(root, task, "L2", cache_hit=False)
     result = {

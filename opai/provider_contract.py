@@ -186,23 +186,23 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
     },
 }
 
-_ASSIGNMENT_SECRET = re.compile(
-    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|session(?:[_-]?token)?|token|cookie)"
-    r"(\s*[:=]\s*)([^\s,;]+)"
-)
-_BEARER_SECRET = re.compile(r"(?i)(authorization\s*:\s*bearer\s+|bearer\s+)([^\s,;]+)")
-_RAW_SECRET = re.compile(r"(?i)\b(?:sk|token)[-_][A-Za-z0-9._-]{8,}\b")
-
 
 def redact_secrets(detail: Any) -> str:
-    """Redact common credential shapes without logging or interpreting them."""
+    """Redact common credential shapes without logging or interpreting them.
 
-    text = str(detail or "")
-    text = _BEARER_SECRET.sub(lambda match: match.group(1) + "[REDACTED]", text)
-    text = _ASSIGNMENT_SECRET.sub(
-        lambda match: match.group(1) + match.group(2) + "[REDACTED]", text
-    )
-    return _RAW_SECRET.sub("[REDACTED]", text)
+    #622: this used to be a second, independent pattern list — narrower than
+    and drifted from ``opaihub.command_runner.redact`` (the canonical
+    redactor, imported by 28+ modules and kept current with every credential
+    shape OPai's own providers use). Measured before fixing: this function's
+    own patterns missed GitHub fine-grained PATs, Google/Gemini keys, Groq
+    keys, AWS access key IDs and Slack tokens — the exact five categories
+    #549/#546 had already fixed in the canonical redactor, just never here.
+    Delegating closes that drift permanently instead of re-patching a second
+    list that will drift again the next time a new credential shape ships.
+    """
+    from opaihub.command_runner import redact
+
+    return redact(str(detail or ""))
 
 
 def dedupe_error_text(detail: Any) -> str:
