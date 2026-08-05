@@ -420,6 +420,11 @@ class ToolLoopResult:
     cumulative_serialized_chars: int = 0
     last_error: str = ""
     blocked_reason: str = ""
+    # #569: the evidence ledger's own account of the run (score, distinct
+    # observations, repeated failures, milestones). This is what lets a stop be
+    # explained — "stopped after 60 steps that stopped teaching us anything" —
+    # instead of an unexplained halt.
+    progress: Mapping[str, Any] | None = None
     # Set on a NEEDS_CONSENT exit caused by a tool that requires user approval
     # (F17): {"command": <exact string>, "reason": <why>}. The pipeline turns
     # this into an approval card and threads the granted string back down.
@@ -546,6 +551,7 @@ class ToolLoopController:
                 cumulative_serialized_chars=state.cumulative_serialized_chars,
                 last_error=last_error,
                 blocked_reason=blocked_reason,
+                progress=state.progress.summary(),
                 consent_payload=consent,
             )
 
