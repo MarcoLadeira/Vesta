@@ -56,6 +56,10 @@ opaihub = [
     # ship it or a packaged install silently falls back to nothing, rather
     # than to a hardcoded graph, per its own startup-failure contract.
     "data/lifecycle-fixtures.json",
+    # The tool capability registry (#569). Without it a packaged install cannot
+    # tell that a capability is known-degraded, so it rediscovers upstream
+    # breakage the expensive way — a failed command and a burnt provider turn.
+    "data/tool_capabilities.yaml",
     # Wildcards do not match dotfiles; parity fixtures require these manifests.
     "data/hub/benchmarks/parity/*/repo/.opai-app.json",
 ]

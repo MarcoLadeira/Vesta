@@ -1,0 +1,38 @@
+# Tool capability registry (#569).
+#
+# What each external tool can actually do *at the version installed here*, and
+# what to use instead when it cannot. Checked before invoking a tool, so a
+# known-degraded capability routes to its fallback instead of failing the run
+# and burning a provider turn discovering it.
+#
+# `min_version` is the first version where the capability is supported again;
+# a detected version below it (or a listed broken range) marks it degraded.
+# Update this file in each OPai release as upstream tools change.
+schema_version: 1
+tools:
+  - tool: github-cli
+    binary: gh
+    capabilities:
+      - name: issue_read
+        status: degraded
+        # The report's worked example: gh 2.80 drops classic Projects fields
+        # from `gh issue view`, so the GraphQL call fails with a 400 that reads
+        # like a bug in OPai rather than an upstream removal.
+        reason: projects_classic_removed
+        broken_below: "2.82.1"
+        alternatives:
+          - github_rest_api
+          - opai_github_connector
+      - name: issue_search
+        status: supported
+      - name: pr_create
+        status: supported
+      - name: pr_status
+        status: supported
+  - tool: git
+    binary: git
+    capabilities:
+      - name: commit
+        status: supported
+      - name: push
+        status: supported

@@ -571,6 +571,10 @@ _TOOL_LOOP_PROTOCOL = (
 # controller's stopped_reason. Completed runs carry the model's own answer.
 _STOP_MESSAGES = {
     "no_progress": "Stopped: no real progress was being made toward the goal.",
+    "exploration_limit": (
+        "Stopped: explored as far as the budget allows without reaching a "
+        "concrete change."
+    ),
     "repeated_failure": "Stopped: the same action kept failing and could not be recovered.",
     "controller_timeout": "Stopped: the task ran too long without reaching a milestone.",
     "external_ceiling": "Stopped: reached the configured external tool-call ceiling.",
@@ -890,7 +894,57 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             "completion_state": outcome.completion_state.value,
             "user_question": outcome.user_question,
             "blocked_reason": outcome.blocked_reason,
+            # #569: a stop must be explainable. The envelope names the cause and
+            # carries the evidence behind it, so surfaces can say what actually
+            # happened instead of "provider failed". Built only for a run that
+            # did not complete — a success has nothing to diagnose.
+            "failure": None if completed else _diagnose_outcome(outcome).to_dict(),
         }
+
+
+# Controller stop reasons that already name their own cause, so the envelope
+# must not re-derive one by sniffing error text (#569).
+_STOP_REASON_CATEGORIES = {
+    "no_progress": "NO_PROGRESS",
+    "exploration_limit": "NO_PROGRESS",
+    "repeated_failure": "REPEATED_FAILURE",
+    "repeated_success": "NO_PROGRESS",
+    "controller_timeout": "NO_PROGRESS",
+    "cancelled": "CANCELLED",
+}
+
+
+def _diagnose_outcome(outcome: Any) -> Any:
+    """Build a FailureEnvelope for a run that did not complete."""
+
+    from .failure_envelope import EvidenceCollector, FailureCategory, FailureEnvelope
+
+    named = _STOP_REASON_CATEGORIES.get(str(outcome.stopped_reason or ""))
+    category = getattr(FailureCategory, named) if named else None
+
+    # The trace is where the real cause lives: the first failing tool call is
+    # usually the critical error, and the rest is its consequence.
+    collector = EvidenceCollector()
+    for index, item in enumerate(outcome.tool_trace, start=1):
+        collector.observe(
+            index,
+            str(item.get("tool") or ""),
+            ok=bool(item.get("ok")),
+            detail=str(item.get("error_code") or item.get("message") or ""),
+        )
+    failing = next(
+        (item for item in outcome.tool_trace if not item.get("ok")),
+        {},
+    )
+    return FailureEnvelope.diagnose(
+        error_text=outcome.last_error
+        or str(failing.get("message") or failing.get("error_code") or ""),
+        tool=str(failing.get("tool") or ""),
+        evidence=collector.as_tuple(),
+        outcome=str(outcome.stopped_reason or ""),
+        progress=outcome.progress,
+        category=category,
+    )
 
 
 def _candidate_runners() -> list[tuple[str, LocalRunner]]:
