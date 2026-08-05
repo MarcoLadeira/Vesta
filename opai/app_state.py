@@ -1319,12 +1319,20 @@ def _ask_account(
             # is a real paid account CLI dispatch: if the first call had
             # already reached the provider before an unrelated internal
             # TypeError was raised, that retry would have run the task twice.
-            with contextlib.suppress(TypeError, ValueError):
-                complete_params = inspect.signature(run.complete).parameters
-                if "mode" in complete_params:
-                    complete_kwargs["mode"] = mode
-                if edit_grant and "edit_grant" in complete_params:
-                    complete_kwargs["edit_grant"] = True
+            #
+            # _supports_kwarg (not a bare "name in parameters" check) matters
+            # here specifically: a **kwargs-accepting complete() — real for
+            # every current runner, including the shared FakeAccountRunner
+            # test double — has no literal "mode" parameter to find by name,
+            # so a naive membership check silently drops mode for every one
+            # of them. Caught by test_agent_autonomy.py's regression suite
+            # when this fix first shipped without this helper.
+            from opaihub.ask import _supports_kwarg
+
+            if _supports_kwarg(run.complete, "mode"):
+                complete_kwargs["mode"] = mode
+            if edit_grant and _supports_kwarg(run.complete, "edit_grant"):
+                complete_kwargs["edit_grant"] = True
             result = run.complete(task, **complete_kwargs)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         from opai.provider_contract import normalize_provider_error

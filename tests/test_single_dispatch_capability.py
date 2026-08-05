@@ -210,6 +210,35 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(result.get("answer") or result.get("text"), "done")
 
+    def test_a_kwargs_accepting_runner_still_receives_mode(self):
+        """Regression: a naive `"mode" in inspect.signature(...).parameters`
+        membership check has no literal "mode" to find on a **kwargs-only
+        complete() — real for every current runner, including the shared
+        tests/_helpers.py FakeAccountRunner double used across many test
+        files. The first version of the #617 fix silently dropped `mode`
+        for all of them; caught by test_agent_autonomy.py's
+        test_pipeline_preserves_pinned_full_auto_for_implementation, which
+        asserts a recorded call's mode. This test pins the same shape
+        directly against _ask_account so the gap has its own guard too."""
+        from opai.app_state import _ask_account
+
+        received: dict = {}
+
+        def complete(task, **kwargs):
+            received.update(kwargs)
+            return {"text": "done", "cost": 0.0}
+
+        run = self._fake_account_runner_module(complete)
+        _ask_account(
+            Path("/tmp"),
+            "do a task",
+            "claude",
+            allow_edits=False,
+            runner=run,
+            mode="full-auto",
+        )
+        self.assertEqual(received.get("mode"), "full-auto")
+
 
 if __name__ == "__main__":
     unittest.main()
