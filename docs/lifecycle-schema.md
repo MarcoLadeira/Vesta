@@ -120,6 +120,7 @@ Legacy strings are input/output compatibility only. They never decide transition
 | statuse | answered | completed |
 | statuse | answered_by_account | completed |
 | statuse | answered_by_free_api | completed |
+| statuse | answered_by_paid_api | completed |
 | statuse | answered_locally | completed |
 | statuse | blocked | blocked |
 | statuse | blocked_panic | blocked |

@@ -1,4 +1,9 @@
-"""Secret-safe credentials for free-tier API providers.
+"""Secret-safe credentials for direct (non-account-CLI) API providers.
+
+Covers both free-tier providers (kimi/gemini/groq/mistral) and paid
+per-token providers (deepseek) — storage is the same secure contract either
+way; what a provider *costs* is a property of its operational spec
+(``free_models.py`` / ``paid_api_models.py``), not of how its key is stored.
 
 Environment variables remain the highest-precedence deployment mechanism.
 Desktop users may store keys in the operating-system credential store through
@@ -17,6 +22,13 @@ PROVIDER_ENV = {
     "gemini": "GOOGLE_API_KEY",
     "groq": "GROQ_API_KEY",
     "mistral": "MISTRAL_API_KEY",
+    # DeepSeek (#673) is direct-API like the free tier above — same secure
+    # storage contract — but it is a *paid* per-token provider, not a free
+    # tier. It is registered here (credential storage is tier-agnostic) and in
+    # opaihub/paid_api_models.py (operational spec + real pricing), not in
+    # free_models.py: that module's contract is genuinely free ($0 actual
+    # cost), and folding a paid provider into it would misreport spend.
+    "deepseek": "DEEPSEEK_API_KEY",
     # GitHub personal access token for the git/PR connector (#github). Stored
     # through the same keychain-or-env contract as the free-model keys.
     "github": "GITHUB_TOKEN",

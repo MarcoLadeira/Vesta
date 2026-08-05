@@ -282,6 +282,46 @@
   {
     "catalog_version": "v1",
     "protocol_version": 1,
+    "provider_id": "deepseek",
+    "capabilities": {
+      "cancellation": "supported",
+      "chat": "supported",
+      "code_execution": "supported",
+      "repo_read": "supported",
+      "repo_editing": "supported",
+      "run_tests": "supported",
+      "streaming": "supported",
+      "tool_calling": "supported",
+      "structured_output": "partial"
+    },
+    "requirements": {
+      "api_key": true,
+      "oauth": false,
+      "cli": false,
+      "git_repository": true,
+      "local_service": false,
+      "network": true
+    },
+    "cancellation": {
+      "mode": "connection_close",
+      "slo_seconds": 1
+    },
+    "unsupported_behavior": {
+      "mode": "fail_closed",
+      "message": "Unavailable capabilities are rejected rather than inferred or emulated."
+    },
+    "pricing": {
+      "source": "opaihub/deepseek_pricing.py (per-model, per-token; this schema's price_usd is provider-level and cannot represent two models at three rates each)",
+      "measurement": "unavailable",
+      "observed_at": "2026-08-05T00:00:00Z",
+      "expiry": "2026-08-12T00:00:00Z",
+      "price_usd": null,
+      "routing_eligible": false
+    }
+  },
+  {
+    "catalog_version": "v1",
+    "protocol_version": 1,
     "provider_id": "ollama",
     "capabilities": {
       "cancellation": "supported",

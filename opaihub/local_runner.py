@@ -665,6 +665,15 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             "quota_snapshot": quota,
         }
 
+    def _cost_for(self, usage: dict[str, Any]) -> tuple[float | None, str]:
+        """Real dollar cost for one call, and how it was measured.
+
+        Free tier: ``$0`` is the genuinely actual cost of this call, not a
+        placeholder — never estimated, never omitted. :class:`PaidAPIRunner`
+        overrides this to price real usage against real per-token rates.
+        """
+        return 0.0, "actual"
+
     def complete(
         self,
         prompt: str,
@@ -820,8 +829,10 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             calls = calls if isinstance(calls, list) else []
             usage = self._usage(result)
             with contextlib.suppress(Exception):  # ledger never blocks a turn
-                # Free tier: $0 is the genuinely actual cost of this call, not a
-                # placeholder — never estimated, never omitted.
+                # #673: real cost for a paid runner, genuine $0 for free —
+                # _cost_for is the one seam between them (PaidAPIRunner
+                # overrides it; this base class's $0 is not a placeholder).
+                cost_usd, cost_provenance = self._cost_for(usage)
                 record_model_call_finalized(
                     project_root,
                     prompt,
@@ -831,8 +842,8 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                         total=usage.get("tokens"),
                         input_tokens=usage.get("input_tokens"),
                         output_tokens=usage.get("output_tokens"),
-                        cost_usd=0.0,
-                        cost_provenance="actual",
+                        cost_usd=cost_usd,
+                        cost_provenance=cost_provenance,
                         provider_quota=usage.get("quota_snapshot"),
                     ),
                 )
@@ -900,6 +911,68 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             # did not complete — a success has nothing to diagnose.
             "failure": None if completed else _diagnose_outcome(outcome).to_dict(),
         }
+
+
+class PaidAPIRunner(FreeAPIRunner):
+    """OpenAI-compatible runner for paid, key-gated direct APIs (#673).
+
+    Everything about the transport is identical to :class:`FreeAPIRunner` —
+    same auth, same streaming, same tool-loop machinery via
+    ``complete_with_tools`` — real per-token spend is the only thing that
+    differs, so this overrides exactly the two seams that carry cost:
+    ``name`` (so free-tier telemetry never mislabels a paid call) and
+    ``_cost_for`` (so the ledger records a real number instead of ``$0``).
+
+    Scope (#673 Phase 1): non-thinking mode only. DeepSeek's ``thinking``
+    parameter is deliberately never sent — thinking-mode tool calls require
+    preserving the provider's ``reasoning_content`` across turns (#673
+    workstream A4), which this runner's generic message-passing does not yet
+    do. Sending ``thinking: enabled`` without that continuity would silently
+    violate a provider protocol requirement rather than fail closed, so
+    non-thinking is the safe default until A4 ships.
+    """
+
+    name = "paid-api"
+
+    def __init__(
+        self, base_url: str, model: str, api_key: str, *, pricing_model_id: str
+    ) -> None:
+        super().__init__(base_url, model, api_key)
+        # Separate from `model` (the id sent to the provider) on purpose: a
+        # future alias/rename in the picker must not silently change which
+        # price row a call is costed against.
+        self._pricing_model_id = pricing_model_id
+
+    def _cost_for(self, usage: dict[str, Any]) -> tuple[float | None, str]:
+        from .deepseek_pricing import estimate_cost_usd
+
+        cost_usd, measurement = estimate_cost_usd(
+            self._pricing_model_id,
+            input_tokens=int(usage.get("input_tokens") or 0),
+            output_tokens=int(usage.get("output_tokens") or 0),
+        )
+        if cost_usd is None:
+            # #673 A6: unknown cost must never display as zero. None is
+            # ProviderTurnUsage.from_provider's own signal for "unresolved" —
+            # it becomes UNKNOWN_USAGE, not a $0 line item, even though real
+            # money may have moved: the model is unknown to the pricing
+            # table. "unknown" is usage_report's provenance vocabulary
+            # (deepseek_pricing's own "unavailable" is provider_catalog's
+            # separate vocabulary — from_provider ignores this string
+            # whenever cost_usd is None, but keep it a real member of
+            # _COST_PROVENANCE rather than leak the other module's word).
+            return None, "unknown"
+        if measurement == "estimated_stale":
+            # deepseek_pricing still returns a real, computed number for a
+            # stale snapshot (never None — see its own docstring on why) but
+            # names it with a word ProviderTurnUsage's closed provenance set
+            # does not contain. "estimated" is the closest true member: the
+            # figure IS a real, arithmetic estimate, just against a price
+            # table due for a refresh. The legacy record_model_call path
+            # (opai/app_state.py) has no such closed set and keeps the more
+            # specific "estimated_stale" label as-is.
+            measurement = "estimated"
+        return cost_usd, measurement
 
 
 # Controller stop reasons that already name their own cause, so the envelope
@@ -1065,6 +1138,23 @@ def runner_for_model(
             return None
         api_key = CredentialStore().get(spec["provider"]) or ""
         return FreeAPIRunner(spec["api_base"], spec["model_id"], api_key)
+
+    # Paid direct-API models: "paid:<provider>:<model_id>" (#673) — same
+    # key-from-env-var contract as the free tier, real per-token cost.
+    if model_id.startswith("paid:"):
+        from .credentials import CredentialStore
+        from .paid_api_models import spec_for_model_id as paid_spec_for_model_id
+
+        spec = paid_spec_for_model_id(model_id)
+        if spec is None:
+            return None
+        api_key = CredentialStore().get(spec["provider"]) or ""
+        return PaidAPIRunner(
+            spec["api_base"],
+            spec["model_id"],
+            api_key,
+            pricing_model_id=spec["model_id"],
+        )
 
     provider, name = model_id.split(":", 1)
     for _url, runner in _candidate_runners():

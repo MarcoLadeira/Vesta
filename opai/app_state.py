@@ -640,6 +640,12 @@ def available_models(
     # 2. Free API models (always visible, grayed when no key)
     options.extend(list_free_models())
 
+    # 2b. Paid direct-API models (#673) — same always-visible/grayed contract
+    # as free, but every entry here carries paid=True from list_paid_api_models.
+    from opaihub.paid_api_models import list_paid_api_models
+
+    options.extend(list_paid_api_models())
+
     # 3. OPai Auto routing
     options.append(
         {
@@ -804,13 +810,16 @@ def ask(
     tool_loop_policy: Any = None,
     repository_handle: Any = None,
 ) -> dict[str, Any]:
-    """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', 'free:<id>', or 'provider:model'.
+    """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', 'free:<id>', 'paid:<id>', or 'provider:model'.
 
     - ``account:<id>`` runs through your connected Claude/Codex CLI: paid, blocked
       under panic mode, and recorded as a real spend (not a saving).
     - ``free:<id>`` runs through a free-tier-eligible public API
       (Gemini/Groq/Mistral). Requires the relevant API key env var and always
       prompts because provider quotas or billing may still apply.
+    - ``paid:<id>`` (#673, e.g. DeepSeek) runs through a paid direct public API:
+      same key-from-env-var and confirmation-gate contract as ``free:<id>``,
+      but real per-token spend is recorded, never $0.
     - ``auto`` lets OPai route the cheapest safe path (local execution + cache).
     - a local ``provider:model`` id runs that connected local model.
     Cloud auto-routing is never auto-called - it returns ``confirmation_required``.
@@ -838,8 +847,14 @@ def ask(
             cancel=cancel,
         )
 
-    if model_choice and model_choice.startswith("free:"):
-        return _ask_free_model(
+    # "paid:" (#673, e.g. DeepSeek) shares the free tier's whole dispatch
+    # shape — direct public API, key from env var, same confirmation gate —
+    # differing only in what it actually costs, which _ask_direct_api_model
+    # resolves per-model rather than by branch here.
+    if model_choice and (
+        model_choice.startswith("free:") or model_choice.startswith("paid:")
+    ):
+        return _ask_direct_api_model(
             root,
             task,
             model_choice,
@@ -875,7 +890,7 @@ def ask(
     )
 
 
-def _ask_free_model(
+def _ask_direct_api_model(
     project_root: Path,
     task: str,
     model_id: str,
@@ -891,19 +906,33 @@ def _ask_free_model(
     tool_loop_policy: Any = None,
     repository_handle: Any = None,
 ) -> dict[str, Any]:
-    """Run a task through a free-tier public API model (Gemini, Groq, Mistral).
+    """Run a task through a direct public-API model — free tier (Gemini, Groq,
+    Mistral) or paid per-token tier (DeepSeek, #673).
 
-    Free-tier API calls leave the device — always returns ``confirmation_required``
-    unless ``allow_cloud=True`` is explicitly set by the caller (e.g. after user
-    confirmed the dialog). When confirmed, the call is dispatched through
-    FreeAPIRunner which reads the API key from the environment.
+    Both tiers leave the device — always returns ``confirmation_required``
+    unless ``allow_cloud=True`` is explicitly set by the caller (e.g. after
+    user confirmed the dialog). When confirmed, the call is dispatched
+    through :class:`~opaihub.local_runner.FreeAPIRunner` or its paid subclass
+    :class:`~opaihub.local_runner.PaidAPIRunner`, both of which read the API
+    key from the environment; ``runner_for_model`` picks the right one from
+    the ``free:``/``paid:`` prefix.
     """
     from opaihub.ask import run_explicit_model
-    from opaihub.free_models import spec_for_model_id
     from opaihub.local_runner import runner_for_model
 
+    is_paid = model_id.startswith("paid:")
+
+    def _spec_for(mid: str) -> dict[str, Any] | None:
+        if is_paid:
+            from opaihub.paid_api_models import spec_for_model_id as paid_spec
+
+            return paid_spec(mid)
+        from opaihub.free_models import spec_for_model_id as free_spec
+
+        return free_spec(mid)
+
     if not allow_cloud:
-        spec = spec_for_model_id(model_id)
+        spec = _spec_for(model_id)
         # Extract display name from label "Gemini · 3.1 Flash-Lite (...)".
         if spec:
             label = spec["label"]
@@ -915,24 +944,32 @@ def _ask_free_model(
             if allow_edits
             else "your task and compact project context"
         )
+        # Paid tier: state plainly that this is metered, not "may apply" —
+        # OPai already has real per-token pricing for it, so hedged free-tier
+        # wording would understate a known, real cost (#673 "product truth").
+        cost_sentence = (
+            "This provider bills per token; OPai records the exact spend."
+            if is_paid
+            else "Provider quota or billing may apply depending on your account."
+        )
         return {
             "status": "confirmation_required",
             "message": (
                 f"This will send your task to {provider_name}'s public API. "
                 f"{context_description.capitalize()} will leave this device. "
-                "Provider quota or billing may apply depending on your account. Continue?"
+                f"{cost_sentence} Continue?"
             ),
             "model_id": model_id,
         }
 
     runner = runner_for_model(model_id, project_root)
-    spec = spec_for_model_id(model_id)
+    spec = _spec_for(model_id)
     if runner is None or not runner.available():
         return {
             "status": "model_unavailable",
             "model_id": model_id,
             "hint": (spec or {}).get(
-                "setup_hint", "The selected free-tier model is not configured."
+                "setup_hint", "The selected model is not configured."
             ),
         }
     before = set(_changed_files(project_root)) if allow_edits else set()
@@ -966,7 +1003,7 @@ def _ask_free_model(
         from opai.provider_contract import normalize_provider_error
 
         error = normalize_provider_error(
-            str((spec or {}).get("provider") or "free-api"),
+            str((spec or {}).get("provider") or "direct-api"),
             result.get("error"),
             model=str((spec or {}).get("model_id") or model_id),
         )
@@ -979,8 +1016,12 @@ def _ask_free_model(
         project_root, str((spec or {}).get("provider") or ""), result
     )
     if result.get("status") == "answered_locally":
-        result["status"] = "answered_by_free_api"
-        result["source"] = "free_api"
+        # #673: a DeepSeek answer is not "free" — say which direct-API tier
+        # it actually was. opaihub/lifecycle_schema.json's legacy_mappings
+        # maps both statuses to "completed"; test_state_vocabulary_drift.py
+        # enforces every literal status string here stays mapped.
+        result["status"] = "answered_by_paid_api" if is_paid else "answered_by_free_api"
+        result["source"] = "paid_api" if is_paid else "free_api"
         # Task 6/7: a tool-loop run already recorded one sequenced ledger event
         # per provider turn (opaihub/local_runner.py). Both writers append to
         # the SAME ledger event type usage.py aggregates, so also writing this
@@ -996,18 +1037,37 @@ def _ask_free_model(
                 tokens = int(
                     usage.get("tokens") or estimate_tokens(task + "\n" + answer)
                 )
+                # #673: real spend for the paid tier via the same _cost_for
+                # seam the tool-loop path uses (opaihub/local_runner.py).
+                # Deliberately NOT `real_cost_usd = None` for a paid call that
+                # lacks it: None triggers record_model_call's tier-rate
+                # fallback, which has no DeepSeek entry and would silently
+                # under-report a real charge as the (near-zero) free-tier
+                # rate. runner_for_model always builds a PaidAPIRunner for a
+                # "paid:" id — cost_for missing here means a non-standard
+                # runner was injected (a test double), so failing the cost to
+                # unresolved rather than guessing is the only honest option.
+                real_cost_usd: float | None = None
+                cost_measurement = str(usage.get("measurement") or "estimated")
+                if is_paid:
+                    cost_for = getattr(runner, "_cost_for", None)
+                    if callable(cost_for):
+                        real_cost_usd, cost_measurement = cost_for(usage)
+                    else:
+                        real_cost_usd, cost_measurement = 0.0, "unknown"
                 record_model_call(
                     project_root,
                     task,
                     model_tier="L2",
-                    provider_type="free_api",
+                    provider_type="paid_api" if is_paid else "free_api",
                     tokens=tokens,
                     input_tokens=usage.get("input_tokens"),
                     output_tokens=usage.get("output_tokens"),
                     confirmed=True,
                     model_id=model_id,
                     provider_id=(spec or {}).get("provider"),
-                    measurement=str(usage.get("measurement") or "estimated"),
+                    real_cost_usd=real_cost_usd,
+                    measurement=cost_measurement,
                     quota_snapshot=usage.get("quota_snapshot"),
                     # #334: a multi-step tool run is many provider calls; record
                     # the count so the summed token figure reads honestly.
@@ -1017,7 +1077,7 @@ def _ask_free_model(
             sorted(set(_changed_files(project_root)) - before) if allow_edits else []
         )
     result["model_id"] = model_id
-    result["free_tier"] = True
+    result["free_tier"] = not is_paid
     return result
 
 
