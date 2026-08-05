@@ -89,29 +89,51 @@ def _cache_metadata(lookup: Any) -> dict[str, Any]:
     }
 
 
+def _supports_kwarg(func: Any, name: str) -> bool:
+    """Whether ``func`` accepts keyword ``name``, decided from its signature.
+
+    #617: capability must be known *before* dispatch. The prior version of
+    this call site tried ``runner.complete(..., on_text=...)`` and caught
+    ``TypeError``, retrying without the argument only if ``name`` appeared in
+    the exception's message. That is unsafe by construction — the first call
+    may already have crossed the provider boundary (incurred cost, emitted
+    output) before an unrelated internal ``TypeError`` was raised, and if its
+    message happened to *mention* "on_text" or "cancel" for any other reason,
+    the retry silently dispatched the same operation a second time. Reproduced
+    before this fix: a runner whose ``complete()`` raised
+    ``TypeError("unhashable type in on_text formatting internals")`` — a bug
+    with nothing to do with argument support — was called twice.
+    """
+    try:
+        parameters = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        # No introspectable signature (e.g. some C callables) — an unknown
+        # capability must never be assumed present.
+        return False
+    return name in parameters or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()
+    )
+
+
 def _complete_streaming(
     runner: Any, text: str, *, cancel: Any, on_text: Any, system: str = SYSTEM_PROMPT
 ) -> tuple[str, bool]:
-    """Call ``runner.complete``, streaming via ``on_text`` when the runner
-    supports it (#154). Returns ``(answer, streamed)``; ``streamed`` means
-    ``on_text`` already received the whole answer, so the caller must not
-    re-emit it. Runners without ``on_text``/``cancel`` degrade gracefully."""
-    if on_text is not None:
-        try:
-            return (
-                runner.complete(text, system=system, cancel=cancel, on_text=on_text),
-                True,
-            )
-        except TypeError as exc:
-            if "on_text" not in str(exc):
-                raise
-            # Runner has no on_text — fall through to the non-streaming path.
-    try:
-        return runner.complete(text, system=system, cancel=cancel), False
-    except TypeError as exc:
-        if "cancel" not in str(exc):
-            raise
-        return runner.complete(text, system=system), False
+    """Call ``runner.complete`` exactly once, streaming via ``on_text`` when
+    the runner supports it (#154). Returns ``(answer, streamed)``; ``streamed``
+    means ``on_text`` already received the whole answer, so the caller must
+    not re-emit it.
+
+    Capability is decided from ``runner.complete``'s signature before any
+    call — see :func:`_supports_kwarg` — never from retrying after an
+    exception (#617): one operation, at most one dispatch.
+    """
+    kwargs: dict[str, Any] = {"system": system}
+    if _supports_kwarg(runner.complete, "cancel"):
+        kwargs["cancel"] = cancel
+    streaming = on_text is not None and _supports_kwarg(runner.complete, "on_text")
+    if streaming:
+        kwargs["on_text"] = on_text
+    return runner.complete(text, **kwargs), streaming
 
 
 def run_ask(

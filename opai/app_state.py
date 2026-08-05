@@ -1311,19 +1311,29 @@ def _ask_account(
             complete_kwargs: dict[str, Any] = {
                 "project_root": root,
                 "allow_edits": allow_edits,
-                "mode": mode,
             }
-            if edit_grant:
-                with contextlib.suppress(TypeError, ValueError):
-                    if "edit_grant" in inspect.signature(run.complete).parameters:
-                        complete_kwargs["edit_grant"] = True
-            try:
-                result = run.complete(task, **complete_kwargs)
-            except TypeError as exc:
-                if "mode" not in str(exc):
-                    raise
-                complete_kwargs.pop("mode", None)
-                result = run.complete(task, **complete_kwargs)
+            # #617: capability decided from the signature before the one
+            # dispatch this makes — never from retrying after an exception.
+            # The prior code called run.complete() and, on a TypeError whose
+            # *message* happened to contain "mode", retried without it. This
+            # is a real paid account CLI dispatch: if the first call had
+            # already reached the provider before an unrelated internal
+            # TypeError was raised, that retry would have run the task twice.
+            #
+            # _supports_kwarg (not a bare "name in parameters" check) matters
+            # here specifically: a **kwargs-accepting complete() — real for
+            # every current runner, including the shared FakeAccountRunner
+            # test double — has no literal "mode" parameter to find by name,
+            # so a naive membership check silently drops mode for every one
+            # of them. Caught by test_agent_autonomy.py's regression suite
+            # when this fix first shipped without this helper.
+            from opaihub.ask import _supports_kwarg
+
+            if _supports_kwarg(run.complete, "mode"):
+                complete_kwargs["mode"] = mode
+            if edit_grant and _supports_kwarg(run.complete, "edit_grant"):
+                complete_kwargs["edit_grant"] = True
+            result = run.complete(task, **complete_kwargs)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         from opai.provider_contract import normalize_provider_error
 
