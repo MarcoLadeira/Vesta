@@ -1165,6 +1165,70 @@ def record_model_call_finalized(
         return _append_and_commit(root, path, head, event)
 
 
+def unresolved_model_calls(project_root: Path) -> list[dict[str, Any]]:
+    """Provider turns that were dispatched but whose result never landed (#619).
+
+    A ``model_call_started`` with no matching ``model_call_finalized`` means the
+    request left OPai — the provider may well have billed for it — and then the
+    process died, the machine slept, or the write failed. The work happened; the
+    cost is simply unknown.
+
+    That is materially different from "no usage", and the ledger already knows
+    the difference: the head keeps active calls until they finalize. Nothing
+    outside could ask, so a savings figure could be presented as complete while
+    paid work sat unaccounted. This is the accessor that makes it askable.
+
+    Returns the dispatch records themselves (never invented costs), so callers
+    can report what is outstanding rather than guess at a number.
+    """
+
+    with _ledger_transaction(project_root) as (_root, _path, head):
+        active = head.get("active_calls") or {}
+        return [
+            dict(record) for record in active.values() if isinstance(record, Mapping)
+        ]
+
+
+def cost_reconciliation(project_root: Path) -> dict[str, Any]:
+    """Whether spend is fully accounted for, and what is missing if not.
+
+    ``verified`` is the gate the report asks for: a savings claim may only be
+    presented as authoritative when every dispatched call has a recorded
+    outcome. While anything is outstanding the honest answer is "not yet
+    reconciled", never a confident total that silently omits it.
+    """
+
+    outstanding = unresolved_model_calls(project_root)
+    return {
+        "verified": not outstanding,
+        "unresolved_calls": len(outstanding),
+        # Enough to chase a specific turn without exposing prompt text.
+        "unresolved": [
+            {
+                "call_id": str(record.get("call_id") or ""),
+                "run_id": str(record.get("run_id") or ""),
+                "turn_index": record.get("turn_index"),
+                "model_id": str(
+                    record.get("canonical_model_id") or record.get("model_id") or ""
+                ),
+                "provider_id": str(record.get("provider_id") or ""),
+                "provider_type": str(record.get("provider_type") or ""),
+                "started_at": str(record.get("created_at") or ""),
+            }
+            for record in outstanding
+        ],
+        "note": (
+            "Every dispatched provider call has a recorded outcome."
+            if not outstanding
+            else (
+                f"{len(outstanding)} dispatched call(s) have no recorded outcome. "
+                "Cost incurred by them is unknown, so totals below are a lower "
+                "bound, not a verified figure."
+            )
+        ),
+    }
+
+
 def reset_usage_baseline(project_root: Path, model_id: str) -> dict[str, Any]:
     """Advance one model's visible usage epoch without deleting audit history."""
 

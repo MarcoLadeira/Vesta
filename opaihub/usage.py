@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import EVENT_MODEL_CALL, read_events
+from .ledger import EVENT_MODEL_CALL, cost_reconciliation, read_events
 
 
 def _number(value: Any) -> float:
@@ -80,6 +80,15 @@ def build_usage_snapshots(
     ]
     configured_limits = limits or {}
     now = datetime.now(timezone.utc)
+    # #619: a dispatched call whose result never landed is incurred cost of
+    # unknown size. Reporting it as "no data" would present a lower bound as a
+    # complete figure, so every row carries whether spend is fully reconciled.
+    reconciliation = cost_reconciliation(project_root)
+    unresolved_by_model: dict[str, int] = {}
+    for record in reconciliation["unresolved"]:
+        unresolved_by_model[record["model_id"]] = (
+            unresolved_by_model.get(record["model_id"], 0) + 1
+        )
     snapshots: list[dict[str, Any]] = []
     for model in models:
         model_id = str(model.get("id") or "")
@@ -154,6 +163,11 @@ def build_usage_snapshots(
                 # #334: how the token total was actually produced.
                 "modelCalls": model_calls,
                 "taskCount": task_count,
+                # #619: dispatched calls for this model with no recorded
+                # outcome. Non-zero means the total below is a lower bound —
+                # real work happened whose cost we cannot state.
+                "unresolvedCalls": unresolved_by_model.get(model_id, 0),
+                "reconciled": unresolved_by_model.get(model_id, 0) == 0,
             }
         )
     return snapshots
