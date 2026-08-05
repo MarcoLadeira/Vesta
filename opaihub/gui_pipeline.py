@@ -1863,6 +1863,9 @@ def handle_gui_message(
 
         Applies whether or not Auto picked the model — a user who chose Gemini
         deserves the same resilience Auto gets.
+
+        On a paid model the same blip is not a free do-over: see the
+        operation-class gate below.
         """
         if _cancelled():
             return False
@@ -1878,6 +1881,38 @@ def handle_gui_message(
             # not a recovery the user asked for.
             return False
         if not auto_router.should_retry_same_provider(error, attempts):
+            return False
+        # #616: the transient codes above include PROVIDER_TIMEOUT,
+        # STREAM_ABORTED and NO_RESPONSE — none of which prove the request
+        # never reached the provider. On a free model that ambiguity is
+        # harmless. On a paid one, re-sending an identical prompt that may
+        # already have been served bills the user twice for one question, and
+        # OPai has no record with which to notice: the paid lane only writes
+        # its ledger entry on success, so a call lost this way leaves no trace
+        # at all. Withhold the retry unless the failure proves non-dispatch,
+        # and say why rather than stalling silently.
+        from .operation_class import model_call_kind, retry_decision
+
+        decision = retry_decision(
+            model_call_kind(is_free=not auto_router.is_paid_model(selected_model)),
+            error_code=str((error or {}).get("code") or "")
+            if isinstance(error, dict)
+            else "",
+            attempts=attempts,
+            max_attempts=contract.max_transient_retries,
+        )
+        if not decision.allowed:
+            _emit(
+                "request_sending",
+                "warning",
+                f"Not retrying automatically — {decision.reason}",
+                metadata={
+                    "provider": provider,
+                    "operationClass": decision.operation_class.value,
+                    "dispatchProof": decision.proof.value,
+                },
+                channel="status",
+            )
             return False
         _transient_retries[provider] = attempts + 1
         _emit(
