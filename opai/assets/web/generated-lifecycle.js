@@ -652,18 +652,6 @@
         "verification": "required_if_applicable"
       },
       "reason": "terminal_resolution",
-      "to": "cancelled"
-    },
-    {
-      "cancellation_eligible": true,
-      "creates_new_attempt": false,
-      "from": "running",
-      "guards": {
-        "delivery": "required_if_applicable",
-        "reconciliation": "required",
-        "verification": "required_if_applicable"
-      },
-      "reason": "terminal_resolution",
       "to": "timeout"
     },
     {
@@ -881,18 +869,6 @@
       },
       "reason": "terminal_resolution",
       "to": "failed"
-    },
-    {
-      "cancellation_eligible": true,
-      "creates_new_attempt": false,
-      "from": "verifying",
-      "guards": {
-        "delivery": "required_if_applicable",
-        "reconciliation": "required",
-        "verification": "required"
-      },
-      "reason": "terminal_resolution",
-      "to": "cancelled"
     },
     {
       "cancellation_eligible": true,

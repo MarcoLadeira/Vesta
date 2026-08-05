@@ -71,7 +71,6 @@ Unknown schema, state, or legacy status data degrades to terminal `needs_attenti
 | running | partial | terminal_resolution | no | yes | required_if_applicable | required_if_applicable | required |
 | running | blocked | terminal_resolution | no | yes | required_if_applicable | required_if_applicable | required |
 | running | failed | terminal_resolution | no | yes | required_if_applicable | required_if_applicable | required |
-| running | cancelled | terminal_resolution | no | yes | required_if_applicable | required_if_applicable | required |
 | running | timeout | terminal_resolution | no | yes | required_if_applicable | required_if_applicable | required |
 | running | needs_attention | terminal_resolution | no | yes | required_if_applicable | required_if_applicable | required |
 | awaiting_input | queued | input_resumed | no | yes | not_required | not_required | not_required |
@@ -91,7 +90,6 @@ Unknown schema, state, or legacy status data degrades to terminal `needs_attenti
 | verifying | partial | terminal_resolution | no | yes | required | required_if_applicable | required |
 | verifying | blocked | terminal_resolution | no | yes | required | required_if_applicable | required |
 | verifying | failed | terminal_resolution | no | yes | required | required_if_applicable | required |
-| verifying | cancelled | terminal_resolution | no | yes | required | required_if_applicable | required |
 | verifying | timeout | terminal_resolution | no | yes | required | required_if_applicable | required |
 | verifying | needs_attention | terminal_resolution | no | yes | required | required_if_applicable | required |
 | cancel_requested | completed | terminal_resolution | no | no | recorded_if_available | recorded_if_available | required |
