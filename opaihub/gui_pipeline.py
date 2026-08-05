@@ -1974,14 +1974,6 @@ def handle_gui_message(
           ``cost_reconciliation`` reports the total as a lower bound until a
           person resolves it. Quietly closing these at zero would restore the
           exact false $0 that #619 removed.
-
-        A cancellation lands in the third case on purpose. Pressing stop does
-        not un-generate the tokens the provider already produced, so a
-        mid-stream cancel has a real but unknown cost — #614 names "cost can
-        accrue after the terminal state shown in the receipt" as its own
-        defect. A cancel that arrives *before* dispatch carries
-        ``CANCELLED_BEFORE_DISPATCH`` and settles at zero like any other
-        proven non-dispatch.
         """
         if not call_id or not isinstance(result, dict):
             return
