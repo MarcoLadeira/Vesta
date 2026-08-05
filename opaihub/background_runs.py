@@ -72,6 +72,9 @@ _LEGACY_STATUS_FOR_RUN_STATE = {
     RunState.QUEUED: "queued",
     RunState.PREPARING: "queued",
     RunState.RUNNING: "running",
+    # Still in progress from a pre-#379 consumer's point of view — no legacy
+    # concept of a verification phase, and it is non-terminal like RUNNING.
+    RunState.VERIFYING: "running",
     RunState.AWAITING_INPUT: "blocked",
     RunState.CANCEL_REQUESTED: "running",
     RunState.COMPLETED: "completed",
@@ -80,7 +83,32 @@ _LEGACY_STATUS_FOR_RUN_STATE = {
     RunState.FAILED: "failed",
     RunState.CANCELLED: "cancelled",
     RunState.TIMEOUT: "timeout",
+    # #612: needs_attention is "stopped, but a human must look at this before
+    # anything resumes" — the same shape as AWAITING_INPUT, which already maps
+    # to "blocked". Absent this entry, `_transition_run` KeyErrors on any
+    # executor that reports it (reproduced in
+    # tests/test_background_status_totality.py), which crashes the worker
+    # thread outside its own exception guard and strands the run in RUNNING.
+    RunState.NEEDS_ATTENTION: "blocked",
 }
+
+
+def _legacy_status_for(state: RunState) -> str:
+    """The pre-#379 compatibility word for a canonical state.
+
+    A ``dict[state]`` lookup here would let one gap in the table above crash
+    the background-run worker thread outright — exactly the defect this
+    function replaces (see the ``NEEDS_ATTENTION`` comment above). The map is
+    now total over every ``RunState``, and ``test_background_status_totality``
+    pins that; this fallback exists only for a *future* canonical state added
+    without updating the map. "blocked" is the safest word available in the
+    closed legacy vocabulary: it never misreports unfinished work as done, and
+    never misreports a non-failure as failed.
+    """
+
+    return _LEGACY_STATUS_FOR_RUN_STATE.get(state, "blocked")
+
+
 _DEFAULT_REASON_FOR_LEGACY_STATUS = {
     "queued": "queued",
     "running": "execution_started",
@@ -385,7 +413,7 @@ def _transition_run(
             ][-_MAX_STATE_HISTORY:]
         )
         legacy_status = str(
-            changes.pop("legacy_status", _LEGACY_STATUS_FOR_RUN_STATE[next_state])
+            changes.pop("legacy_status", _legacy_status_for(next_state))
         )
         updated_changes = {
             **changes,
