@@ -16,6 +16,7 @@ Protocol version: `1`
 | gemini | unsupported | supported | supported | supported | partial | partial |
 | groq | unsupported | supported | supported | supported | partial | partial |
 | mistral | unsupported | supported | supported | supported | partial | partial |
+| deepseek | supported | supported | supported | supported | partial | partial |
 | ollama | unsupported | supported | supported | unsupported | unsupported | partial |
 | openai-compatible | unsupported | supported | supported | unsupported | unsupported | partial |
 
