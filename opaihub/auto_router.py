@@ -126,6 +126,21 @@ def provider_of(model_id: str) -> str:
     return parts[0].lower()
 
 
+def is_paid_model(model_id: str) -> bool:
+    """Whether running this model spends the user's money or plan quota.
+
+    ``account:`` is the paid lane — the dispatch loop itself branches on that
+    prefix — and covers both metered APIs and subscription CLIs, since a
+    repeated call burns plan quota either way. Everything else (``free:``,
+    local runners) costs nothing to repeat.
+
+    ``auto`` is not yet a model, so it is not yet a charge; by the time a
+    retry is decided, Auto has resolved to a concrete id.
+    """
+
+    return str(model_id or "").strip().startswith("account:")
+
+
 def _provider_of_entry(item: dict[str, Any]) -> str:
     provider = str(item.get("provider") or "").strip().lower()
     return provider or provider_of(str(item.get("id") or ""))
