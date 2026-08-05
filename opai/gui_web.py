@@ -1159,6 +1159,26 @@ def provider_balances_payload(
         providers.append(
             {"provider": provider, "kind": "free", "configured": configured}
         )
+    # #673: paid direct-API providers (DeepSeek) get the same balance-card
+    # treatment as free ones — balance_overview/balance_snapshot are already
+    # generic (locally-tracked amount, "unknown" until any is recorded), so
+    # this needs no DeepSeek-specific knowledge, unlike the rate-limit-window
+    # data _usage_providers below would need and does not yet have.
+    from opaihub.paid_api_models import PAID_MODEL_SPECS
+
+    seen_paid: set[str] = set()
+    for spec in PAID_MODEL_SPECS:
+        provider = str(spec.get("provider") or "")
+        if not provider or provider in seen_paid:
+            continue
+        seen_paid.add(provider)
+        try:
+            configured = bool(store.get(provider))
+        except Exception:  # noqa: BLE001 - keychain trouble must not break Settings
+            configured = False
+        providers.append(
+            {"provider": provider, "kind": "paid", "configured": configured}
+        )
     return balance_overview(root, providers, probe=probe, force=force)
 
 

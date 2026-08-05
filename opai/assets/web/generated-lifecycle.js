@@ -48,6 +48,7 @@
       "answered": "completed",
       "answered_by_account": "completed",
       "answered_by_free_api": "completed",
+      "answered_by_paid_api": "completed",
       "answered_locally": "completed",
       "blocked": "blocked",
       "blocked_panic": "blocked",

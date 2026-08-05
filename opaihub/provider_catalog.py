@@ -28,6 +28,7 @@ _PROVIDER_IDS = (
     "gemini",
     "groq",
     "mistral",
+    "deepseek",
     "ollama",
     "openai-compatible",
 )

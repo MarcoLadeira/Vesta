@@ -15,6 +15,20 @@ from .provider_catalog import all_catalog_records
 
 
 def _catalog_kind(record: dict[str, Any]) -> str:
+    """Classify a catalog record from its ``requirements`` shape alone.
+
+    #673: this shape cannot distinguish a genuinely free direct API
+    (groq/mistral/kimi/gemini) from a paid one (deepseek) — both have
+    identical requirements (``api_key`` yes, ``cli``/``local_service`` no).
+    The catalog schema itself has no "paid" field (adding one is a real
+    schema migration across all records + the generator, out of scope here),
+    so paid-direct providers are named explicitly via
+    ``opai.model_registry.PAID_DIRECT_PROVIDERS`` — the one place that
+    distinction is already true — and excluded below rather than guessed at
+    from requirements. Without this, ``deepseek`` would silently land in
+    ``FREE_PROVIDERS`` and crash ``test_free_provider_connection`` (its
+    ``next(...)`` over ``FREE_MODEL_SPECS`` finds nothing for it).
+    """
     requirements = record["requirements"]
     if requirements["local_service"]:
         return "local"
@@ -23,16 +37,28 @@ def _catalog_kind(record: dict[str, Any]) -> str:
     return "free"
 
 
+def _paid_direct_providers() -> frozenset[str]:
+    from opai.model_registry import PAID_DIRECT_PROVIDERS
+
+    return frozenset(PAID_DIRECT_PROVIDERS)
+
+
 _CATALOG_RECORDS = tuple(all_catalog_records())
 ACCOUNT_PROVIDERS = frozenset(
     record["provider_id"]
     for record in _CATALOG_RECORDS
     if _catalog_kind(record) == "account"
 )
+PAID_DIRECT_API_PROVIDERS = frozenset(
+    record["provider_id"]
+    for record in _CATALOG_RECORDS
+    if record["provider_id"] in _paid_direct_providers()
+)
 FREE_PROVIDERS = frozenset(
     record["provider_id"]
     for record in _CATALOG_RECORDS
     if _catalog_kind(record) == "free"
+    and record["provider_id"] not in PAID_DIRECT_API_PROVIDERS
 )
 LOCAL_PROVIDERS = frozenset(
     record["provider_id"]
@@ -143,7 +169,8 @@ def test_free_provider_connection(
     store: Any | None = None,
     opener: Any = urlrequest.urlopen,
 ) -> dict[str, Any]:
-    """Verify a free API key using model metadata; never submit a prompt."""
+    """Verify a direct-API key (free or paid, #673) using model metadata;
+    never submit a prompt, so this never spends money even for a paid tier."""
 
     from opai.provider_contract import normalize_provider_error
 
@@ -151,7 +178,8 @@ def test_free_provider_connection(
     from .free_models import FREE_MODEL_SPECS
 
     provider = str(provider_id or "").strip().lower()
-    if provider not in FREE_PROVIDERS:
+    is_paid = provider in PAID_DIRECT_API_PROVIDERS
+    if not is_paid and provider not in FREE_PROVIDERS:
         raise ValueError("Unsupported free-model provider")
     credentials = store or CredentialStore()
     status = credentials.status(provider)
@@ -159,7 +187,12 @@ def test_free_provider_connection(
     if not secret:
         error = normalize_provider_error(provider, "No API key configured")
         return {**status, "connected": False, "error": error}
-    spec = next(item for item in FREE_MODEL_SPECS if item["provider"] == provider)
+    if is_paid:
+        from .paid_api_models import PAID_MODEL_SPECS
+
+        spec = next(item for item in PAID_MODEL_SPECS if item["provider"] == provider)
+    else:
+        spec = next(item for item in FREE_MODEL_SPECS if item["provider"] == provider)
     request = urlrequest.Request(
         str(spec["api_base"]).rstrip("/") + "/models",
         headers={"Authorization": f"Bearer {secret}", "Accept": "application/json"},

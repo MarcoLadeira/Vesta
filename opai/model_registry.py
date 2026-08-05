@@ -13,7 +13,7 @@ and if not, what is the safe fallback?". Kept dependency-free so every layer
 (accounts, provider_contract, routing, doctor, the GUI Connection Doctor) can
 import it without a cycle.
 
-Two provider tiers (F2, QA E2E 2026-07-17):
+Three provider tiers (F2, QA E2E 2026-07-17; paid-direct tier added #673):
 
 - **Account providers** (``claude``/``codex``/``copilot``) are subscription
   CLIs. :func:`providers` and :func:`catalog` cover exactly this tier because
@@ -27,6 +27,12 @@ Two provider tiers (F2, QA E2E 2026-07-17):
   this module deliberately does not duplicate it.
   ``tests/test_free_model_registry.py`` pins the two modules together so the
   tiers cannot drift apart again.
+- **Paid direct-API providers** (``deepseek``) are the same shape as the free
+  tier — key-gated public APIs, not subscription CLIs — but cost real money
+  per token. Operational spec lives in ``opaihub/paid_api_models.py`` and
+  real pricing in ``opaihub/deepseek_pricing.py``; kept out of
+  ``free_models.py`` so that module's ``$0``-is-actual contract stays true.
+  ``tests/test_paid_model_registry.py`` pins this tier the same way.
 """
 
 from __future__ import annotations
@@ -182,13 +188,35 @@ _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
             "fast",
         ),
     ),
+    # Paid direct-API tier (#673): key-gated like the free tier above, but
+    # real per-token spend — see opaihub/paid_api_models.py and
+    # opaihub/deepseek_pricing.py for the operational spec and cost. V4 Flash
+    # is "fast" (default_model's first-choice capability tier) so it — not
+    # the pricier Pro — is what a bare provider="deepseek" lookup prefers.
+    "deepseek": (
+        ModelSpec(
+            "deepseek-v4-flash",
+            "DeepSeek V4 Flash",
+            "DeepSeek V4 Flash (paid, per-token)",
+            "fast",
+        ),
+        ModelSpec(
+            "deepseek-v4-pro",
+            "DeepSeek V4 Pro",
+            "DeepSeek V4 Pro (paid, per-token)",
+            "best",
+        ),
+    ),
 }
 
 # Account providers are subscription CLIs; free providers are key-gated public
-# API tiers. Both live in _REGISTRY, but the account pickers, doctor catalog,
-# and the derived accounts/provider_contract tables are account-only contracts.
+# API tiers at genuinely zero cost. Paid-direct providers are also key-gated
+# public APIs, but real per-token spend — see paid_api_models.py. All three
+# live in _REGISTRY, but the account pickers, doctor catalog, and the derived
+# accounts/provider_contract tables are account-only contracts.
 ACCOUNT_PROVIDERS = ("claude", "codex", "copilot")
 FREE_PROVIDERS = ("kimi", "gemini", "groq", "mistral")
+PAID_DIRECT_PROVIDERS = ("deepseek",)
 
 
 def providers() -> tuple[str, ...]:
@@ -204,6 +232,13 @@ def free_providers() -> tuple[str, ...]:
     """Free API providers (``opaihub/free_models.py`` operational specs), in
     registration order."""
     return FREE_PROVIDERS
+
+
+def paid_direct_providers() -> tuple[str, ...]:
+    """Paid direct-API providers (``opaihub/paid_api_models.py`` operational
+    specs), in registration order. Never conflated with :func:`free_providers`
+    — every id here costs real money per token."""
+    return PAID_DIRECT_PROVIDERS
 
 
 def models_for(provider: str) -> tuple[ModelSpec, ...]:
