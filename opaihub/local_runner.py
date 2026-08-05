@@ -571,6 +571,10 @@ _TOOL_LOOP_PROTOCOL = (
 # controller's stopped_reason. Completed runs carry the model's own answer.
 _STOP_MESSAGES = {
     "no_progress": "Stopped: no real progress was being made toward the goal.",
+    "exploration_limit": (
+        "Stopped: explored as far as the budget allows without reaching a "
+        "concrete change."
+    ),
     "repeated_failure": "Stopped: the same action kept failing and could not be recovered.",
     "controller_timeout": "Stopped: the task ran too long without reaching a milestone.",
     "external_ceiling": "Stopped: reached the configured external tool-call ceiling.",

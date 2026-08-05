@@ -164,6 +164,13 @@ class ControllerCompletionTests(unittest.TestCase):
     def test_unique_reads_do_not_fake_goal_progress(self):
         # Endless unique reads never make goal progress: the run stops as stuck
         # instead of spinning or fabricating success.
+        #
+        # Since #569 the *reason* is `exploration_limit`, not `no_progress`,
+        # and that distinction is exactly what the evidence ledger buys: each
+        # of these reads returns something new, so the run genuinely is
+        # learning rather than looping. What stops it is the absolute
+        # exploration ceiling, not a stagnation verdict. Both map to
+        # STUCK_NO_PROGRESS, so the honest outcome is unchanged.
         def chat(messages, *, tools):
             chat.n += 1
             return tool_turn(f"r{chat.n}", "read_file", f'{{"path":"f{chat.n}.py"}}')
@@ -177,7 +184,29 @@ class ControllerCompletionTests(unittest.TestCase):
             allow_mutations=True,
         )
         self.assertIs(result.completion_state, CompletionState.STUCK_NO_PROGRESS)
-        self.assertEqual(result.stopped_reason, "no_progress")
+        self.assertEqual(result.stopped_reason, "exploration_limit")
+
+    def test_a_long_productive_investigation_is_no_longer_killed_at_twelve(self):
+        # The regression this epic exists to fix. Before #569 the guard counted
+        # calls since the last *edit*, so 60 distinct reads — the report's crash
+        # evidence — were stopped at 12 even though every one taught something.
+        import json as _json
+
+        paths = [f"file{i}.py" for i in range(60)]
+        turns = [
+            tool_turn(f"c{i}", "read_file", _json.dumps({"path": path}))
+            for i, path in enumerate(paths)
+        ]
+        turns.append(decision_turn(evidence=["read_file"]))
+        controller = ToolLoopController(ToolLoopPolicy())
+        result = controller.run(
+            chat=scripted_chat(turns),
+            executor=FakeExecutor(),
+            base_messages=[{"role": "user", "content": "investigate"}],
+            allow_mutations=False,
+        )
+        self.assertIs(result.completion_state, CompletionState.COMPLETED)
+        self.assertEqual(result.model_calls, 61)
 
     def test_bare_prose_after_a_real_edit_completes(self):
         result = self._run([tool_turn("c1", "apply_patch"), ChatTurn(content="Done.")])

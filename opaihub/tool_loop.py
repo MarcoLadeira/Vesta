@@ -28,6 +28,7 @@ import time
 from typing import Any, Callable, Mapping, Sequence
 
 from .completion import CompletionState
+from .progress_evidence import ProgressLedger
 
 DECISION_SCHEMA_VERSION = 1
 _DECISION_KEY = "opai_decision_version"
@@ -80,6 +81,12 @@ class ToolLoopPolicy:
     summary_char_cap: int = 16_000
     evidence_fingerprint_cap: int = 256
     max_calls_per_subgoal: int = 12
+    # #569: the absolute ceiling on exploration that never reaches a milestone.
+    # The evidence ledger catches *loops* early (it notices repetition at any
+    # call count), but a run that keeps finding genuinely new material forever
+    # still has to stop. Set well above the report's 60-step investigation so
+    # that scenario completes, while unbounded exploration remains bounded.
+    max_exploration_calls: int = 80
     max_identical_failures: int = 3
     # Anti-thrash for *successful* repeats (F13): the 2nd identical success
     # carries a notice to the model; the 3rd is never executed — the loop
@@ -254,6 +261,9 @@ class ToolLoopState:
     tool_calls_used: int = 0
     calls_since_milestone: int = 0
     milestones: int = 0
+    # #569: evidence-based progress. Unlike calls_since_milestone this can tell
+    # a long productive investigation apart from a loop.
+    progress: ProgressLedger = field(default_factory=ProgressLedger)
     compactions: int = 0
     cumulative_serialized_chars: int = 0
 
@@ -699,10 +709,22 @@ class ToolLoopController:
                     CompletionState.STUCK_NO_PROGRESS, stopped="repeated_failure"
                 )
 
-            # Stagnation guard: reads (even unique ones) are not milestones, so a
-            # run that never makes real progress stops here instead of spinning.
-            if state.calls_since_milestone > policy.max_calls_per_subgoal:
+            # Stagnation guard (#569), in two parts. The old rule was "no edit
+            # in N calls", which killed the 60-step investigation from the
+            # report's crash evidence — a run that was learning the whole time.
+            #
+            # 1. Evidence stagnation: has anything been learned recently? This
+            #    catches a loop at any call count, because repetition scores
+            #    nothing however early it starts.
+            if state.progress.is_stagnant(patience=policy.max_calls_per_subgoal):
                 return _result(CompletionState.STUCK_NO_PROGRESS, stopped="no_progress")
+            # 2. An absolute exploration ceiling. A run that keeps finding
+            #    genuinely new material forever still has to stop, or "keeps
+            #    learning" becomes "never finishes".
+            if state.calls_since_milestone > policy.max_exploration_calls:
+                return _result(
+                    CompletionState.STUCK_NO_PROGRESS, stopped="exploration_limit"
+                )
 
     def _execute(
         self,
@@ -761,6 +783,18 @@ class ToolLoopController:
                     state.repeated_failures.get(signature, 0) + 1
                 )
             observations.append(observation)
+            # #569: score what this observation actually taught us. The
+            # milestone counter below still drives the legacy guard; this
+            # ledger is what distinguishes a long *productive* investigation
+            # from a loop, and it is what the stagnation check consults.
+            state.progress.record(
+                {
+                    "tool": name,
+                    "arguments": str((function or {}).get("arguments") or ""),
+                    "content": observation.get("content") or "",
+                    "ok": ok,
+                }
+            )
             trace.append(
                 {
                     "tool": name,
