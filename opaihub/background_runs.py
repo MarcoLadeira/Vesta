@@ -26,7 +26,7 @@ from typing import Any, Callable
 
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
-from .run_state import TERMINAL_STATES, RunState, transition
+from .run_state import TERMINAL_STATES, RunState, can_transition, transition
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger, redact_structure
 from .workflow_templates import workflow_templates
@@ -696,6 +696,22 @@ class BackgroundRunner:
         current = load_run(self.project_root, run.run_id)
         if _is_terminal_run(current):
             return current
+        if run_state is RunState.CANCELLED and not can_transition(
+            _coerce_run_state(current.run_state), RunState.CANCELLED
+        ):
+            # #614: a run with work in flight may not jump straight to
+            # "Cancelled" — that is visible state getting ahead of real
+            # teardown. Acknowledge the stop first, so the record shows the
+            # request and the confirmation as two distinct moments rather
+            # than one claim. Reached when a cancel lands in the window
+            # between the worker starting a state and checking the flag.
+            _transition_run(
+                self.project_root,
+                run.run_id,
+                target=RunState.CANCEL_REQUESTED,
+                reason_code="cancellation_requested",
+                cancel_requested=True,
+            )
         finished = _transition_run(
             self.project_root,
             run.run_id,

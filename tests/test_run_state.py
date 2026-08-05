@@ -70,10 +70,45 @@ def test_forward_progress_is_legal_but_backward_is_not() -> None:
     assert can_transition(RunState.VERIFYING, RunState.RUNNING)
 
 
+def _reachable(start: RunState) -> set[RunState]:
+    """Every state reachable from ``start`` by any number of legal moves."""
+
+    seen: set[RunState] = set()
+    frontier = [start]
+    while frontier:
+        state = frontier.pop()
+        for candidate in RunState:
+            if candidate in seen or not can_transition(state, candidate):
+                continue
+            seen.add(candidate)
+            frontier.append(candidate)
+    return seen
+
+
 def test_any_non_terminal_may_reach_any_terminal() -> None:
+    # Reachability, not adjacency. The property that matters is liveness — no
+    # run can be stranded without a route to every ending. Requiring a *direct*
+    # edge would additionally forbid ever putting an acknowledgement step in
+    # front of an ending, which is exactly what #614 needs for cancellation.
     for start in NON_TERMINAL_STATES:
+        reachable = _reachable(start)
         for end in TERMINAL_STATES:
-            assert can_transition(start, end), (start, end)
+            assert end in reachable, (start, end)
+
+
+def test_stopping_work_in_flight_is_acknowledged_before_it_is_confirmed() -> None:
+    # #614: "cancelled" claims teardown was observed. A state that may own a
+    # live provider call or subprocess must pass through "Stopping" first, so
+    # visible state cannot get ahead of the real thing.
+    for start in (RunState.RUNNING, RunState.VERIFYING):
+        assert not can_transition(start, RunState.CANCELLED), start
+        assert can_transition(start, RunState.CANCEL_REQUESTED), start
+    assert can_transition(RunState.CANCEL_REQUESTED, RunState.CANCELLED)
+
+    # ...and where nothing of OPai's is executing, the direct edge remains:
+    # acknowledging the teardown of nothing is ceremony, not evidence.
+    for start in (RunState.QUEUED, RunState.PREPARING, RunState.AWAITING_INPUT):
+        assert can_transition(start, RunState.CANCELLED), start
 
 
 def test_terminal_states_are_immutable() -> None:

@@ -44,7 +44,7 @@
     {"from": "running", "to": ["verifying"], "reason": "lifecycle_progress", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "pending", "delivery": "not_required", "reconciliation": "not_required"}},
     {"from": "running", "to": ["awaiting_input"], "reason": "input_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
     {"from": "running", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
-    {"from": "running", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
+    {"from": "running", "to": ["completed", "partial", "blocked", "failed", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
 
     {"from": "awaiting_input", "to": ["queued", "preparing", "running"], "reason": "input_resumed", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
     {"from": "awaiting_input", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
@@ -52,7 +52,7 @@
 
     {"from": "verifying", "to": ["running"], "reason": "verification_repair", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "repair_required", "delivery": "not_required", "reconciliation": "not_required"}},
     {"from": "verifying", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "recorded_if_available", "delivery": "not_required", "reconciliation": "pending"}},
-    {"from": "verifying", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required", "delivery": "required_if_applicable", "reconciliation": "required"}},
+    {"from": "verifying", "to": ["completed", "partial", "blocked", "failed", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required", "delivery": "required_if_applicable", "reconciliation": "required"}},
 
     {"from": "cancel_requested", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": false, "guards": {"verification": "recorded_if_available", "delivery": "recorded_if_available", "reconciliation": "required"}}
   ],
