@@ -128,6 +128,76 @@ class FreeRetryStillWorksTests(unittest.TestCase):
         self.assertEqual(result["status"], "answered")
 
 
+class PaidDispatchVisibilityTests(unittest.TestCase):
+    """A paid call lost in flight must not look like it never happened (#616).
+
+    The paid lane recorded its spend on success only. A call that timed out
+    therefore left the ledger identical to a turn that never ran — so OPai
+    reported a confident total that silently excluded work the provider may
+    have charged for. Recording the dispatch *before* it leaves is what turns
+    that silence into a stated unknown.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+        self._delay = mock.patch.object(
+            auto_router, "TRANSIENT_RETRY_DELAY_SECONDS", 0.0
+        )
+        self._delay.start()
+
+    def tearDown(self) -> None:
+        self._delay.stop()
+        self._tmp.cleanup()
+
+    def _run_paid(self, runner: FakeAccountRunner):
+        return handle_gui_message(
+            self.root,
+            "explain this repo",
+            model_id="account:claude:sonnet",
+            mode="ask",
+            allow_cloud=True,
+            account_runner=runner,
+        )
+
+    def test_a_lost_paid_call_is_reported_as_unresolved(self) -> None:
+        from opaihub.ledger import cost_reconciliation
+
+        self._run_paid(FakeAccountRunner(timed_out=True))
+        report = cost_reconciliation(self.root)
+        self.assertFalse(
+            report["verified"],
+            "a timed-out paid call leaves the total a lower bound, not a fact",
+        )
+        self.assertEqual(report["unresolved_calls"], 1)
+
+    def test_a_successful_paid_call_leaves_nothing_outstanding(self) -> None:
+        # The correctness risk of recording before dispatch: forgetting to
+        # close the record would mark every healthy run unreconciled, and a
+        # warning that is always on is a warning nobody reads.
+        from opaihub.ledger import cost_reconciliation
+
+        self._run_paid(FakeAccountRunner(text="Here is the tour."))
+        report = cost_reconciliation(self.root)
+        self.assertTrue(report["verified"])
+        self.assertEqual(report["unresolved_calls"], 0)
+
+    def test_the_unresolved_record_carries_no_prompt_text(self) -> None:
+        from opaihub.ledger import cost_reconciliation
+
+        handle_gui_message(
+            self.root,
+            "refactor the billing module for ACME Corp",
+            model_id="account:claude:sonnet",
+            mode="ask",
+            allow_cloud=True,
+            account_runner=FakeAccountRunner(timed_out=True),
+        )
+        payload = str(cost_reconciliation(self.root))
+        self.assertNotIn("ACME", payload)
+        self.assertNotIn("billing module", payload)
+
+
 class PaidModelIdentificationTests(unittest.TestCase):
     """The gate is only as good as its notion of what costs money."""
 

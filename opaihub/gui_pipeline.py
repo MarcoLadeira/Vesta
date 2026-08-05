@@ -861,6 +861,10 @@ def handle_gui_message(
     # this turn. Bounded by auto_router.MAX_TRANSIENT_RETRIES so a genuinely
     # down provider can never spin.
     _transient_retries: dict[str, int] = {}
+    # #616/#619: how many paid provider turns this request has dispatched, so
+    # each gets its own ledger call_id. Every dispatch is recorded *before* it
+    # leaves, because a call lost afterwards is invisible otherwise.
+    _paid_dispatches = 0
     _pending_cloud: dict[str, Any] = {}
     paid_authorized = bool(allow_cloud or allow_limit)
     # Central autonomy decision (#137): a requested/stored full-auto is honored
@@ -1927,6 +1931,92 @@ def handle_gui_message(
         time.sleep(auto_router.TRANSIENT_RETRY_DELAY_SECONDS)
         return not _cancelled()
 
+    def _record_paid_dispatch(turn_index: int) -> str:
+        """Note that a paid provider turn is about to leave OPai (#616).
+
+        Returns the ledger ``call_id``, or ``""`` if the record could not be
+        written. A ledger failure must never cost the user their answer, so
+        this degrades to "unrecorded" rather than raising — but it degrades
+        loudly enough that ``_settle_paid_dispatch`` knows to do nothing.
+        """
+        call_id = f"{turn_id}:{turn_index}"
+        try:
+            from . import auto_router
+            from .ledger import record_model_call_started
+
+            record_model_call_started(
+                root,
+                message,
+                call_id=call_id,
+                run_id=turn_id,
+                turn_index=turn_index,
+                model_id=selected_model,
+                provider_id=auto_router.provider_of(selected_model) or "account",
+                model_tier="L3",
+                provider_type="cloud",
+                confirmed=True,
+            )
+        except Exception:
+            return ""
+        return call_id
+
+    def _settle_paid_dispatch(call_id: str, turn_index: int, result: Any) -> None:
+        """Close the dispatch record — but only when the outcome is known.
+
+        Three outcomes, three honest treatments:
+
+        * The call answered. Finalize with what the provider reported.
+        * The call failed in a way that *proves* it never left (auth rejected,
+          connection refused). Finalize at zero: we know it cost nothing.
+        * Anything else — a timeout, an aborted stream, no response at all.
+          Leave it open. That is not a bookkeeping gap but the finding: the
+          provider may have billed for work whose result never arrived, and
+          ``cost_reconciliation`` reports the total as a lower bound until a
+          person resolves it. Quietly closing these at zero would restore the
+          exact false $0 that #619 removed.
+        """
+        if not call_id or not isinstance(result, dict):
+            return
+        from .operation_class import DispatchProof, dispatch_proof
+
+        status = str(result.get("status") or "")
+        answered = status == "answered_by_account"
+        error = result.get("error")
+        code = str(error.get("code") or "") if isinstance(error, dict) else ""
+        if not answered and dispatch_proof(code) is not DispatchProof.NOT_DISPATCHED:
+            return
+        try:
+            from . import auto_router
+            from .cost_telemetry import normalize_account_result
+            from .ledger import record_model_call_finalized
+            from .usage_report import ProviderTurnUsage
+
+            if answered:
+                telemetry = normalize_account_result(
+                    auto_router.provider_of(selected_model),
+                    result,
+                    model=selected_model,
+                )
+                cost = telemetry.cost_usd
+                usage = ProviderTurnUsage.from_provider(
+                    turn_index=turn_index,
+                    cost_usd=cost,
+                    cost_provenance=(
+                        "actual"
+                        if telemetry.cost_measurement == "actual"
+                        else "estimated"
+                    ),
+                )
+            else:
+                # Proven non-dispatch: nothing was generated, so zero here is
+                # measured rather than assumed.
+                usage = ProviderTurnUsage.from_provider(
+                    turn_index=turn_index, cost_usd=0.0, cost_provenance="actual"
+                )
+            record_model_call_finalized(root, message, call_id=call_id, usage=usage)
+        except Exception:
+            return
+
     def _advance_auto(*, status: str = "", error: Any = None) -> str:
         """Move Auto to the next candidate after a retryable failure.
 
@@ -2525,6 +2615,14 @@ def handle_gui_message(
             # The provider stream takes over from here (its own connect/stream
             # rows are the live surface), so the preamble row closes honestly.
             _phase("request_sending", "success", "Request sent")
+            # #616: record the dispatch before it happens. The paid lane used
+            # to write its ledger entry on success only, so a call lost to a
+            # timeout left no trace at all — indistinguishable from "nothing
+            # happened", while the provider may well have billed for it. The
+            # started row is what makes that loss visible to
+            # ledger.cost_reconciliation().
+            _paid_dispatches += 1
+            paid_call_id = _record_paid_dispatch(_paid_dispatches)
             result = A.ask(
                 root,
                 provider_message,
@@ -2537,6 +2635,7 @@ def handle_gui_message(
                 on_text=on_text,
                 cancel=cancel,
             )
+            _settle_paid_dispatch(paid_call_id, _paid_dispatches, result)
             if result.get("status") == "cancelled":
                 _emit("cancelled", "cancelled", "Stopped by you")
                 return _decorate(
