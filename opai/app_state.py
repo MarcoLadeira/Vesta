@@ -1311,19 +1311,21 @@ def _ask_account(
             complete_kwargs: dict[str, Any] = {
                 "project_root": root,
                 "allow_edits": allow_edits,
-                "mode": mode,
             }
-            if edit_grant:
-                with contextlib.suppress(TypeError, ValueError):
-                    if "edit_grant" in inspect.signature(run.complete).parameters:
-                        complete_kwargs["edit_grant"] = True
-            try:
-                result = run.complete(task, **complete_kwargs)
-            except TypeError as exc:
-                if "mode" not in str(exc):
-                    raise
-                complete_kwargs.pop("mode", None)
-                result = run.complete(task, **complete_kwargs)
+            # #617: capability decided from the signature before the one
+            # dispatch this makes — never from retrying after an exception.
+            # The prior code called run.complete() and, on a TypeError whose
+            # *message* happened to contain "mode", retried without it. This
+            # is a real paid account CLI dispatch: if the first call had
+            # already reached the provider before an unrelated internal
+            # TypeError was raised, that retry would have run the task twice.
+            with contextlib.suppress(TypeError, ValueError):
+                complete_params = inspect.signature(run.complete).parameters
+                if "mode" in complete_params:
+                    complete_kwargs["mode"] = mode
+                if edit_grant and "edit_grant" in complete_params:
+                    complete_kwargs["edit_grant"] = True
+            result = run.complete(task, **complete_kwargs)
     except Exception as exc:  # noqa: BLE001 - surface any CLI failure cleanly
         from opai.provider_contract import normalize_provider_error
 
