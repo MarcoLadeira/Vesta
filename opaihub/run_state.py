@@ -35,6 +35,7 @@ from .generated_lifecycle import (
     TERMINAL_STATE_IDS,
     transition_spec,
 )
+from .legacy_alias_telemetry import STATE, observe as _observe_alias
 
 
 class RunState(str, Enum):
@@ -325,7 +326,13 @@ def canonical_for(presentation_state: RunState | str) -> RunState:
         .lower()
     )
     mapped = _PRESENTATION_TO_CANONICAL.get(key)
-    return mapped if mapped is not None else RunState(key)
+    if mapped is None:
+        return RunState(key)
+    # #612 AC9: record that a compatibility alias was actually reached, so the
+    # deletion plan for these mappings has evidence instead of assuming every
+    # one is live forever. Names only, in-process, never raises.
+    _observe_alias(STATE, key)
+    return mapped
 
 
 def label(state: RunState | str) -> str:
