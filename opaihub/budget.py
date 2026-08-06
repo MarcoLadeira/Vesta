@@ -356,6 +356,47 @@ def budget_gate(
         spent_month = _spent(root, period="month")
         daily = caps.get("daily_usd_limit")
         monthly = caps.get("monthly_usd_limit")
+
+        # 3a. #619 AC8: "Budget protection fails closed or requires explicit
+        # policy when authoritative maximum is unknown."
+        #
+        # `_spent` is a LOWER BOUND. It omits calls priced at $0.00 because no
+        # price was known for their tier (#619 AC5, cost_price_known=False),
+        # so comparing it against a cap under-triggers the ceiling: actual
+        # spend can already be over the limit while this arithmetic reports
+        # room to spare.
+        #
+        # Confirm rather than deny, matching the degraded-cost-model
+        # precedent above: the figure is understated, not absent. A cap the
+        # user never set has no ceiling to under-trigger, so this only
+        # applies when one exists.
+        #
+        # Scoped to TODAY's unpriced calls, deliberately. Two exclusions:
+        #
+        #  - Not the month. A daily window clears on its own, so a repaired
+        #    cost model stops the prompt tomorrow at the latest rather than
+        #    for the rest of the month.
+        #  - Not `cost_reconciliation`'s unresolved calls, even though they
+        #    are the same kind of blind spot. Those live in the ledger head's
+        #    `active_calls` and never age out (opaihub/ledger.py), so a
+        #    single crashed run would gate every paid route forever with no
+        #    way for the user to clear it. A permanent prompt is not a safety
+        #    feature — it trains people to click through. Gating on them
+        #    needs an expiry/reconciliation sweep first; filed separately.
+        #    They are still reported honestly by budget_status and by
+        #    `opai savings`, which is the half that costs nothing.
+        if daily is not None or monthly is not None:
+            unpriced_today = _unpriced_calls(root, period="day")
+            if unpriced_today:
+                escalate(
+                    "confirm",
+                    f"Recorded spend is a lower bound ({unpriced_today} call(s) "
+                    "today had no known price for their tier), so the budget "
+                    "ceiling cannot be enforced against a complete total — "
+                    "confirm before routing, or set the tier's price in "
+                    ".opaihub/model-intelligence/cost_model.yaml.",
+                )
+
         if daily is not None and spent_day + next_cost_usd > float(daily):
             escalate(
                 "deny",
