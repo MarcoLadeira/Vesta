@@ -104,7 +104,60 @@ def estimate_tokens(text: str, model: dict[str, Any] | None = None) -> int:
     return max(1, len(text) // chars_per_token(model))
 
 
+def tier_price_known(tier: str, model: dict[str, Any] | None = None) -> bool:
+    """Whether a *real* price exists for this tier (#619 AC5).
+
+    ``tier_cost_per_1k`` has to return a float, so it answers ``0.0`` both
+    for a tier that genuinely costs nothing (``L1`` — local execution) and
+    for one it has never heard of. Those are opposite facts, and collapsing
+    them is how an unpriced paid call gets recorded as free.
+
+    The reachable path is not exotic. ``load_cost_model`` shallow-merges the
+    user's ``cost_model.yaml`` over the defaults, and the file's own
+    description invites tuning ("Tune these values to match your
+    providers"). A user who edits only the tier they care about replaces the
+    whole table:
+
+        tier_usd_per_1k_tokens:
+          L3: 0.02
+
+    L2 is now absent, prices at ``0.0``, carries no degraded flag, and
+    ``opaihub.budget._spent`` sums it as zero — so the Cost Firewall quietly
+    stops capping every L2 call.
+
+    Callers that record or gate spend must ask this before trusting a zero.
+
+    A *local* tier is always known-priced at zero, whether or not the price
+    table lists it: local execution costing nothing is not an estimate, it
+    is the premise. Without this, a partial user table would flag every
+    local run as unpriced — noise on exactly the runs OPai is most confident
+    about.
+    """
+
+    model = model or DEFAULT_COST_MODEL
+    if is_local_tier(tier, model):
+        return True
+    table = model.get("tier_usd_per_1k_tokens")
+    if not isinstance(table, dict):
+        return False
+    raw = table.get(str(tier).upper())
+    if raw is None or isinstance(raw, bool):
+        return False
+    try:
+        float(raw)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def tier_cost_per_1k(tier: str, model: dict[str, Any] | None = None) -> float:
+    """Price per 1k tokens, or ``0.0`` when the tier has no known price.
+
+    A ``0.0`` here is ambiguous by design — see :func:`tier_price_known`,
+    which every spend-recording or budget-gating caller must consult before
+    treating this number as a real cost.
+    """
+
     model = model or DEFAULT_COST_MODEL
     table = model.get("tier_usd_per_1k_tokens", {})
     try:
