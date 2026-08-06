@@ -152,6 +152,90 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
                 f"{input_class} must degrade incompatibly to needs_attention"
             )
 
+    _validate_background_compatibility(
+        schema, state_ids=set(state_ids), by_state=by_state
+    )
+
+
+def _validate_background_compatibility(
+    schema: Mapping[str, Any], *, state_ids: set[str], by_state: Mapping[str, Any]
+) -> None:
+    """#612: the background status projection must be total and consistent.
+
+    This is the check that makes the PR #668 crash class impossible rather
+    than merely fixed: ``needs_attention`` was missing from the (then
+    hand-maintained) map, and the omission surfaced as a ``KeyError`` on a
+    background worker thread at runtime. Requiring totality here turns the
+    same mistake into a generation-time failure that CI's ``--check`` gate
+    blocks before it can merge.
+    """
+
+    compat = schema.get("background_compatibility")
+    if not isinstance(compat, dict):
+        raise ValueError("background_compatibility section is required")
+
+    statuses = compat.get("statuses")
+    if not isinstance(statuses, dict) or not statuses:
+        raise ValueError("background_compatibility.statuses must be a non-empty object")
+    for word, spec in statuses.items():
+        if not isinstance(spec, dict):
+            raise ValueError(f"background status {word!r} must be an object")
+        if not isinstance(spec.get("terminal"), bool):
+            raise ValueError(f"background status {word!r} needs a boolean terminal")
+        target = spec.get("state")
+        if target not in state_ids:
+            raise ValueError(
+                f"background status {word!r} maps to unknown state {target!r}"
+            )
+        # A compatibility word may collapse onto a canonical state (e.g.
+        # "interrupted" -> failed), but it must agree about terminality:
+        # a word claiming to be terminal cannot resolve to a live state.
+        if spec["terminal"] != bool(by_state[target]["terminal"]):
+            raise ValueError(
+                f"background status {word!r} disagrees with {target!r} about terminality"
+            )
+        if (
+            not isinstance(spec.get("default_reason"), str)
+            or not spec["default_reason"]
+        ):
+            raise ValueError(f"background status {word!r} needs a default_reason")
+
+    forward = compat.get("state_to_status")
+    if not isinstance(forward, dict):
+        raise ValueError("background_compatibility.state_to_status must be an object")
+    missing = sorted(state_ids - set(forward))
+    if missing:
+        raise ValueError(
+            "background_compatibility.state_to_status must cover every state; "
+            f"missing: {', '.join(missing)}"
+        )
+    unknown_states = sorted(set(forward) - state_ids)
+    if unknown_states:
+        raise ValueError(
+            f"state_to_status maps unknown states: {', '.join(unknown_states)}"
+        )
+    for state_id, word in forward.items():
+        if word not in statuses:
+            raise ValueError(
+                f"state {state_id!r} maps to unknown background status {word!r}"
+            )
+        # A terminal state must never project to a word older readers treat
+        # as still-running, and vice versa — that is how a finished run gets
+        # reported as in-flight (or a live one as finished) to the pre-#379
+        # automation CLI.
+        if bool(by_state[state_id]["terminal"]) != bool(statuses[word]["terminal"]):
+            raise ValueError(
+                f"state {state_id!r} is terminal={by_state[state_id]['terminal']} but "
+                f"projects to background status {word!r} with "
+                f"terminal={statuses[word]['terminal']}"
+            )
+
+    fallback = compat.get("fallback_status")
+    if fallback not in statuses:
+        raise ValueError(
+            "background_compatibility.fallback_status must be a known status"
+        )
+
 
 def _expanded_transitions(schema: Mapping[str, Any]) -> list[dict[str, Any]]:
     transitions: list[dict[str, Any]] = []
@@ -183,6 +267,18 @@ def _render_python(schema: Mapping[str, Any], transitions: list[dict[str, Any]])
         state["id"]: state["exit_code"] for state in states if state["terminal"]
     }
     legacy = schema["legacy_mappings"]
+    compat = schema["background_compatibility"]
+    background_statuses = tuple(sorted(compat["statuses"]))
+    background_terminal = tuple(
+        sorted(word for word, spec in compat["statuses"].items() if spec["terminal"])
+    )
+    background_state_for_status = {
+        word: spec["state"] for word, spec in sorted(compat["statuses"].items())
+    }
+    background_reason_for_status = {
+        word: spec["default_reason"]
+        for word, spec in sorted(compat["statuses"].items())
+    }
     return f'''# {GENERATED_NOTICE}
 """Canonical lifecycle data generated at build time."""
 
@@ -203,6 +299,17 @@ LEGACY_STATE_MAP: dict[str, str] = {_python_literal(legacy["states"])}
 LEGACY_STATUS_MAP: dict[str, str] = {_python_literal(legacy["statuses"])}
 UNKNOWN_COMPATIBILITY: dict[str, Any] = {_python_literal(legacy["unknown"])}
 DEGRADED_INPUTS: dict[str, dict[str, Any]] = {_python_literal(schema["degraded_inputs"])}
+
+# #612: the pre-#379 background-automation status vocabulary, generated so it
+# can no longer drift behind RunState (PR #668's worker-thread crash).
+# BACKGROUND_STATUS_FOR_STATE is validated TOTAL over STATE_IDS at generation
+# time, so a new state without a mapping fails the build, not a live run.
+BACKGROUND_STATUSES: frozenset[str] = frozenset({_python_literal(background_statuses)})
+BACKGROUND_TERMINAL_STATUSES: frozenset[str] = frozenset({_python_literal(background_terminal)})
+BACKGROUND_STATUS_FOR_STATE: dict[str, str] = {_python_literal(dict(sorted(compat["state_to_status"].items())))}
+BACKGROUND_STATE_FOR_STATUS: dict[str, str] = {_python_literal(background_state_for_status)}
+BACKGROUND_REASON_FOR_STATUS: dict[str, str] = {_python_literal(background_reason_for_status)}
+BACKGROUND_FALLBACK_STATUS = {compat["fallback_status"]!r}
 
 _TRANSITION_BY_EDGE = {{
     (spec["from"], spec["to"]): spec for spec in TRANSITIONS
@@ -291,6 +398,10 @@ def _render_fixture(
         },
         "legacy_mappings": schema["legacy_mappings"],
         "degraded_inputs": schema["degraded_inputs"],
+        # #612: the background-automation projection travels with the other
+        # golden vectors so any consumer (Python today, another surface
+        # later) is checked against the same source of truth.
+        "background_compatibility": schema["background_compatibility"],
     }
     return _json_text(fixture)
 

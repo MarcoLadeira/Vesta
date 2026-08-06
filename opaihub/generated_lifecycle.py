@@ -679,6 +679,53 @@ DEGRADED_INPUTS: dict[str, dict[str, Any]] = {'unknown_schema_version': {'automa
                     'compatibility': 'incompatible',
                     'state': 'needs_attention'}}
 
+# #612: the pre-#379 background-automation status vocabulary, generated so it
+# can no longer drift behind RunState (PR #668's worker-thread crash).
+# BACKGROUND_STATUS_FOR_STATE is validated TOTAL over STATE_IDS at generation
+# time, so a new state without a mapping fails the build, not a live run.
+BACKGROUND_STATUSES: frozenset[str] = frozenset(('blocked',
+ 'cancelled',
+ 'completed',
+ 'failed',
+ 'interrupted',
+ 'partial',
+ 'queued',
+ 'running',
+ 'timeout'))
+BACKGROUND_TERMINAL_STATUSES: frozenset[str] = frozenset(('blocked', 'cancelled', 'completed', 'failed', 'interrupted', 'partial', 'timeout'))
+BACKGROUND_STATUS_FOR_STATE: dict[str, str] = {'awaiting_input': 'running',
+ 'blocked': 'blocked',
+ 'cancel_requested': 'running',
+ 'cancelled': 'cancelled',
+ 'completed': 'completed',
+ 'failed': 'failed',
+ 'needs_attention': 'blocked',
+ 'partial': 'partial',
+ 'preparing': 'queued',
+ 'queued': 'queued',
+ 'running': 'running',
+ 'timeout': 'timeout',
+ 'verifying': 'running'}
+BACKGROUND_STATE_FOR_STATUS: dict[str, str] = {'blocked': 'blocked',
+ 'cancelled': 'cancelled',
+ 'completed': 'completed',
+ 'failed': 'failed',
+ 'interrupted': 'failed',
+ 'partial': 'partial',
+ 'queued': 'queued',
+ 'running': 'running',
+ 'timeout': 'timeout'}
+BACKGROUND_REASON_FOR_STATUS: dict[str, str] = {'blocked': 'background_blocked',
+ 'cancelled': 'cancelled_by_user',
+ 'completed': 'background_completed',
+ 'failed': 'background_failed',
+ 'interrupted': 'interrupted',
+ 'partial': 'background_partial',
+ 'queued': 'queued',
+ 'running': 'execution_started',
+ 'timeout': 'background_timeout'}
+BACKGROUND_FALLBACK_STATUS = 'blocked'
+
 _TRANSITION_BY_EDGE = {
     (spec["from"], spec["to"]): spec for spec in TRANSITIONS
 }
