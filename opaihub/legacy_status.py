@@ -19,6 +19,7 @@ from .generated_lifecycle import (
     SCHEMA_VERSION,
     TERMINAL_STATE_IDS,
 )
+from .legacy_alias_telemetry import STATUS, observe as _observe_alias
 from .run_result import RunResult
 
 
@@ -163,11 +164,22 @@ def _count(kind: str) -> None:
 
 
 def legacy_status_usage() -> dict[str, Any]:
-    """Return an in-process telemetry snapshot and the removal gate."""
+    """Return an in-process telemetry snapshot and the removal gate.
+
+    #612 AC9: the aggregate counters below answer "has legacy usage stopped
+    yet", which can only ever retire all 50 compatibility aliases as one
+    batch — a single stubborn alias keeps the other 49 alive. ``aliases``
+    adds the per-alias breakdown the deletion plan needs, so individual
+    mappings can be retired on their own evidence. One surface, two
+    granularities; see ``opaihub/legacy_alias_telemetry.py``.
+    """
+
+    from .legacy_alias_telemetry import coverage_report
 
     with _COUNTER_LOCK:
         counters = dict(_COUNTERS)
     counters["removal_gate"] = REMOVAL_GATE
+    counters["aliases"] = coverage_report()
     return counters
 
 
@@ -307,6 +319,10 @@ def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
     else:
         state = LEGACY_STATUS_MAP.get(status)
         state_source = "status"
+        if state is not None:
+            # #612 AC9: evidence for the deletion plan — this alias is still
+            # reached by real data. Names only, in-process, never raises.
+            _observe_alias(STATUS, status)
     if stopped_reason and state is None:
         return _degraded_legacy_result(
             payload,
