@@ -28,6 +28,14 @@ The tests below pin two independent halves of the fix: the map is now total
 (so this never happens with a *known* state), and the lookup that used to
 crash is now structurally incapable of it (so a *future* state added without
 updating the map degrades instead of taking down the worker thread).
+
+Follow-up (#612 AC1): completing the map by hand fixed the instance but not
+the *class* — the map was still hand-maintained beside the enum it had to
+track. It is now generated from ``opaihub/lifecycle_schema.json``, and the
+generator refuses to emit an incomplete or terminality-inconsistent
+projection at all, so the same mistake is a build failure behind CI's
+``--check`` drift gate rather than a runtime crash. ``GeneratedProjectionTests``
+below pins that contract.
 """
 
 from __future__ import annotations
@@ -124,6 +132,74 @@ class CrashRegressionTests(unittest.TestCase):
         ):
             result = _legacy_status_for(RunState.NEEDS_ATTENTION)
         self.assertEqual(result, "blocked")
+
+
+class GeneratedProjectionTests(unittest.TestCase):
+    """#612 AC1: this projection is generated, not hand-maintained.
+
+    The runtime tables must *be* the generated ones — not a copy that happens
+    to agree today. Rebinding them by hand is what allowed the drift these
+    tests exist to prevent.
+    """
+
+    def test_runtime_tables_are_the_generated_ones(self) -> None:
+        from opaihub import background_runs
+        from opaihub.generated_lifecycle import (
+            BACKGROUND_REASON_FOR_STATUS,
+            BACKGROUND_STATE_FOR_STATUS,
+            BACKGROUND_STATUS_FOR_STATE,
+            BACKGROUND_STATUSES,
+            BACKGROUND_TERMINAL_STATUSES,
+        )
+
+        self.assertEqual(background_runs.RUN_STATUSES, set(BACKGROUND_STATUSES))
+        self.assertEqual(
+            background_runs.TERMINAL_STATUSES, set(BACKGROUND_TERMINAL_STATUSES)
+        )
+        self.assertEqual(
+            {state.value: word for state, word in _LEGACY_STATUS_FOR_RUN_STATE.items()},
+            dict(BACKGROUND_STATUS_FOR_STATE),
+        )
+        self.assertEqual(
+            {
+                word: state.value
+                for word, state in background_runs._RUN_STATE_FOR_LEGACY_STATUS.items()
+            },
+            dict(BACKGROUND_STATE_FOR_STATUS),
+        )
+        self.assertEqual(
+            background_runs._DEFAULT_REASON_FOR_LEGACY_STATUS,
+            dict(BACKGROUND_REASON_FOR_STATUS),
+        )
+
+    def test_a_terminal_state_never_projects_to_a_live_word_or_vice_versa(self) -> None:
+        """The invariant that caught a real pre-existing bug.
+
+        ``awaiting_input`` (canonically non-terminal — the run resumes when
+        the user answers) mapped to ``"blocked"``, which the background
+        vocabulary treats as terminal: a live, resumable run reported to
+        pre-#379 readers as ended. Latent, because background runs convert
+        AWAITING_INPUT to canonical BLOCKED themselves before persisting —
+        but a latent lie is still a lie, and the generator now refuses it.
+        """
+        from opaihub.background_runs import TERMINAL_STATUSES
+        from opaihub.run_state import TERMINAL_STATES
+
+        for state, word in _LEGACY_STATUS_FOR_RUN_STATE.items():
+            with self.subTest(state=state.value, word=word):
+                self.assertEqual(
+                    state in TERMINAL_STATES,
+                    word in TERMINAL_STATUSES,
+                    f"{state.value} and its projection {word!r} disagree "
+                    "about whether the run has ended",
+                )
+
+    def test_awaiting_input_projects_to_a_live_word(self) -> None:
+        # The specific instance the invariant above caught, pinned by name so
+        # a future edit back to "blocked" fails loudly rather than silently.
+        self.assertEqual(
+            _LEGACY_STATUS_FOR_RUN_STATE[RunState.AWAITING_INPUT], "running"
+        )
 
 
 if __name__ == "__main__":

@@ -116,5 +116,35 @@
       "compatibility": "incompatible",
       "automatic_retry": false
     }
+  },
+  "background_compatibility": {
+    "description": "The pre-#379 background-automation status vocabulary (opaihub/background_runs.py). #612 requires this projection to be generated, not hand-maintained: it drifted behind RunState and crashed a worker thread on needs_attention (PR #668). state_to_status is validated as TOTAL over every state, and as terminality-consistent with it, at generation time — so both a missing mapping and a mapping that would report a live run as ended now fail the build instead of surfacing at runtime. awaiting_input maps to the non-terminal 'running' for exactly that reason: it is a live, resumable state, and the previous hand-maintained 'blocked' told pre-#379 readers the run had ended. Background runs convert AWAITING_INPUT to canonical BLOCKED themselves (background_runs._terminal_from_payload) before persisting, so that entry is latent — but a latent lie is still a lie.",
+    "fallback_status": "blocked",
+    "statuses": {
+      "queued": {"terminal": false, "state": "queued", "default_reason": "queued"},
+      "running": {"terminal": false, "state": "running", "default_reason": "execution_started"},
+      "completed": {"terminal": true, "state": "completed", "default_reason": "background_completed"},
+      "partial": {"terminal": true, "state": "partial", "default_reason": "background_partial"},
+      "failed": {"terminal": true, "state": "failed", "default_reason": "background_failed"},
+      "cancelled": {"terminal": true, "state": "cancelled", "default_reason": "cancelled_by_user"},
+      "blocked": {"terminal": true, "state": "blocked", "default_reason": "background_blocked"},
+      "timeout": {"terminal": true, "state": "timeout", "default_reason": "background_timeout"},
+      "interrupted": {"terminal": true, "state": "failed", "default_reason": "interrupted"}
+    },
+    "state_to_status": {
+      "queued": "queued",
+      "preparing": "queued",
+      "running": "running",
+      "verifying": "running",
+      "awaiting_input": "running",
+      "cancel_requested": "running",
+      "completed": "completed",
+      "partial": "partial",
+      "blocked": "blocked",
+      "failed": "failed",
+      "cancelled": "cancelled",
+      "timeout": "timeout",
+      "needs_attention": "blocked"
+    }
   }
 }
