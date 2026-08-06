@@ -19,6 +19,7 @@ from .cost_model import (
     is_local_tier,
     load_cost_model,
     tier_cost,
+    tier_price_known,
 )
 from .model_identity import canonical_usage_model_id, model_provider
 from .state import state_dir
@@ -1275,10 +1276,16 @@ def record_model_call(
 
     When ``real_cost_usd`` is provided (e.g. claude's ``total_cost_usd``),
     it is used as-is so the ledger reflects the true spend rather than an
-    estimate. When None, the tier rate is used as a fallback.
+    estimate. When None, the tier rate is used as a fallback — *if* that
+    tier has a known price. When it does not, the call is recorded with
+    ``measurement="unavailable"`` rather than a confident ``$0.00`` (#619
+    AC5: "Invalid or missing prices become unavailable and cannot evaluate
+    to zero"). ``cost_price_known`` on the event says which happened, so a
+    genuine free-tier zero stays distinguishable from an unpriced one.
     """
     root = project_root.expanduser().resolve()
     cost_model = load_cost_model(root)
+    price_known = real_cost_usd is not None or tier_price_known(model_tier, cost_model)
     cost = (
         float(real_cost_usd)
         if real_cost_usd is not None
@@ -1286,7 +1293,15 @@ def record_model_call(
     )
     metadata: dict[str, Any] = {
         "schema_version": 1,
+        # `measurement` describes where the *usage* numbers came from, and
+        # opaihub/usage.py reads it to decide whether a window is measured or
+        # estimated. Price availability is a different fact — a provider can
+        # report exact tokens for a tier OPai has no price for — so it gets
+        # its own field rather than overloading this one. Conflating them
+        # would report provider-measured usage as unmeasured, which is the
+        # kind of contradiction #619 AC4 exists to prevent.
         "measurement": str(measurement or "estimated"),
+        "cost_price_known": bool(price_known),
     }
     if model_id:
         metadata["model_id"] = str(model_id)

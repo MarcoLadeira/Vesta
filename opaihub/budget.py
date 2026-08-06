@@ -199,14 +199,56 @@ def _spent(project_root: Path, *, period: str) -> float:
     return round(total, 6)
 
 
+def _unpriced_calls(project_root: Path, *, period: str) -> int:
+    """In-window model calls whose cost could not be priced (#619 AC5/AC8).
+
+    These contribute ``$0.00`` to :func:`_spent` — not because they were
+    free, but because no price was known for their tier. A cap compared
+    against a total containing them is a cap compared against an
+    understatement, so surfaces must be able to say the total is incomplete
+    rather than present it as authoritative.
+    """
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    month = today[:7]
+    unpriced = 0
+    for event in read_events(project_root):
+        if event.get("event_type") != EVENT_MODEL_CALL:
+            continue
+        created = str(event.get("created_at", ""))
+        if period == "day" and not created.startswith(today):
+            continue
+        if period == "month" and not created.startswith(month):
+            continue
+        # Events written before this field existed are not evidence of a
+        # pricing failure — absence means "not recorded", not "unpriced".
+        if event.get("cost_price_known") is False:
+            unpriced += 1
+    return unpriced
+
+
 def budget_status(project_root: Path) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     caps = load_budget(root)
     spent_day = _spent(root, period="day")
     spent_month = _spent(root, period="month")
+    unpriced_day = _unpriced_calls(root, period="day")
+    unpriced_month = _unpriced_calls(root, period="month")
 
     def remaining(limit: Any, spent: float) -> Any:
         return round(float(limit) - spent, 6) if limit is not None else None
+
+    notes = [
+        "Spend is estimated locally from the usage ledger; nothing is transmitted.",
+        "Panic mode forces deterministic/local-only routing until disabled.",
+    ]
+    if unpriced_month:
+        notes.append(
+            f"{unpriced_month} call(s) this month had no known price for their "
+            "tier and count as $0.00 here — the totals below are a lower "
+            "bound, not a complete figure. Check tier_usd_per_1k_tokens in "
+            ".opaihub/model-intelligence/cost_model.yaml."
+        )
 
     return {
         "report": "opai-budget-status",
@@ -219,14 +261,19 @@ def budget_status(project_root: Path) -> dict[str, Any]:
             "per_task_hard_limit_usd": caps.get("per_task_hard_limit_usd"),
         },
         "spent": {"today_usd": spent_day, "month_usd": spent_month},
+        # #619 AC5/AC8: a total built partly from unpriced calls is a lower
+        # bound. Say so explicitly instead of letting a confident-looking
+        # number imply the cap is being enforced against real spend.
+        "spend_completeness": {
+            "complete": not (unpriced_day or unpriced_month),
+            "unpriced_calls_today": unpriced_day,
+            "unpriced_calls_month": unpriced_month,
+        },
         "remaining": {
             "today_usd": remaining(caps.get("daily_usd_limit"), spent_day),
             "month_usd": remaining(caps.get("monthly_usd_limit"), spent_month),
         },
-        "notes": [
-            "Spend is estimated locally from the usage ledger; nothing is transmitted.",
-            "Panic mode forces deterministic/local-only routing until disabled.",
-        ],
+        "notes": notes,
     }
 
 
