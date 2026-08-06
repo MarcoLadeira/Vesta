@@ -149,6 +149,37 @@ class CompleteStreamingSingleDispatchTests(unittest.TestCase):
         self.assertIn("cancel", received)
         self.assertIn("on_text", received)
 
+    def test_a_typeerror_raised_by_the_callback_cannot_cause_a_second_call(self):
+        """#617 AC4: "Callback-raised TypeError is classified correctly and
+        cannot cause a second call."
+
+        Distinct from the runner-raised case above: here the *callback the
+        caller supplied* is what raises, from inside a dispatch that has
+        already reached the provider and started streaming. Under the old
+        text-sniffing fallback this was the nastiest variant — a TypeError
+        from user code, arriving mid-stream, whose message could mention
+        anything at all. The answer must be: surface it, never re-dispatch.
+        """
+        calls = []
+
+        def exploding_on_text(chunk):
+            raise TypeError("on_text sink rejected a chunk")
+
+        class StreamingRunner:
+            def complete(self, text, *, system, cancel=None, on_text=None):
+                calls.append(1)
+                if on_text:
+                    on_text("partial chunk")  # raises from inside the dispatch
+                return "answer"
+
+        with self.assertRaises(TypeError):
+            _complete_streaming(
+                StreamingRunner(), "task", cancel=None, on_text=exploding_on_text
+            )
+        self.assertEqual(
+            len(calls), 1, "a callback failure must not re-dispatch the operation"
+        )
+
 
 class AskAccountSingleDispatchTests(unittest.TestCase):
     """The second site the issue names: opai/app_state.py's account
