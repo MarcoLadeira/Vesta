@@ -39,6 +39,13 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
     savings = summary["estimated_savings_usd"]
     pct = round((savings / baseline) * 100, 1) if baseline else 0.0
 
+    # #619 AC7/AC9: a dispatched call with no recorded outcome spent real money
+    # nobody can price. While any is outstanding these totals are a lower
+    # bound, and the headline must not read as a settled figure.
+    reconciliation = summary.get("reconciliation") or {}
+    reconciled = bool(reconciliation.get("verified", True))
+    unresolved_calls = int(reconciliation.get("unresolved_calls") or 0)
+
     has_data = summary["route_count"] > 0
     headline = (
         f"OPai estimates ${savings:.4f} saved across "
@@ -47,10 +54,20 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
         if has_data
         else 'No routed tasks recorded yet. Run: opai route "<task>" --record'
     )
+    if has_data and not reconciled:
+        headline = (
+            f"At least ${savings:.4f} saved across {summary['route_count']} routed "
+            f"task(s) — {unresolved_calls} dispatched call(s) have no recorded "
+            "outcome, so this is a lower bound, not a verified total."
+        )
 
     return {
         "report": "opai-savings",
         "project": str(root),
+        # Explicit, machine-readable completeness so a consumer never has to
+        # infer it from prose. `verified` false means: real spend happened
+        # that these totals do not include.
+        "reconciliation": reconciliation,
         "headline": headline,
         "has_data": has_data,
         "baseline_tier": cost_model.get("baseline_tier", "L3"),
@@ -82,6 +99,11 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
             ]
             if summary.get("legacy_route_count", 0)
             else []
+        )
+        + (
+            [str(reconciliation.get("note") or "")]
+            if not reconciled and reconciliation.get("note")
+            else []
         ),
         "privacy": summary["privacy"],
         "next_steps": [
@@ -94,11 +116,24 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
 
 def render_savings_markdown(report: dict[str, Any]) -> str:
     totals = report["totals"]
+    reconciliation = report.get("reconciliation") or {}
     lines = [
         "# OPai Savings Report",
         "",
         f"**{report['headline']}**",
         "",
+    ]
+    # #619 AC7/AC9: an exported/printed report must carry the caveat too —
+    # markdown is the form people paste into a doc or an issue, where the
+    # surrounding context that would have explained it is gone.
+    if not reconciliation.get("verified", True):
+        lines += [
+            f"> **Totals below are a lower bound.** "
+            f"{reconciliation.get('unresolved_calls', 0)} dispatched call(s) have "
+            "no recorded outcome, so spend they incurred is not included.",
+            "",
+        ]
+    lines += [
         "| Signal | Value |",
         "| --- | --- |",
         f"| Routed tasks | {totals['routed_tasks']} |",

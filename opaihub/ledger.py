@@ -1449,6 +1449,14 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         "route_estimated_actual_usd": _sum(routes, "estimated_actual_usd"),
         "estimated_actual_spend_usd": _sum(model_calls, "estimated_actual_usd"),
         "estimated_savings_usd": _sum(routes, "estimated_savings_usd"),
+        # #619 AC7/AC9: the spend total above sums only *finalized* calls. A
+        # call that was dispatched and never came back (crash, timeout, kill)
+        # contributed real money that nobody can price, so the total is a
+        # lower bound whenever anything is outstanding. `cost_reconciliation`
+        # has known this all along and said so in its own note; until now no
+        # savings surface asked it, so `opai savings` presented an
+        # authoritative-looking figure that silently omitted those attempts.
+        "reconciliation": cost_reconciliation(project_root),
         "context_chars_saved": int(_sum(routes, "context_chars_saved")),
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),
         "capture": {
