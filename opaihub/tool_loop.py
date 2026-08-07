@@ -64,6 +64,21 @@ class ToolLoopProviderError(Exception):
     """Raised by an injected ``chat`` to signal a retryable transport failure."""
 
 
+class ReasoningContinuityError(RuntimeError):
+    """A thinking-mode tool-call turn's required ``reasoning_content`` is gone.
+
+    DeepSeek's thinking mode (#674, #673 A4) has a non-optional continuity
+    requirement: ``reasoning_content`` returned alongside an assistant
+    tool-call message must be replayed verbatim in the next turn's request, or
+    the provider rejects the continuation. This is raised when a turn
+    dispatched under thinking mode produced tool calls but no
+    ``reasoning_content`` to carry forward — deliberately NOT a
+    :class:`ToolLoopProviderError`, so it is never retried. Re-sending the
+    same broken payload cannot fix a missing field; the data is gone, not
+    delayed.
+    """
+
+
 class InvalidCompletionDecision(ValueError):
     """A no-tool response carried a decision block that could not be honoured."""
 
@@ -212,15 +227,36 @@ class ToolProtocolAtom:
     assistant_content: str
     tool_calls: tuple[Mapping[str, Any], ...]
     observations: tuple[Mapping[str, Any], ...]
+    # #674: DeepSeek thinking-mode continuity. ``reasoning_content`` is the raw
+    # provider field to replay verbatim; ``thinking_required`` records whether
+    # THIS turn was dispatched with thinking on, so a turn made under
+    # non-thinking mode is never held to a continuity rule that never applied
+    # to it. Never surfaced outside this atom — not in ToolLoopResult, not in
+    # the ledger, not in diagnostics (A4's privacy rule) — and discarded for
+    # good the moment compaction folds this atom into a summary line.
+    reasoning_content: str | None = None
+    thinking_required: bool = False
 
     def to_messages(self) -> list[dict[str, Any]]:
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "assistant",
-                "content": self.assistant_content or "",
-                "tool_calls": [dict(call) for call in self.tool_calls],
-            }
-        ]
+        if self.thinking_required and not self.reasoning_content:
+            # Every atom is a tool-call turn by construction (a no-tool
+            # response never becomes an atom — see ToolLoopController.run),
+            # so `thinking_required` alone is sufficient: A4's "non-tool
+            # thinking turns don't need continuity" carve-out cannot apply
+            # here, there is no non-tool case to exempt.
+            raise ReasoningContinuityError(
+                f"turn {self.turn_index} was dispatched with thinking mode on "
+                "and returned tool calls, but no reasoning_content to replay. "
+                "The provider will reject this continuation without it."
+            )
+        assistant_message: dict[str, Any] = {
+            "role": "assistant",
+            "content": self.assistant_content or "",
+            "tool_calls": [dict(call) for call in self.tool_calls],
+        }
+        if self.reasoning_content:
+            assistant_message["reasoning_content"] = self.reasoning_content
+        messages: list[dict[str, Any]] = [assistant_message]
         for observation in self.observations:
             messages.append(
                 {
@@ -399,6 +435,13 @@ class ChatTurn:
     content: str = ""
     tool_calls: tuple[Mapping[str, Any], ...] = ()
     usage: Mapping[str, Any] = field(default_factory=dict)
+    # #674: the provider's raw reasoning field for this turn, if any, and
+    # whether the runner dispatched this turn with thinking mode on. Both
+    # default off so every existing ``ChatTurn(...)`` caller (Claude, Codex,
+    # every non-thinking provider) is unaffected — reasoning_content is simply
+    # never carried for them.
+    reasoning_content: str | None = None
+    thinking_requested: bool = False
 
 
 @dataclass(frozen=True)
@@ -555,6 +598,15 @@ class ToolLoopController:
                 consent_payload=consent,
             )
 
+        def _continuity_stop(exc: ReasoningContinuityError) -> ToolLoopResult:
+            # #674: terminal, never retried. A missing reasoning_content is a
+            # permanently lost field, not a transient transport blip — the
+            # ToolLoopProviderError retry path would just resend the same
+            # broken request and fail identically every time.
+            nonlocal last_error
+            last_error = str(exc)
+            return _result(CompletionState.FAILED, stopped="reasoning_continuity_error")
+
         while True:
             if _cancelled(cancel):
                 return _result(CompletionState.CANCELLED, stopped="cancelled")
@@ -567,13 +619,21 @@ class ToolLoopController:
             # grows past the threshold, and at least once every checkpoint_interval
             # calls. ``12`` is this maintenance cadence, not a stopping quota;
             # compaction is a no-op while the context is still small.
-            due_by_size = state.serialized_chars() >= policy.compaction_threshold()
-            due_by_interval = (
-                model_calls > 0 and model_calls % policy.checkpoint_interval == 0
-            )
-            if due_by_size or due_by_interval:
-                compact_context(state, policy)
-            state.cumulative_serialized_chars += state.serialized_chars()
+            #
+            # #674: serialized_chars() renders every atom via to_messages(),
+            # which is where a broken continuity atom raises — so the very
+            # first size check after a bad turn is appended is already "on
+            # replay", before any request is built or dispatched.
+            try:
+                due_by_size = state.serialized_chars() >= policy.compaction_threshold()
+                due_by_interval = (
+                    model_calls > 0 and model_calls % policy.checkpoint_interval == 0
+                )
+                if due_by_size or due_by_interval:
+                    compact_context(state, policy)
+                state.cumulative_serialized_chars += state.serialized_chars()
+            except ReasoningContinuityError as exc:
+                return _continuity_stop(exc)
 
             # Per-turn guard (Task 6): the financial/consent/provider check runs
             # before *every* provider turn — the first and every continuation —
@@ -601,6 +661,8 @@ class ToolLoopController:
             tools = executor.schemas() if tool_calling_enabled else []
             try:
                 turn = chat(state.request_messages(), tools=tools)
+            except ReasoningContinuityError as exc:
+                return _continuity_stop(exc)
             except ToolLoopProviderError as exc:
                 last_error = str(exc)
                 # The round-trip failed, so it changed nothing: the request
@@ -701,6 +763,8 @@ class ToolLoopController:
                     assistant_content=turn.content or "",
                     tool_calls=tuple(calls),
                     observations=tuple(observations),
+                    reasoning_content=turn.reasoning_content,
+                    thinking_required=turn.thinking_requested,
                 )
             )
             state.tool_calls_used += len(calls)
