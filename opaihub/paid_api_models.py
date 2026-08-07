@@ -14,12 +14,17 @@ DeepSeek (#673) is the first entry. Real, sourced pricing lives in
 spec (id, label, credential), matching what ``free_models.py`` owns for its
 tier.
 
-Scope note (Phase 1 of #673): only ``deepseek-v4-flash``/``deepseek-v4-pro``
-in non-thinking mode are wired end to end. Thinking mode
+Scope note: ``deepseek-v4-flash``/``deepseek-v4-pro`` in non-thinking mode
+were the whole of #673 Phase 1. Thinking mode's continuity requirement
 (``thinking_supported=True`` below is honest about the *provider's*
-capability) requires preserving ``reasoning_content`` across tool-call turns
-before it can be offered as a runtime option — that continuity requirement
-is #673 workstream A4, tracked as a follow-up, not silently attempted here.
+capability) — preserving ``reasoning_content`` across tool-call turns or the
+provider rejects the continuation — is #673 workstream A4, and is now
+implemented (#674): ``opaihub.local_runner.ThinkingControl`` and
+``opaihub.tool_loop.ToolProtocolAtom``/``ReasoningContinuityError``. What
+remains is A5's picker surface (Auto/On/Off + effort exposed in the model
+picker UI) — ``spec_for_model_id`` here still returns no thinking-mode
+selection, so a caller wanting it constructs ``ThinkingControl`` directly
+and passes it to ``runner_for_model``.
 """
 
 from __future__ import annotations

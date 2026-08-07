@@ -23,7 +23,7 @@ import urllib.error
 import uuid
 import urllib.parse
 import urllib.request
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -580,6 +580,12 @@ _STOP_MESSAGES = {
     "external_ceiling": "Stopped: reached the configured external tool-call ceiling.",
     "invalid_decision": "Stopped: the provider did not return a valid completion decision.",
     "provider_error": "Stopped: the provider was temporarily unavailable.",
+    # #674: distinct from provider_error on purpose — a missing reasoning
+    # field is not "temporarily unavailable" and retrying would not help.
+    "reasoning_continuity_error": (
+        "Stopped: a thinking-mode reply lost the reasoning context the "
+        "provider requires to continue, and retrying will not recover it."
+    ),
 }
 
 
@@ -624,6 +630,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         }
         if tools:
             payload.update({"tools": tools, "tool_choice": "auto"})
+        payload.update(self._extra_chat_fields())
         return _http_json_cancellable(
             f"{self.base_url}/chat/completions",
             method="POST",
@@ -673,6 +680,26 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         overrides this to price real usage against real per-token rates.
         """
         return 0.0, "actual"
+
+    def _extra_chat_fields(self) -> dict[str, Any]:
+        """Payload fields merged into every ``_chat`` request beyond the base.
+
+        Empty here — no free-tier provider needs anything extra.
+        :class:`PaidAPIRunner` overrides this for DeepSeek's ``thinking``/
+        ``reasoning_effort`` fields (#674), keeping this one seam as the only
+        place a subclass need touch to extend the payload.
+        """
+        return {}
+
+    def _thinking_requested(self) -> bool:
+        """Whether this runner is dispatching turns with thinking mode on.
+
+        ``False`` here — no free-tier provider supports it. Read by
+        ``complete_with_tools`` to stamp :class:`~opaihub.tool_loop.ChatTurn`
+        so the tool loop knows whether a turn's ``reasoning_content`` is
+        required (#674, #673 A4) or merely absent-because-inapplicable.
+        """
+        return False
 
     def complete(
         self,
@@ -828,6 +855,14 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             calls = message.get("tool_calls")
             calls = calls if isinstance(calls, list) else []
             usage = self._usage(result)
+            # #674: the raw reasoning field, kept only long enough to be
+            # replayed by the tool loop's own continuity contract
+            # (ToolProtocolAtom.to_messages) — never logged, never recorded
+            # to the ledger (record_model_call_finalized below takes token
+            # counts and cost only), never placed on ToolLoopResult. It is
+            # discarded for good the moment compaction folds this turn's
+            # atom into a summary line (A4's retention-boundary rule).
+            reasoning_content = message.get("reasoning_content")
             with contextlib.suppress(Exception):  # ledger never blocks a turn
                 # #673: real cost for a paid runner, genuine $0 for free —
                 # _cost_for is the one seam between them (PaidAPIRunner
@@ -851,6 +886,10 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                 content=str(message.get("content") or ""),
                 tool_calls=tuple(call for call in calls if isinstance(call, dict)),
                 usage=usage,
+                reasoning_content=(
+                    str(reasoning_content) if reasoning_content else None
+                ),
+                thinking_requested=self._thinking_requested(),
             )
 
         # The turn's message contract picks the budgets (tool calls, wall clock,
@@ -920,35 +959,123 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         }
 
 
+@dataclass(frozen=True)
+class ThinkingControl:
+    """The model control #673 A5 calls for: Auto/On/Off + reasoning effort.
+
+    ``mode``:
+
+    - ``"off"`` — thinking is never requested. The safe default and the
+      whole of #673 Phase 1's behaviour, unchanged.
+    - ``"on"`` — every turn is dispatched with DeepSeek's ``thinking``
+      field enabled, continuity handled by the tool loop (#674).
+    - ``"auto"`` — currently identical to ``"off"``. A5's own text says
+      "thinking mode should follow task policy rather than always enabling
+      expensive reasoning", but OPai has no task-policy signal to drive that
+      decision yet; wiring one is future work, not silently guessed at here.
+      ``"auto"`` exists as a distinct value now so that future work has
+      somewhere to attach without a call-site migration, not because it
+      currently behaves differently from ``"off"``.
+
+    ``effort`` (``"high"`` or ``"max"``) is only meaningful when thinking is
+    requested — constructing this with an effort set while ``mode`` is not
+    ``"on"`` is rejected rather than silently ignored, the same fail-fast
+    discipline as the budget/recipe validators elsewhere in this codebase.
+    """
+
+    mode: str = "auto"
+    effort: str | None = None
+
+    _VALID_MODES = frozenset({"auto", "on", "off"})
+    _VALID_EFFORTS = frozenset({"high", "max"})
+
+    def __post_init__(self) -> None:
+        if self.mode not in self._VALID_MODES:
+            raise ValueError(
+                f"thinking mode must be one of {sorted(self._VALID_MODES)}, "
+                f"got {self.mode!r}"
+            )
+        if self.effort is not None:
+            if self.effort not in self._VALID_EFFORTS:
+                raise ValueError(
+                    "reasoning_effort must be one of "
+                    f"{sorted(self._VALID_EFFORTS)}, got {self.effort!r}"
+                )
+            if self.mode != "on":
+                raise ValueError(
+                    "reasoning_effort requires mode='on' "
+                    f"(got mode={self.mode!r}); a caller that wants effort "
+                    "must say so explicitly rather than have it ignored"
+                )
+
+    @property
+    def requests_thinking(self) -> bool:
+        """Whether a dispatched turn should ask the provider to think.
+
+        Deliberately narrower than ``mode != 'off'`` — see the ``"auto"``
+        case in the class docstring.
+        """
+        return self.mode == "on"
+
+    def payload_fields(self) -> dict[str, Any]:
+        """Fields to merge into the outbound chat-completions payload.
+
+        Empty when thinking is not requested — Phase 1's proven-safe
+        behaviour of never sending the field at all, unchanged.
+        """
+        if not self.requests_thinking:
+            return {}
+        fields: dict[str, Any] = {"thinking": {"type": "enabled"}}
+        if self.effort is not None:
+            fields["reasoning_effort"] = self.effort
+        return fields
+
+
 class PaidAPIRunner(FreeAPIRunner):
     """OpenAI-compatible runner for paid, key-gated direct APIs (#673).
 
     Everything about the transport is identical to :class:`FreeAPIRunner` —
     same auth, same streaming, same tool-loop machinery via
     ``complete_with_tools`` — real per-token spend is the only thing that
-    differs, so this overrides exactly the two seams that carry cost:
-    ``name`` (so free-tier telemetry never mislabels a paid call) and
-    ``_cost_for`` (so the ledger records a real number instead of ``$0``).
+    differs, so this overrides exactly the seams that carry cost and
+    thinking mode: ``name`` (so free-tier telemetry never mislabels a paid
+    call), ``_cost_for`` (so the ledger records a real number instead of
+    ``$0``), and ``_extra_chat_fields``/``_thinking_requested`` (#674).
 
-    Scope (#673 Phase 1): non-thinking mode only. DeepSeek's ``thinking``
-    parameter is deliberately never sent — thinking-mode tool calls require
-    preserving the provider's ``reasoning_content`` across turns (#673
-    workstream A4), which this runner's generic message-passing does not yet
-    do. Sending ``thinking: enabled`` without that continuity would silently
-    violate a provider protocol requirement rather than fail closed, so
-    non-thinking is the safe default until A4 ships.
+    Thinking mode (#673 Phase 1 scoped this out; #674 completes it): DeepSeek
+    tool calls made under thinking mode require the provider's
+    ``reasoning_content`` to be replayed on the next turn or the provider
+    rejects the continuation. That continuity is the tool loop's
+    responsibility (``opaihub/tool_loop.py``'s ``ToolProtocolAtom`` and
+    ``ReasoningContinuityError``); this runner's job is only to request
+    thinking when a caller's :class:`ThinkingControl` says to, and to hand
+    the raw ``reasoning_content`` field to the tool loop untouched. Passing
+    no control at all reproduces Phase 1 exactly: thinking is off by default.
     """
 
     name = "paid-api"
 
     def __init__(
-        self, base_url: str, model: str, api_key: str, *, pricing_model_id: str
+        self,
+        base_url: str,
+        model: str,
+        api_key: str,
+        *,
+        pricing_model_id: str,
+        thinking: ThinkingControl | None = None,
     ) -> None:
         super().__init__(base_url, model, api_key)
         # Separate from `model` (the id sent to the provider) on purpose: a
         # future alias/rename in the picker must not silently change which
         # price row a call is costed against.
         self._pricing_model_id = pricing_model_id
+        self._thinking = thinking if thinking is not None else ThinkingControl()
+
+    def _extra_chat_fields(self) -> dict[str, Any]:
+        return self._thinking.payload_fields()
+
+    def _thinking_requested(self) -> bool:
+        return self._thinking.requests_thinking
 
     def _cost_for(self, usage: dict[str, Any]) -> tuple[float | None, str]:
         from .deepseek_pricing import estimate_cost_usd
@@ -991,6 +1118,10 @@ _STOP_REASON_CATEGORIES = {
     "repeated_success": "NO_PROGRESS",
     "controller_timeout": "NO_PROGRESS",
     "cancelled": "CANCELLED",
+    # #674: forced rather than left to classify_failure's text heuristics —
+    # the message is this module's own wording, not provider error text, so
+    # nothing guarantees a regex signature would match it.
+    "reasoning_continuity_error": "PROVIDER_ERROR",
 }
 
 
@@ -1209,9 +1340,19 @@ def list_local_models(
 
 
 def runner_for_model(
-    model_id: str, project_root: Path | None = None
+    model_id: str,
+    project_root: Path | None = None,
+    *,
+    thinking: ThinkingControl | None = None,
 ) -> LocalRunner | None:
-    """Build a runner bound to a specific ``provider:model`` id from the picker."""
+    """Build a runner bound to a specific ``provider:model`` id from the picker.
+
+    ``thinking`` (#674, #673 A5) only matters for a ``paid:`` model whose
+    runner supports it; every other branch ignores it, so passing it for a
+    non-DeepSeek pick is harmless rather than an error. No picker surface
+    sets it yet -- that UI is A5's own remaining scope -- so today it is only
+    reachable by a caller passing it explicitly.
+    """
     if not model_id or ":" not in model_id:
         return None
 
@@ -1241,6 +1382,7 @@ def runner_for_model(
             spec["model_id"],
             api_key,
             pricing_model_id=spec["model_id"],
+            thinking=thinking,
         )
 
     provider, name = model_id.split(":", 1)
