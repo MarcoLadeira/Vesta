@@ -12,7 +12,8 @@ import unittest
 import unittest.mock as mock
 
 from opaihub import deepseek_pricing
-from opaihub.credentials import CredentialStore, PROVIDER_ENV
+from _helpers import isolated_credential_store
+from opaihub.credentials import PROVIDER_ENV
 from opaihub.local_runner import FreeAPIRunner, PaidAPIRunner, runner_for_model
 from opaihub.paid_api_models import list_paid_api_models, spec_for_model_id
 from opaihub.provider_adapters import FREE_PROVIDERS, PAID_DIRECT_API_PROVIDERS
@@ -27,12 +28,12 @@ class CredentialTests(unittest.TestCase):
         self.assertEqual(PROVIDER_ENV["deepseek"], "DEEPSEEK_API_KEY")
 
     def test_env_var_precedence_over_keychain(self):
-        store = CredentialStore(backend=None, environ={"DEEPSEEK_API_KEY": "from-env"})
+        store = isolated_credential_store({"DEEPSEEK_API_KEY": "from-env"})
         self.assertEqual(store.get("deepseek"), "from-env")
         self.assertEqual(store.status("deepseek")["source"], "environment")
 
     def test_unconfigured_deepseek_reports_not_configured(self):
-        store = CredentialStore(backend=None, environ={})
+        store = isolated_credential_store()
         self.assertIsNone(store.get("deepseek"))
         self.assertFalse(store.status("deepseek")["configured"])
 
@@ -119,7 +120,7 @@ class PaidApiModelSpecTests(unittest.TestCase):
     def test_unconfigured_model_is_unavailable_with_setup_hint(self):
         with mock.patch(
             "opaihub.paid_api_models.CredentialStore",
-            lambda: CredentialStore(backend=None, environ={}),
+            lambda: isolated_credential_store(),
         ):
             entries = list_paid_api_models()
         flash = next(e for e in entries if e["model"] == "deepseek-v4-flash")
@@ -129,7 +130,7 @@ class PaidApiModelSpecTests(unittest.TestCase):
     def test_configured_model_is_available(self):
         with mock.patch(
             "opaihub.paid_api_models.CredentialStore",
-            lambda: CredentialStore(backend=None, environ={"DEEPSEEK_API_KEY": "k"}),
+            lambda: isolated_credential_store({"DEEPSEEK_API_KEY": "k"}),
         ):
             entries = list_paid_api_models()
         flash = next(e for e in entries if e["model"] == "deepseek-v4-flash")
@@ -233,7 +234,7 @@ class ProviderClassificationTests(unittest.TestCase):
                 self.assertNotIn(provider, PAID_DIRECT_API_PROVIDERS)
 
     def test_connection_test_does_not_crash_for_deepseek(self):
-        store = CredentialStore(backend=None, environ={"DEEPSEEK_API_KEY": "fake-key"})
+        store = isolated_credential_store({"DEEPSEEK_API_KEY": "fake-key"})
 
         class _FakeResponse:
             status = 200
@@ -253,7 +254,7 @@ class ProviderClassificationTests(unittest.TestCase):
         self.assertTrue(result["connected"])
 
     def test_connection_test_reports_missing_key_without_crashing(self):
-        store = CredentialStore(backend=None, environ={})
+        store = isolated_credential_store()
         result = check_direct_provider_connection("deepseek", store=store)
         self.assertFalse(result["connected"])
         self.assertFalse(result["configured"])

@@ -16,15 +16,59 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
+from opaihub.credentials import PROVIDER_ENV, CredentialStore
 
-PROVIDER_CREDENTIAL_ENV = {
-    "MOONSHOT_API_KEY",
-    "GOOGLE_API_KEY",
-    "GROQ_API_KEY",
-    "MISTRAL_API_KEY",
+
+# Derived from the production registry rather than restated, so registering a
+# new provider cannot silently leave its key un-isolated. That drift is not
+# hypothetical: DEEPSEEK_API_KEY was missing here for the whole of #673.
+PROVIDER_CREDENTIAL_ENV = set(PROVIDER_ENV.values()) | {
     "GH_TOKEN",
     "GITHUB_TOKEN",
 }
+
+
+class MemoryKeyring:
+    """An in-process stand-in for the OS keychain.
+
+    ``priority = 1`` marks it "secure" to ``CredentialStore._secure_backend``,
+    so keychain reads and writes are exercised for real — against this dict.
+    """
+
+    priority = 1
+
+    def __init__(self, values: dict[tuple[str, str], str] | None = None) -> None:
+        self.values: dict[tuple[str, str], str] = dict(values or {})
+
+    def get_password(self, service: str, username: str) -> str | None:
+        return self.values.get((service, username))
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self.values[(service, username)] = password
+
+    def delete_password(self, service: str, username: str) -> None:
+        self.values.pop((service, username), None)
+
+
+def isolated_credential_store(
+    environ: dict[str, str] | None = None,
+    *,
+    backend: Any | None = None,
+) -> CredentialStore:
+    """A ``CredentialStore`` that cannot reach the developer's real keychain.
+
+    Always pass a backend explicitly. ``CredentialStore(backend=None)`` reads
+    as "no keychain" but means the opposite -- ``credentials.py`` substitutes
+    ``_default_backend()``, i.e. the live OS keyring. Tests written that way
+    pass under pytest only because ``tests/conftest.py`` stubs
+    ``_default_backend``; the CI gate runs ``unittest discover``, which never
+    loads conftest, so they read (and on failure *print*) real secrets.
+    ``tests/test_credential_isolation.py`` enforces this constructor.
+    """
+    return CredentialStore(
+        backend=MemoryKeyring() if backend is None else backend,
+        environ={} if environ is None else environ,
+    )
 
 
 def make_repo(
