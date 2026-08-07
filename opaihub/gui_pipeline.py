@@ -867,7 +867,9 @@ def handle_gui_message(
     # only when Full Auto is pinned; otherwise it is downgraded to Safe Auto.
     autonomy = effective_mode(mode, prefs)
     requested_run_mode = autonomy.effective_mode
-    policy = resolve_agent_policy(message, focus_hint=focus_hint)
+    policy = resolve_agent_policy(
+        message, focus_hint=focus_hint, run_mode_hint=requested_run_mode
+    )
     # The message contract: one routing decision, made before anything runs.
     # It assigns this turn to a lane and the lane fixes the runtime policy —
     # whether a failure may be recovered on a different provider, how many

@@ -273,7 +273,7 @@ def describe_controls(run_mode: str | None, focus: str | None) -> dict[str, Any]
     # read-only "ask" ruleset and must report read-only too (fail closed).
     run_mode_read_only = is_read_only(mode) or edit_state == "block"
     focus_read_only = focus_mode["run_mode"] in {"ask", "plan"}
-    preview = resolve_agent_policy("", focus_hint=focus_id)
+    preview = resolve_agent_policy("", focus_hint=focus_id, run_mode_hint=mode)
     return {
         "run_mode": mode,
         "focus": focus_id,
