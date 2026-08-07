@@ -135,15 +135,19 @@ class IncompleteSpendEscalationTests(unittest.TestCase):
             )
         self.assertIn("cost_model.yaml", _lower_bound_reasons(gate)[0])
 
-    def test_a_lost_call_is_deliberately_NOT_gated_on(self) -> None:
-        """The judgement call in this change, pinned so it is not "fixed".
+    def test_a_call_still_in_flight_is_not_gated_on(self) -> None:
+        """The original exclusion, narrowed to what it should always have been.
 
-        An unresolved call is the same kind of blind spot, but those live in
-        the ledger head's `active_calls` and never age out. Gating on them
-        would make one crashed run require confirmation for every paid route
-        forever, with no way for the user to clear it — a permanent prompt
-        trains people to click through, which is worse than the gap. They are
-        still *reported* by budget_status and `opai savings`.
+        #619 AC8 excluded every unresolved call, because none of them ever aged
+        out: one crashed run would have required confirmation on every paid
+        route forever, unclearable short of hand-editing the ledger. #685 gave
+        them a bounded lifetime, so the abandoned ones are now gated on (see
+        tests/test_abandoned_call_reconciliation.py).
+
+        What stays excluded is a call that is merely *in flight*. A turn
+        running right now is normal operation, not a blind spot -- it resolves
+        by itself moments later, and prompting on it would fire during ordinary
+        concurrent use.
         """
         with _Project() as root:
             set_budget(root, daily_usd=10.0)
