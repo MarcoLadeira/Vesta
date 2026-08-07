@@ -91,6 +91,28 @@ class LocalCiEvidenceTests(unittest.TestCase):
         self.assertIn("python", evidence["tool_versions"])
         self.assertIn("duration_seconds", evidence)
 
+    def test_required_command_failure_is_product_failure_not_infrastructure(self):
+        ci = _load_ci_local_module()
+        step = ci.Step("failing check", [sys.executable, "-c", "raise SystemExit(7)"])
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            manifest = Path(temporary_directory) / "evidence.json"
+            with mock.patch.object(ci, "PROFILE_STEPS", {"fast": (step,)}):
+                result = ci.main(["--profile", "fast", "--manifest", str(manifest)])
+
+            evidence = json.loads(manifest.read_text(encoding="utf-8"))
+
+        self.assertEqual(result, 1)
+        self.assertEqual(evidence["verdict"], "failed")
+        self.assertEqual(evidence["reason"], "required_check_failed")
+        self.assertEqual(evidence["classification"], "product")
+        check = evidence["checks"][0]
+        self.assertEqual(
+            check["status"], {"execution": "executed", "outcome": "failed"}
+        )
+        self.assertEqual(check["returncode"], 7)
+        self.assertEqual(check["failure_class"], "product")
+
     def test_release_profile_rejects_an_evidence_sha_for_another_commit(self):
         ci = _load_ci_local_module()
         passing_step = ci.Step(

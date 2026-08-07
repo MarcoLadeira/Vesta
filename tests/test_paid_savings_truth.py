@@ -8,6 +8,7 @@ from pathlib import Path
 
 from unittest import mock
 
+from opai.app_state import _ask_account
 from opaihub.gui_pipeline import (
     _gate_receipt_savings,
     build_savings_receipt,
@@ -17,6 +18,7 @@ from opaihub.ledger import (
     read_events,
     record_route_decision,
     summarize_ledger,
+    unresolved_model_calls,
 )
 from opaihub.savings import build_savings_report
 
@@ -92,6 +94,27 @@ class PaidReceiptTests(unittest.TestCase):
 
     def test_new_receipts_are_versioned(self):
         self.assertEqual(self._paid(0.01)["schema"], 2)
+
+    def test_unreconciled_cost_receipt_withholds_authoritative_claims(self):
+        receipt = build_savings_receipt(
+            self.root,
+            task="task",
+            selected_model="account:claude:sonnet",
+            selected_mode="ask",
+            chosen_tier="L3",
+            actual_cost_usd=0.042,
+            paid_call=True,
+            cost_integrity="unreconciled",
+        )
+
+        self.assertEqual(receipt["confidence"], "unreconciled")
+        self.assertTrue(receipt["cost_unreconciled"])
+        self.assertEqual(receipt["cost_integrity"], "unreconciled")
+        self.assertEqual(receipt["estimated_savings_usd"], 0.0)
+        self.assertFalse(receipt["paid_call_avoided"])
+        self.assertEqual(
+            receipt["savings_basis"], "cost_unreconciled_savings_withheld"
+        )
 
 
 class PipelineSpendTruthTests(unittest.TestCase):
@@ -170,6 +193,102 @@ class PipelineSpendTruthTests(unittest.TestCase):
         summary = summarize_ledger(self.root)
         self.assertEqual(summary["estimated_savings_usd"], 0.0)
         self.assertAlmostEqual(summary["estimated_actual_spend_usd"], 0.02, places=4)
+
+    def test_lost_paid_account_dispatch_is_left_unresolved(self):
+        result = handle_gui_message(
+            self.root,
+            "task",
+            model_id="account:claude:sonnet",
+            mode="ask",
+            account_runner=FakeAccountRunner(text="", cost=None, timed_out=True),
+        )
+
+        self.assertEqual(result["status"], "failed")
+        outstanding = unresolved_model_calls(self.root)
+        self.assertEqual(len(outstanding), 1)
+        self.assertEqual(outstanding[0]["provider_id"], "claude")
+        self.assertEqual(outstanding[0]["model_tier"], "L3")
+        self.assertTrue(outstanding[0]["call_id"])
+        model_calls = [
+            event
+            for event in read_events(self.root)
+            if event.get("event_type") == "model_call"
+        ]
+        self.assertEqual(
+            model_calls,
+            [],
+            "a timed-out account dispatch must not be finalized or legacy-counted",
+        )
+
+    def test_dirty_file_modified_by_account_run_is_attributed(self):
+        self.root = make_repo(
+            Path(self._tmp.name),
+            files={"app.py": "base\n"},
+            commit=True,
+        )
+        target = self.root / "app.py"
+        target.write_text("user change\n", encoding="utf-8")
+
+        class EditingAccountRunner(FakeAccountRunner):
+            def complete(self, prompt, **kwargs):
+                target.write_text("user change\nprovider change\n", encoding="utf-8")
+                return super().complete(prompt, **kwargs)
+
+        result = _ask_account(
+            self.root,
+            "edit app.py",
+            "claude",
+            model="sonnet",
+            allow_edits=True,
+            runner=EditingAccountRunner(text="done", cost=0.01),
+        )
+
+        self.assertEqual(result["status"], "answered_by_account")
+        self.assertIn(" M app.py", result["changed_files"])
+
+    def test_pre_dispatch_cost_identity_failure_blocks_paid_call(self):
+        fake = FakeAccountRunner(text="done", cost=0.01)
+        with mock.patch(
+            "opaihub.ledger.record_model_call_started",
+            side_effect=OSError("ledger is read-only"),
+        ):
+            result = _ask_account(
+                self.root,
+                "task",
+                "claude",
+                model="sonnet",
+                runner=fake,
+            )
+
+        self.assertEqual(result["status"], "cost_unreconciled")
+        self.assertTrue(result["cost_unreconciled"])
+        self.assertEqual(fake.calls, [])
+        self.assertFalse(result["ledger_dispatch_recorded"])
+
+    def test_final_cost_persistence_failure_degrades_receipt_not_answer(self):
+        with (
+            mock.patch(
+                "opaihub.ledger.record_model_call_finalized",
+                side_effect=OSError("disk full"),
+            ),
+            mock.patch(
+                "opaihub.ledger.record_model_call",
+                side_effect=OSError("disk full"),
+            ),
+        ):
+            result = handle_gui_message(
+                self.root,
+                "task",
+                model_id="account:claude:sonnet",
+                mode="ask",
+                account_runner=FakeAccountRunner(text="done", cost=0.01),
+            )
+
+        self.assertEqual(result["status"], "answered")
+        receipt = result["receipt"]
+        self.assertEqual(receipt["confidence"], "unreconciled")
+        self.assertTrue(receipt["cost_unreconciled"])
+        self.assertEqual(receipt["savings_basis"], "cost_unreconciled_savings_withheld")
 
 
 class LegacyExclusionTests(unittest.TestCase):
