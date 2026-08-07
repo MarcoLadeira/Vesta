@@ -18,7 +18,13 @@ from typing import Any
 
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .cost_model import is_degraded, is_local_tier, load_cost_model
-from .ledger import EVENT_MODEL_CALL, read_events
+from .ledger import (
+    EVENT_MODEL_CALL,
+    EVENT_MODEL_CALL_ABANDONED,
+    cost_reconciliation,
+    read_events,
+    reconcile_abandoned_calls,
+)
 from .policy import evaluate_action, resolve_policy
 from .state import state_dir
 
@@ -227,6 +233,32 @@ def _unpriced_calls(project_root: Path, *, period: str) -> int:
     return unpriced
 
 
+def _abandoned_calls(project_root: Path, *, period: str) -> int:
+    """In-window calls dispatched whose outcome never arrived (#685).
+
+    Counted by when the call was *retired*, not when it was dispatched: the
+    retirement is the moment the hole in the accounting became known, and
+    dating the gate by it is what lets a stale crash stop prompting. A call
+    orphaned last month and swept today is today's news exactly once.
+    """
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    month = today[:7]
+    abandoned = 0
+    for event in read_events(project_root):
+        if event.get("event_type") != EVENT_MODEL_CALL_ABANDONED:
+            continue
+        if event.get("is_local_route"):
+            continue  # Local routes spend nothing; an unknown cost is still $0.
+        created = str(event.get("created_at", ""))
+        if period == "day" and not created.startswith(today):
+            continue
+        if period == "month" and not created.startswith(month):
+            continue
+        abandoned += 1
+    return abandoned
+
+
 def budget_status(project_root: Path) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     caps = load_budget(root)
@@ -234,6 +266,12 @@ def budget_status(project_root: Path) -> dict[str, Any]:
     spent_month = _spent(root, period="month")
     unpriced_day = _unpriced_calls(root, period="day")
     unpriced_month = _unpriced_calls(root, period="month")
+    abandoned_day = _abandoned_calls(root, period="day")
+    abandoned_month = _abandoned_calls(root, period="month")
+    # Status is a report, so it stays read-only and does not sweep. A call
+    # retirable but not yet retired is counted here as unaccounted rather than
+    # being written away behind a status read (#685).
+    reconciliation = cost_reconciliation(root)
 
     def remaining(limit: Any, spent: float) -> Any:
         return round(float(limit) - spent, 6) if limit is not None else None
@@ -248,6 +286,12 @@ def budget_status(project_root: Path) -> dict[str, Any]:
             "tier and count as $0.00 here — the totals below are a lower "
             "bound, not a complete figure. Check tier_usd_per_1k_tokens in "
             ".opaihub/model-intelligence/cost_model.yaml."
+        )
+    if abandoned_month:
+        notes.append(
+            f"{abandoned_month} call(s) this month were dispatched but never "
+            "reported an outcome. What they cost is unknown, so the totals "
+            "below are a lower bound. Run 'opai savings' to see which."
         )
 
     return {
@@ -265,9 +309,16 @@ def budget_status(project_root: Path) -> dict[str, Any]:
         # bound. Say so explicitly instead of letting a confident-looking
         # number imply the cap is being enforced against real spend.
         "spend_completeness": {
-            "complete": not (unpriced_day or unpriced_month),
+            "complete": not (
+                unpriced_day or unpriced_month or reconciliation["unaccounted_calls"]
+            ),
             "unpriced_calls_today": unpriced_day,
             "unpriced_calls_month": unpriced_month,
+            "unaccounted_calls": reconciliation["unaccounted_calls"],
+            # #685: dispatched, never reported an outcome. Reported forever;
+            # only *gating* uses the self-clearing daily window.
+            "abandoned_calls_today": abandoned_day,
+            "abandoned_calls_month": abandoned_month,
         },
         "remaining": {
             "today_usd": remaining(caps.get("daily_usd_limit"), spent_day),
@@ -376,16 +427,25 @@ def budget_gate(
         #  - Not the month. A daily window clears on its own, so a repaired
         #    cost model stops the prompt tomorrow at the latest rather than
         #    for the rest of the month.
-        #  - Not `cost_reconciliation`'s unresolved calls, even though they
-        #    are the same kind of blind spot. Those live in the ledger head's
-        #    `active_calls` and never age out (opaihub/ledger.py), so a
-        #    single crashed run would gate every paid route forever with no
-        #    way for the user to clear it. A permanent prompt is not a safety
-        #    feature — it trains people to click through. Gating on them
-        #    needs an expiry/reconciliation sweep first; filed separately.
-        #    They are still reported honestly by budget_status and by
-        #    `opai savings`, which is the half that costs nothing.
+        #  - Not calls that are merely *in flight*. A turn running right now is
+        #    normal operation, not a blind spot; it resolves by itself moments
+        #    later, and prompting on it would fire during ordinary concurrent
+        #    use.
+        #
+        # Abandoned calls (#685) ARE gated on, and only became safe to gate on
+        # once they were bounded. Previously every unresolved call sat in the
+        # ledger head's `active_calls` forever, so one crashed run would have
+        # required confirmation on every paid route with no way to clear it —
+        # a permanent prompt is not a safety feature, it trains people to click
+        # through. Now a call is retired to a terminal cost-unknown state, and
+        # this gate looks only at ones retired TODAY, so it clears on the same
+        # self-healing daily window as the unpriced case above.
         if daily is not None or monthly is not None:
+            # Retire anything that cannot still be running before counting, so
+            # the gate sees a crash from a dead process rather than waiting for
+            # some other surface to notice first. Calls this process started
+            # are never retired, so a mid-turn gate check is safe.
+            reconcile_abandoned_calls(root)
             unpriced_today = _unpriced_calls(root, period="day")
             if unpriced_today:
                 escalate(
@@ -395,6 +455,16 @@ def budget_gate(
                     "ceiling cannot be enforced against a complete total — "
                     "confirm before routing, or set the tier's price in "
                     ".opaihub/model-intelligence/cost_model.yaml.",
+                )
+            abandoned_today = _abandoned_calls(root, period="day")
+            if abandoned_today:
+                escalate(
+                    "confirm",
+                    f"Recorded spend is a lower bound ({abandoned_today} call(s) "
+                    "today were dispatched but never reported an outcome, so "
+                    "what they cost is unknown), and the budget ceiling cannot "
+                    "be enforced against an incomplete total — confirm before "
+                    "routing. Run 'opai savings' to see which calls.",
                 )
 
         if daily is not None and spent_day + next_cost_usd > float(daily):

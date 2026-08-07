@@ -44,7 +44,17 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
     # bound, and the headline must not read as a settled figure.
     reconciliation = summary.get("reconciliation") or {}
     reconciled = bool(reconciliation.get("verified", True))
-    unresolved_calls = int(reconciliation.get("unresolved_calls") or 0)
+    # Count every call whose cost was never learned, in flight or abandoned
+    # (#685). Reading ``unresolved_calls`` alone would report "0 dispatched
+    # call(s) have no recorded outcome" on a ledger whose only hole is an
+    # aged-out call -- unverified and self-contradicting in the same sentence.
+    # Older payloads predate the field, so fall back to what they do carry.
+    unaccounted_calls = int(
+        reconciliation.get(
+            "unaccounted_calls", reconciliation.get("unresolved_calls") or 0
+        )
+        or 0
+    )
 
     has_data = summary["route_count"] > 0
     headline = (
@@ -57,7 +67,7 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
     if has_data and not reconciled:
         headline = (
             f"At least ${savings:.4f} saved across {summary['route_count']} routed "
-            f"task(s) — {unresolved_calls} dispatched call(s) have no recorded "
+            f"task(s) — {unaccounted_calls} dispatched call(s) have no recorded "
             "outcome, so this is a lower bound, not a verified total."
         )
 
@@ -114,6 +124,16 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
     }
 
 
+def _unaccounted(reconciliation: dict[str, Any]) -> int:
+    """Calls with no recorded outcome, in flight or abandoned (#685)."""
+    return int(
+        reconciliation.get(
+            "unaccounted_calls", reconciliation.get("unresolved_calls") or 0
+        )
+        or 0
+    )
+
+
 def render_savings_markdown(report: dict[str, Any]) -> str:
     totals = report["totals"]
     reconciliation = report.get("reconciliation") or {}
@@ -129,7 +149,7 @@ def render_savings_markdown(report: dict[str, Any]) -> str:
     if not reconciliation.get("verified", True):
         lines += [
             f"> **Totals below are a lower bound.** "
-            f"{reconciliation.get('unresolved_calls', 0)} dispatched call(s) have "
+            f"{_unaccounted(reconciliation)} dispatched call(s) have "
             "no recorded outcome, so spend they incurred is not included.",
             "",
         ]

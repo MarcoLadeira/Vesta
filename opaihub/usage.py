@@ -85,7 +85,11 @@ def build_usage_snapshots(
     # complete figure, so every row carries whether spend is fully reconciled.
     reconciliation = cost_reconciliation(project_root)
     unresolved_by_model: dict[str, int] = {}
-    for record in reconciliation["unresolved"]:
+    # Both halves (#685). A call retired as abandoned is still spend of unknown
+    # size against that model; counting only the in-flight half would show a
+    # reconciled row for a model whose cost was never learned, contradicting
+    # the same report's `verified: false` one field away.
+    for record in [*reconciliation["unresolved"], *reconciliation.get("abandoned", [])]:
         unresolved_by_model[record["model_id"]] = (
             unresolved_by_model.get(record["model_id"], 0) + 1
         )

@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
 from .atomic_io import atomic_write_text, interprocess_transaction
+from .call_reconciliation import (
+    ABANDON_REASONS,
+    call_age_seconds,
+    classify_call,
+    owner_fields,
+)
 from .command_runner import redact
 from .cost_model import (
     estimate_route_savings,
@@ -34,6 +40,10 @@ EVENT_CACHE = "cache_lookup"
 EVENT_CAPTURE_SESSION = "capture_session"
 EVENT_TASK_OUTCOME = "task_outcome"
 EVENT_MODEL_CALL_STARTED = "model_call_started"
+# A dispatched call retired without ever learning its cost (#685). Terminal and
+# honest: it closes the call as an *open item* while keeping it visible as
+# unaccounted spend. Never carries a cost — see `abandon_model_call`.
+EVENT_MODEL_CALL_ABANDONED = "model_call_abandoned"
 EVENT_USAGE_BASELINE_RESET = "usage_baseline_reset"
 EVENT_USAGE_ADVISORY_NOTICE = "usage_advisory_notice"
 MODEL_CALL_SCHEMA_VERSION = 2
@@ -46,6 +56,7 @@ KNOWN_EVENT_TYPES = {
     EVENT_CAPTURE_SESSION,
     EVENT_TASK_OUTCOME,
     EVENT_MODEL_CALL_STARTED,
+    EVENT_MODEL_CALL_ABANDONED,
     EVENT_USAGE_BASELINE_RESET,
     EVENT_USAGE_ADVISORY_NOTICE,
 }
@@ -205,7 +216,9 @@ def _apply_event_to_head(head: dict[str, Any], event: dict[str, Any]) -> None:
                 },
             )
         return
-    if event_type == EVENT_MODEL_CALL:
+    if event_type in {EVENT_MODEL_CALL, EVENT_MODEL_CALL_ABANDONED}:
+        # Both are terminal for the *open item*: one learned the cost, one
+        # proved it never will. Either way the call stops being outstanding.
         call_id = str(event.get("call_id") or "")
         if not call_id:
             return
@@ -708,6 +721,35 @@ def _append_event_line(path: Path, event: dict[str, Any]) -> tuple[int, str]:
     return end_offset, _line_digest(line)
 
 
+def _append_without_persisting_head(
+    project_root: Path,
+    path: Path,
+    head: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    """Append one event and update the in-memory head, leaving it unpersisted.
+
+    For a caller writing a batch inside one transaction (#685's sweep), where
+    persisting the head per event dominates the cost -- 500 retirements took
+    10.3s that way, inside `budget_gate`, which would stall a route.
+
+    Safe because the ledger file is the record and the head is a cache of it:
+    :func:`_recover_ledger_head` detects a head whose offset/hash trails the
+    log and replays the tail. A crash mid-batch therefore loses no event and
+    leaves no inconsistency -- the same recovery that already covers a crash
+    between the append and the persist of a single event.
+
+    The caller must persist the head once the batch is done.
+    """
+    event["ledger_sequence"] = int(head.get("last_sequence") or 0) + 1
+    end_offset, digest = _append_event_line(path, event)
+    _apply_event_to_head(head, event)
+    head["ledger_offset"] = end_offset
+    head["last_event_hash"] = digest
+    _update_usage_index(project_root, (event,))
+    return event
+
+
 def _append_and_commit(
     project_root: Path,
     path: Path,
@@ -1097,6 +1139,10 @@ def record_model_call_started(
                     model_tier,
                     load_cost_model(root),
                 ),
+                # Who is running this turn (#685). Without it, a call started
+                # 200ms ago and one orphaned by a crash last week are the same
+                # record, so nothing can tell in-flight from abandoned.
+                **owner_fields(),
             },
         )
         return _append_and_commit(root, path, head, event)
@@ -1190,43 +1236,223 @@ def unresolved_model_calls(project_root: Path) -> list[dict[str, Any]]:
         ]
 
 
-def cost_reconciliation(project_root: Path) -> dict[str, Any]:
+def outstanding_model_calls(
+    project_root: Path,
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Unresolved calls that could still be running right now (#685).
+
+    The set :func:`unresolved_model_calls` returns mixes two very different
+    things: a turn dispatched moments ago, and one orphaned by a crash weeks
+    ago. This is the former only, which is what a gate may act on — it drains
+    on its own, so acting on it can never wedge permanently.
+
+    Read-only: it classifies without writing, so a report never has a side
+    effect. :func:`reconcile_abandoned_calls` is the writing half.
+    """
+
+    now = datetime.now(timezone.utc) if now is None else now
+    return [
+        record
+        for record in unresolved_model_calls(project_root)
+        if not classify_call(record, now=now).abandoned
+    ]
+
+
+def abandoned_model_calls(project_root: Path) -> list[dict[str, Any]]:
+    """Calls retired without ever learning their cost. Still unaccounted spend."""
+
+    return [
+        dict(event)
+        for event in read_events(project_root)
+        if event.get("event_type") == EVENT_MODEL_CALL_ABANDONED
+    ]
+
+
+def reconcile_abandoned_calls(
+    project_root: Path,
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Retire unresolved calls that cannot still be in flight (#685).
+
+    This is the *writing* half of #685; :func:`cost_reconciliation` is the
+    reading half and never calls it. Keeping them apart is deliberate:
+    ``summarize_ledger`` is documented read-only and caches on the ledger
+    file's (size, mtime), so a sweep hidden inside a report would invalidate
+    that cache on every chat send.
+
+    Calls this process started are never retired, so running the sweep
+    mid-turn is safe.
+
+    Records ``cost_unknown`` — never a number. An abandoned call is spend OPai
+    could not measure, and #619 AC5 is explicit that unknown is unavailable and
+    never zero. Ageing changes what may be *gated on*, not what is *reported*.
+    """
+
+    now = datetime.now(timezone.utc) if now is None else now
+    # No ledger, no calls. Checked before opening a transaction, which would
+    # otherwise create ledger state and a lock file under a root that has
+    # never recorded anything — making every caller a writer.
+    if not ledger_path(project_root.expanduser().resolve()).exists():
+        return []
+    with _ledger_transaction(project_root) as (root, path, head):
+        active = head.get("active_calls") or {}
+        retired: list[dict[str, Any]] = []
+        for call_id, record in sorted(active.items()):
+            if not isinstance(record, Mapping):
+                continue
+            liveness = classify_call(record, now=now)
+            if not liveness.abandoned:
+                continue
+            age = call_age_seconds(record, now=now)
+            event = _build_event(
+                EVENT_MODEL_CALL_ABANDONED,
+                task="",
+                store_summary=False,
+                fields={
+                    "schema_version": MODEL_CALL_SCHEMA_VERSION,
+                    "call_id": str(call_id),
+                    "run_id": str(record.get("run_id") or ""),
+                    "turn_index": record.get("turn_index"),
+                    "model_id": str(record.get("model_id") or ""),
+                    "canonical_model_id": str(record.get("canonical_model_id") or ""),
+                    "provider_id": str(record.get("provider_id") or ""),
+                    "model_tier": str(record.get("model_tier") or ""),
+                    "provider_type": str(record.get("provider_type") or ""),
+                    "is_local_route": bool(record.get("is_local_route")),
+                    "started_at": str(record.get("created_at") or ""),
+                    "age_seconds": None if age is None else int(age),
+                    "abandon_reason": liveness.value,
+                    "abandon_note": ABANDON_REASONS[liveness],
+                    # #619 AC5: unavailable, never a silent zero.
+                    "cost_usd": None,
+                    "cost_measurement": "unavailable",
+                    "cost_price_known": False,
+                },
+            )
+            retired.append(_append_without_persisting_head(root, path, head, event))
+        if retired:
+            # One persist for the whole batch. See the helper's docstring for
+            # why a crash mid-batch is recoverable.
+            _persist_ledger_head(root, head)
+        return retired
+
+
+def cost_reconciliation(
+    project_root: Path,
+    *,
+    now: datetime | None = None,
+    events: Iterable[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Whether spend is fully accounted for, and what is missing if not.
 
     ``verified`` is the gate the report asks for: a savings claim may only be
     presented as authoritative when every dispatched call has a recorded
     outcome. While anything is outstanding the honest answer is "not yet
     reconciled", never a confident total that silently omits it.
+
+    Ageing a call out (#685) does not change that. An abandoned call is still
+    spend OPai could not measure, so it still counts against ``verified`` and
+    still appears here — permanently. What ageing changes is only whether a
+    call is an *open item* a gate may act on.
+
+    **Pure read.** It deliberately does not sweep, even though sweeping first
+    would make its two lists agree by construction: ``summarize_ledger`` is
+    documented read-only and caches on the ledger file's (size, mtime), so a
+    hidden write would invalidate that cache on every chat send.
+
+    Instead the in-between state is *reported* rather than written away. A call
+    old enough to be abandoned but not yet retired is counted under
+    ``pending_abandonment``, so it can never fall out of both lists and vanish
+    from the report. :func:`reconcile_abandoned_calls` is the writing half.
+
+    ``events`` lets a caller that has already read the log pass it in, so the
+    report costs no extra scan on a hot path.
     """
 
-    outstanding = unresolved_model_calls(project_root)
-    return {
-        "verified": not outstanding,
-        "unresolved_calls": len(outstanding),
+    root = project_root.expanduser().resolve()
+    if not ledger_path(root).exists():
+        # Nothing has ever been recorded; say so without creating the ledger.
+        return {
+            "verified": True,
+            "unresolved_calls": 0,
+            "abandoned_calls": 0,
+            "pending_abandonment": 0,
+            "unaccounted_calls": 0,
+            "unresolved": [],
+            "abandoned": [],
+            "note": "Every dispatched provider call has a recorded outcome.",
+        }
+
+    now = datetime.now(timezone.utc) if now is None else now
+    open_items: list[dict[str, Any]] = []
+    pending: list[dict[str, Any]] = []
+    for record in unresolved_model_calls(root):
+        target = pending if classify_call(record, now=now).abandoned else open_items
+        target.append(record)
+    source = read_events(root) if events is None else events
+    abandoned = [
+        dict(event)
+        for event in source
+        if event.get("event_type") == EVENT_MODEL_CALL_ABANDONED
+    ]
+    unaccounted = len(open_items) + len(pending) + len(abandoned)
+
+    def detail(record: Mapping[str, Any], *, started_key: str) -> dict[str, Any]:
         # Enough to chase a specific turn without exposing prompt text.
+        return {
+            "call_id": str(record.get("call_id") or ""),
+            "run_id": str(record.get("run_id") or ""),
+            "turn_index": record.get("turn_index"),
+            "model_id": str(
+                record.get("canonical_model_id") or record.get("model_id") or ""
+            ),
+            "provider_id": str(record.get("provider_id") or ""),
+            "provider_type": str(record.get("provider_type") or ""),
+            "started_at": str(record.get(started_key) or ""),
+        }
+
+    if not unaccounted:
+        note = "Every dispatched provider call has a recorded outcome."
+    else:
+        parts = []
+        if open_items:
+            parts.append(f"{len(open_items)} still in flight")
+        if pending:
+            parts.append(f"{len(pending)} awaiting reconciliation")
+        if abandoned:
+            parts.append(f"{len(abandoned)} abandoned without an outcome")
+        note = (
+            f"{unaccounted} dispatched call(s) have no recorded outcome "
+            f"({', '.join(parts)}). Cost incurred by them is unknown, so totals "
+            "below are a lower bound, not a verified figure."
+        )
+
+    return {
+        "verified": not unaccounted,
+        # Kept as the count of currently-open calls, which is what every
+        # existing caller means by it.
+        "unresolved_calls": len(open_items),
+        "abandoned_calls": len(abandoned),
+        # Old enough to retire, not yet swept. Reported so it can never fall
+        # out of both lists and disappear from the totals (#685).
+        "pending_abandonment": len(pending),
+        "unaccounted_calls": unaccounted,
         "unresolved": [
-            {
-                "call_id": str(record.get("call_id") or ""),
-                "run_id": str(record.get("run_id") or ""),
-                "turn_index": record.get("turn_index"),
-                "model_id": str(
-                    record.get("canonical_model_id") or record.get("model_id") or ""
-                ),
-                "provider_id": str(record.get("provider_id") or ""),
-                "provider_type": str(record.get("provider_type") or ""),
-                "started_at": str(record.get("created_at") or ""),
-            }
-            for record in outstanding
+            detail(r, started_key="created_at") for r in (*open_items, *pending)
         ],
-        "note": (
-            "Every dispatched provider call has a recorded outcome."
-            if not outstanding
-            else (
-                f"{len(outstanding)} dispatched call(s) have no recorded outcome. "
-                "Cost incurred by them is unknown, so totals below are a lower "
-                "bound, not a verified figure."
-            )
-        ),
+        "abandoned": [
+            {
+                **detail(record, started_key="started_at"),
+                "abandon_reason": str(record.get("abandon_reason") or ""),
+                "abandon_note": str(record.get("abandon_note") or ""),
+                "abandoned_at": str(record.get("created_at") or ""),
+            }
+            for record in abandoned
+        ],
+        "note": note,
     }
 
 
@@ -1456,7 +1682,9 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         # has known this all along and said so in its own note; until now no
         # savings surface asked it, so `opai savings` presented an
         # authoritative-looking figure that silently omitted those attempts.
-        "reconciliation": cost_reconciliation(project_root),
+        # Reuses the events already read above: this runs on every chat send,
+        # and a second full scan here would double the cost of the hot path.
+        "reconciliation": cost_reconciliation(project_root, events=events),
         "context_chars_saved": int(_sum(routes, "context_chars_saved")),
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),
         "capture": {

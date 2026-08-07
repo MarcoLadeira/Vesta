@@ -19,6 +19,33 @@ OPcoding treats expensive reasoning as a scarce resource.
 5. Estimate tokens.
 6. Check budget.
 
+## Unaccounted Spend
+
+A provider call is recorded twice: once when it is dispatched, once when its
+result lands. If the second record never arrives -- the process died, the
+machine slept, the write failed -- the request still left OPai and may still
+have been billed. The work happened; only its cost is unknown.
+
+Such a call is **outstanding** while it could still be running, and
+**abandoned** once it could not: either the process that dispatched it is gone,
+or six hours have passed (`ABANDON_AFTER_SECONDS` in
+`opaihub/call_reconciliation.py`). A call OPai's own process started is never
+abandoned while that process lives, so a long turn is never retired underneath
+itself.
+
+Abandoning records `cost_unknown`. It never invents a number, and a late result
+that arrives afterwards still supersedes it.
+
+What this changes:
+
+- **Reports** — `opai savings`, `opai budget status`, and Settings → Model
+  Usage count abandoned calls as unaccounted spend permanently. Totals stay
+  labelled a lower bound, never a verified figure.
+- **Gating** — `opai budget gate` asks for confirmation when a call was
+  abandoned *today* and a budget ceiling is set, because a ceiling cannot be
+  enforced against an incomplete total. That window clears on its own by the
+  next day. A call merely in flight never prompts.
+
 ## Anti-Waste Rules
 
 - Do not ask an agent to run `git status`; run git locally.
