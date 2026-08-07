@@ -53,6 +53,22 @@ class DescribeControlsTests(unittest.TestCase):
         self.assertEqual(controls["run_any_state"], "allow")
         self.assertEqual(controls["agent_mode_preview"], "implement")
 
+    def test_full_auto_with_no_specific_focus_previews_implement_not_explain(self):
+        # Auto-apply's promise is "acts without asking first" — the preview
+        # for an unphrased/ambiguous next message must say so honestly,
+        # matching resolve_agent_policy's run_mode_hint fallback.
+        controls = describe_controls("full-auto", "general")
+        self.assertEqual(controls["agent_mode_preview"], "implement")
+        # A read-only focus stays a real, honored signal even in Auto-apply.
+        controls = describe_controls("full-auto", "explain")
+        self.assertEqual(controls["agent_mode_preview"], "explain")
+
+    def test_safe_auto_with_no_specific_focus_still_previews_explain(self):
+        # Only full-auto changes the ambiguous-message default; every other
+        # run mode keeps the prior, cautious behavior.
+        controls = describe_controls("safe-auto", "general")
+        self.assertEqual(controls["agent_mode_preview"], "explain")
+
     def test_read_only_run_modes_cannot_edit_regardless_of_focus(self):
         for mode in ("ask", "plan"):
             controls = describe_controls(mode, "build")

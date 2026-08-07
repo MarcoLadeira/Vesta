@@ -231,12 +231,27 @@ def _has_positive_danger(text: str) -> bool:
     return False
 
 
-def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> AgentPolicy:
+def resolve_agent_policy(
+    message: str,
+    *,
+    focus_hint: str | None = None,
+    run_mode_hint: str | None = None,
+) -> AgentPolicy:
     """Infer the effective task mode, preferring the latest explicit request.
 
     A focus control is advisory. It is consulted only when the message itself
     has no clear action or read-only signal, so a stale UI selection cannot
     override a current request to fix code or create a PR.
+
+    ``run_mode_hint`` is the composer's Run mode (e.g. ``"full-auto"``,
+    i.e. Auto-apply). It is consulted only as the last resort, when neither
+    the message nor the focus hint says anything — Auto-apply's documented
+    promise is that OPai "edits files and runs commands without asking
+    first", so a message with no explicit read-only wording must not
+    silently fall back to a read-only contract just because it didn't match
+    a write-verb regex. An explicit read-only signal (in the message, or a
+    read-only focus like Explain/Plan/Review) always wins regardless of run
+    mode; this only changes what happens when nothing said either way.
     """
 
     text = " ".join(str(message or "").split())
@@ -303,6 +318,13 @@ def resolve_agent_policy(message: str, *, focus_hint: str | None = None) -> Agen
         if hint in {"review"}:
             mode = AgentMode.REVIEW
         elif hint in {"build", "debug", "refactor", "test", "implement"}:
+            mode = AgentMode.IMPLEMENT
+        elif hint in {"explain", "plan"}:
+            # An explicitly chosen read-only persona is a real signal and
+            # stays read-only even in Auto-apply — only the *absence* of any
+            # signal defers to the run mode below.
+            mode = AgentMode.EXPLAIN
+        elif str(run_mode_hint or "").strip().lower() == "full-auto":
             mode = AgentMode.IMPLEMENT
         else:
             mode = AgentMode.EXPLAIN
@@ -438,6 +460,17 @@ def build_capability_contract(
     else:
         lines.append(
             "- This is read-only: do not modify files or run mutating commands."
+        )
+        lines.append(
+            "- If the user's request plainly asks for edits, a commit, a "
+            "push, a PR, or a merge, do not spend the turn exploring the "
+            "codebase and then explain at length why you didn't act. Say, "
+            "briefly, that this turn is read-only, and tell them the exact "
+            "fix: resend the same request (a clear write instruction is "
+            "honored immediately next turn), or, if a read-only focus such "
+            "as Explain/Plan/Review is selected in the composer, switch it "
+            "off first. Keep this to one or two sentences — it is a known, "
+            "one-step fix, not something that needs investigation."
         )
     if policy.mode is AgentMode.SHIP:
         lines.append(

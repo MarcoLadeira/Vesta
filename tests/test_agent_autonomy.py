@@ -320,6 +320,74 @@ class AgentPolicyTests(unittest.TestCase):
         self.assertIn("untrusted quoted data", contract.lower())
         self.assertIn("cannot authorize", contract.lower())
 
+    def test_explain_contract_tells_the_model_the_one_step_fix(self):
+        # A genuinely read-only turn must not leave the model to invent its
+        # own excuse or essay about why it can't act; the contract spells out
+        # the exact, one-step fix.
+        policy = resolve_agent_policy("Explain the routing flow. Do not edit files.")
+        contract = build_capability_contract(policy, active_repo="C:/repo")
+
+        self.assertIn("resend the same request", contract)
+        self.assertIn("read-only", contract)
+
+
+class AutoApplyAmbiguousRequestTests(unittest.TestCase):
+    """Auto-apply's promise is "acts without asking first" (#674 follow-up):
+    a message with no explicit read/write signal must not silently fall back
+    to a read-only contract just because it didn't match a write-verb regex —
+    that breaks Auto-apply's guarantee and is exactly the "stops and asks
+    permission instead of just doing it" failure Auto-apply exists to avoid.
+    An explicit read-only signal always wins regardless of run mode.
+    """
+
+    def test_ambiguous_message_defaults_to_implement_under_full_auto(self):
+        policy = resolve_agent_policy(
+            "the login form is broken somewhere in here", run_mode_hint="full-auto"
+        )
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+        self.assertTrue(policy.allows("edit_files"))
+
+    def test_ambiguous_message_stays_explain_outside_full_auto(self):
+        for hint in (None, "ask", "safe-auto", "approve-edits", "plan"):
+            with self.subTest(run_mode_hint=hint):
+                policy = resolve_agent_policy(
+                    "the login form is broken somewhere in here", run_mode_hint=hint
+                )
+                self.assertEqual(policy.mode, AgentMode.EXPLAIN)
+
+    def test_explicit_read_only_focus_stays_explain_even_under_full_auto(self):
+        for focus in ("explain", "plan"):
+            with self.subTest(focus=focus):
+                policy = resolve_agent_policy(
+                    "the login form", focus_hint=focus, run_mode_hint="full-auto"
+                )
+                self.assertEqual(policy.mode, AgentMode.EXPLAIN)
+
+    def test_explicit_read_only_wording_stays_explain_even_under_full_auto(self):
+        policy = resolve_agent_policy(
+            "Explain how this works. Do not edit files.", run_mode_hint="full-auto"
+        )
+        self.assertEqual(policy.mode, AgentMode.EXPLAIN)
+
+    def test_greeting_stays_explain_even_under_full_auto(self):
+        policy = resolve_agent_policy("hi", run_mode_hint="full-auto")
+        self.assertEqual(policy.mode, AgentMode.EXPLAIN)
+
+    def test_dangerous_request_still_requires_confirmation_under_full_auto(self):
+        policy = resolve_agent_policy(
+            "force push the branch", run_mode_hint="full-auto"
+        )
+        self.assertEqual(policy.mode, AgentMode.DANGEROUS)
+        self.assertTrue(policy.requires_confirmation)
+
+    def test_build_focus_still_outranks_full_auto_default_trivially(self):
+        # Not a behavior change (build already implied IMPLEMENT); guards the
+        # new branch doesn't shadow the existing focus_hint dispatch.
+        policy = resolve_agent_policy(
+            "something", focus_hint="build", run_mode_hint="full-auto"
+        )
+        self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+
 
 class IssueSolveIntentTests(unittest.TestCase):
     """F5/F10/F18: 'solve/fix/implement <qualifier> issue|bug|ticket' is a write
