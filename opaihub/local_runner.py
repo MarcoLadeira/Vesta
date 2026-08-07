@@ -910,6 +910,13 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             # happened instead of "provider failed". Built only for a run that
             # did not complete — a success has nothing to diagnose.
             "failure": None if completed else _diagnose_outcome(outcome).to_dict(),
+            # #653: and a named cause is only useful if something proposes a
+            # bounded next step. The deterministic library picks one — or
+            # honestly declines — and records every candidate it considered,
+            # so an absent recovery reads as a decision rather than silence.
+            "recovery": None
+            if completed
+            else _propose_recovery(outcome, project_root=project_root),
         }
 
 
@@ -1018,6 +1025,86 @@ def _diagnose_outcome(outcome: Any) -> Any:
         progress=outcome.progress,
         category=category,
     )
+
+
+def _propose_recovery(
+    outcome: Any, *, project_root: Path | None = None
+) -> dict[str, Any] | None:
+    """#653: the deterministic recovery proposal for an incomplete run.
+
+    Selection only — nothing is executed here. Automatic execution belongs to
+    the convergence controller (#648), which does not exist yet; proposing
+    without executing is the honest half available today, and it is what
+    stops this library being another primitive nobody adopted.
+
+    Two envelopes are tried, in a fixed order so the result stays
+    deterministic. ``_diagnose_outcome`` forces the category from the loop's
+    ``stopped_reason`` — ``resolved = category or classify_failure(...)`` in
+    ``failure_envelope.diagnose`` — which correctly answers "why did the loop
+    stop" but hides the tool-level cause underneath it. A GitHub CLI
+    deprecation that ends a run via ``repeated_failure`` would otherwise
+    never reach the tool-drift recipe. So when the loop-level envelope
+    selects nothing and a failing tool left usable error text, the
+    text-classified cause gets a second look, and both attempts are merged
+    into one trace so every candidate stays visible.
+
+    The failing tool is passed as ``failing_action`` so a recipe can never
+    re-suggest the call that just failed.
+    """
+
+    from .recovery_recipes import select_recipe_traced
+
+    try:
+        failing = next((item for item in outcome.tool_trace if not item.get("ok")), {})
+        failing_action = str(failing.get("tool") or "")
+        # Only facts the tool loop actually knows. Anything absent stays
+        # absent: `violates` fails closed on the requirements that protect
+        # the user, and inventing a fact here to unblock a recipe would
+        # defeat exactly that.
+        context = {"has_repository": project_root is not None}
+
+        trace = select_recipe_traced(
+            _diagnose_outcome(outcome),
+            failing_action=failing_action,
+            context=context,
+        )
+        if trace.selected is None:
+            error_text = str(
+                outcome.last_error
+                or failing.get("message")
+                or failing.get("error_code")
+                or ""
+            )
+            if error_text:
+                from .failure_envelope import FailureEnvelope
+
+                second = select_recipe_traced(
+                    FailureEnvelope.diagnose(
+                        error_text=error_text,
+                        tool=failing_action,
+                        evidence=(),
+                        outcome=str(outcome.stopped_reason or ""),
+                    ),
+                    failing_action=failing_action,
+                    context=context,
+                )
+                if second.selected is not None:
+                    trace = replace(
+                        second, considered=trace.considered + second.considered
+                    )
+    except Exception:  # noqa: BLE001 - a proposal must never break the result
+        return None
+
+    payload = trace.to_dict()
+    if trace.selected is not None:
+        payload["action"] = trace.selected.action.to_dict()
+        payload["caps"] = trace.selected.caps.to_dict()
+        payload["terminal_verdict"] = trace.selected.terminal_verdict.value
+        payload["requires_reconciliation"] = trace.selected.requires_reconciliation
+        payload["family"] = (
+            trace.selected.family.value if trace.selected.family else None
+        )
+    return payload
 
 
 def _candidate_runners() -> list[tuple[str, LocalRunner]]:
