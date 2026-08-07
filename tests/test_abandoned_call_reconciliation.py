@@ -30,6 +30,7 @@ from opaihub.ledger import (
     abandoned_model_calls,
     cost_reconciliation,
     ledger_head_path,
+    ledger_path,
     outstanding_model_calls,
     read_events,
     reconcile_abandoned_calls,
@@ -360,6 +361,12 @@ class CrashAndRestartTests(unittest.TestCase):
                 self.assertEqual(reconcile_abandoned_calls(root, now=_later(120)), [])
 
     def test_a_restart_reports_the_orphan_rather_than_assuming_it_is_live(self) -> None:
+        """Reporting is a pure read, so it names the state instead of writing.
+
+        The orphan is not counted as still in flight -- that would claim a dead
+        process is working -- but nor is it silently retired by a report. It is
+        `pending_abandonment` until the sweep runs, and unaccounted either way.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _orphan(root)
@@ -367,9 +374,16 @@ class CrashAndRestartTests(unittest.TestCase):
                 "opaihub.call_reconciliation.pid_is_running", side_effect=_dead
             ):
                 report = cost_reconciliation(root, now=_later(120))
-            self.assertEqual(report["unresolved_calls"], 0)
-            self.assertEqual(report["abandoned_calls"], 1)
-            self.assertFalse(report["verified"])
+                self.assertEqual(report["unresolved_calls"], 0)
+                self.assertEqual(report["pending_abandonment"], 1)
+                self.assertEqual(report["unaccounted_calls"], 1)
+                self.assertFalse(report["verified"])
+
+                reconcile_abandoned_calls(root, now=_later(120))
+                after = cost_reconciliation(root, now=_later(120))
+            self.assertEqual(after["pending_abandonment"], 0)
+            self.assertEqual(after["abandoned_calls"], 1)
+            self.assertEqual(after["unaccounted_calls"], 1)
 
     def test_a_late_outcome_after_ageing_still_wins(self) -> None:
         """Ageing is a statement about knowledge, not a lock on the truth."""
@@ -385,11 +399,14 @@ class CrashAndRestartTests(unittest.TestCase):
 
 
 class ReportingConsistencyTests(unittest.TestCase):
-    def test_reporting_sweeps_so_nothing_falls_between_the_two_lists(self) -> None:
-        """Without the sweep inside cost_reconciliation this loses the call.
+    def test_nothing_falls_between_the_lists(self) -> None:
+        """A retirable-but-unswept call must not vanish from the totals.
 
-        It would be too old to count as outstanding and not yet recorded as
-        abandoned -- unaccounted spend that vanished from the report.
+        It is too old to count as outstanding and not yet recorded as
+        abandoned. The first design swept inside `cost_reconciliation` to close
+        that gap, which made a documented read-only function write and
+        invalidated `summarize_ledger`'s cache on every send. Counting it as
+        `pending_abandonment` closes the same gap with no write.
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -433,6 +450,59 @@ class ReportingConsistencyTests(unittest.TestCase):
             before = cost_reconciliation(root)["unaccounted_calls"]
             ledger_head_path(root).unlink()
             self.assertEqual(cost_reconciliation(root)["unaccounted_calls"], before)
+
+    def test_reporting_never_writes(self) -> None:
+        """`summarize_ledger` is documented read-only and caches on the ledger
+        file's (size, mtime). A write hidden inside a report would invalidate
+        that cache on every chat send, so reporting must not sweep.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _orphan(root)
+            when = _later(ABANDON_AFTER_SECONDS + 1)
+            before = ledger_path(root).stat()
+            cost_reconciliation(root, now=when)
+            summarize_ledger(root)
+            budget_status(root)
+            after = ledger_path(root).stat()
+            self.assertEqual(
+                (before.st_size, before.st_mtime), (after.st_size, after.st_mtime)
+            )
+            self.assertEqual(len(unresolved_model_calls(root)), 1)
+
+    def test_reporting_on_a_root_with_no_ledger_creates_nothing(self) -> None:
+        """A read must not bring a ledger into existence.
+
+        Callers pass roots that have never recorded anything (and on Windows,
+        roots that do not exist at all); opening a write transaction there
+        raised FileNotFoundError from inside a report.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "never-used"
+            report = cost_reconciliation(root)
+            self.assertTrue(report["verified"])
+            self.assertEqual(report["unaccounted_calls"], 0)
+            self.assertEqual(reconcile_abandoned_calls(root), [])
+            self.assertFalse(root.exists())
+
+    def test_the_send_path_does_not_pay_for_a_second_scan(self) -> None:
+        """summarize_ledger runs on every send; it must read the log once."""
+        import opaihub.ledger as ledger_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _start(root, "c1")
+            record_model_call_finalized(root, "task", call_id="c1", usage=USAGE)
+            calls = {"n": 0}
+            real = ledger_mod.read_events
+
+            def counting(*args, **kwargs):
+                calls["n"] += 1
+                return real(*args, **kwargs)
+
+            with mock.patch.object(ledger_mod, "read_events", counting):
+                summarize_ledger(root)
+            self.assertEqual(calls["n"], 1)
 
     def test_unresolved_model_calls_still_returns_the_raw_open_set(self) -> None:
         """The #619 accessor keeps its meaning; #685 adds, never rewrites."""

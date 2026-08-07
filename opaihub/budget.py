@@ -21,6 +21,7 @@ from .cost_model import is_degraded, is_local_tier, load_cost_model
 from .ledger import (
     EVENT_MODEL_CALL,
     EVENT_MODEL_CALL_ABANDONED,
+    cost_reconciliation,
     read_events,
     reconcile_abandoned_calls,
 )
@@ -263,11 +264,14 @@ def budget_status(project_root: Path) -> dict[str, Any]:
     caps = load_budget(root)
     spent_day = _spent(root, period="day")
     spent_month = _spent(root, period="month")
-    reconcile_abandoned_calls(root)
     unpriced_day = _unpriced_calls(root, period="day")
     unpriced_month = _unpriced_calls(root, period="month")
     abandoned_day = _abandoned_calls(root, period="day")
     abandoned_month = _abandoned_calls(root, period="month")
+    # Status is a report, so it stays read-only and does not sweep. A call
+    # retirable but not yet retired is counted here as unaccounted rather than
+    # being written away behind a status read (#685).
+    reconciliation = cost_reconciliation(root)
 
     def remaining(limit: Any, spent: float) -> Any:
         return round(float(limit) - spent, 6) if limit is not None else None
@@ -306,10 +310,11 @@ def budget_status(project_root: Path) -> dict[str, Any]:
         # number imply the cap is being enforced against real spend.
         "spend_completeness": {
             "complete": not (
-                unpriced_day or unpriced_month or abandoned_day or abandoned_month
+                unpriced_day or unpriced_month or reconciliation["unaccounted_calls"]
             ),
             "unpriced_calls_today": unpriced_day,
             "unpriced_calls_month": unpriced_month,
+            "unaccounted_calls": reconciliation["unaccounted_calls"],
             # #685: dispatched, never reported an outcome. Reported forever;
             # only *gating* uses the self-clearing daily window.
             "abandoned_calls_today": abandoned_day,

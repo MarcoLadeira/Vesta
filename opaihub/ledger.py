@@ -1277,9 +1277,14 @@ def reconcile_abandoned_calls(
 ) -> list[dict[str, Any]]:
     """Retire unresolved calls that cannot still be in flight (#685).
 
-    Idempotent and cheap when there is nothing to do: the common case takes a
-    read of the head and no write at all. Calls this process started are never
-    retired, so running the sweep mid-turn is safe.
+    This is the *writing* half of #685; :func:`cost_reconciliation` is the
+    reading half and never calls it. Keeping them apart is deliberate:
+    ``summarize_ledger`` is documented read-only and caches on the ledger
+    file's (size, mtime), so a sweep hidden inside a report would invalidate
+    that cache on every chat send.
+
+    Calls this process started are never retired, so running the sweep
+    mid-turn is safe.
 
     Records ``cost_unknown`` — never a number. An abandoned call is spend OPai
     could not measure, and #619 AC5 is explicit that unknown is unavailable and
@@ -1287,6 +1292,11 @@ def reconcile_abandoned_calls(
     """
 
     now = datetime.now(timezone.utc) if now is None else now
+    # No ledger, no calls. Checked before opening a transaction, which would
+    # otherwise create ledger state and a lock file under a root that has
+    # never recorded anything — making every caller a writer.
+    if not ledger_path(project_root.expanduser().resolve()).exists():
+        return []
     with _ledger_transaction(project_root) as (root, path, head):
         active = head.get("active_calls") or {}
         retired: list[dict[str, Any]] = []
@@ -1334,6 +1344,7 @@ def cost_reconciliation(
     project_root: Path,
     *,
     now: datetime | None = None,
+    events: Iterable[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Whether spend is fully accounted for, and what is missing if not.
 
@@ -1345,21 +1356,49 @@ def cost_reconciliation(
     Ageing a call out (#685) does not change that. An abandoned call is still
     spend OPai could not measure, so it still counts against ``verified`` and
     still appears here — permanently. What ageing changes is only whether a
-    call is an *open item* a gate may act on, which is a separate question
-    answered by ``open_calls``.
+    call is an *open item* a gate may act on.
 
-    Reconciles before reporting, as the name says. Without that a call already
-    classifiable as abandoned but not yet swept would fall out of *both* lists
-    — too old to be outstanding, not yet recorded as abandoned — and silently
-    disappear from the report. Sweeping first makes classification and
-    reporting agree by construction. It is idempotent and writes nothing when
-    there is nothing to retire.
+    **Pure read.** It deliberately does not sweep, even though sweeping first
+    would make its two lists agree by construction: ``summarize_ledger`` is
+    documented read-only and caches on the ledger file's (size, mtime), so a
+    hidden write would invalidate that cache on every chat send.
+
+    Instead the in-between state is *reported* rather than written away. A call
+    old enough to be abandoned but not yet retired is counted under
+    ``pending_abandonment``, so it can never fall out of both lists and vanish
+    from the report. :func:`reconcile_abandoned_calls` is the writing half.
+
+    ``events`` lets a caller that has already read the log pass it in, so the
+    report costs no extra scan on a hot path.
     """
 
-    reconcile_abandoned_calls(project_root, now=now)
-    open_items = outstanding_model_calls(project_root, now=now)
-    abandoned = abandoned_model_calls(project_root)
-    unaccounted = len(open_items) + len(abandoned)
+    root = project_root.expanduser().resolve()
+    if not ledger_path(root).exists():
+        # Nothing has ever been recorded; say so without creating the ledger.
+        return {
+            "verified": True,
+            "unresolved_calls": 0,
+            "abandoned_calls": 0,
+            "pending_abandonment": 0,
+            "unaccounted_calls": 0,
+            "unresolved": [],
+            "abandoned": [],
+            "note": "Every dispatched provider call has a recorded outcome.",
+        }
+
+    now = datetime.now(timezone.utc) if now is None else now
+    open_items: list[dict[str, Any]] = []
+    pending: list[dict[str, Any]] = []
+    for record in unresolved_model_calls(root):
+        target = pending if classify_call(record, now=now).abandoned else open_items
+        target.append(record)
+    source = read_events(root) if events is None else events
+    abandoned = [
+        dict(event)
+        for event in source
+        if event.get("event_type") == EVENT_MODEL_CALL_ABANDONED
+    ]
+    unaccounted = len(open_items) + len(pending) + len(abandoned)
 
     def detail(record: Mapping[str, Any], *, started_key: str) -> dict[str, Any]:
         # Enough to chase a specific turn without exposing prompt text.
@@ -1381,6 +1420,8 @@ def cost_reconciliation(
         parts = []
         if open_items:
             parts.append(f"{len(open_items)} still in flight")
+        if pending:
+            parts.append(f"{len(pending)} awaiting reconciliation")
         if abandoned:
             parts.append(f"{len(abandoned)} abandoned without an outcome")
         note = (
@@ -1395,8 +1436,13 @@ def cost_reconciliation(
         # existing caller means by it.
         "unresolved_calls": len(open_items),
         "abandoned_calls": len(abandoned),
+        # Old enough to retire, not yet swept. Reported so it can never fall
+        # out of both lists and disappear from the totals (#685).
+        "pending_abandonment": len(pending),
         "unaccounted_calls": unaccounted,
-        "unresolved": [detail(r, started_key="created_at") for r in open_items],
+        "unresolved": [
+            detail(r, started_key="created_at") for r in (*open_items, *pending)
+        ],
         "abandoned": [
             {
                 **detail(record, started_key="started_at"),
@@ -1636,7 +1682,9 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         # has known this all along and said so in its own note; until now no
         # savings surface asked it, so `opai savings` presented an
         # authoritative-looking figure that silently omitted those attempts.
-        "reconciliation": cost_reconciliation(project_root),
+        # Reuses the events already read above: this runs on every chat send,
+        # and a second full scan here would double the cost of the hot path.
+        "reconciliation": cost_reconciliation(project_root, events=events),
         "context_chars_saved": int(_sum(routes, "context_chars_saved")),
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),
         "capture": {
