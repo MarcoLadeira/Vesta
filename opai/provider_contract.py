@@ -33,6 +33,7 @@ ERROR_CODES = (
     "PROVIDER_RATE_LIMITED",
     "PROVIDER_QUOTA_EXHAUSTED",
     "PROVIDER_TIMEOUT",
+    "TASK_DEADLINE",
     "PROVIDER_UNAVAILABLE",
     "NETWORK_ERROR",
     "MODEL_UNAVAILABLE",
@@ -100,6 +101,17 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
         "userMessage": "Retry with a smaller request or choose a faster mode.",
         "actions": ["retry", "change_mode"],
         "retryable": True,
+    },
+    "TASK_DEADLINE": {
+        "authStatus": "unknown",
+        "title": "OPai reached the task time limit.",
+        "userMessage": (
+            "This run reached OPai's task limit while work may have been in "
+            "progress. Inspect retained changes or continue from the saved "
+            "state after OPai reconciles the previous operation."
+        ),
+        "actions": ["inspect_changes", "continue", "show_details"],
+        "retryable": False,
     },
     "PROVIDER_UNAVAILABLE": {
         "authStatus": "provider_unavailable",
@@ -231,6 +243,8 @@ def classify_error_code(
     if timed_out:
         return "PROVIDER_TIMEOUT"
     low = str(detail or "").lower()
+    if "task_deadline" in low or "task deadline" in low:
+        return "TASK_DEADLINE"
     # Quota exhaustion may be wrapped in an HTTP 403 by Copilot, and an
     # out-of-credit refusal in an HTTP 429 by Moonshot ("suspended due to
     # insufficient balance, please recharge"). Classify the specific,

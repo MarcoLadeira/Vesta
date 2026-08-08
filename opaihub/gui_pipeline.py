@@ -2538,6 +2538,7 @@ def handle_gui_message(
                 on_event=on_event,
                 on_text=on_text,
                 cancel=cancel,
+                tool_loop_policy=_contract_tool_loop_policy(),
             )
             if result.get("status") == "cancelled":
                 _emit("cancelled", "cancelled", "Stopped by you")

@@ -14,9 +14,9 @@ only after explicit user confirmation in the GUI.
 from __future__ import annotations
 
 import contextlib
-import inspect
 import os
 import subprocess  # nosec B404 - process calls below use fixed argv/no shell
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -845,6 +845,7 @@ def ask(
             on_event=on_event,
             on_text=on_text,
             cancel=cancel,
+            tool_loop_policy=tool_loop_policy,
         )
 
     # "paid:" (#673, e.g. DeepSeek) shares the free tier's whole dispatch
@@ -1183,6 +1184,7 @@ def _ask_account(
     on_event: Any = None,
     on_text: Any = None,
     cancel: Any = None,
+    tool_loop_policy: Any = None,
     _fallback_used: bool = False,
 ) -> dict[str, Any]:
     """Run a task through a connected paid-account CLI, with firewall gating.
@@ -1232,6 +1234,7 @@ def _ask_account(
             on_event=on_event,
             on_text=on_text,
             cancel=cancel,
+            tool_loop_policy=tool_loop_policy,
             _fallback_used=True,
         )
         if recovered.get("status") == "failed":
@@ -1290,7 +1293,73 @@ def _ask_account(
         on_event is not None or on_text is not None or cancel is not None
     ) and hasattr(run, "stream")
     before = set(_changed_files(root)) if allow_edits else set()
+    run_id = uuid.uuid4().hex[:16]
+    operation_kind = "model_call_paid"
+    model_id = f"account:{account_id}:{model}" if model else f"account:{account_id}"
+    operation_id = ""
+    operation_key = ""
     try:
+        from opaihub.idempotency import FRESH, begin, operation_key as make_operation_key
+        from opaihub.ledger import record_operation_intent
+        from opaihub.operation_class import classify_operation
+
+        operation_key = make_operation_key(
+            operation_kind,
+            run_id=run_id,
+            step_id=1,
+            provider=account_id,
+            model=model or "",
+            mode=mode or "",
+            task=task,
+        )
+        operation_id = operation_key
+        claim = begin(root, operation_key)
+        if claim.get("state") != FRESH:
+            return {
+                "status": "needs_attention",
+                "provider": account_id,
+                "answer": (
+                    "OPai found an unresolved provider operation for this run. "
+                    "It will not send the same paid request again until that "
+                    "operation is reconciled."
+                ),
+                "operation_id": operation_id,
+                "operation_state": claim.get("state"),
+            }
+        record_operation_intent(
+            root,
+            task,
+            operation_id=operation_id,
+            operation_key=operation_key,
+            operation_kind=operation_kind,
+            operation_class=classify_operation(operation_kind).value,
+            target=model_id,
+            metadata={"provider": account_id, "model": model or ""},
+        )
+    except Exception as exc:  # noqa: BLE001 - no durable intent, no paid dispatch
+        from opai.provider_contract import redact_secrets
+
+        return {
+            "status": "operation_unrecorded",
+            "provider": account_id,
+            "answer": (
+                "OPai did not send this paid request because it could not "
+                "record the operation intent first."
+            ),
+            "operation_recorded": False,
+            "error": {
+                "code": "OPERATION_INTENT_UNRECORDED",
+                "technicalMessage": redact_secrets(exc),
+            },
+        }
+    timeout_seconds = getattr(tool_loop_policy, "max_active_seconds", None)
+    if isinstance(timeout_seconds, bool) or not isinstance(
+        timeout_seconds, (int, float)
+    ):
+        timeout_seconds = None
+    try:
+        from opaihub.ask import _supports_kwarg
+
         if want_stream:
             stream_kwargs: dict[str, Any] = {
                 "project_root": root,
@@ -1300,12 +1369,15 @@ def _ask_account(
                 "on_text": on_text,
                 "cancel": cancel,
             }
+            if timeout_seconds is not None and _supports_kwarg(run.stream, "timeout"):
+                stream_kwargs["timeout"] = float(timeout_seconds)
+            if _supports_kwarg(run.stream, "operation_id"):
+                stream_kwargs["operation_id"] = operation_id
             if edit_grant:
                 # Additive (F26): only pass the one-shot edit grant to runners
                 # that accept it, so older/fake runners keep working unchanged.
-                with contextlib.suppress(TypeError, ValueError):
-                    if "edit_grant" in inspect.signature(run.stream).parameters:
-                        stream_kwargs["edit_grant"] = True
+                if _supports_kwarg(run.stream, "edit_grant"):
+                    stream_kwargs["edit_grant"] = True
             result = run.stream(task, **stream_kwargs)
         else:
             complete_kwargs: dict[str, Any] = {
@@ -1327,10 +1399,12 @@ def _ask_account(
             # so a naive membership check silently drops mode for every one
             # of them. Caught by test_agent_autonomy.py's regression suite
             # when this fix first shipped without this helper.
-            from opaihub.ask import _supports_kwarg
-
             if _supports_kwarg(run.complete, "mode"):
                 complete_kwargs["mode"] = mode
+            if timeout_seconds is not None and _supports_kwarg(run.complete, "timeout"):
+                complete_kwargs["timeout"] = float(timeout_seconds)
+            if _supports_kwarg(run.complete, "operation_id"):
+                complete_kwargs["operation_id"] = operation_id
             if edit_grant and _supports_kwarg(run.complete, "edit_grant"):
                 complete_kwargs["edit_grant"] = True
             result = run.complete(task, **complete_kwargs)
@@ -1350,6 +1424,7 @@ def _ask_account(
             "model": getattr(run, "model", "") or account_id,
             "answer": (result.get("text") or "").strip(),
             "cost_usd": result.get("cost"),
+            "operation_id": operation_id,
         }
     if isinstance(result, dict) and result.get("error") and not result.get("text"):
         from opai.provider_contract import normalize_provider_error
@@ -1372,8 +1447,15 @@ def _ask_account(
     # A long agentic run that hit the time limit: stop cleanly, guide the user.
     if isinstance(result, dict) and result.get("timed_out"):
         from opai.provider_contract import normalize_provider_error
+        from opaihub.deadlines import is_task_deadline
 
-        error = normalize_provider_error(account_id, "", model=model, timed_out=True)
+        timeout_info = result.get("timeout_event")
+        timeout_info = timeout_info if isinstance(timeout_info, dict) else {}
+        error = (
+            normalize_provider_error(account_id, "task_deadline", model=model)
+            if is_task_deadline(timeout_info)
+            else normalize_provider_error(account_id, "", model=model, timed_out=True)
+        )
         return {
             # #378/#402: a timeout is a distinct terminal cause. The typed
             # PROVIDER_TIMEOUT error and the "timeout" stop reason are what the
@@ -1386,7 +1468,11 @@ def _ask_account(
             "provider": account_id,
             "answer": error["userMessage"],
             "error": error,
-            "stopped_reason": "timeout",
+            "stopped_reason": str(timeout_info.get("timeout_origin") or "timeout"),
+            "timeout_event": timeout_info,
+            "timeout_origin": timeout_info.get("timeout_origin"),
+            "provider_condition": timeout_info.get("provider_condition"),
+            "operation_id": operation_id,
         }
 
     # complete() returns {"text", "cost"}; tolerate a plain string too.
@@ -1424,6 +1510,19 @@ def _ask_account(
     # not from the fact that prose exists.
     completion_state, stopped_reason = _account_completion(result, answer)
     _note_provider_balance(root, account_id, {"completion_state": completion_state})
+    if operation_key:
+        with contextlib.suppress(Exception):
+            from opaihub.idempotency import complete as complete_operation
+
+            complete_operation(
+                root,
+                operation_key,
+                {
+                    "status": completion_state,
+                    "provider": account_id,
+                    "model": model or "",
+                },
+            )
 
     # Honest firewall accounting: a paid account call is a real spend, not a
     # saving. Use the runner's real cost when available (claude returns
@@ -1461,6 +1560,9 @@ def _ask_account(
         "allow_edits": allow_edits,
         "cost_usd": cost,
         "changed_files": changed,
+        "operation_id": operation_id,
+        "operation_key": operation_key,
+        "operation_recorded": True,
         "ledger_recorded": ledger_recorded,
         "completion_state": completion_state,
         "stopped_reason": stopped_reason,

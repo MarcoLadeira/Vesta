@@ -134,6 +134,23 @@ class RunnerCancellationTests(unittest.TestCase):
         self.assertTrue(result.get("timed_out"))
         self.assertTrue(proc.terminated)
 
+    def test_active_stream_timeout_is_task_deadline_not_provider_idle(self):
+        proc = FakeProc(
+            [
+                '{"type":"assistant","message":{"content":[{"type":"text","text":"part"}]}}\n'
+            ],
+            hang=True,
+        )
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            result = self._runner().stream(
+                "x", timeout=0.2, provider_idle_timeout=10.0
+            )
+
+        self.assertTrue(result.get("timed_out"))
+        self.assertEqual(result["timeout_event"]["timeout_origin"], "task_deadline")
+        self.assertEqual(result["timeout_event"]["provider_condition"], "responsive")
+        self.assertTrue(proc.terminated)
+
     def test_streams_text_and_tool_events(self):
         seen_events = []
         seen_text = []

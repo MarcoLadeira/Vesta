@@ -32,6 +32,11 @@ from pathlib import Path
 from typing import Any
 
 from opai.model_registry import models_for as _models_for
+from opaihub.deadlines import (
+    PROVIDER_IDLE_TIMEOUT,
+    TASK_DEADLINE,
+    timeout_event,
+)
 
 from .command_runner import redact
 from .proc import provider_child_env
@@ -1967,6 +1972,7 @@ class AccountRunner:
         mode: str | None = None,
         timeout: float = 1200.0,
         edit_grant: bool = False,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         """Run the task; return ``{"text", "cost", "timed_out"?}``.
 
@@ -1998,7 +2004,19 @@ class AccountRunner:
                 proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
             except subprocess.TimeoutExpired:
                 Path(out_path).unlink(missing_ok=True)
-                return {"text": "", "cost": None, "timed_out": True}
+                return {
+                    "text": "",
+                    "cost": None,
+                    "timed_out": True,
+                    "operation_id": operation_id,
+                    "timeout_event": timeout_event(
+                        origin=TASK_DEADLINE,
+                        owner="account_runner",
+                        configured_seconds=timeout,
+                        provider_responsive=None,
+                        phase="complete",
+                    ),
+                }
             try:
                 answer = Path(out_path).read_text(encoding="utf-8").strip()
             except OSError:
@@ -2047,7 +2065,19 @@ class AccountRunner:
         try:
             proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
         except subprocess.TimeoutExpired:
-            return {"text": "", "cost": None, "timed_out": True}
+            return {
+                "text": "",
+                "cost": None,
+                "timed_out": True,
+                "operation_id": operation_id,
+                "timeout_event": timeout_event(
+                    origin=TASK_DEADLINE,
+                    owner="account_runner",
+                    configured_seconds=timeout,
+                    provider_responsive=None,
+                    phase="complete",
+                ),
+            }
         returncode = _process_returncode(proc)
         raw = (proc.stdout or "").strip()
         # claude --output-format json -> {"result": "...", "total_cost_usd": ...}.
@@ -2127,7 +2157,9 @@ class AccountRunner:
         on_text: Callable[[str], None] | None = None,
         cancel: threading.Event | None = None,
         timeout: float = 1200.0,
+        provider_idle_timeout: float | None = 300.0,
         edit_grant: bool = False,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         """Run the task with a killable subprocess, emitting live activity.
 
@@ -2207,6 +2239,7 @@ class AccountRunner:
         provider_errors: list[str] = []
         cost: float | None = None
         started = time.monotonic()
+        last_provider_activity: float | None = None
         stopped: str | None = None
         terminal_provider_error: str | None = None
         streamed_any = False
@@ -2231,8 +2264,15 @@ class AccountRunner:
             if cancel is not None and cancel.is_set():
                 stopped = "cancelled"
                 break
-            if time.monotonic() - started > timeout:
-                stopped = "timed_out"
+            now = time.monotonic()
+            if now - started > timeout:
+                stopped = TASK_DEADLINE
+                break
+            if (
+                provider_idle_timeout is not None
+                and now - (last_provider_activity or started) > provider_idle_timeout
+            ):
+                stopped = PROVIDER_IDLE_TIMEOUT
                 break
             try:
                 kind, source, payload = lines.get(timeout=0.2)
@@ -2256,6 +2296,8 @@ class AccountRunner:
                         diagnostic_parts.append(raw_line.strip())
                     continue
                 part = line_parser(raw_line)
+                if part["events"] or part["text"] or part["cost"] is not None:
+                    last_provider_activity = time.monotonic()
                 for event in part["events"]:
                     _notify(on_event, event)
                     etype = str(event.get("type") or "")
@@ -2311,6 +2353,7 @@ class AccountRunner:
             else:
                 chunk = payload or ""
                 if chunk.strip():
+                    last_provider_activity = time.monotonic()
                     if not streamed_any and on_event:
                         on_event(
                             make_event("streaming", "running", "Streaming response")
@@ -2357,8 +2400,37 @@ class AccountRunner:
             if out_path:
                 Path(out_path).unlink(missing_ok=True)
             partial = "".join(text_parts).strip()
-            if stopped == "timed_out":
-                return {"text": partial, "cost": cost, "timed_out": True}
+            if stopped in {TASK_DEADLINE, PROVIDER_IDLE_TIMEOUT}:
+                ended = time.monotonic()
+                last_age = (
+                    None
+                    if last_provider_activity is None
+                    else ended - last_provider_activity
+                )
+                return {
+                    "text": partial,
+                    "cost": cost,
+                    "timed_out": True,
+                    "operation_id": operation_id,
+                    "timeout_event": timeout_event(
+                        origin=stopped,
+                        owner="account_runner",
+                        configured_seconds=timeout
+                        if stopped == TASK_DEADLINE
+                        else provider_idle_timeout,
+                        elapsed_seconds=ended - started,
+                        provider_responsive=(
+                            stopped == TASK_DEADLINE
+                            and last_provider_activity is not None
+                            and (
+                                provider_idle_timeout is None
+                                or last_age <= provider_idle_timeout
+                            )
+                        ),
+                        last_activity_seconds_ago=last_age,
+                        phase="stream",
+                    ),
+                }
             if stopped == "no_progress":
                 # F27: checkpoint, honestly. The paid spend so far is real and
                 # is recorded by the caller; the result can never render green.
