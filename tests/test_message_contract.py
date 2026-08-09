@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest import mock
 
 from _helpers import FakeAccountRunner, make_repo
 from opai import app_state as A
+from opaihub.deadlines import TASK_DEADLINE, timeout_event
 from opaihub.gui_pipeline import handle_gui_message
+from opaihub.ledger import EVENT_OPERATION_INTENT, read_events
 
 # Tokens that must never appear in a user-facing answer.
 _BANNED = [
@@ -73,6 +76,81 @@ class AccountStatusContractTests(_Base):
         self.assertEqual(res["error"]["code"], "PROVIDER_TIMEOUT")
         self.assertClean(res["answer"])
         self.assertIn("smaller", res["answer"].lower())
+
+    def test_account_task_deadline_is_not_reported_as_provider_silence(self):
+        class TaskDeadlineRunner(FakeAccountRunner):
+            def complete(self, prompt, **kwargs):
+                self.calls.append({"prompt": prompt, **kwargs})
+                return {
+                    "text": "partial work",
+                    "cost": None,
+                    "timed_out": True,
+                    "timeout_event": timeout_event(
+                        origin=TASK_DEADLINE,
+                        owner="account_runner",
+                        configured_seconds=1200.0,
+                        elapsed_seconds=1200.0,
+                        provider_responsive=True,
+                        last_activity_seconds_ago=4.0,
+                        phase="stream",
+                    ),
+                }
+
+        res = handle_gui_message(
+            self.root,
+            "implement a multi-file feature and run tests",
+            model_id="account:claude:opus",
+            mode="full-auto",
+            account_runner=TaskDeadlineRunner(),
+        )
+
+        self.assertEqual(res["status"], "failed")
+        self.assertEqual(res["error"]["code"], "TASK_DEADLINE")
+        self.assertEqual(res["raw_result"]["timeout_origin"], TASK_DEADLINE)
+        self.assertEqual(res["raw_result"]["provider_condition"], "responsive")
+        self.assertNotIn("did not receive a response", res["answer"].lower())
+        self.assertNotIn("smaller", res["answer"].lower())
+
+    def test_account_dispatch_uses_policy_deadline_and_records_operation_intent(self):
+        contract = SimpleNamespace(
+            lane="long_horizon",
+            reason="test policy",
+            task_type="feature_build",
+            agent_mode="implement",
+            allow_provider_fallback=True,
+            max_transient_retries=0,
+            max_tool_calls=40,
+            max_active_seconds=42.0,
+            isolate_context=False,
+            requires_confirmation=False,
+            matched_signals=(),
+            to_dict=lambda: {
+                "lane": "long_horizon",
+                "maxActiveSeconds": 42.0,
+            },
+        )
+        fake = FakeAccountRunner(text="done", cost=0.01)
+
+        with mock.patch("opaihub.gui_pipeline.resolve_message_contract", return_value=contract):
+            res = handle_gui_message(
+                self.root,
+                "implement a multi-file feature",
+                model_id="account:claude:opus",
+                mode="full-auto",
+                account_runner=fake,
+            )
+
+        self.assertEqual(res["status"], "answered")
+        self.assertEqual(fake.calls[0]["timeout"], 42.0)
+        self.assertTrue(fake.calls[0]["operation_id"])
+        intent_events = [
+            event
+            for event in read_events(self.root)
+            if event.get("event_type") == EVENT_OPERATION_INTENT
+        ]
+        self.assertEqual(len(intent_events), 1)
+        self.assertEqual(intent_events[0]["operation_kind"], "model_call_paid")
+        self.assertEqual(intent_events[0]["operation_id"], fake.calls[0]["operation_id"])
 
     def test_account_error_is_clean_not_a_raw_exception(self):
         fake = FakeAccountRunner(raises=RuntimeError("kaboom internal"))

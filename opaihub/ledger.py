@@ -39,6 +39,7 @@ EVENT_CONTEXT_COMPACT = "context_compaction"
 EVENT_CACHE = "cache_lookup"
 EVENT_CAPTURE_SESSION = "capture_session"
 EVENT_TASK_OUTCOME = "task_outcome"
+EVENT_OPERATION_INTENT = "operation_intent"
 EVENT_MODEL_CALL_STARTED = "model_call_started"
 # A dispatched call retired without ever learning its cost (#685). Terminal and
 # honest: it closes the call as an *open item* while keeping it visible as
@@ -55,6 +56,7 @@ KNOWN_EVENT_TYPES = {
     EVENT_CACHE,
     EVENT_CAPTURE_SESSION,
     EVENT_TASK_OUTCOME,
+    EVENT_OPERATION_INTENT,
     EVENT_MODEL_CALL_STARTED,
     EVENT_MODEL_CALL_ABANDONED,
     EVENT_USAGE_BASELINE_RESET,
@@ -800,6 +802,36 @@ def record_event(
             fields=fields,
         )
         return _append_and_commit(root, path, head, event)
+
+
+def record_operation_intent(
+    project_root: Path,
+    task: str,
+    *,
+    operation_id: str,
+    operation_key: str,
+    operation_kind: str,
+    operation_class: str,
+    target: str,
+    state: str = "intended",
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Record one protected external operation before dispatch (#616)."""
+    stable_operation_id = _required_identifier(operation_id, "operation_id")
+    stable_operation_key = _required_identifier(operation_key, "operation_key")
+    kind = _required_identifier(operation_kind, "operation_kind")
+    return record_event(
+        project_root,
+        EVENT_OPERATION_INTENT,
+        task=task,
+        operation_id=stable_operation_id,
+        operation_key=stable_operation_key,
+        operation_kind=kind,
+        operation_class=str(operation_class or "").strip(),
+        target=str(target or "").strip()[:512],
+        state=str(state or "intended").strip().lower(),
+        metadata=dict(metadata or {}),
+    )
 
 
 def record_capture_session(
