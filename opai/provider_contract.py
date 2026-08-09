@@ -39,6 +39,7 @@ ERROR_CODES = (
     "MODEL_UNAVAILABLE",
     "CONFIG_INVALID",
     "PROVIDER_CLI_OUTDATED",
+    "SUBPROCESS_PERMISSION_DENIED",
     "CONTEXT_TOO_LARGE",
     "STREAM_ABORTED",
     "USER_CANCELLED",
@@ -159,6 +160,16 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
             "(or `brew upgrade codex`). Until then, pick another model."
         ),
         "actions": ["change_mode", "open_settings", "show_details"],
+        "retryable": False,
+    },
+    "SUBPROCESS_PERMISSION_DENIED": {
+        "authStatus": "misconfigured",
+        "title": "OPai could not start this provider CLI.",
+        "userMessage": (
+            "Windows denied access to the provider command. Reinstall or repair "
+            "the CLI, then reconnect this provider in Settings."
+        ),
+        "actions": ["open_settings", "show_details"],
         "retryable": False,
     },
     "CONTEXT_TOO_LARGE": {
@@ -327,6 +338,17 @@ def classify_error_code(
         and ("newer version" in low or "latest version" in low)
     ):
         return "PROVIDER_CLI_OUTDATED"
+    if any(
+        word in low
+        for word in (
+            "permission denied",
+            "access is denied",
+            "winerror 5",
+            "eacces",
+            "operation not permitted",
+        )
+    ):
+        return "SUBPROCESS_PERMISSION_DENIED"
     if any(
         word in low
         for word in ("unknown model", "model not found", "model unavailable")

@@ -104,6 +104,20 @@ class RunnerCancellationTests(unittest.TestCase):
         self.assertNotIn("sk-secretvalue123", result["error"]["technicalMessage"])
         self.assertEqual(result["error"]["code"], "PROVIDER_UNAVAILABLE")
 
+    def test_launch_permission_error_is_normalized_and_redacted(self):
+        secret = "sk-secretvalue123"
+        with mock.patch.object(
+            accounts,
+            "_popen",
+            side_effect=PermissionError(f"[WinError 5] Access is denied: {secret}"),
+        ):
+            result = self._runner().stream("x")
+
+        self.assertEqual(result["text"], "")
+        self.assertIsInstance(result["error"], dict)
+        self.assertEqual(result["error"]["code"], "SUBPROCESS_PERMISSION_DENIED")
+        self.assertNotIn(secret, repr(result["error"]))
+
     def test_cancel_terminates_the_process(self):
         proc = FakeProc(
             [
@@ -126,6 +140,54 @@ class RunnerCancellationTests(unittest.TestCase):
         self.assertTrue(result.get("cancelled"))
         self.assertTrue(proc.terminated)  # the process was actually killed
         self.assertIn("part", result.get("text", ""))  # partial text preserved
+
+    def test_cancel_records_durable_teardown_evidence(self):
+        proc = FakeProc(
+            [
+                '{"type":"assistant","message":{"content":[{"type":"text","text":"part"}]}}\n'
+            ],
+            hang=True,
+        )
+        cancel = threading.Event()
+        result: dict = {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+
+            def run():
+                with mock.patch.object(accounts, "_popen", return_value=proc):
+                    result.update(
+                        self._runner().stream(
+                            "x",
+                            project_root=root,
+                            cancel=cancel,
+                            cancellation_scope_id="test-account-cancel",
+                        )
+                    )
+
+            t = threading.Thread(target=run)
+            t.start()
+            time.sleep(0.25)
+            cancel.set()
+            t.join(timeout=3)
+
+        evidence = result.get("cancellation") or {}
+        self.assertTrue(result.get("cancelled"))
+        self.assertEqual(evidence.get("phase"), "terminated")
+        self.assertEqual(
+            [item["phase"] for item in evidence.get("history", [])],
+            [
+                "requested",
+                "acknowledged",
+                "draining",
+                "force_terminating",
+                "terminated",
+            ],
+        )
+        self.assertIsNotNone(
+            evidence.get("metrics", {}).get("acknowledgement_latency_seconds")
+        )
+        self.assertIsNotNone(evidence.get("metrics", {}).get("hard_stop_latency_seconds"))
 
     def test_timeout_terminates_the_process(self):
         proc = FakeProc([], hang=True)

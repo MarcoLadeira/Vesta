@@ -27,6 +27,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -300,11 +301,17 @@ def _is_login_sentinel(text: str) -> bool:
     return t.startswith("not logged in") and len(t) <= 120
 
 
-def _terminate(proc: Any) -> None:
+def _terminate(proc: Any, *, tracker: Any = None) -> None:
     """Stop a running process *and its whole tree* (#108): grandchildren spawned
     by a provider CLI must not survive Stop and keep spending or mutating the
     repo. Delegates to the platform-aware, idempotent tree killer."""
+    if tracker is not None:
+        with contextlib.suppress(Exception):
+            tracker.force_terminate(reason_code="process_tree_termination_started")
     terminate_tree(proc)
+    if tracker is not None:
+        with contextlib.suppress(Exception):
+            tracker.mark_terminated(reason_code="process_tree_termination_returned")
 
 
 def _terminate_async(proc: Any, *, after: Callable[[], None] | None = None) -> None:
@@ -318,6 +325,20 @@ def _terminate_async(proc: Any, *, after: Callable[[], None] | None = None) -> N
                 after()
 
     threading.Thread(target=_cleanup, daemon=True).start()
+
+
+def _cancellation_evidence(tracker: Any) -> dict[str, Any] | None:
+    if tracker is None:
+        return None
+    with contextlib.suppress(Exception):
+        phase = tracker.phase()
+        return {
+            "scope_id": tracker.scope_id,
+            "phase": phase.value if phase is not None else None,
+            "history": list(tracker.history()),
+            "metrics": tracker.metrics().to_dict(),
+        }
+    return None
 
 
 def _process_returncode(proc: Any) -> int:
@@ -2050,6 +2071,7 @@ class AccountRunner:
                 "text": answer or (proc.stdout or proc.stderr or "").strip(),
                 "cost": None,
                 "returncode": returncode,
+                "operation_id": operation_id,
             }
         cmd = self.build_command(
             prompt,
@@ -2120,6 +2142,7 @@ class AccountRunner:
                 "text": text or raw,
                 "cost": cost,
                 "returncode": returncode,
+                "operation_id": operation_id,
             }
         except (json.JSONDecodeError, TypeError):
             text = raw or (proc.stderr or "").strip()
@@ -2159,6 +2182,7 @@ class AccountRunner:
         timeout: float = 1200.0,
         provider_idle_timeout: float | None = 300.0,
         edit_grant: bool = False,
+        cancellation_scope_id: str | None = None,
         operation_id: str | None = None,
     ) -> dict[str, Any]:
         """Run the task with a killable subprocess, emitting live activity.
@@ -2176,6 +2200,13 @@ class AccountRunner:
         from opai.activity import ActivitySession, make_event
 
         cwd = str(project_root) if project_root else None
+        cancellation_tracker = None
+        if project_root is not None:
+            with contextlib.suppress(Exception):
+                from .cancellation_lifecycle import CancellationTracker
+
+                scope_id = cancellation_scope_id or f"account-{uuid.uuid4().hex[:16]}"
+                cancellation_tracker = CancellationTracker(project_root, scope_id)
         out_path: str | None = None
         if self.account_id == "codex":
             with tempfile.NamedTemporaryFile(
@@ -2214,7 +2245,15 @@ class AccountRunner:
         except OSError as exc:
             if out_path:
                 Path(out_path).unlink(missing_ok=True)
-            return {"text": "", "cost": None, "error": str(exc)}
+            from opai.provider_contract import normalize_provider_error
+
+            normalized = normalize_provider_error(
+                self.account_id,
+                exc,
+                model=self.model,
+            )
+            _invalidate_cache_for_error(self.account_id, normalized)
+            return {"text": "", "cost": None, "error": normalized}
 
         lines: queue.Queue[tuple[str, str, str | None]] = queue.Queue()
 
@@ -2396,10 +2435,18 @@ class AccountRunner:
             }
 
         if stopped is not None:
-            _terminate(proc)
+            if cancellation_tracker is not None:
+                with contextlib.suppress(Exception):
+                    cancellation_tracker.request(reason_code=stopped)
+                    cancellation_tracker.acknowledge(reason_code="stream_loop_observed")
+                    cancellation_tracker.begin_draining(
+                        reason_code="provider_process_in_flight"
+                    )
+            _terminate(proc, tracker=cancellation_tracker)
             if out_path:
                 Path(out_path).unlink(missing_ok=True)
             partial = "".join(text_parts).strip()
+            cancellation_evidence = _cancellation_evidence(cancellation_tracker)
             if stopped in {TASK_DEADLINE, PROVIDER_IDLE_TIMEOUT}:
                 ended = time.monotonic()
                 last_age = (
@@ -2430,6 +2477,7 @@ class AccountRunner:
                         last_activity_seconds_ago=last_age,
                         phase="stream",
                     ),
+                    "cancellation": cancellation_evidence,
                 }
             if stopped == "no_progress":
                 # F27: checkpoint, honestly. The paid spend so far is real and
@@ -2441,8 +2489,14 @@ class AccountRunner:
                     "stopped_reason": "no_progress_guard",
                     "tool_steps": len(step_ids),
                     "edit_denials": list(session.edit_denials),
+                    "cancellation": cancellation_evidence,
                 }
-            return {"text": partial, "cost": cost, "cancelled": True}
+            return {
+                "text": partial,
+                "cost": cost,
+                "cancelled": True,
+                "cancellation": cancellation_evidence,
+            }
 
         try:
             returncode = proc.wait(timeout=5)

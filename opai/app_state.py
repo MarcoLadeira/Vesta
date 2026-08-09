@@ -14,6 +14,7 @@ only after explicit user confirmation in the GUI.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import subprocess  # nosec B404 - process calls below use fixed argv/no shell
 import uuid
@@ -974,6 +975,9 @@ def _ask_direct_api_model(
             ),
         }
     before = set(_changed_files(project_root)) if allow_edits else set()
+    before_identities = _changed_file_identities(project_root, before)
+    if not allow_edits:
+        before_identities = {}
     result = run_explicit_model(
         project_root,
         task,
@@ -1075,7 +1079,9 @@ def _ask_direct_api_model(
                     model_calls=int(usage.get("model_calls") or 1),
                 )
         result["changed_files"] = (
-            sorted(set(_changed_files(project_root)) - before) if allow_edits else []
+            _changed_since(project_root, before, before_identities)
+            if allow_edits
+            else []
         )
     result["model_id"] = model_id
     result["free_tier"] = not is_paid
@@ -1117,6 +1123,49 @@ def _changed_files(root: Path) -> list[str]:
         proc = _hidden_run(["git", "status", "--short"], cwd=str(root), timeout=10.0)
         return [line for line in (proc.stdout or "").splitlines() if line.strip()]
     return []
+
+
+def _status_path(root: Path, status_line: str) -> Path:
+    rel = status_line[3:].strip() if len(status_line) >= 3 else status_line.strip()
+    if " -> " in rel:
+        rel = rel.rsplit(" -> ", 1)[-1]
+    rel = rel.strip('"')
+    return root / rel
+
+
+def _changed_file_identities(root: Path, status_lines: set[str]) -> dict[str, str]:
+    """Content identities for already-dirty files before a provider run.
+
+    #620: status-line deltas miss edits to files that were dirty before the
+    run, because they remain the same ``git status --short`` line afterward.
+    Keep the public status-line contract, but compare a cheap file identity for
+    pre-existing dirty paths so OPai can still attribute the provider's write.
+    """
+    identities: dict[str, str] = {}
+    for status in status_lines:
+        with contextlib.suppress(OSError):
+            path = _status_path(root, status)
+            if path.is_file():
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                identities[status] = f"file:{digest}"
+            elif path.exists():
+                identities[status] = "exists"
+            else:
+                identities[status] = "missing"
+    return identities
+
+
+def _changed_since(
+    root: Path, before: set[str], before_identities: dict[str, str]
+) -> list[str]:
+    after = set(_changed_files(root))
+    after_identities = _changed_file_identities(root, after)
+    changed_existing = {
+        status
+        for status in after & before
+        if after_identities.get(status) != before_identities.get(status)
+    }
+    return sorted((after - before) | changed_existing)
 
 
 def _invalidate_stale_auth_cache(account_id: str, error: dict[str, Any]) -> None:
@@ -1293,11 +1342,17 @@ def _ask_account(
         on_event is not None or on_text is not None or cancel is not None
     ) and hasattr(run, "stream")
     before = set(_changed_files(root)) if allow_edits else set()
+    before_identities = _changed_file_identities(root, before)
+    if not allow_edits:
+        before_identities = {}
     run_id = uuid.uuid4().hex[:16]
     operation_kind = "model_call_paid"
     model_id = f"account:{account_id}:{model}" if model else f"account:{account_id}"
     operation_id = ""
     operation_key = ""
+    dispatch_recorded = False
+    finalized_recorded = False
+    dispatch_record_error = ""
     try:
         from opaihub.idempotency import FRESH, begin, operation_key as make_operation_key
         from opaihub.ledger import record_operation_intent
@@ -1352,6 +1407,45 @@ def _ask_account(
                 "technicalMessage": redact_secrets(exc),
             },
         }
+    call_id = operation_id
+    try:
+        from opaihub.ledger import record_model_call_started
+
+        record_model_call_started(
+            root,
+            task,
+            call_id=call_id,
+            run_id=run_id,
+            turn_index=1,
+            model_id=model_id,
+            provider_id=account_id,
+            model_tier="L3",
+            provider_type="cloud",
+            confirmed=True,
+        )
+        dispatch_recorded = True
+    except Exception as exc:  # noqa: BLE001 - do not dispatch untracked paid work
+        from opai.provider_contract import redact_secrets
+
+        dispatch_record_error = redact_secrets(exc)
+    if not dispatch_recorded:
+        return {
+            "status": "cost_unreconciled",
+            "provider": account_id,
+            "answer": (
+                "OPai did not send this paid request because it could not "
+                "record the cost identity first."
+            ),
+            "operation_id": operation_id,
+            "operation_recorded": True,
+            "cost_integrity": "unreconciled",
+            "cost_unreconciled": True,
+            "ledger_recorded": False,
+            "ledger_recorded_per_turn": False,
+            "ledger_dispatch_recorded": False,
+            "ledger_call_id": None,
+            "ledger_error": dispatch_record_error,
+        }
     timeout_seconds = getattr(tool_loop_policy, "max_active_seconds", None)
     if isinstance(timeout_seconds, bool) or not isinstance(
         timeout_seconds, (int, float)
@@ -1372,7 +1466,7 @@ def _ask_account(
             if timeout_seconds is not None and _supports_kwarg(run.stream, "timeout"):
                 stream_kwargs["timeout"] = float(timeout_seconds)
             if _supports_kwarg(run.stream, "operation_id"):
-                stream_kwargs["operation_id"] = operation_id
+                stream_kwargs["operation_id"] = call_id
             if edit_grant:
                 # Additive (F26): only pass the one-shot edit grant to runners
                 # that accept it, so older/fake runners keep working unchanged.
@@ -1404,7 +1498,7 @@ def _ask_account(
             if timeout_seconds is not None and _supports_kwarg(run.complete, "timeout"):
                 complete_kwargs["timeout"] = float(timeout_seconds)
             if _supports_kwarg(run.complete, "operation_id"):
-                complete_kwargs["operation_id"] = operation_id
+                complete_kwargs["operation_id"] = call_id
             if edit_grant and _supports_kwarg(run.complete, "edit_grant"):
                 complete_kwargs["edit_grant"] = True
             result = run.complete(task, **complete_kwargs)
@@ -1425,6 +1519,9 @@ def _ask_account(
             "answer": (result.get("text") or "").strip(),
             "cost_usd": result.get("cost"),
             "operation_id": operation_id,
+            "ledger_dispatch_recorded": dispatch_recorded,
+            "ledger_call_id": call_id if dispatch_recorded else None,
+            "cancellation": result.get("cancellation"),
         }
     if isinstance(result, dict) and result.get("error") and not result.get("text"):
         from opai.provider_contract import normalize_provider_error
@@ -1473,6 +1570,9 @@ def _ask_account(
             "timeout_origin": timeout_info.get("timeout_origin"),
             "provider_condition": timeout_info.get("provider_condition"),
             "operation_id": operation_id,
+            "ledger_dispatch_recorded": dispatch_recorded,
+            "ledger_call_id": call_id if dispatch_recorded else None,
+            "cancellation": result.get("cancellation"),
         }
 
     # complete() returns {"text", "cost"}; tolerate a plain string too.
@@ -1504,7 +1604,7 @@ def _ask_account(
             }
 
     # Surface what the agent actually changed, like Claude Code / Cursor do.
-    changed = sorted(set(_changed_files(root)) - before) if allow_edits else []
+    changed = _changed_since(root, before, before_identities) if allow_edits else []
 
     # F24: completion truth comes from the provider's own terminal signals,
     # not from the fact that prose exists.
@@ -1529,28 +1629,63 @@ def _ask_account(
     # total_cost_usd); fall back to the L3 tier estimate for Codex which
     # doesn't report cost. "CLOUD" was never a key in the L0-L4 cost model,
     # so using it always wrote estimated_actual_usd=0 (the "$0.00 bug").
-    ledger_recorded = False
-    with contextlib.suppress(Exception):
-        from opaihub.cost_model import estimate_tokens
-        from opaihub.ledger import record_model_call
+    ledger_error = ""
+    try:
+        from opaihub.cost_model import estimate_tokens, tier_cost
+        from opaihub.ledger import record_model_call_finalized
+        from opaihub.usage_report import ProviderTurnUsage, UsageValue
 
-        record_model_call(
+        tokens = estimate_tokens(task + "\n" + (answer or ""))
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost > 0:
+            cost_value = float(cost)
+            cost_provenance = "actual"
+        else:
+            cost_value = tier_cost("L3", tokens)
+            cost_provenance = "estimated"
+        record_model_call_finalized(
             root,
             task,
-            model_tier="L3",
-            provider_type="cloud",
-            tokens=estimate_tokens(task + "\n" + (answer or "")),
-            confirmed=True,
-            real_cost_usd=cost if isinstance(cost, (int, float)) else None,
-            model_id=f"account:{account_id}:{model}"
-            if model
-            else f"account:{account_id}",
-            provider_id=account_id,
-            # Claude reports total_cost_usd itself: that entry is an actual
-            # spend, not an estimate (#178). Codex stays honestly estimated.
-            measurement="actual" if isinstance(cost, (int, float)) else "estimated",
+            call_id=call_id,
+            usage=ProviderTurnUsage(
+                turn_index=1,
+                total_tokens=UsageValue(tokens, "estimated"),
+                cost_usd=UsageValue(cost_value, cost_provenance),
+            ),
         )
-        ledger_recorded = True
+        finalized_recorded = True
+    except Exception as exc:  # noqa: BLE001 - preserve answer, degrade cost truth
+        from opai.provider_contract import redact_secrets
+
+        ledger_error = redact_secrets(exc)
+
+    legacy_ledger_recorded = False
+    if not finalized_recorded:
+        try:
+            from opaihub.cost_model import estimate_tokens
+            from opaihub.ledger import record_model_call
+
+            record_model_call(
+                root,
+                task,
+                model_tier="L3",
+                provider_type="cloud",
+                tokens=estimate_tokens(task + "\n" + (answer or "")),
+                confirmed=True,
+                real_cost_usd=cost if isinstance(cost, (int, float)) else None,
+                model_id=model_id,
+                provider_id=account_id,
+                # Claude reports total_cost_usd itself: that entry is an actual
+                # spend, not an estimate (#178). Codex stays honestly estimated.
+                measurement="actual" if isinstance(cost, (int, float)) else "estimated",
+            )
+            legacy_ledger_recorded = True
+        except Exception as exc:  # noqa: BLE001 - answer is usable, cost is not
+            from opai.provider_contract import redact_secrets
+
+            ledger_error = ledger_error or redact_secrets(exc)
+    cost_integrity = (
+        "complete" if finalized_recorded or legacy_ledger_recorded else "unreconciled"
+    )
 
     return {
         "status": "answered_by_account",
@@ -1563,7 +1698,13 @@ def _ask_account(
         "operation_id": operation_id,
         "operation_key": operation_key,
         "operation_recorded": True,
-        "ledger_recorded": ledger_recorded,
+        "ledger_recorded": finalized_recorded or legacy_ledger_recorded,
+        "ledger_recorded_per_turn": finalized_recorded,
+        "ledger_dispatch_recorded": dispatch_recorded,
+        "ledger_call_id": call_id if dispatch_recorded else None,
+        "cost_integrity": cost_integrity,
+        "cost_unreconciled": cost_integrity == "unreconciled",
+        "ledger_error": ledger_error,
         "completion_state": completion_state,
         "stopped_reason": stopped_reason,
         # #378: terminal verification must consume OPai-observed tool results.

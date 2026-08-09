@@ -153,8 +153,14 @@ class CaptureSessionLedgerTests(unittest.TestCase):
         self.assertFalse(event["spend_accounted"])
 
     def test_model_ledger_failure_is_reported_without_breaking_the_answer(self):
-        with mock.patch(
-            "opaihub.ledger.record_model_call", side_effect=OSError("disk full")
+        with (
+            mock.patch(
+                "opaihub.ledger.record_model_call_finalized",
+                side_effect=OSError("disk full"),
+            ),
+            mock.patch(
+                "opaihub.ledger.record_model_call", side_effect=OSError("disk full")
+            ),
         ):
             result = proxy_run(
                 self.root,

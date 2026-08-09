@@ -28,9 +28,11 @@ after it.
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 
 from opaihub.ask import _complete_streaming, _supports_kwarg
+from tests._helpers import make_repo
 
 
 class SupportsKwargTests(unittest.TestCase):
@@ -186,6 +188,13 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
     dispatch. Same reproduction shape, now against a fake mimicking
     AccountRunner.complete's real signature."""
 
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
     def _fake_account_runner_module(self, complete_impl):
         import unittest.mock as mock
 
@@ -210,7 +219,7 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
 
         run = self._fake_account_runner_module(complete)
         result = _ask_account(
-            Path("/tmp"),
+            self.root,
             "do a paid task",
             "claude",
             allow_edits=False,
@@ -231,7 +240,7 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
 
         run = self._fake_account_runner_module(complete)
         result = _ask_account(
-            Path("/tmp"),
+            self.root,
             "do a task",
             "claude",
             allow_edits=False,
@@ -261,7 +270,7 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
 
         run = self._fake_account_runner_module(complete)
         _ask_account(
-            Path("/tmp"),
+            self.root,
             "do a task",
             "claude",
             allow_edits=False,
@@ -269,6 +278,29 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
             mode="full-auto",
         )
         self.assertEqual(received.get("mode"), "full-auto")
+
+    def test_kwargs_accepting_runner_receives_pre_recorded_operation_id(self):
+        from opai.app_state import _ask_account
+
+        received: dict = {}
+
+        def complete(task, **kwargs):
+            received.update(kwargs)
+            return {"text": "done", "cost": 0.01}
+
+        run = self._fake_account_runner_module(complete)
+        result = _ask_account(
+            self.root,
+            "do a paid task",
+            "claude",
+            allow_edits=False,
+            runner=run,
+            mode="ask",
+        )
+
+        self.assertEqual(result["status"], "answered_by_account")
+        self.assertTrue(received.get("operation_id"))
+        self.assertEqual(received["operation_id"], result["ledger_call_id"])
 
 
 if __name__ == "__main__":
