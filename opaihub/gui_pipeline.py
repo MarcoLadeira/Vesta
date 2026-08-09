@@ -419,6 +419,7 @@ def build_savings_receipt(
     context_tokens_saved: int = 0,
     confidence: str = "estimated",
     paid_call: bool = False,
+    cost_integrity: str = "complete",
 ) -> dict[str, Any]:
     cost_model = load_cost_model(project_root)
     tokens = estimate_tokens(task, cost_model) or int(
@@ -456,6 +457,12 @@ def build_savings_receipt(
             route["cloud_call_avoided"] and actual <= route["estimated_actual_usd"]
         )
         basis = "estimated_vs_unrouted_baseline"
+    integrity = str(cost_integrity or "complete")
+    if integrity == "unreconciled":
+        savings = 0.0
+        paid_avoided = False
+        effective_confidence = "unreconciled"
+        basis = "cost_unreconciled_savings_withheld"
     return {
         "schema": 2,
         "session_id": uuid.uuid4().hex[:12],
@@ -475,6 +482,8 @@ def build_savings_receipt(
         "savings_basis": basis,
         "context_tokens_saved": int(context_tokens_saved),
         "confidence": effective_confidence,
+        "cost_integrity": integrity,
+        "cost_unreconciled": integrity == "unreconciled",
         "privacy": "Raw prompts are not stored; receipts use task hashes and estimates.",
     }
 
@@ -2662,6 +2671,7 @@ def handle_gui_message(
                 chosen_tier="L3",
                 actual_cost_usd=actual if isinstance(actual, (int, float)) else None,
                 paid_call=True,
+                cost_integrity=str(result.get("cost_integrity") or "complete"),
             )
             # Provider cost telemetry (#178): the call actually ran, so record
             # what the provider itself reported - claude's total_cost_usd stays
