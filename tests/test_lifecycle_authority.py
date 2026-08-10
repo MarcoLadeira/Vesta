@@ -286,6 +286,61 @@ class NoSecondBrowserAuthorityTests(unittest.TestCase):
         self.assertTrue((ROOT / BROWSER_AUTHORITY).exists())
 
 
+class GeneratedArtefactsAreByteStableTests(unittest.TestCase):
+    """Generated output must be identical on every platform (#612 AC7).
+
+    The generator writes LF, but the drift check compares *decoded* text, so a
+    working tree holding CRLF passes it -- and `write_or_check` skips a write
+    whose decoded text already matches, so regenerating cannot repair the file
+    either. A byte-level change to a generated artefact was therefore neither
+    detected nor fixable.
+
+    `.gitattributes` pins `.py`, `.json` and `.md` to `eol=lf`, which is why
+    three of the four targets were fine. The browser contract is a `.js` file
+    and was not pinned, so with `core.autocrlf=true` -- this repository's
+    Windows default -- it checked out as CRLF. Found by running the drift
+    qualification on Windows rather than assuming Linux semantics.
+    """
+
+    TARGETS = (
+        "opaihub/generated_lifecycle.py",
+        "opai/assets/web/generated-lifecycle.js",
+        "opaihub/data/lifecycle-fixtures.json",
+        "docs/lifecycle-schema.md",
+    )
+
+    def test_every_generated_target_is_lf_in_the_working_tree(self):
+        offenders = [
+            name for name in self.TARGETS if b"\r\n" in (ROOT / name).read_bytes()
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "these generated files hold CRLF, so their bytes differ from what "
+            "the generator writes while the drift check still passes: "
+            f"{offenders}. Pin them in .gitattributes with `text eol=lf`.",
+        )
+
+    def test_every_generated_target_is_pinned_in_gitattributes(self):
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        pinned_extensions = {
+            line.split()[0].lstrip("*")
+            for line in attributes.splitlines()
+            if line.strip() and not line.startswith("#") and "eol=lf" in line
+        }
+        for name in self.TARGETS:
+            with self.subTest(target=name):
+                suffix = Path(name).suffix
+                covered = suffix in pinned_extensions or any(
+                    name in line for line in attributes.splitlines()
+                )
+                self.assertTrue(
+                    covered,
+                    f"{name} is generated but not pinned to eol=lf, so its "
+                    "bytes depend on the platform that checked it out",
+                )
+
+
 class TerminalityAgreesAcrossTargetsTests(unittest.TestCase):
     """AC3: terminal meaning must be identical in every generated target."""
 
