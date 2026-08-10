@@ -25,6 +25,9 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from opaihub.generated_lifecycle import (
+    DEGRADED_INPUTS,
+    LEGACY_STATE_MAP,
+    LEGACY_STATUS_MAP,
     STATE_IDS,
     TERMINAL_STATE_IDS,
     transition_spec,
@@ -121,11 +124,54 @@ class EventStreamPropertyTests(unittest.TestCase):
         unknown=st.text(min_size=1, max_size=24), sequence=st.lists(states, max_size=6)
     )
     def test_an_unknown_future_state_never_becomes_success(self, unknown, sequence):
-        """P6: a state a newer app wrote must degrade, never be guessed."""
-        if unknown in STATE_IDS:
+        """P6: a state a newer app wrote must degrade, never be guessed.
+
+        The property is that the unknown event cannot *cause* success -- not
+        that the run cannot already be successful. An earlier version asserted
+        the latter and was wrong: for `sequence=['completed'], unknown='TIMEOUT'`
+        the walk legitimately completed first, and the refused unknown edge
+        then correctly preserved that terminal state. Asserting "never
+        completed" would have demanded the machine corrupt a valid terminal
+        run to satisfy a test.
+
+        `TIMEOUT` also exposed a second flaw: it is absent from STATE_IDS but
+        is a legacy alias resolving to the real `timeout` state, so filtering
+        on STATE_IDS alone does not mean "unknown". Both maps are excluded.
+        """
+        lowered = unknown.strip().lower()
+        if (
+            lowered in STATE_IDS
+            or lowered in LEGACY_STATUS_MAP
+            or lowered in LEGACY_STATE_MAP
+        ):
             return
-        outcome = _apply([*sequence, unknown])
-        self.assertNotEqual(outcome, "completed")
+        before = _apply(sequence)
+        after = _apply([unknown], start=before)
+        if before != "completed":
+            self.assertNotEqual(
+                after,
+                "completed",
+                f"unknown input {unknown!r} moved {before!r} to completed",
+            )
+        else:
+            # Already completed. The unknown event may not be honoured, but the
+            # schema does not say "refuse and keep": it declares where an
+            # uninterpretable input lands, and that is a *typed degrade*, not a
+            # guess. Reading the landing from the schema rather than naming it
+            # here keeps this test honest if the declared behaviour changes --
+            # it would then have to change deliberately, in the schema.
+            degraded = DEGRADED_INPUTS["unknown_state"]["state"]
+            self.assertIn(
+                after,
+                {"completed", degraded},
+                f"unknown input {unknown!r} sent a completed run to {after!r}, "
+                f"which is neither refusal nor the declared degrade {degraded!r}",
+            )
+            self.assertNotEqual(
+                DEGRADED_INPUTS["unknown_state"]["compatibility"],
+                "compatible",
+                "an unknown state must never be marked compatible",
+            )
 
     @_SETTINGS
     @given(sequence=st.lists(states, min_size=1, max_size=12))
