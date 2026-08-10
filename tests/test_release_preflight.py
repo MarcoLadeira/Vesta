@@ -11,11 +11,21 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from opaihub import release_preflight as rp
 
 
-def _fake_git(*, dirty=(), tags=()):
+CANDIDATE_SHA = "1" * 40
+OTHER_SHA = "2" * 40
+REPOSITORY = "MarcoLadeira/OPai"
+DESKTOP_WORKFLOW = ".github/workflows/desktop-artifacts.yml"
+RUN_ID = "621001"
+RUN_ATTEMPT = "2"
+RELEASE_TAG = "v0.2.0a2"
+
+
+def _fake_git(*, dirty=(), tags=(), head=CANDIDATE_SHA):
     def runner(root, args):
         args = list(args)
         if args[:1] == ["status"]:
@@ -25,6 +35,18 @@ def _fake_git(*, dirty=(), tags=()):
             want = args[-1]
             out = want + "\n" if want in tags else ""
             return subprocess.CompletedProcess(args, 0, out, "")
+        if args[:2] == ["cat-file", "-t"]:
+            tag = args[-1]
+            return subprocess.CompletedProcess(
+                args, 0 if tag in tags else 1, "tag\n" if tag in tags else "", ""
+            )
+        if args[:3] == ["rev-list", "-n", "1"]:
+            tag = args[-1]
+            return subprocess.CompletedProcess(
+                args, 0 if tag in tags else 1, f"{head}\n" if tag in tags else "", ""
+            )
+        if args[:1] == ["rev-parse"]:
+            return subprocess.CompletedProcess(args, 0, f"{head}\n", "")
         return subprocess.CompletedProcess(args, 0, "", "")
 
     return runner
@@ -63,6 +85,30 @@ def _ctx(root, **kw):
     return rp.ReleaseContext(root=root, **kw)
 
 
+class DefaultGitRunnerTests(unittest.TestCase):
+    @mock.patch("opaihub.release_preflight.subprocess.run")
+    @mock.patch(
+        "opaihub.release_preflight.shutil.which",
+        return_value=r"C:\Program Files\Git\cmd\git.exe",
+    )
+    def test_default_git_resolves_an_absolute_executable(self, _which, run):
+        run.return_value = subprocess.CompletedProcess([], 0, "", "")
+
+        rp._default_git(Path("repo"), ["status", "--porcelain"])
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[0], r"C:\Program Files\Git\cmd\git.exe")
+
+    @mock.patch("opaihub.release_preflight.subprocess.run")
+    @mock.patch("opaihub.release_preflight.shutil.which", return_value=None)
+    def test_default_git_fails_closed_when_git_is_unavailable(self, _which, run):
+        completed = rp._default_git(Path("repo"), ["status", "--porcelain"])
+
+        run.assert_not_called()
+        self.assertEqual(completed.returncode, 127)
+        self.assertIn("not found", completed.stderr)
+
+
 class HeadingDerivationTests(unittest.TestCase):
     def test_prerelease_and_final_headings(self):
         self.assertEqual(
@@ -96,6 +142,77 @@ class PreflightSuccessTests(unittest.TestCase):
         # Tests + artifacts are skipped (not requested / no manifest), not failed.
         self.assertEqual(by_id["tests"].status, rp.SKIP)
         self.assertEqual(by_id["artifacts"].status, rp.SKIP)
+
+    def test_qualification_cannot_be_ready_when_tests_and_artifacts_are_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            readiness = rp.run_preflight(
+                _ctx(
+                    root,
+                    qualification_required=True,
+                    candidate_sha=CANDIDATE_SHA,
+                )
+            )
+        by_id = {c.id: c for c in readiness.checks}
+        self.assertFalse(readiness.ready)
+        self.assertEqual(by_id["tests"].status, rp.SKIP)
+        self.assertEqual(by_id["artifacts"].status, rp.SKIP)
+        self.assertEqual({c.id for c in readiness.blockers}, {"tests", "artifacts"})
+
+
+class CandidateIdentityTests(unittest.TestCase):
+    def test_qualification_requires_an_explicit_full_candidate_sha(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            readiness = rp.run_preflight(
+                _ctx(root, qualification_required=True, candidate_sha=None)
+            )
+        by_id = {c.id: c for c in readiness.checks}
+        self.assertFalse(readiness.ready)
+        self.assertEqual(by_id["candidate_identity"].status, rp.FAIL)
+        self.assertIn("candidate_identity", {c.id for c in readiness.blockers})
+        payload = readiness.to_dict()
+        self.assertIsNone(payload["candidate_sha"])
+        self.assertEqual(payload["commit_sha"], CANDIDATE_SHA)
+
+    def test_checked_out_commit_must_match_the_exact_candidate_sha(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            readiness = rp.run_preflight(
+                _ctx(
+                    root,
+                    qualification_required=True,
+                    candidate_sha=CANDIDATE_SHA,
+                    git=_fake_git(head=OTHER_SHA),
+                )
+            )
+        identity = {c.id: c for c in readiness.checks}["candidate_identity"]
+        self.assertEqual(identity.status, rp.FAIL)
+        self.assertIn("does not match", identity.detail)
+        payload = readiness.to_dict()
+        self.assertEqual(payload["candidate_sha"], CANDIDATE_SHA)
+        self.assertEqual(payload["commit_sha"], OTHER_SHA)
+
+    def test_exact_candidate_identity_is_recorded_in_sanitized_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            readiness = rp.run_preflight(
+                _ctx(
+                    root,
+                    qualification_required=True,
+                    candidate_sha=CANDIDATE_SHA,
+                )
+            )
+        identity = {c.id: c for c in readiness.checks}["candidate_identity"]
+        self.assertEqual(identity.status, rp.PASS)
+        evidence = rp.sanitized_evidence(readiness)
+        self.assertEqual(evidence["candidate_sha"], CANDIDATE_SHA)
+        self.assertEqual(evidence["commit_sha"], CANDIDATE_SHA)
+        self.assertTrue(evidence["qualification_required"])
 
 
 class PreflightBlockerTests(unittest.TestCase):
@@ -159,12 +276,57 @@ class PreflightBlockerTests(unittest.TestCase):
                 "release_tag", self._blockers(root, git=_fake_git(tags=["v0.2.0a2"]))
             )
 
+    def test_strict_unknown_tag_state_is_infrastructure_blocked(self):
+        def broken_git(_root, args):
+            if list(args)[:1] == ["tag"]:
+                return subprocess.CompletedProcess(args, 2, "", "tag lookup failed")
+            return _fake_git()(_root, args)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            readiness = rp.run_preflight(
+                _ctx(
+                    root,
+                    qualification_required=True,
+                    candidate_sha=CANDIDATE_SHA,
+                    git=broken_git,
+                )
+            )
+
+        release_tag = {check.id: check for check in readiness.checks}["release_tag"]
+        self.assertEqual(release_tag.status, rp.FAIL)
+        self.assertTrue(release_tag.blocking)
+        self.assertEqual(readiness.verdict, "infrastructure_blocked")
+        self.assertEqual(readiness.reason, "release_tag_state_unknown")
+
+    def test_source_scope_does_not_treat_a_branch_ref_name_as_the_release_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            with mock.patch.dict(
+                rp.os.environ,
+                {
+                    "GITHUB_REF_NAME": "release/0.2",
+                    "GITHUB_REF_TYPE": "branch",
+                },
+                clear=True,
+            ):
+                result = rp.check_tag_is_new(
+                    rp.ReleaseContext(root=root, source_only=True, git=_fake_git())
+                )
+
+        self.assertEqual(result.status, rp.PASS)
+        self.assertEqual(result.evidence["tag"], "v0.2.0a2")
+
     def test_failed_test_gate_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_release_repo(root)
             blockers = self._blockers(
-                root, run_tests=True, tests=lambda r: (False, "3 failures")
+                root,
+                run_tests=True,
+                tests=lambda _root, _candidate: (False, "3 failures"),
             )
         self.assertIn("tests", blockers)
 
@@ -173,43 +335,553 @@ class PreflightBlockerTests(unittest.TestCase):
             root = Path(tmp)
             _write_release_repo(root)
             readiness = rp.run_preflight(
-                _ctx(root, run_tests=True, tests=lambda r: (True, "GREEN"))
+                _ctx(
+                    root,
+                    run_tests=True,
+                    tests=lambda _root, _candidate: (True, "GREEN"),
+                )
             )
         self.assertTrue(readiness.ready)
         self.assertEqual({c.id: c.status for c in readiness.checks}["tests"], rp.PASS)
 
 
+class TypedTestGateTests(unittest.TestCase):
+    def test_default_gate_passes_candidate_and_preserves_ci_local_verdict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def fake_run(command, **_kwargs):
+                self.assertIn("--profile", command)
+                self.assertEqual(command[command.index("--profile") + 1], "full")
+                self.assertEqual(
+                    command[command.index("--candidate-sha") + 1], CANDIDATE_SHA
+                )
+                manifest = Path(command[command.index("--manifest") + 1])
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 3,
+                            "profile": {"name": "full", "component": "all"},
+                            "candidate_sha": CANDIDATE_SHA,
+                            "commit_sha": CANDIDATE_SHA,
+                            "candidate": {
+                                "expected_sha": CANDIDATE_SHA,
+                                "checked_out_sha": CANDIDATE_SHA,
+                                "promotable": True,
+                            },
+                            "verdict": "security_failed",
+                            "reason": "required_security_failed",
+                            "classification": "security",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return subprocess.CompletedProcess(command, 1, "", "")
+
+            with mock.patch.object(rp.subprocess, "run", side_effect=fake_run):
+                result = rp._default_tests(root, CANDIDATE_SHA)
+
+        self.assertEqual(result.verdict, "security_failed")
+        self.assertEqual(result.reason, "required_security_failed")
+        self.assertEqual(result.classification, "security")
+        self.assertEqual(result.candidate_sha, CANDIDATE_SHA)
+        self.assertEqual(result.profile, "full")
+
+    def test_default_gate_rejects_a_qualified_result_for_another_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def fake_run(command, **_kwargs):
+                manifest = Path(command[command.index("--manifest") + 1])
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 2,
+                            "profile": {"name": "full", "component": "all"},
+                            "candidate_sha": CANDIDATE_SHA,
+                            "commit_sha": OTHER_SHA,
+                            "candidate": {
+                                "expected_sha": CANDIDATE_SHA,
+                                "checked_out_sha": OTHER_SHA,
+                                "promotable": True,
+                            },
+                            "verdict": "qualified",
+                            "reason": "all_required_checks_passed",
+                            "classification": "none",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with mock.patch.object(rp.subprocess, "run", side_effect=fake_run):
+                result = rp._default_tests(root, CANDIDATE_SHA)
+
+        self.assertEqual(result.verdict, "infrastructure_blocked")
+        self.assertEqual(result.reason, "test_evidence_invalid")
+
+    def test_default_gate_rejects_unknown_terminal_status_types(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def fake_run(command, **_kwargs):
+                manifest = Path(command[command.index("--manifest") + 1])
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 2,
+                            "profile": {"name": "full", "component": "all"},
+                            "candidate_sha": CANDIDATE_SHA,
+                            "commit_sha": CANDIDATE_SHA,
+                            "candidate": {
+                                "expected_sha": CANDIDATE_SHA,
+                                "checked_out_sha": CANDIDATE_SHA,
+                                "promotable": True,
+                            },
+                            "verdict": "looks_good",
+                            "reason": "trust_me",
+                            "classification": "probably_fine",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return subprocess.CompletedProcess(command, 1, "", "")
+
+            with mock.patch.object(rp.subprocess, "run", side_effect=fake_run):
+                result = rp._default_tests(root, CANDIDATE_SHA)
+
+        self.assertEqual(result.verdict, "infrastructure_blocked")
+        self.assertEqual(result.reason, "test_evidence_invalid")
+
+    def test_source_scope_preserves_typed_failure_and_leaves_artifacts_pending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            readiness = rp.run_preflight(
+                _ctx(
+                    root,
+                    qualification_required=True,
+                    source_only=True,
+                    candidate_sha=CANDIDATE_SHA,
+                    run_tests=True,
+                    tests=lambda _root, _candidate: rp.TestGateResult(
+                        verdict="security_failed",
+                        reason="required_security_failed",
+                        classification="security",
+                        detail="bandit failed",
+                        candidate_sha=CANDIDATE_SHA,
+                        profile="full",
+                    ),
+                )
+            )
+
+        artifacts = {check.id: check for check in readiness.checks}["artifacts"]
+        self.assertEqual(readiness.qualification_scope, "source")
+        self.assertEqual(readiness.verdict, "security_failed")
+        self.assertEqual(readiness.reason, "required_security_failed")
+        self.assertEqual(readiness.classification, "security")
+        self.assertFalse(readiness.ready)
+        self.assertFalse(readiness.final_release_ready)
+        self.assertEqual(artifacts.status, rp.SKIP)
+        self.assertFalse(artifacts.blocking)
+
+    def test_successful_source_scope_is_not_final_release_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            readiness = rp.run_preflight(
+                _ctx(
+                    root,
+                    qualification_required=True,
+                    source_only=True,
+                    candidate_sha=CANDIDATE_SHA,
+                    run_tests=True,
+                    tests=lambda _root, _candidate: rp.TestGateResult(
+                        verdict="qualified",
+                        reason="all_required_checks_passed",
+                        classification="none",
+                        detail="full profile qualified",
+                        candidate_sha=CANDIDATE_SHA,
+                        profile="full",
+                    ),
+                )
+            )
+
+        payload = readiness.to_dict()
+        self.assertTrue(readiness.ready)
+        self.assertEqual(payload["verdict"], "qualified")
+        self.assertEqual(payload["qualification_scope"], "source")
+        self.assertFalse(payload["final_release_ready"])
+        self.assertEqual(payload["artifact_qualification"], "pending")
+
+
 class ArtifactChecksumTests(unittest.TestCase):
-    def _manifest(self, tmp: Path, *, signed=True, corrupt=False, missing=False):
-        art = tmp / "OPai-setup.exe"
-        art.write_bytes(b"artifact-bytes")
-        digest = rp.sha256_of(art)
-        if corrupt:
-            digest = "0" * 64
-        if missing:
-            art.unlink()
+    @staticmethod
+    def _trusted_verifier(_artifact, _log, report, _ctx):
+        """Test double for a platform-native/cryptographic verifier."""
+
+        return (
+            report.get("verified") is True
+            and report.get("signature_verified") is True
+            and report.get("attestation_verified") is True,
+            "test-native-and-attestation-verifier",
+        )
+
+    def _final_ctx(self, root: Path, **kwargs):
+        kwargs.setdefault("repository", REPOSITORY)
+        kwargs.setdefault("workflow", DESKTOP_WORKFLOW)
+        kwargs.setdefault("run_id", RUN_ID)
+        kwargs.setdefault("run_attempt", RUN_ATTEMPT)
+        kwargs.setdefault("release_tag", RELEASE_TAG)
+        kwargs.setdefault("git", _fake_git(tags=[RELEASE_TAG]))
+        return _ctx(root, **kwargs)
+
+    @staticmethod
+    def _write_json(path: Path, payload: dict) -> str:
+        path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+        return rp.sha256_of(path)
+
+    def _manifest(
+        self,
+        tmp: Path,
+        *,
+        candidate_sha=CANDIDATE_SHA,
+        commit_sha=CANDIDATE_SHA,
+        provenance_sha=CANDIDATE_SHA,
+        signature_sha=CANDIDATE_SHA,
+        signed=True,
+        corrupt=False,
+        missing=False,
+        structured=True,
+        native_artifact_sha=None,
+        release_tag=RELEASE_TAG,
+    ):
+        if not structured:
+            art = tmp / "OPai-setup.exe"
+            art.write_bytes(b"artifact-bytes")
+            digest = rp.sha256_of(art)
+            manifest = tmp / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "candidate_sha": candidate_sha,
+                        "commit_sha": commit_sha,
+                        "artifacts": [
+                            {
+                                "path": art.name,
+                                "sha256": digest,
+                                "signed": signed,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return manifest
+
+        common = {
+            "schema_version": 1,
+            "repository": REPOSITORY,
+            "workflow": DESKTOP_WORKFLOW,
+            "run_id": RUN_ID,
+            "run_attempt": RUN_ATTEMPT,
+            "tag": release_tag,
+        }
+        provider_path = tmp / "provider-qualification.json"
+        provider_digest = self._write_json(
+            provider_path,
+            {
+                **common,
+                "kind": "opai_provider_qualification",
+                "candidate_sha": candidate_sha,
+                "verdict": "qualified",
+            },
+        )
+
+        artifacts: list[dict] = []
+        native_evidence: list[dict] = []
+        for index, platform_name in enumerate(("windows-latest", "macos-latest")):
+            artifact = tmp / f"OPai-{platform_name}.zip"
+            artifact.write_bytes(f"artifact-bytes-{platform_name}".encode())
+            actual_digest = rp.sha256_of(artifact)
+            declared_digest = "0" * 64 if corrupt and index == 0 else actual_digest
+
+            native_path = tmp / f"native-{platform_name}.json"
+            native_digest = self._write_json(
+                native_path,
+                {
+                    **common,
+                    "kind": "opai_native_qualification",
+                    "candidate_sha": provenance_sha,
+                    "platform": platform_name,
+                    "artifact_sha256": (
+                        native_artifact_sha
+                        if native_artifact_sha is not None and index == 0
+                        else declared_digest
+                    ),
+                    "verdict": "qualified",
+                },
+            )
+            native_evidence.append(
+                {
+                    "platform": platform_name,
+                    "path": native_path.name,
+                    "sha256": native_digest,
+                }
+            )
+
+            log_path = tmp / f"verification-{platform_name}.log"
+            log_path.write_text(
+                f"native signature and GitHub attestation verified for {platform_name}\n",
+                encoding="utf-8",
+            )
+            log_digest = rp.sha256_of(log_path)
+            report_path = tmp / f"attestation-{platform_name}.json"
+            report_digest = self._write_json(
+                report_path,
+                {
+                    **common,
+                    "kind": "opai_artifact_verification",
+                    "candidate_sha": signature_sha,
+                    "platform": platform_name,
+                    "artifact_sha256": declared_digest,
+                    "verification_log_sha256": log_digest,
+                    "native_evidence_sha256": native_digest,
+                    "provider_evidence_sha256": provider_digest,
+                    "verifier": "gh-attestation+native-signature",
+                    "verified": signed,
+                    "signature_verified": signed,
+                    "attestation_verified": signed,
+                },
+            )
+            artifacts.append(
+                {
+                    "path": artifact.name,
+                    "sha256": declared_digest,
+                    "platform": platform_name,
+                    "verification_log": {
+                        "path": log_path.name,
+                        "sha256": log_digest,
+                    },
+                    "attestation_report": {
+                        "path": report_path.name,
+                        "sha256": report_digest,
+                    },
+                }
+            )
+            if missing and index == 0:
+                artifact.unlink()
+
         manifest = tmp / "manifest.json"
         manifest.write_text(
             json.dumps(
                 {
-                    "artifacts": [
-                        {"path": "OPai-setup.exe", "sha256": digest, "signed": signed}
-                    ]
+                    "schema_version": 3,
+                    "repository": REPOSITORY,
+                    "workflow": DESKTOP_WORKFLOW,
+                    "run_id": RUN_ID,
+                    "run_attempt": RUN_ATTEMPT,
+                    "tag": release_tag,
+                    "candidate_sha": candidate_sha,
+                    "commit_sha": commit_sha,
+                    "artifacts": artifacts,
+                    "native_evidence": native_evidence,
+                    "provider_evidence": {
+                        "path": provider_path.name,
+                        "sha256": provider_digest,
+                    },
                 }
             ),
             encoding="utf-8",
         )
         return manifest
 
-    def test_valid_signed_artifact_passes(self):
+    def test_structural_reports_without_an_authenticated_verifier_stay_blocked(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_release_repo(root)
             manifest = self._manifest(root)
-            readiness = rp.run_preflight(_ctx(root, artifacts_manifest=manifest))
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root,
+                    artifacts_manifest=manifest,
+                    candidate_sha=CANDIDATE_SHA,
+                )
+            )
+
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn("authenticated artifact verifier is unavailable", result.detail)
+
+    def test_standalone_final_qualification_has_typed_blocked_verdict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root)
+            readiness = rp.run_preflight(
+                self._final_ctx(
+                    root,
+                    qualification_required=True,
+                    candidate_sha=CANDIDATE_SHA,
+                    run_tests=True,
+                    tests=lambda _root, _candidate: rp.TestGateResult(
+                        verdict="qualified",
+                        reason="all_required_checks_passed",
+                        classification="none",
+                        detail="all required tests passed",
+                        candidate_sha=CANDIDATE_SHA,
+                        profile="full",
+                    ),
+                    artifacts_manifest=manifest,
+                )
+            )
+
+        self.assertFalse(readiness.ready)
+        self.assertFalse(readiness.final_release_ready)
+        self.assertEqual(readiness.verdict, "infrastructure_blocked")
+        self.assertEqual(readiness.reason, "artifact_verifier_unavailable")
+        self.assertEqual(readiness.classification, "infrastructure")
+
+    def test_authenticated_same_run_inventory_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root)
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root,
+                    artifacts_manifest=manifest,
+                    candidate_sha=CANDIDATE_SHA,
+                    artifact_verifier=self._trusted_verifier,
+                )
+            )
+
+        self.assertEqual(result.status, rp.PASS, result.detail)
+
+    def test_final_qualification_rejects_noncanonical_tag_for_package_version(self):
+        wrong_tag = "v9.9.9"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root, release_tag=wrong_tag)
+            readiness = rp.run_preflight(
+                self._final_ctx(
+                    root,
+                    qualification_required=True,
+                    candidate_sha=CANDIDATE_SHA,
+                    release_tag=wrong_tag,
+                    git=_fake_git(tags=[wrong_tag]),
+                    run_tests=True,
+                    tests=lambda _root, _candidate: rp.TestGateResult(
+                        verdict="qualified",
+                        reason="all_required_checks_passed",
+                        classification="none",
+                        detail="all required tests passed",
+                        candidate_sha=CANDIDATE_SHA,
+                        profile="full",
+                    ),
+                    artifacts_manifest=manifest,
+                    artifact_verifier=self._trusted_verifier,
+                )
+            )
+
+        release_tag = next(
+            check for check in readiness.checks if check.id == "release_tag"
+        )
+        self.assertEqual(release_tag.status, rp.FAIL)
+        self.assertTrue(release_tag.blocking)
+        self.assertIn("canonical tag v0.2.0a2", release_tag.detail)
+        self.assertFalse(readiness.final_release_ready)
+
+    def test_final_inventory_requires_windows_macos_native_and_provider_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root)
+            value = json.loads(manifest.read_text(encoding="utf-8"))
+            value["artifacts"] = [
+                item
+                for item in value["artifacts"]
+                if item["platform"] != "macos-latest"
+            ]
+            value["native_evidence"] = [
+                item
+                for item in value["native_evidence"]
+                if item["platform"] != "macos-latest"
+            ]
+            manifest.write_text(json.dumps(value), encoding="utf-8")
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root, artifacts_manifest=manifest, candidate_sha=CANDIDATE_SHA
+                )
+            )
+
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn("missing artifact platform: macos-latest", result.detail)
+        self.assertIn("missing native evidence platform: macos-latest", result.detail)
+
+    def test_verification_log_must_exist_and_match_its_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root)
+            value = json.loads(manifest.read_text(encoding="utf-8"))
+            log = root / value["artifacts"][0]["verification_log"]["path"]
+            log.write_text("forged after verification\n", encoding="utf-8")
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root, artifacts_manifest=manifest, candidate_sha=CANDIDATE_SHA
+                )
+            )
+
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn("verification log checksum mismatch", result.detail)
+
+    def test_inline_signature_metadata_is_not_trusted_evidence(self):
+        """A dummy plus self-authored booleans must never become release-ready."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root, structured=False)
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root, artifacts_manifest=manifest, candidate_sha=CANDIDATE_SHA
+                )
+            )
+
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn("verification log", result.detail)
+        self.assertIn("attestation", result.detail)
+
+    def test_exact_candidate_with_tests_and_artifacts_is_qualified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root)
+            readiness = rp.run_preflight(
+                self._final_ctx(
+                    root,
+                    qualification_required=True,
+                    candidate_sha=CANDIDATE_SHA,
+                    run_tests=True,
+                    tests=lambda _root, _candidate: rp.TestGateResult(
+                        verdict="qualified",
+                        reason="all_required_checks_passed",
+                        classification="none",
+                        detail="all required tests passed",
+                        candidate_sha=CANDIDATE_SHA,
+                        profile="full",
+                    ),
+                    artifacts_manifest=manifest,
+                    artifact_verifier=self._trusted_verifier,
+                )
+            )
         self.assertTrue(readiness.ready)
+        self.assertEqual(readiness.blockers, ())
         self.assertEqual(
-            {c.id: c.status for c in readiness.checks}["artifacts"], rp.PASS
+            {check.status for check in readiness.checks},
+            {rp.PASS},
         )
 
     def test_checksum_mismatch_blocks(self):
@@ -220,7 +892,7 @@ class ArtifactChecksumTests(unittest.TestCase):
             blockers = {
                 c.id
                 for c in rp.run_preflight(
-                    _ctx(root, artifacts_manifest=manifest)
+                    self._final_ctx(root, artifacts_manifest=manifest)
                 ).blockers
             }
         self.assertIn("artifacts", blockers)
@@ -233,10 +905,136 @@ class ArtifactChecksumTests(unittest.TestCase):
             blockers = {
                 c.id
                 for c in rp.run_preflight(
-                    _ctx(root, artifacts_manifest=manifest)
+                    self._final_ctx(root, artifacts_manifest=manifest)
                 ).blockers
             }
         self.assertIn("artifacts", blockers)
+
+    def test_bare_signed_boolean_is_not_signature_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root, structured=False, signed=True)
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root, artifacts_manifest=manifest, candidate_sha=CANDIDATE_SHA
+                )
+            )
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn("verification log", result.detail)
+        self.assertIn("attestation report", result.detail)
+
+    def test_stale_manifest_candidate_cannot_qualify_a_new_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(
+                root, candidate_sha=OTHER_SHA, commit_sha=OTHER_SHA
+            )
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root, artifacts_manifest=manifest, candidate_sha=CANDIDATE_SHA
+                )
+            )
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn("manifest candidate", result.detail)
+
+    def test_artifact_provenance_must_name_the_source_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root, provenance_sha=OTHER_SHA)
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root, artifacts_manifest=manifest, candidate_sha=CANDIDATE_SHA
+                )
+            )
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn(
+            "native evidence windows-latest candidate mismatch", result.detail
+        )
+
+    def test_native_evidence_must_name_the_platform_artifact_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root, native_artifact_sha="f" * 64)
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root,
+                    artifacts_manifest=manifest,
+                    candidate_sha=CANDIDATE_SHA,
+                    artifact_verifier=self._trusted_verifier,
+                )
+            )
+
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn("native evidence artifact mismatch", result.detail)
+
+    def test_signature_verification_must_be_bound_to_artifact_and_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            manifest = self._manifest(root, signature_sha=OTHER_SHA)
+            result = rp.check_artifacts(
+                self._final_ctx(
+                    root, artifacts_manifest=manifest, candidate_sha=CANDIDATE_SHA
+                )
+            )
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn("attestation candidate mismatch", result.detail)
+
+    def test_artifact_path_cannot_escape_the_manifest_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_release_repo(root)
+            outside = root.parent / "outside-release-artifact.bin"
+            outside.write_bytes(b"outside")
+            try:
+                manifest = root / "manifest.json"
+                digest = rp.sha256_of(outside)
+                manifest.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 2,
+                            "candidate_sha": CANDIDATE_SHA,
+                            "commit_sha": CANDIDATE_SHA,
+                            "artifacts": [
+                                {
+                                    "path": f"../{outside.name}",
+                                    "sha256": digest,
+                                    "provenance": {
+                                        "schema_version": 1,
+                                        "source_candidate_sha": CANDIDATE_SHA,
+                                        "artifact_sha256": digest,
+                                        "builder": "test",
+                                        "platform": "windows-latest",
+                                    },
+                                    "signature_verification": {
+                                        "schema_version": 1,
+                                        "verified": True,
+                                        "source_candidate_sha": CANDIDATE_SHA,
+                                        "artifact_sha256": digest,
+                                        "tool": "test-verifier",
+                                        "log_sha256": "b" * 64,
+                                    },
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                result = rp.check_artifacts(
+                    self._final_ctx(
+                        root,
+                        artifacts_manifest=manifest,
+                        candidate_sha=CANDIDATE_SHA,
+                    )
+                )
+            finally:
+                outside.unlink(missing_ok=True)
+        self.assertEqual(result.status, rp.FAIL)
+        self.assertIn("escapes manifest directory", result.detail)
 
     def test_missing_artifact_file_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -246,7 +1044,7 @@ class ArtifactChecksumTests(unittest.TestCase):
             blockers = {
                 c.id
                 for c in rp.run_preflight(
-                    _ctx(root, artifacts_manifest=manifest)
+                    self._final_ctx(root, artifacts_manifest=manifest)
                 ).blockers
             }
         self.assertIn("artifacts", blockers)

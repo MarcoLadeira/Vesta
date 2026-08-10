@@ -131,7 +131,9 @@ class AccountStatusContractTests(_Base):
         )
         fake = FakeAccountRunner(text="done", cost=0.01)
 
-        with mock.patch("opaihub.gui_pipeline.resolve_message_contract", return_value=contract):
+        with mock.patch(
+            "opaihub.gui_pipeline.resolve_message_contract", return_value=contract
+        ):
             res = handle_gui_message(
                 self.root,
                 "implement a multi-file feature",
@@ -150,7 +152,9 @@ class AccountStatusContractTests(_Base):
         ]
         self.assertEqual(len(intent_events), 1)
         self.assertEqual(intent_events[0]["operation_kind"], "model_call_paid")
-        self.assertEqual(intent_events[0]["operation_id"], fake.calls[0]["operation_id"])
+        self.assertEqual(
+            intent_events[0]["operation_id"], fake.calls[0]["operation_id"]
+        )
 
     def test_account_error_is_clean_not_a_raw_exception(self):
         fake = FakeAccountRunner(raises=RuntimeError("kaboom internal"))

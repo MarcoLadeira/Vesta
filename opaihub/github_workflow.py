@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import subprocess  # nosec B404 - argv-only GitHub CLI adapter
@@ -12,6 +13,21 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .command_runner import redact
+
+
+_ACTIONS_RUN_ID = re.compile(r"/actions/runs/(\d+)(?:/|$)")
+_GIT_OBJECT_ID = re.compile(r"^[0-9a-fA-F]{40,64}$")
+
+
+@dataclass(frozen=True)
+class _RequiredCheckSpec:
+    """Trusted source contract for one required pull-request check."""
+
+    name: str
+    workflow_path: str | None
+    workflow_name: str | None
+    trusted_app: str
+    events: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -385,7 +401,431 @@ class GitHubAdapter:
     def update_pr(self, number: int, *, title: str, body: str) -> str:
         return self._run(["pr", "edit", str(number), "--title", title, "--body", body])
 
+    def _trusted_required_check_manifest(self) -> dict[str, Any] | None:
+        """Load policy from an immutable snapshot of the default branch.
+
+        A pull request must never be able to change the policy used to judge
+        that same pull request.  Resolve the repository's default branch to an
+        exact commit, then its tree and the manifest blob.  Repositories whose
+        trusted default-branch tree genuinely has no manifest retain the
+        legacy ``gh pr checks`` behaviour.  API failures and malformed remote
+        data fail closed.
+        """
+
+        repo = self._json_object(
+            self._run(
+                [
+                    "api",
+                    "repos/{owner}/{repo}",
+                    "-H",
+                    "Accept: application/vnd.github+json",
+                ]
+            ),
+            source="GitHub repository API",
+        )
+        default_branch = str(repo.get("default_branch") or "").strip()
+        if not default_branch:
+            raise RuntimeError("GitHub did not return a default branch")
+
+        ref = self._json_object(
+            self._run(
+                [
+                    "api",
+                    f"repos/{{owner}}/{{repo}}/git/ref/heads/{default_branch}",
+                    "-H",
+                    "Accept: application/vnd.github+json",
+                ]
+            ),
+            source="GitHub default-branch ref API",
+        )
+        ref_object = ref.get("object")
+        trusted_commit = (
+            str(ref_object.get("sha") or "").strip().lower()
+            if isinstance(ref_object, dict)
+            else ""
+        )
+        if (
+            not isinstance(ref_object, dict)
+            or ref_object.get("type") not in (None, "commit")
+            or _GIT_OBJECT_ID.fullmatch(trusted_commit) is None
+        ):
+            raise RuntimeError("GitHub did not return a valid default-branch SHA")
+
+        commit = self._json_object(
+            self._run(
+                [
+                    "api",
+                    f"repos/{{owner}}/{{repo}}/git/commits/{trusted_commit}",
+                    "-H",
+                    "Accept: application/vnd.github+json",
+                ]
+            ),
+            source="GitHub commit API",
+        )
+        tree_object = commit.get("tree")
+        tree_sha = (
+            str(tree_object.get("sha") or "").strip().lower()
+            if isinstance(tree_object, dict)
+            else ""
+        )
+        if _GIT_OBJECT_ID.fullmatch(tree_sha) is None:
+            raise RuntimeError("GitHub did not return a valid default-branch tree SHA")
+
+        tree = self._json_object(
+            self._run(
+                [
+                    "api",
+                    f"repos/{{owner}}/{{repo}}/git/trees/{tree_sha}?recursive=1",
+                    "-H",
+                    "Accept: application/vnd.github+json",
+                ]
+            ),
+            source="GitHub tree API",
+        )
+        if tree.get("truncated") is True:
+            raise RuntimeError(
+                "GitHub default-branch tree was truncated; refusing partial policy"
+            )
+        entries = tree.get("tree")
+        if not isinstance(entries, list):
+            raise RuntimeError("GitHub tree API returned no tree entries")
+        matches = [
+            item
+            for item in entries
+            if isinstance(item, dict)
+            and item.get("path") == ".github/required-checks.json"
+            and item.get("type") == "blob"
+        ]
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise RuntimeError("Trusted required-check manifest is ambiguous")
+        blob_sha = str(matches[0].get("sha") or "").strip().lower()
+        if _GIT_OBJECT_ID.fullmatch(blob_sha) is None:
+            raise RuntimeError("GitHub did not return a valid policy blob SHA")
+
+        blob = self._json_object(
+            self._run(
+                [
+                    "api",
+                    f"repos/{{owner}}/{{repo}}/git/blobs/{blob_sha}",
+                    "-H",
+                    "Accept: application/vnd.github+json",
+                ]
+            ),
+            source="GitHub blob API",
+        )
+        if blob.get("encoding") != "base64":
+            raise RuntimeError("Trusted required-check manifest has unknown encoding")
+        raw_content = "".join(str(blob.get("content") or "").split())
+        if not raw_content or len(raw_content) > 350_000:
+            raise RuntimeError("Trusted required-check manifest has an invalid size")
+        try:
+            decoded = base64.b64decode(raw_content, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(
+                "Trusted required-check manifest is not valid base64"
+            ) from exc
+        if not decoded or len(decoded) > 262_144:
+            raise RuntimeError("Trusted required-check manifest has an invalid size")
+        try:
+            manifest = json.loads(decoded.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"Trusted required-check manifest is malformed: {redact(str(exc))}"
+            ) from exc
+        if not isinstance(manifest, dict):
+            raise RuntimeError("Required-check manifest must be a JSON object")
+        return manifest
+
+    def _required_check_specs(self) -> tuple[_RequiredCheckSpec, ...] | None:
+        """Load the trusted default-branch required-check contract.
+
+        Repositories without the manifest retain the legacy ``gh pr checks``
+        behaviour. Once the manifest exists, malformed or ambiguous input is a
+        hard error: silently falling back would turn a broken gate into a pass.
+
+        Schema v1 stores check names as strings and the workflow path at the
+        top level. Schema v2 stores objects whose ``workflow`` is the exact
+        Actions workflow display name and whose ``trusted_app`` identifies the
+        check-run producer. Both shapes remain supported.
+        """
+
+        local_manifest = self.repo_root / ".github" / "required-checks.json"
+        git_marker = self.repo_root / ".git"
+        if not local_manifest.is_file() and not git_marker.exists():
+            # Preserve the adapter's legacy behaviour for non-checkout clients
+            # and lightweight embeddings.  A real checkout still queries the
+            # trusted branch even if a candidate deletes its local manifest.
+            return None
+        manifest = self._trusted_required_check_manifest()
+        if manifest is None:
+            return None
+
+        raw_checks = manifest.get("required_checks")
+        if not isinstance(raw_checks, list) or not raw_checks:
+            raise RuntimeError("Required-check manifest has no required checks")
+
+        top_workflow = str(manifest.get("workflow") or "").strip() or None
+        default_app = str(manifest.get("trusted_app") or "github-actions").strip()
+        raw_events = manifest.get("events") or manifest.get("trusted_events")
+        default_events = self._string_tuple(raw_events) or ("pull_request",)
+        specs: list[_RequiredCheckSpec] = []
+        seen: set[str] = set()
+        for raw in raw_checks:
+            if isinstance(raw, str):
+                name = raw.strip()
+                workflow_path = top_workflow
+                workflow_name = None
+                trusted_app = default_app
+                events = default_events
+            elif isinstance(raw, dict):
+                name = str(raw.get("name") or "").strip()
+                item_workflow = str(raw.get("workflow") or "").strip() or None
+                explicit_path = str(raw.get("workflow_path") or "").strip() or None
+                # In v2 ``workflow`` is the display name. Accept a path-shaped
+                # value as an explicit path for compatibility with early drafts.
+                if item_workflow and (
+                    item_workflow.startswith(".github/")
+                    or item_workflow.endswith((".yml", ".yaml"))
+                ):
+                    workflow_path = explicit_path or item_workflow
+                    workflow_name = str(raw.get("workflow_name") or "").strip() or None
+                else:
+                    workflow_path = explicit_path or top_workflow
+                    workflow_name = (
+                        str(raw.get("workflow_name") or item_workflow or "").strip()
+                        or None
+                    )
+                trusted_app = str(raw.get("trusted_app") or default_app or "").strip()
+                events = (
+                    self._string_tuple(raw.get("events") or raw.get("trusted_events"))
+                    or default_events
+                )
+            else:
+                raise RuntimeError(
+                    "Each required check must be a name or a contract object"
+                )
+            if not name:
+                raise RuntimeError("Required-check manifest contains an empty name")
+            if name in seen:
+                raise RuntimeError(
+                    f"Required-check manifest contains duplicate name: {name}"
+                )
+            if not trusted_app:
+                raise RuntimeError(f"Required check {name!r} has no trusted app")
+            if not workflow_path and not workflow_name:
+                raise RuntimeError(f"Required check {name!r} has no trusted workflow")
+            seen.add(name)
+            specs.append(
+                _RequiredCheckSpec(
+                    name=name,
+                    workflow_path=workflow_path,
+                    workflow_name=workflow_name,
+                    trusted_app=trusted_app,
+                    events=events,
+                )
+            )
+        return tuple(specs)
+
+    @staticmethod
+    def _string_tuple(raw: Any) -> tuple[str, ...]:
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, (list, tuple)):
+            return ()
+        return tuple(value for item in raw if (value := str(item or "").strip()))
+
+    @staticmethod
+    def _json_object(output: str, *, source: str) -> dict[str, Any]:
+        try:
+            data = json.loads(output)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"{source} returned malformed JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError(f"{source} returned an unexpected JSON shape")
+        return data
+
+    def _pr_head_sha(self, number: int) -> str:
+        output = self._run(["pr", "view", str(number), "--json", "headRefOid"])
+        data = self._json_object(output, source="gh pr view")
+        head_sha = str(data.get("headRefOid") or "").strip()
+        if not _GIT_OBJECT_ID.fullmatch(head_sha):
+            raise RuntimeError("GitHub did not return a valid pull-request head SHA")
+        return head_sha.lower()
+
+    def _head_check_runs(self, head_sha: str) -> list[dict[str, Any]]:
+        endpoint = (
+            "repos/{owner}/{repo}/commits/"
+            f"{head_sha}/check-runs?filter=latest&per_page=100"
+        )
+        output = self._run(
+            ["api", endpoint, "-H", "Accept: application/vnd.github+json"]
+        )
+        data = self._json_object(output, source="GitHub check-runs API")
+        raw_runs = data.get("check_runs")
+        if not isinstance(raw_runs, list):
+            raise RuntimeError("GitHub check-runs API returned no check-run list")
+        total_count = data.get("total_count")
+        if isinstance(total_count, int) and total_count > len(raw_runs):
+            raise RuntimeError(
+                "GitHub check-run snapshot was truncated; refusing partial evidence"
+            )
+        return [item for item in raw_runs if isinstance(item, dict)]
+
+    def _actions_run(self, run_id: str) -> dict[str, Any]:
+        output = self._run(
+            [
+                "api",
+                f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}",
+                "-H",
+                "Accept: application/vnd.github+json",
+            ]
+        )
+        return self._json_object(output, source="GitHub Actions run API")
+
+    @staticmethod
+    def _required_placeholder(
+        spec: _RequiredCheckSpec,
+        bucket: str,
+        *,
+        head_sha: str,
+        current_head_sha: str | None = None,
+    ) -> dict[str, Any]:
+        item: dict[str, Any] = {
+            "name": spec.name,
+            "state": bucket.upper(),
+            "bucket": bucket,
+            "required": True,
+            "head_sha": head_sha,
+            "workflow": spec.workflow_name or "",
+            "workflow_path": spec.workflow_path or "",
+            "app": spec.trusted_app,
+        }
+        if current_head_sha:
+            item["current_head_sha"] = current_head_sha
+        return item
+
+    @staticmethod
+    def _run_id_from_url(url: str) -> str | None:
+        match = _ACTIONS_RUN_ID.search(url)
+        return match.group(1) if match else None
+
+    @staticmethod
+    def _check_bucket(check: dict[str, Any]) -> str:
+        status = str(check.get("status") or "").strip().lower()
+        conclusion = str(check.get("conclusion") or "").strip().lower()
+        value = conclusion if status == "completed" and conclusion else status
+        if value == "success":
+            return "pass"
+        if value in {"queued", "in_progress", "pending", "requested", "waiting"}:
+            return "pending"
+        return value or "pending"
+
+    def _load_required_pr_checks(
+        self, number: int, specs: tuple[_RequiredCheckSpec, ...]
+    ) -> list[dict[str, Any]]:
+        head_sha = self._pr_head_sha(number)
+        raw_checks = self._head_check_runs(head_sha)
+        by_name: dict[str, list[dict[str, Any]]] = {}
+        required_names = {spec.name for spec in specs}
+        for item in raw_checks:
+            name = str(item.get("name") or "")
+            if name in required_names:
+                by_name.setdefault(name, []).append(item)
+
+        actions_runs: dict[str, dict[str, Any]] = {}
+        checked: list[dict[str, Any]] = []
+        for spec in specs:
+            candidates = by_name.get(spec.name, [])
+            if not candidates:
+                checked.append(
+                    self._required_placeholder(spec, "missing", head_sha=head_sha)
+                )
+                continue
+            if len(candidates) != 1:
+                checked.append(
+                    self._required_placeholder(spec, "duplicate", head_sha=head_sha)
+                )
+                continue
+
+            candidate = candidates[0]
+            candidate_sha = str(candidate.get("head_sha") or "").strip().lower()
+            app = candidate.get("app")
+            app_slug = (
+                str(app.get("slug") or "").strip()
+                if isinstance(app, dict)
+                else str(app or "").strip()
+            )
+            details_url = str(candidate.get("details_url") or "").strip()
+            bucket: str | None = None
+            workflow_name = ""
+            workflow_path = ""
+            event = ""
+            if candidate_sha != head_sha:
+                bucket = "stale"
+            elif app_slug != spec.trusted_app:
+                bucket = "untrusted"
+
+            run_id = self._run_id_from_url(details_url)
+            if bucket is None and not run_id:
+                bucket = "untrusted"
+            if bucket is None and run_id:
+                if run_id not in actions_runs:
+                    actions_runs[run_id] = self._actions_run(run_id)
+                action_run = actions_runs[run_id]
+                run_sha = str(action_run.get("head_sha") or "").strip().lower()
+                workflow_path = str(action_run.get("path") or "").strip()
+                workflow_name = str(action_run.get("name") or "").strip()
+                event = str(action_run.get("event") or "").strip()
+                if run_sha != head_sha:
+                    bucket = "stale"
+                elif spec.workflow_path and workflow_path != spec.workflow_path:
+                    bucket = "wrong_workflow"
+                elif spec.workflow_name and workflow_name != spec.workflow_name:
+                    bucket = "wrong_workflow"
+                elif event not in spec.events:
+                    bucket = "untrusted_event"
+            if bucket is None:
+                bucket = self._check_bucket(candidate)
+
+            checked.append(
+                {
+                    "name": spec.name,
+                    "state": str(
+                        candidate.get("conclusion") or candidate.get("status") or bucket
+                    ).upper(),
+                    "bucket": bucket,
+                    "link": details_url,
+                    "workflow": workflow_name or spec.workflow_name or "",
+                    "workflow_path": workflow_path or spec.workflow_path or "",
+                    "event": event,
+                    "required": True,
+                    "head_sha": candidate_sha,
+                    "app": app_slug,
+                }
+            )
+
+        # Close the race in which the PR advances after the first head lookup
+        # but before all check-run provenance has been validated. The old
+        # snapshot is no longer evidence for the PR and must not briefly pass.
+        current_head_sha = self._pr_head_sha(number)
+        if current_head_sha != head_sha:
+            return [
+                self._required_placeholder(
+                    spec,
+                    "head_moved",
+                    head_sha=head_sha,
+                    current_head_sha=current_head_sha,
+                )
+                for spec in specs
+            ]
+        return checked
+
     def _load_pr_checks(self, number: int) -> list[dict[str, Any]]:
+        specs = self._required_check_specs()
+        if specs is not None:
+            return self._load_required_pr_checks(number, specs)
         output = self._run(
             ["pr", "checks", str(number), "--json", "name,state,bucket,link,workflow"],
             # GitHub CLI uses 1 for failed checks and 8 for pending checks while
@@ -409,9 +849,17 @@ class GitHubAdapter:
             "cancelled",
             "action_required",
             "startup_failure",
+            "timed_out",
             "stale",
+            "duplicate",
+            "untrusted",
+            "untrusted_event",
+            "wrong_workflow",
+            "skipping",
+            "skipped",
+            "neutral",
         }
-        successes = {"pass", "success", "skipping", "skipped", "neutral"}
+        successes = {"pass", "success"}
         if values & failures:
             return "failed"
         if checks and values and values <= successes:

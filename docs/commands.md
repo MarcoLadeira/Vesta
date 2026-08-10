@@ -54,3 +54,8 @@ python -m opcoding tools C:\repo install --set core
 python -m opcoding tools C:\repo run ruff
 python -m opcoding morph C:\repo doctor
 ```
+
+`opcoding ci ... github` is fail-closed: it exits nonzero and writes no workflow
+until the project profile contains a real test command. Generated workflows use
+an exact candidate checkout, read-only token permissions, pinned actions, a job
+timeout, and concurrency cancellation.

@@ -1354,7 +1354,11 @@ def _ask_account(
     finalized_recorded = False
     dispatch_record_error = ""
     try:
-        from opaihub.idempotency import FRESH, begin, operation_key as make_operation_key
+        from opaihub.idempotency import (
+            FRESH,
+            begin,
+            operation_key as make_operation_key,
+        )
         from opaihub.ledger import record_operation_intent
         from opaihub.operation_class import classify_operation
 

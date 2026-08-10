@@ -21,25 +21,23 @@ export default defineConfig({
   testDir: "opai/assets/web/__tests__/e2e",
   timeout: testTimeout,
   expect: { timeout: assertTimeout },
-  // A run that fails once on hosted CI is retried before the mandatory gate
-  // (#621) reports it red — the same environment slack `testTimeout` and
-  // `assertTimeout` already give a single attempt, applied across attempts
-  // too. Never masks a deterministic failure: a real bug fails every retry
-  // the same way and still reports red.
-  retries: process.env.CI ? 2 : 0,
+  // A mandatory attempt is evidence, not a flake vote. Keep one attempt so an
+  // intermittent failure remains visible instead of being overwritten by a
+  // later retry. A maintainer can rerun the exact SHA as a separate run/attempt.
+  retries: 0,
   // Token screenshots use bundled fonts and a fixed viewport, so a single
   // baseline is intentional across the Windows desktop build and Linux CI.
   snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{ext}",
   fullyParallel: true,
   workers: 4,
-  reporter: process.env.CI
-    ? [["line"], ["html", { open: "never" }]]
-    : [["list"]],
+  // CI uploads only ci_local's bounded, canonical-redactor JSON manifest. Raw
+  // HTML reports, traces and screenshots may contain repository/user content.
+  reporter: process.env.CI ? [["line"]] : [["list"]],
   use: {
     baseURL: "http://localhost:8099",
     actionTimeout: assertTimeout,
-    screenshot: "only-on-failure",
-    trace: "retain-on-failure",
+    screenshot: process.env.CI ? "off" : "only-on-failure",
+    trace: process.env.CI ? "off" : "retain-on-failure",
   },
   webServer: {
     // Four browser workers fetch the application bundle at once.  The

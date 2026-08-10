@@ -322,21 +322,25 @@ writes machine-readable evidence; a required tool that is missing is a red
 result, not a skipped green check:
 
 ```powershell
-python scripts/ci_local.py --profile fast    # PR-equivalent Python quality gate
-python scripts/ci_local.py --profile full    # + pytest, pip-audit, detect-secrets
+python scripts/ci_local.py --profile fast    # PR-equivalent Python + hostile + web gates
+python scripts/ci_local.py --profile full    # + full pytest and dependency audit
 python scripts/ci_local.py --profile native  # isolated wheel smoke on this OS
 ```
 
 It exits 0 only when every required selected check passes. Install the pinned
 toolchain with `python -m pip install -r requirements-ci.txt`; `--fast` and
-`--full` remain compatibility aliases. See
+`--full` remain compatibility aliases. Local edited-tree runs are diagnostic;
+an explicit `--candidate-sha` is promotable only when it equals `HEAD` and the
+working tree is clean. See
 [CI qualification and merge governance](docs/CI_QUALIFICATION.md) for evidence,
 required checks and the administrator ruleset setup.
 
 **CI qualification.** Hosted CI automatically runs the credential-free required
-lane for every PR to `main` and every `main` push, with scheduled full and
-cross-platform native qualification. The self-hosted runner is deliberately
-limited to trusted `main` updates and reviewed dispatches. See
+lane for PRs/merge queues and pushes on `main`/release branches, with scheduled
+full and cross-platform native qualification. Annotated `v*` tags automatically
+run unsigned desktop rehearsals; provider/signing jobs remain protected and
+main-only. The self-hosted runner is deliberately limited to trusted `main`
+updates behind a hosted runner-health preflight. See
 [CI qualification and merge governance](docs/CI_QUALIFICATION.md) and
 [self-hosted runner setup](docs/SELF_HOSTED_CI.md).
 

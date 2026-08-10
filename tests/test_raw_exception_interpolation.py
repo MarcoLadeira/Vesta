@@ -69,7 +69,7 @@ SNAPSHOT: dict[str, int] = {
     "opai/gui_desktop.py": 1,
     "opai/gui_web.py": 20,
     "opai/integrations.py": 2,
-    "opaihub/accounts.py": 2,
+    "opaihub/accounts.py": 1,
     "opaihub/app_verify.py": 2,
     "opaihub/cli.py": 2,
     "opaihub/desktop_artifacts.py": 1,

@@ -1,15 +1,16 @@
 name: OPai desktop artifact rehearsal
 
-# Manual only: a release operator explicitly chooses the immutable tag and
-# channel before any hosted macOS/Windows minutes are used. Production uses
-# separate signing, credential-free smoke, and attestation jobs: tagged source
-# may build artifacts without credentials, but only the reviewed main workflow
-# can request signing or create final archive provenance.
+# Every v* tag automatically rehearses the unsigned candidate. Production is a
+# reviewed main-branch dispatch and adds a protected provider canary, signing,
+# credential-free smoke, and attestation. No secret-bearing job executes a tag
+# until its commit is proven to be reachable from the trusted main revision.
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Exact annotated semantic-version tag (for example v0.2.0-alpha.2)
+        description: Exact annotated package-version tag (for example v0.2.1a1)
         required: true
         type: string
       release_channel:
@@ -30,12 +31,228 @@ permissions:
   contents: read
 
 concurrency:
-  group: opai-desktop-artifact-${{ inputs.release_tag }}-${{ inputs.release_channel }}
+  group: opai-desktop-artifact-${{ github.event.inputs.release_tag || github.ref_name }}-${{ github.event.inputs.release_channel || 'unsigned-prealpha' }}
   cancel-in-progress: false
 
 jobs:
+  source-qualification:
+    name: Exact-candidate source qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    outputs:
+      candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
+      tag_object_sha: ${{ steps.candidate.outputs.tag_object_sha }}
+      package_version: ${{ steps.version.outputs.package_version }}
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+      RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'unsigned-prealpha' }}
+    steps:
+      - name: Checkout requested immutable tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.inputs.release_tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove tag identity and production ancestry
+        id: candidate
+        shell: bash
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)((a|b|rc)(0|[1-9][0-9]*))?$ ]]; then
+            echo "release_tag must be a safe v-prefixed canonical package version."
+            exit 2
+          fi
+          test "$(git cat-file -t "$RELEASE_TAG")" = "tag"
+          CANDIDATE_SHA="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          TAG_OBJECT_SHA="$(git rev-parse "$RELEASE_TAG^{tag}")"
+          test "$(git cat-file -p "$TAG_OBJECT_SHA" | sed -n '2s/^type //p')" = "commit"
+          test "$(git cat-file -p "$TAG_OBJECT_SHA" | sed -n '1s/^object //p')" = "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          if [ "$RELEASE_CHANNEL" = "production" ]; then
+            test "$GITHUB_REF" = "refs/heads/main"
+            git merge-base --is-ancestor "$CANDIDATE_SHA" "$GITHUB_SHA"
+          fi
+          printf 'candidate_sha=%s\n' "$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+          printf 'tag_object_sha=%s\n' "$TAG_OBJECT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+
+      - name: Validate canonical package version and release tag
+        id: version
+        run: >-
+          python scripts/desktop_release_transport.py validate-release-tag
+          --root . --release-tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+
+      - name: Install pinned qualification dependencies
+        run: |
+          python -m pip install -r requirements-ci.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+          python -m pip check
+
+      - name: Resolve source evidence paths outside the candidate checkout
+        shell: bash
+        run: |
+          EVIDENCE_DIR="$RUNNER_TEMP/opai-source-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$EVIDENCE_DIR"
+          printf 'EVIDENCE_DIR=%s\n' "$EVIDENCE_DIR" >> "$GITHUB_ENV"
+
+      - name: Qualify Python source for exact candidate
+        shell: bash
+        run: |
+          CANDIDATE_SHA="$(git rev-parse HEAD)"
+          python scripts/ci_local.py --profile full --component python \
+            --candidate-sha "$CANDIDATE_SHA" --manifest "$EVIDENCE_DIR/release-python-evidence.json"
+
+      - name: Qualify hostile environment for exact candidate
+        shell: bash
+        run: |
+          CANDIDATE_SHA="$(git rev-parse HEAD)"
+          python scripts/ci_local.py --profile full --component hostile \
+            --candidate-sha "$CANDIDATE_SHA" --manifest "$EVIDENCE_DIR/release-hostile-evidence.json"
+
+      - name: Qualify supply chain for exact candidate
+        shell: bash
+        run: |
+          CANDIDATE_SHA="$(git rev-parse HEAD)"
+          python scripts/ci_local.py --profile full --component supply-chain \
+            --candidate-sha "$CANDIDATE_SHA" --manifest "$EVIDENCE_DIR/release-supply-evidence.json"
+
+      - name: Upload immutable source qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-source-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.event.inputs.release_tag || github.ref_name }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
+
+  web-qualification:
+    name: Exact-candidate web qualification
+    needs: source-qualification
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+      CANDIDATE_SHA: ${{ needs.source-qualification.outputs.candidate_sha }}
+      EXPECTED_TAG_OBJECT_SHA: ${{ needs.source-qualification.outputs.tag_object_sha }}
+    steps:
+      - name: Checkout requested immutable tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.inputs.release_tag || github.ref_name }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+
+      - name: Revalidate immutable source identity
+        shell: bash
+        run: |
+          test "$(git cat-file -t "$RELEASE_TAG")" = "tag"
+          test "$(git rev-parse "$RELEASE_TAG^{tag}")" = "$EXPECTED_TAG_OBJECT_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+
+      - name: Qualify web contract for exact candidate
+        run: >-
+          python scripts/ci_local.py --profile full --component web
+          --candidate-sha "${{ needs.source-qualification.outputs.candidate_sha }}"
+          --manifest release-web-evidence.json
+
+      - name: Upload bounded immutable web evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-web-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.event.inputs.release_tag || github.ref_name }}
+          path: release-web-evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
+  provider-qualification:
+    name: Protected exact-candidate provider qualification
+    needs: [source-qualification, web-qualification, build]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
+    environment:
+      name: opai-provider-canary
+      deployment: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      OPAI_LIVE_PROVIDER_SMOKE: "1"
+      OPAI_CONFIRM_CLOUD_TESTS: "YES"
+      OPAI_PROVIDER_CANARY_NON_PRODUCTION: "YES"
+      OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS: ${{ vars.OPAI_PROVIDER_CANARY_PROVIDERS }}
+      OPAI_LIVE_MODELS: ${{ vars.OPAI_PROVIDER_CANARY_MODELS }}
+      OPAI_PROVIDER_CANARY_MAX_USD: ${{ vars.OPAI_PROVIDER_CANARY_MAX_USD }}
+      EXPECTED_CANDIDATE_SHA: ${{ needs.source-qualification.outputs.candidate_sha }}
+      EXPECTED_TAG_OBJECT_SHA: ${{ needs.source-qualification.outputs.tag_object_sha }}
+    steps:
+      - name: Checkout reviewed candidate tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ needs.source-qualification.outputs.candidate_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+
+      - name: Install pinned provider dependencies
+        run: |
+          python -m pip install -r requirements-ci.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+          python -m pip check
+
+      - name: Revalidate immutable release identity before provider credentials
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_CANDIDATE_SHA"
+          REMOTE_TAG_OBJECT="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq 'select(.object.type == "tag") | .object.sha')"
+          test "$REMOTE_TAG_OBJECT" = "$EXPECTED_TAG_OBJECT_SHA"
+          REMOTE_CANDIDATE="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${REMOTE_TAG_OBJECT}" --jq 'select(.object.type == "commit") | .object.sha')"
+          test "$REMOTE_CANDIDATE" = "$EXPECTED_CANDIDATE_SHA"
+
+      - name: Run protected exact-SHA provider qualification
+        env:
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: >-
+          python scripts/ci_local.py --profile provider-canary --component provider
+          --candidate-sha "${{ needs.source-qualification.outputs.candidate_sha }}"
+          --manifest release-provider-evidence.json
+
+      - name: Upload immutable provider evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-provider-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.event.inputs.release_tag }}
+          path: release-provider-evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
   build:
     name: Unsigned desktop build (${{ matrix.os }})
+    needs: [source-qualification, web-qualification]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -47,9 +264,12 @@ jobs:
           - os: macos-latest
             build_lock: requirements/desktop-build.macos.lock
     env:
-      RELEASE_TAG: ${{ inputs.release_tag }}
-      RELEASE_CHANNEL: ${{ inputs.release_channel }}
-      ALLOW_UNSIGNED_PREALPHA: ${{ inputs.allow_unsigned_prealpha }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+      RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'unsigned-prealpha' }}
+      ALLOW_UNSIGNED_PREALPHA: ${{ github.event_name == 'push' && 'true' || github.event.inputs.allow_unsigned_prealpha }}
+      EXPECTED_CANDIDATE_SHA: ${{ needs.source-qualification.outputs.candidate_sha }}
+      EXPECTED_TAG_OBJECT_SHA: ${{ needs.source-qualification.outputs.tag_object_sha }}
+      PACKAGE_VERSION: ${{ needs.source-qualification.outputs.package_version }}
       DESKTOP_BUILD_LOCK: ${{ matrix.build_lock }}
 
     steps:
@@ -61,14 +281,16 @@ jobs:
         run: |
           {
             echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
+            echo "SMOKE_BUNDLE=$RUNNER_TEMP/opai-unsigned-smoke-bundle"
             echo "VERIFY_LOG=$RUNNER_TEMP/opai-unsigned-verification.log"
+            echo "TRANSPORT_ARCHIVE=$RUNNER_TEMP/OPai-${RELEASE_TAG}-${{ matrix.os }}-production-input.tar"
           } >> "$GITHUB_ENV"
 
       - name: Reject invalid channel acknowledgement and untrusted production workflow ref
         shell: bash
         run: |
-          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-            echo "release_tag must be a safe semantic-version tag such as v0.2.0-alpha.2."
+          if ! [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)((a|b|rc)(0|[1-9][0-9]*))?$ ]]; then
+            echo "release_tag must be a safe package-version tag such as v0.2.1a1."
             exit 2
           fi
           if [ "$RELEASE_CHANNEL" = "unsigned-prealpha" ] && [ "$ALLOW_UNSIGNED_PREALPHA" != "true" ]; then
@@ -87,7 +309,7 @@ jobs:
       - name: Check out requested release tag
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.event.inputs.release_tag || github.ref_name }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -95,7 +317,9 @@ jobs:
         shell: bash
         run: |
           test "$(git cat-file -t "$RELEASE_TAG")" = "tag"
-          test "$(git describe --exact-match --tags HEAD)" = "$RELEASE_TAG"
+          test "$(git rev-parse "$RELEASE_TAG^{tag}")" = "$EXPECTED_TAG_OBJECT_SHA"
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$EXPECTED_CANDIDATE_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_CANDIDATE_SHA"
           test -z "$(git status --porcelain)"
 
       - name: Set up Python
@@ -132,20 +356,21 @@ jobs:
             --output-dir "$BUNDLE" \
             --channel unsigned-prealpha
 
+      - name: Create mode-preserving production signing transport
+        if: env.RELEASE_CHANNEL == 'production'
+        shell: bash
+        run: >-
+          "$ARTIFACT_PY" scripts/desktop_release_transport.py pack-transport
+          --bundle "$BUNDLE" --archive "$TRANSPORT_ARCHIVE"
+
       - name: Record unsigned alpha verification state
-        if: inputs.release_channel == 'unsigned-prealpha'
+        if: env.RELEASE_CHANNEL == 'unsigned-prealpha'
         shell: bash
         run: |
           printf '%s\n' "unsigned-prealpha: no signing credentials were requested or supplied" > "$VERIFY_LOG"
 
-      - name: Smoke unsigned native artifact outside checkout
-        if: inputs.release_channel == 'unsigned-prealpha'
-        shell: bash
-        run: |
-          "$ARTIFACT_PY" scripts/smoke_desktop_artifacts.py "$BUNDLE" --timeout 120
-
       - name: Archive unsigned macOS portable artifact
-        if: inputs.release_channel == 'unsigned-prealpha' && matrix.os == 'macos-latest'
+        if: env.RELEASE_CHANNEL == 'unsigned-prealpha' && matrix.os == 'macos-latest'
         shell: bash
         run: |
           ARCHIVE="$RUNNER_TEMP/OPai-${RELEASE_TAG}-macos-latest-unsigned-prealpha.zip"
@@ -153,46 +378,64 @@ jobs:
           printf 'ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Archive unsigned Windows portable artifact
-        if: inputs.release_channel == 'unsigned-prealpha' && matrix.os == 'windows-latest'
+        if: env.RELEASE_CHANNEL == 'unsigned-prealpha' && matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           $archive = Join-Path $env:RUNNER_TEMP ("OPai-{0}-windows-latest-unsigned-prealpha.zip" -f $env:RELEASE_TAG)
           Compress-Archive -LiteralPath $env:BUNDLE -DestinationPath $archive -Force
           "ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Clean-extract exact unsigned rehearsal archive
+        if: env.RELEASE_CHANNEL == 'unsigned-prealpha'
+        shell: bash
+        run: |
+          test -f "$ARCHIVE"
+          "$ARTIFACT_PY" scripts/desktop_release_transport.py extract-signed-zip \
+            --archive "$ARCHIVE" --bundle-output "$SMOKE_BUNDLE"
+          "$ARTIFACT_PY" scripts/desktop_release_transport.py verify-bundle-identity \
+            --bundle "$SMOKE_BUNDLE" --release-tag "$RELEASE_TAG" \
+            --candidate-sha "$EXPECTED_CANDIDATE_SHA" --platform "${{ matrix.os }}"
+
+      - name: Smoke exact unsigned rehearsal archive outside checkout
+        if: env.RELEASE_CHANNEL == 'unsigned-prealpha'
+        shell: bash
+        run: |
+          "$ARTIFACT_PY" scripts/smoke_desktop_artifacts.py "$SMOKE_BUNDLE" --timeout 120
+
       - name: Upload unsigned alpha artifact and evidence
-        if: inputs.release_channel == 'unsigned-prealpha'
+        if: env.RELEASE_CHANNEL == 'unsigned-prealpha'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-unsigned-prealpha
+          name: OPai-${{ github.event.inputs.release_tag || github.ref_name }}-${{ matrix.os }}-unsigned-prealpha-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.ARCHIVE }}
-            ${{ env.BUNDLE }}/SHA256SUMS.txt
-            ${{ env.BUNDLE }}/provenance.json
-            ${{ env.BUNDLE }}/signing-status.json
+            ${{ env.SMOKE_BUNDLE }}/SHA256SUMS.txt
+            ${{ env.SMOKE_BUNDLE }}/provenance.json
+            ${{ env.SMOKE_BUNDLE }}/signing-status.json
             ${{ env.VERIFY_LOG }}
           if-no-files-found: error
           retention-days: 30
 
       - name: Upload production signing input
-        if: inputs.release_channel == 'production'
+        if: env.RELEASE_CHANNEL == 'production'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-input
-          path: ${{ env.BUNDLE }}
+          name: OPai-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.TRANSPORT_ARCHIVE }}
           if-no-files-found: error
           retention-days: 1
 
   sign:
     name: Protected production signing (${{ matrix.os }})
-    needs: build
-    if: ${{ inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
+    needs: [build, source-qualification, web-qualification, provider-qualification]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
     environment:
       name: opai-production-signing
       deployment: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions:
+      actions: read
       contents: read
     strategy:
       fail-fast: false
@@ -201,7 +444,10 @@ jobs:
           - windows-latest
           - macos-latest
     env:
-      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+      EXPECTED_CANDIDATE_SHA: ${{ needs.source-qualification.outputs.candidate_sha }}
+      EXPECTED_TAG_OBJECT_SHA: ${{ needs.source-qualification.outputs.tag_object_sha }}
+      PACKAGE_VERSION: ${{ needs.source-qualification.outputs.package_version }}
       EXPECTED_WINDOWS_SIGNER_THUMBPRINT: ${{ vars.OPAI_WINDOWS_SIGNER_THUMBPRINT }}
       EXPECTED_MACOS_TEAM_ID: ${{ vars.OPAI_MACOS_TEAM_ID }}
 
@@ -220,6 +466,7 @@ jobs:
         run: |
           {
             echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
+            echo "SIGNING_INPUT=$RUNNER_TEMP/opai-production-signing-input"
             echo "VERIFY_LOG=$RUNNER_TEMP/opai-signing-verification.log"
             echo "PUBLISHER_IDENTITY=$RUNNER_TEMP/opai-publisher-identity.json"
           } >> "$GITHUB_ENV"
@@ -229,33 +476,53 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Resolve same-run production signing input by immutable artifact ID
+        id: production_input
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-production-input-artifacts.json"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.os }}-production-input-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Download unsigned production signing input
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-input
-          path: ${{ env.BUNDLE }}
+          artifact-ids: ${{ steps.production_input.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ env.SIGNING_INPUT }}
+
+      - name: Restore mode-preserving production signing input
+        shell: bash
+        run: |
+          TRANSPORT_ARCHIVE="$SIGNING_INPUT/OPai-${RELEASE_TAG}-${{ matrix.os }}-production-input.tar"
+          test -f "$TRANSPORT_ARCHIVE"
+          python scripts/desktop_release_transport.py extract-transport \
+            --archive "$TRANSPORT_ARCHIVE" --bundle-output "$BUNDLE"
 
       - name: Independently bind input provenance to the requested immutable tag
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-            echo "release_tag must be a safe semantic-version tag."
+          if ! [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)((a|b|rc)(0|[1-9][0-9]*))?$ ]]; then
+            echo "release_tag must be a safe v-prefixed canonical package version."
             exit 2
           fi
-          git fetch --tags --force origin "$RELEASE_TAG"
-          test "$(git cat-file -t "$RELEASE_TAG")" = "tag"
-          EXPECTED_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
-          git merge-base --is-ancestor "$EXPECTED_COMMIT" "$GITHUB_SHA"
-          python - "$BUNDLE/provenance.json" "$RELEASE_TAG" "$EXPECTED_COMMIT" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          path, expected_tag, expected_commit = map(str, sys.argv[1:])
-          value = json.loads(Path(path).read_text(encoding="utf-8"))
-          if value.get("tag") != expected_tag or value.get("commit") != expected_commit:
-              raise SystemExit("production signing input provenance does not match the requested tag")
-          PY
+          REMOTE_TAG_OBJECT="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq 'select(.object.type == "tag") | .object.sha')"
+          test "$REMOTE_TAG_OBJECT" = "$EXPECTED_TAG_OBJECT_SHA"
+          REMOTE_CANDIDATE="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${REMOTE_TAG_OBJECT}" --jq 'select(.object.type == "commit") | .object.sha')"
+          test "$REMOTE_CANDIDATE" = "$EXPECTED_CANDIDATE_SHA"
+          git merge-base --is-ancestor "$EXPECTED_CANDIDATE_SHA" "$GITHUB_SHA"
+          python scripts/desktop_release_transport.py verify-bundle-identity \
+            --bundle "$BUNDLE" --release-tag "$RELEASE_TAG" \
+            --candidate-sha "$EXPECTED_CANDIDATE_SHA" --platform "${{ matrix.os }}"
 
       - name: Sign and verify Windows production bundle
         if: matrix.os == 'windows-latest'
@@ -388,6 +655,15 @@ jobs:
               value = {"macos_team_id": team_id, "platform": "macos"}
           else:
               raise SystemExit(f"unsupported signing runner: {runner_os}")
+          value.update(
+              {
+                  "candidate_sha": os.environ["EXPECTED_CANDIDATE_SHA"],
+                  "release_tag": os.environ["RELEASE_TAG"],
+                  "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+                  "run_id": os.environ["GITHUB_RUN_ID"],
+                  "tag_object_sha": os.environ["EXPECTED_TAG_OBJECT_SHA"],
+              }
+          )
           output.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
           PY
 
@@ -410,10 +686,9 @@ jobs:
       - name: Upload immutable signed production output
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-signed
+          name: OPai-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-signed-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.ARCHIVE }}
-            ${{ env.BUNDLE }}
             ${{ env.VERIFY_LOG }}
             ${{ env.PUBLISHER_IDENTITY }}
           if-no-files-found: error
@@ -421,11 +696,12 @@ jobs:
 
   smoke:
     name: Credential-free signed artifact smoke (${{ matrix.os }})
-    needs: sign
-    if: ${{ inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
+    needs: [source-qualification, sign]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
+      actions: read
       contents: read
     strategy:
       fail-fast: false
@@ -434,7 +710,9 @@ jobs:
           - windows-latest
           - macos-latest
     env:
-      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+      EXPECTED_CANDIDATE_SHA: ${{ needs.source-qualification.outputs.candidate_sha }}
+      EXPECTED_TAG_OBJECT_SHA: ${{ needs.source-qualification.outputs.tag_object_sha }}
 
     steps:
       - name: Check out trusted smoke tooling from main
@@ -451,6 +729,8 @@ jobs:
         run: |
           {
             echo "SIGNED_OUTPUT=$RUNNER_TEMP/opai-signed-output"
+            echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
+            echo "RAW_SMOKE_REPORT=$RUNNER_TEMP/opai-raw-smoke-report.json"
             echo "SMOKE_REPORT=$RUNNER_TEMP/opai-smoke-report.json"
           } >> "$GITHUB_ENV"
 
@@ -459,36 +739,74 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Resolve same-run signed archive by immutable artifact ID
+        id: signed_artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-signed-artifacts.json"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.os }}-production-signed-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Download immutable signed production output
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-signed
+          artifact-ids: ${{ steps.signed_artifact.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
           path: ${{ env.SIGNED_OUTPUT }}
 
-      - name: Locate signed portable bundle outside the checkout
+      - name: Clean-extract the exact signed archive outside the checkout
         shell: bash
         run: |
-          CHECKSUMS="$(find "$SIGNED_OUTPUT" -type f -name SHA256SUMS.txt -print -quit)"
+          ARCHIVE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-${{ matrix.os }}-production.zip"
           PUBLISHER_IDENTITY="$(find "$SIGNED_OUTPUT" -type f -name opai-publisher-identity.json -print -quit)"
-          test -n "$CHECKSUMS"
+          test -f "$ARCHIVE"
           test -n "$PUBLISHER_IDENTITY"
-          BUNDLE="$(dirname "$CHECKSUMS")"
-          test -f "$BUNDLE/provenance.json"
-          test -f "$BUNDLE/signing-status.json"
-          printf 'BUNDLE=%s\n' "$BUNDLE" >> "$GITHUB_ENV"
+          python scripts/desktop_release_transport.py extract-signed-zip \
+            --archive "$ARCHIVE" --bundle-output "$BUNDLE"
+          python scripts/desktop_release_transport.py verify-bundle-identity \
+            --bundle "$BUNDLE" --release-tag "$RELEASE_TAG" \
+            --candidate-sha "$EXPECTED_CANDIDATE_SHA" --platform "${{ matrix.os }}"
+          printf 'ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
           printf 'PUBLISHER_IDENTITY=%s\n' "$PUBLISHER_IDENTITY" >> "$GITHUB_ENV"
 
       - name: Read validated publisher identity from signed output
         shell: bash
         run: |
-          python - "$PUBLISHER_IDENTITY" "${{ matrix.os }}" "$GITHUB_ENV" <<'PY'
+          python - "$PUBLISHER_IDENTITY" "${{ matrix.os }}" "$GITHUB_ENV" \
+            "$EXPECTED_CANDIDATE_SHA" "$EXPECTED_TAG_OBJECT_SHA" "$RELEASE_TAG" \
+            "$GITHUB_RUN_ID" "${{ steps.signed_artifact.outputs.producer_attempt }}" <<'PY'
           import json
           import re
           import sys
           from pathlib import Path
 
-          identity_path, matrix_os, environment_path = map(str, sys.argv[1:])
+          (
+              identity_path,
+              matrix_os,
+              environment_path,
+              candidate_sha,
+              tag_object_sha,
+              release_tag,
+              run_id,
+              producer_attempt,
+          ) = map(str, sys.argv[1:])
           value = json.loads(Path(identity_path).read_text(encoding="utf-8"))
+          expected_common = {
+              "candidate_sha": candidate_sha,
+              "release_tag": release_tag,
+              "run_attempt": producer_attempt,
+              "run_id": run_id,
+              "tag_object_sha": tag_object_sha,
+          }
+          if any(value.get(key) != expected for key, expected in expected_common.items()):
+              raise SystemExit("signed output publisher identity does not match this release")
           if matrix_os == "windows-latest":
               thumbprint = str(value.get("windows_signer_thumbprint", "")).upper()
               if value.get("platform") != "windows" or not re.fullmatch(
@@ -515,31 +833,45 @@ jobs:
           set -o pipefail
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             python scripts/smoke_desktop_artifacts.py "$BUNDLE" --timeout 120 \
-              --windows-signer-thumbprint "$WINDOWS_SIGNER_THUMBPRINT" | tee "$SMOKE_REPORT"
+              --windows-signer-thumbprint "$WINDOWS_SIGNER_THUMBPRINT" | tee "$RAW_SMOKE_REPORT"
           else
             python scripts/smoke_desktop_artifacts.py "$BUNDLE" --timeout 120 \
-              --macos-team-id "$MACOS_TEAM_ID" | tee "$SMOKE_REPORT"
+              --macos-team-id "$MACOS_TEAM_ID" | tee "$RAW_SMOKE_REPORT"
           fi
+
+      - name: Bind smoke evidence to exact archive and release identity
+        shell: bash
+        run: >-
+          python scripts/desktop_release_transport.py bind-smoke-evidence
+          --raw-report "$RAW_SMOKE_REPORT" --archive "$ARCHIVE" --output "$SMOKE_REPORT"
+          --release-tag "$RELEASE_TAG" --candidate-sha "$EXPECTED_CANDIDATE_SHA"
+          --tag-object-sha "$EXPECTED_TAG_OBJECT_SHA" --platform "${{ matrix.os }}"
+          --run-id "$GITHUB_RUN_ID"
+          --signed-artifact-id "${{ steps.signed_artifact.outputs.artifact_id }}"
+          --signed-artifact-name "${{ steps.signed_artifact.outputs.artifact_name }}"
+          --signed-artifact-attempt "${{ steps.signed_artifact.outputs.producer_attempt }}"
+          --smoke-attempt "$GITHUB_RUN_ATTEMPT"
 
       - name: Upload credential-free smoke report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-smoke
+          name: OPai-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.SMOKE_REPORT }}
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
   attest:
     name: Attest immutable signed production archive (${{ matrix.os }})
-    needs: [sign, smoke]
-    if: ${{ inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
+    needs: [source-qualification, sign, smoke]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
     environment:
       name: opai-production-signing
       deployment: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
+      actions: read
       contents: read
       attestations: write
       id-token: write
@@ -550,45 +882,103 @@ jobs:
           - windows-latest
           - macos-latest
     env:
-      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+      EXPECTED_CANDIDATE_SHA: ${{ needs.source-qualification.outputs.candidate_sha }}
+      EXPECTED_TAG_OBJECT_SHA: ${{ needs.source-qualification.outputs.tag_object_sha }}
 
     steps:
-      # runner.temp is unavailable in job-level env; this job has no checkout, so
-      # resolve runner-scoped paths first via $GITHUB_ENV before they are used.
+      - name: Check out trusted attestation tooling from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      # runner.temp is unavailable in job-level env, so resolve runner-scoped
+      # paths via $GITHUB_ENV before they are used.
       - name: Resolve runner-scoped attestation paths
         shell: bash
         run: |
           {
             echo "SIGNED_OUTPUT=$RUNNER_TEMP/opai-signed-output"
             echo "SMOKE_OUTPUT=$RUNNER_TEMP/opai-smoke-output"
+            echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
           } >> "$GITHUB_ENV"
+
+      - name: Set up trusted Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Resolve same-run signed archive by immutable artifact ID
+        id: signed_artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-signed-artifacts.json"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.os }}-production-signed-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Resolve same-run smoke evidence by immutable artifact ID
+        id: smoke_artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-smoke-artifacts.json"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.os }}-production-smoke-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Download immutable signed production output
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-signed
+          artifact-ids: ${{ steps.signed_artifact.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
           path: ${{ env.SIGNED_OUTPUT }}
 
       - name: Download credential-free smoke report
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production-smoke
+          artifact-ids: ${{ steps.smoke_artifact.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
           path: ${{ env.SMOKE_OUTPUT }}
 
-      - name: Locate immutable archive and collect release evidence
+      - name: Verify exact archive, smoke binding, and collect release evidence
         shell: bash
         run: |
           ARCHIVE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-${{ matrix.os }}-production.zip"
-          CHECKSUMS="$(find "$SIGNED_OUTPUT" -type f -name SHA256SUMS.txt -print -quit)"
-          SIGNING_LOG="$(find "$SIGNED_OUTPUT" -type f -name opai-signing-verification.log -print -quit)"
-          PUBLISHER_IDENTITY="$(find "$SIGNED_OUTPUT" -type f -name opai-publisher-identity.json -print -quit)"
-          SMOKE_REPORT="$(find "$SMOKE_OUTPUT" -type f -name opai-smoke-report.json -print -quit)"
+          SIGNING_LOG="$SIGNED_OUTPUT/opai-signing-verification.log"
+          PUBLISHER_IDENTITY="$SIGNED_OUTPUT/opai-publisher-identity.json"
+          SMOKE_REPORT="$SMOKE_OUTPUT/opai-smoke-report.json"
           test -f "$ARCHIVE"
-          test -n "$CHECKSUMS"
-          test -n "$SIGNING_LOG"
-          test -n "$PUBLISHER_IDENTITY"
-          test -n "$SMOKE_REPORT"
-          BUNDLE="$(dirname "$CHECKSUMS")"
+          test -f "$SIGNING_LOG"
+          test -f "$PUBLISHER_IDENTITY"
+          test -f "$SMOKE_REPORT"
+          python scripts/desktop_release_transport.py extract-signed-zip \
+            --archive "$ARCHIVE" --bundle-output "$BUNDLE"
+          python scripts/desktop_release_transport.py verify-bundle-identity \
+            --bundle "$BUNDLE" --release-tag "$RELEASE_TAG" \
+            --candidate-sha "$EXPECTED_CANDIDATE_SHA" --platform "${{ matrix.os }}"
+          python scripts/desktop_release_transport.py verify-smoke-evidence \
+            --evidence "$SMOKE_REPORT" --archive "$ARCHIVE" \
+            --release-tag "$RELEASE_TAG" --candidate-sha "$EXPECTED_CANDIDATE_SHA" \
+            --tag-object-sha "$EXPECTED_TAG_OBJECT_SHA" --platform "${{ matrix.os }}" \
+            --run-id "$GITHUB_RUN_ID" \
+            --signed-artifact-id "${{ steps.signed_artifact.outputs.artifact_id }}" \
+            --signed-artifact-name "${{ steps.signed_artifact.outputs.artifact_name }}" \
+            --signed-artifact-attempt "${{ steps.signed_artifact.outputs.producer_attempt }}" \
+            --smoke-attempt "${{ steps.smoke_artifact.outputs.producer_attempt }}"
           EVIDENCE="$RUNNER_TEMP/opai-release-evidence"
           mkdir -p "$EVIDENCE"
           cp "$ARCHIVE" "$EVIDENCE/"
@@ -601,15 +991,37 @@ jobs:
           printf 'ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
           printf 'RELEASE_EVIDENCE=%s\n' "$EVIDENCE" >> "$GITHUB_ENV"
 
-      - name: Attest signed production archive
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
-        with:
-          subject-path: ${{ env.ARCHIVE }}
+      - name: Revalidate immutable remote tag at final attestation boundary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REMOTE_TAG_OBJECT="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq 'select(.object.type == "tag") | .object.sha')"
+          test "$REMOTE_TAG_OBJECT" = "$EXPECTED_TAG_OBJECT_SHA"
+          REMOTE_CANDIDATE="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${REMOTE_TAG_OBJECT}" --jq 'select(.object.type == "commit") | .object.sha')"
+          test "$REMOTE_CANDIDATE" = "$EXPECTED_CANDIDATE_SHA"
 
-      - name: Upload production artifact and evidence
+      # This staging artifact is deliberately not a publication claim. It is
+      # consumable as release evidence only when the entire attestation job is green.
+      - name: Stage non-publishable immutable production evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-${{ matrix.os }}-production
+          name: OPai-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-staging-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.RELEASE_EVIDENCE }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Revalidate immutable remote tag immediately before attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REMOTE_TAG_OBJECT="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq 'select(.object.type == "tag") | .object.sha')"
+          test "$REMOTE_TAG_OBJECT" = "$EXPECTED_TAG_OBJECT_SHA"
+          REMOTE_CANDIDATE="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${REMOTE_TAG_OBJECT}" --jq 'select(.object.type == "commit") | .object.sha')"
+          test "$REMOTE_CANDIDATE" = "$EXPECTED_CANDIDATE_SHA"
+
+      - name: Attest signed production archive after immutable staging upload
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: ${{ env.ARCHIVE }}

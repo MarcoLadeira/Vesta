@@ -1,23 +1,44 @@
 # Release process
 
-OPai ships from a **reproducible, inspectable release-candidate preflight** so we
-can prove exactly what would ship before any artifact is published. One command
-produces a deterministic readiness verdict; a dry-run path performs every safe
-step with no external side effects; and a rollback restores the previous tested
-release without touching user state.
+OPai uses a **reproducible, inspectable release-candidate preflight** to prove
+which source revision was tested before any artifact is published. The local
+command produces a scope-aware planning or source verdict. Final release
+qualification is produced only by the protected workflow that builds and
+authenticates the Windows and macOS artifacts in the same run. A dry-run path
+performs every safe step with no external side effects, and rollback restores
+the previous tested release without touching user state.
 
 Implementation: [`opaihub/release_preflight.py`](../opaihub/release_preflight.py).
 Issue: [#32](https://github.com/MarcoLadeira/OPai/issues/32).
 
-## One command: readiness
+## Planning, source qualification, and final qualification
 
 ```bash
 opai release preflight
 ```
 
-Runs every release check and prints a human-readable report (`--format json` for
-machine-readable). **Exit code is 0 only when the release is ready**; any blocker
-exits non-zero — the same green/red contract as CI.
+The default is a local planning report: tests and final artifacts may be shown as
+`SKIP` without claiming release qualification. Release/RC branches use a strict,
+credential-free **source** scope:
+
+```bash
+opai release preflight \
+  --qualification-required \
+  --source-only \
+  --candidate-sha <exact-40-character-commit> \
+  --run-tests
+```
+
+This runs `scripts/ci_local.py --profile full` for that exact SHA and preserves
+its canonical `verdict`, `reason`, and `classification`. A successful report has
+`qualification_scope: "source"`, `artifact_qualification: "pending"`, and
+`final_release_ready: false`. It proves source readiness only.
+
+Final Windows/macOS release qualification belongs to the protected, same-run
+[`desktop-artifacts.yml`](../.github/workflows/desktop-artifacts.yml) workflow.
+That workflow owns native signing/notarisation, provider evidence, credential-free
+archive smoke, and GitHub attestation. A standalone preflight cannot authenticate
+those platform-native results and therefore never promotes structural JSON alone.
 
 Checks:
 
@@ -28,23 +49,95 @@ Checks:
 | Changelog documents this release | the top `CHANGELOG.md` entry is missing, wrong, or empty for the current version |
 | A license is present | `LICENSE` missing or trivially short |
 | Required documentation is present | any of `README.md`, `CHANGELOG.md`, `LICENSE`, `CONTRIBUTING.md` missing/empty |
-| Release tag does not already exist | `v<version>` is already tagged (bump first) |
-| The test gate passes | `--run-tests` given and `scripts/ci_local.py --fast` fails |
-| Artifacts exist, match checksums, are signed | `--artifacts <manifest>` given and any file is missing, checksum-mismatched, or unsigned |
+| Source release tag is available | `v<version>` already exists, or strict mode cannot determine tag state |
+| Candidate identity matches | candidate is absent/invalid, `HEAD` cannot be resolved, or the SHA differs |
+| The full test gate passes | strict mode omits `--run-tests`, or the exact-SHA `full` profile is not `qualified` |
+| Final artifacts have authenticated same-run evidence | final scope lacks either Windows/macOS artifact, native/provider evidence, bounded verification logs, an attestation report, exact run binding, or an authenticated native/cryptographic verifier |
 
 Common flags:
 
 ```bash
-opai release preflight --run-tests                 # include the local gate
-opai release preflight --artifacts dist/manifest.json   # verify built artifacts
+opai release preflight --run-tests                     # include the full local gate
+opai release preflight --source-only                   # source evidence; artifacts pending
+opai release preflight --candidate-sha <sha>            # bind evidence to HEAD
+opai release preflight --qualification-required        # make SKIP blocking
+opai release preflight --artifacts dist/manifest.json  # structural/offline audit; not final trust
 opai release preflight --format json --out preflight.json  # archive sanitized evidence
 ```
 
-The artifact manifest is JSON:
+The final artifact inventory uses schema 3. It is generated and consumed inside
+the protected desktop workflow; this abbreviated example shows its binding
+contract:
 
 ```json
-{ "artifacts": [ { "path": "OPai-Setup.exe", "sha256": "<hex>", "signed": true } ] }
+{
+  "schema_version": 3,
+  "repository": "MarcoLadeira/OPai",
+  "workflow": ".github/workflows/desktop-artifacts.yml",
+  "run_id": "123456789",
+  "run_attempt": "1",
+  "tag": "v0.2.0a2",
+  "candidate_sha": "<40-hex-commit>",
+  "commit_sha": "<same-40-hex-commit>",
+  "provider_evidence": {
+    "path": "provider-qualification.json",
+    "sha256": "<64-hex-evidence-digest>"
+  },
+  "native_evidence": [
+    {
+      "platform": "windows-latest",
+      "path": "native-windows.json",
+      "sha256": "<64-hex-evidence-digest>"
+    },
+    {
+      "platform": "macos-latest",
+      "path": "native-macos.json",
+      "sha256": "<64-hex-evidence-digest>"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "OPai-windows.zip",
+      "sha256": "<64-hex-artifact-digest>",
+      "platform": "windows-latest",
+      "verification_log": {
+        "path": "verification-windows.log",
+        "sha256": "<64-hex-log-digest>"
+      },
+      "attestation_report": {
+        "path": "attestation-windows.json",
+        "sha256": "<64-hex-report-digest>"
+      }
+    },
+    {
+      "path": "OPai-macos.zip",
+      "sha256": "<64-hex-artifact-digest>",
+      "platform": "macos-latest",
+      "verification_log": {
+        "path": "verification-macos.log",
+        "sha256": "<64-hex-log-digest>"
+      },
+      "attestation_report": {
+        "path": "attestation-macos.json",
+        "sha256": "<64-hex-report-digest>"
+      }
+    }
+  ]
+}
 ```
+
+Every referenced file is bounded, remains under the manifest directory, and is
+verified against its recorded digest. The provider, native, and attestation JSON
+files repeat the repository, workflow, run, attempt, tag, candidate, platform,
+artifact, and linked-evidence bindings that apply to them.
+
+Those structural bindings are necessary, but they are not a trust root. A bare
+`"signed": true` flag, self-authored `"verified": true` fields, or a
+well-shaped candidate-authored report is rejected. Without an authenticated
+native/cryptographic verifier supplied by the protected workflow, standalone
+final qualification returns
+`infrastructure_blocked` / `artifact_verifier_unavailable` and directs the
+operator to the same-run desktop workflow.
 
 `--out` writes a **sanitized** evidence file (verdict + per-check status, with no
 absolute paths or uncommitted-file names) suitable for CI archiving.
@@ -88,6 +181,10 @@ tries to write into protected state is refused.
 
 ## CI evidence
 
-`.github/workflows/release-preflight.yml` runs the dry-run preflight on release
-branches and on demand, then uploads the sanitized preflight evidence and a
-rollback plan as build artifacts, so every candidate has an auditable record.
+`.github/workflows/release-preflight.yml` runs strict source preflight for every
+`release/**`/`rc/**` push and on demand. It passes the exact `github.sha`, runs
+the full test profile, preserves the typed local verdict, and uploads a unique
+run/attempt/SHA evidence artifact. It has no tag trigger and does not consume a
+candidate artifact manifest, so it cannot claim final artifact qualification.
+Tagged and production final qualification remain in the protected same-run
+desktop workflow.

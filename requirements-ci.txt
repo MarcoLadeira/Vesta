@@ -1,5 +1,8 @@
 # Deterministic tools used by scripts/ci_local.py and hosted/self-hosted CI.
 # Update a pin only in a reviewed CI change that also proves the relevant profile.
+pip==26.1.2
+setuptools==83.0.0
+wheel==0.47.0
 bandit==1.9.4
 detect-secrets==1.5.0
 hypothesis==6.160.0

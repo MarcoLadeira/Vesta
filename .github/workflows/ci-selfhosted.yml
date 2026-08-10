@@ -1,57 +1,127 @@
 name: OPai CI (trusted self-hosted)
 
-# This workflow is intentionally never a pull-request target. A self-hosted
-# workspace is a privileged trust boundary, so it only observes code already
-# merged to main or an explicitly reviewed maintainer dispatch. The hosted
-# workflow owns the untrusted PR gate.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: opai-ci-selfhosted-${{ github.event_name }}-${{ github.ref }}
+  group: opai-ci-selfhosted-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  trusted-gate:
-    name: Trusted - self-hosted fast qualification
-    runs-on: [self-hosted]
-    timeout-minutes: 30
+  dispatch-guard:
+    name: Trusted - reject non-main dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
-      # actions/checkout v4.2.2, pinned to its immutable commit SHA.
-      - name: Checkout
+      - name: Require the trusted main ref
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_REF: ${{ github.ref }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REQUESTED_REF" != "refs/heads/main" ]; then
+            echo "Trusted self-hosted dispatches must select main."
+            exit 2
+          fi
+
+  runner-health:
+    name: Trusted - runner health preflight
+    needs: dispatch-guard
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: opai-runner-health
+      deployment: false
+    steps:
+      - name: Checkout trusted main candidate
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
-      # A per-run venv keeps the gate hermetic: installing `-e .` with the
-      # machine's user Python would replace a developer's real opai install
-      # with an editable pointer into this runner workspace (#260).
-      - name: Install locked tools and OPai (isolated venv)
+      - name: Query required labelled runner
+        id: query
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.OPAI_RUNNER_HEALTH_TOKEN }}
         run: |
-          python -m venv .venv
-          PY=./.venv/bin/python
-          [ -f ./.venv/Scripts/python.exe ] && PY=./.venv/Scripts/python.exe
-          "$PY" -m pip install --upgrade pip
-          "$PY" -m pip install -r requirements-ci.txt
-          "$PY" -m pip install -e ".[test]"
+          if gh api "repos/${GITHUB_REPOSITORY}/actions/runners" > runner-inventory.json; then
+            python scripts/check_runner_health.py \
+              --input runner-inventory.json \
+              --output runner-health-evidence.json \
+              --candidate-sha "$GITHUB_SHA" \
+              --label self-hosted --label Windows --label X64
+          else
+            python scripts/check_runner_health.py \
+              --output runner-health-evidence.json \
+              --candidate-sha "$GITHUB_SHA" \
+              --label self-hosted --label Windows --label X64 \
+              --api-error runner-api-request-failed
+          fi
 
-      - name: Run the trusted fast gate
-        shell: bash
-        run: |
-          PY=./.venv/bin/python
-          [ -f ./.venv/Scripts/python.exe ] && PY=./.venv/Scripts/python.exe
-          "$PY" scripts/ci_local.py --profile fast --manifest self-hosted-evidence.json
-
-      # actions/upload-artifact v4.6.2, pinned to its immutable commit SHA.
-      - name: Upload bounded trusted-runner evidence
+      - name: Upload immutable runner-health evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: self-hosted-fast-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          name: runner-health-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: runner-health-evidence.json
+          if-no-files-found: error
+          retention-days: 14
+
+  trusted-gate:
+    name: Trusted - self-hosted fast qualification
+    needs: runner-health
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 40
+    steps:
+      - name: Checkout trusted main candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Install pinned tools and OPai in an isolated venv
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $Python = Join-Path $PWD '.venv\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $Python)) {
+            throw "Windows virtualenv Python was not created at $Python"
+          }
+          & $Python -m pip install -r requirements-ci.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $Python -m pip install --no-deps --no-build-isolation -e .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $Python -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run exact-SHA trusted Python component
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Python = Join-Path $PWD '.venv\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $Python)) {
+            throw "Windows virtualenv Python is unavailable at $Python"
+          }
+          & $Python scripts/ci_local.py --profile fast --component python `
+            --candidate-sha $env:GITHUB_SHA --manifest self-hosted-evidence.json
+          exit $LASTEXITCODE
+
+      - name: Upload immutable trusted-runner evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: self-hosted-fast-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: self-hosted-evidence.json
           if-no-files-found: error
           retention-days: 14
