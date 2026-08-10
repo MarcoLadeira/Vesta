@@ -115,17 +115,18 @@ PYTHON_STEPS = (
         [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
         failure_class="test",
     ),
-    # `unittest discover` collects 1,605 of the suite's 4,040 tests: 139 of 237
-    # files are bare pytest functions it cannot see. Before #621 added a pytest
-    # step those 2,435 tests had never run in CI at all -- which is how
-    # test_run_status_adoption.py shipped an assertion that never executed.
+    # 20 of 238 test files are bare pytest functions that `unittest discover`
+    # cannot see -- 333 tests, and not randomly spread: they are concentrated in
+    # the consistency contracts (completion truth #522, durable events #517,
+    # cancellation #614, and #612's own state machine and anti-drift tripwire).
+    # That is how test_run_status_adoption.py shipped an assertion which had
+    # never executed.
     #
-    # That step lives in the *hostile* lane, so today the only run of 60% of
-    # the suite happens with fake provider credentials and a hostile keyring
-    # injected. Normal-environment coverage of those tests is what this step
-    # restores; hostile then means what it should -- an additional adversarial
-    # pass, not the only pass. `lifecycle-test-collection` above fails if this
-    # step is ever removed.
+    # Before this step, the only run of them was `hostile-pytest`, so their sole
+    # execution happened with fake provider credentials and a hostile keyring
+    # injected. Normal-environment coverage is what this restores; hostile then
+    # means what it should -- an additional adversarial pass, not the only pass.
+    # `lifecycle-test-collection` above fails if this step is ever removed.
     Step(
         "python-pytest",
         [sys.executable, "-m", "pytest", "tests", "-q"],
