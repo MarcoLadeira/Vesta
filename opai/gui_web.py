@@ -1465,6 +1465,28 @@ def _run_gui(
                 extra={"sectionId": section},
             )
 
+        @QtCore.Slot(str, str)
+        def reportIllegalTransition(self, from_state: str, to_state: str) -> None:
+            """Persist a browser-side refused transition (#612 AC6).
+
+            The renderer already refuses the edge and keeps a bounded list, but
+            that list is process-local and nothing read it: a browser-side
+            violation vanished on reload while the Python half of the same
+            contract wrote a durable journal entry. Support could reconstruct
+            one surface's violations after a restart and not the other's.
+
+            Both states are projected onto the canonical vocabulary by
+            ``record_illegal_transition``'s own writer, and the source is a
+            closed label, so no free text from the page can reach the journal.
+            Best-effort: a diagnostic must never break the window it observes.
+            """
+            from opaihub.lifecycle_diagnostics import record_illegal_transition
+
+            with contextlib.suppress(Exception):
+                record_illegal_transition(
+                    self.root, str(from_state), str(to_state), "browser"
+                )
+
         @QtCore.Slot(str)
         def requestSettings(self, request_id: str) -> None:
             root = self.root

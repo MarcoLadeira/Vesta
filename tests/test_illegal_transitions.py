@@ -13,6 +13,7 @@ defect report.
 
 from __future__ import annotations
 
+import json
 import re
 import tempfile
 import threading
@@ -163,3 +164,123 @@ class PipelineCleanlinessTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class DurableBrowserRefusalTests(unittest.TestCase):
+    """#612 AC6: a browser-side refusal must survive the window.
+
+    The renderer already refused the edge and kept a bounded in-memory list --
+    but nothing ever read it, so a violation seen on the surface that actually
+    runs live vanished on reload, while the Python half of the same contract
+    journalled its own. Support could reconstruct one surface and not the
+    other, which is precisely the asymmetry this AC names.
+
+    These execute the real module in node rather than grepping its source: a
+    string match proves the code was typed, not that the refusal reaches a sink.
+    """
+
+    def _run_node(self, script: str) -> str:
+        import shutil
+        import subprocess  # nosec B404 - fixed argv, no shell
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed on this machine")
+        completed = subprocess.run(  # nosec B603 - fixed argv, no shell
+            [node, "-e", script],
+            cwd=str(_MESSAGE_STATE_JS.parents[3]),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        return completed.stdout.strip()
+
+    def _harness(self, body: str) -> str:
+        lifecycle = _MESSAGE_STATE_JS.parent / "generated-lifecycle.js"
+        return (
+            f"require({json.dumps(str(lifecycle))});"
+            f"var store = require({json.dumps(str(_MESSAGE_STATE_JS))});"
+            f"{body}"
+        )
+
+    def test_a_refusal_reaches_the_sink_with_canonical_ids(self) -> None:
+        out = self._run_node(
+            self._harness(
+                "var seen = [];"
+                "store.setRefusalSink(function (from, to) { seen.push([from, to]); });"
+                "store.transition({ status: 'completed' }, 'running');"
+                "process.stdout.write(JSON.stringify(seen));"
+            )
+        )
+        self.assertEqual(json.loads(out), [["completed", "running"]])
+
+    def test_a_legal_transition_reports_nothing(self) -> None:
+        out = self._run_node(
+            self._harness(
+                "var seen = 0;"
+                "store.setRefusalSink(function () { seen += 1; });"
+                "store.transition({ status: 'running' }, 'verifying');"
+                "process.stdout.write(String(seen));"
+            )
+        )
+        self.assertEqual(out, "0")
+
+    def test_a_throwing_sink_cannot_break_the_state_machine(self) -> None:
+        """A diagnostic must never be able to damage what it observes."""
+        out = self._run_node(
+            self._harness(
+                "store.setRefusalSink(function () { throw new Error('bridge down'); });"
+                "var result = store.transition({ status: 'completed' }, 'running');"
+                "process.stdout.write(result.status);"
+            )
+        )
+        self.assertEqual(out, "completed")
+
+    def test_the_store_still_works_with_no_sink_wired(self) -> None:
+        """Vitest and any older bridge load this module with no sink at all."""
+        out = self._run_node(
+            self._harness(
+                "var result = store.transition({ status: 'completed' }, 'running');"
+                "process.stdout.write(result.status + ':'"
+                " + store.illegalTransitions().count);"
+            )
+        )
+        self.assertEqual(out, "completed:1")
+
+
+class BrowserSourceLabelTests(unittest.TestCase):
+    def test_browser_is_a_distinct_recorded_source(self) -> None:
+        """'a browser rejected this' and 'nobody said where this came from' are
+        different findings; collapsing them hides which surface disagreed."""
+        from opaihub.lifecycle_diagnostics import source_label
+
+        self.assertEqual(source_label("browser"), "browser")
+        self.assertEqual(source_label("whatever the page sent"), "unknown")
+
+    def test_a_browser_refusal_is_journalled_durably(self) -> None:
+        from opaihub.lifecycle_diagnostics import (
+            read_diagnostics,
+            record_illegal_transition,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_illegal_transition(root, "completed", "running", "browser")
+            # Read through a fresh call: the point is that it survives the
+            # process that observed it, not that it is in memory.
+            [event] = read_diagnostics(root)
+            self.assertEqual(event["from"], "completed")
+            self.assertEqual(event["to"], "running")
+            self.assertEqual(event["source"], "browser")
+
+    def test_the_gui_bridge_exposes_the_slot_the_renderer_calls(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1] / "opai" / "gui_web.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("def reportIllegalTransition", source)
+        app_js = (
+            Path(__file__).resolve().parents[1] / "opai" / "assets" / "web" / "app.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("setRefusalSink", app_js)
+        self.assertIn("reportIllegalTransition", app_js)
