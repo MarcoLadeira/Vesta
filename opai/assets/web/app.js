@@ -232,6 +232,14 @@ function boot() {
     // the workspace enabled it, and it never blocks the boot path.
     maybeAutoUpdate();
   });
+  // #612 AC6: give the message store somewhere durable to report a refused
+  // transition. Without this the browser rejected the edge correctly and then
+  // forgot it on reload, while Python journalled its half — so only one of the
+  // two surfaces could be reconstructed after a restart. Optional-chained so a
+  // renderer running against an older bridge simply keeps the in-memory list.
+  if (window.OPaiMessageState && bridge.reportIllegalTransition) {
+    window.OPaiMessageState.setRefusalSink((from, to) => bridge.reportIllegalTransition(from, to));
+  }
   bridge.replyReady.connect(onReply);
   if (bridge.buildReady) bridge.buildReady.connect(onBuildReply);
   bridge.activity.connect(onActivity);

@@ -14,6 +14,12 @@ _MAX_RECENT = 64
 _SOURCE_LABELS = frozenset(
     {
         "background_runs",
+        # #612 AC6: the renderer's own refusals. A closed member rather than
+        # free text, so the page cannot write arbitrary strings into the
+        # journal, but distinct from "unknown" -- "a browser rejected this
+        # edge" and "nobody said where this came from" are different findings,
+        # and collapsing them would hide which surface disagreed.
+        "browser",
         "pipeline",
         "test",
         "workflow_runner",

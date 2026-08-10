@@ -106,8 +106,31 @@ PYTHON_STEPS = (
         failure_class="policy",
     ),
     Step(
+        "lifecycle-test-collection",
+        [sys.executable, "scripts/check_test_collection.py"],
+        failure_class="policy",
+    ),
+    Step(
         "python-unittest",
         [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
+        failure_class="test",
+    ),
+    # 20 of 238 test files are bare pytest functions that `unittest discover`
+    # cannot see -- 333 tests, and not randomly spread: they are concentrated in
+    # the consistency contracts (completion truth #522, durable events #517,
+    # cancellation #614, and #612's own state machine and anti-drift tripwire).
+    # That is how test_run_status_adoption.py shipped an assertion which had
+    # never executed.
+    #
+    # Before this step, the only run of them was `hostile-pytest`, so their sole
+    # execution happened with fake provider credentials and a hostile keyring
+    # injected. Normal-environment coverage is what this restores; hostile then
+    # means what it should -- an additional adversarial pass, not the only pass.
+    # `lifecycle-test-collection` above fails if this step is ever removed.
+    Step(
+        "python-pytest",
+        [sys.executable, "-m", "pytest", "tests", "-q"],
+        required_modules=("pytest",),
         failure_class="test",
     ),
     Step(

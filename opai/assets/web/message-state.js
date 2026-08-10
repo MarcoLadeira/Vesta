@@ -48,6 +48,31 @@
   var refusals = [];
   var refusalCount = 0;
 
+  // #612 AC6: a refusal must survive the window. The in-memory list above is
+  // process-local, and nothing ever read it — so a browser-side illegal
+  // transition was rejected correctly and then lost, while the Python half of
+  // the same contract wrote a durable journal entry. Support could reconstruct
+  // one surface's violations after a restart and not the other's.
+  //
+  // Injected rather than imported: this module is pure so Vitest can load it
+  // with no bridge, and a renderer must never hard-depend on Qt being present.
+  // Defaults to a no-op; app.js wires it to the bridge slot.
+  var refusalSink = null;
+
+  function setRefusalSink(sink) {
+    refusalSink = typeof sink === "function" ? sink : null;
+  }
+
+  function publishRefusal(from, to) {
+    if (!refusalSink) return;
+    // A diagnostic must never be able to break the state machine it observes.
+    try {
+      refusalSink(from, to);
+    } catch (err) {
+      /* durable reporting is best-effort; the refusal itself already stands */
+    }
+  }
+
   function transition(message, nextStatus) {
     var current = String((message && message.status) || "queued");
     var next = String(nextStatus || current);
@@ -66,6 +91,9 @@
       refusalCount += 1;
       refusals.push({ from: current, to: next, at: Date.now() });
       if (refusals.length > MAX_REFUSALS) refusals.shift();
+      // Canonical IDs only, never the raw presentation strings: this record is
+      // read by diagnostics and must not become a place free text can land.
+      publishRefusal(currentCanonical, nextCanonical);
       return message;
     }
     return Object.assign({}, message, { status: knownNext ? next : nextCanonical });
@@ -113,6 +141,7 @@
     transition: transition,
     illegalTransitions: illegalTransitions,
     resetIllegalTransitions: resetIllegalTransitions,
+    setRefusalSink: setRefusalSink,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   global.OPaiMessageState = api;

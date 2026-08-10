@@ -6,3 +6,13 @@
 *.json text eol=lf
 *.ps1 text eol=crlf
 *.png binary
+
+# The generated cross-language lifecycle contract (#612). Every other generated
+# target is already pinned by extension (.py, .json, .md); this was the only one
+# that was not, so with core.autocrlf=true it checked out as CRLF while the
+# generator writes LF. The drift check compares decoded text, so it passed, and
+# `generate` skips a write whose decoded text already matches -- a byte-level
+# change to the browser contract was therefore neither detected nor repairable.
+# Pinned narrowly rather than pinning all *.js, which would renormalise files
+# belonging to unrelated work.
+opai/assets/web/generated-lifecycle.js text eol=lf
