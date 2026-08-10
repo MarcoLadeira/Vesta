@@ -6,20 +6,27 @@ only full-suite runner in the gate was `unittest discover`, which collects
 nothing from such a file. The assertion existed, passed review, and was worth
 exactly nothing.
 
-Re-measuring for #612 found that was not one file but a class of failure. Four
-lifecycle suites -- including `test_run_state.py`, the canonical state machine,
-and `test_state_vocabulary_drift.py`, the anti-drift tripwire -- collect **0**
-tests under `unittest discover`:
+Re-measuring for #612 found that was not one file but a class of failure. 20 of
+238 test files collect **0** tests under `unittest discover`, and what they
+contain is not random -- it is concentrated almost entirely in the consistency
+contracts this epic owns:
 
-    test_run_state.py                0 unittest / 15 pytest
-    test_run_state_parity.py         0 unittest /  8 pytest
-    test_run_status_adoption.py      0 unittest /  6 pytest
-    test_state_vocabulary_drift.py   0 unittest / 11 pytest
+    test_completion_contract.py     101 tests   completion truth (#522)
+    test_verification_policy.py      21 tests   verification (#522)
+    test_verification_execution.py   21 tests   verification (#522)
+    test_run_journal.py              31 tests   durable events (#517)
+    test_cancellation_lifecycle.py   17 tests   cancellation (#614)
+    test_run_state.py                15 tests   the canonical state machine
+    test_state_vocabulary_drift.py   11 tests   the anti-drift tripwire
+    test_run_state_parity.py          8 tests   cross-surface parity
+    test_runtime_phase_parity.py      8 tests   phase parity
+    test_run_status_adoption.py       6 tests   (the one #621 found)
+    ... 10 more, 333 tests in total
 
-40 tests guarding the lifecycle contract this issue exists to enforce. They run
-today only because #621 happened to add a `hostile-pytest` step -- an
+They run today only because #621 happened to add a `hostile-pytest` step -- an
 *incidental* rescue, in the hostile-environment lane, not a guarantee. Delete
-or reorder that one step and they silently vanish again, with every suite still
+or reorder that one step and the tests guarding lifecycle, verification,
+cancellation and durable events silently vanish again, with every suite still
 green.
 
 So a test file existing is not qualification, and a passing suite is not proof
@@ -40,10 +47,10 @@ safe to run in the fast lane on every pull request.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
-import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -69,28 +76,54 @@ LIFECYCLE_CRITICAL = (
 
 
 def _unittest_counts() -> dict[str, int]:
-    """Tests per file that ``unittest discover`` collects, in one pass."""
+    """Tests per file that ``unittest discover`` can collect, read statically.
+
+    Deliberately AST, not ``TestLoader.discover``. The first version of this
+    check used in-process discovery and undercounted badly -- 25 of 237 modules
+    fail to import when ``top_level_dir`` is ``tests/``, and they arrive as
+    ``_FailedTest`` objects. Skipping those (to avoid attributing a broken
+    import to a real file) silently discarded them, which is the very failure
+    mode this script exists to prevent: absence quietly becoming a number
+    rather than an error. It reported ``test_receipt.py`` as collecting zero
+    when ``unittest discover -p test_receipt.py`` runs 27.
+
+    Static classification has neither problem. ``unittest`` collects test
+    methods on ``TestCase`` subclasses and nothing else, which is decidable
+    from the syntax tree, needs no imports, cannot be skewed by import order,
+    and runs in milliseconds.
+    """
 
     counts: dict[str, int] = {}
-    loader = unittest.TestLoader()
-    suite = loader.discover(str(TESTS), pattern="test_*.py", top_level_dir=str(TESTS))
-
-    def walk(item) -> None:
-        if isinstance(item, unittest.TestSuite):
-            for child in item:
-                walk(child)
-            return
-        module_name = type(item).__module__
-        # A module that fails to import becomes a _FailedTest whose module is
-        # unittest's own; attributing it to the real file would report a broken
-        # import as healthy collection.
-        if module_name.startswith("unittest"):
-            return
-        counts[f"{module_name.rsplit('.', 1)[-1]}.py"] = (
-            counts.get(f"{module_name.rsplit('.', 1)[-1]}.py", 0) + 1
-        )
-
-    walk(suite)
+    for path in sorted(TESTS.glob("test_*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.name)
+        except SyntaxError:
+            counts[path.name] = 0
+            continue
+        total = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            # `unittest.TestCase`, `TestCase`, or a local base whose name ends
+            # in one of those -- the repo uses `_Base(unittest.TestCase)`
+            # subclasses, whose methods unittest still collects.
+            bases = {
+                base.attr
+                if isinstance(base, ast.Attribute)
+                else getattr(base, "id", "")
+                for base in node.bases
+            }
+            if not any(
+                name.endswith("TestCase") or name.endswith("Base") for name in bases
+            ):
+                continue
+            total += sum(
+                1
+                for item in node.body
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and item.name.startswith("test")
+            )
+        counts[path.name] = total
     return counts
 
 
