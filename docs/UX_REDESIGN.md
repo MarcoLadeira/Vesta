@@ -56,6 +56,9 @@ the roadmap if user demand appears, but they are not the direction today.
 
 ## Future UX space (tracked as issues, not stubs)
 
-- Capture-rate / live cost in the header — #93
-- Prompt library / saved prompts — _backlog_
-- Multi-model compare — _backlog_ (only if it doesn't crowd the chat)
+- ~~Capture-rate / live cost in the header — #93~~ **Shipped.** The status
+  strip's live cost/size counter (see `AI_ACTIVITY_UX.md`).
+- ~~Prompt library / saved prompts~~ **Shipped.** `opai/gui_prompts.py` +
+  the palette/sidebar prompt library (see `UX_UI_REDESIGN_REPORT.md`).
+- Multi-model compare — _backlog_ (only if it doesn't crowd the chat; tracked
+  in `FEATURE_ROADMAP.md`)

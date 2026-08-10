@@ -7,6 +7,17 @@ shared core — over Claude, Codex, Copilot, and local models. OPai plans,
 routes to the cheapest capable model, shows every step while it works, and
 hands you an honest receipt.
 
+> **Two taglines, one product, deliberately.** `opai/brand.py` — the single
+> canonical copy source the GUI boot payload reads from (see
+> `BRAND_SYSTEM.md`) — ships **"the cost-aware AI coding cockpit"** as the
+> product category. The CLI-facing/marketing surfaces (`README.md`,
+> `docs/QUICKSTART.md`, `docs/PROOF.md`, `docs/LAUNCH_CHECKLIST.md`) instead
+> carry **"the AI coding cost firewall"**, a positioning consistency locked by
+> `tests/test_positioning_and_cli.py` (#40). Both are accurate: "cockpit" names
+> what the GUI is (a control surface); "cost firewall" names what the product
+> does (blocks unwanted spend by default). Don't drift either wording toward
+> the other without updating the locked test and this note together.
+
 ## What OPai is not
 
 - Not a Claude/Cursor clone — those are agents; OPai is the **cockpit around
