@@ -515,3 +515,59 @@ class LocalCiEvidenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LauncherResolutionTests(unittest.TestCase):
+    """A present tool must never be reported as unavailable (#621).
+
+    ``shutil.which`` honours PATHEXT and resolves ``npm`` to ``npm.CMD``;
+    ``CreateProcess`` -- what ``subprocess`` uses without ``shell=True`` --
+    only ever appends ``.exe``. Passing the bare name therefore raised
+    ``FileNotFoundError`` on Windows for an installed, working npm, and the
+    runner reported "required executable unavailable". Every web check was
+    unqualifiable on Windows for that reason alone, so the profile could
+    never reach ``qualified`` on a developer machine.
+    """
+
+    def setUp(self) -> None:
+        self.module = _load_ci_local_module()
+
+    def test_a_bare_launcher_is_resolved_to_an_absolute_path(self) -> None:
+        step = self.module.Step("probe", ["npm", "ci"])
+        with mock.patch.object(
+            self.module.shutil, "which", return_value=r"C:\tools\npm.CMD"
+        ):
+            argv = self.module._launch_argv(step)
+        self.assertEqual(argv, [r"C:\tools\npm.CMD", "ci"])
+
+    def test_arguments_after_the_launcher_are_untouched(self) -> None:
+        step = self.module.Step("probe", ["npm", "run", "test:unit"])
+        with mock.patch.object(
+            self.module.shutil, "which", return_value="/usr/bin/npm"
+        ):
+            argv = self.module._launch_argv(step)
+        self.assertEqual(argv[1:], ["run", "test:unit"])
+
+    def test_an_unresolvable_launcher_is_left_alone_to_fail_honestly(self) -> None:
+        """Absence must still reach the FileNotFoundError path and be typed as
+        unavailable -- resolution must not mask a genuinely missing tool."""
+        step = self.module.Step("probe", ["definitely-not-a-real-tool"])
+        with mock.patch.object(self.module.shutil, "which", return_value=None):
+            argv = self.module._launch_argv(step)
+        self.assertEqual(argv, ["definitely-not-a-real-tool"])
+
+    def test_an_empty_argv_does_not_raise(self) -> None:
+        self.assertEqual(self.module._launch_argv(self.module.Step("probe", [])), [])
+
+    def test_every_declared_web_launcher_resolves_on_this_machine(self) -> None:
+        """The real regression: with node/npm installed, no web step may be
+        reported unavailable. Skips only when the tools genuinely are absent."""
+        for step in self.module.WEB_STEPS:
+            with self.subTest(step=step.name):
+                if self.module._missing_executables(step):
+                    self.skipTest(f"{step.name} tooling not installed here")
+                argv = self.module._launch_argv(step)
+                self.assertTrue(
+                    os.path.isabs(argv[0]),
+                    f"{step.name} launcher {argv[0]!r} is not an absolute path",
+                )

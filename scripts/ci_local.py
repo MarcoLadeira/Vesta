@@ -432,6 +432,30 @@ def _missing_executables(step: Step) -> list[str]:
     return [name for name in step.required_executables if shutil.which(name) is None]
 
 
+def _launch_argv(step: Step) -> list[str]:
+    """Absolute-path the launcher so a Windows ``.CMD``/``.BAT`` shim can start.
+
+    ``shutil.which`` honours ``PATHEXT``, so it resolves ``npm`` to ``npm.CMD``.
+    ``CreateProcess`` -- what ``subprocess`` uses without ``shell=True`` -- does
+    not: it only ever appends ``.exe``. A bare ``"npm"`` therefore raises
+    ``FileNotFoundError`` on Windows even when npm is installed, on PATH and
+    working, and this runner would report that as "required executable
+    unavailable" -- an infrastructure verdict about a tool that is present.
+    Every web check was unqualifiable on Windows for that reason alone.
+
+    Resolving the launcher also removes a PATH ambiguity: evidence then names
+    the exact binary that ran, rather than a name re-resolved by the OS.
+    """
+
+    argv = list(step.argv)
+    if not argv:
+        return argv
+    resolved = shutil.which(argv[0])
+    if resolved:
+        argv[0] = resolved
+    return argv
+
+
 def _missing_environment(step: Step) -> list[str]:
     missing: list[str] = []
     for requirement in step.required_env:
@@ -526,7 +550,7 @@ def _run(step: Step) -> dict[str, Any]:
     start = time.monotonic()
     try:
         completed = subprocess.run(  # nosec B603 - fixed argv, no shell
-            step.argv,
+            _launch_argv(step),
             cwd=str(ROOT),
             env=child_environment,
             check=False,
