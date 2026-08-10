@@ -112,9 +112,7 @@ class PaidReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["cost_integrity"], "unreconciled")
         self.assertEqual(receipt["estimated_savings_usd"], 0.0)
         self.assertFalse(receipt["paid_call_avoided"])
-        self.assertEqual(
-            receipt["savings_basis"], "cost_unreconciled_savings_withheld"
-        )
+        self.assertEqual(receipt["savings_basis"], "cost_unreconciled_savings_withheld")
 
 
 class PipelineSpendTruthTests(unittest.TestCase):

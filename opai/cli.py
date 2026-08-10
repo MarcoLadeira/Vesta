@@ -1458,6 +1458,9 @@ def cmd_release(args: argparse.Namespace) -> int:
             root=root,
             dry_run=not getattr(args, "execute", False),
             run_tests=getattr(args, "run_tests", False),
+            qualification_required=getattr(args, "qualification_required", False),
+            source_only=getattr(args, "source_only", False),
+            candidate_sha=getattr(args, "candidate_sha", None),
             artifacts_manifest=(
                 Path(args.artifacts) if getattr(args, "artifacts", None) else None
             ),
@@ -2907,10 +2910,27 @@ def build_parser() -> argparse.ArgumentParser:
     rp_pre.add_argument(
         "--run-tests",
         action="store_true",
-        help="Include the local test gate (scripts/ci_local.py --fast)",
+        help="Include the full local qualification gate (scripts/ci_local.py --profile full)",
+    )
+    rp_pre.add_argument(
+        "--source-only",
+        action="store_true",
+        help=(
+            "Qualify source/RC checks only; final artifact qualification remains "
+            "pending in the protected desktop workflow"
+        ),
     )
     rp_pre.add_argument(
         "--artifacts", metavar="MANIFEST", help="Artifact manifest JSON to verify"
+    )
+    rp_pre.add_argument(
+        "--qualification-required",
+        action="store_true",
+        help="Fail closed for every input required by the selected qualification scope",
+    )
+    rp_pre.add_argument(
+        "--candidate-sha",
+        help="Exact 40-character commit SHA that every qualification input must match",
     )
     rp_pre.add_argument(
         "--execute",

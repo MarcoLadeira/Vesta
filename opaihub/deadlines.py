@@ -73,4 +73,3 @@ def _finite_or_none(value: float | None) -> float | None:
 
 def is_task_deadline(event: Any) -> bool:
     return isinstance(event, dict) and event.get("timeout_origin") == TASK_DEADLINE
-

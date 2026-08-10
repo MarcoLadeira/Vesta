@@ -330,7 +330,11 @@ def cmd_hooks(args: argparse.Namespace) -> int:
 def cmd_ci(args: argparse.Namespace) -> int:
     root = resolve_project_path(args.project)
     if args.ci_command == "github":
-        print_json(write_github_workflow(root))
+        try:
+            print_json(write_github_workflow(root))
+        except ValueError as exc:
+            print_json({"status": "blocked", "message": str(exc)})
+            return 2
     return 0
 
 

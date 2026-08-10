@@ -157,6 +157,12 @@ class SmokeInstallContractTests(unittest.TestCase):
         )
 
         self.assertNotIn("--no-deps", command)
+        self.assertIn("--no-build-isolation", command)
+        self.assertIn("--constraint", command)
+        constraint_index = command.index("--constraint") + 1
+        self.assertEqual(
+            command[constraint_index], str(Path("repo/requirements-ci.txt"))
+        )
         self.assertEqual(command[-2:], ["-w", str(Path("wheelhouse"))])
 
     def test_smoke_commands_cover_every_clean_install_surface(self):
@@ -252,8 +258,8 @@ class WorkflowContractTests(unittest.TestCase):
         source = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         workflow = yaml.safe_load(source)
 
-        self.assertIn("pull_request:\n    branches: [main]", source)
-        self.assertIn("push:\n    branches: [main]", source)
+        self.assertIn('branches: [main, "release/**", "rc/**"]', source)
+        self.assertIn("merge_group:", source)
         self.assertIn("schedule:", source)
         self.assertIn("mandatory-python", workflow["jobs"])
         self.assertIn("mandatory-hostile-environment", workflow["jobs"])
@@ -285,14 +291,16 @@ class WorkflowContractTests(unittest.TestCase):
         )
         governance = (ROOT / "docs" / "CI_QUALIFICATION.md").read_text(encoding="utf-8")
 
-        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["schema_version"], 2)
         self.assertEqual(manifest["protected_branch"], "main")
         self.assertEqual(
-            manifest["required_checks"][0], "Required - Python quality (3.13)"
+            manifest["required_checks"][0]["name"],
+            "Required - Python quality (3.13)",
         )
         for check in manifest["required_checks"]:
-            with self.subTest(check=check):
-                self.assertIn(check, governance)
+            with self.subTest(check=check["name"]):
+                self.assertIn(check["name"], governance)
+                self.assertTrue(check["required_check_ids"])
         self.assertIn(
             "Required - Python quality (${{ matrix.python-version }})", workflow
         )
@@ -306,6 +314,9 @@ class WorkflowContractTests(unittest.TestCase):
             "/.github/workflows/",
             "/.github/required-checks.json",
             "/scripts/ci_local.py",
+            "/scripts/check_secrets.py",
+            "/opaihub/provider_canary.py",
+            "/.secrets.baseline",
             "/requirements-ci.txt",
             "/docs/CI_QUALIFICATION.md",
         ):
@@ -332,15 +343,16 @@ class WorkflowContractTests(unittest.TestCase):
         )
         job = workflow["jobs"]["mandatory-hostile-environment"]
         command_text = str(job)
+        runner_source = (ROOT / "scripts" / "ci_local.py").read_text(encoding="utf-8")
 
         for name in PROVIDER_ENV - {"GH_TOKEN", "GITHUB_TOKEN"}:
-            self.assertIn(name, job["env"])
+            self.assertIn(name, runner_source)
         self.assertEqual(job["runs-on"], "ubuntu-latest")
-        self.assertNotIn("GH_TOKEN", job["env"])
-        self.assertNotIn("GITHUB_TOKEN", job["env"])
-        self.assertIn("unittest discover -s tests", command_text)
-        self.assertIn("pytest tests", command_text)
-        self.assertIn("fixtures/hostile_keyring", command_text)
+        self.assertNotIn("secrets.", command_text)
+        self.assertIn("--component hostile", command_text)
+        self.assertIn("hostile-unittest", runner_source)
+        self.assertIn("hostile-pytest", runner_source)
+        self.assertIn("fixtures/hostile_keyring", runner_source)
 
 
 def test_pytest_starts_without_live_provider_credentials_or_keyring():

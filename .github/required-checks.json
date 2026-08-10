@@ -1,14 +1,140 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "protected_branch": "main",
+  "protected_branches": ["main", "release/**", "rc/**"],
   "workflow": ".github/workflows/ci.yml",
   "required_checks": [
-    "Required - Python quality (3.13)",
-    "Required - hostile-environment Python suites",
-    "Required - web UI security and E2E"
+    {
+      "name": "Required - Python quality (3.13)",
+      "job_name_template": "Required - Python quality (${{ matrix.python-version }})",
+      "workflow": "OPai CI (hosted)",
+      "job": "mandatory-python",
+      "component": "python",
+      "trusted_app": "github-actions",
+      "required_check_ids": [
+        "candidate-sha",
+        "ruff-format",
+        "ruff-lint",
+        "lifecycle-projection-drift",
+        "python-unittest",
+        "registry-validation",
+        "bandit",
+        "detect-secrets"
+      ]
+    },
+    {
+      "name": "Required - hostile-environment Python suites",
+      "job_name_template": "Required - hostile-environment Python suites",
+      "workflow": "OPai CI (hosted)",
+      "job": "mandatory-hostile-environment",
+      "component": "hostile",
+      "trusted_app": "github-actions",
+      "required_check_ids": [
+        "candidate-sha",
+        "hostile-unittest",
+        "hostile-pytest"
+      ]
+    },
+    {
+      "name": "Required - web UI security and E2E",
+      "job_name_template": "Required - web UI security and E2E",
+      "workflow": "OPai CI (hosted)",
+      "job": "web-test",
+      "component": "web",
+      "trusted_app": "github-actions",
+      "required_check_ids": [
+        "candidate-sha",
+        "npm-ci",
+        "npm-audit",
+        "web-design-tokens",
+        "web-unit",
+        "playwright-browser-install",
+        "web-e2e"
+      ]
+    }
   ],
-  "notes": [
-    "The Python check is a matrix job; 3.13 is the PR-required member.",
-    "Scheduled, self-hosted, native, provider and release jobs are release-evidence gates, not PR status checks."
-  ]
+  "component_contracts": {
+    "python": [
+      "ruff-format",
+      "ruff-lint",
+      "lifecycle-projection-drift",
+      "python-unittest",
+      "registry-validation",
+      "bandit",
+      "detect-secrets"
+    ],
+    "hostile": ["hostile-unittest", "hostile-pytest"],
+    "web": [
+      "npm-ci",
+      "npm-audit",
+      "web-design-tokens",
+      "web-unit",
+      "playwright-browser-install",
+      "web-e2e"
+    ],
+    "supply-chain": ["python-pytest", "pip-audit"],
+    "native": ["isolated-wheel-smoke"],
+    "provider": ["provider-canary"]
+  },
+  "profiles": {
+    "fast": {
+      "components": ["python", "hostile", "web"],
+      "automatic": [
+        "pull_request:main",
+        "pull_request:release/**",
+        "pull_request:rc/**",
+        "merge_group",
+        "push:main",
+        "push:release/**",
+        "push:rc/**",
+        "schedule:17 3 * * 1"
+      ],
+      "manual": ["workflow_dispatch:fast", "workflow_dispatch:full"]
+    },
+    "full": {
+      "components": ["python", "hostile", "web", "supply-chain"],
+      "automatic": ["schedule:17 3 * * 1"],
+      "manual": ["workflow_dispatch:full"]
+    },
+    "native": {
+      "components": ["native"],
+      "automatic": ["schedule:17 3 * * 1"],
+      "manual": ["workflow_dispatch:full"]
+    },
+    "provider-canary": {
+      "components": ["provider"],
+      "automatic": ["schedule:43 4 * * 2"],
+      "manual": [
+        "workflow_dispatch:main",
+        "desktop-artifacts:workflow_dispatch:main:production"
+      ],
+      "protected_environment": "opai-provider-canary"
+    },
+    "release": {
+      "components": ["python", "hostile", "web", "supply-chain", "native", "provider"],
+      "automatic": [],
+      "manual": ["local:scripts/ci_local.py:release"],
+      "source_preflight": {
+        "automatic": ["push:release/**", "push:rc/**"],
+        "manual": ["workflow_dispatch"]
+      },
+      "unsigned_artifact_rehearsal": {
+        "automatic": ["push:tag:v*"]
+      },
+      "final_artifact_qualification": {
+        "automatic": [],
+        "manual": ["workflow_dispatch:main:production"],
+        "protected_environment": "opai-production-signing"
+      }
+    }
+  },
+  "branch_rule": {
+    "require_all_checks": true,
+    "require_up_to_date": true,
+    "dismiss_stale_approvals": true,
+    "require_conversation_resolution": true,
+    "allow_bypass": false,
+    "allow_force_push": false,
+    "allow_deletion": false
+  }
 }

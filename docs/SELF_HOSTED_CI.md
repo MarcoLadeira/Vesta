@@ -1,67 +1,66 @@
-# Self-hosted CI runner (trusted post-merge evidence)
+# Trusted self-hosted CI
 
-The self-hosted runner provides a post-merge trusted-machine signal. The hosted
-credential-free workflow is the mandatory PR gate; this runner never evaluates
-untrusted pull-request code.
+The repository-owned Windows runner is post-merge evidence, never a pull-request
+merge gate. Untrusted code must stay on GitHub-hosted read-only runners.
 
-- `.github/workflows/ci-selfhosted.yml` runs on `[self-hosted]` after each push
-  to `main`, and by deliberate manual dispatch. It creates an isolated venv,
-  installs the pinned `requirements-ci.txt` toolchain and runs the fail-closed
-  `fast` profile with a JSON evidence artifact.
-- `.github/workflows/ci.yml` automatically runs the hosted PR/main gate and the
-  scheduled full/native lanes. Its runners have read-only repository access and
-  no protected provider or signing credentials.
+## Execution contract
 
-## One-time setup (~2 minutes)
+`.github/workflows/ci-selfhosted.yml` runs after a push to `main` or a dispatch
+from `main`. It has two jobs:
 
-Register a runner on your machine — this is the only step that needs you, because
-it uses a registration token tied to your account.
+1. `Trusted - runner health preflight` runs on `ubuntu-latest`, queries the
+   Actions runner API through the `opai-runner-health` environment, and requires
+   an idle, online runner carrying `self-hosted`, `Windows`, and `X64`. It writes
+   exact-SHA evidence. Offline, busy, missing, malformed, or inaccessible
+   inventory exits non-zero as `runner_unavailable`/`infrastructure_blocked`
+   before a long-lived job is queued.
+2. `Trusted - self-hosted fast qualification` depends on that preflight, checks
+   out exactly `github.sha` without credentials, creates a per-run venv, installs
+   pinned dependencies, and runs the Python component with an explicit
+   candidate SHA.
 
-1. Open **`https://github.com/MarcoLadeira/OPai/settings/actions/runners/new`**
-   (Repo → **Settings** → **Actions** → **Runners** → **New self-hosted runner**).
-2. Pick your OS (Windows) and follow the **Download** commands shown on that page.
-   They look like this (use the exact token GitHub shows you):
+Both evidence artifact names include run ID, attempt, and candidate SHA. A
+non-main dispatch cannot execute the trusted job. Do not add `pull_request`,
+`pull_request_target`, a generic unlabelled runner target, or checkout token
+persistence.
 
-   ```powershell
-   # In a folder like C:\actions-runner
-   mkdir C:\actions-runner; cd C:\actions-runner
-   Invoke-WebRequest -Uri https://github.com/actions/runner/releases/download/<ver>/actions-runner-win-x64-<ver>.zip -OutFile runner.zip
-   Expand-Archive runner.zip -DestinationPath .
-   ./config.cmd --url https://github.com/MarcoLadeira/OPai --token <TOKEN_FROM_THE_PAGE>
-   ```
+## One-time Windows setup
 
-3. When `config.cmd` asks for labels, just press Enter (the default `self-hosted`
-   label is what the workflow targets). Make sure `python` is on this machine's
-   `PATH` (`python --version` should work).
-4. Start the runner:
-
-   ```powershell
-   ./run.cmd
-   ```
-
-   Leave that window open — it processes jobs while running. To make it a
-   background Windows service instead (starts with the machine, no window):
+1. Create the `opai-runner-health` environment, restrict deployment branches to
+   `main`, and add `OPAI_RUNNER_HEALTH_TOKEN`. Use a short-lived fine-grained
+   token scoped only to this repository with repository Administration **read**
+   (plus Metadata read); GitHub's default workflow token cannot list repository
+   runners. Do not grant write permission.
+2. Open <https://github.com/MarcoLadeira/OPai/settings/actions/runners/new>,
+   select Windows x64, and follow GitHub's current download instructions.
+3. Configure with the one-time token and add labels `Windows,X64` if they are not
+   already automatic. The final label set must include all three required labels.
+4. Ensure `python` is on the service account's `PATH`.
+5. Install/start the runner as a Windows service so recovery does not depend on
+   an interactive terminal:
 
    ```powershell
+   ./config.cmd --url https://github.com/MarcoLadeira/OPai --token <one-time-token> --labels Windows,X64
    ./svc.cmd install
    ./svc.cmd start
    ```
 
-## Verify it works
+Registration tokens are secrets: never paste one into an issue, log, config
+file, or workflow. Rotate/re-register after suspected exposure.
 
-- The runner shows **Idle** at
-  `https://github.com/MarcoLadeira/OPai/settings/actions/runners`.
-- Trigger a run: Actions tab → **OPai CI (trusted self-hosted)** → **Run
-  workflow**, or push a commit to `main`. The job runs on your machine and
-  reports green/red with an evidence artifact.
+## Health and recovery
 
-## Security notes
+- Confirm the runner is **Online / Idle** in repository settings.
+- Dispatch `OPai CI (trusted self-hosted)` from `main`. The hosted health job
+  should qualify before the Windows job starts.
+- If health reports `runner_unavailable`, inspect the Windows service, outbound
+  HTTPS/DNS, runner version, disk space, and label spelling. Do not reroute the
+  job to an unlabelled machine or mark it optional.
+- If GitHub Actions billing prevents the hosted health job from starting, the
+  workflow is infrastructure blocked even if the local service is healthy.
 
-- A self-hosted runner executes whatever trusted `main` code defines. Do not add
-  a `pull_request` trigger or expose it to fork PRs: a contributor could alter a
-  workflow and execute arbitrary code in the long-lived workspace.
-- The runner needs outbound network to reach GitHub; it does not open any inbound
-  ports.
-
-For the required check names, release evidence rules and GitHub ruleset setup,
-see [CI qualification and merge governance](CI_QUALIFICATION.md).
+The runner needs outbound access to GitHub but no inbound port. Keep the service
+account non-administrative where practical, isolate its work directory, do not
+store provider/signing credentials on it, and periodically replace the work
+directory. See [CI qualification and merge governance](CI_QUALIFICATION.md) for
+required hosted checks and external GitHub configuration.

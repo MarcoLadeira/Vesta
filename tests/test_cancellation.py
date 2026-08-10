@@ -187,7 +187,9 @@ class RunnerCancellationTests(unittest.TestCase):
         self.assertIsNotNone(
             evidence.get("metrics", {}).get("acknowledgement_latency_seconds")
         )
-        self.assertIsNotNone(evidence.get("metrics", {}).get("hard_stop_latency_seconds"))
+        self.assertIsNotNone(
+            evidence.get("metrics", {}).get("hard_stop_latency_seconds")
+        )
 
     def test_timeout_terminates_the_process(self):
         proc = FakeProc([], hang=True)
@@ -204,9 +206,7 @@ class RunnerCancellationTests(unittest.TestCase):
             hang=True,
         )
         with mock.patch.object(accounts, "_popen", return_value=proc):
-            result = self._runner().stream(
-                "x", timeout=0.2, provider_idle_timeout=10.0
-            )
+            result = self._runner().stream("x", timeout=0.2, provider_idle_timeout=10.0)
 
         self.assertTrue(result.get("timed_out"))
         self.assertEqual(result["timeout_event"]["timeout_origin"], "task_deadline")

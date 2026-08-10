@@ -4,10 +4,15 @@ import tempfile
 import unittest
 from dataclasses import replace
 from importlib.util import module_from_spec, spec_from_file_location
+import io
 import json
+import os
 from pathlib import Path
+import stat
 from subprocess import CompletedProcess
+import tarfile
 from unittest.mock import patch
+import zipfile
 
 import yaml
 
@@ -38,7 +43,174 @@ def _git_with(*, commit: str, tag: str | None):
     return run
 
 
+def _load_release_transport_module():
+    path = (
+        Path(__file__).resolve().parents[1] / "scripts" / "desktop_release_transport.py"
+    )
+    spec = spec_from_file_location("opai_desktop_release_transport_test", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError("Could not load desktop_release_transport.py")
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class DesktopArtifactContractTests(unittest.TestCase):
+    def test_release_transport_preserves_executable_modes_and_rejects_unsafe_paths(
+        self,
+    ):
+        transport = _load_release_transport_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = root / "source-bundle"
+            bundle.mkdir()
+            executable = bundle / "opai"
+            executable.write_text("#!/bin/sh\n", encoding="utf-8")
+            executable.chmod(0o755)
+            archive = root / "transport.tar"
+            restored = root / "restored-bundle"
+
+            transport.pack_transport(bundle, archive)
+            transport.extract_transport(archive, restored)
+
+            self.assertEqual(
+                (restored / "opai").read_text(encoding="utf-8"), "#!/bin/sh\n"
+            )
+            if os.name != "nt":
+                self.assertTrue((restored / "opai").stat().st_mode & stat.S_IXUSR)
+
+            unsafe = root / "unsafe.zip"
+            with zipfile.ZipFile(unsafe, "w") as value:
+                value.writestr("../escape", "bad")
+            with self.assertRaises(transport.TransportError):
+                transport.extract_signed_zip(unsafe, root / "unsafe-output")
+
+    def test_exact_signed_zip_extraction_preserves_macos_executable_mode(self):
+        transport = _load_release_transport_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "signed.zip"
+            info = zipfile.ZipInfo("opai-desktop-bundle/cli/opai")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFREG | 0o755) << 16
+            with zipfile.ZipFile(archive, "w") as value:
+                value.writestr(info, b"native")
+
+            restored = root / "bundle"
+            transport.extract_signed_zip(archive, restored)
+
+            self.assertEqual((restored / "cli" / "opai").read_bytes(), b"native")
+            if os.name != "nt":
+                self.assertTrue(
+                    (restored / "cli" / "opai").stat().st_mode & stat.S_IXUSR
+                )
+
+    def test_release_extractors_reject_duplicates_and_expansion_limits(self):
+        transport = _load_release_transport_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            duplicate = root / "duplicate.tar"
+            with tarfile.open(duplicate, "w") as value:
+                for content in (b"first", b"second"):
+                    member = tarfile.TarInfo("bundle/probe")
+                    member.size = len(content)
+                    value.addfile(member, io.BytesIO(content))
+            with self.assertRaises(transport.TransportError):
+                transport.extract_transport(duplicate, root / "duplicate-output")
+
+            crowded = root / "crowded.zip"
+            with zipfile.ZipFile(crowded, "w") as value:
+                value.writestr("opai-desktop-bundle/one", b"1")
+                value.writestr("opai-desktop-bundle/two", b"2")
+            with (
+                patch.object(transport, "MAX_ARCHIVE_MEMBERS", 1),
+                self.assertRaises(transport.TransportError),
+            ):
+                transport.extract_signed_zip(crowded, root / "crowded-output")
+
+            oversized = root / "oversized.zip"
+            with zipfile.ZipFile(oversized, "w") as value:
+                value.writestr("opai-desktop-bundle/probe", b"too large")
+            with (
+                patch.object(transport, "MAX_UNCOMPRESSED_BYTES", 1),
+                self.assertRaises(transport.TransportError),
+            ):
+                transport.extract_signed_zip(oversized, root / "oversized-output")
+
+    def test_release_tag_matches_the_canonical_package_version(self):
+        transport = _load_release_transport_module()
+        self.assertEqual(transport.canonical_release_tag("0.2.1a1"), "v0.2.1a1")
+        self.assertEqual(transport.canonical_release_tag("1.4.0"), "v1.4.0")
+        with self.assertRaises(transport.TransportError):
+            transport.validate_release_versions(
+                release_tag="v0.2.1a2",
+                versions={
+                    "pyproject.toml": "0.2.1a1",
+                    "opai/__init__.py": "0.2.1a1",
+                    "opaihub/__init__.py": "0.2.1a1",
+                },
+            )
+
+    def test_artifact_resolver_selects_latest_available_producer_attempt(self):
+        transport = _load_release_transport_module()
+        prefix = "OPai-v0.2.1a1-macos-latest-production-signed-77-"
+        inventory = [
+            {"id": 101, "name": prefix + "1", "expired": False},
+            {"id": 103, "name": prefix + "3", "expired": False},
+            {"id": 105, "name": prefix + "5", "expired": False},
+        ]
+        resolved = transport.resolve_artifact(
+            inventory, name_prefix=prefix, current_attempt=4
+        )
+        self.assertEqual(resolved["artifact_id"], 103)
+        self.assertEqual(resolved["producer_attempt"], 3)
+        with self.assertRaises(transport.TransportError):
+            transport.resolve_artifact(
+                [inventory[0], dict(inventory[0])],
+                name_prefix=prefix,
+                current_attempt=4,
+            )
+
+    def test_smoke_evidence_is_bound_to_exact_archive_and_release_identity(self):
+        transport = _load_release_transport_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "OPai-v0.2.1a1-macos-latest-production.zip"
+            archive.write_bytes(b"signed archive")
+            raw_report = root / "raw-smoke.json"
+            raw_report.write_text('{"ok": true}\n', encoding="utf-8")
+            evidence_path = root / "smoke-evidence.json"
+            identity = {
+                "release_tag": "v0.2.1a1",
+                "candidate_sha": "a" * 40,
+                "tag_object_sha": "b" * 40,
+                "platform": "macos-latest",
+                "run_id": "77",
+                "signed_artifact_id": "103",
+                "signed_artifact_name": "signed-name",
+                "signed_artifact_attempt": "3",
+                "smoke_attempt": "4",
+            }
+            transport.bind_smoke_evidence(
+                raw_report=raw_report,
+                archive=archive,
+                output=evidence_path,
+                identity=identity,
+            )
+            transport.verify_smoke_evidence(
+                evidence=evidence_path,
+                archive=archive,
+                expected_identity=identity,
+            )
+
+            archive.write_bytes(b"tampered")
+            with self.assertRaises(transport.TransportError):
+                transport.verify_smoke_evidence(
+                    evidence=evidence_path,
+                    archive=archive,
+                    expected_identity=identity,
+                )
+
     def test_release_contract_module_is_available(self):
         self.assertIsNotNone(ArtifactReleaseError)
         self.assertIsNotNone(release_ref)
@@ -638,7 +810,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         workflow = yaml.load(
             workflow_path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
         )
-        self.assertEqual(set(workflow["on"]), {"workflow_dispatch"})
+        self.assertEqual(set(workflow["on"]), {"workflow_dispatch", "push"})
+        self.assertEqual(workflow["on"]["push"]["tags"], ["v*"])
         inputs = workflow["on"]["workflow_dispatch"]["inputs"]
         self.assertEqual(inputs["release_tag"]["required"], "true")
         self.assertIn("unsigned-prealpha", inputs["release_channel"]["options"])
@@ -650,7 +823,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
 
         source = workflow_path.read_text(encoding="utf-8")
         for requirement in [
-            "git describe --exact-match --tags HEAD",
+            'git rev-parse "$RELEASE_TAG^{tag}"',
+            "validate-release-tag",
             "scripts/build_desktop_artifacts.py",
             "scripts/smoke_desktop_artifacts.py",
             "Get-AuthenticodeSignature",
@@ -685,7 +859,15 @@ class DesktopArtifactContractTests(unittest.TestCase):
 
         self.assertIsNotNone(sign, "production signing must use a separate job")
         assert sign is not None
-        self.assertEqual(sign["needs"], "build")
+        self.assertEqual(
+            set(sign["needs"]),
+            {
+                "build",
+                "source-qualification",
+                "web-qualification",
+                "provider-qualification",
+            },
+        )
         self.assertEqual(sign["environment"]["name"], "opai-production-signing")
         self.assertEqual(sign["environment"]["deployment"], "false")
         self.assertIn("inputs.release_channel == 'production'", sign["if"])
@@ -756,7 +938,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertNotRegex(source, r"uses:\\s+actions/[^@]+@v\\d")
         self.assertIn('test "$(git cat-file -t "$RELEASE_TAG")" = "tag"', source)
         self.assertIn(
-            'git merge-base --is-ancestor "$EXPECTED_COMMIT" "$GITHUB_SHA"', source
+            'git merge-base --is-ancestor "$EXPECTED_CANDIDATE_SHA" "$GITHUB_SHA"',
+            source,
         )
         self.assertIsNotNone(attest, "attestation must be a separate job")
         assert attest is not None
@@ -771,7 +954,11 @@ class DesktopArtifactContractTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn('[[ "$RELEASE_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+', source)
+        self.assertIn(
+            '[[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\\.'
+            "(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)",
+            source,
+        )
         self.assertNotIn(
             'powershell -NoProfile -Command "Compress-Archive',
             source,
@@ -797,14 +984,146 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertIsNotNone(attest, "archive attestation must use a separate job")
         assert smoke is not None
         assert attest is not None
-        self.assertEqual(smoke["needs"], "sign")
-        self.assertEqual(attest["needs"], ["sign", "smoke"])
+        self.assertEqual(set(smoke["needs"]), {"source-qualification", "sign"})
+        self.assertEqual(
+            set(attest["needs"]), {"source-qualification", "sign", "smoke"}
+        )
         self.assertNotIn("id-token", smoke.get("permissions", {}))
         self.assertNotIn("attestations", smoke.get("permissions", {}))
         self.assertIn("Smoke signed native artifact", str(smoke["steps"]))
         self.assertNotIn("Smoke signed native artifact", str(sign["steps"]))
         self.assertIn("Attest signed production archive", str(attest["steps"]))
         self.assertNotIn("Attest signed production archive", str(sign["steps"]))
+
+    def test_production_transport_identity_and_failed_only_rerun_contracts(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow_path = root / ".github" / "workflows" / "desktop-artifacts.yml"
+        source_text = workflow_path.read_text(encoding="utf-8")
+        workflow = yaml.load(source_text, Loader=yaml.BaseLoader)
+        jobs = workflow["jobs"]
+        source = jobs["source-qualification"]
+        build = jobs["build"]
+        sign = jobs["sign"]
+        smoke = jobs["smoke"]
+        attest = jobs["attest"]
+
+        self.assertEqual(
+            set(source["outputs"]),
+            {"candidate_sha", "tag_object_sha", "package_version"},
+        )
+        source_commands = "\n".join(
+            str(step.get("run", "")) for step in source["steps"]
+        )
+        self.assertIn("validate-release-tag", source_commands)
+        self.assertIn("tag_object_sha", source_commands)
+
+        build_upload = next(
+            step
+            for step in build["steps"]
+            if step.get("name") == "Upload production signing input"
+        )
+        self.assertIn("TRANSPORT_ARCHIVE", build_upload["with"]["path"])
+        self.assertNotIn("env.BUNDLE", build_upload["with"]["path"])
+
+        build_step_names = [step.get("name") for step in build["steps"]]
+        unsigned_extract = build_step_names.index(
+            "Clean-extract exact unsigned rehearsal archive"
+        )
+        unsigned_smoke = build_step_names.index(
+            "Smoke exact unsigned rehearsal archive outside checkout"
+        )
+        self.assertLess(
+            build_step_names.index("Archive unsigned macOS portable artifact"),
+            unsigned_extract,
+        )
+        self.assertLess(
+            build_step_names.index("Archive unsigned Windows portable artifact"),
+            unsigned_extract,
+        )
+        self.assertLess(unsigned_extract, unsigned_smoke)
+        unsigned_commands = "\n".join(
+            str(step.get("run", "")) for step in build["steps"]
+        )
+        self.assertIn("extract-signed-zip", unsigned_commands)
+        self.assertIn('smoke_desktop_artifacts.py "$SMOKE_BUNDLE"', unsigned_commands)
+
+        sign_upload = next(
+            step
+            for step in sign["steps"]
+            if step.get("name") == "Upload immutable signed production output"
+        )
+        self.assertNotIn("env.BUNDLE", sign_upload["with"]["path"])
+        self.assertIn("env.ARCHIVE", sign_upload["with"]["path"])
+
+        for job in (sign, smoke, attest):
+            self.assertEqual(job["permissions"]["actions"], "read")
+            resolver = next(
+                step
+                for step in job["steps"]
+                if "resolve-artifact" in str(step.get("run", ""))
+            )
+            self.assertIn("GITHUB_RUN_ID", str(resolver))
+            downloads = [
+                step
+                for step in job["steps"]
+                if str(step.get("uses", "")).startswith("actions/download-artifact@")
+            ]
+            self.assertTrue(downloads)
+            for download in downloads:
+                self.assertIn("artifact-ids", download["with"])
+                self.assertNotIn("name", download["with"])
+
+        smoke_commands = "\n".join(str(step.get("run", "")) for step in smoke["steps"])
+        self.assertIn("extract-signed-zip", smoke_commands)
+        self.assertIn("bind-smoke-evidence", smoke_commands)
+        self.assertIn("--candidate-sha", smoke_commands)
+        self.assertIn("--tag-object-sha", smoke_commands)
+        self.assertIn("--signed-artifact-attempt", smoke_commands)
+        self.assertNotIn(
+            'find "$SIGNED_OUTPUT" -type f -name SHA256SUMS.txt', smoke_commands
+        )
+
+        attest_commands = "\n".join(
+            str(step.get("run", "")) for step in attest["steps"]
+        )
+        self.assertIn("verify-smoke-evidence", attest_commands)
+        self.assertIn("Revalidate immutable remote tag", source_text)
+        self.assertLess(
+            source_text.index(
+                "Revalidate immutable remote tag at final attestation boundary"
+            ),
+            source_text.index("Stage non-publishable immutable production evidence"),
+        )
+        self.assertLess(
+            source_text.index("Stage non-publishable immutable production evidence"),
+            source_text.index(
+                "Revalidate immutable remote tag immediately before attestation"
+            ),
+        )
+        self.assertLess(
+            source_text.index(
+                "Revalidate immutable remote tag immediately before attestation"
+            ),
+            source_text.index(
+                "Attest signed production archive after immutable staging upload"
+            ),
+        )
+        self.assertLess(
+            source_text.index(
+                "Revalidate immutable remote tag at final attestation boundary"
+            ),
+            source_text.index(
+                "Attest signed production archive after immutable staging upload"
+            ),
+        )
+        self.assertNotIn(
+            "production-signed-${{ github.run_id }}-${{ github.run_attempt }}",
+            "\n".join(
+                str(step.get("with", {}))
+                for step in smoke["steps"] + attest["steps"]
+                if str(step.get("uses", "")).startswith("actions/download-artifact@")
+            ),
+        )
 
     def test_release_runbook_pins_attestation_to_the_release_workflow(self):
         root = Path(__file__).resolve().parents[1]

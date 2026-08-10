@@ -5,11 +5,15 @@ license, entitlement, activation, account, or telemetry requirement.
 
 ## Production trust boundary
 
-An unsigned tag may build a rehearsal without credentials. Production signing is
-different: dispatch it only from the protected `main` workflow ref. The separate
-signing job pauses at the `opai-production-signing` environment before it can
-read any certificate or notarisation value. It signs, verifies, finalizes, and
-archives the bundle, but never executes it.
+Pushing an annotated `v*` tag automatically runs an unsigned rehearsal without
+credentials. Before either platform build starts, same-run jobs qualify the
+exact tag's Python, hostile-environment, supply-chain, and web contracts. A
+production dispatch from `main` additionally proves the tag commit is reachable
+from that reviewed main revision and runs the protected provider canary. The
+signing job depends on all source, web, native-build, and provider jobs, then
+pauses at `opai-production-signing` before it can read any certificate or
+notarisation value. It signs, verifies, finalizes, and archives the bundle, but
+never executes it.
 
 Before production use, a repository owner must configure that environment with:
 
@@ -28,23 +32,71 @@ Before production use, a repository owner must configure that environment with:
 3. A required release reviewer, with self-review prevention enabled, and no
    administrator bypass for the signing environment.
 4. A deployment policy restricted to `main`. The reviewer must compare the
-   requested annotated tag and immutable commit with the recorded provenance
-   before approving the job.
+   requested annotated tag object, its peeled commit, and the recorded
+   provenance before approving the job.
+5. A repository tag ruleset matching `v*` that restricts tag creation to the
+   release role and prevents update or deletion. The workflow re-reads the
+   remote annotated-tag object immediately before attestation, but a protected
+   immutable tag is still the long-lived release-name boundary.
+
+Configure the separate `opai-provider-canary` environment with main-only
+deployment policy, a required reviewer, non-production provider credentials,
+`OPAI_PROVIDER_CANARY_PROVIDERS`, `OPAI_PROVIDER_CANARY_MODELS`, and
+`OPAI_PROVIDER_CANARY_MAX_USD` (greater than zero and no more than `1.00`). The
+runner accepts only one fixed remote call whose exact provider/model and
+provider-observed usage are bound to a known cost in the sandbox ledger; its
+cumulative observed cost must remain within that threshold. Missing,
+estimated, local, cached, or fallback evidence fails closed. Because this is a
+post-call qualification check, the non-production provider accounts must also
+enforce hard provider-side spend limits. These values are never exposed to tag
+builds or pull requests.
 
 The workflow never injects signing variables into the unsigned build or smoke
-job. It deletes the Windows PFX and the macOS temporary keychain/certificate
-before the signing step ends. A separate credential-free smoke job downloads a
-copy of the already archived signed output and runs the artifact with a strict
-runtime allowlist; that job has no environment secrets, no OIDC token, no
-attestation permission, and a non-persistent checkout credential. It verifies
-the exact publisher using the non-secret identity record written only after the
-protected signing step has validated it, rather than reading protected
-environment variables. A third job downloads the immutable signed archive only
-after smoke succeeds and creates the OIDC attestation without executing the
-artifact. Every third-party Action is pinned to a reviewed full commit SHA.
+job. The build-to-sign handoff is a tar transport rather than a raw Actions
+directory artifact, so POSIX execute modes and symlinks survive the handoff. It
+deletes the Windows PFX and the macOS temporary keychain/certificate before the
+signing step ends.
+
+The unsigned rehearsal likewise creates its platform ZIP before smoke, safely
+clean-extracts that exact ZIP into a new runner-temporary directory, rechecks
+its candidate/tag/platform provenance, and executes only the extracted copy.
+The uploaded rehearsal ZIP is therefore the same byte sequence whose contents
+were exercised.
+
+A separate credential-free smoke job downloads only the already archived signed
+ZIP, safely extracts that exact archive into an empty runner-temporary directory,
+and runs it with a strict runtime allowlist. On macOS the extraction uses
+`ditto` after archive-path validation so executable modes, symlinks, and stapled
+metadata survive. The job has no environment secrets, OIDC token, or attestation
+permission. It verifies the exact publisher using the non-secret identity record
+written after protected signing, rather than reading protected environment
+variables.
+
+The resulting smoke report binds the ZIP SHA-256, candidate commit, annotated-tag
+object SHA, platform, workflow run ID, signed-artifact ID/name/producer attempt,
+and smoke attempt. A third job downloads the signed ZIP and smoke report by their
+immutable artifact IDs, independently recalculates and validates that binding,
+revalidates the current remote tag object, stages uniquely named immutable
+evidence, revalidates the tag again immediately after staging, and only then
+creates the OIDC attestation. The staging artifact is
+explicitly non-publishable unless the entire attestation job is green.
+Stage-before-attest prevents a failed staging upload from causing a duplicate
+attestation on a later failed-only rerun without letting a moved tag create a
+final-looking artifact.
+
+Artifact names retain `run_attempt` to remain immutable. Consumers do not guess
+the current attempt's producer name: they query this workflow run, select the
+newest non-expired matching producer attempt no newer than the consumer, and
+download its exact artifact ID. Consequently, **Re-run failed jobs** can safely
+reuse a successful earlier build/sign/smoke output, while a full rerun consumes
+the newer producer. Every third-party Action is pinned to a reviewed full commit
+SHA.
+
 Before a protected signing step can read credentials, the workflow requires a
-safe semantic-version annotated tag whose commit is reachable from the
-protected `main` commit.
+safe annotated package-version tag whose canonical value is the package's PEP
+440 version with a `v` prefix (`0.2.1a1` maps to `v0.2.1a1`), whose tag object
+directly targets the recorded commit, and whose commit is reachable from
+protected `main`.
 
 ## Archive authenticity
 
@@ -116,8 +168,9 @@ internal/rehearsal testing only and must not be described as a public or
 production release.
 
 `production` is permitted only after the manual desktop-artifact workflow has
-checked out an exact annotated safe semantic-version tag (for example
-`v0.2.0-alpha.2`) reachable from protected `main`,
+checked out an exact annotated safe package-version tag matching the package
+version (for example `0.2.1a1` requires `v0.2.1a1`) and reachable from
+protected `main`,
 verified the expected Windows signer thumbprint or macOS Team ID, written
 post-signing checksums, completed the credential-free native artifact smoke,
 and attested the finished ZIP. A missing protected identity, certificate,
@@ -140,10 +193,14 @@ bundle and is the final public-release authenticity gate.
    bootstrap lock, that platform's full lock, and OPai with `--no-deps` and
    `--no-build-isolation`. Do not use an ambient `pyside6-deploy` or `nuitka`
    executable.
-3. Dispatch **OPai desktop artifact rehearsal** manually. Enter the exact
-   annotated semantic-version release tag, choose the release channel, and
-   explicitly acknowledge `allow_unsigned_prealpha` only for an unsigned alpha
-   rehearsal.
+3. Confirm `pyproject.toml`, `opai/__init__.py`, and `opaihub/__init__.py` declare
+   the same PEP 440 version, then push its canonical reviewed annotated
+   `v<package-version>` tag. The `v*` push automatically
+   runs the unsigned rehearsal and all credential-free source/web/native gates.
+   For production only, dispatch **OPai desktop artifact rehearsal** from
+   `main`, enter that same tag, and select `production`. Manual unsigned dispatch
+   remains available for diagnosis and requires the explicit
+   `allow_unsigned_prealpha` acknowledgement.
 4. Retain the uploaded archive, `SHA256SUMS.txt`, `provenance.json`,
    `signing-status.json`, smoke report, signing verification log, and archive
    attestation together.
@@ -206,9 +263,16 @@ The GUI smoke waits for the local page and QWebChannel boot, closes it, records
 the result outside the artifact, and checks for a new surviving
 `QtWebEngineProcess` helper.
 
-The following still require recorded human/platform evidence before a public
-alpha claim: controlled macOS lock generation and installation validation,
-clean Windows and macOS artifact launches, protected-environment configuration,
+As audited on 2026-08-09, this private repository has no protected environments
+or signing/provider values configured, the macOS build lock is absent, GitHub
+Actions jobs are blocked before startup by account billing/spend limits, and
+GitHub's artifact-attestation action requires GitHub Enterprise Cloud for
+private/internal repositories. Artifact attestation is therefore an external
+infrastructure blocker on the current plan, not repository-side success.
+The following therefore still require recorded human/platform evidence before a
+public alpha claim: restored Actions billing, protected-environment
+configuration, controlled macOS lock generation and installation validation,
+clean Windows and macOS artifact launches,
 provider setup and missing-provider recovery, upgrade/uninstall rehearsal,
 rollback rehearsal, accessibility keyboard journey, live signing/notarization
 verification, and public archive-attestation verification.

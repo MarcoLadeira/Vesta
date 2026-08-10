@@ -6,6 +6,7 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.venv/
 
 # JS front-end test tooling (Vitest + Playwright). package.json + lock are
 # committed for reproducible installs; artifacts/browsers are not.

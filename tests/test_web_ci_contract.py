@@ -2,6 +2,8 @@ import json
 import unittest
 from pathlib import Path
 
+from scripts.ci_local import WEB_STEPS
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
@@ -16,23 +18,37 @@ class WebCiContractTests(unittest.TestCase):
         self.assertIn("\n  web-test:\n", workflow)
         web_job = workflow.split("\n  web-test:\n", maxsplit=1)[1]
         self.assertIn("runs-on: windows-latest", web_job)
+        self.assertIn("timeout-minutes: 55", web_job)
+        self.assertIn("--component web", web_job)
 
-        required_contract = {
+        workflow_contract = {
             "supported Node runtime": 'node-version: "22"',
             "explicit Playwright server runtime": 'python-version: "3.13"',
-            "reproducible install": "npm ci",
-            "high-severity audit": "npm audit --audit-level=high",
-            "unit tests": "npm run test:unit",
-            "design token lint": "npm run test:tokens",
-            "Windows Chromium install": "playwright install chromium",
-            "browser E2E tests": "npm run test:e2e",
-            "bounded parallel browser workers": "--workers=2",
-            "bounded browser job runtime": "timeout-minutes: 45",
             "failure artifacts": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
         }
-        for behavior, marker in required_contract.items():
+        for behavior, marker in workflow_contract.items():
             with self.subTest(behavior=behavior):
                 self.assertIn(marker, web_job)
+
+        steps = {step.name: step for step in WEB_STEPS}
+        command_contract = {
+            "npm-ci": ["npm", "ci"],
+            "npm-audit": ["npm", "audit", "--audit-level=high"],
+            "web-unit": ["npm", "run", "test:unit"],
+            "web-design-tokens": ["npm", "run", "test:tokens"],
+            "playwright-browser-install": [
+                "npx",
+                "playwright",
+                "install",
+                "chromium",
+            ],
+            "web-e2e": ["npm", "run", "test:e2e", "--", "--workers=2"],
+        }
+        self.assertEqual(set(steps), set(command_contract))
+        for name, command in command_contract.items():
+            with self.subTest(step=name):
+                self.assertEqual(steps[name].argv, command)
+        self.assertEqual(steps["web-e2e"].timeout_seconds, 45 * 60)
 
     def test_javascript_tooling_remains_development_only(self):
         package = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
