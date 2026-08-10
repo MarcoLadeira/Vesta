@@ -1034,11 +1034,22 @@ def _hook_block_reason(command: str, detail: str) -> str:
     """
     text = str(command or "")
     if _PUSH_COMMAND.search(text):
+        from opaihub.command_consent import is_history_rewriting_push
+
+        # Judge the command, not the consent flag. This previously read
+        # "consent is on" as "therefore it must be a force push", so with
+        # pushing enabled an ordinary `git push origin my-branch` was told it
+        # "rewrites or removes remote history" and that no consent could ever
+        # unlock it -- false, and a dead end the user could not clear.
+        if is_history_rewriting_push(text):
+            return _HOOK_BLOCK_REASON_FORCE_PUSH.format(detail=detail)
         consented, _ = _push_consent_state()
-        template = (
-            _HOOK_BLOCK_REASON_FORCE_PUSH if consented else _HOOK_BLOCK_REASON_PUSH
-        )
-        return template.format(detail=detail)
+        if consented:
+            # Enabled, safe shape, but not approved yet: the one block with a
+            # way forward, so point at the approval card rather than at a
+            # toggle that is already on.
+            return _HOOK_BLOCK_REASON_PUSH_APPROVAL.format(detail=detail)
+        return _HOOK_BLOCK_REASON_PUSH.format(detail=detail)
     return _HOOK_BLOCK_REASON.format(detail=detail)
 
 

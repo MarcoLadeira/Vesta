@@ -76,14 +76,76 @@ _PUSH_REMOTE_URL = re.compile(
 )
 
 
-def is_plain_push(command: str) -> bool:
-    """True for a lone, non-force ``git push`` to a named remote, nothing else."""
+# An agent never sends a bare `git push`: it needs a working directory, so the
+# real command is `cd "<repo>" && git push ...`, often with a trailing `2>&1`.
+# Requiring the whole string to be a lone push therefore matched nothing that is
+# actually issued, which made the push-approval card unreachable in practice and
+# sent every safe push down the force/delete/mirror branch instead -- telling the
+# user their ordinary branch push "rewrites or removes remote history", and that
+# no consent could ever unlock it.
+#
+# Deliberately narrow rather than a general shell parser: exactly one leading
+# `cd <single-path> &&`, and at most the exact `2>&1` redirect. Anything else --
+# a pipe, a second command, a substitution, a chained `&&` -- still fails, so an
+# approval can never smuggle `git push && rm -rf .` past the gate.
+_CD_PREFIX = re.compile(
+    r"""^\s*cd\s+(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s;&|<>`$()]+)\s*&&\s*""",
+    re.IGNORECASE,
+)
+_TRAILING_REDIRECT = re.compile(r"\s*2>&1\s*$")
 
-    match = _PLAIN_PUSH_COMMAND.match(str(command or ""))
-    if match is None:
+
+def operative_push_command(command: str) -> str | None:
+    """The `git push ...` a caller actually runs, or ``None`` if it is not one.
+
+    Strips the one shell wrapper OPai's own tooling adds. Returns the bare push
+    so callers judge the push itself rather than the wrapper around it.
+    """
+
+    text = str(command or "")
+    stripped = _TRAILING_REDIRECT.sub("", text)
+    stripped = _CD_PREFIX.sub("", stripped, count=1)
+    return stripped if _PLAIN_PUSH_COMMAND.match(stripped) else None
+
+
+def is_plain_push(command: str) -> bool:
+    """True for a non-force ``git push`` to a named remote, nothing else."""
+
+    operative = operative_push_command(command)
+    if operative is None:
+        return False
+    match = _PLAIN_PUSH_COMMAND.match(operative)
+    if match is None:  # pragma: no cover - operative_push_command already matched
         return False
     rest = match.group("rest") or ""
     return not _FORCE_PUSH_FLAG.search(rest) and not _PUSH_REMOTE_URL.search(rest)
+
+
+def is_history_rewriting_push(command: str) -> bool:
+    """True only when a push genuinely rewrites or removes remote history.
+
+    The gate previously inferred this from *consent being on* rather than from
+    the command, so with pushing enabled every blocked push was reported as a
+    force/delete/mirror. Saying that about `git push origin my-branch` is simply
+    false, and it is the difference between "approve this once" and "OPai will
+    never do this" -- a dead end the user cannot clear.
+    """
+
+    text = str(command or "")
+    if not _PUSH_COMMAND_ANYWHERE.search(text):
+        return False
+    stripped = _TRAILING_REDIRECT.sub("", text)
+    stripped = _CD_PREFIX.sub("", stripped, count=1)
+    match = _PLAIN_PUSH_COMMAND.match(stripped)
+    # Not a shape we can parse: do not claim it rewrites history, and do not
+    # claim it is safe either. The caller falls back to the generic refusal.
+    if match is None:
+        return False
+    rest = match.group("rest") or ""
+    return bool(_FORCE_PUSH_FLAG.search(rest))
+
+
+_PUSH_COMMAND_ANYWHERE = re.compile(r"\bgit\s+push\b", re.IGNORECASE)
 
 
 def consent_dir() -> Path:
