@@ -1,69 +1,39 @@
 {
-  "schema_version": 2,
-  "protected_branch": "main",
-  "protected_branches": ["main", "release/**", "rc/**"],
-  "workflow": ".github/workflows/ci.yml",
-  "required_checks": [
-    {
-      "name": "Required - Python quality (3.13)",
-      "job_name_template": "Required - Python quality (${{ matrix.python-version }})",
-      "workflow": "OPai CI (hosted)",
-      "job": "mandatory-python",
-      "component": "python",
-      "trusted_app": "github-actions",
-      "required_check_ids": [
-        "candidate-sha",
-        "ruff-format",
-        "ruff-lint",
-        "lifecycle-projection-drift",
-        "python-unittest",
-        "registry-validation",
-        "bandit",
-        "detect-secrets"
-      ]
-    },
-    {
-      "name": "Required - hostile-environment Python suites",
-      "job_name_template": "Required - hostile-environment Python suites",
-      "workflow": "OPai CI (hosted)",
-      "job": "mandatory-hostile-environment",
-      "component": "hostile",
-      "trusted_app": "github-actions",
-      "required_check_ids": [
-        "candidate-sha",
-        "hostile-unittest",
-        "hostile-pytest"
-      ]
-    },
-    {
-      "name": "Required - web UI security and E2E",
-      "job_name_template": "Required - web UI security and E2E",
-      "workflow": "OPai CI (hosted)",
-      "job": "web-test",
-      "component": "web",
-      "trusted_app": "github-actions",
-      "required_check_ids": [
-        "candidate-sha",
-        "npm-ci",
-        "npm-audit",
-        "web-design-tokens",
-        "web-unit",
-        "playwright-browser-install",
-        "web-e2e"
-      ]
-    }
-  ],
+  "branch_rule": {
+    "allow_bypass": false,
+    "allow_deletion": false,
+    "allow_force_push": false,
+    "dismiss_stale_approvals": true,
+    "require_all_checks": true,
+    "require_conversation_resolution": true,
+    "require_up_to_date": true
+  },
   "component_contracts": {
+    "hostile": [
+      "hostile-unittest",
+      "hostile-pytest"
+    ],
+    "native": [
+      "isolated-wheel-smoke"
+    ],
+    "provider": [
+      "provider-canary"
+    ],
     "python": [
       "ruff-format",
       "ruff-lint",
       "lifecycle-projection-drift",
+      "lifecycle-test-collection",
       "python-unittest",
+      "python-pytest",
       "registry-validation",
       "bandit",
       "detect-secrets"
     ],
-    "hostile": ["hostile-unittest", "hostile-pytest"],
+    "supply-chain": [
+      "python-pytest",
+      "pip-audit"
+    ],
     "web": [
       "npm-ci",
       "npm-audit",
@@ -71,14 +41,10 @@
       "web-unit",
       "playwright-browser-install",
       "web-e2e"
-    ],
-    "supply-chain": ["python-pytest", "pip-audit"],
-    "native": ["isolated-wheel-smoke"],
-    "provider": ["provider-canary"]
+    ]
   },
   "profiles": {
     "fast": {
-      "components": ["python", "hostile", "web"],
       "automatic": [
         "pull_request:main",
         "pull_request:release/**",
@@ -89,21 +55,48 @@
         "push:rc/**",
         "schedule:17 3 * * 1"
       ],
-      "manual": ["workflow_dispatch:fast", "workflow_dispatch:full"]
+      "components": [
+        "python",
+        "hostile",
+        "web"
+      ],
+      "manual": [
+        "workflow_dispatch:fast",
+        "workflow_dispatch:full"
+      ]
     },
     "full": {
-      "components": ["python", "hostile", "web", "supply-chain"],
-      "automatic": ["schedule:17 3 * * 1"],
-      "manual": ["workflow_dispatch:full"]
+      "automatic": [
+        "schedule:17 3 * * 1"
+      ],
+      "components": [
+        "python",
+        "hostile",
+        "web",
+        "supply-chain"
+      ],
+      "manual": [
+        "workflow_dispatch:full"
+      ]
     },
     "native": {
-      "components": ["native"],
-      "automatic": ["schedule:17 3 * * 1"],
-      "manual": ["workflow_dispatch:full"]
+      "automatic": [
+        "schedule:17 3 * * 1"
+      ],
+      "components": [
+        "native"
+      ],
+      "manual": [
+        "workflow_dispatch:full"
+      ]
     },
     "provider-canary": {
-      "components": ["provider"],
-      "automatic": ["schedule:43 4 * * 2"],
+      "automatic": [
+        "schedule:43 4 * * 2"
+      ],
+      "components": [
+        "provider"
+      ],
       "manual": [
         "workflow_dispatch:main",
         "desktop-artifacts:workflow_dispatch:main:production"
@@ -111,30 +104,99 @@
       "protected_environment": "opai-provider-canary"
     },
     "release": {
-      "components": ["python", "hostile", "web", "supply-chain", "native", "provider"],
       "automatic": [],
-      "manual": ["local:scripts/ci_local.py:release"],
-      "source_preflight": {
-        "automatic": ["push:release/**", "push:rc/**"],
-        "manual": ["workflow_dispatch"]
-      },
-      "unsigned_artifact_rehearsal": {
-        "automatic": ["push:tag:v*"]
-      },
+      "components": [
+        "python",
+        "hostile",
+        "web",
+        "supply-chain",
+        "native",
+        "provider"
+      ],
       "final_artifact_qualification": {
         "automatic": [],
-        "manual": ["workflow_dispatch:main:production"],
+        "manual": [
+          "workflow_dispatch:main:production"
+        ],
         "protected_environment": "opai-production-signing"
+      },
+      "manual": [
+        "local:scripts/ci_local.py:release"
+      ],
+      "source_preflight": {
+        "automatic": [
+          "push:release/**",
+          "push:rc/**"
+        ],
+        "manual": [
+          "workflow_dispatch"
+        ]
+      },
+      "unsigned_artifact_rehearsal": {
+        "automatic": [
+          "push:tag:v*"
+        ]
       }
     }
   },
-  "branch_rule": {
-    "require_all_checks": true,
-    "require_up_to_date": true,
-    "dismiss_stale_approvals": true,
-    "require_conversation_resolution": true,
-    "allow_bypass": false,
-    "allow_force_push": false,
-    "allow_deletion": false
-  }
+  "protected_branch": "main",
+  "protected_branches": [
+    "main",
+    "release/**",
+    "rc/**"
+  ],
+  "required_checks": [
+    {
+      "component": "python",
+      "job": "mandatory-python",
+      "job_name_template": "Required - Python quality (${{ matrix.python-version }})",
+      "name": "Required - Python quality (3.13)",
+      "required_check_ids": [
+        "candidate-sha",
+        "ruff-format",
+        "ruff-lint",
+        "lifecycle-projection-drift",
+        "lifecycle-test-collection",
+        "python-unittest",
+        "python-pytest",
+        "registry-validation",
+        "bandit",
+        "detect-secrets"
+      ],
+      "trusted_app": "github-actions",
+      "workflow": "OPai CI (hosted)"
+    },
+    {
+      "component": "hostile",
+      "job": "mandatory-hostile-environment",
+      "job_name_template": "Required - hostile-environment Python suites",
+      "name": "Required - hostile-environment Python suites",
+      "required_check_ids": [
+        "candidate-sha",
+        "hostile-unittest",
+        "hostile-pytest"
+      ],
+      "trusted_app": "github-actions",
+      "workflow": "OPai CI (hosted)"
+    },
+    {
+      "component": "web",
+      "job": "web-test",
+      "job_name_template": "Required - web UI security and E2E",
+      "name": "Required - web UI security and E2E",
+      "required_check_ids": [
+        "candidate-sha",
+        "npm-ci",
+        "npm-audit",
+        "web-design-tokens",
+        "web-unit",
+        "playwright-browser-install",
+        "web-e2e"
+      ],
+      "trusted_app": "github-actions",
+      "workflow": "OPai CI (hosted)"
+    }
+  ],
+  "schema_version": 2,
+  "workflow": ".github/workflows/ci.yml"
 }
