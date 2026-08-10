@@ -97,6 +97,8 @@
       "blocked_panic": "blocked",
       "capability_mismatch": "blocked",
       "account_not_connected": "blocked",
+      "operation_unrecorded": "blocked",
+      "cost_unreconciled": "blocked",
       "retryable_provider_error": "failed",
       "provider_unavailable": "failed",
       "temporarily_unavailable": "failed",

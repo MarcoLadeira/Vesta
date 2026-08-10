@@ -130,6 +130,7 @@ Legacy strings are input/output compatibility only. They never decide transition
 | statuse | capability_mismatch | blocked |
 | statuse | completed | completed |
 | statuse | confirmation_required | awaiting_input |
+| statuse | cost_unreconciled | blocked |
 | statuse | done | completed |
 | statuse | error | failed |
 | statuse | failed | failed |
@@ -146,6 +147,7 @@ Legacy strings are input/output compatibility only. They never decide transition
 | statuse | needs_paid_confirmation | awaiting_input |
 | statuse | needs_user_input | awaiting_input |
 | statuse | no_local_model | failed |
+| statuse | operation_unrecorded | blocked |
 | statuse | provider_blocked | blocked |
 | statuse | provider_unavailable | failed |
 | statuse | question | awaiting_input |
