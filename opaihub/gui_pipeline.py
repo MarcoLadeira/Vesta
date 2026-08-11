@@ -6,6 +6,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,10 +29,12 @@ from .completion import (
     evaluate_completion,
     evidence_payload as build_evidence_payload,
     objective_from_request,
+    objective_is_mutating,
     result_is_completed,
     result_meets_objective,
 )
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
+from .run_result_projection import project_run_result
 from .cost_telemetry import (
     estimated_telemetry,
     normalize_account_result,
@@ -688,6 +691,12 @@ def build_task_outcome_fields(
     return fields
 
 
+def _iso_now() -> str:
+    """UTC timestamp for the canonical RunResult's terminal transition."""
+
+    return datetime.now(timezone.utc).isoformat()
+
+
 def handle_gui_message(
     project_root: Path,
     message: str,
@@ -1270,6 +1279,25 @@ def handle_gui_message(
         verdict_payload["answer_conflicts"] = answer_contradicts_verdict(
             str(payload.get("answer") or ""), verdict.verdict
         )
+        # #618: project the canonical RunResult here, at the one place in
+        # production that holds a CompletionVerdictResult. Until now
+        # project_run_result had zero production callers, so every surface --
+        # GUI, CLI, background runs, history, receipts -- re-derived its own
+        # terminal meaning from the verdict dict and the legacy status string.
+        # That is how one turn's evidence could read "completed" on one surface
+        # and "answered_by_account" on another: they were separate authorities
+        # reaching separate conclusions, not one result rendered differently.
+        #
+        # No identity or delivery/economics reference is passed: this call site
+        # holds no durable evidence for them, and the projection is explicit
+        # that a caller without such evidence must accept the degradation
+        # rather than fabricate a reference.
+        run_result = project_run_result(
+            verdict=verdict,
+            final_transition_at=_iso_now(),
+            mutating=objective_is_mutating(objective.mode),
+        )
+        payload["run_result"] = run_result.to_dict()
         verdict_event_status = (
             "success"
             if verdict.verdict is CompletionVerdict.COMPLETED
