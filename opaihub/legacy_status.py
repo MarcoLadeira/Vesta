@@ -154,13 +154,32 @@ def _normalized(value: Any) -> str:
     )
 
 
-def _count(kind: str) -> None:
+def _count(kind: str, *, authoritative: bool = False) -> None:
+    """Record one legacy-status crossing.
+
+    #618: the two axes are independent and were previously fused. Every import
+    also incremented ``authoritative_reads`` and every export incremented
+    ``authoritative_writes``, so the removal gate -- "zero authoritative legacy
+    reads and writes" -- could not be satisfied while any compatibility traffic
+    existed, and it reported authority in places that had none. An instrument
+    that cannot distinguish the thing it measures from the thing it permits
+    cannot answer the question it exists for.
+
+    A *compatibility* crossing converts a legacy value at a boundary and hands
+    the result to the canonical contract. An *authoritative* crossing is a
+    legacy value deciding a runtime outcome -- lifecycle, retry, verification,
+    policy, delivery. Callers state which; after the #618 migration no
+    production path passes ``authoritative=True``, which is what makes the gate
+    meaningful rather than merely satisfied.
+    """
+
     with _COUNTER_LOCK:
         _COUNTERS[kind] += 1
-        authority = (
-            "authoritative_reads" if kind == "imports" else "authoritative_writes"
-        )
-        _COUNTERS[authority] += 1
+        if authoritative:
+            authority = (
+                "authoritative_reads" if kind == "imports" else "authoritative_writes"
+            )
+            _COUNTERS[authority] += 1
 
 
 def legacy_status_usage() -> dict[str, Any]:
