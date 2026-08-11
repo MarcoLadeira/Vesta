@@ -54,11 +54,36 @@ class ThreadStatusHonestyTests(unittest.TestCase):
             thread_status_for_result("answered", {"verdict": "completed"}), "complete"
         )
 
-    def test_falls_back_to_legacy_buckets_without_a_verdict(self):
-        self.assertEqual(thread_status_for_result("answered", None), "complete")
-        self.assertEqual(thread_status_for_result("no_edits", None), "complete")
+    def test_a_legacy_status_alone_can_no_longer_claim_completion(self):
+        """#618 narrowed this deliberately; it previously asserted "complete".
+
+        The old contract let a legacy status stand in for a verdict, so
+        "answered" alone meant the objective was met. It does not: "answered"
+        records that the provider replied, which is transport, and says nothing
+        about whether the work was verified. #618 makes legacy strings
+        compatibility inputs that may narrow an unknown result but may never
+        report success.
+
+        The failure-shaped imports below are unchanged, because claiming *less*
+        than the evidence supports was never the risk.
+        """
+
+        self.assertEqual(thread_status_for_result("answered", None), "needs_attention")
+        self.assertEqual(thread_status_for_result("no_edits", None), "needs_attention")
         self.assertEqual(thread_status_for_result("cancelled", None), "cancelled")
         self.assertEqual(thread_status_for_result("failed", None), "failed")
+
+    def test_the_canonical_result_outranks_both_verdict_and_legacy_status(self):
+        """The authority order #618 establishes, asserted at the GUI surface."""
+
+        self.assertEqual(
+            thread_status_for_result(
+                "answered",
+                {"verdict": "completed"},
+                {"lifecycle": {"state": "partial"}},
+            ),
+            "partial",
+        )
 
     def test_partial_verdict_persists_as_partial_not_complete(self):
         from opai.gui_recents import begin_thread_turn, load_thread
