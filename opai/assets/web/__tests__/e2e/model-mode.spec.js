@@ -6,6 +6,13 @@ import { openApp, sendPrompt } from "./helpers/app.js";
 
 test("model selector exposes Auto, Claude, Codex, Copilot, free, and local choices in optgroups", async ({ page }) => {
   await openApp(page);
+  // `allTextContents()` and `allInnerTexts()` below do not retry: they read
+  // whatever exists at that instant. Without a retrying guard first, a slow
+  // hosted paint yields an empty list and the assertion fails immediately --
+  // the same race that made settings-pages.spec.js an intermittent required
+  // failure. Wait for the select to populate, then the plain reads are safe.
+  await expect(page.locator("#modelSel option").first()).toBeAttached();
+  await expect(page.locator("#modelSel optgroup").first()).toBeAttached();
   const labels = await page.locator("#modelSel option").allTextContents();
   expect(labels).toEqual(expect.arrayContaining([
     expect.stringContaining("Auto"),
