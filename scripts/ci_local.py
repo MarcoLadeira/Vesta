@@ -497,7 +497,13 @@ def _missing_environment(step: Step) -> list[str]:
 #: a wall of "GET /opai/assets/... 200" while the actual failing spec, which
 #: sits between them, was the part discarded. Three runs in a row reported a
 #: web failure whose cause could not be read from CI at all.
-_DIAGNOSTIC_NOISE = re.compile(r"^\s*\[WebServer\]\s", re.MULTILINE)
+#: Playwright's list reporter also prints one "[N/M] spec › title" line per
+#: test. At 457 tests those alone exceed the bound, so filtering the webserver
+#: logs was not enough on its own: the diagnostic then ran to "[456/457]" and
+#: stopped, still with no summary. A per-test progress line says only that a
+#: test started; the failure detail and the final tally are what a reader
+#: needs, and they come after.
+_DIAGNOSTIC_NOISE = re.compile(r"^\s*(?:\[WebServer\]\s|\[\d+/\d+\]\s)", re.MULTILINE)
 
 
 def _redact_and_bound(value: str) -> str:
