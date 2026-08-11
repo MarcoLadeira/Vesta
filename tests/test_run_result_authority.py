@@ -235,3 +235,45 @@ class BackgroundRunAuthorityTests(unittest.TestCase):
                 expected_history = "complete" if state == "completed" else state
                 self.assertEqual(background.value, state)
                 self.assertEqual(history, expected_history)
+
+
+class NotificationAuthorityTests(unittest.TestCase):
+    """A notification may be terse. It may not disagree.
+
+    #618 lists notifications among the surfaces that must consume the same
+    result, and they are the easiest place for a divergence to hide: nobody is
+    watching when a background run posts one, and "Completed" is a comfortable
+    default. The notification carries run_state verbatim from the classifier,
+    so it cannot say more than the canonical result does.
+    """
+
+    def test_a_notification_reports_the_canonical_state_verbatim(self) -> None:
+        import inspect
+
+        from opaihub import background_runs
+
+        source = inspect.getsource(background_runs._notify)
+        self.assertIn(
+            '"run_state": run.run_state',
+            source,
+            "the notification stopped copying the canonical state and now "
+            "derives its own -- that is a second result authority",
+        )
+        self.assertNotIn(
+            '"Completed"',
+            source,
+            "the notification hard-codes a success word instead of reporting "
+            "the canonical state",
+        )
+
+    def test_a_partial_run_never_notifies_as_completed(self) -> None:
+        """The concrete divergence this prevents, stated as behaviour."""
+
+        from opaihub.background_runs import _terminal_from_payload
+
+        state, _, summary = _terminal_from_payload(
+            {"status": "answered_by_account", "run_result": _result("partial")},
+            cancelled=False,
+        )
+        self.assertEqual(state.value, "partial")
+        self.assertNotIn("completed", summary.lower())
