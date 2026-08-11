@@ -28,7 +28,20 @@ from opaihub.run_state import RunState
 
 
 def _completed_executor(project_root, run, cancel_event):
-    return {"status": "answered", "changed_files": ["app.py"]}
+    # Mirrors what the real executor returns. Background runs execute through
+    # handle_gui_message, which since #618 always projects a canonical
+    # RunResult and emits run_state alongside it. A bare {"status": "answered"}
+    # modelled a shape production no longer produces, and the difference is not
+    # cosmetic: that payload now imports as needs_attention, because a legacy
+    # status alone records that the provider replied and says nothing about
+    # whether the work was verified. See
+    # test_a_legacy_only_payload_cannot_complete_a_background_run.
+    return {
+        "status": "answered",
+        "run_state": "completed",
+        "run_result": {"lifecycle": {"state": "completed"}},
+        "changed_files": ["app.py"],
+    }
 
 
 class EnqueueTests(unittest.TestCase):

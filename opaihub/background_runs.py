@@ -34,6 +34,7 @@ from .generated_lifecycle import (
     BACKGROUND_STATUSES,
     BACKGROUND_TERMINAL_STATUSES,
 )
+from .run_result_projection import canonical_run_state
 from .run_state import TERMINAL_STATES, RunState, can_transition, transition
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger, redact_structure
@@ -495,7 +496,13 @@ def _terminal_from_payload(
     if cancelled:
         return RunState.CANCELLED, "cancelled_by_user", "Stopped by you"
 
-    raw_state = payload.get("run_state")
+    # #618: the canonical result first. A background run and a foreground turn
+    # observing the same evidence must resolve to the same state, and that only
+    # holds if both read the same authority rather than each ranking its own
+    # local signals.
+    raw_state = canonical_run_state(payload.get("run_result")) or payload.get(
+        "run_state"
+    )
     if not raw_state and isinstance(payload.get("completion_verdict"), dict):
         raw_state = payload["completion_verdict"].get("verdict")
     try:
@@ -522,7 +529,19 @@ def _terminal_from_payload(
             "paid, cloud, or gated action. Nothing was approved for you.",
         )
     if status in _SUCCESS_STATUSES:
-        return RunState.COMPLETED, "background_completed", "Background run completed"
+        # #618: reached only when no canonical result, no run_state and no
+        # verdict survived -- an old record whose sole remaining signal is a
+        # legacy status string. "answered" records that the provider replied,
+        # which is transport, not engineering completion, and nothing here can
+        # tell whether the work was verified. Claiming COMPLETED from it is the
+        # background twin of the gui_recents defect this issue removes, so the
+        # honest import is that the run needs a human to look.
+        return (
+            RunState.NEEDS_ATTENTION,
+            "background_legacy_status_unverifiable",
+            "Background run finished before OPai recorded a canonical result, "
+            "so its outcome could not be verified.",
+        )
     if status == "partial":
         return RunState.PARTIAL, "background_partial", "Background run partial"
     if status == "timeout":

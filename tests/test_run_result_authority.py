@@ -174,3 +174,64 @@ class ThreadStatusAuthorityTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class BackgroundRunAuthorityTests(unittest.TestCase):
+    """A background run must reach the same verdict a foreground turn would.
+
+    Background execution was the surface most able to drift: it runs without a
+    watching user, persists its own record, and drives notifications. If it
+    ranked its local signals differently from the GUI, the same evidence would
+    be reported two ways and only one of them could be right.
+    """
+
+    def _classify(self, payload: dict, *, cancelled: bool = False):
+        from opaihub.background_runs import _terminal_from_payload
+
+        return _terminal_from_payload(payload, cancelled=cancelled)
+
+    def test_a_legacy_only_payload_cannot_complete_a_background_run(self) -> None:
+        """`{"status": "answered"}` is transport, not engineering completion.
+
+        This branch is reached only by a record with no canonical result, no
+        run_state and no verdict -- something production stopped producing when
+        background runs began projecting a RunResult. Importing it as COMPLETED
+        would claim verification that never happened.
+        """
+
+        from opaihub.run_state import RunState
+
+        for legacy in ("answered", "completed", "ok", "success"):
+            with self.subTest(legacy=legacy):
+                state, reason, _ = self._classify({"status": legacy})
+                self.assertEqual(state, RunState.NEEDS_ATTENTION)
+                self.assertEqual(reason, "background_legacy_status_unverifiable")
+
+    def test_the_canonical_result_decides_over_a_legacy_status(self) -> None:
+        from opaihub.run_state import RunState
+
+        state, _, _ = self._classify(
+            {"status": "answered", "run_result": {"lifecycle": {"state": "partial"}}}
+        )
+        self.assertEqual(state, RunState.PARTIAL)
+
+    def test_background_and_history_agree_on_the_same_evidence(self) -> None:
+        """The cross-surface invariant, on the two surfaces migrated so far.
+
+        Same canonical result in, same canonical meaning out -- regardless of
+        which surface observed it or what legacy status rode alongside.
+        """
+
+        for state in ("completed", "partial", "failed", "cancelled", "needs_attention"):
+            with self.subTest(state=state):
+                payload = {
+                    "status": "answered_by_account",
+                    "run_result": _result(state),
+                }
+                background, _, _ = self._classify(payload)
+                history = thread_status_for_result(
+                    payload["status"], None, payload["run_result"]
+                )
+                expected_history = "complete" if state == "completed" else state
+                self.assertEqual(background.value, state)
+                self.assertEqual(history, expected_history)
