@@ -294,6 +294,20 @@ _EDIT_MODES = frozenset({"implement", "ship", "build", "edit", "fix"})
 _TEST_REQUEST = re.compile(r"\b(?:test|tests|testing|verify|verification|ci)\b", re.I)
 
 
+def objective_is_mutating(mode: str | None) -> bool:
+    """Whether a turn in ``mode`` is allowed to change the repository.
+
+    #618 needs this outside this module: the canonical RunResult decides whether
+    verification is *applicable* from it, and an answer-only turn legitimately
+    projects ``not_applicable`` rather than an unmet verification requirement.
+    Exposed as a function so callers read the one mode set rather than restating
+    it -- a second copy that drifted would let a mutating turn claim completion
+    with no verification, which is exactly the authority split #618 removes.
+    """
+
+    return _normalized(mode) in _EDIT_MODES
+
+
 def classify_failure_reason(result: Mapping[str, Any] | None) -> FailureReason:
     """Map a failed run to its typed cause (#380).
 

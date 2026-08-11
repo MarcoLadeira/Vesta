@@ -490,10 +490,37 @@ def _missing_environment(step: Step) -> list[str]:
     return missing
 
 
+#: Lines that carry no diagnostic signal and crowd out the lines that do.
+#: Playwright's webserver prints one HTTP access line per asset request --
+#: thousands of them, continuing past the test summary to the end of the run.
+#: With a head+tail bound that meant a failed web-e2e kept the suite banner and
+#: a wall of "GET /opai/assets/... 200" while the actual failing spec, which
+#: sits between them, was the part discarded. Three runs in a row reported a
+#: web failure whose cause could not be read from CI at all.
+#: Playwright's list reporter also prints one "[N/M] spec › title" line per
+#: test. At 457 tests those alone exceed the bound, so filtering the webserver
+#: logs was not enough on its own: the diagnostic then ran to "[456/457]" and
+#: stopped, still with no summary. A per-test progress line says only that a
+#: test started; the failure detail and the final tally are what a reader
+#: needs, and they come after.
+_DIAGNOSTIC_NOISE = re.compile(r"^\s*(?:\[WebServer\]\s|\[\d+/\d+\]\s)", re.MULTILINE)
+
+
 def _redact_and_bound(value: str) -> str:
     from opai.provider_contract import redact_secrets
 
     safe = redact_secrets(value).strip()
+    if len(safe) > MAX_DIAGNOSTIC_CHARS:
+        # Drop pure noise before bounding, never after: bounding first would
+        # already have thrown away the signal this is trying to preserve.
+        kept = [
+            line
+            for line in safe.splitlines()
+            if not _DIAGNOSTIC_NOISE.match(line) and line.strip()
+        ]
+        candidate = "\n".join(kept).strip()
+        if candidate:
+            safe = candidate
     if len(safe) <= MAX_DIAGNOSTIC_CHARS:
         return safe
     marker = "\n...[diagnostic truncated]...\n"
