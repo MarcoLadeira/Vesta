@@ -81,9 +81,12 @@ class AccountStatusContractTests(_Base):
         class TaskDeadlineRunner(FakeAccountRunner):
             def complete(self, prompt, **kwargs):
                 self.calls.append({"prompt": prompt, **kwargs})
+                (kwargs["project_root"] / "retained.txt").write_text(
+                    "partial change\n", encoding="utf-8"
+                )
                 return {
                     "text": "partial work",
-                    "cost": None,
+                    "cost": 0.04,
                     "timed_out": True,
                     "timeout_event": timeout_event(
                         origin=TASK_DEADLINE,
@@ -93,21 +96,57 @@ class AccountStatusContractTests(_Base):
                         provider_responsive=True,
                         last_activity_seconds_ago=4.0,
                         phase="stream",
+                        budget=kwargs.get("deadline_budget"),
+                        operation_id=kwargs.get("operation_id"),
+                        progress_observed=True,
+                        external_effect_possible=True,
+                        teardown_state="terminated",
+                        cost_state="observed",
+                        verification_state="incomplete",
                     ),
                 }
 
-        res = handle_gui_message(
-            self.root,
-            "implement a multi-file feature and run tests",
-            model_id="account:claude:opus",
-            mode="full-auto",
-            account_runner=TaskDeadlineRunner(),
-        )
+        events = []
+        with mock.patch(
+            "opaihub.provider_reliability.record_provider_outcome"
+        ) as record_provider_outcome:
+            res = handle_gui_message(
+                self.root,
+                "implement a multi-file feature and run tests",
+                model_id="account:claude:opus",
+                mode="full-auto",
+                account_runner=TaskDeadlineRunner(),
+                on_event=events.append,
+            )
 
         self.assertEqual(res["status"], "failed")
         self.assertEqual(res["error"]["code"], "TASK_DEADLINE")
         self.assertEqual(res["raw_result"]["timeout_origin"], TASK_DEADLINE)
         self.assertEqual(res["raw_result"]["provider_condition"], "responsive")
+        self.assertEqual(res["raw_result"]["partial_answer"], "partial work")
+        self.assertEqual(res["raw_result"]["cost_usd"], 0.04)
+        self.assertEqual(res["raw_result"]["cost_integrity"], "complete")
+        self.assertTrue(
+            any(path.endswith("retained.txt") for path in res["changed_files"])
+        )
+        self.assertEqual(res["partial_answer"], "partial work")
+        self.assertEqual(res["completion_verdict"]["reason_code"], TASK_DEADLINE)
+        self.assertEqual(res["run_result"]["lifecycle"]["state"], "timeout")
+        self.assertFalse(res["run_result"]["recovery"]["automatic_retry"])
+        self.assertEqual(res["run_result"]["recovery"]["reason"], "manual_review")
+        timeout_authority = res["run_result"]["authority"]["timeout"]
+        self.assertEqual(timeout_authority["origin"], TASK_DEADLINE)
+        self.assertEqual(timeout_authority["provider_condition"], "responsive")
+        self.assertEqual(timeout_authority["record_ref"]["kind"], "usage_ledger")
+        self.assertEqual(res["timeout_event"]["checkpoint_id"], res["checkpoint_id"])
+        record_provider_outcome.assert_not_called()
+        retry_events = [
+            event
+            for event in events
+            if (event.get("metadata") or {}).get("reason") == TASK_DEADLINE
+        ]
+        self.assertEqual(len(retry_events), 1)
+        self.assertFalse(retry_events[0]["metadata"]["automaticRetry"])
         self.assertNotIn("did not receive a response", res["answer"].lower())
         self.assertNotIn("smaller", res["answer"].lower())
 
@@ -144,6 +183,10 @@ class AccountStatusContractTests(_Base):
 
         self.assertEqual(res["status"], "answered")
         self.assertEqual(fake.calls[0]["timeout"], 42.0)
+        deadline_budget = fake.calls[0]["deadline_budget"]
+        self.assertEqual(deadline_budget.task_deadline_seconds, 42.0)
+        self.assertEqual(deadline_budget.provider_idle_timeout_seconds, 300.0)
+        self.assertEqual(deadline_budget.lane, "long_horizon")
         self.assertTrue(fake.calls[0]["operation_id"])
         intent_events = [
             event

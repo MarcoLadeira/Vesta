@@ -84,8 +84,25 @@ def _footer_bits(result: dict[str, Any], elapsed_s: float) -> list[str]:
     return bits
 
 
-def _terminal_verdict(result: dict[str, Any]) -> tuple[str, str, str] | None:
-    """Read the pipeline-owned #378 verdict without inventing terminal truth."""
+def _terminal_verdict(result: dict[str, Any]) -> tuple[str, str, str, str] | None:
+    """Read canonical terminal presentation, with legacy import fallback."""
+
+    if "run_result" in result:
+        from opaihub.run_result import terminal_presentation
+
+        canonical = terminal_presentation(result.get("run_result"))
+        supplement = result.get("completion_verdict")
+        next_action = (
+            str(supplement.get("next_action") or "").strip()
+            if isinstance(supplement, dict)
+            else ""
+        )
+        return (
+            canonical.state,
+            canonical.reason,
+            next_action,
+            canonical.label,
+        )
 
     raw = result.get("completion_verdict")
     if not isinstance(raw, dict):
@@ -93,7 +110,7 @@ def _terminal_verdict(result: dict[str, Any]) -> tuple[str, str, str] | None:
     verdict = str(raw.get("verdict") or "").strip().lower()
     reason = str(raw.get("reason") or "").strip()
     next_action = str(raw.get("next_action") or "").strip()
-    return (verdict, reason, next_action) if verdict else None
+    return (verdict, reason, next_action, verdict_label(verdict)) if verdict else None
 
 
 def _answer_conflicts(result: dict[str, Any]) -> bool:
@@ -298,6 +315,7 @@ def stream_ask(
             status=thread_status_for_result(
                 str(result.get("status") or "failed"),
                 result.get("completion_verdict"),
+                result.get("run_result"),
             ),
             task_id=str((result.get("workflow") or {}).get("task_id") or request_id),
             mode=str((result.get("workflow") or {}).get("mode") or mode),
@@ -331,7 +349,7 @@ def stream_ask(
                 _line(f"  {reason}")
             _line("  Approve it in the app, or re-run with the command allowed.")
         if (terminal := _terminal_verdict(result)) is not None:
-            verdict, reason, next_action = terminal
+            verdict, reason, next_action, label = terminal
             glyph = (
                 "✓"
                 if verdict == "completed"
@@ -340,7 +358,6 @@ def stream_ask(
                 else "!"
             )
             # #396: the same verdict vocabulary the GUI and receipt summary use.
-            label = verdict_label(verdict)
             legacy_detail = (
                 f" ({status})" if status not in ANSWERED and status != verdict else ""
             )
@@ -370,6 +387,8 @@ def stream_ask(
     from opaihub.run_state import exit_code_for
 
     terminal = _terminal_verdict(result)
+    if terminal is not None:
+        return exit_code_for(terminal[0])
     if status == "cancelled":
         return exit_code_for("cancelled")
     if status == "duplicate_request":
@@ -378,6 +397,4 @@ def stream_ask(
         # is not done *by this call* and retrying will hit the same guard while
         # the original runs — and it is already the "do not retry" signal.
         return exit_code_for("blocked")
-    if terminal is not None:
-        return exit_code_for(terminal[0])
     return exit_code_for("completed" if status in ANSWERED else "failed")

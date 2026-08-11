@@ -1,4 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import "../generated-lifecycle.js";
+import "../run-result.js";
 
 // Unit coverage for the F16/F4 + F21 front-end fixes. app.js is a classic
 // browser script (no exports); it only touches window/document at load for

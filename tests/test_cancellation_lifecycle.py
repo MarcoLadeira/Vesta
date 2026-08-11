@@ -147,6 +147,20 @@ class DurabilityTests(_Temp):
         self.assertEqual(second.phase(), CancelPhase.ACKNOWLEDGED)
         self.assertEqual(len(second.history()), 2)
 
+    def test_evidence_contains_phase_history_and_recorded_latency(self) -> None:
+        tracker = self.tracker("run-evidence")
+        tracker.request()
+        tracker.acknowledge()
+        tracker.mark_terminated()
+
+        evidence = tracker.evidence()
+
+        self.assertEqual(evidence["scope_id"], "run-evidence")
+        self.assertEqual(evidence["phase"], "terminated")
+        self.assertEqual(evidence["history"][-1]["phase"], "terminated")
+        self.assertIsNotNone(evidence["metrics"]["acknowledgement_latency_seconds"])
+        self.assertIsNotNone(evidence["metrics"]["hard_stop_latency_seconds"])
+
     def test_different_scopes_never_cross_talk(self) -> None:
         run_a = self.tracker("run-a")
         run_b = self.tracker("run-b")

@@ -15,6 +15,7 @@ import re
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from .deadlines import PROVIDER_IDLE_TIMEOUT, TASK_DEADLINE, TIMEOUT_ORIGINS
 from .legacy_status import (
     legacy_completion_state,
     legacy_status_for_completion_state,
@@ -65,6 +66,7 @@ class CompletionVerdict(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     TIMEOUT = "timeout"
+    NEEDS_ATTENTION = "needs_attention"
 
 
 # The one user-facing label for each verdict (#396). GUI, CLI, and the receipt
@@ -78,6 +80,7 @@ VERDICT_LABELS = {
     CompletionVerdict.FAILED.value: "Failed",
     CompletionVerdict.CANCELLED.value: "Cancelled",
     CompletionVerdict.TIMEOUT.value: "Timed out",
+    CompletionVerdict.NEEDS_ATTENTION.value: "Needs attention",
 }
 
 
@@ -236,7 +239,7 @@ class CompletionVerdictResult:
 # controller emits "controller_timeout" when it exceeds max_active_seconds.
 # Both must surface the TIMEOUT verdict end-to-end even though the tool-loop
 # controller keeps STUCK_NO_PROGRESS as its canonical legacy state.
-_TIMEOUT_STOP_REASONS = frozenset({"timeout", "controller_timeout"})
+_TIMEOUT_STOP_REASONS = frozenset({"timeout", "controller_timeout", *TIMEOUT_ORIGINS})
 _TIMEOUT_STATUSES = frozenset({"timeout", "account_timeout"})
 
 # Typed provider error codes (opai.provider_contract.ERROR_CODES) → failure class
@@ -748,6 +751,28 @@ def evaluate_completion(
             "Retry when you are ready.",
         )
     if stopped_reason in _TIMEOUT_STOP_REASONS or status in _TIMEOUT_STATUSES:
+        if stopped_reason == TASK_DEADLINE:
+            return _verdict(
+                CompletionVerdict.TIMEOUT,
+                TASK_DEADLINE,
+                (
+                    "The run reached OPai's task deadline while work may still "
+                    "have been active. Observed progress was retained, but "
+                    "verification did not finish."
+                ),
+                objective,
+                evidence,
+                "Inspect retained work and reconcile the prior operation before continuing.",
+            )
+        if stopped_reason == PROVIDER_IDLE_TIMEOUT:
+            return _verdict(
+                CompletionVerdict.TIMEOUT,
+                PROVIDER_IDLE_TIMEOUT,
+                "The provider stopped producing activity before OPai could verify the objective.",
+                objective,
+                evidence,
+                "Inspect any retained work, then retry or choose another provider.",
+            )
         return _verdict(
             CompletionVerdict.TIMEOUT,
             "timeout",
@@ -765,6 +790,24 @@ def evaluate_completion(
             evidence,
             "Choose a provider with the required capability.",
         )
+    if canonical is CompletionState.NEEDS_ATTENTION:
+        cancellation_unconfirmed = stopped_reason == "cancellation_unconfirmed"
+        return _verdict(
+            CompletionVerdict.NEEDS_ATTENTION,
+            stopped_reason or "needs_attention",
+            (
+                "Cancellation was requested, but provider teardown was not proven complete."
+                if cancellation_unconfirmed
+                else "OPai could not reconcile this run to a more specific terminal outcome."
+            ),
+            objective,
+            evidence,
+            (
+                "Inspect the cancellation evidence before retrying."
+                if cancellation_unconfirmed
+                else "Inspect the run evidence before deciding whether to retry."
+            ),
+        )
     if status.startswith("needs_"):
         return _verdict(
             CompletionVerdict.BLOCKED,
@@ -775,6 +818,7 @@ def evaluate_completion(
             "Resolve the requested approval or input, then retry.",
         )
     if canonical in {
+        CompletionState.BLOCKED,
         CompletionState.PROVIDER_BLOCKED,
         CompletionState.NEEDS_CONSENT,
         CompletionState.NEEDS_USER_INPUT,

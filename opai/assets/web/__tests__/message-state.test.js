@@ -1,10 +1,39 @@
 import { describe, expect, it } from "vitest";
 import "../generated-lifecycle.js";
+import "../run-result.js";
 import OPaiMessageState from "../message-state.js";
 
 const { beginRequest, canApply, fromBackendStatus, transition } = OPaiMessageState;
 
 describe("message terminal truth", () => {
+  function canonical(state, reason = "Canonical terminal reason.") {
+    const spec = globalThis.OPaiLifecycle.stateSpecs[state];
+    return {
+      schema_version: globalThis.OPaiLifecycle.schemaVersion,
+      identity: {},
+      lifecycle: {
+        state,
+        reason: "terminal_resolution",
+        reason_detail: reason,
+        final_transition_at: "2026-08-11T12:00:00Z",
+        reconciliation: "reconciled",
+      },
+      provider: {},
+      recovery: { automatic_retry: false, reason: "none" },
+      verification: {},
+      delivery: {},
+      economics: {},
+      authority: { mutating: false },
+      diagnostics: { record_refs: [] },
+      presentation: { label: spec.label, category: spec.presentation_category },
+      compatibility: {
+        state: "compatible",
+        source_schema_version: globalThis.OPaiLifecycle.schemaVersion,
+        automatic_retry: false,
+      },
+    };
+  }
+
   it("rejects completed after failed", () => {
     const failed = transition({ requestId: "r1", status: "streaming" }, "failed");
 
@@ -38,6 +67,19 @@ describe("message terminal truth", () => {
     expect(fromBackendStatus("failed", { verdict: "blocked" })).toBe("blocked");
     // A bare verdict string is accepted too.
     expect(fromBackendStatus("answered", "completed")).toBe("completed");
+  });
+
+  it("honors RunResult over conflicting legacy terminal claims (#618)", () => {
+    expect(
+      fromBackendStatus("answered", { verdict: "completed" }, canonical("partial")),
+    ).toBe("partial");
+    expect(
+      fromBackendStatus("failed", { verdict: "failed" }, canonical("cancelled")),
+    ).toBe("cancelled");
+  });
+
+  it("fails closed when an explicit RunResult is malformed", () => {
+    expect(fromBackendStatus("answered", { verdict: "completed" }, {})).toBe("needs_attention");
   });
 
   it("treats partial/blocked/timeout as distinct terminal states", () => {

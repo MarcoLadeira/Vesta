@@ -34,6 +34,11 @@ from .completion import (
     result_meets_objective,
 )
 from .cost_model import estimate_route_savings, estimate_tokens, load_cost_model
+from .deadlines import (
+    DEADLINE_POLICY_VERSION,
+    DeadlineBudget,
+    enrich_timeout_event,
+)
 from .run_result_projection import project_run_result
 from .cost_telemetry import (
     estimated_telemetry,
@@ -1235,6 +1240,19 @@ def handle_gui_message(
         objective = turn_objective
         raw_terminal = payload.get("raw_result")
         raw_terminal = raw_terminal if isinstance(raw_terminal, Mapping) else {}
+        raw_timeout = payload.get("timeout_event") or raw_terminal.get("timeout_event")
+        timeout_info: dict[str, Any] = {}
+        if isinstance(raw_timeout, Mapping) and raw_timeout:
+            timeout_info = enrich_timeout_event(
+                raw_timeout,
+                task_id=runtime.task_id,
+                run_id=turn_id,
+                checkpoint_id=checkpoint.checkpoint_id,
+            )
+            payload["timeout_event"] = timeout_info
+            if isinstance(payload.get("raw_result"), Mapping):
+                raw_terminal = {**raw_terminal, "timeout_event": timeout_info}
+                payload["raw_result"] = raw_terminal
         # Round 2: committing clears the dirty paths a run created, so an
         # edit-intent turn that genuinely committed ended with zero changed
         # files, zero attributed paths, and a "Partial — no changed-file or diff
@@ -1279,25 +1297,6 @@ def handle_gui_message(
         verdict_payload["answer_conflicts"] = answer_contradicts_verdict(
             str(payload.get("answer") or ""), verdict.verdict
         )
-        # #618: project the canonical RunResult here, at the one place in
-        # production that holds a CompletionVerdictResult. Until now
-        # project_run_result had zero production callers, so every surface --
-        # GUI, CLI, background runs, history, receipts -- re-derived its own
-        # terminal meaning from the verdict dict and the legacy status string.
-        # That is how one turn's evidence could read "completed" on one surface
-        # and "answered_by_account" on another: they were separate authorities
-        # reaching separate conclusions, not one result rendered differently.
-        #
-        # No identity or delivery/economics reference is passed: this call site
-        # holds no durable evidence for them, and the projection is explicit
-        # that a caller without such evidence must accept the degradation
-        # rather than fabricate a reference.
-        run_result = project_run_result(
-            verdict=verdict,
-            final_transition_at=_iso_now(),
-            mutating=objective_is_mutating(objective.mode),
-        )
-        payload["run_result"] = run_result.to_dict()
         verdict_event_status = (
             "success"
             if verdict.verdict is CompletionVerdict.COMPLETED
@@ -1331,6 +1330,8 @@ def handle_gui_message(
                 "reason_code": verdict.reason_code,
             },
         )
+        receipt_event_ref: tuple[str, str] | None = None
+        timeout_event_ref: tuple[str, str] | None = None
         receipt = payload.get("receipt")
         if isinstance(receipt, Mapping) and receipt:
             # Receipts inherit the same verdict (never the raw prompt) and only a
@@ -1357,7 +1358,7 @@ def handle_gui_message(
             # The receipt is durable only after the objective verdict exists;
             # reloaded receipts must carry the same non-upgradable truth as
             # the live GUI, CLI, workflow, and checkpoint views.
-            record_event(
+            receipt_event = record_event(
                 root,
                 "gui_receipt",
                 task=message,
@@ -1366,6 +1367,48 @@ def handle_gui_message(
                 selected_mode=selected_mode,
                 tool_count=len(payload.get("tool_trace") or []),
             )
+            receipt_event_ref = (
+                "usage_ledger",
+                f"{receipt_event.get('ledger_sequence', '')}:"
+                f"{receipt_event.get('task_hash', '')}",
+            )
+        if timeout_info:
+            # The canonical result references a durable, redacted timeout
+            # record. The event contains classifications and identifiers only;
+            # partial provider output remains in the run/checkpoint payload.
+            timeout_record = record_event(
+                root,
+                "timeout_event",
+                task=message,
+                outcome_id=turn_id,
+                timeout=timeout_info,
+            )
+            timeout_event_ref = (
+                "usage_ledger",
+                f"{timeout_record.get('ledger_sequence', '')}:"
+                f"{timeout_record.get('task_hash', '')}",
+            )
+
+        # #618: project only after durable receipt evidence exists. The same
+        # envelope now carries the runtime identity and is consumed directly by
+        # history/background surfaces instead of making them reinterpret legacy
+        # status strings. #666: a cancelled verdict remains cancelled only when
+        # the provider teardown journal reached its observed terminal phase.
+        cancellation = payload.get("cancellation") or raw_terminal.get("cancellation")
+        cancellation = cancellation if isinstance(cancellation, Mapping) else None
+        run_result = project_run_result(
+            verdict=verdict,
+            final_transition_at=_iso_now(),
+            mutating=objective_is_mutating(objective.mode),
+            task_id=runtime.task_id,
+            run_id=turn_id,
+            delivery_ref=receipt_event_ref,
+            economics_ref=receipt_event_ref,
+            cancellation=cancellation,
+            timeout=timeout_info,
+            timeout_ref=timeout_event_ref,
+        )
+        payload["run_result"] = run_result.to_dict()
         # F14/F24 honesty gate: an edit-intent run with zero change evidence
         # (no changed files, no newly dirty paths, no successful mutating tool)
         # is NOT a green completion — it is "completed with no changes".
@@ -1626,10 +1669,19 @@ def handle_gui_message(
                     # waiting out the TTL.
                     _blocks.clear_block(root, _prov)
                 else:
-                    if not auto_active and verdict.verdict in {
-                        CompletionVerdict.FAILED,
-                        CompletionVerdict.TIMEOUT,
-                    }:
+                    responsive_task_deadline = (
+                        timeout_info.get("timeout_origin") == "task_deadline"
+                        and timeout_info.get("provider_condition") == "responsive"
+                    )
+                    if (
+                        not auto_active
+                        and verdict.verdict
+                        in {
+                            CompletionVerdict.FAILED,
+                            CompletionVerdict.TIMEOUT,
+                        }
+                        and not responsive_task_deadline
+                    ):
                         _rel.record_provider_outcome(
                             root, _prov, False, reason=str(status or "failed")
                         )
@@ -1866,6 +1918,20 @@ def handle_gui_message(
             max_active_seconds=contract.max_active_seconds,
         )
 
+    def _contract_deadline_budget() -> DeadlineBudget:
+        """Make both route clocks explicit at the provider boundary."""
+
+        return DeadlineBudget(
+            task_deadline_seconds=float(contract.max_active_seconds),
+            provider_idle_timeout_seconds=float(
+                getattr(contract, "provider_idle_timeout_seconds", 300.0)
+            ),
+            lane=str(contract.lane),
+            policy_version=int(
+                getattr(contract, "deadline_policy_version", DEADLINE_POLICY_VERSION)
+            ),
+        )
+
     def _prune_blocked_candidates() -> None:
         """Drop not-yet-tried chain entries belonging to a just-blocked provider.
 
@@ -2073,6 +2139,15 @@ def handle_gui_message(
         is the same bug as "Auto picked Gemini and it randomly failed".
         Returns the same ``continue`` / ``confirm`` / ``stop`` vocabulary.
         """
+        if isinstance(error, Mapping) and error.get("code") == "TASK_DEADLINE":
+            _emit(
+                "request_sending",
+                "warning",
+                "Task deadline reached - reconcile retained work before continuing",
+                metadata={"automaticRetry": False, "reason": "task_deadline"},
+                channel="status",
+            )
+            return "stop"
         if auto_active:
             return _advance_auto(status=status, error=error)
         return "continue" if _retry_transient(error=error) else "stop"
@@ -2280,6 +2355,7 @@ def handle_gui_message(
                 cancel=cancel,
                 on_text=on_text,
                 tool_loop_policy=_contract_tool_loop_policy(),
+                deadline_budget=_contract_deadline_budget(),
                 repository_handle=task_repository_handle,
             )
             if result.get("status") == "cancelled":
@@ -2576,6 +2652,7 @@ def handle_gui_message(
                 on_text=on_text,
                 cancel=cancel,
                 tool_loop_policy=_contract_tool_loop_policy(),
+                deadline_budget=_contract_deadline_budget(),
             )
             if result.get("status") == "cancelled":
                 _emit("cancelled", "cancelled", "Stopped by you")
@@ -2765,8 +2842,11 @@ def handle_gui_message(
                     "tool_trace": tool_trace + list(result.get("tool_trace") or []),
                     "receipt": receipt,
                     "changed_files": result.get("changed_files", []),
+                    "partial_answer": result.get("partial_answer", ""),
+                    "retained_progress": result.get("retained_progress", {}),
                     "warnings": [],
-                    "next_actions": ["Review changed files before committing."],
+                    "next_actions": result.get("next_actions")
+                    or ["Review changed files before committing."],
                     "raw_result": result,
                     "error": result.get("error"),
                     "cost_telemetry": account_telemetry.to_dict(),

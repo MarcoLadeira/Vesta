@@ -1485,7 +1485,7 @@ function onBuildReply(json) {
   const backendStatus = r.status || "failed";
   state.message = OPaiMessageState.transition(
     state.message,
-    OPaiMessageState.fromBackendStatus(backendStatus, r.completion_verdict),
+    OPaiMessageState.fromBackendStatus(backendStatus, r.completion_verdict, r.run_result),
   );
   state.currentRequest = null;
   setBusy(false);
@@ -1940,7 +1940,7 @@ function stripFinalize(status, r) {
   // are amber warnings; only Failed/Timed out are red.
   else if (verdict && (verdict.verdict === "partial" || verdict.verdict === "blocked")) { stripSetState("warning"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
   else if (verdict && verdict.verdict !== "completed") { stripSetState("error"); $("#ssConn").textContent = verdictLabel(verdict.verdict); }
-  else if (verdict && verdict.reasonCode === "answer_delivered") { stripSetState("connected"); $("#ssConn").textContent = "Response received"; }
+  else if (verdict) { stripSetState("connected"); $("#ssConn").textContent = completionVerdictLabel(verdict); }
   // #380: Stop was accepted but teardown is not proven yet. Saying "Stopped"
   // here would be the same false claim the optimistic stop() used to make.
   else if (status === "cancel_requested") { stripSetState("cancelled"); $("#ssConn").textContent = "Stopping…"; }
@@ -2154,18 +2154,7 @@ function receiptBadge(rc) {
   return { cls: "estimated", label: "Estimated", title: "Estimated from token math, not a billed amount" };
 }
 function completionVerdict(r) {
-  const raw = r && r.completion_verdict;
-  if (!raw || typeof raw !== "object") return null;
-  const verdict = String(raw.verdict || "").toLowerCase();
-  return verdict ? {
-    verdict,
-    reasonCode: String(raw.reason_code || "").toLowerCase(),
-    reason: String(raw.reason || ""),
-    nextAction: String(raw.next_action || ""),
-    // Round 5 finding 2: the engine flags a reply that asserts success the
-    // verdict could not confirm ("successfully pushed" under a Failed pill).
-    answerConflicts: raw.answer_conflicts === true,
-  } : null;
+  return OPaiRunResult.fromResult(r);
 }
 // The one user-facing label per verdict — mirrors opaihub.completion.VERDICT_LABELS
 // (#396) so the GUI, CLI, and receipt summary never disagree ("Timed out", not
@@ -2173,6 +2162,7 @@ function completionVerdict(r) {
 const VERDICT_LABELS = {
   completed: "Completed", partial: "Partial", blocked: "Blocked",
   failed: "Failed", cancelled: "Cancelled", timeout: "Timed out",
+  needs_attention: "Needs attention",
 };
 function verdictLabel(verdict) {
   const key = String(verdict || "").toLowerCase();
@@ -2203,6 +2193,7 @@ function completionVerdictHtml(r) {
 // runtime phase as the final status reintroduced the Round 6 contradiction:
 // "Partial" above "Implement · Completed" below.
 function completionVerdictLabel(item) {
+  if (item && item.canonical) return item.label;
   return item && item.reasonCode === "answer_delivered"
     ? "Response received"
     : verdictLabel(item && item.verdict);
@@ -2218,7 +2209,7 @@ function unverifiedClaimHtml(r) {
   if (!item || !item.answerConflicts) return "";
   return `<div class="unverified-claim" role="note">${uiIcon("warning")} ` +
     `<span><strong>OPai could not verify this.</strong> The response below says the ` +
-    `work succeeded, but this run ended as <em>${esc(verdictLabel(item.verdict))}</em> ` +
+    `work succeeded, but this run ended as <em>${esc(completionVerdictLabel(item))}</em> ` +
     `and OPai found no evidence the action completed. Treat the claim as unconfirmed ` +
     `and check the result yourself before relying on it.</span></div>`;
 }
@@ -3022,7 +3013,11 @@ function onReply(json) {
   // collapsed into "failed".
   state.message = OPaiMessageState.transition(
     state.message,
-    OPaiMessageState.fromBackendStatus(backendStatus, d.result && d.result.completion_verdict),
+    OPaiMessageState.fromBackendStatus(
+      backendStatus,
+      d.result && d.result.completion_verdict,
+      d.result && d.result.run_result,
+    ),
   );
   state.currentRequest = null;
   setBusy(false);

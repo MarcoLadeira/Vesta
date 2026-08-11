@@ -6,7 +6,7 @@ from dataclasses import FrozenInstanceError
 import json
 import unittest
 
-from opaihub.run_result import RunResult
+from opaihub.run_result import RunResult, terminal_presentation
 
 
 FINAL_AT = "2026-08-02T12:34:56Z"
@@ -52,6 +52,27 @@ def _completed_payload(**overrides: object) -> dict[str, object]:
 
 
 class RunResultTests(unittest.TestCase):
+    def test_terminal_presentation_reads_canonical_state_reason_and_label(self) -> None:
+        canonical = RunResult.from_payload(
+            state="partial",
+            reason_detail="Verification remained incomplete.",
+            final_transition_at=FINAL_AT,
+        )
+
+        presented = terminal_presentation(canonical.to_dict())
+
+        self.assertEqual(presented.state, "partial")
+        self.assertEqual(presented.label, "Partially completed")
+        self.assertEqual(presented.category, "warning")
+        self.assertEqual(presented.reason, "Verification remained incomplete.")
+
+    def test_terminal_presentation_fails_closed_for_malformed_envelope(self) -> None:
+        presented = terminal_presentation({"schema_version": 1})
+
+        self.assertEqual(presented.state, "needs_attention")
+        self.assertEqual(presented.label, "Needs attention")
+        self.assertFalse(presented.automatic_retry)
+
     def test_completed_mutation_requires_reconciled_verification(self) -> None:
         payload = _completed_payload(
             verification={
