@@ -1135,6 +1135,24 @@ def main(argv: list[str] | None = None) -> int:
         )
     print("=" * 80)
     print(f"  {verdict.upper()} - {reason}; evidence: {args.manifest.resolve()}")
+
+    # Echo the diagnostics of everything that failed. Without this a red hosted
+    # run prints the check name and nothing else: the captured output only ever
+    # reached the JSON manifest, so diagnosing a failure meant downloading the
+    # run artifact and parsing it by hand, and a reader with just the job log
+    # could not tell which test failed or why. The text is already redacted and
+    # bounded by _redact_and_bound, so echoing it leaks nothing the manifest
+    # does not already carry.
+    failed = [check for check in checks if check["status"]["outcome"] == "failed"]
+    for check in failed:
+        diagnostic = str(check.get("diagnostic") or "").strip()
+        if not diagnostic:
+            continue
+        print("\n" + "-" * 80)
+        print(f"  FAILED {check['id']} -- captured output")
+        print("-" * 80)
+        print(diagnostic, flush=True)
+
     return 0 if verdict == "qualified" else 1
 
 
