@@ -145,6 +145,7 @@
   ],
   "stateSpecs": {
     "awaiting_input": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": true,
       "classification": "interrupt",
       "exit_code": null,
@@ -155,6 +156,7 @@
       "terminal": false
     },
     "blocked": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": false,
       "classification": "terminal",
       "exit_code": 4,
@@ -165,6 +167,7 @@
       "terminal": true
     },
     "cancel_requested": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": false,
       "classification": "interrupt",
       "exit_code": null,
@@ -175,6 +178,7 @@
       "terminal": false
     },
     "cancelled": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": false,
       "classification": "terminal",
       "exit_code": 130,
@@ -185,6 +189,7 @@
       "terminal": true
     },
     "completed": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": false,
       "classification": "terminal",
       "exit_code": 0,
@@ -195,6 +200,7 @@
       "terminal": true
     },
     "failed": {
+      "automatic_retry_eligible": true,
       "cancellation_eligible": false,
       "classification": "terminal",
       "exit_code": 2,
@@ -205,6 +211,7 @@
       "terminal": true
     },
     "needs_attention": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": false,
       "classification": "terminal",
       "exit_code": 6,
@@ -215,6 +222,7 @@
       "terminal": true
     },
     "partial": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": false,
       "classification": "terminal",
       "exit_code": 3,
@@ -225,6 +233,7 @@
       "terminal": true
     },
     "preparing": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": true,
       "classification": "active",
       "exit_code": null,
@@ -235,6 +244,7 @@
       "terminal": false
     },
     "queued": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": true,
       "classification": "active",
       "exit_code": null,
@@ -245,6 +255,7 @@
       "terminal": false
     },
     "running": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": true,
       "classification": "active",
       "exit_code": null,
@@ -255,6 +266,7 @@
       "terminal": false
     },
     "timeout": {
+      "automatic_retry_eligible": true,
       "cancellation_eligible": false,
       "classification": "terminal",
       "exit_code": 5,
@@ -265,6 +277,7 @@
       "terminal": true
     },
     "verifying": {
+      "automatic_retry_eligible": false,
       "cancellation_eligible": true,
       "classification": "active",
       "exit_code": null,

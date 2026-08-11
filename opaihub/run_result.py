@@ -56,7 +56,17 @@ _SNAPSHOT_KEYS = frozenset(
         "transcript",
     }
 )
-_AUTOMATIC_RETRY_STATES = frozenset({"failed", "timeout"})
+# #618: derived from the #612 schema, never restated here. This was a
+# hand-maintained frozenset -- a second place deciding which lifecycle states
+# may be retried automatically, so the schema and this module could disagree
+# and nothing would notice. Retry eligibility is now a generated per-state
+# fact, which also means a newly added terminal state cannot silently inherit
+# undefined retry semantics: the generator rejects a state that omits it.
+_AUTOMATIC_RETRY_STATES = frozenset(
+    state_id
+    for state_id, spec in STATE_SPECS.items()
+    if spec.get("automatic_retry_eligible")
+)
 _DIAGNOSTIC_FIELDS = frozenset({"codes", "count", "record_refs", "truncated"})
 
 

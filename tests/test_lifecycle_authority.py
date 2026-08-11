@@ -97,12 +97,13 @@ REVIEWED_LITERALS: dict[str, str] = {
         "recordable as timeout is a product decision for #288/#618, not a "
         "rename this issue may make silently."
     ),
-    "opaihub/run_result.py": (
-        "DEBT: _AUTOMATIC_RETRY_STATES ({failed, timeout}) is retry eligibility, "
-        "which IS lifecycle meaning and belongs in the schema as a per-state "
-        "field. Moving it changes the generated contract and every consumer of "
-        "RunResult, which #618 owns; recorded here so it cannot be forgotten."
-    ),
+    # opaihub/run_result.py held a DEBT entry here for _AUTOMATIC_RETRY_STATES
+    # ({failed, timeout}) -- retry eligibility restated outside the schema. #618
+    # paid it: automatic_retry_eligible is now a required per-state field in
+    # lifecycle_schema.json, generated into STATE_SPECS, and derived in
+    # run_result.py rather than written there. The exemption is deliberately
+    # deleted rather than kept "just in case": this file's ratchet fails on a
+    # stale entry, which is what surfaced the change.
 }
 
 _SKIP_DIRS = {
@@ -208,7 +209,12 @@ class NoSecondPythonAuthorityTests(unittest.TestCase):
         record, the other changes the RunResult contract #618 owns -- so they
         are carried as named debt with an owner rather than silently accepted.
         """
-        for module in ("opaihub/ledger.py", "opaihub/run_result.py"):
+        # run_result.py was the second entry here until #618 paid it: retry
+        # eligibility is now a generated per-state field rather than a
+        # frozenset written by hand. ledger.py's OUTCOME_CATEGORIES remains,
+        # and it is genuinely not #618's to move -- it changes which outcomes a
+        # task may record, which #288 owns.
+        for module in ("opaihub/ledger.py",):
             with self.subTest(module=module):
                 self.assertTrue(
                     REVIEWED_LITERALS[module].startswith("DEBT:"),
