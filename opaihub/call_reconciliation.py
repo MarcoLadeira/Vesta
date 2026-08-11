@@ -163,6 +163,16 @@ def pid_is_running(pid: int) -> bool | None:
         return False
     except PermissionError:
         return True  # Exists, owned by someone else.
+    except OverflowError:
+        # POSIX pid_t is a signed 32-bit int, so a pid past 2**31-1 cannot name
+        # a process: os.kill raises OverflowError before it ever asks the
+        # kernel. That is an ArithmeticError, not an OSError, so it escaped the
+        # chain below and propagated out of a function documented never to
+        # raise. Windows takes the same value through its own probe and never
+        # reaches os.kill, which is why this only ever surfaced on Linux. Out
+        # of range is a definite answer -- no such process can exist -- so
+        # report it dead rather than unknown.
+        return False
     except OSError:
         return None
     return True
