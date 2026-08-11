@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .completion import CompletionVerdictResult
+from .generated_lifecycle import TERMINAL_STATE_IDS
 from .run_result import RunResult
 
 
@@ -138,3 +139,30 @@ def project_run_result_for_background_run(
         automatic_retry=automatic_retry,
         retry_reason=retry_reason,
     )
+
+
+def canonical_run_state(run_result: Any) -> str:
+    """The terminal lifecycle state of a canonical RunResult, or ``""``.
+
+    #618: the one way a consumer is allowed to learn what a finished turn
+    means. Surfaces previously each reached into ``completion_verdict`` (or
+    worse, a legacy status string) and decided for themselves, which is how the
+    same evidence could read `complete` in history and `partial` in the GUI.
+
+    Returns ``""`` rather than guessing when the payload carries no canonical
+    result -- an old record, or a turn that ended before the projection ran.
+    The caller then falls back to its documented compatibility path; it does
+    not get a fabricated state from here.
+    """
+
+    if isinstance(run_result, RunResult):
+        payload: Any = run_result.to_dict()
+    else:
+        payload = run_result
+    if not isinstance(payload, Mapping):
+        return ""
+    lifecycle = payload.get("lifecycle")
+    if not isinstance(lifecycle, Mapping):
+        return ""
+    state = str(lifecycle.get("state") or "").strip().lower()
+    return state if state in TERMINAL_STATE_IDS else ""

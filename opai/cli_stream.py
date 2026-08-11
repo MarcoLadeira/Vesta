@@ -298,6 +298,10 @@ def stream_ask(
             status=thread_status_for_result(
                 str(result.get("status") or "failed"),
                 result.get("completion_verdict"),
+                # #618: the canonical result decides. The verdict and legacy
+                # status are compatibility inputs, used only for records
+                # written before the projection existed.
+                result.get("run_result"),
             ),
             task_id=str((result.get("workflow") or {}).get("task_id") or request_id),
             mode=str((result.get("workflow") or {}).get("mode") or mode),
