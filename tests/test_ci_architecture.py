@@ -390,3 +390,53 @@ class CiArchitectureContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExactShaCheckoutDepthTests(unittest.TestCase):
+    """The exact-SHA parent check needs real parents to verify (#621).
+
+    Found the first time hosted CI actually executed, after the repository was
+    made public and the billing block lifted: every required job failed with
+    `candidate_source_mismatch` before running a single test.
+
+    `actions/checkout` defaults to `fetch-depth: 1`. Git truncates parent
+    information at a shallow boundary, so `git show -s --format=%P HEAD`
+    returns nothing, the candidate's parent set is empty, and a PR head can
+    never be found in it. The check was structurally unpassable on hosted pull
+    requests -- and that was invisible for as long as the jobs never started.
+    """
+
+    def _workflow(self) -> str:
+        return (
+            Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
+
+    def test_every_exact_sha_checkout_fetches_its_parents(self):
+        import re
+
+        source = self._workflow()
+        blocks = re.findall(
+            r"uses: actions/checkout@[0-9a-f]{40}\n(?:\s+.*\n)+?(?=\s*-\s|\Z)", source
+        )
+        self.assertTrue(blocks, "no checkout steps found -- the scan is broken")
+        shallow = [
+            b
+            for b in blocks
+            if "ref: ${{ github.sha }}" in b and "fetch-depth" not in b
+        ]
+        self.assertEqual(
+            shallow,
+            [],
+            "these checkouts pin an exact SHA but keep the default shallow "
+            "depth, so the candidate-sha parent check cannot verify a PR head:\n"
+            + "\n".join(shallow),
+        )
+
+    def test_the_depth_is_at_least_two(self):
+        import re
+
+        for depth in re.findall(r"fetch-depth:\s*(\d+)", self._workflow()):
+            with self.subTest(depth=depth):
+                self.assertGreaterEqual(
+                    int(depth), 2, "depth 1 truncates parents; the check needs them"
+                )
