@@ -78,7 +78,15 @@ def test_completion_verdict_has_not_grown_without_a_deliberate_update() -> None:
     # Already 1:1 with RunState's terminals (run_state.run_state_for_verdict
     # maps it directly) -- the cleanest case, but still a separate class.
     assert _values(CompletionVerdict) == frozenset(
-        {"completed", "partial", "blocked", "failed", "cancelled", "timeout"}
+        {
+            "completed",
+            "partial",
+            "blocked",
+            "failed",
+            "cancelled",
+            "timeout",
+            "needs_attention",
+        }
     )
 
 
@@ -204,6 +212,7 @@ def test_gui_recents_thread_and_plan_statuses_have_not_grown_without_a_deliberat
             "pending",
             "failed",
             "cancelled",
+            "needs_attention",
             "interrupted",
         }
     )

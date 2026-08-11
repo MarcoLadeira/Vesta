@@ -34,6 +34,7 @@ from typing import Any
 
 from opai.model_registry import models_for as _models_for
 from opaihub.deadlines import (
+    DeadlineBudget,
     PROVIDER_IDLE_TIMEOUT,
     TASK_DEADLINE,
     timeout_event,
@@ -301,7 +302,7 @@ def _is_login_sentinel(text: str) -> bool:
     return t.startswith("not logged in") and len(t) <= 120
 
 
-def _terminate(proc: Any, *, tracker: Any = None) -> None:
+def _terminate(proc: Any, *, tracker: Any = None) -> bool:
     """Stop a running process *and its whole tree* (#108): grandchildren spawned
     by a provider CLI must not survive Stop and keep spending or mutating the
     repo. Delegates to the platform-aware, idempotent tree killer."""
@@ -309,9 +310,14 @@ def _terminate(proc: Any, *, tracker: Any = None) -> None:
         with contextlib.suppress(Exception):
             tracker.force_terminate(reason_code="process_tree_termination_started")
     terminate_tree(proc)
-    if tracker is not None:
+    try:
+        confirmed = proc is None or proc.poll() is not None
+    except (AttributeError, OSError, ValueError, subprocess.SubprocessError):
+        confirmed = False
+    if tracker is not None and confirmed:
         with contextlib.suppress(Exception):
-            tracker.mark_terminated(reason_code="process_tree_termination_returned")
+            tracker.mark_terminated(reason_code="process_exit_observed")
+    return confirmed
 
 
 def _terminate_async(proc: Any, *, after: Callable[[], None] | None = None) -> None:
@@ -331,13 +337,7 @@ def _cancellation_evidence(tracker: Any) -> dict[str, Any] | None:
     if tracker is None:
         return None
     with contextlib.suppress(Exception):
-        phase = tracker.phase()
-        return {
-            "scope_id": tracker.scope_id,
-            "phase": phase.value if phase is not None else None,
-            "history": list(tracker.history()),
-            "metrics": tracker.metrics().to_dict(),
-        }
+        return tracker.evidence()
     return None
 
 
@@ -1994,6 +1994,7 @@ class AccountRunner:
         timeout: float = 1200.0,
         edit_grant: bool = False,
         operation_id: str | None = None,
+        deadline_budget: DeadlineBudget | None = None,
     ) -> dict[str, Any]:
         """Run the task; return ``{"text", "cost", "timed_out"?}``.
 
@@ -2034,8 +2035,17 @@ class AccountRunner:
                         origin=TASK_DEADLINE,
                         owner="account_runner",
                         configured_seconds=timeout,
+                        elapsed_seconds=timeout,
                         provider_responsive=None,
                         phase="complete",
+                        budget=deadline_budget,
+                        operation_id=operation_id,
+                        route_id=f"account:{self.account_id}",
+                        progress_observed=False,
+                        external_effect_possible=allow_edits,
+                        teardown_state="unknown",
+                        cost_state="unknown",
+                        verification_state="incomplete",
                     ),
                 }
             try:
@@ -2096,8 +2106,17 @@ class AccountRunner:
                     origin=TASK_DEADLINE,
                     owner="account_runner",
                     configured_seconds=timeout,
+                    elapsed_seconds=timeout,
                     provider_responsive=None,
                     phase="complete",
+                    budget=deadline_budget,
+                    operation_id=operation_id,
+                    route_id=f"account:{self.account_id}",
+                    progress_observed=False,
+                    external_effect_possible=allow_edits,
+                    teardown_state="unknown",
+                    cost_state="unknown",
+                    verification_state="incomplete",
                 ),
             }
         returncode = _process_returncode(proc)
@@ -2184,6 +2203,7 @@ class AccountRunner:
         edit_grant: bool = False,
         cancellation_scope_id: str | None = None,
         operation_id: str | None = None,
+        deadline_budget: DeadlineBudget | None = None,
     ) -> dict[str, Any]:
         """Run the task with a killable subprocess, emitting live activity.
 
@@ -2442,7 +2462,7 @@ class AccountRunner:
                     cancellation_tracker.begin_draining(
                         reason_code="provider_process_in_flight"
                     )
-            _terminate(proc, tracker=cancellation_tracker)
+            teardown_confirmed = _terminate(proc, tracker=cancellation_tracker)
             if out_path:
                 Path(out_path).unlink(missing_ok=True)
             partial = "".join(text_parts).strip()
@@ -2476,6 +2496,24 @@ class AccountRunner:
                         ),
                         last_activity_seconds_ago=last_age,
                         phase="stream",
+                        budget=deadline_budget,
+                        operation_id=operation_id,
+                        route_id=f"account:{self.account_id}",
+                        progress_observed=bool(
+                            last_provider_activity is not None or partial or step_ids
+                        ),
+                        external_effect_possible=allow_edits,
+                        teardown_state=str(
+                            (cancellation_evidence or {}).get("phase")
+                            or ("terminated" if teardown_confirmed else "unknown")
+                        ),
+                        cost_state=(
+                            "observed"
+                            if isinstance(cost, (int, float))
+                            and not isinstance(cost, bool)
+                            else "unknown"
+                        ),
+                        verification_state="incomplete",
                     ),
                     "cancellation": cancellation_evidence,
                 }

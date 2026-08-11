@@ -71,6 +71,29 @@ class LaneAssignmentTests(unittest.TestCase):
         self.assertGreater(contract.max_tool_calls, stable.max_tool_calls)
         self.assertGreater(contract.max_active_seconds, stable.max_active_seconds)
 
+    def test_every_lane_declares_provider_idle_separately_from_task_deadline(
+        self,
+    ) -> None:
+        for message in (
+            "fix the failing test in app.py",
+            "find me an issue to solve",
+            "implement a new billing feature across the api and the ui",
+            "publish the release to production",
+        ):
+            with self.subTest(message=message):
+                contract = _contract(self.root, message)
+                self.assertGreater(contract.provider_idle_timeout_seconds, 0)
+                self.assertLessEqual(
+                    contract.provider_idle_timeout_seconds,
+                    contract.max_active_seconds,
+                )
+                self.assertGreaterEqual(contract.deadline_policy_version, 1)
+                payload = contract.to_dict()
+                self.assertEqual(
+                    payload["providerIdleTimeoutSeconds"],
+                    contract.provider_idle_timeout_seconds,
+                )
+
     def test_irreversible_work_takes_the_governed_lane(self) -> None:
         for message in (
             "publish the release to production",

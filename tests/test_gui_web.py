@@ -27,6 +27,7 @@ from opai.gui_web import (
     settings_payload,
     web_available,
 )
+from opaihub.run_result import RunResult
 
 
 class WebAvailableTests(unittest.TestCase):
@@ -59,6 +60,26 @@ class ThreadStatusHonestyTests(unittest.TestCase):
         self.assertEqual(thread_status_for_result("no_edits", None), "complete")
         self.assertEqual(thread_status_for_result("cancelled", None), "cancelled")
         self.assertEqual(thread_status_for_result("failed", None), "failed")
+
+    def test_canonical_run_result_overrides_both_legacy_authorities(self):
+        canonical = RunResult.from_payload(
+            state="partial",
+            reason_detail="Verification remained incomplete.",
+            final_transition_at="2026-08-11T12:00:00Z",
+        ).to_dict()
+
+        self.assertEqual(
+            thread_status_for_result("answered", {"verdict": "completed"}, canonical),
+            "partial",
+        )
+
+    def test_malformed_canonical_run_result_fails_closed(self):
+        self.assertEqual(
+            thread_status_for_result(
+                "answered", {"verdict": "completed"}, {"schema_version": 1}
+            ),
+            "needs_attention",
+        )
 
     def test_partial_verdict_persists_as_partial_not_complete(self):
         from opai.gui_recents import begin_thread_turn, load_thread
@@ -345,6 +366,7 @@ class WebAssetsTests(unittest.TestCase):
             "design-tokens.css",
             "design-tokens-preview.html",
             "icons.js",
+            "run-result.js",
             "styles.css",
             "app.js",
         ):

@@ -247,10 +247,16 @@ def dedupe_error_text(detail: Any) -> str:
 
 
 def classify_error_code(
-    detail: Any, *, returncode: int | None = None, timed_out: bool = False
+    detail: Any,
+    *,
+    returncode: int | None = None,
+    timed_out: bool = False,
+    timeout_origin: str | None = None,
 ) -> str:
     """Classify a provider diagnostic into the stable OPai error vocabulary."""
 
+    if str(timeout_origin or "").strip().lower() == "task_deadline":
+        return "TASK_DEADLINE"
     if timed_out:
         return "PROVIDER_TIMEOUT"
     low = str(detail or "").lower()
@@ -431,11 +437,17 @@ def normalize_provider_error(
     model: str | None = None,
     returncode: int | None = None,
     timed_out: bool = False,
+    timeout_origin: str | None = None,
 ) -> dict[str, Any]:
     """Return one redacted error payload for backend, bridge, and browser use."""
 
     safe_detail = dedupe_error_text(redact_secrets(detail))
-    code = classify_error_code(safe_detail, returncode=returncode, timed_out=timed_out)
+    code = classify_error_code(
+        safe_detail,
+        returncode=returncode,
+        timed_out=timed_out,
+        timeout_origin=timeout_origin,
+    )
     spec = _ERROR_SPECS[code]
     user_message = spec["userMessage"]
     if (

@@ -868,7 +868,9 @@ def _persist_turn_result(
         for step in plan_steps
         if str(step).strip()
     ]
-    thread_status = thread_status_for_result(status, result.get("completion_verdict"))
+    thread_status = thread_status_for_result(
+        status, result.get("completion_verdict"), result.get("run_result")
+    )
     try:
         finish_thread_turn(
             root,

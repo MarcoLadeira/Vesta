@@ -53,6 +53,7 @@ _THREAD_STATUSES = {
     "pending",
     "failed",
     "cancelled",
+    "needs_attention",
     "interrupted",
 }
 _PLAN_STATUSES = {"pending", "in_progress", "completed", "blocked"}
@@ -67,7 +68,9 @@ _VERDICT_THREAD_STATUS = {
     "timeout": "timeout",
     "cancelled": "cancelled",
     "failed": "failed",
+    "needs_attention": "needs_attention",
 }
+_RUN_RESULT_THREAD_STATUS = dict(_VERDICT_THREAD_STATUS)
 _ANSWERED_THREAD_STATUSES = {
     "answered",
     "cache_hit",
@@ -673,13 +676,20 @@ def refresh_thread_lease(workspace_root: str | Path, *, request_id: str) -> bool
         return False
 
 
-def thread_status_for_result(status: str, completion_verdict: Any) -> str:
+def thread_status_for_result(
+    status: str, completion_verdict: Any, run_result: Any = None
+) -> str:
     """The honest thread status for a finished turn, shared by every surface.
 
     GUI and CLI turns both finish through this (#545) so "complete" means the
     same thing regardless of which surface ran the turn -- previously this
     lived only in opai.gui_web, reachable by GUI turns alone.
     """
+    if run_result is not None:
+        from opaihub.run_result import terminal_presentation
+
+        canonical = terminal_presentation(run_result)
+        return _RUN_RESULT_THREAD_STATUS.get(canonical.state, "needs_attention")
     if isinstance(completion_verdict, dict):
         verdict = str(completion_verdict.get("verdict") or "").strip().lower()
         mapped = _VERDICT_THREAD_STATUS.get(verdict)

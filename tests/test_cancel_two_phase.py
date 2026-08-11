@@ -119,7 +119,7 @@ class BackgroundRunCancelTests(unittest.TestCase):
         )
         self.assertTrue(final.cancel_requested)
 
-    def test_finishing_a_running_run_as_cancelled_is_not_silently_dropped(
+    def test_finishing_a_running_run_without_teardown_evidence_needs_attention(
         self,
     ) -> None:
         # The regression the schema change could have caused. `_finish` is the
@@ -161,11 +161,8 @@ class BackgroundRunCancelTests(unittest.TestCase):
         )
 
         final = load_run(self.root, run.run_id)
-        self.assertIs(
-            _coerce_run_state(final.run_state),
-            RunState.CANCELLED,
-            "the run must still end, via cancel_requested rather than directly",
-        )
+        self.assertIs(_coerce_run_state(final.run_state), RunState.NEEDS_ATTENTION)
+        self.assertEqual(final.reason_code, "cancellation_unconfirmed")
         states = [event.get("state") for event in final.state_history]
         self.assertIn(
             RunState.CANCEL_REQUESTED.value,
@@ -174,8 +171,8 @@ class BackgroundRunCancelTests(unittest.TestCase):
         )
         self.assertLess(
             states.index(RunState.CANCEL_REQUESTED.value),
-            states.index(RunState.CANCELLED.value),
-            "the request must be recorded before the confirmation",
+            states.index(RunState.NEEDS_ATTENTION.value),
+            "the request must be recorded before the unresolved outcome",
         )
 
     def test_the_history_records_the_request_before_the_confirmation(self) -> None:

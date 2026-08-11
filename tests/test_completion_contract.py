@@ -173,6 +173,15 @@ def test_typed_provider_failure_preserves_its_actionable_user_message() -> None:
             CompletionVerdict.BLOCKED,
             "permission_required",
         ),
+        (
+            {
+                "status": "needs_attention",
+                "completion_state": "needs_attention",
+                "stopped_reason": "cancellation_unconfirmed",
+            },
+            CompletionVerdict.NEEDS_ATTENTION,
+            "cancellation_unconfirmed",
+        ),
     ],
 )
 def test_terminal_verdicts_have_typed_reason_codes(
@@ -404,6 +413,25 @@ def test_pipeline_timeout_preserves_the_timeout_verdict() -> None:
 
     assert result["completion_verdict"]["verdict"] == "timeout"
     assert result["completion_verdict"]["reason_code"] == "timeout"
+
+
+def test_active_task_deadline_has_cause_specific_completion_guidance() -> None:
+    result = evaluate_completion(
+        objective_from_request("Implement the feature.", mode="implement"),
+        {
+            "status": "failed",
+            "completion_state": "timeout",
+            "stopped_reason": "task_deadline",
+            "changed_files": ["feature.py"],
+        },
+    )
+
+    assert result.verdict is CompletionVerdict.TIMEOUT
+    assert result.reason_code == "task_deadline"
+    assert "provider" not in result.reason.lower()
+    assert "retained" in result.reason.lower()
+    assert "smaller" not in result.next_action.lower()
+    assert "reconcile" in result.next_action.lower()
 
 
 def test_blocked_terminal_run_persists_a_verdict_even_without_a_task_outcome() -> None:

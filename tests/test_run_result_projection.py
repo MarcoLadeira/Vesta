@@ -124,7 +124,7 @@ class MutatingCompletionTests(unittest.TestCase):
 
 
 class NonCompletedTerminalTests(unittest.TestCase):
-    def test_cancelled_never_requires_delivery_or_economics_evidence(self) -> None:
+    def test_cancelled_requires_observed_teardown_evidence(self) -> None:
         result = project_run_result(
             verdict=_verdict(
                 CompletionVerdict.CANCELLED, reason_code="cancelled_by_user"
@@ -132,7 +132,26 @@ class NonCompletedTerminalTests(unittest.TestCase):
             final_transition_at="2026-08-03T10:00:00+00:00",
             mutating=True,
         )
+        self.assertEqual(result.lifecycle["state"], "needs_attention")
+        self.assertEqual(result.recovery["reason"], "manual_review")
+
+    def test_observed_teardown_preserves_cancelled_and_references_its_journal(
+        self,
+    ) -> None:
+        result = project_run_result(
+            verdict=_verdict(
+                CompletionVerdict.CANCELLED, reason_code="cancelled_by_user"
+            ),
+            final_transition_at="2026-08-03T10:00:00+00:00",
+            mutating=True,
+            cancellation={"scope_id": "run-7", "phase": "terminated"},
+        )
         self.assertEqual(result.lifecycle["state"], "cancelled")
+        self.assertEqual(result.authority["cancellation"]["phase"], "terminated")
+        self.assertEqual(
+            result.authority["cancellation"]["record_ref"],
+            {"kind": "cancellation_journal", "id": "run-7"},
+        )
 
     def test_failed_never_requires_delivery_or_economics_evidence(self) -> None:
         result = project_run_result(
@@ -153,6 +172,38 @@ class NonCompletedTerminalTests(unittest.TestCase):
         self.assertEqual(result.lifecycle["state"], "timeout")
         self.assertTrue(result.recovery["automatic_retry"])
         self.assertEqual(result.recovery["reason"], "timeout")
+
+    def test_task_deadline_references_provenance_and_forbids_automatic_retry(
+        self,
+    ) -> None:
+        result = project_run_result(
+            verdict=_verdict(
+                CompletionVerdict.TIMEOUT,
+                reason_code="task_deadline",
+                reason="Task deadline reached while work was active.",
+            ),
+            final_transition_at="2026-08-03T10:00:00+00:00",
+            mutating=True,
+            automatic_retry=True,
+            retry_reason="timeout",
+            timeout={
+                "timeout_origin": "task_deadline",
+                "owner": "account_runner",
+                "provider_condition": "responsive",
+                "retry_safety": "reconcile_before_retry",
+            },
+            timeout_ref=("usage_ledger", "17:taskhash"),
+        )
+
+        self.assertEqual(result.lifecycle["state"], "timeout")
+        self.assertFalse(result.recovery["automatic_retry"])
+        self.assertEqual(result.recovery["reason"], "manual_review")
+        self.assertEqual(result.authority["timeout"]["origin"], "task_deadline")
+        self.assertEqual(
+            result.authority["timeout"]["record_ref"],
+            {"kind": "usage_ledger", "id": "17:taskhash"},
+        )
+        self.assertIn("task_deadline", result.diagnostics["codes"])
 
     def test_completed_can_never_carry_automatic_retry(self) -> None:
         # RunResult itself refuses this combination; the projector's own
