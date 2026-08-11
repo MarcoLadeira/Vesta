@@ -29,6 +29,28 @@ def _load_ci_local_module():
 
 
 class LocalCiEvidenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # GitHub Actions exports CI=true for every step, and ci_local reads it
+        # (`explicit_required=bool(os.environ.get("CI"))`) to decide a run must
+        # name its candidate SHA explicitly. These tests call ci.main() in this
+        # process and deliberately omit --candidate-sha, so the inherited marker
+        # made every one of them fail on `candidate_sha_missing` before the
+        # behaviour under test ever ran: green on a developer machine, red on
+        # hosted CI, for reasons having nothing to do with the assertion.
+        #
+        # Scrub the ambient markers here rather than per test, so a test added
+        # later cannot silently reintroduce the divergence. Tests that want CI
+        # semantics set CI themselves with an explicit patch.dict.
+        super().setUp()
+        hermetic = {
+            key: value
+            for key, value in os.environ.items()
+            if key != "CI" and not key.startswith("GITHUB_")
+        }
+        ambient = mock.patch.dict(os.environ, hermetic, clear=True)
+        ambient.start()
+        self.addCleanup(ambient.stop)
+
     def test_required_missing_executable_fails_instead_of_becoming_a_green_skip(self):
         ci = _load_ci_local_module()
         step = ci.Step("missing executable", ["opai-tool-that-does-not-exist"])

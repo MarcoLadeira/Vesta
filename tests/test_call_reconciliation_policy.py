@@ -11,6 +11,7 @@ import os
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 from opaihub.call_reconciliation import (
     ABANDON_AFTER_SECONDS,
@@ -242,6 +243,27 @@ class LivenessProbeTests(unittest.TestCase):
         # it does the honest answers are True or None -- what must never happen
         # is an exception.
         self.assertIn(pid_is_running(4_000_000_000), (True, False, None))
+
+    def test_a_pid_beyond_posix_range_is_dead_not_an_exception(self) -> None:
+        """The POSIX branch must survive a pid larger than pid_t.
+
+        pid_t is a signed 32-bit int, so os.kill(4_000_000_000, 0) raises
+        OverflowError before the kernel is ever asked. OverflowError is an
+        ArithmeticError, not an OSError, so it escaped the handler chain and
+        propagated out of a function documented never to raise -- but only on
+        Linux, because Windows answers from its own probe and never reaches
+        os.kill. The test above therefore could not catch it on a Windows
+        machine, so drive the POSIX branch explicitly on every platform.
+        """
+
+        def _overflow(*_args: object, **_kwargs: object) -> None:
+            raise OverflowError("signed integer is greater than maximum")
+
+        with (
+            mock.patch.object(sys, "platform", "linux"),
+            mock.patch.object(os, "kill", _overflow),
+        ):
+            self.assertIs(pid_is_running(4_000_000_000), False)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows probe")
     def test_windows_probe_never_signals_the_process(self) -> None:

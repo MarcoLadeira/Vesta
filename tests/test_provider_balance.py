@@ -172,9 +172,30 @@ class SnapshotShapeTests(unittest.TestCase):
             raw = (root / ".opaihub" / "health" / "provider_balance.json").read_text(
                 encoding="utf-8"
             )
-            self.assertNotIn("sk-secret", raw)
-            self.assertNotIn("429", raw)
             data = json.loads(raw)
+
+            # Scan the persisted *strings*, not the serialized bytes. The file
+            # also carries a float epoch, and "429" occurs inside an ordinary
+            # timestamp about once in a few hundred runs -- 1786442940 is one,
+            # and it failed this test on hosted CI. That is the clock, not a
+            # leak, and a leak check that fires on the clock trains people to
+            # rerun the job. Numbers are allowed here by construction; what
+            # must never appear is caller free text.
+            def _strings(value: object):
+                if isinstance(value, str):
+                    yield value
+                elif isinstance(value, dict):
+                    for key, item in value.items():
+                        yield str(key)
+                        yield from _strings(item)
+                elif isinstance(value, list):
+                    for item in value:
+                        yield from _strings(item)
+
+            persisted = list(_strings(data))
+            for text in persisted:
+                for token in ("sk-secret", "429", "leaked", "HTTP"):
+                    self.assertNotIn(token, text)
             self.assertEqual(data["kimi"]["exhausted_source"], "observed")
 
     def test_display_names_and_hints_cover_known_providers(self):

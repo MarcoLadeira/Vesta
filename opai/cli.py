@@ -966,10 +966,57 @@ _HOOK_BLOCK_REASON_PUSH_APPROVAL = (
 )
 
 _PUSH_COMMAND = re.compile(r"\bgit\s+push\b", re.IGNORECASE)
-_DIRECT_PR_COMMENT_COMMAND = re.compile(
-    r"^\s*gh(?:\.exe)?\s+pr\s+comment(?:\s|$)", re.IGNORECASE
+
+# Outward-facing GitHub writes that a user can sensibly approve once, and that
+# OPai should therefore *ask* about rather than refuse outright.
+#
+# `gh pr create` was previously classified as destructive/confirmation-only with
+# no consent channel, so a finished branch could be pushed and then hit a hard
+# wall: the model was told to stop and not work around it, and the user was left
+# to open the PR by hand. Nothing about opening a pull request is irreversible --
+# it is a request for review on a branch that already exists -- so it belongs in
+# the same one-shot approval channel as `gh pr comment`, not in the same class as
+# a force push.
+#
+# Deliberately an allowlist of read-modify-request verbs. Anything that merges,
+# closes, deletes or changes repository settings stays out: those are not "ask
+# once", they are decisions the user makes themselves.
+_APPROVABLE_GH_COMMAND = re.compile(
+    r"^\s*gh(?:\.exe)?\s+(?:"
+    r"pr\s+(?:create|comment|ready)"
+    r"|issue\s+(?:create|comment)"
+    r")(?:\s|$)",
+    re.IGNORECASE,
 )
 _SHELL_OPERATORS = re.compile(r"[|&;<>`]|\$\(|\$\{")
+
+#: Why each approvable command is outward-facing, in the user's terms. Keyed by
+#: the `gh` subcommand so the approval card can say what will actually happen
+#: instead of "a command needs approval".
+_APPROVABLE_GH_REASONS = (
+    (
+        "pr create",
+        "Opening a pull request asks your collaborators to review this branch.",
+    ),
+    ("pr comment", "Posting this comment changes the pull request conversation."),
+    ("pr ready", "Marking this pull request ready requests review from collaborators."),
+    (
+        "issue create",
+        "Creating an issue is visible to everyone with repository access.",
+    ),
+    ("issue comment", "Posting this comment changes the issue conversation."),
+)
+
+
+def _approvable_gh_reason(command: str) -> str:
+    """The user-facing sentence for an approvable GitHub command."""
+
+    text = " ".join(str(command or "").split()).lower()
+    for prefix, reason in _APPROVABLE_GH_REASONS:
+        if f"gh {prefix}" in text or f"gh.exe {prefix}" in text:
+            return reason
+    return "This command performs an outward-facing GitHub action."
+
 
 _HOOK_BLOCK_REASON_COMMAND_APPROVAL = (
     "OPai safety gate: this outward-facing command needs the user's one-time "
@@ -988,18 +1035,20 @@ def _is_plain_push(command: str) -> bool:
     return is_plain_push(command)
 
 
-def _is_direct_pr_comment(command: str) -> bool:
-    """True for a direct, unchained ``gh pr comment`` shell invocation.
+def _is_approvable_gh_command(command: str) -> bool:
+    """True for a direct, unchained GitHub command a user can approve once.
 
-    The provider hook receives the entire shell string, including quoted comment
-    bodies. Looking for ``git push`` anywhere in that string therefore treats
-    ordinary prose as a push. Keep this deliberately narrow: only a command
-    whose executable is ``gh pr comment`` and which carries no shell operators
-    may enter the one-shot approval channel.
+    The provider hook receives the entire shell string, including quoted PR and
+    comment bodies. Matching anywhere in that string would treat ordinary prose
+    as a command, so this stays deliberately narrow: the *executable* must be
+    one of the allowlisted `gh` verbs and the string must carry no shell
+    operators. A body containing `&&` or a backtick keeps the command out of the
+    approval channel rather than letting it smuggle a second command through an
+    approval.
     """
 
     text = str(command or "")
-    return bool(_DIRECT_PR_COMMENT_COMMAND.match(text)) and not bool(
+    return bool(_APPROVABLE_GH_COMMAND.match(text)) and not bool(
         _SHELL_OPERATORS.search(text)
     )
 
@@ -1034,11 +1083,22 @@ def _hook_block_reason(command: str, detail: str) -> str:
     """
     text = str(command or "")
     if _PUSH_COMMAND.search(text):
+        from opaihub.command_consent import is_history_rewriting_push
+
+        # Judge the command, not the consent flag. This previously read
+        # "consent is on" as "therefore it must be a force push", so with
+        # pushing enabled an ordinary `git push origin my-branch` was told it
+        # "rewrites or removes remote history" and that no consent could ever
+        # unlock it -- false, and a dead end the user could not clear.
+        if is_history_rewriting_push(text):
+            return _HOOK_BLOCK_REASON_FORCE_PUSH.format(detail=detail)
         consented, _ = _push_consent_state()
-        template = (
-            _HOOK_BLOCK_REASON_FORCE_PUSH if consented else _HOOK_BLOCK_REASON_PUSH
-        )
-        return template.format(detail=detail)
+        if consented:
+            # Enabled, safe shape, but not approved yet: the one block with a
+            # way forward, so point at the approval card rather than at a
+            # toggle that is already on.
+            return _HOOK_BLOCK_REASON_PUSH_APPROVAL.format(detail=detail)
+        return _HOOK_BLOCK_REASON_PUSH.format(detail=detail)
     return _HOOK_BLOCK_REASON.format(detail=detail)
 
 
@@ -1104,21 +1164,21 @@ def claude_pre_tool_decision(
         return _hook_deny(
             _HOOK_BLOCK_REASON.format(detail="no inspectable command in payload")
         )
-    # A PR comment is outward-facing, but an explicit one-shot approval is the
-    # right boundary — a terminal destructive block leaves a requested comment
-    # impossible to complete through the GUI. Check the actual invoked command
-    # before scanning broader policy text so a quoted ``git push`` in the
-    # comment body cannot be mistaken for a push operation.
-    if _is_direct_pr_comment(command):
+    # These GitHub commands are outward-facing, but an explicit one-shot
+    # approval is the right boundary — a terminal destructive block leaves the
+    # requested action impossible to complete through the GUI, which is exactly
+    # what happened to `gh pr create`: a finished, pushed branch with no way to
+    # open its pull request. Check the actual invoked command before scanning
+    # broader policy text so a quoted ``git push`` inside a PR body cannot be
+    # mistaken for a push operation.
+    if _is_approvable_gh_command(command):
         if command_consent.consume_grant(command):
             return _hook_allow()
-        reason = _HOOK_BLOCK_REASON_COMMAND_APPROVAL.format(
-            detail="posting a comment changes the pull request conversation"
+        why = _approvable_gh_reason(command)
+        command_consent.record_pending(command, why)
+        return _hook_deny(
+            _HOOK_BLOCK_REASON_COMMAND_APPROVAL.format(detail=why.rstrip("."))
         )
-        command_consent.record_pending(
-            command, "Posting this comment changes the pull request conversation."
-        )
-        return _hook_deny(reason)
     if _is_plain_push(command) and _push_consent_state()[0]:
         if command_consent.consume_grant(command):
             return _hook_allow()
