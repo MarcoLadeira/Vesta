@@ -38,3 +38,7 @@ id_rsa*
 # Generated per-launch cache-busted GUI index (opai/gui_web.py)
 opai/assets/web/.runtime-index.html
 .worktrees
+
+# #618: machine-readable Playwright result, read by ci_local for diagnostics.
+# Regenerated per run; never committed.
+playwright-results.json
