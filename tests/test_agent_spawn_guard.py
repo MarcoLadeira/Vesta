@@ -136,11 +136,14 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
                     self.assertEqual(result["decision"], "approve")
 
     def test_destructive_commands_block_with_explanatory_message(self):
+        # `gh issue comment` and `gh pr create` deliberately left this list:
+        # both are reversible outward actions, so they now reach the one-time
+        # approval card instead of a dead end (see
+        # test_opening_a_pull_request_asks_instead_of_dead_ending). What remains
+        # here is the class the user must perform themselves.
         blocked = (
             "gh issue close 219 --comment done",
-            "gh issue comment 219 --body hi",
             "gh pr merge 5",
-            "gh pr create --title x --body y",
             "git reset --hard HEAD~1",
             "rm -rf /tmp/x",
         )
@@ -271,6 +274,83 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
             pending = command_consent.take_pending()
             self.assertIsNotNone(pending)
             self.assertEqual(pending["command"], command)
+
+    def test_opening_a_pull_request_asks_instead_of_dead_ending(self):
+        """Reported: a finished, pushed branch could not have its PR opened.
+
+        `gh pr create` was classified destructive/confirmation-only with no
+        consent channel, so the run stopped at a wall and the user had to open
+        the PR by hand. Opening a pull request is a request for review on a
+        branch that already exists -- reversible, and exactly what a one-time
+        approval is for.
+        """
+        command = (
+            "gh pr create --repo MarcoLadeira/OPai --base main "
+            "--head docs/252-refresh --title 'docs: refresh'"
+        )
+        with _hermetic_hub(), _consent_store():
+            from opaihub import command_consent
+
+            result = claude_pre_tool_decision(_hook_payload(command))
+            self.assertEqual(_decision_of(result), "deny")
+            reason = _reason_of(result)
+            self.assertIn("one-time approval", reason)
+            # It must say what will happen, not "a command needs approval".
+            self.assertIn("pull request", reason.lower())
+            pending = command_consent.take_pending()
+            self.assertIsNotNone(pending)
+            self.assertEqual(pending["command"], command)
+
+    def test_an_approved_pull_request_creation_runs_once_and_only_once(self):
+        """Approve once opens the PR; the next attempt has to ask again."""
+        command = "gh pr create --title 'x' --body 'y'"
+        with _hermetic_hub(), _consent_store():
+            from opaihub import command_consent
+
+            command_consent.begin_turn(command)
+            self.assertEqual(
+                _decision_of(claude_pre_tool_decision(_hook_payload(command))), "allow"
+            )
+            self.assertEqual(
+                _decision_of(claude_pre_tool_decision(_hook_payload(command))), "deny"
+            )
+
+    def test_irreversible_github_commands_never_enter_the_approval_channel(self):
+        """Ask-once is for reversible outward actions, not for decisions.
+
+        Merging, closing, deleting a repo or release, and raw destructive API
+        calls are the user's to make: they must stay refused rather than become
+        a card someone clicks through.
+        """
+        for command in (
+            "gh pr merge 5 --squash",
+            "gh pr close 5",
+            "gh repo delete MarcoLadeira/OPai",
+            "gh release delete v1",
+            "gh api -X DELETE repos/x/y",
+        ):
+            with self.subTest(command=command):
+                with _hermetic_hub(), _consent_store():
+                    from opaihub import command_consent
+
+                    result = claude_pre_tool_decision(_hook_payload(command))
+                    self.assertEqual(_decision_of(result), "deny")
+                    self.assertIsNone(command_consent.take_pending())
+
+    def test_an_approvable_command_cannot_carry_a_second_command(self):
+        """An approval to open a PR may never also run something else."""
+        for command in (
+            "gh pr create --title 'x' && rm -rf .",
+            'gh pr create --body "`whoami`"',
+            "gh pr create --title 'x' | tee /tmp/out",
+        ):
+            with self.subTest(command=command):
+                with _hermetic_hub(), _consent_store():
+                    from opaihub import command_consent
+
+                    result = claude_pre_tool_decision(_hook_payload(command))
+                    self.assertEqual(_decision_of(result), "deny")
+                    self.assertIsNone(command_consent.take_pending())
 
     def test_quoted_push_words_in_pr_comment_are_not_a_force_push(self):
         """Only the invoked command, never its comment text, drives push policy."""
