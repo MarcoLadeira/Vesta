@@ -2363,12 +2363,26 @@ class AccountRunner:
         guard_active = structured and allow_edits and mode in {"safe-auto", "full-auto"}
         # Retained env name for operator compatibility; it is now the absolute
         # ceiling rather than the first thing that fires.
-        exploration_ceiling = _guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60)
+        #
+        # It must be far above any legitimate investigation, because stagnation
+        # is what stops unproductive runs now. Leaving this at the old 60 kept
+        # the original bug alive under a new name: the witness run reached 60
+        # steps while still learning and was stopped anyway, having been told
+        # only that the label had changed. A run that keeps producing new
+        # evidence for 400 steps is doing something real; a loop never gets
+        # near this because it stagnates within ~13.
+        exploration_ceiling = _guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 400)
         stagnation_patience = _guard_int_env("OPAI_NO_PROGRESS_PATIENCE", 12)
+        # Time *without progress*, which is what the name says. It used to be
+        # total elapsed time, so a run learning steadily for ten minutes was
+        # stopped for taking ten minutes. The witness run was 87 seconds away
+        # from hitting that too.
         no_progress_seconds = _guard_int_env("OPAI_NO_PROGRESS_SECONDS", 600)
         step_ids: set[str] = set()
         edit_attempted = False
         progress = ProgressLedger()
+        last_progress_at = time.monotonic()
+        no_progress_trigger = ""
         _STEP_TYPES = {
             "tool_call",
             "file_read",
@@ -2423,28 +2437,36 @@ class AccountRunner:
                         if etype == "file_edit":
                             edit_attempted = True
                         progress.record(_progress_observation(event, etype))
+                        if progress.steps_since_best == 0:
+                            # A new high score: the run just learned something,
+                            # so the no-progress clock restarts here rather
+                            # than running against total elapsed time.
+                            last_progress_at = time.monotonic()
                 if guard_active:
-                    elapsed = time.monotonic() - started
+                    now = time.monotonic()
+                    elapsed = now - started
+                    since_progress = now - last_progress_at
                     stagnant = progress.is_stagnant(patience=stagnation_patience)
                     over_ceiling = (
                         exploration_ceiling > 0 and len(step_ids) >= exploration_ceiling
                     )
                     over_time = (
                         no_progress_seconds > 0
-                        and elapsed >= no_progress_seconds
+                        and since_progress >= no_progress_seconds
                         and len(step_ids) >= 20
                     )
                     if stagnant or over_ceiling or over_time:
                         stopped = "no_progress"
-                        reason = (
-                            "stopped learning"
+                        no_progress_trigger = (
+                            "stagnation"
                             if stagnant
-                            else (
-                                "reached the exploration ceiling"
-                                if over_ceiling
-                                else "ran out of time"
-                            )
+                            else ("exploration_ceiling" if over_ceiling else "time")
                         )
+                        reason = {
+                            "stagnation": "stopped learning",
+                            "exploration_ceiling": "reached the exploration ceiling",
+                            "time": "learned nothing new for too long",
+                        }[no_progress_trigger]
                         _notify(
                             on_event,
                             make_event(
@@ -2457,15 +2479,7 @@ class AccountRunner:
                                 metadata={
                                     "steps": len(step_ids),
                                     "elapsed_s": int(elapsed),
-                                    "trigger": (
-                                        "stagnation"
-                                        if stagnant
-                                        else (
-                                            "exploration_ceiling"
-                                            if over_ceiling
-                                            else "time"
-                                        )
-                                    ),
+                                    "trigger": (no_progress_trigger),
                                     "edit_attempted": edit_attempted,
                                     **progress.summary(),
                                 },
@@ -2606,6 +2620,11 @@ class AccountRunner:
                     "cost": cost,
                     "no_progress": True,
                     "stopped_reason": "no_progress_guard",
+                    # #648: which guard actually fired, so the message the user
+                    # reads names the real cause instead of always blaming a
+                    # missing edit.
+                    "no_progress_trigger": no_progress_trigger,
+                    "progress_evidence": progress.summary(),
                     "tool_steps": len(step_ids),
                     "edit_denials": list(session.edit_denials),
                     "cancellation": cancellation_evidence,
