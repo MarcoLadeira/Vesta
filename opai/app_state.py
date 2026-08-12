@@ -1789,7 +1789,7 @@ def _ask_account(
             else:
                 detail = f"{counted} ran without converging on the objective."
             answer = (
-                f"OPai stopped this run early: {detail} "
+                f"OPai stopped this run early (convergence guard): {detail} "
                 "Refine the request, or re-send to continue from here."
             )
         else:
