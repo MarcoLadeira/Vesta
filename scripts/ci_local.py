@@ -506,6 +506,79 @@ def _missing_environment(step: Step) -> list[str]:
 _DIAGNOSTIC_NOISE = re.compile(r"^\s*(?:\[WebServer\]\s|\[\d+/\d+\]\s)", re.MULTILINE)
 
 
+#: Where playwright.config.js writes its machine-readable result under CI.
+PLAYWRIGHT_RESULTS = ROOT / "playwright-results.json"
+
+
+def _playwright_failures(limit: int = 10) -> list[str]:
+    """The failing specs from Playwright's JSON report, if it wrote one.
+
+    Structured data instead of scraped text. The line reporter emits a test
+    banner, one progress line per test and a webserver access log per asset
+    request, and the failure sits somewhere in the middle -- which is how three
+    successive noise filters each fixed a real symptom and still left a hosted
+    failure unreadable. This reads the answer rather than reconstructing it.
+    """
+
+    try:
+        report = json.loads(PLAYWRIGHT_RESULTS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+    lines: list[str] = []
+
+    def _walk(suite: dict[str, Any], prefix: str) -> None:
+        title = str(suite.get("title") or "")
+        path = f"{prefix} > {title}" if prefix and title else (title or prefix)
+        for spec in suite.get("specs") or ():
+            if spec.get("ok"):
+                continue
+            for test in spec.get("tests") or ():
+                for result in test.get("results") or ():
+                    status = str(result.get("status") or "unknown")
+                    if status in {"passed", "skipped"}:
+                        continue
+                    error = (result.get("error") or {}).get("message") or ""
+                    first = str(error).strip().splitlines()[:1]
+                    lines.append(
+                        f"  {status.upper():<9} {path} > {spec.get('title')}"
+                        f"  ({int(result.get('duration') or 0)}ms"
+                        f", worker {result.get('workerIndex')})"
+                        + (f"\n            {first[0]}" if first else "")
+                    )
+        for child in suite.get("suites") or ():
+            _walk(child, path)
+
+    for suite in report.get("suites") or ():
+        _walk(suite, "")
+
+    stats = report.get("stats") or {}
+    if stats:
+        lines.append(
+            f"  totals: {stats.get('expected', 0)} passed, "
+            f"{stats.get('unexpected', 0)} failed, "
+            f"{stats.get('flaky', 0)} flaky, {stats.get('skipped', 0)} skipped"
+        )
+    return lines[: limit + 1]
+
+
+def _print_structured_playwright_failures(failed_checks: list[dict[str, Any]]) -> None:
+    """Print Playwright's own verdict for a failed web check, when available."""
+
+    if not any(
+        str(check.get("id") or "").startswith("web-e2e") for check in failed_checks
+    ):
+        return
+    failures = _playwright_failures()
+    if not failures:
+        return
+    print("\n" + "-" * 80)
+    print("  FAILED web-e2e -- structured Playwright result")
+    print("-" * 80)
+    for line in failures:
+        print(line, flush=True)
+
+
 def _redact_and_bound(value: str) -> str:
     from opai.provider_contract import redact_secrets
 
@@ -1171,6 +1244,7 @@ def main(argv: list[str] | None = None) -> int:
     # bounded by _redact_and_bound, so echoing it leaks nothing the manifest
     # does not already carry.
     failed = [check for check in checks if check["status"]["outcome"] == "failed"]
+    _print_structured_playwright_failures(failed)
     for check in failed:
         diagnostic = str(check.get("diagnostic") or "").strip()
         if not diagnostic:

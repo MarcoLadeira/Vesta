@@ -1,60 +1,521 @@
 {
   "schema_version": 1,
-  "accepted_legacy_schema_versions": [0],
+  "accepted_legacy_schema_versions": [
+    0
+  ],
   "degraded_inputs": {
-    "unknown_schema_version": {"state": "needs_attention", "compatibility": "incompatible", "automatic_retry": false},
-    "unknown_state": {"state": "needs_attention", "compatibility": "incompatible", "automatic_retry": false},
-    "unknown_status": {"state": "needs_attention", "compatibility": "incompatible", "automatic_retry": false}
+    "unknown_schema_version": {
+      "state": "needs_attention",
+      "compatibility": "incompatible",
+      "automatic_retry": false
+    },
+    "unknown_state": {
+      "state": "needs_attention",
+      "compatibility": "incompatible",
+      "automatic_retry": false
+    },
+    "unknown_status": {
+      "state": "needs_attention",
+      "compatibility": "incompatible",
+      "automatic_retry": false
+    }
   },
   "states": [
-    {"id": "queued", "classification": "active", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "pending", "label": "Queued"},
-    {"id": "preparing", "classification": "active", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "progress", "label": "Preparing"},
-    {"id": "running", "classification": "active", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "progress", "label": "Running"},
-    {"id": "awaiting_input", "classification": "interrupt", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "waiting", "label": "Waiting for you"},
-    {"id": "cancel_requested", "classification": "interrupt", "terminal": false, "cancellation_eligible": false, "requires_reconciliation": false, "exit_code": null, "presentation_category": "stopping", "label": "Stopping"},
-    {"id": "verifying", "classification": "active", "terminal": false, "cancellation_eligible": true, "requires_reconciliation": false, "exit_code": null, "presentation_category": "progress", "label": "Verifying"},
-    {"id": "completed", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 0, "presentation_category": "success", "label": "Completed"},
-    {"id": "partial", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 3, "presentation_category": "warning", "label": "Partially completed"},
-    {"id": "blocked", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 4, "presentation_category": "warning", "label": "Blocked"},
-    {"id": "failed", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 2, "presentation_category": "error", "label": "Failed"},
-    {"id": "cancelled", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 130, "presentation_category": "neutral", "label": "Cancelled"},
-    {"id": "timeout", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 5, "presentation_category": "warning", "label": "Timed out"},
-    {"id": "needs_attention", "classification": "terminal", "terminal": true, "cancellation_eligible": false, "requires_reconciliation": true, "exit_code": 6, "presentation_category": "degraded", "label": "Needs attention"}
+    {
+      "id": "queued",
+      "classification": "active",
+      "terminal": false,
+      "cancellation_eligible": true,
+      "requires_reconciliation": false,
+      "exit_code": null,
+      "presentation_category": "pending",
+      "label": "Queued",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "preparing",
+      "classification": "active",
+      "terminal": false,
+      "cancellation_eligible": true,
+      "requires_reconciliation": false,
+      "exit_code": null,
+      "presentation_category": "progress",
+      "label": "Preparing",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "running",
+      "classification": "active",
+      "terminal": false,
+      "cancellation_eligible": true,
+      "requires_reconciliation": false,
+      "exit_code": null,
+      "presentation_category": "progress",
+      "label": "Running",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "awaiting_input",
+      "classification": "interrupt",
+      "terminal": false,
+      "cancellation_eligible": true,
+      "requires_reconciliation": false,
+      "exit_code": null,
+      "presentation_category": "waiting",
+      "label": "Waiting for you",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "cancel_requested",
+      "classification": "interrupt",
+      "terminal": false,
+      "cancellation_eligible": false,
+      "requires_reconciliation": false,
+      "exit_code": null,
+      "presentation_category": "stopping",
+      "label": "Stopping",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "verifying",
+      "classification": "active",
+      "terminal": false,
+      "cancellation_eligible": true,
+      "requires_reconciliation": false,
+      "exit_code": null,
+      "presentation_category": "progress",
+      "label": "Verifying",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "completed",
+      "classification": "terminal",
+      "terminal": true,
+      "cancellation_eligible": false,
+      "requires_reconciliation": true,
+      "exit_code": 0,
+      "presentation_category": "success",
+      "label": "Completed",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "partial",
+      "classification": "terminal",
+      "terminal": true,
+      "cancellation_eligible": false,
+      "requires_reconciliation": true,
+      "exit_code": 3,
+      "presentation_category": "warning",
+      "label": "Partially completed",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "blocked",
+      "classification": "terminal",
+      "terminal": true,
+      "cancellation_eligible": false,
+      "requires_reconciliation": true,
+      "exit_code": 4,
+      "presentation_category": "warning",
+      "label": "Blocked",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "failed",
+      "classification": "terminal",
+      "terminal": true,
+      "cancellation_eligible": false,
+      "requires_reconciliation": true,
+      "exit_code": 2,
+      "presentation_category": "error",
+      "label": "Failed",
+      "automatic_retry_eligible": true
+    },
+    {
+      "id": "cancelled",
+      "classification": "terminal",
+      "terminal": true,
+      "cancellation_eligible": false,
+      "requires_reconciliation": true,
+      "exit_code": 130,
+      "presentation_category": "neutral",
+      "label": "Cancelled",
+      "automatic_retry_eligible": false
+    },
+    {
+      "id": "timeout",
+      "classification": "terminal",
+      "terminal": true,
+      "cancellation_eligible": false,
+      "requires_reconciliation": true,
+      "exit_code": 5,
+      "presentation_category": "warning",
+      "label": "Timed out",
+      "automatic_retry_eligible": true
+    },
+    {
+      "id": "needs_attention",
+      "classification": "terminal",
+      "terminal": true,
+      "cancellation_eligible": false,
+      "requires_reconciliation": true,
+      "exit_code": 6,
+      "presentation_category": "degraded",
+      "label": "Needs attention",
+      "automatic_retry_eligible": false
+    }
   ],
   "reason_classes": [
-    {"id": "lifecycle_progress", "requires_detail": false, "description": "Normal forward lifecycle progress."},
-    {"id": "input_requested", "requires_detail": true, "description": "The run paused for user input or authority."},
-    {"id": "input_resumed", "requires_detail": false, "description": "User input resumed the same run."},
-    {"id": "cancellation_requested", "requires_detail": false, "description": "Cancellation was acknowledged but teardown is not reconciled."},
-    {"id": "terminal_resolution", "requires_detail": true, "description": "Observed evidence reconciled the run to a terminal result."},
-    {"id": "verification_repair", "requires_detail": true, "description": "Verification found work that must return to execution for repair."}
+    {
+      "id": "lifecycle_progress",
+      "requires_detail": false,
+      "description": "Normal forward lifecycle progress."
+    },
+    {
+      "id": "input_requested",
+      "requires_detail": true,
+      "description": "The run paused for user input or authority."
+    },
+    {
+      "id": "input_resumed",
+      "requires_detail": false,
+      "description": "User input resumed the same run."
+    },
+    {
+      "id": "cancellation_requested",
+      "requires_detail": false,
+      "description": "Cancellation was acknowledged but teardown is not reconciled."
+    },
+    {
+      "id": "terminal_resolution",
+      "requires_detail": true,
+      "description": "Observed evidence reconciled the run to a terminal result."
+    },
+    {
+      "id": "verification_repair",
+      "requires_detail": true,
+      "description": "Verification found work that must return to execution for repair."
+    }
   ],
   "transitions": [
-    {"from": "queued", "to": ["preparing"], "reason": "lifecycle_progress", "creates_new_attempt": true, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
-    {"from": "queued", "to": ["running", "verifying"], "reason": "lifecycle_progress", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
-    {"from": "queued", "to": ["awaiting_input"], "reason": "input_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
-    {"from": "queued", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
-    {"from": "queued", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
-
-    {"from": "preparing", "to": ["running", "verifying"], "reason": "lifecycle_progress", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
-    {"from": "preparing", "to": ["awaiting_input"], "reason": "input_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
-    {"from": "preparing", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
-    {"from": "preparing", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
-
-    {"from": "running", "to": ["verifying"], "reason": "lifecycle_progress", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "pending", "delivery": "not_required", "reconciliation": "not_required"}},
-    {"from": "running", "to": ["awaiting_input"], "reason": "input_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
-    {"from": "running", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
-    {"from": "running", "to": ["completed", "partial", "blocked", "failed", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
-
-    {"from": "awaiting_input", "to": ["queued", "preparing", "running"], "reason": "input_resumed", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "not_required"}},
-    {"from": "awaiting_input", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "not_required", "delivery": "not_required", "reconciliation": "pending"}},
-    {"from": "awaiting_input", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required_if_applicable", "delivery": "required_if_applicable", "reconciliation": "required"}},
-
-    {"from": "verifying", "to": ["running"], "reason": "verification_repair", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "repair_required", "delivery": "not_required", "reconciliation": "not_required"}},
-    {"from": "verifying", "to": ["cancel_requested"], "reason": "cancellation_requested", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "recorded_if_available", "delivery": "not_required", "reconciliation": "pending"}},
-    {"from": "verifying", "to": ["completed", "partial", "blocked", "failed", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": true, "guards": {"verification": "required", "delivery": "required_if_applicable", "reconciliation": "required"}},
-
-    {"from": "cancel_requested", "to": ["completed", "partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"], "reason": "terminal_resolution", "creates_new_attempt": false, "cancellation_eligible": false, "guards": {"verification": "recorded_if_available", "delivery": "recorded_if_available", "reconciliation": "required"}}
+    {
+      "from": "queued",
+      "to": [
+        "preparing"
+      ],
+      "reason": "lifecycle_progress",
+      "creates_new_attempt": true,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "not_required"
+      }
+    },
+    {
+      "from": "queued",
+      "to": [
+        "running",
+        "verifying"
+      ],
+      "reason": "lifecycle_progress",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "not_required"
+      }
+    },
+    {
+      "from": "queued",
+      "to": [
+        "awaiting_input"
+      ],
+      "reason": "input_requested",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "not_required"
+      }
+    },
+    {
+      "from": "queued",
+      "to": [
+        "cancel_requested"
+      ],
+      "reason": "cancellation_requested",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "pending"
+      }
+    },
+    {
+      "from": "queued",
+      "to": [
+        "completed",
+        "partial",
+        "blocked",
+        "failed",
+        "cancelled",
+        "timeout",
+        "needs_attention"
+      ],
+      "reason": "terminal_resolution",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "required_if_applicable",
+        "delivery": "required_if_applicable",
+        "reconciliation": "required"
+      }
+    },
+    {
+      "from": "preparing",
+      "to": [
+        "running",
+        "verifying"
+      ],
+      "reason": "lifecycle_progress",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "not_required"
+      }
+    },
+    {
+      "from": "preparing",
+      "to": [
+        "awaiting_input"
+      ],
+      "reason": "input_requested",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "not_required"
+      }
+    },
+    {
+      "from": "preparing",
+      "to": [
+        "cancel_requested"
+      ],
+      "reason": "cancellation_requested",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "pending"
+      }
+    },
+    {
+      "from": "preparing",
+      "to": [
+        "completed",
+        "partial",
+        "blocked",
+        "failed",
+        "cancelled",
+        "timeout",
+        "needs_attention"
+      ],
+      "reason": "terminal_resolution",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "required_if_applicable",
+        "delivery": "required_if_applicable",
+        "reconciliation": "required"
+      }
+    },
+    {
+      "from": "running",
+      "to": [
+        "verifying"
+      ],
+      "reason": "lifecycle_progress",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "pending",
+        "delivery": "not_required",
+        "reconciliation": "not_required"
+      }
+    },
+    {
+      "from": "running",
+      "to": [
+        "awaiting_input"
+      ],
+      "reason": "input_requested",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "not_required"
+      }
+    },
+    {
+      "from": "running",
+      "to": [
+        "cancel_requested"
+      ],
+      "reason": "cancellation_requested",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "pending"
+      }
+    },
+    {
+      "from": "running",
+      "to": [
+        "completed",
+        "partial",
+        "blocked",
+        "failed",
+        "timeout",
+        "needs_attention"
+      ],
+      "reason": "terminal_resolution",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "required_if_applicable",
+        "delivery": "required_if_applicable",
+        "reconciliation": "required"
+      }
+    },
+    {
+      "from": "awaiting_input",
+      "to": [
+        "queued",
+        "preparing",
+        "running"
+      ],
+      "reason": "input_resumed",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "not_required"
+      }
+    },
+    {
+      "from": "awaiting_input",
+      "to": [
+        "cancel_requested"
+      ],
+      "reason": "cancellation_requested",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "not_required",
+        "delivery": "not_required",
+        "reconciliation": "pending"
+      }
+    },
+    {
+      "from": "awaiting_input",
+      "to": [
+        "completed",
+        "partial",
+        "blocked",
+        "failed",
+        "cancelled",
+        "timeout",
+        "needs_attention"
+      ],
+      "reason": "terminal_resolution",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "required_if_applicable",
+        "delivery": "required_if_applicable",
+        "reconciliation": "required"
+      }
+    },
+    {
+      "from": "verifying",
+      "to": [
+        "running"
+      ],
+      "reason": "verification_repair",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "repair_required",
+        "delivery": "not_required",
+        "reconciliation": "not_required"
+      }
+    },
+    {
+      "from": "verifying",
+      "to": [
+        "cancel_requested"
+      ],
+      "reason": "cancellation_requested",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "recorded_if_available",
+        "delivery": "not_required",
+        "reconciliation": "pending"
+      }
+    },
+    {
+      "from": "verifying",
+      "to": [
+        "completed",
+        "partial",
+        "blocked",
+        "failed",
+        "timeout",
+        "needs_attention"
+      ],
+      "reason": "terminal_resolution",
+      "creates_new_attempt": false,
+      "cancellation_eligible": true,
+      "guards": {
+        "verification": "required",
+        "delivery": "required_if_applicable",
+        "reconciliation": "required"
+      }
+    },
+    {
+      "from": "cancel_requested",
+      "to": [
+        "completed",
+        "partial",
+        "blocked",
+        "failed",
+        "cancelled",
+        "timeout",
+        "needs_attention"
+      ],
+      "reason": "terminal_resolution",
+      "creates_new_attempt": false,
+      "cancellation_eligible": false,
+      "guards": {
+        "verification": "recorded_if_available",
+        "delivery": "recorded_if_available",
+        "reconciliation": "required"
+      }
+    }
   ],
   "legacy_mappings": {
     "states": {
@@ -120,18 +581,54 @@
     }
   },
   "background_compatibility": {
-    "description": "The pre-#379 background-automation status vocabulary (opaihub/background_runs.py). #612 requires this projection to be generated, not hand-maintained: it drifted behind RunState and crashed a worker thread on needs_attention (PR #668). state_to_status is validated as TOTAL over every state, and as terminality-consistent with it, at generation time — so both a missing mapping and a mapping that would report a live run as ended now fail the build instead of surfacing at runtime. awaiting_input maps to the non-terminal 'running' for exactly that reason: it is a live, resumable state, and the previous hand-maintained 'blocked' told pre-#379 readers the run had ended. Background runs convert AWAITING_INPUT to canonical BLOCKED themselves (background_runs._terminal_from_payload) before persisting, so that entry is latent — but a latent lie is still a lie.",
+    "description": "The pre-#379 background-automation status vocabulary (opaihub/background_runs.py). #612 requires this projection to be generated, not hand-maintained: it drifted behind RunState and crashed a worker thread on needs_attention (PR #668). state_to_status is validated as TOTAL over every state, and as terminality-consistent with it, at generation time \u2014 so both a missing mapping and a mapping that would report a live run as ended now fail the build instead of surfacing at runtime. awaiting_input maps to the non-terminal 'running' for exactly that reason: it is a live, resumable state, and the previous hand-maintained 'blocked' told pre-#379 readers the run had ended. Background runs convert AWAITING_INPUT to canonical BLOCKED themselves (background_runs._terminal_from_payload) before persisting, so that entry is latent \u2014 but a latent lie is still a lie.",
     "fallback_status": "blocked",
     "statuses": {
-      "queued": {"terminal": false, "state": "queued", "default_reason": "queued"},
-      "running": {"terminal": false, "state": "running", "default_reason": "execution_started"},
-      "completed": {"terminal": true, "state": "completed", "default_reason": "background_completed"},
-      "partial": {"terminal": true, "state": "partial", "default_reason": "background_partial"},
-      "failed": {"terminal": true, "state": "failed", "default_reason": "background_failed"},
-      "cancelled": {"terminal": true, "state": "cancelled", "default_reason": "cancelled_by_user"},
-      "blocked": {"terminal": true, "state": "blocked", "default_reason": "background_blocked"},
-      "timeout": {"terminal": true, "state": "timeout", "default_reason": "background_timeout"},
-      "interrupted": {"terminal": true, "state": "failed", "default_reason": "interrupted"}
+      "queued": {
+        "terminal": false,
+        "state": "queued",
+        "default_reason": "queued"
+      },
+      "running": {
+        "terminal": false,
+        "state": "running",
+        "default_reason": "execution_started"
+      },
+      "completed": {
+        "terminal": true,
+        "state": "completed",
+        "default_reason": "background_completed"
+      },
+      "partial": {
+        "terminal": true,
+        "state": "partial",
+        "default_reason": "background_partial"
+      },
+      "failed": {
+        "terminal": true,
+        "state": "failed",
+        "default_reason": "background_failed"
+      },
+      "cancelled": {
+        "terminal": true,
+        "state": "cancelled",
+        "default_reason": "cancelled_by_user"
+      },
+      "blocked": {
+        "terminal": true,
+        "state": "blocked",
+        "default_reason": "background_blocked"
+      },
+      "timeout": {
+        "terminal": true,
+        "state": "timeout",
+        "default_reason": "background_timeout"
+      },
+      "interrupted": {
+        "terminal": true,
+        "state": "failed",
+        "default_reason": "interrupted"
+      }
     },
     "state_to_status": {
       "queued": "queued",

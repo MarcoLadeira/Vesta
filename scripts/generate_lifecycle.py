@@ -61,6 +61,14 @@ def _validate_schema(schema: Mapping[str, Any]) -> None:
             "exit_code",
             "presentation_category",
             "label",
+            # #618: whether a terminal state may be retried automatically.
+            # This lived in run_result._AUTOMATIC_RETRY_STATES as a hand-kept
+            # frozenset -- a second place deciding lifecycle meaning, which is
+            # the split authority #618 exists to remove. It is not derivable
+            # from the existing fields: every terminal state shares
+            # classification=terminal and requires_reconciliation=True, so it
+            # must be stated per state and generated like everything else.
+            "automatic_retry_eligible",
         }
         missing = required - state.keys()
         if missing:

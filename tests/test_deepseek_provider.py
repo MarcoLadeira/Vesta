@@ -41,6 +41,32 @@ class CredentialTests(unittest.TestCase):
 class PricingTests(unittest.TestCase):
     """Real, sourced numbers — see deepseek_pricing.SOURCE/OBSERVED_AT."""
 
+    def setUp(self) -> None:
+        """Pin snapshot freshness so these test arithmetic, not the calendar.
+
+        `deepseek_pricing.EXPIRY` is a real date, and once it passes every
+        estimate is correctly relabelled `estimated_stale`. These tests assert
+        the *fresh* labels (`estimated`, `derived`), so without a pinned clock
+        they were scheduled to fail on the expiry date -- and did. Four went red
+        the moment EXPIRY was reached, on main as well as here, with nothing
+        about the pricing logic having changed.
+
+        The product behaviour is right: an expired snapshot should say so rather
+        than quietly present old prices as current. What was wrong is a test
+        suite that read the wall clock to decide what it expected. The stale
+        path stays covered by the test below, which pins expiry the other way.
+
+        The snapshot itself still needs re-sourcing against DeepSeek's current
+        published prices. That needs real pricing data -- inventing a later
+        EXPIRY here would fake exactly the freshness this label exists to
+        report honestly.
+        """
+
+        super().setUp()
+        fresh = mock.patch("opaihub.deepseek_pricing.is_expired", lambda **_: False)
+        fresh.start()
+        self.addCleanup(fresh.stop)
+
     def test_known_model_prices_are_positive_and_pro_costs_more_than_flash(self):
         flash_cost, _ = deepseek_pricing.estimate_cost_usd(
             "deepseek-v4-flash", input_tokens=1_000_000, output_tokens=1_000_000

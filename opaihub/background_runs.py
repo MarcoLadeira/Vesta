@@ -596,7 +596,19 @@ def _terminal_from_payload(
             "paid, cloud, or gated action. Nothing was approved for you.",
         )
     if status in _SUCCESS_STATUSES:
-        return RunState.COMPLETED, "background_completed", "Background run completed"
+        # #618: reached only when no canonical RunResult, no run_state and no
+        # verdict survived -- an old record whose one remaining signal is a
+        # legacy status string. "answered" records that the provider replied,
+        # which is transport, not engineering completion, and nothing here can
+        # tell whether the work was verified. Claiming COMPLETED from it is the
+        # background twin of the history defect this issue removes, so the
+        # honest import is that a human should look.
+        return (
+            RunState.NEEDS_ATTENTION,
+            "background_legacy_status_unverifiable",
+            "Background run finished before OPai recorded a canonical result, "
+            "so its outcome could not be verified.",
+        )
     if status == "partial":
         return RunState.PARTIAL, "background_partial", "Background run partial"
     if status == "timeout":

@@ -20,8 +20,10 @@ import time
 import uuid
 from contextlib import contextmanager
 
+from opaihub.generated_lifecycle import TERMINAL_STATE_IDS
 from opaihub.owner_lease import new_lease, owned_by_this_process
 from opaihub.owner_lease import touch as touch_lease
+
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator
@@ -61,14 +63,15 @@ _PLAN_STATUSES = {"pending", "in_progress", "completed", "blocked"}
 # completion_verdict (#378/#402) wins over the legacy status when both are
 # present -- a stuck/partial run whose legacy status is still "answered"
 # persists with its verdict label, never "complete".
+# #618: derived from the #612 terminal states, not written out by hand. The
+# hand-written table omitted `needs_attention`, and the omission was not inert:
+# an unmapped verdict fell through to the legacy branch below, so a run OPai
+# could not verify was persisted as "complete" whenever its legacy status
+# happened to be `answered_by_account`. Deriving the map means a terminal state
+# added to the schema cannot silently acquire a fall-through meaning.
 _VERDICT_THREAD_STATUS = {
-    "completed": "complete",
-    "partial": "partial",
-    "blocked": "blocked",
-    "timeout": "timeout",
-    "cancelled": "cancelled",
-    "failed": "failed",
-    "needs_attention": "needs_attention",
+    state_id: "complete" if state_id == "completed" else state_id
+    for state_id in TERMINAL_STATE_IDS
 }
 _RUN_RESULT_THREAD_STATUS = dict(_VERDICT_THREAD_STATUS)
 _ANSWERED_THREAD_STATUSES = {
@@ -684,6 +687,18 @@ def thread_status_for_result(
     GUI and CLI turns both finish through this (#545) so "complete" means the
     same thing regardless of which surface ran the turn -- previously this
     lived only in opai.gui_web, reachable by GUI turns alone.
+
+    #618 authority order, strictest first:
+
+    1. the canonical RunResult, when the turn carried one;
+    2. the #378 verdict, for records written before the projection existed;
+    3. the legacy status string -- compatibility import only, and never able to
+       report success.
+
+    Step 3 used to be able to *win*: an unmapped verdict fell through to it, so
+    `needs_attention` + `answered_by_account` persisted as "complete". A legacy
+    string may now only narrow an unknown result to a failure-shaped one; it can
+    no longer manufacture completion that no evidence supports.
     """
     if run_result is not None:
         from opaihub.run_result import terminal_presentation
@@ -695,8 +710,16 @@ def thread_status_for_result(
         mapped = _VERDICT_THREAD_STATUS.get(verdict)
         if mapped is not None:
             return mapped
+        if verdict:
+            # A verdict we do not recognise is an incompatible import, not a
+            # success and not a plain failure. Degrading it explicitly is what
+            # keeps an unknown value from becoming "complete" by omission.
+            return "needs_attention"
     if status in _ANSWERED_THREAD_STATUSES:
-        return "complete"
+        # Compatibility import only: an old record whose sole surviving signal
+        # is "the provider answered". That is transport, not engineering
+        # completion, so it cannot claim more than "we cannot verify this".
+        return "needs_attention"
     return "cancelled" if status == "cancelled" else "failed"
 
 

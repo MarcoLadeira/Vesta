@@ -32,7 +32,21 @@ export default defineConfig({
   workers: 4,
   // CI uploads only ci_local's bounded, canonical-redactor JSON manifest. Raw
   // HTML reports, traces and screenshots may contain repository/user content.
-  reporter: process.env.CI ? [["line"]] : [["list"]],
+  // #618/#621: `line` alone is human text, so a failing hosted run left no
+  // machine-readable record of *what* failed. Diagnosis degenerated into
+  // blacklisting log lines out of a fixed character budget -- webserver access
+  // logs, then per-test progress lines -- each fix correct and each
+  // insufficient, because a chatty reporter will always find a new way to fill
+  // the buffer. The JSON reporter ends that: ci_local reads the structured
+  // result and prints the failing spec, its error and the worker's exit
+  // condition, regardless of how much noise the run produced.
+  //
+  // Still no HTML report, trace or screenshot in CI: those may carry
+  // repository or user content, and the JSON file records spec identity,
+  // status, duration and error message only.
+  reporter: process.env.CI
+    ? [["line"], ["json", { outputFile: "playwright-results.json" }]]
+    : [["list"]],
   use: {
     baseURL: "http://localhost:8099",
     actionTimeout: assertTimeout,

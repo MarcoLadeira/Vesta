@@ -16,8 +16,18 @@ const railItem = (page, id) => page.locator(`.settings-rail-item[data-rail-targe
 const seen = { useInnerText: true };
 
 test("the rail lists every page and Overview is the default", async ({ page }) => {
-  const labels = await page.locator(".settings-rail-item .settings-rail-label").allInnerTexts();
-  expect(labels).toEqual([
+  // `allInnerTexts()` does not retry — it returns whatever matches at that
+  // instant. On a slower hosted runner the rail had not rendered yet, so it
+  // returned [] and the assertion failed with no waiting at all. That is the
+  // whole of the intermittent required-check failure on this suite: the error
+  // read "expected 11 items, received Array []", which looks like the UI
+  // collapsed but is only a race against first paint.
+  //
+  // `toHaveText` with an array asserts the same list and auto-retries until the
+  // expect timeout, so a slow paint costs milliseconds instead of a red gate.
+  await expect(
+    page.locator(".settings-rail-item .settings-rail-label"),
+  ).toHaveText([
     "Overview",
     "Providers & Connections",
     "Models & Routing",

@@ -29,7 +29,43 @@ from opaihub.run_result import RunResult
 
 
 def _completed_executor(project_root, run, cancel_event):
-    return {"status": "answered", "changed_files": ["app.py"]}
+    # Mirrors what the real executor returns. Background runs execute through
+    # handle_gui_message, which since #618 always projects a canonical
+    # RunResult and emits run_state alongside it. A bare {"status": "answered"}
+    # modelled a shape production no longer produces, and the difference is not
+    # cosmetic: that payload now imports as needs_attention, because a legacy
+    # status alone records that the provider replied and says nothing about
+    # whether the work was verified. See
+    # test_a_legacy_only_payload_cannot_complete_a_background_run.
+    #
+    # The RunResult is built through the real contract rather than hand-shaped:
+    # _canonical_result validates before trusting, and a stub payload is
+    # indistinguishable from a corrupted record, so it degrades to
+    # needs_attention exactly as it should.
+    from opaihub.run_result import RunResult
+
+    canonical = RunResult.from_payload(
+        state="completed",
+        reason_detail="background objective met",
+        final_transition_at="2026-08-11T12:00:00+00:00",
+        mutating=False,
+        verification={"applicable": False, "verdict": "not_applicable"},
+        delivery={
+            "applicable": True,
+            "verdict": "delivered",
+            "record_ref": {"kind": "turn_record", "id": "bg"},
+        },
+        economics={
+            "integrity": "reconciled",
+            "record_ref": {"kind": "ledger_event", "id": "bg"},
+        },
+    )
+    return {
+        "status": "answered",
+        "run_state": "completed",
+        "run_result": canonical.to_dict(),
+        "changed_files": ["app.py"],
+    }
 
 
 class EnqueueTests(unittest.TestCase):
@@ -188,14 +224,19 @@ class RunnerTests(unittest.TestCase):
             )
             self.assertEqual(final.status, "completed")
             self.assertEqual(final.run_state, RunState.COMPLETED.value)
-            self.assertEqual(final.reason_code, "background_completed")
+            # `canonical_completed`, not `background_completed`: the run now
+            # resolves through the canonical RunResult rather than the legacy
+            # status branch, and the reason code says which authority answered.
+            # That distinction is the point of #618 -- if this ever reads
+            # `background_completed` again, a legacy string decided the outcome.
+            self.assertEqual(final.reason_code, "canonical_completed")
             self.assertEqual(
                 [item["state"] for item in final.state_history],
                 ["queued", "preparing", "running", "completed"],
             )
             self.assertEqual(final.result["changed_files"], ["app.py"])
             self.assertEqual(final.result["run_state"], RunState.COMPLETED.value)
-            self.assertEqual(final.result["reason_code"], "background_completed")
+            self.assertEqual(final.result["reason_code"], "canonical_completed")
             statuses = [note["status"] for note in read_notifications(root)]
             self.assertEqual(statuses, ["queued", "running", "completed"])
             self.assertEqual(

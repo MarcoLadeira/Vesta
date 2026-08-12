@@ -55,9 +55,22 @@ class ThreadStatusHonestyTests(unittest.TestCase):
             thread_status_for_result("answered", {"verdict": "completed"}), "complete"
         )
 
-    def test_falls_back_to_legacy_buckets_without_a_verdict(self):
-        self.assertEqual(thread_status_for_result("answered", None), "complete")
-        self.assertEqual(thread_status_for_result("no_edits", None), "complete")
+    def test_a_legacy_status_alone_can_no_longer_claim_completion(self):
+        """#618 narrowed this deliberately; it previously asserted "complete".
+
+        The old contract let a legacy status stand in for a verdict, so
+        "answered" alone meant the objective was met. It does not: "answered"
+        records that the provider replied, which is transport, and says nothing
+        about whether the work was verified. Legacy strings are now
+        compatibility inputs that may narrow an unknown result but may never
+        report success.
+
+        The failure-shaped imports below are unchanged -- claiming *less* than
+        the evidence supports was never the risk.
+        """
+
+        self.assertEqual(thread_status_for_result("answered", None), "needs_attention")
+        self.assertEqual(thread_status_for_result("no_edits", None), "needs_attention")
         self.assertEqual(thread_status_for_result("cancelled", None), "cancelled")
         self.assertEqual(thread_status_for_result("failed", None), "failed")
 
