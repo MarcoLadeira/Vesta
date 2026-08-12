@@ -242,3 +242,158 @@ class ObservabilityTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class CeilingAndClockTests(unittest.TestCase):
+    """The circuit breakers must not re-create the bug they replaced.
+
+    Moving the guard to evidence scoring is not enough on its own. The first
+    attempt kept the absolute ceiling at 60 and kept the wall clock measuring
+    *total* elapsed time, so the witness run was stopped at exactly the same
+    step for exactly the same practical reason -- it was simply told a
+    different word. These pin both numbers to the behaviour they exist for.
+    """
+
+    def _ceiling_default(self) -> int:
+        import inspect
+        import re
+
+        from opaihub import accounts
+
+        match = re.search(
+            r'OPAI_NO_PROGRESS_STEP_BUDGET"\s*,\s*(\d+)',
+            inspect.getsource(accounts),
+        )
+        assert match is not None, "the exploration ceiling default vanished"
+        return int(match.group(1))
+
+    def test_the_ceiling_is_far_above_a_real_investigation(self) -> None:
+        """60 was the bug. The ceiling must not sit where work actually happens.
+
+        The witness reached 60 steps while still producing new evidence. A
+        ceiling at or near that value stops genuine work; it is meant to catch
+        only a run that explores forever.
+        """
+
+        self.assertGreaterEqual(
+            self._ceiling_default(),
+            300,
+            "the absolute ceiling is low enough to stop a productive run again",
+        )
+
+    def test_the_witness_run_survives_the_ceiling(self) -> None:
+        """60 productive steps must be nowhere near the limit."""
+
+        self.assertGreater(self._ceiling_default(), CEILING)
+
+    def test_the_no_progress_clock_measures_time_without_progress(self) -> None:
+        """Not total elapsed time.
+
+        `OPAI_NO_PROGRESS_SECONDS` is named for time *without progress*. It used
+        to compare against total elapsed, so a run learning steadily for ten
+        minutes was stopped for taking ten minutes -- the witness was 87 seconds
+        from that. The clock must restart whenever the score reaches a new high.
+        """
+
+        import inspect
+
+        from opaihub import accounts
+
+        source = inspect.getsource(accounts)
+        self.assertIn(
+            "since_progress >= no_progress_seconds",
+            source,
+            "the no-progress clock is measuring total elapsed time again",
+        )
+        self.assertIn(
+            "last_progress_at = time.monotonic()",
+            source,
+            "nothing resets the no-progress clock when the run learns something",
+        )
+
+    def test_a_learning_run_keeps_resetting_the_clock(self) -> None:
+        """Every new high score is a progress moment, so the clock restarts."""
+
+        ledger = ProgressLedger()
+        resets = 0
+        for index in range(40):
+            ledger.record(
+                _progress_observation(
+                    _event("file_read", f"read new_{index}.py", f"body {index}"),
+                    "file_read",
+                )
+            )
+            if ledger.steps_since_best == 0:
+                resets += 1
+        self.assertEqual(
+            resets, 40, "a run learning on every step should reset the clock each time"
+        )
+
+    def test_a_looping_run_stops_resetting_the_clock(self) -> None:
+        ledger = ProgressLedger()
+        resets = 0
+        for _ in range(40):
+            ledger.record(
+                _progress_observation(
+                    _event("command_run", "grep same thing", "same output"),
+                    "command_run",
+                )
+            )
+            if ledger.steps_since_best == 0:
+                resets += 1
+        self.assertLessEqual(
+            resets, 1, "a pure loop kept resetting its own no-progress clock"
+        )
+
+
+class StopMessageTests(unittest.TestCase):
+    """The message must name the guard that fired (#648: record the reason)."""
+
+    def test_the_message_no_longer_hardcodes_the_edit_claim(self) -> None:
+        """It asserted "without a single edit attempt" whatever happened.
+
+        After the guard became evidence-based that sentence survived, so a run
+        stopped for repeating itself was still told its problem was not
+        editing -- which sends the user to fix the wrong thing.
+
+        Scans string *literals* rather than raw source. A comment explaining
+        the old wording is documentation; the same words inside a string are
+        something a user can still be shown. Grepping the file cannot tell
+        those apart, and that difference is the entire point.
+        """
+
+        import ast
+        import inspect
+
+        from opai import app_state
+
+        literals = [
+            node.value
+            for node in ast.walk(ast.parse(inspect.getsource(app_state)))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ]
+        for banned in ("without a single edit attempt", "no-progress guard, F27"):
+            with self.subTest(text=banned):
+                offenders = [text for text in literals if banned in text]
+                self.assertEqual(
+                    offenders, [], f"a user-visible string still claims {banned!r}"
+                )
+
+    def test_each_trigger_produces_a_distinct_explanation(self) -> None:
+        import inspect
+
+        from opai import app_state
+
+        source = inspect.getsource(app_state)
+        for trigger in ("stagnation", "exploration_ceiling", "time"):
+            with self.subTest(trigger=trigger):
+                self.assertIn(f'"{trigger}"', source)
+
+    def test_the_account_route_reports_which_guard_fired(self) -> None:
+        import inspect
+
+        from opaihub import accounts
+
+        self.assertIn(
+            '"no_progress_trigger": no_progress_trigger', inspect.getsource(accounts)
+        )

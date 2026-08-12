@@ -311,7 +311,15 @@ class NoProgressGuardTests(unittest.TestCase):
         self.assertEqual(result["stopped_reason"], "no_progress_guard")
         self.assertFalse(result_is_completed(result))
         self.assertIn("61", result["answer"])
-        self.assertIn("no-progress guard", result["answer"])
+        # #648: the guard was renamed when it stopped counting edits and started
+        # scoring evidence. The property this test protects is unchanged -- the
+        # message must name the mechanism that stopped the run, so the user
+        # knows it was a deliberate guard and not a crash.
+        self.assertIn("convergence guard", result["answer"])
+        # And it must no longer assert a cause it cannot know. This fixture
+        # reports no trigger, so the text has to stay general rather than
+        # blaming a missing edit.
+        self.assertNotIn("without a single edit attempt", result["answer"])
 
     def test_guard_env_knobs_parse_defensively(self):
         from opaihub.accounts import _guard_int_env

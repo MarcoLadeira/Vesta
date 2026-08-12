@@ -1766,10 +1766,30 @@ def _ask_account(
     if not str(answer).strip():
         if no_progress:
             steps = result.get("tool_steps") if isinstance(result, dict) else None
+            # #648: say what actually stopped the run. This used to assert
+            # "without a single edit attempt" unconditionally, which stayed on
+            # screen after the guard became evidence-based -- so a run stopped
+            # for repeating itself, or for reaching the absolute ceiling, was
+            # still told its crime was not editing. That sends the user to fix
+            # the wrong thing.
+            trigger = str(result.get("no_progress_trigger") or "").strip()
+            counted = f"{steps} tool steps" if steps is not None else "this run"
+            if trigger == "stagnation":
+                detail = (
+                    f"{counted} stopped producing new evidence -- the recent "
+                    "steps repeated work already done."
+                )
+            elif trigger == "exploration_ceiling":
+                detail = (
+                    f"{counted} reached the absolute exploration limit while "
+                    "still investigating."
+                )
+            elif trigger == "time":
+                detail = f"{counted} ran without learning anything new for too long."
+            else:
+                detail = f"{counted} ran without converging on the objective."
             answer = (
-                "OPai stopped this run early: "
-                f"{steps if steps is not None else 'many'} tool steps ran "
-                "without a single edit attempt (no-progress guard, F27). "
+                f"OPai stopped this run early (convergence guard): {detail} "
                 "Refine the request, or re-send to continue from here."
             )
         else:
