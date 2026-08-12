@@ -17,7 +17,8 @@ from unittest import mock
 
 from _helpers import FakeStreamingRunner, make_repo
 
-from opai.cli_stream import normalize_model_choice, stream_ask
+from opai.cli_stream import _terminal_verdict, normalize_model_choice, stream_ask
+from opaihub.run_result import RunResult
 from opaihub.run_state import exit_code_for
 
 
@@ -64,6 +65,48 @@ class NormalizeModelTests(unittest.TestCase):
 
 
 class StreamAskTests(unittest.TestCase):
+    def test_canonical_result_owns_cli_state_reason_and_label(self):
+        canonical = RunResult.from_payload(
+            state="partial",
+            reason_detail="Canonical verification is incomplete.",
+            final_transition_at="2026-08-11T12:00:00Z",
+        ).to_dict()
+
+        terminal = _terminal_verdict(
+            {
+                "status": "answered",
+                "completion_verdict": {
+                    "verdict": "completed",
+                    "reason": "Legacy completion claim.",
+                    "next_action": "Review the evidence.",
+                },
+                "run_result": canonical,
+            }
+        )
+
+        self.assertEqual(
+            terminal,
+            (
+                "partial",
+                "Canonical verification is incomplete.",
+                "Review the evidence.",
+                "Partially completed",
+            ),
+        )
+
+    def test_malformed_canonical_result_degrades_cli_truth(self):
+        terminal = _terminal_verdict(
+            {
+                "status": "answered",
+                "completion_verdict": {"verdict": "completed"},
+                "run_result": {"schema_version": 1},
+            }
+        )
+
+        self.assertIsNotNone(terminal)
+        self.assertEqual(terminal[0], "needs_attention")
+        self.assertEqual(terminal[3], "Needs attention")
+
     def _run(self, runner, *, task="summarize this", **kw):
         lines: list[str] = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -97,14 +140,15 @@ class StreamAskTests(unittest.TestCase):
         self.assertIn("$0.0100 spent", joined)
         self.assertNotIn("saved", joined)
 
-    def test_error_status_exits_2_and_shows_status(self):
+    def test_disconnected_account_uses_the_canonical_blocked_exit_code(self):
         class NotConnected(FakeStreamingRunner):
             def available(self):
                 return False
 
         code, lines = self._run(NotConnected())
-        self.assertEqual(code, 2)
+        self.assertEqual(code, exit_code_for("blocked"))
         joined = "\n".join(lines)
+        self.assertIn("Blocked", joined)
         self.assertIn("account_not_connected", joined)
 
     def test_unverified_edit_renders_partial_and_exits_nonzero(self):
@@ -120,7 +164,7 @@ class StreamAskTests(unittest.TestCase):
         # unverified" from "the run failed". Still non-zero, as the name says.
         self.assertEqual(code, exit_code_for("partial"))
         self.assertNotEqual(code, 0)
-        self.assertIn("Partial —", joined)
+        self.assertIn("Partially completed —", joined)
         self.assertIn("no changed-file or diff evidence", joined)
         self.assertNotIn("✓ done in", joined)
         # No success claim in the streamed prose, so no contradiction note.
@@ -250,7 +294,7 @@ class StreamAskTests(unittest.TestCase):
         self.assertEqual(len(streaming_lines), 1)  # one start line, not 12
         self.assertEqual(len(received_lines), 1)  # one finish line
 
-    def test_cancelled_result_maps_to_130(self):
+    def test_unconfirmed_cancel_maps_to_needs_attention(self):
         class InstantCancel(FakeStreamingRunner):
             def stream(self, prompt, **kwargs):
                 cancel = kwargs.get("cancel")
@@ -259,12 +303,16 @@ class StreamAskTests(unittest.TestCase):
                 return {"text": "part", "cost": None, "cancelled": True}
 
         code, lines = self._run(InstantCancel())
-        self.assertEqual(code, 130)
+        self.assertEqual(code, exit_code_for("needs_attention"))
         joined = "\n".join(lines)
         self.assertIn(
-            "Cancelled — Stopped by you before OPai could verify the objective.", joined
+            "Needs attention — Cancellation was requested, but provider teardown "
+            "was not proven complete.",
+            joined,
         )
-        self.assertIn("Next: Retry when you are ready.", joined)
+        self.assertIn(
+            "Next: Inspect the cancellation evidence before retrying.", joined
+        )
 
 
 class CmdAskWiringTests(unittest.TestCase):
@@ -387,7 +435,7 @@ class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
                 runner._block = False
                 worker.join(timeout=5.0)
 
-    def test_a_cancelled_cli_turn_persists_as_cancelled_not_silently_lost(
+    def test_an_unconfirmed_cancel_persists_as_needs_attention(
         self,
     ) -> None:
         from opai.gui_recents import load_thread
@@ -410,9 +458,9 @@ class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
             )
             thread = load_thread(root)
 
-        self.assertEqual(code, 130)
+        self.assertEqual(code, exit_code_for("needs_attention"))
         self.assertEqual(thread["state"], "complete")
-        self.assertEqual(thread["messages"][-1]["status"], "cancelled")
+        self.assertEqual(thread["messages"][-1]["status"], "needs_attention")
 
 
 if __name__ == "__main__":

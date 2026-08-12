@@ -868,9 +868,6 @@ def _persist_turn_result(
         for step in plan_steps
         if str(step).strip()
     ]
-    # #618: the canonical RunResult decides what this turn means. The verdict
-    # and legacy status remain only as compatibility inputs for records written
-    # before the projection existed -- the GUI does not get its own opinion.
     thread_status = thread_status_for_result(
         status, result.get("completion_verdict"), result.get("run_result")
     )

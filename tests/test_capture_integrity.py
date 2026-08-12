@@ -87,7 +87,7 @@ class CaptureSessionLedgerTests(unittest.TestCase):
         self.assertFalse(event["paid"])
         self.assertFalse(event["spend_accounted"])
 
-    def test_cancelled_attempt_has_honest_terminal_state(self):
+    def test_unconfirmed_cancellation_is_captured_as_needs_attention(self):
         runner = FakeAccountRunner(cost=None)
         runner.complete = mock.Mock(
             return_value={"text": "partial", "cost": None, "cancelled": True}
@@ -102,8 +102,9 @@ class CaptureSessionLedgerTests(unittest.TestCase):
         )
 
         event = _capture_events(self.root)[0]
-        self.assertEqual(result["status"], "cancelled")
-        self.assertEqual(event["outcome"], "cancelled")
+        self.assertEqual(result["status"], "needs_attention")
+        self.assertEqual(result["stopped_reason"], "cancellation_unconfirmed")
+        self.assertEqual(event["outcome"], "needs_attention")
         self.assertTrue(event["captured"])
         self.assertFalse(event["spend_accounted"])
 

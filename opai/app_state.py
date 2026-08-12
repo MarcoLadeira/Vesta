@@ -809,6 +809,7 @@ def ask(
     on_text: Any = None,
     cancel: Any = None,
     tool_loop_policy: Any = None,
+    deadline_budget: Any = None,
     repository_handle: Any = None,
 ) -> dict[str, Any]:
     """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', 'free:<id>', 'paid:<id>', or 'provider:model'.
@@ -847,6 +848,7 @@ def ask(
             on_text=on_text,
             cancel=cancel,
             tool_loop_policy=tool_loop_policy,
+            deadline_budget=deadline_budget,
         )
 
     # "paid:" (#673, e.g. DeepSeek) shares the free tier's whole dispatch
@@ -1220,6 +1222,85 @@ def _account_completion(result: Any, answer: str) -> tuple[str, str]:
     return "completed", ""
 
 
+def _record_paid_account_cost(
+    root: Path,
+    task: str,
+    answer: str,
+    cost: Any,
+    *,
+    call_id: str,
+    model_id: str,
+    account_id: str,
+) -> dict[str, Any]:
+    """Finalize paid-call spend even when the provider turn timed out."""
+
+    finalized = False
+    legacy_recorded = False
+    ledger_error = ""
+    try:
+        from opaihub.cost_model import estimate_tokens, tier_cost
+        from opaihub.ledger import record_model_call_finalized
+        from opaihub.usage_report import ProviderTurnUsage, UsageValue
+
+        tokens = estimate_tokens(task + "\n" + (answer or ""))
+        actual = (
+            isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost > 0
+        )
+        cost_value = float(cost) if actual else tier_cost("L3", tokens)
+        record_model_call_finalized(
+            root,
+            task,
+            call_id=call_id,
+            usage=ProviderTurnUsage(
+                turn_index=1,
+                total_tokens=UsageValue(tokens, "estimated"),
+                cost_usd=UsageValue(cost_value, "actual" if actual else "estimated"),
+            ),
+        )
+        finalized = True
+    except Exception as exc:  # noqa: BLE001 - preserve the provider outcome
+        from opai.provider_contract import redact_secrets
+
+        ledger_error = redact_secrets(exc)
+
+    if not finalized:
+        try:
+            from opaihub.cost_model import estimate_tokens
+            from opaihub.ledger import record_model_call
+
+            numeric_cost = (
+                cost
+                if isinstance(cost, (int, float)) and not isinstance(cost, bool)
+                else None
+            )
+            record_model_call(
+                root,
+                task,
+                model_tier="L3",
+                provider_type="cloud",
+                tokens=estimate_tokens(task + "\n" + (answer or "")),
+                confirmed=True,
+                real_cost_usd=numeric_cost,
+                model_id=model_id,
+                provider_id=account_id,
+                measurement="actual" if numeric_cost is not None else "estimated",
+            )
+            legacy_recorded = True
+        except Exception as exc:  # noqa: BLE001 - report unreconciled cost
+            from opai.provider_contract import redact_secrets
+
+            ledger_error = ledger_error or redact_secrets(exc)
+
+    recorded = finalized or legacy_recorded
+    return {
+        "ledger_recorded": recorded,
+        "ledger_recorded_per_turn": finalized,
+        "cost_integrity": "complete" if recorded else "unreconciled",
+        "cost_unreconciled": not recorded,
+        "ledger_error": ledger_error,
+    }
+
+
 def _ask_account(
     project_root: Path,
     task: str,
@@ -1234,6 +1315,7 @@ def _ask_account(
     on_text: Any = None,
     cancel: Any = None,
     tool_loop_policy: Any = None,
+    deadline_budget: Any = None,
     _fallback_used: bool = False,
 ) -> dict[str, Any]:
     """Run a task through a connected paid-account CLI, with firewall gating.
@@ -1284,6 +1366,7 @@ def _ask_account(
             on_text=on_text,
             cancel=cancel,
             tool_loop_policy=tool_loop_policy,
+            deadline_budget=deadline_budget,
             _fallback_used=True,
         )
         if recovered.get("status") == "failed":
@@ -1351,7 +1434,6 @@ def _ask_account(
     operation_id = ""
     operation_key = ""
     dispatch_recorded = False
-    finalized_recorded = False
     dispatch_record_error = ""
     try:
         from opaihub.idempotency import (
@@ -1450,11 +1532,20 @@ def _ask_account(
             "ledger_call_id": None,
             "ledger_error": dispatch_record_error,
         }
-    timeout_seconds = getattr(tool_loop_policy, "max_active_seconds", None)
+    timeout_seconds = getattr(deadline_budget, "task_deadline_seconds", None)
+    if timeout_seconds is None:
+        timeout_seconds = getattr(tool_loop_policy, "max_active_seconds", None)
     if isinstance(timeout_seconds, bool) or not isinstance(
         timeout_seconds, (int, float)
     ):
         timeout_seconds = None
+    provider_idle_seconds = getattr(
+        deadline_budget, "provider_idle_timeout_seconds", None
+    )
+    if isinstance(provider_idle_seconds, bool) or not isinstance(
+        provider_idle_seconds, (int, float)
+    ):
+        provider_idle_seconds = None
     try:
         from opaihub.ask import _supports_kwarg
 
@@ -1469,8 +1560,20 @@ def _ask_account(
             }
             if timeout_seconds is not None and _supports_kwarg(run.stream, "timeout"):
                 stream_kwargs["timeout"] = float(timeout_seconds)
+            if deadline_budget is not None and _supports_kwarg(
+                run.stream, "deadline_budget"
+            ):
+                stream_kwargs["deadline_budget"] = deadline_budget
+            if provider_idle_seconds is not None and _supports_kwarg(
+                run.stream, "provider_idle_timeout"
+            ):
+                stream_kwargs["provider_idle_timeout"] = float(provider_idle_seconds)
             if _supports_kwarg(run.stream, "operation_id"):
                 stream_kwargs["operation_id"] = call_id
+            if _supports_kwarg(run.stream, "cancellation_scope_id"):
+                stream_kwargs["cancellation_scope_id"] = (
+                    f"account-{call_id.replace(':', '-')}"
+                )
             if edit_grant:
                 # Additive (F26): only pass the one-shot edit grant to runners
                 # that accept it, so older/fake runners keep working unchanged.
@@ -1501,6 +1604,10 @@ def _ask_account(
                 complete_kwargs["mode"] = mode
             if timeout_seconds is not None and _supports_kwarg(run.complete, "timeout"):
                 complete_kwargs["timeout"] = float(timeout_seconds)
+            if deadline_budget is not None and _supports_kwarg(
+                run.complete, "deadline_budget"
+            ):
+                complete_kwargs["deadline_budget"] = deadline_budget
             if _supports_kwarg(run.complete, "operation_id"):
                 complete_kwargs["operation_id"] = call_id
             if edit_grant and _supports_kwarg(run.complete, "edit_grant"):
@@ -1516,6 +1623,26 @@ def _ask_account(
 
     # User stopped it mid-flight: return the partial cleanly (not an error).
     if isinstance(result, dict) and result.get("cancelled"):
+        cancellation = result.get("cancellation")
+        cancellation = cancellation if isinstance(cancellation, dict) else {}
+        if cancellation.get("phase") != "terminated":
+            return {
+                "status": "needs_attention",
+                "provider": account_id,
+                "model": getattr(run, "model", "") or account_id,
+                "answer": (
+                    "OPai received the stop request, but could not prove that "
+                    "all provider work terminated. Inspect the cancellation "
+                    "evidence before retrying."
+                ),
+                "completion_state": "needs_attention",
+                "stopped_reason": "cancellation_unconfirmed",
+                "cost_usd": result.get("cost"),
+                "operation_id": operation_id,
+                "ledger_dispatch_recorded": dispatch_recorded,
+                "ledger_call_id": call_id if dispatch_recorded else None,
+                "cancellation": cancellation,
+            }
         return {
             "status": "cancelled",
             "provider": account_id,
@@ -1525,7 +1652,7 @@ def _ask_account(
             "operation_id": operation_id,
             "ledger_dispatch_recorded": dispatch_recorded,
             "ledger_call_id": call_id if dispatch_recorded else None,
-            "cancellation": result.get("cancellation"),
+            "cancellation": cancellation,
         }
     if isinstance(result, dict) and result.get("error") and not result.get("text"):
         from opai.provider_contract import normalize_provider_error
@@ -1552,11 +1679,40 @@ def _ask_account(
 
         timeout_info = result.get("timeout_event")
         timeout_info = timeout_info if isinstance(timeout_info, dict) else {}
-        error = (
-            normalize_provider_error(account_id, "task_deadline", model=model)
-            if is_task_deadline(timeout_info)
-            else normalize_provider_error(account_id, "", model=model, timed_out=True)
+        timeout_origin = str(timeout_info.get("timeout_origin") or "timeout")
+        error = normalize_provider_error(
+            account_id,
+            "",
+            model=model,
+            timed_out=True,
+            timeout_origin=timeout_origin,
         )
+        partial_answer = str(result.get("text") or "").strip()
+        cost = result.get("cost")
+        changed = _changed_since(root, before, before_identities) if allow_edits else []
+        observed_cost = (
+            isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0
+        )
+        cost_record = (
+            _record_paid_account_cost(
+                root,
+                task,
+                partial_answer,
+                cost,
+                call_id=call_id,
+                model_id=model_id,
+                account_id=account_id,
+            )
+            if observed_cost
+            else {
+                "ledger_recorded": False,
+                "ledger_recorded_per_turn": False,
+                "cost_integrity": "unreconciled",
+                "cost_unreconciled": True,
+                "ledger_error": "",
+            }
+        )
+        task_deadline = is_task_deadline(timeout_info)
         return {
             # #378/#402: a timeout is a distinct terminal cause. The typed
             # PROVIDER_TIMEOUT error and the "timeout" stop reason are what the
@@ -1567,16 +1723,36 @@ def _ask_account(
             # its capture ledger and desktop timeout card expect.
             "status": "failed",
             "provider": account_id,
+            "model": getattr(run, "model", "") or account_id,
             "answer": error["userMessage"],
+            "partial_answer": partial_answer,
             "error": error,
-            "stopped_reason": str(timeout_info.get("timeout_origin") or "timeout"),
+            "completion_state": "timeout",
+            "stopped_reason": timeout_origin,
             "timeout_event": timeout_info,
-            "timeout_origin": timeout_info.get("timeout_origin"),
+            "timeout_origin": timeout_origin,
             "provider_condition": timeout_info.get("provider_condition"),
+            "cost_usd": cost,
+            "changed_files": changed,
+            "retained_progress": {
+                "partial_answer": bool(partial_answer),
+                "changed_files": list(changed),
+                "verification": "incomplete",
+            },
+            "next_actions": [
+                (
+                    "Inspect retained work and reconcile the prior operation before continuing."
+                    if task_deadline
+                    else "Inspect retained work, then retry or choose another provider."
+                )
+            ],
             "operation_id": operation_id,
+            "operation_key": operation_key,
+            "operation_recorded": True,
             "ledger_dispatch_recorded": dispatch_recorded,
             "ledger_call_id": call_id if dispatch_recorded else None,
             "cancellation": result.get("cancellation"),
+            **cost_record,
         }
 
     # complete() returns {"text", "cost"}; tolerate a plain string too.
@@ -1628,67 +1804,16 @@ def _ask_account(
                 },
             )
 
-    # Honest firewall accounting: a paid account call is a real spend, not a
-    # saving. Use the runner's real cost when available (claude returns
-    # total_cost_usd); fall back to the L3 tier estimate for Codex which
-    # doesn't report cost. "CLOUD" was never a key in the L0-L4 cost model,
-    # so using it always wrote estimated_actual_usd=0 (the "$0.00 bug").
-    ledger_error = ""
-    try:
-        from opaihub.cost_model import estimate_tokens, tier_cost
-        from opaihub.ledger import record_model_call_finalized
-        from opaihub.usage_report import ProviderTurnUsage, UsageValue
-
-        tokens = estimate_tokens(task + "\n" + (answer or ""))
-        if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost > 0:
-            cost_value = float(cost)
-            cost_provenance = "actual"
-        else:
-            cost_value = tier_cost("L3", tokens)
-            cost_provenance = "estimated"
-        record_model_call_finalized(
-            root,
-            task,
-            call_id=call_id,
-            usage=ProviderTurnUsage(
-                turn_index=1,
-                total_tokens=UsageValue(tokens, "estimated"),
-                cost_usd=UsageValue(cost_value, cost_provenance),
-            ),
-        )
-        finalized_recorded = True
-    except Exception as exc:  # noqa: BLE001 - preserve answer, degrade cost truth
-        from opai.provider_contract import redact_secrets
-
-        ledger_error = redact_secrets(exc)
-
-    legacy_ledger_recorded = False
-    if not finalized_recorded:
-        try:
-            from opaihub.cost_model import estimate_tokens
-            from opaihub.ledger import record_model_call
-
-            record_model_call(
-                root,
-                task,
-                model_tier="L3",
-                provider_type="cloud",
-                tokens=estimate_tokens(task + "\n" + (answer or "")),
-                confirmed=True,
-                real_cost_usd=cost if isinstance(cost, (int, float)) else None,
-                model_id=model_id,
-                provider_id=account_id,
-                # Claude reports total_cost_usd itself: that entry is an actual
-                # spend, not an estimate (#178). Codex stays honestly estimated.
-                measurement="actual" if isinstance(cost, (int, float)) else "estimated",
-            )
-            legacy_ledger_recorded = True
-        except Exception as exc:  # noqa: BLE001 - answer is usable, cost is not
-            from opai.provider_contract import redact_secrets
-
-            ledger_error = ledger_error or redact_secrets(exc)
-    cost_integrity = (
-        "complete" if finalized_recorded or legacy_ledger_recorded else "unreconciled"
+    # A paid call is real spend whether it completed or timed out. The same
+    # recorder is used by both exits so a deadline cannot discard observed cost.
+    cost_record = _record_paid_account_cost(
+        root,
+        task,
+        answer,
+        cost,
+        call_id=call_id,
+        model_id=model_id,
+        account_id=account_id,
     )
 
     return {
@@ -1702,13 +1827,9 @@ def _ask_account(
         "operation_id": operation_id,
         "operation_key": operation_key,
         "operation_recorded": True,
-        "ledger_recorded": finalized_recorded or legacy_ledger_recorded,
-        "ledger_recorded_per_turn": finalized_recorded,
         "ledger_dispatch_recorded": dispatch_recorded,
         "ledger_call_id": call_id if dispatch_recorded else None,
-        "cost_integrity": cost_integrity,
-        "cost_unreconciled": cost_integrity == "unreconciled",
-        "ledger_error": ledger_error,
+        **cost_record,
         "completion_state": completion_state,
         "stopped_reason": stopped_reason,
         # #378: terminal verification must consume OPai-observed tool results.

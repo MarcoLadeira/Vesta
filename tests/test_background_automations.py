@@ -25,6 +25,7 @@ from opaihub.background_runs import (
     tick_automations,
 )
 from opaihub.run_state import RunState
+from opaihub.run_result import RunResult
 
 
 def _completed_executor(project_root, run, cancel_event):
@@ -36,10 +37,33 @@ def _completed_executor(project_root, run, cancel_event):
     # status alone records that the provider replied and says nothing about
     # whether the work was verified. See
     # test_a_legacy_only_payload_cannot_complete_a_background_run.
+    #
+    # The RunResult is built through the real contract rather than hand-shaped:
+    # _canonical_result validates before trusting, and a stub payload is
+    # indistinguishable from a corrupted record, so it degrades to
+    # needs_attention exactly as it should.
+    from opaihub.run_result import RunResult
+
+    canonical = RunResult.from_payload(
+        state="completed",
+        reason_detail="background objective met",
+        final_transition_at="2026-08-11T12:00:00+00:00",
+        mutating=False,
+        verification={"applicable": False, "verdict": "not_applicable"},
+        delivery={
+            "applicable": True,
+            "verdict": "delivered",
+            "record_ref": {"kind": "turn_record", "id": "bg"},
+        },
+        economics={
+            "integrity": "reconciled",
+            "record_ref": {"kind": "ledger_event", "id": "bg"},
+        },
+    )
     return {
         "status": "answered",
         "run_state": "completed",
-        "run_result": {"lifecycle": {"state": "completed"}},
+        "run_result": canonical.to_dict(),
         "changed_files": ["app.py"],
     }
 
@@ -122,6 +146,11 @@ class CancellationTests(unittest.TestCase):
             self.assertEqual(cancelled.status, "cancelled")
             self.assertEqual(cancelled.run_state, RunState.CANCELLED.value)
             self.assertEqual(cancelled.reason_code, "cancelled_before_start")
+            self.assertEqual(cancelled.result["cancellation"]["phase"], "terminated")
+            self.assertEqual(
+                cancelled.result["cancellation"]["scope_id"],
+                f"background-{run.run_id}",
+            )
 
             runner = BackgroundRunner(root, executor=_completed_executor)
             with self.assertRaises(ValueError):
@@ -148,6 +177,33 @@ class CancellationTests(unittest.TestCase):
             final = load_run(root, run.run_id)
             self.assertEqual(final.status, "cancelled")
             self.assertTrue(final.cancel_requested)
+            self.assertEqual(
+                final.result["background_cancellation"]["phase"], "terminated"
+            )
+
+    def test_executor_exception_after_cancel_resolves_as_confirmed_cancellation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+            started = threading.Event()
+
+            def cancelled_executor(_root, _run, cancel_event):
+                started.set()
+                cancel_event.wait(timeout=10)
+                raise RuntimeError("executor interrupted by cancellation")
+
+            runner = BackgroundRunner(root, executor=cancelled_executor)
+            thread = runner.start(run.run_id)
+            self.assertTrue(started.wait(timeout=10))
+            request_cancel(root, run.run_id)
+            thread.join(timeout=10)
+
+            final = load_run(root, run.run_id)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(final.run_state, RunState.CANCELLED.value)
+        self.assertEqual(final.reason_code, "cancelled_during_executor_error")
+        self.assertEqual(final.result["background_cancellation"]["phase"], "terminated")
 
     def test_cancelling_a_finished_run_is_a_noop(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,14 +224,19 @@ class RunnerTests(unittest.TestCase):
             )
             self.assertEqual(final.status, "completed")
             self.assertEqual(final.run_state, RunState.COMPLETED.value)
-            self.assertEqual(final.reason_code, "background_completed")
+            # `canonical_completed`, not `background_completed`: the run now
+            # resolves through the canonical RunResult rather than the legacy
+            # status branch, and the reason code says which authority answered.
+            # That distinction is the point of #618 -- if this ever reads
+            # `background_completed` again, a legacy string decided the outcome.
+            self.assertEqual(final.reason_code, "canonical_completed")
             self.assertEqual(
                 [item["state"] for item in final.state_history],
                 ["queued", "preparing", "running", "completed"],
             )
             self.assertEqual(final.result["changed_files"], ["app.py"])
             self.assertEqual(final.result["run_state"], RunState.COMPLETED.value)
-            self.assertEqual(final.result["reason_code"], "background_completed")
+            self.assertEqual(final.result["reason_code"], "canonical_completed")
             statuses = [note["status"] for note in read_notifications(root)]
             self.assertEqual(statuses, ["queued", "running", "completed"])
             self.assertEqual(
@@ -221,6 +282,44 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(final.status, "partial")
             self.assertEqual(final.run_state, RunState.PARTIAL.value)
             self.assertEqual(final.reason_code, "change_not_verified")
+
+    def test_run_result_beats_conflicting_verdict_and_legacy_status(self):
+        canonical = RunResult.from_payload(
+            state="partial",
+            reason_detail="Canonical verification remained incomplete.",
+            final_transition_at="2026-08-11T12:00:00Z",
+        ).to_dict()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+            final = BackgroundRunner(
+                root,
+                executor=lambda _root, _run, _cancel: {
+                    "status": "answered",
+                    "completion_verdict": {"verdict": "completed"},
+                    "run_result": canonical,
+                },
+            ).run_now(run.run_id)
+
+        self.assertEqual(final.run_state, RunState.PARTIAL.value)
+        self.assertEqual(final.result["run_result"]["lifecycle"]["state"], "partial")
+
+    def test_invalid_explicit_run_result_cannot_fall_back_to_answered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+            final = BackgroundRunner(
+                root,
+                executor=lambda _root, _run, _cancel: {
+                    "status": "answered",
+                    "run_result": {"schema_version": 1},
+                },
+            ).run_now(run.run_id)
+
+        self.assertEqual(final.run_state, RunState.NEEDS_ATTENTION.value)
+        self.assertEqual(
+            final.result["run_result"]["lifecycle"]["state"], "needs_attention"
+        )
 
     def test_stale_worker_cannot_resurrect_a_run_cancelled_before_start(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -47,6 +47,19 @@ LEGACY_SUCCESS_TOKENS = frozenset(
     }
 )
 
+#: The canonical downstream accessors. `terminal_presentation` is the one
+#: authority (#618, after #698); the others are the module-local paths that end
+#: at it -- the shared history helper, and validating a payload into a
+#: RunResult before asking. A surface must reach one of these.
+CANONICAL_ACCESSORS = frozenset(
+    {
+        "terminal_presentation",
+        "thread_status_for_result",
+        "_canonical_result",
+        "from_dict",
+    }
+)
+
 #: Canonical states a legacy comparison must never be able to produce.
 FORBIDDEN_RESULTS = frozenset({"complete", "completed", "verified", "success"})
 
@@ -85,19 +98,39 @@ class SurfacesConsultTheCanonicalResultTests(unittest.TestCase):
     def test_every_result_surface_reads_the_canonical_result(self) -> None:
         """Each reporting surface must reach the canonical accessor.
 
-        Either by calling ``canonical_run_state`` itself, or by calling the
-        shared helper that does (``thread_status_for_result``). What is not
-        allowed is a surface that reports a finished run without either.
+        `terminal_presentation` is the one downstream accessor (#618, after
+        #698). A surface may reach it directly, through the shared history
+        helper that does (`thread_status_for_result`), or by validating the
+        payload into a RunResult first -- all end at the same authority. What
+        is not allowed is reporting a finished run without reaching it.
         """
 
         for relative, label in sorted(RESULT_SURFACES.items()):
             with self.subTest(surface=label):
                 called = _called_names(_tree(relative))
                 self.assertTrue(
-                    {"canonical_run_state", "thread_status_for_result"} & called,
+                    CANONICAL_ACCESSORS & called,
                     f"{label} ({relative}) reports finished runs without "
                     "consulting the canonical RunResult. Read it via "
-                    "canonical_run_state() instead of deriving a verdict here.",
+                    "terminal_presentation() instead of deriving one here.",
+                )
+
+    def test_no_surface_reintroduces_a_competing_accessor(self) -> None:
+        """One accessor, not two.
+
+        A previous revision of this branch added `canonical_run_state`
+        alongside `terminal_presentation`. Two ways to ask what a run meant is
+        the same defect as two ways to decide it, one indirection later, so the
+        competing accessor was removed rather than kept as an alternative.
+        """
+
+        for relative in sorted(RESULT_SURFACES):
+            with self.subTest(surface=relative):
+                self.assertNotIn(
+                    "canonical_run_state",
+                    _module_source(relative),
+                    "a second canonical accessor is back; consumers must go "
+                    "through terminal_presentation",
                 )
 
     def test_the_surface_list_is_not_silently_empty(self) -> None:

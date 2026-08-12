@@ -4,6 +4,7 @@
 
   var lifecycle = global.OPaiLifecycle;
   if (!lifecycle) throw new Error("generated lifecycle contract must load first");
+  var runResult = global.OPaiRunResult;
 
   var AWAITING = "awaiting_input";
   var CANCELLING = "cancel_requested";
@@ -119,14 +120,21 @@
     return !!message.requestId && message.requestId === incomingRequestId;
   }
 
-  function fromBackendStatus(status, verdict) {
+  function fromBackendStatus(status, verdict, canonicalResult) {
     // Checked before the verdict: an awaiting run has not reached a terminal,
     // so its verdict is provisional. Reading the verdict first is exactly what
     // recorded "shall I run this command?" as blocked.
     var mappedStatus = lifecycle.legacyMappings.statuses[String(status || "").toLowerCase()];
     if (mappedStatus === AWAITING) return AWAITING;
-    // Prefer the authoritative completion verdict when the reply carries one so
-    // a partial/blocked/timeout run is rendered honestly, never as "failed".
+    // Once a canonical result is present it owns terminal truth. An invalid
+    // envelope degrades to needs_attention instead of falling through to a
+    // contradictory legacy status or verdict.
+    if (canonicalResult !== undefined) {
+      return runResult
+        ? runResult.fromRunResult(canonicalResult, verdict).state
+        : lifecycle.degradedInputs.unknown_state.state;
+    }
+    // Compatibility-only import for old payloads that predate RunResult.
     var raw = verdict && typeof verdict === "object" ? verdict.verdict : verdict;
     var v = String(raw || "").toLowerCase();
     if (v) return lifecycle.isTerminal(v) ? v : lifecycle.degradedInputs.unknown_state.state;

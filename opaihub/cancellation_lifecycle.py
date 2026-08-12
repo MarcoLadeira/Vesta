@@ -280,3 +280,14 @@ class CancellationTracker:
             acknowledgement_latency_seconds=_elapsed(requested_at, acknowledged_at),
             hard_stop_latency_seconds=_elapsed(requested_at, terminated_at),
         )
+
+    def evidence(self) -> dict[str, Any]:
+        """Return the bounded, replay-derived teardown evidence for this scope."""
+
+        phase = self.phase()
+        return {
+            "scope_id": self.scope_id,
+            "phase": phase.value if phase is not None else None,
+            "history": list(self.history()),
+            "metrics": self.metrics().to_dict(),
+        }

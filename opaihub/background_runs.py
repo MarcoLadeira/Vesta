@@ -22,7 +22,7 @@ import uuid
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
@@ -34,8 +34,8 @@ from .generated_lifecycle import (
     BACKGROUND_STATUSES,
     BACKGROUND_TERMINAL_STATUSES,
 )
-from .run_result_projection import canonical_run_state
 from .run_state import TERMINAL_STATES, RunState, can_transition, transition
+from .run_result import RunResult
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger, redact_structure
 from .workflow_templates import workflow_templates
@@ -204,6 +204,60 @@ def _load_state_history(
 
 def _is_terminal_run(run: "AutomationRun") -> bool:
     return _coerce_run_state(run.run_state) in TERMINAL_STATES
+
+
+def _canonical_result(payload: Mapping[str, Any]) -> RunResult | None:
+    if "run_result" not in payload:
+        return None
+    raw = payload.get("run_result")
+    if isinstance(raw, Mapping):
+        try:
+            return RunResult.from_dict(raw)
+        except (TypeError, ValueError):
+            pass
+    return RunResult.from_payload(
+        state="needs_attention",
+        reason_detail="Background run received an invalid canonical RunResult.",
+        final_transition_at=_now_iso(),
+        recovery={"automatic_retry": False, "reason": "manual_review"},
+    )
+
+
+def _cancellation_evidence(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    history = value.get("history")
+    metrics = value.get("metrics")
+    return {
+        "scope_id": str(value.get("scope_id") or "")[:128],
+        "phase": str(value.get("phase") or "")[:64],
+        "history": list(history[-16:]) if isinstance(history, (list, tuple)) else [],
+        "metrics": dict(metrics) if isinstance(metrics, Mapping) else {},
+    }
+
+
+def _teardown_confirmed(payload: Mapping[str, Any]) -> bool:
+    evidence = [
+        _cancellation_evidence(payload.get(name))
+        for name in ("cancellation", "background_cancellation")
+        if payload.get(name) is not None
+    ]
+    return bool(evidence) and all(
+        item.get("phase") == "terminated" for item in evidence
+    )
+
+
+def _background_cancellation_tracker(project_root: Path, run_id: str) -> Any:
+    from .cancellation_lifecycle import CancellationTracker
+
+    return CancellationTracker(project_root, f"background-{_valid_run_id(run_id)}")
+
+
+def _confirmed_background_cancellation(tracker: Any) -> dict[str, Any]:
+    tracker.request(reason_code="background_cancel_requested")
+    tracker.acknowledge(reason_code="background_worker_observed")
+    tracker.mark_terminated(reason_code="background_worker_stopped")
+    return tracker.evidence()
 
 
 def _notifications_path(project_root: Path) -> Path:
@@ -432,7 +486,10 @@ def request_cancel(project_root: Path, run_id: str) -> AutomationRun:
     run = load_run(project_root, run_id)
     if _is_terminal_run(run):
         return run
+    tracker = _background_cancellation_tracker(project_root, run.run_id)
+    tracker.request(reason_code="user_requested")
     if _coerce_run_state(run.run_state) is RunState.QUEUED:
+        cancellation = _confirmed_background_cancellation(tracker)
         run = _transition_run(
             project_root,
             run.run_id,
@@ -441,6 +498,11 @@ def request_cancel(project_root: Path, run_id: str) -> AutomationRun:
             message="Cancelled before it started",
             finished_at=_now_iso(),
             cancel_requested=True,
+            result=_bounded_result(
+                {"status": "cancelled", "cancellation": cancellation},
+                run_state=RunState.CANCELLED,
+                reason_code="cancelled_before_start",
+            ),
         )
         _notify(project_root, run, "Cancelled before it started")
         return run
@@ -470,22 +532,22 @@ def _bounded_result(
             "code": str(error.get("code") or ""),
             "title": str(error.get("title") or ""),
         }
-    return dict(
-        redact_structure(
-            {
-                "status": str(payload.get("status") or ""),
-                "run_state": run_state.value,
-                "reason_code": reason_code,
-                "changed_files": [
-                    str(item) for item in payload.get("changed_files") or []
-                ],
-                "next_actions": [
-                    str(item) for item in payload.get("next_actions") or []
-                ],
-                "error": error or "",
-            }
-        )
-    )
+    bounded: dict[str, Any] = {
+        "status": str(payload.get("status") or ""),
+        "run_state": run_state.value,
+        "reason_code": reason_code,
+        "changed_files": [str(item) for item in payload.get("changed_files") or []],
+        "next_actions": [str(item) for item in payload.get("next_actions") or []],
+        "error": error or "",
+    }
+    canonical = _canonical_result(payload)
+    if canonical is not None:
+        bounded["run_result"] = canonical.to_dict()
+    for name in ("cancellation", "background_cancellation"):
+        evidence = _cancellation_evidence(payload.get(name))
+        if evidence:
+            bounded[name] = evidence
+    return dict(redact_structure(bounded))
 
 
 def _terminal_from_payload(
@@ -493,16 +555,21 @@ def _terminal_from_payload(
 ) -> tuple[RunState, str, str]:
     """Classify a background result without collapsing canonical endings."""
 
+    canonical = _canonical_result(payload)
     if cancelled:
+        if canonical is not None and canonical.lifecycle["state"] == "needs_attention":
+            return (
+                RunState.NEEDS_ATTENTION,
+                "cancellation_unconfirmed",
+                "Cancellation needs attention before this run can continue",
+            )
         return RunState.CANCELLED, "cancelled_by_user", "Stopped by you"
 
-    # #618: the canonical result first. A background run and a foreground turn
-    # observing the same evidence must resolve to the same state, and that only
-    # holds if both read the same authority rather than each ranking its own
-    # local signals.
-    raw_state = canonical_run_state(payload.get("run_result")) or payload.get(
-        "run_state"
-    )
+    if canonical is not None:
+        state = RunState(str(canonical.lifecycle["state"]))
+        return state, f"canonical_{state.value}", f"Background run {state.value}"
+
+    raw_state = payload.get("run_state")
     if not raw_state and isinstance(payload.get("completion_verdict"), dict):
         raw_state = payload["completion_verdict"].get("verdict")
     try:
@@ -529,13 +596,13 @@ def _terminal_from_payload(
             "paid, cloud, or gated action. Nothing was approved for you.",
         )
     if status in _SUCCESS_STATUSES:
-        # #618: reached only when no canonical result, no run_state and no
-        # verdict survived -- an old record whose sole remaining signal is a
+        # #618: reached only when no canonical RunResult, no run_state and no
+        # verdict survived -- an old record whose one remaining signal is a
         # legacy status string. "answered" records that the provider replied,
         # which is transport, not engineering completion, and nothing here can
         # tell whether the work was verified. Claiming COMPLETED from it is the
-        # background twin of the gui_recents defect this issue removes, so the
-        # honest import is that the run needs a human to look.
+        # background twin of the history defect this issue removes, so the
+        # honest import is that a human should look.
         return (
             RunState.NEEDS_ATTENTION,
             "background_legacy_status_unverifiable",
@@ -611,6 +678,11 @@ class BackgroundRunner:
         current = load_run(self.project_root, run.run_id)
         if _is_terminal_run(current):
             return
+        cancellation_tracker = _background_cancellation_tracker(
+            self.project_root, run.run_id
+        )
+        if current.cancel_requested:
+            cancellation_tracker.request(reason_code="persisted_cancel_request")
         key = (str(self.project_root), run.run_id)
         cancel_event = threading.Event()
         if current.cancel_requested:
@@ -628,12 +700,13 @@ class BackgroundRunner:
             if _is_terminal_run(run):
                 return
             if run.cancel_requested:
+                cancellation = _confirmed_background_cancellation(cancellation_tracker)
                 self._finish(
                     run,
                     run_state=RunState.CANCELLED,
                     reason_code="cancelled_before_execution",
                     message="Stopped by you",
-                    payload={},
+                    payload={"status": "cancelled", "cancellation": cancellation},
                 )
                 return
             run = _transition_run(
@@ -647,43 +720,69 @@ class BackgroundRunner:
             if _is_terminal_run(run):
                 return
             if run.cancel_requested:
+                cancellation = _confirmed_background_cancellation(cancellation_tracker)
                 self._finish(
                     run,
                     run_state=RunState.CANCELLED,
                     reason_code="cancelled_before_execution",
                     message="Stopped by you",
-                    payload={},
+                    payload={"status": "cancelled", "cancellation": cancellation},
                 )
                 return
             _notify(self.project_root, run, "Background run started")
             payload = self.executor(self.project_root, run, cancel_event)
         except Exception as exc:  # noqa: BLE001 - a background run must fail closed
-            self._finish(
-                run,
-                run_state=RunState.FAILED,
-                reason_code="executor_error",
-                message=f"Executor error: {exc}",
-                payload={},
+            latest = load_run(self.project_root, run.run_id)
+            cancellation_requested = (
+                cancel_event.is_set()
+                or latest.cancel_requested
+                or _coerce_run_state(latest.run_state) is RunState.CANCEL_REQUESTED
             )
+            if cancellation_requested:
+                cancellation = _confirmed_background_cancellation(cancellation_tracker)
+                self._finish(
+                    run,
+                    run_state=RunState.CANCELLED,
+                    reason_code="cancelled_during_executor_error",
+                    message="Stopped by you",
+                    payload={
+                        "status": "cancelled",
+                        "background_cancellation": cancellation,
+                    },
+                )
+            else:
+                self._finish(
+                    run,
+                    run_state=RunState.FAILED,
+                    reason_code="executor_error",
+                    message=f"Executor error: {exc}",
+                    payload={},
+                )
             return
         finally:
             with _ACTIVE_LOCK:
                 _ACTIVE_CANCEL_EVENTS.pop(key, None)
         final_run = load_run(self.project_root, run.run_id)
+        cancellation_requested = (
+            cancel_event.is_set()
+            or final_run.cancel_requested
+            or _coerce_run_state(final_run.run_state) is RunState.CANCEL_REQUESTED
+        )
+        payload = dict(payload or {})
+        if cancellation_requested:
+            payload["background_cancellation"] = _confirmed_background_cancellation(
+                cancellation_tracker
+            )
         state, reason_code, message = _terminal_from_payload(
-            payload or {},
-            cancelled=(
-                cancel_event.is_set()
-                or final_run.cancel_requested
-                or _coerce_run_state(final_run.run_state) is RunState.CANCEL_REQUESTED
-            ),
+            payload,
+            cancelled=cancellation_requested,
         )
         self._finish(
             run,
             run_state=state,
             reason_code=reason_code,
             message=message,
-            payload=payload or {},
+            payload=payload,
         )
 
     def _finish(
@@ -698,7 +797,8 @@ class BackgroundRunner:
         current = load_run(self.project_root, run.run_id)
         if _is_terminal_run(current):
             return current
-        if run_state is RunState.CANCELLED and not can_transition(
+        cancellation_requested = run_state is RunState.CANCELLED
+        if cancellation_requested and not can_transition(
             _coerce_run_state(current.run_state), RunState.CANCELLED
         ):
             # #614: a run with work in flight may not jump straight to
@@ -714,6 +814,10 @@ class BackgroundRunner:
                 reason_code="cancellation_requested",
                 cancel_requested=True,
             )
+        if cancellation_requested and not _teardown_confirmed(payload):
+            run_state = RunState.NEEDS_ATTENTION
+            reason_code = "cancellation_unconfirmed"
+            message = "Cancellation could not be proven complete"
         finished = _transition_run(
             self.project_root,
             run.run_id,

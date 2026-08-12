@@ -625,3 +625,47 @@ class RunResult:
             separators=(",", ":"),
             sort_keys=True,
         )
+
+
+@dataclass(frozen=True)
+class TerminalPresentation:
+    """Validated, surface-safe fields projected from one canonical RunResult."""
+
+    state: str
+    label: str
+    category: str
+    reason: str
+    automatic_retry: bool
+    retry_reason: str
+
+
+def terminal_presentation(payload: Any) -> TerminalPresentation:
+    """Return terminal display truth without letting a surface re-derive it.
+
+    Explicit but malformed canonical payloads fail closed to ``needs_attention``.
+    Compatibility callers decide whether to use a legacy source only when the
+    ``run_result`` field is absent; once present, this adapter is authoritative.
+    """
+
+    try:
+        canonical = RunResult.from_dict(payload)
+    except (TypeError, ValueError):
+        state = str(DEGRADED_INPUTS["unknown_state"]["state"])
+        presentation = _presentation(state)
+        return TerminalPresentation(
+            state=state,
+            label=presentation["label"],
+            category=presentation["category"],
+            reason="Canonical run result was invalid and needs manual review.",
+            automatic_retry=False,
+            retry_reason="manual_review",
+        )
+
+    return TerminalPresentation(
+        state=str(canonical.lifecycle["state"]),
+        label=str(canonical.presentation["label"]),
+        category=str(canonical.presentation["category"]),
+        reason=str(canonical.lifecycle["reason_detail"]),
+        automatic_retry=bool(canonical.recovery["automatic_retry"]),
+        retry_reason=str(canonical.recovery["reason"]),
+    )

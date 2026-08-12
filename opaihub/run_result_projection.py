@@ -20,12 +20,42 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .completion import CompletionVerdictResult
-from .generated_lifecycle import TERMINAL_STATE_IDS
 from .run_result import RunResult
 
 
 def _record_ref(kind: str, identifier: str) -> dict[str, str]:
     return {"kind": kind[:64], "id": identifier[:500]}
+
+
+def _cancellation_projection(
+    cancellation: Mapping[str, Any] | None,
+) -> tuple[str, dict[str, str] | None]:
+    if not isinstance(cancellation, Mapping):
+        return "", None
+    phase = str(cancellation.get("phase") or "").strip().lower()
+    scope_id = str(cancellation.get("scope_id") or "").strip()
+    reference = _record_ref("cancellation_journal", scope_id) if scope_id else None
+    return phase, reference
+
+
+def _timeout_projection(
+    timeout: Mapping[str, Any] | None,
+    timeout_ref: tuple[str, str] | None,
+) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+    if not isinstance(timeout, Mapping) or not timeout:
+        return None, None
+    reference = _record_ref(*timeout_ref) if timeout_ref is not None else None
+    projected = {
+        "origin": str(timeout.get("timeout_origin") or "unknown_timeout")[:64],
+        "owner": str(timeout.get("owner") or "unknown")[:64],
+        "provider_condition": str(timeout.get("provider_condition") or "unknown")[:64],
+        "retry_safety": str(timeout.get("retry_safety") or "reconcile_before_retry")[
+            :64
+        ],
+    }
+    if reference is not None:
+        projected["record_ref"] = reference
+    return projected, reference
 
 
 def project_run_result(
@@ -42,6 +72,9 @@ def project_run_result(
     provider: Mapping[str, Any] | None = None,
     authority: Mapping[str, Any] | None = None,
     diagnostics: Mapping[str, Any] | None = None,
+    cancellation: Mapping[str, Any] | None = None,
+    timeout: Mapping[str, Any] | None = None,
+    timeout_ref: tuple[str, str] | None = None,
 ) -> RunResult:
     """Construct the canonical RunResult for one reconciled, verdict-bearing turn.
 
@@ -55,6 +88,7 @@ def project_run_result(
     if not isinstance(verdict, CompletionVerdictResult):
         raise TypeError("verdict must be a CompletionVerdictResult")
     state = verdict.verdict.value
+    reason_detail = verdict.reason[:500] or verdict.reason_code
     identity: dict[str, Any] = {}
     if task_id:
         identity["task_id"] = task_id
@@ -85,10 +119,52 @@ def project_run_result(
                 "record_ref": _record_ref(*economics_ref),
             }
 
+    authority_value = dict(authority or {})
+    diagnostics_value = dict(diagnostics or {})
+    cancellation_phase, cancellation_ref = _cancellation_projection(cancellation)
+    if state == "cancelled":
+        if cancellation_phase != "terminated" or cancellation_ref is None:
+            state = "needs_attention"
+            reason_detail = (
+                "Cancellation was requested, but provider teardown was not "
+                "proven complete. Reconcile the prior operation before retrying."
+            )
+            automatic_retry = False
+            retry_reason = "manual_review"
+        else:
+            authority_value["cancellation"] = {
+                "phase": cancellation_phase,
+                "record_ref": cancellation_ref,
+            }
+            refs = list(diagnostics_value.get("record_refs") or [])
+            if cancellation_ref not in refs:
+                refs.append(cancellation_ref)
+            diagnostics_value["record_refs"] = refs
+            codes = list(diagnostics_value.get("codes") or [])
+            if "cancellation_terminated" not in codes:
+                codes.append("cancellation_terminated")
+            diagnostics_value["codes"] = codes
+
+    timeout_value, projected_timeout_ref = _timeout_projection(timeout, timeout_ref)
+    if timeout_value is not None and state == "timeout":
+        authority_value["timeout"] = timeout_value
+        refs = list(diagnostics_value.get("record_refs") or [])
+        if projected_timeout_ref is not None and projected_timeout_ref not in refs:
+            refs.append(projected_timeout_ref)
+        diagnostics_value["record_refs"] = refs
+        codes = list(diagnostics_value.get("codes") or [])
+        timeout_code = str(timeout_value["origin"])
+        if timeout_code not in codes:
+            codes.append(timeout_code)
+        diagnostics_value["codes"] = codes
+        if timeout_code == "task_deadline":
+            automatic_retry = False
+            retry_reason = "manual_review"
+
     try:
         return RunResult.from_payload(
             state=state,
-            reason_detail=verdict.reason[:500] or verdict.reason_code,
+            reason_detail=reason_detail,
             final_transition_at=final_transition_at,
             mutating=mutating,
             identity=identity,
@@ -97,8 +173,8 @@ def project_run_result(
             verification=verification,
             delivery=delivery,
             economics=economics,
-            authority=authority,
-            diagnostics=diagnostics,
+            authority=authority_value,
+            diagnostics=diagnostics_value,
         )
     except (TypeError, ValueError) as exc:
         return RunResult.from_payload(
@@ -139,30 +215,3 @@ def project_run_result_for_background_run(
         automatic_retry=automatic_retry,
         retry_reason=retry_reason,
     )
-
-
-def canonical_run_state(run_result: Any) -> str:
-    """The terminal lifecycle state of a canonical RunResult, or ``""``.
-
-    #618: the one way a consumer is allowed to learn what a finished turn
-    means. Surfaces previously each reached into ``completion_verdict`` (or
-    worse, a legacy status string) and decided for themselves, which is how the
-    same evidence could read `complete` in history and `partial` in the GUI.
-
-    Returns ``""`` rather than guessing when the payload carries no canonical
-    result -- an old record, or a turn that ended before the projection ran.
-    The caller then falls back to its documented compatibility path; it does
-    not get a fabricated state from here.
-    """
-
-    if isinstance(run_result, RunResult):
-        payload: Any = run_result.to_dict()
-    else:
-        payload = run_result
-    if not isinstance(payload, Mapping):
-        return ""
-    lifecycle = payload.get("lifecycle")
-    if not isinstance(lifecycle, Mapping):
-        return ""
-    state = str(lifecycle.get("state") or "").strip().lower()
-    return state if state in TERMINAL_STATE_IDS else ""

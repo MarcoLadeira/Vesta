@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from opaihub.generated_lifecycle import TERMINAL_STATE_IDS
 from opaihub.owner_lease import new_lease, owned_by_this_process
 from opaihub.owner_lease import touch as touch_lease
-from opaihub.run_result_projection import canonical_run_state
+
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator
@@ -55,6 +55,7 @@ _THREAD_STATUSES = {
     "pending",
     "failed",
     "cancelled",
+    "needs_attention",
     "interrupted",
 }
 _PLAN_STATUSES = {"pending", "in_progress", "completed", "blocked"}
@@ -72,6 +73,7 @@ _VERDICT_THREAD_STATUS = {
     state_id: "complete" if state_id == "completed" else state_id
     for state_id in TERMINAL_STATE_IDS
 }
+_RUN_RESULT_THREAD_STATUS = dict(_VERDICT_THREAD_STATUS)
 _ANSWERED_THREAD_STATUSES = {
     "answered",
     "cache_hit",
@@ -698,12 +700,11 @@ def thread_status_for_result(
     string may now only narrow an unknown result to a failure-shaped one; it can
     no longer manufacture completion that no evidence supports.
     """
+    if run_result is not None:
+        from opaihub.run_result import terminal_presentation
 
-    state = canonical_run_state(run_result)
-    if state:
-        mapped = _VERDICT_THREAD_STATUS.get(state)
-        if mapped is not None:
-            return mapped
+        canonical = terminal_presentation(run_result)
+        return _RUN_RESULT_THREAD_STATUS.get(canonical.state, "needs_attention")
     if isinstance(completion_verdict, dict):
         verdict = str(completion_verdict.get("verdict") or "").strip().lower()
         mapped = _VERDICT_THREAD_STATUS.get(verdict)

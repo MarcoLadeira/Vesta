@@ -16,6 +16,7 @@ from _helpers import FakeStreamingRunner, make_repo
 
 from opaihub import accounts
 from opaihub.accounts import AccountRunner
+from opaihub.deadlines import DeadlineBudget
 from opaihub.gui_pipeline import handle_gui_message
 
 
@@ -60,6 +61,19 @@ class FakeProc:
     def wait(self, timeout=None):
         self._alive = False
         return self.returncode
+
+
+class StubbornProc(FakeProc):
+    """A process that remains alive after every best-effort stop signal."""
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self, timeout=None):
+        raise accounts.subprocess.TimeoutExpired("provider", timeout or 0)
 
 
 class RunnerCancellationTests(unittest.TestCase):
@@ -191,6 +205,36 @@ class RunnerCancellationTests(unittest.TestCase):
             evidence.get("metrics", {}).get("hard_stop_latency_seconds")
         )
 
+    def test_stubborn_process_never_claims_terminated(self):
+        proc = StubbornProc([], hang=True)
+        cancel = threading.Event()
+        result: dict = {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+
+            def run():
+                with mock.patch.object(accounts, "_popen", return_value=proc):
+                    result.update(
+                        self._runner().stream(
+                            "x",
+                            project_root=root,
+                            cancel=cancel,
+                            cancellation_scope_id="stubborn-provider",
+                        )
+                    )
+
+            thread = threading.Thread(target=run)
+            thread.start()
+            time.sleep(0.25)
+            cancel.set()
+            thread.join(timeout=3)
+
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(result.get("cancelled"))
+        self.assertEqual(result["cancellation"]["phase"], "force_terminating")
+        self.assertIsNone(result["cancellation"]["metrics"]["terminated_at"])
+
     def test_timeout_terminates_the_process(self):
         proc = FakeProc([], hang=True)
         with mock.patch.object(accounts, "_popen", return_value=proc):
@@ -205,12 +249,28 @@ class RunnerCancellationTests(unittest.TestCase):
             ],
             hang=True,
         )
+        budget = DeadlineBudget(
+            task_deadline_seconds=0.2,
+            provider_idle_timeout_seconds=10.0,
+            lane="long_horizon",
+        )
         with mock.patch.object(accounts, "_popen", return_value=proc):
-            result = self._runner().stream("x", timeout=0.2, provider_idle_timeout=10.0)
+            result = self._runner().stream(
+                "x",
+                timeout=0.2,
+                provider_idle_timeout=10.0,
+                deadline_budget=budget,
+                operation_id="op-active-deadline",
+            )
 
         self.assertTrue(result.get("timed_out"))
         self.assertEqual(result["timeout_event"]["timeout_origin"], "task_deadline")
         self.assertEqual(result["timeout_event"]["provider_condition"], "responsive")
+        self.assertEqual(
+            result["timeout_event"]["deadline_budget_id"], budget.budget_id
+        )
+        self.assertEqual(result["timeout_event"]["operation_id"], "op-active-deadline")
+        self.assertTrue(result["timeout_event"]["progress_observed"])
         self.assertTrue(proc.terminated)
 
     def test_streams_text_and_tool_events(self):
@@ -449,9 +509,16 @@ class PipelineCancellationTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "cancelled")
 
-    def test_midflight_cancel_returns_partial(self):
+    def test_midflight_cancel_without_teardown_evidence_needs_attention(self):
         cancel = threading.Event()
-        runner = FakeStreamingRunner(chunks=["partial "], block=True)
+        provider_started = threading.Event()
+
+        class ObservedRunner(FakeStreamingRunner):
+            def stream(self, prompt, **kwargs):
+                provider_started.set()
+                return super().stream(prompt, **kwargs)
+
+        runner = ObservedRunner(chunks=["partial "], block=True)
         result: dict = {}
 
         def run():
@@ -472,14 +539,26 @@ class PipelineCancellationTests(unittest.TestCase):
 
         t = threading.Thread(target=run)
         t.start()
-        time.sleep(0.4)
-        cancel.set()
-        t.join(timeout=3)
-        # Cancelling mid-flight always yields a clean 'cancelled' status. (Whether
-        # partial text is captured depends on whether cancel lands before or after
-        # the model call starts — the deterministic partial-text guarantee is
-        # asserted at the runner level above.)
-        self.assertEqual(result.get("status"), "cancelled")
+        try:
+            self.assertTrue(
+                provider_started.wait(timeout=15),
+                "the synthetic provider must be in flight",
+            )
+        finally:
+            cancel.set()
+            t.join(timeout=10)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(
+            runner.calls[0]["cancellation_scope_id"],
+            f"account-{runner.calls[0]['operation_id'].replace(':', '-')}",
+        )
+        # This fake has no teardown journal. The runtime must preserve that
+        # uncertainty instead of turning the observed stop flag into proof.
+        self.assertEqual(result.get("status"), "needs_attention")
+        self.assertEqual(
+            (result.get("raw_result") or {}).get("stopped_reason"),
+            "cancellation_unconfirmed",
+        )
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ from opai.gui_web import (
     settings_payload,
     web_available,
 )
+from opaihub.run_result import RunResult
 
 
 class WebAvailableTests(unittest.TestCase):
@@ -60,12 +61,12 @@ class ThreadStatusHonestyTests(unittest.TestCase):
         The old contract let a legacy status stand in for a verdict, so
         "answered" alone meant the objective was met. It does not: "answered"
         records that the provider replied, which is transport, and says nothing
-        about whether the work was verified. #618 makes legacy strings
+        about whether the work was verified. Legacy strings are now
         compatibility inputs that may narrow an unknown result but may never
         report success.
 
-        The failure-shaped imports below are unchanged, because claiming *less*
-        than the evidence supports was never the risk.
+        The failure-shaped imports below are unchanged -- claiming *less* than
+        the evidence supports was never the risk.
         """
 
         self.assertEqual(thread_status_for_result("answered", None), "needs_attention")
@@ -73,16 +74,24 @@ class ThreadStatusHonestyTests(unittest.TestCase):
         self.assertEqual(thread_status_for_result("cancelled", None), "cancelled")
         self.assertEqual(thread_status_for_result("failed", None), "failed")
 
-    def test_the_canonical_result_outranks_both_verdict_and_legacy_status(self):
-        """The authority order #618 establishes, asserted at the GUI surface."""
+    def test_canonical_run_result_overrides_both_legacy_authorities(self):
+        canonical = RunResult.from_payload(
+            state="partial",
+            reason_detail="Verification remained incomplete.",
+            final_transition_at="2026-08-11T12:00:00Z",
+        ).to_dict()
 
         self.assertEqual(
-            thread_status_for_result(
-                "answered",
-                {"verdict": "completed"},
-                {"lifecycle": {"state": "partial"}},
-            ),
+            thread_status_for_result("answered", {"verdict": "completed"}, canonical),
             "partial",
+        )
+
+    def test_malformed_canonical_run_result_fails_closed(self):
+        self.assertEqual(
+            thread_status_for_result(
+                "answered", {"verdict": "completed"}, {"schema_version": 1}
+            ),
+            "needs_attention",
         )
 
     def test_partial_verdict_persists_as_partial_not_complete(self):
@@ -370,6 +379,7 @@ class WebAssetsTests(unittest.TestCase):
             "design-tokens.css",
             "design-tokens-preview.html",
             "icons.js",
+            "run-result.js",
             "styles.css",
             "app.js",
         ):

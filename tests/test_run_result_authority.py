@@ -21,19 +21,59 @@ import unittest
 
 from opai.gui_recents import thread_status_for_result
 from opaihub.generated_lifecycle import TERMINAL_STATE_IDS
-from opaihub.run_result import RunResult
-from opaihub.run_result_projection import canonical_run_state
+from opaihub.run_result import RunResult, terminal_presentation
 
 
 def _result(state: str) -> dict:
-    return {"lifecycle": {"state": state}}
+    """A full canonical payload, not a hand-shaped stub.
+
+    `terminal_presentation` validates before it answers and fails closed to
+    needs_attention on anything it cannot read. A bare
+    {"lifecycle": {"state": ...}} is therefore rejected -- correctly, since it
+    is indistinguishable from a corrupted record -- so the fixtures build real
+    results through the projector's own contract.
+    """
+
+    extra: dict = {}
+    if state == "completed":
+        # A completed result must carry verification, delivery and reconciled
+        # cost evidence -- the schema refuses to build one without them, which
+        # is how "finished, but we cannot account for it" is made unwritable.
+        extra = {
+            "verification": {"applicable": False, "verdict": "not_applicable"},
+            "delivery": {
+                "applicable": True,
+                "verdict": "delivered",
+                "record_ref": {"kind": "turn_record", "id": "t"},
+            },
+            "economics": {
+                "integrity": "reconciled",
+                "record_ref": {"kind": "ledger_event", "id": "e"},
+            },
+        }
+    return RunResult.from_payload(
+        state=state,
+        reason_detail=f"scenario: {state}",
+        final_transition_at="2026-08-11T12:00:00+00:00",
+        mutating=False,
+        **extra,
+    ).to_dict()
 
 
 class CanonicalStateAccessorTests(unittest.TestCase):
+    """`terminal_presentation` is the one downstream result accessor (#618).
+
+    An earlier revision of this branch introduced a second accessor. PR #698
+    landed `terminal_presentation` first and it is stricter -- it fails closed
+    on any payload it cannot validate -- so it is canonical and the competing
+    accessor was removed rather than kept as an alternative. Two ways to ask
+    what a run meant is the defect this issue exists to end.
+    """
+
     def test_a_canonical_result_yields_its_terminal_state(self) -> None:
         for state in sorted(TERMINAL_STATE_IDS):
             with self.subTest(state=state):
-                self.assertEqual(canonical_run_state(_result(state)), state)
+                self.assertEqual(terminal_presentation(_result(state)).state, state)
 
     def test_a_real_run_result_object_is_accepted(self) -> None:
         built = RunResult.from_payload(
@@ -42,7 +82,7 @@ class CanonicalStateAccessorTests(unittest.TestCase):
             final_transition_at="2026-01-01T00:00:00+00:00",
             mutating=False,
         )
-        self.assertEqual(canonical_run_state(built), "partial")
+        self.assertEqual(terminal_presentation(built.to_dict()).state, "partial")
 
     def test_absent_or_unusable_payloads_yield_no_state(self) -> None:
         """The accessor must never guess; a caller needs to know it has nothing.
@@ -53,12 +93,20 @@ class CanonicalStateAccessorTests(unittest.TestCase):
 
         for payload in (None, {}, "completed", 42, {"lifecycle": None}, []):
             with self.subTest(payload=payload):
-                self.assertEqual(canonical_run_state(payload), "")
+                # Fails *closed*: an unreadable payload becomes needs_attention,
+                # never a plausible-looking success. That is stricter than
+                # returning "nothing" and is why this accessor is canonical.
+                self.assertEqual(
+                    terminal_presentation(payload).state, "needs_attention"
+                )
 
     def test_a_non_terminal_or_unknown_state_is_not_returned(self) -> None:
         for state in ("running", "queued", "definitely-not-a-state", ""):
             with self.subTest(state=state):
-                self.assertEqual(canonical_run_state(_result(state)), "")
+                self.assertEqual(
+                    terminal_presentation({"lifecycle": {"state": state}}).state,
+                    "needs_attention",
+                )
 
 
 class ThreadStatusAuthorityTests(unittest.TestCase):
@@ -211,7 +259,7 @@ class BackgroundRunAuthorityTests(unittest.TestCase):
         from opaihub.run_state import RunState
 
         state, _, _ = self._classify(
-            {"status": "answered", "run_result": {"lifecycle": {"state": "partial"}}}
+            {"status": "answered", "run_result": _result("partial")}
         )
         self.assertEqual(state, RunState.PARTIAL)
 

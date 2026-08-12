@@ -496,6 +496,9 @@ def legacy_completion_state(payload: Mapping[str, Any] | None) -> str:
         return "failed"
     if status == "needs_attention":
         return "needs_attention"
+    generated = LEGACY_STATUS_MAP.get(status)
+    if generated:
+        return str(generated)
     return "needs_attention"
 
 

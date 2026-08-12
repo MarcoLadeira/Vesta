@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_policy import AgentMode, is_discovery_request, is_smalltalk_request
+from .deadlines import DEADLINE_POLICY_VERSION
 
 # Lane ids, ordered from least to most constrained. The order is meaningful:
 # `_LANE_ORDER.index` resolves collisions when a message qualifies for more than
@@ -100,6 +101,8 @@ class MessageContract:
     # --- execution budgets ------------------------------------------------
     max_tool_calls: int
     max_active_seconds: float
+    provider_idle_timeout_seconds: float
+    deadline_policy_version: int
     # NOTE: the context-compaction threshold is deliberately *not* a lane knob.
     # Raising it for long tasks is tempting — more history in view — but the
     # tool loop only clamps it against the provider's real context window when
@@ -126,6 +129,8 @@ class MessageContract:
             "maxTransientRetries": self.max_transient_retries,
             "maxToolCalls": self.max_tool_calls,
             "maxActiveSeconds": self.max_active_seconds,
+            "providerIdleTimeoutSeconds": self.provider_idle_timeout_seconds,
+            "deadlinePolicyVersion": self.deadline_policy_version,
             "isolateContext": self.isolate_context,
             "requiresConfirmation": self.requires_confirmation,
             "matchedSignals": list(self.matched_signals),
@@ -147,6 +152,7 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
         "max_transient_retries": 1,
         "max_tool_calls": 12,
         "max_active_seconds": 600.0,
+        "provider_idle_timeout_seconds": 300.0,
         "isolate_context": False,
     },
     EXPLORE: {
@@ -155,6 +161,7 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
         "max_transient_retries": 1,
         "max_tool_calls": 20,
         "max_active_seconds": 600.0,
+        "provider_idle_timeout_seconds": 300.0,
         # A long search must not become the next request's baggage.
         "isolate_context": True,
     },
@@ -163,6 +170,7 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
         "max_transient_retries": 2,
         "max_tool_calls": 40,
         "max_active_seconds": 1_800.0,
+        "provider_idle_timeout_seconds": 300.0,
         "isolate_context": False,
     },
     GOVERNED: {
@@ -174,6 +182,7 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
         # budget that could strand a legitimate release half-finished.
         "max_tool_calls": 12,
         "max_active_seconds": 600.0,
+        "provider_idle_timeout_seconds": 300.0,
         "isolate_context": False,
     },
 }
@@ -270,6 +279,8 @@ def resolve_message_contract(
         max_transient_retries=int(policy["max_transient_retries"]),
         max_tool_calls=int(policy["max_tool_calls"]),
         max_active_seconds=float(policy["max_active_seconds"]),
+        provider_idle_timeout_seconds=float(policy["provider_idle_timeout_seconds"]),
+        deadline_policy_version=DEADLINE_POLICY_VERSION,
         isolate_context=bool(policy["isolate_context"]),
         requires_confirmation=requires_confirmation
         or agent_mode is AgentMode.DANGEROUS,
