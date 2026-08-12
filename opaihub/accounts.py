@@ -42,6 +42,7 @@ from opaihub.deadlines import (
 
 from .command_runner import redact
 from .proc import provider_child_env
+from .progress_evidence import ProgressLedger
 from .process_tree import adopt, isolated_group_kwargs, terminate_tree
 
 _CONNECTION_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
@@ -1769,11 +1770,45 @@ def ensure_claude_hook_settings(path: Path | None = None) -> Path:
     return target
 
 
+#: Activity event types mapped onto the tool vocabulary `ProgressLedger`
+#: scores. The account route reports *events*, the tool loop reports *tool
+#: observations*; without this mapping the two would score the same work
+#: differently, which is the divergence #648 removes. `file_edit` must land in
+#: MUTATING_TOOLS or a real repository change would score as mere evidence.
+_LEDGER_TOOL_FOR_EVENT = {
+    "file_edit": "apply_patch",
+    "file_read": "read_file",
+    "context_read": "read_file",
+    "command_run": "run_command",
+    "ci_watch": "run_command",
+    "tool_call": "tool_call",
+}
+
+
+def _progress_observation(event: Mapping[str, Any], etype: str) -> dict[str, Any]:
+    """One activity event as a `ProgressLedger` observation.
+
+    `arguments` carries the event title because that is what distinguishes two
+    otherwise identical steps -- grepping for X twice is a repeat and scores
+    nothing, while grepping for Y is new evidence. `content` carries the detail
+    so an empty result is not mistaken for a discovery.
+    """
+
+    status = str(event.get("status") or "").strip().lower()
+    return {
+        "tool": _LEDGER_TOOL_FOR_EVENT.get(etype, etype),
+        "arguments": str(event.get("title") or ""),
+        "content": str(event.get("detail") or ""),
+        "ok": status not in {"error", "failed", "failure"},
+    }
+
+
 def _guard_int_env(name: str, default: int) -> int:
     """Non-negative int knob from the environment; bad values keep the default.
 
-    Used by the F27 no-progress guard (`OPAI_NO_PROGRESS_STEP_BUDGET`,
-    `OPAI_NO_PROGRESS_SECONDS`). ``0`` disables the corresponding check.
+    Used by the #648 convergence guard (`OPAI_NO_PROGRESS_STEP_BUDGET` as the
+    absolute exploration ceiling, `OPAI_NO_PROGRESS_PATIENCE` for stagnation,
+    `OPAI_NO_PROGRESS_SECONDS` for wall clock). ``0`` disables that check.
     """
     raw = str(os.environ.get(name, "") or "").strip()
     if not raw:
@@ -2303,14 +2338,37 @@ class AccountRunner:
         terminal_provider_error: str | None = None
         streamed_any = False
         open_pipes = 2
-        # F27 no-progress guard: an edit-intent run that keeps exploring
-        # without a single edit attempt is stopped (checkpointed) instead of
-        # burning the whole budget. Both knobs are env-tunable; 0 disables.
+        # Convergence guard (#648). This used to be "an edit-intent run that
+        # reaches N steps without a single file_edit is stopped", and that rule
+        # is what killed a real 60-step investigation into issue #614: every
+        # step was reading new files and learning, the model had just said it
+        # was about to edit, and the counter stopped it anyway because none of
+        # that learning was an edit.
+        #
+        # #569 replaced the counter with evidence scoring in
+        # `opaihub/progress_evidence.py`, and `tool_loop.py` (local and free
+        # routes) adopted it. The account route never did, so the same run was
+        # healthy on one provider and "stuck" on another -- the exact defect
+        # #648 exists to remove. Both routes now score the same way:
+        #
+        #   * a repository change scores highest,
+        #   * genuinely new evidence scores a little,
+        #   * repeating something already seen scores nothing,
+        #   * the same failure twice scores negative.
+        #
+        # Stagnation is "the score stopped improving", not "no edit yet", so a
+        # long productive investigation keeps its budget and a loop loses it
+        # quickly. `exploration_ceiling` remains as the absolute circuit
+        # breaker, because "keeps learning" must not become "never finishes".
         guard_active = structured and allow_edits and mode in {"safe-auto", "full-auto"}
-        step_budget = _guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60)
+        # Retained env name for operator compatibility; it is now the absolute
+        # ceiling rather than the first thing that fires.
+        exploration_ceiling = _guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60)
+        stagnation_patience = _guard_int_env("OPAI_NO_PROGRESS_PATIENCE", 12)
         no_progress_seconds = _guard_int_env("OPAI_NO_PROGRESS_SECONDS", 600)
         step_ids: set[str] = set()
         edit_attempted = False
+        progress = ProgressLedger()
         _STEP_TYPES = {
             "tool_call",
             "file_read",
@@ -2364,29 +2422,52 @@ class AccountRunner:
                         step_ids.add(str(event.get("id") or len(step_ids)))
                         if etype == "file_edit":
                             edit_attempted = True
-                if guard_active and not edit_attempted:
+                        progress.record(_progress_observation(event, etype))
+                if guard_active:
                     elapsed = time.monotonic() - started
-                    over_steps = step_budget > 0 and len(step_ids) >= step_budget
+                    stagnant = progress.is_stagnant(patience=stagnation_patience)
+                    over_ceiling = (
+                        exploration_ceiling > 0 and len(step_ids) >= exploration_ceiling
+                    )
                     over_time = (
                         no_progress_seconds > 0
                         and elapsed >= no_progress_seconds
                         and len(step_ids) >= 20
                     )
-                    if over_steps or over_time:
+                    if stagnant or over_ceiling or over_time:
                         stopped = "no_progress"
+                        reason = (
+                            "stopped learning"
+                            if stagnant
+                            else (
+                                "reached the exploration ceiling"
+                                if over_ceiling
+                                else "ran out of time"
+                            )
+                        )
                         _notify(
                             on_event,
                             make_event(
                                 "completion",
                                 "warning",
                                 (
-                                    "No-progress guard: stopped after "
-                                    f"{len(step_ids)} steps without an edit "
-                                    "attempt"
+                                    f"Convergence guard: {reason} after "
+                                    f"{len(step_ids)} steps"
                                 ),
                                 metadata={
                                     "steps": len(step_ids),
                                     "elapsed_s": int(elapsed),
+                                    "trigger": (
+                                        "stagnation"
+                                        if stagnant
+                                        else (
+                                            "exploration_ceiling"
+                                            if over_ceiling
+                                            else "time"
+                                        )
+                                    ),
+                                    "edit_attempted": edit_attempted,
+                                    **progress.summary(),
                                 },
                             ),
                         )
