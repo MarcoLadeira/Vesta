@@ -568,6 +568,21 @@ class ToolLoopController:
         invalid_decisions = 0
         provider_retries = 0
         started = self._clock()
+        # The task deadline measures time *without progress*, not total elapsed
+        # (#648 fixed the same defect in the account route's no-progress clock).
+        # Measured from the start, a ten-minute budget stopped a run for *taking*
+        # ten minutes even while it was still producing new evidence every step —
+        # the user asked a real question, OPai worked steadily on it, and was
+        # killed mid-verification for making progress too slowly. Real coding
+        # tasks legitimately run for hours.
+        #
+        # This clock is not the loop's protection against spinning: the evidence
+        # ledger below (`is_stagnant`) is, and it fires within a few steps of a
+        # run that stops learning. The deadline is only a backstop for a run that
+        # is somehow neither progressing nor detected as stagnant, so it restarts
+        # on every new high-water score.
+        last_progress_at = started
+        best_progress_seen = state.progress.best_score
 
         def _result(
             state_value: CompletionState,
@@ -610,7 +625,16 @@ class ToolLoopController:
         while True:
             if _cancelled(cancel):
                 return _result(CompletionState.CANCELLED, stopped="cancelled")
-            if self._clock() - started > policy.max_active_seconds:
+            # One clock read per iteration: reading it separately for the reset
+            # and the comparison let time advance between them, so a run that
+            # had just made progress could still be judged over its deadline.
+            now = self._clock()
+            if state.progress.best_score > best_progress_seen:
+                # New evidence since the last check: the run is working, so the
+                # deadline starts again from here.
+                best_progress_seen = state.progress.best_score
+                last_progress_at = now
+            if now - last_progress_at > policy.max_active_seconds:
                 return _result(
                     CompletionState.STUCK_NO_PROGRESS, stopped="controller_timeout"
                 )

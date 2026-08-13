@@ -329,6 +329,56 @@ def test_pipeline_persists_one_manifest_verdict_and_receipt_contract() -> None:
     assert result["verification_manifest"]["digest"][:12] in result["run_summary"]
 
 
+def test_verification_receives_the_live_cancel_signal() -> None:
+    """#614/#666: verification runs real subprocesses -- the "verifying" state
+    OPai refuses to let jump straight to "cancelled" for exactly that reason
+    (see test_cancel_two_phase.py). Before this, ``execute_policy`` was always
+    called with ``cancel=None``: pressing Stop mid-verification changed
+    nothing here, so a check kept running to its own timeout regardless, and
+    cost or repository changes could keep accruing after the user was told
+    OPai was stopping. This proves the same Event that stops everything else
+    in the turn now reaches verification too.
+    """
+    import threading
+    from unittest import mock
+
+    import opaihub.gui_pipeline as gui_pipeline_module
+    from opaihub.gui_pipeline import handle_gui_message
+
+    runner = _EvidenceRunner(
+        {
+            "text": "Parser corrected.",
+            "cost": 0.01,
+            "changed_files": ["parser.py"],
+            "tool_trace": [{"tool": "run_tests", "ok": True, "detail": "12 passed"}],
+        }
+    )
+    cancel_event = threading.Event()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = make_repo(Path(tmp), files={"parser.py": "value = 1\n"}, commit=True)
+        with mock.patch.object(
+            gui_pipeline_module,
+            "execute_policy",
+            wraps=gui_pipeline_module.execute_policy,
+        ) as spy:
+            handle_gui_message(
+                root,
+                "Fix parser.py and run tests.",
+                model_id="account:claude:sonnet",
+                mode="safe-auto",
+                account_runner=runner,
+                on_text=lambda _chunk: None,
+                cancel=cancel_event,
+            )
+
+    assert spy.called, "an edit-intent turn must run verification"
+    cancel_arg = spy.call_args.kwargs.get("cancel")
+    assert cancel_arg is not None, "verification must observe the turn's Stop signal"
+    assert cancel_arg() is False, "the signal must reflect the real event, unset here"
+    cancel_event.set()
+    assert cancel_arg() is True, "and flip to true the moment the user presses Stop"
+
+
 def test_partial_verdict_is_persisted_as_non_completed_checkpoint_state() -> None:
     from opaihub.checkpoints import load_run_checkpoint
     from opaihub.gui_pipeline import handle_gui_message
