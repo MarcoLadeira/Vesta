@@ -355,13 +355,93 @@ class AutoApplyAmbiguousRequestTests(unittest.TestCase):
                 )
                 self.assertEqual(policy.mode, AgentMode.EXPLAIN)
 
-    def test_explicit_read_only_focus_stays_explain_even_under_full_auto(self):
-        for focus in ("explain", "plan"):
+    def test_read_only_focus_does_not_revoke_a_pinned_full_auto(self):
+        """A stored style hint must not silently cancel a pinned permission.
+
+        This asserted the opposite. The focus is *persisted* as
+        ``default_task_mode``, so a selection made once was indistinguishable
+        from a deliberate choice for this turn: a workspace carrying a stored
+        Explain focus answered every request read-only forever while the
+        composer advertised "Auto-apply", and the user was told to switch off a
+        control they had not touched. Full Auto reaching this function has
+        already been pinned with an explicit acknowledgement, which outranks a
+        stored hint about answer style.
+
+        Read-only intent stays fully available: read-only wording, a question,
+        a greeting, and the Ask/Plan run modes are all still honored -- the
+        tests either side of this one cover exactly that.
+        """
+
+        for focus in ("explain", "plan", "review"):
             with self.subTest(focus=focus):
                 policy = resolve_agent_policy(
                     "the login form", focus_hint=focus, run_mode_hint="full-auto"
                 )
+                self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+                self.assertTrue(policy.allows("edit_files"))
+
+    def test_read_only_focus_is_still_honored_outside_full_auto(self):
+        for focus in ("explain", "plan"):
+            for run_mode in (None, "ask", "safe-auto", "approve-edits"):
+                with self.subTest(focus=focus, run_mode=run_mode):
+                    policy = resolve_agent_policy(
+                        "the login form", focus_hint=focus, run_mode_hint=run_mode
+                    )
+                    self.assertEqual(policy.mode, AgentMode.EXPLAIN)
+
+    def test_continuation_resumes_work_instead_of_answering_read_only(self):
+        """ "try again" means carry on -- it is an instruction, not an absence.
+
+        Such a message carries no write verb, so it used to score as no signal
+        at all and fall through to the focus hint, where a stored read-only
+        focus turned it into a refusal.
+        """
+
+        for message in (
+            "try again",
+            "continue",
+            "do it",
+            "keep going",
+            "please continue",
+            "go ahead",
+            "retry",
+        ):
+            for run_mode in ("safe-auto", "approve-edits", "full-auto"):
+                with self.subTest(message=message, run_mode=run_mode):
+                    policy = resolve_agent_policy(
+                        message, focus_hint="explain", run_mode_hint=run_mode
+                    )
+                    self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+
+    def test_continuation_does_not_widen_a_read_only_run_mode(self):
+        for run_mode in ("ask", "plan"):
+            with self.subTest(run_mode=run_mode):
+                policy = resolve_agent_policy("try again", run_mode_hint=run_mode)
                 self.assertEqual(policy.mode, AgentMode.EXPLAIN)
+
+    def test_pr_request_is_recognized_with_any_determiner(self):
+        """ "make **the** pr" is as much a PR request as "make a pr".
+
+        Only "a pr" was matched, so the everyday phrasing used once a specific
+        PR is under discussion scored as no write intent and was refused.
+        """
+
+        for phrase in (
+            "make the pr",
+            "make my pr",
+            "open the pr",
+            "create the pr",
+            "submit the pr",
+            "raise a pr",
+            "send the pr",
+            "put up a pr",
+            "open the pull request",
+            "make another pr",
+        ):
+            with self.subTest(phrase=phrase):
+                policy = resolve_agent_policy(f"fix the bug and {phrase}")
+                self.assertEqual(policy.mode, AgentMode.IMPLEMENT)
+                self.assertTrue(policy.allows("create_pr"), phrase)
 
     def test_explicit_read_only_wording_stays_explain_even_under_full_auto(self):
         policy = resolve_agent_policy(
