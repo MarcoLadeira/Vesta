@@ -146,12 +146,27 @@ _LANE_LABELS = {
 
 # Per-lane runtime policy. Everything a lane changes lives here, so the policy
 # is reviewable in one place instead of scattered through the pipeline.
+#
+# On the size of these budgets: they are *backstops*, not the mechanism that
+# stops a spinning run. That job belongs to the evidence ledger
+# (`progress_evidence.ProgressLedger`), which detects a run that has stopped
+# learning within a few steps regardless of how much time or budget remains.
+#
+# They used to be sized as if they were the safety mechanism: 12 tool calls and
+# ten minutes on the default lane. A real request — "solve this GitHub issue" —
+# spends a dozen calls just reading the issue and locating the code, so runs
+# were being stopped mid-task, and `max_active_seconds` measured *total elapsed*
+# rather than time without progress, so a run that was still producing new
+# evidence every step was killed for taking too long (the same defect #648 fixed
+# in the account route's no-progress clock; tool_loop now restarts this clock on
+# every new high-water score). Coding tasks legitimately run for hours, so the
+# ceilings are set where only a genuinely stuck run can reach them.
 _LANE_POLICY: dict[str, dict[str, Any]] = {
     STABLE: {
         "allow_provider_fallback": True,
         "max_transient_retries": 1,
-        "max_tool_calls": 12,
-        "max_active_seconds": 600.0,
+        "max_tool_calls": 200,
+        "max_active_seconds": 3_600.0,
         "provider_idle_timeout_seconds": 300.0,
         "isolate_context": False,
     },
@@ -159,8 +174,8 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
         # Read-only by construction, so roaming is cheap and safe.
         "allow_provider_fallback": True,
         "max_transient_retries": 1,
-        "max_tool_calls": 20,
-        "max_active_seconds": 600.0,
+        "max_tool_calls": 200,
+        "max_active_seconds": 3_600.0,
         "provider_idle_timeout_seconds": 300.0,
         # A long search must not become the next request's baggage.
         "isolate_context": True,
@@ -168,8 +183,8 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
     LONG_HORIZON: {
         "allow_provider_fallback": True,
         "max_transient_retries": 2,
-        "max_tool_calls": 40,
-        "max_active_seconds": 1_800.0,
+        "max_tool_calls": 600,
+        "max_active_seconds": 14_400.0,
         "provider_idle_timeout_seconds": 300.0,
         "isolate_context": False,
     },
@@ -180,8 +195,8 @@ _LANE_POLICY: dict[str, dict[str, Any]] = {
         # Deliberately the same allowance as `stable`: this lane's safety comes
         # from refusing fallback and requiring confirmation, not from a tighter
         # budget that could strand a legitimate release half-finished.
-        "max_tool_calls": 12,
-        "max_active_seconds": 600.0,
+        "max_tool_calls": 200,
+        "max_active_seconds": 3_600.0,
         "provider_idle_timeout_seconds": 300.0,
         "isolate_context": False,
     },

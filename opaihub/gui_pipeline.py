@@ -1190,11 +1190,18 @@ def handle_gui_message(
             and task_repository_handle is not None
         ):
             try:
+                # #614/#666: verification runs real subprocesses (the "verifying"
+                # state OPai refuses to let jump straight to "cancelled" for
+                # exactly this reason). Without threading the live signal through,
+                # a Stop pressed mid-check was never observed here — the check ran
+                # to its own timeout regardless, so cost and repository changes
+                # could keep accruing after the user was told OPai was stopping.
                 manifest = execute_policy(
                     effective_policy,
                     VerificationExecutionContext.from_repository_handle(
                         task_repository_handle
                     ),
+                    cancel=_cancelled,
                 )
                 evidence_reference = persist_verification_manifest(root, manifest)
                 persisted_manifest = load_verification_manifest(evidence_reference.path)

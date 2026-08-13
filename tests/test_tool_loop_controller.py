@@ -412,6 +412,78 @@ class ControllerRecoverableStateTests(unittest.TestCase):
         self.assertIs(result.completion_state, CompletionState.STUCK_NO_PROGRESS)
         self.assertEqual(result.stopped_reason, "controller_timeout")
 
+    def test_the_deadline_measures_time_without_progress_not_total_elapsed(self):
+        """A run still producing new evidence must not be stopped for elapsed time.
+
+        The clock ran from the start of the turn, so a ten-minute budget stopped
+        a run for *taking* ten minutes even while every step was still teaching
+        it something new -- the user's real request was killed mid-work for
+        making progress too slowly. Coding tasks legitimately run for hours.
+
+        Each step here takes 5s against a 10s budget, so no single gap without
+        progress is ever over -- but the run's *total* elapsed time reaches 35s,
+        which the old rule would have stopped at the third step. Every tool
+        result is distinct, so the evidence high-water mark rises each time.
+        """
+
+        elapsed = iter(float(step * 5) for step in range(200))
+
+        def clock():
+            try:
+                return next(elapsed)
+            except StopIteration:  # pragma: no cover - generous supply above
+                return 20_000.0
+
+        controller = ToolLoopController(
+            ToolLoopPolicy(max_active_seconds=10.0), clock=clock
+        )
+        turns = [
+            tool_turn(f"c{i}", "read_file", f'{{"path": "f{i}.py"}}') for i in range(5)
+        ]
+        # Real work ends in a change, so the completion claim is legitimate and
+        # the false-completion guard is not what this test is measuring.
+        turns.append(tool_turn("c5", "apply_patch", '{"path": "f0.py"}'))
+        turns.append(decision_turn(evidence=["apply_patch"]))
+
+        result = controller.run(
+            chat=scripted_chat(turns),
+            executor=FakeExecutor(),
+            base_messages=self._base(),
+        )
+
+        self.assertIs(result.completion_state, CompletionState.COMPLETED)
+        self.assertNotEqual(result.stopped_reason, "controller_timeout")
+
+    def test_the_deadline_still_stops_a_run_that_stops_making_progress(self):
+        """The backstop must remain real: no new evidence, and the clock wins.
+
+        Same 5s-per-step clock as above, so the difference is purely that this
+        run keeps making the identical call and never earns a reset.
+        """
+
+        elapsed = iter(float(step * 5) for step in range(200))
+
+        def clock():
+            try:
+                return next(elapsed)
+            except StopIteration:  # pragma: no cover - generous supply above
+                return 20_000.0
+
+        controller = ToolLoopController(
+            ToolLoopPolicy(max_active_seconds=10.0), clock=clock
+        )
+
+        def chat(messages, *, tools):
+            # The identical call every time: repetition scores nothing, so the
+            # evidence high-water mark never moves and the clock is never reset.
+            return tool_turn("c1", "read_file", '{"path": "same.py"}')
+
+        result = controller.run(
+            chat=chat, executor=FakeExecutor(), base_messages=self._base()
+        )
+
+        self.assertIs(result.completion_state, CompletionState.STUCK_NO_PROGRESS)
+
 
 class ControllerTraceTests(unittest.TestCase):
     def test_duplicate_and_id_less_calls_are_all_traced(self):
