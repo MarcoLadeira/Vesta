@@ -411,6 +411,41 @@ class DurabilityTests(unittest.TestCase):
             self.assertEqual(restored.run_state, RunState.FAILED.value)
             self.assertEqual(restored.reason_code, "interrupted")
 
+    def test_a_crash_mid_teardown_is_recovered_as_needs_attention_not_failed(self):
+        """#614: a crash while CANCEL_REQUESTED must not be filed as a bare
+        "failed". OPai asked to stop the run and never observed whether that
+        stop finished, so claiming either "cancelled" (a stop nobody saw) or
+        plain "failed" (silently dropping the stop request, and inviting a
+        naive retry to overlap the unreconciled attempt) is dishonest. Only
+        NEEDS_ATTENTION with "cancellation_unconfirmed" says what OPai
+        actually knows.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+            # Simulate a crash mid-teardown: cancellation was requested but
+            # the owning session died before it could be confirmed. The
+            # legacy status for CANCEL_REQUESTED is "running" (nothing has
+            # observed it stop yet), which is exactly what the orphan sweep
+            # scans for.
+            path = root / ".opaihub" / "agent" / "background" / "runs"
+            record_path = path / f"{run.run_id}.json"
+            data = json.loads(record_path.read_text("utf-8"))
+            data["status"] = "running"
+            data["run_state"] = RunState.CANCEL_REQUESTED.value
+            data["cancel_requested"] = True
+            record_path.write_text(json.dumps(data), encoding="utf-8")
+
+            recovered = recover_interrupted_runs(root)
+            self.assertEqual([item.run_id for item in recovered], [run.run_id])
+
+            restored = load_run(root, run.run_id)
+            self.assertEqual(restored.run_state, RunState.NEEDS_ATTENTION.value)
+            self.assertEqual(restored.reason_code, "cancellation_unconfirmed")
+            self.assertNotEqual(restored.run_state, RunState.FAILED.value)
+            self.assertNotEqual(restored.run_state, RunState.CANCELLED.value)
+            self.assertIn("cancellation", restored.result)
+
     def test_legacy_record_without_run_state_is_migrated_from_its_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
