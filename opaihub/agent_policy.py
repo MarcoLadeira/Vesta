@@ -57,12 +57,22 @@ _SHIP_PROHIBITION_SIGNAL = re.compile(
     r"\b(?:do\s+not|don't|never|without|avoid|forbid|must\s+not)\s+(?:merge|ship)\b",
     re.IGNORECASE,
 )
+# A determiner gap used to decide intent: the publish/implement patterns
+# accepted only "a pr", so the equally common "make **the** pr" (natural once a
+# specific PR is under discussion), "open my pr", "raise a pr", and "send the
+# PR" all scored as *no write intent at all* and fell through to the read-only
+# fallback. The user then watched OPai refuse a request that plainly said to
+# open a PR. Determiners and the everyday publish verbs are enumerated once,
+# here, so both patterns stay in step.
+_DET = r"(?:(?:a|an|the|my|our|this|that|another|one)\s+)?"
+_PR_NOUN = r"(?:prs?|pull\s+requests?)"
+_PUBLISH_VERB = r"(?:open|create|make|submit|raise|send|file|put\s+up|start|do)"
 _PUBLISH_SIGNAL = re.compile(
-    r"\b(?:push|(?:open|create|make|submit)\s+(?:a\s+)?(?:pr|pull\s+request))\b",
+    rf"\b(?:push|{_PUBLISH_VERB}\s+{_DET}{_PR_NOUN})\b",
     re.IGNORECASE,
 )
 _IMPLEMENT_SIGNAL = re.compile(
-    r"\b(?:fix|implement|build|create\s+(?:a\s+)?pr|make\s+(?:a\s+)?pr|open\s+(?:a\s+)?pr|"
+    rf"\b(?:fix|implement|build|{_PUBLISH_VERB}\s+{_DET}{_PR_NOUN}|"
     r"pull\s+request|patch|(?:resolve|solve)\s+(?:the\s+)?issue|refactor|(?:write|run)(?:\s+the)?(?:\s+relevant)?\s+tests?|"
     # "Solve GitHub issue #219" / "fix ticket #42" / "implement issue #7": the
     # verb may be separated from issue/bug/ticket by a qualifier (F5/F10).
@@ -128,6 +138,36 @@ _SMALLTALK_UNIT = (
     r")"
 )
 _SMALLTALK_SIGNAL = re.compile(rf"^(?:{_SMALLTALK_UNIT}[\s!.,?~]*)+$", re.IGNORECASE)
+
+
+# "try again" / "continue" / "do it": the user is telling OPai to carry on with
+# the work already under discussion. Such a message carries no write verb of its
+# own, so it used to score as *no signal whatsoever* and fall through to the
+# focus hint -- where a stale read-only focus turned "try again" into a refusal.
+# A continuation is not an ambiguous message: it is an explicit instruction to
+# proceed, and under a run mode that permits editing it means "keep working".
+_CONTINUATION_SIGNAL = re.compile(
+    r"^(?:(?:please|now|ok(?:ay)?|yes|yeah|yep|sure|and|so|then)[\s,]+)*"
+    r"(?:try(?:\s+it)?\s+again|again|retry|continue|carry\s+on|keep\s+going|"
+    r"go\s+on|go\s+ahead|carry\s+out|do\s+it|do\s+that|do\s+the\s+work|"
+    r"finish(?:\s+it|\s+the\s+job)?|proceed|resume|carry\s+on\s+with\s+it)"
+    r"[\s!.,]*$",
+    re.IGNORECASE,
+)
+
+# Run modes that authorize editing. Ask/Plan are read-only and are never
+# widened here.
+_EDITING_RUN_MODES = frozenset({"safe-auto", "approve-edits", "full-auto"})
+
+
+def is_continuation_request(message: str) -> bool:
+    """True when the whole message just says "carry on with what you were doing".
+
+    Kept separate from small talk: a greeting is a chat answer, a continuation
+    is an instruction to resume work.
+    """
+
+    return bool(_CONTINUATION_SIGNAL.match(" ".join(str(message or "").split())))
 
 
 def is_smalltalk_request(message: str) -> bool:
@@ -315,16 +355,40 @@ def resolve_agent_policy(
         mode = AgentMode.EXPLAIN
     else:
         hint = str(focus_hint or "").lower()
-        if hint in {"review"}:
+        run_mode = str(run_mode_hint or "").strip().lower()
+        editing_run_mode = run_mode in _EDITING_RUN_MODES
+        # A run mode is the user's *permission* decision and a task focus is a
+        # style hint. Only Full Auto reaching this function has been pinned with
+        # an explicit acknowledgement (opaihub.autonomy.effective_mode downgrades
+        # an unpinned full-auto to Safe Auto before we ever see it), which makes
+        # it the strongest authorization the product offers.
+        #
+        # A read-only focus used to outrank it unconditionally. Because the focus
+        # is *persisted* (``default_task_mode``), one selection made months ago
+        # was indistinguishable from a deliberate choice for this turn -- so a
+        # workspace with a stored Explain focus answered every request read-only
+        # forever while the composer advertised "Auto-apply", and the user was
+        # told to switch off a control they had not touched. A stored style hint
+        # must not silently revoke a pinned permission.
+        #
+        # Genuine read-only intent is untouched: read-only *wording* in the
+        # message, an explanation-leading question, a greeting, and the Ask/Plan
+        # run modes are all resolved before this branch.
+        focus_read_only = hint in {"explain", "plan", "review"}
+        if is_continuation_request(text) and editing_run_mode:
+            # Checked before the stored hints: "try again" is an explicit
+            # instruction *in this message* to resume the work, so it ranks with
+            # the message-level signals above, not with a persisted preference.
+            mode = AgentMode.IMPLEMENT
+        elif focus_read_only and run_mode == "full-auto":
+            mode = AgentMode.IMPLEMENT
+        elif hint == "review":
             mode = AgentMode.REVIEW
         elif hint in {"build", "debug", "refactor", "test", "implement"}:
             mode = AgentMode.IMPLEMENT
         elif hint in {"explain", "plan"}:
-            # An explicitly chosen read-only persona is a real signal and
-            # stays read-only even in Auto-apply — only the *absence* of any
-            # signal defers to the run mode below.
             mode = AgentMode.EXPLAIN
-        elif str(run_mode_hint or "").strip().lower() == "full-auto":
+        elif run_mode == "full-auto":
             mode = AgentMode.IMPLEMENT
         else:
             mode = AgentMode.EXPLAIN

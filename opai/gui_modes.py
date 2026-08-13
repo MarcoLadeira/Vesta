@@ -272,7 +272,12 @@ def describe_controls(run_mode: str | None, focus: str | None) -> dict[str, Any]
     # its permission rules block edits outright — unknown modes degrade to the
     # read-only "ask" ruleset and must report read-only too (fail closed).
     run_mode_read_only = is_read_only(mode) or edit_state == "block"
-    focus_read_only = focus_mode["run_mode"] in {"ask", "plan"}
+    # A read-only *focus* is a style hint, not a permission. Under a pinned Full
+    # Auto it no longer forces read-only (see resolve_agent_policy): reporting
+    # read_only=True here while the resolver runs the turn as Implement is the
+    # exact disagreement F20 exists to prevent, and it is what made the composer
+    # advertise "Auto-apply" while every turn came back refusing to edit.
+    focus_read_only = focus_mode["run_mode"] in {"ask", "plan"} and mode != "full-auto"
     preview = resolve_agent_policy("", focus_hint=focus_id, run_mode_hint=mode)
     return {
         "run_mode": mode,

@@ -59,9 +59,15 @@ class DescribeControlsTests(unittest.TestCase):
         # matching resolve_agent_policy's run_mode_hint fallback.
         controls = describe_controls("full-auto", "general")
         self.assertEqual(controls["agent_mode_preview"], "implement")
-        # A read-only focus stays a real, honored signal even in Auto-apply.
+        # A read-only focus no longer revokes a pinned Full Auto. This asserted
+        # "explain": because the focus is persisted, a stored Explain hint made
+        # every Auto-apply turn read-only and the surface still reported
+        # read_only=True while telling the user they had full autonomy.
         controls = describe_controls("full-auto", "explain")
-        self.assertEqual(controls["agent_mode_preview"], "explain")
+        self.assertEqual(controls["agent_mode_preview"], "implement")
+        self.assertFalse(controls["read_only"])
+        self.assertFalse(controls["focus_read_only"])
+        self.assertTrue(controls["can_edit"])
 
     def test_safe_auto_with_no_specific_focus_still_previews_explain(self):
         # Only full-auto changes the ambiguous-message default; every other
