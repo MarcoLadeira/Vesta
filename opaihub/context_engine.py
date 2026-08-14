@@ -9,10 +9,15 @@ per-client ignore files (.cursorignore, .claudeignore, .copilotignore,
 
 from __future__ import annotations
 
+import stat
+import tempfile
 from pathlib import Path
 from typing import Any
 
+from .atomic_io import atomic_write_text, interprocess_transaction
+from .command_runner import redact
 from .cost_model import estimate_tokens, load_cost_model, tier_cost
+from .state import state_dir
 
 # Whole directories that are almost always context waste.
 WASTE_DIRS = {
@@ -89,6 +94,11 @@ CLIENT_IGNORE_FILES = {
 }
 
 _MANAGED_START = "# OPai context-slimming rules (managed)"
+_MANAGED_END = "# end OPai rules"
+# An ignore file belongs to the user; never hold its lock longer than a UI call.
+_IGNORE_LOCK_TIMEOUT_SECONDS = 30.0
+# Re-merge this many times when an outside editor beats us to the publish.
+_PUBLISH_ATTEMPTS = 3
 _MANAGED_PATTERNS = [
     ".git/",
     ".opaihub/",
@@ -260,39 +270,107 @@ def _before_after(
     }
 
 
+def _merge_ignore_text(existing: str) -> str:
+    """Append the managed block to the user's rules without dropping any of them."""
+    block = "\n".join([_MANAGED_START, *_MANAGED_PATTERNS, _MANAGED_END])
+    return (existing.rstrip() + "\n\n" + block + "\n").lstrip()
+
+
+def _default_file_mode() -> int:
+    """Permissions a plain text write would create here (umask applied)."""
+    with tempfile.TemporaryDirectory() as probe_dir:
+        probe = Path(probe_dir) / "probe"
+        probe.write_text("", encoding="utf-8")
+        return stat.S_IMODE(probe.stat().st_mode)
+
+
+def _read_ignore(path: Path) -> tuple[str | None, int | None]:
+    """Return the file's text and permission bits, or (None, None) when absent."""
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except FileNotFoundError:
+        return None, None
+    return text, stat.S_IMODE(path.stat().st_mode)
+
+
+def _ignore_lock_path(root: Path, name: str) -> Path:
+    """Lock beside OPai state, not beside the user's file, so no stray lock is left in the repo."""
+    return state_dir(root) / "locks" / f"ignore-{name}"
+
+
+def _publish_ignore(
+    path: Path, expected: str | None, text: str, mode: int | None
+) -> bool:
+    """Publish atomically, but only while the file still holds what we merged from."""
+    current, _ = _read_ignore(path)
+    if current != expected:
+        return False
+    atomic_write_text(
+        path, text, mode=mode if mode is not None else _default_file_mode()
+    )
+    return True
+
+
+def _apply_client_ignore(root: Path, client: str, name: str) -> dict[str, Any]:
+    path = root / name
+    with interprocess_transaction(
+        _ignore_lock_path(root, name), timeout_seconds=_IGNORE_LOCK_TIMEOUT_SECONDS
+    ):
+        for _ in range(_PUBLISH_ATTEMPTS):
+            existing, mode = _read_ignore(path)
+            if existing is not None and _MANAGED_START in existing:
+                return {"client": client, "file": name, "status": "already_managed"}
+            base = existing or ""
+            # Preserve the user's existing rules; append the managed block.
+            if not _publish_ignore(path, existing, _merge_ignore_text(base), mode):
+                # An editor wrote between our read and our publish: merge again
+                # from their content instead of overwriting it.
+                continue
+            return {
+                "client": client,
+                "file": name,
+                "status": "updated" if base else "created",
+                "preserved_user_lines": len(
+                    [line for line in base.splitlines() if line.strip()]
+                ),
+            }
+    return {
+        "client": client,
+        "file": name,
+        "status": "conflict",
+        "error": "file kept changing while publishing; left it as the editor wrote it",
+    }
+
+
 def generate_client_ignores(
     project_root: Path, clients: list[str] | None = None
 ) -> dict[str, Any]:
     """Write/refresh per-client ignore files without clobbering user rules (#51)."""
     root = project_root.expanduser().resolve()
     selected = clients or list(CLIENT_IGNORE_FILES.keys())
-    block = "\n".join([_MANAGED_START, *_MANAGED_PATTERNS, "# end OPai rules"])
     results: list[dict[str, Any]] = []
     for client in selected:
         name = CLIENT_IGNORE_FILES.get(client)
         if not name:
             results.append({"client": client, "status": "unknown_client"})
             continue
-        path = root / name
-        existing = path.read_text(encoding="utf-8") if path.exists() else ""
-        if _MANAGED_START in existing:
+        try:
+            results.append(_apply_client_ignore(root, client, name))
+        except (OSError, UnicodeDecodeError) as exc:
+            # One unreadable or unwritable file must not abort the other clients,
+            # and the file it failed on keeps whatever the user had in it.
             results.append(
-                {"client": client, "file": name, "status": "already_managed"}
+                {
+                    "client": client,
+                    "file": name,
+                    "status": "failed",
+                    # #622 AC9: never interpolate a caught exception raw — an
+                    # OSError can carry a full filesystem path. redact() is the
+                    # sanctioned boundary this result crosses on its way to the
+                    # GUI/CLI payload.
+                    "error": redact(str(exc)),
+                }
             )
-            continue
-        # Preserve the user's existing rules; append the managed block.
-        new_text = (existing.rstrip() + "\n\n" + block + "\n").lstrip()
-        path.write_text(new_text, encoding="utf-8")
-        results.append(
-            {
-                "client": client,
-                "file": name,
-                "status": "updated" if existing else "created",
-                "preserved_user_lines": len(
-                    [line for line in existing.splitlines() if line.strip()]
-                ),
-            }
-        )
     return {
         "report": "opai-context-ignores",
         "project": str(root),

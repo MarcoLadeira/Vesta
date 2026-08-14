@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 import threading
@@ -227,6 +228,55 @@ def test_atomic_write_text_uses_unique_sibling_temps_and_cleans_them(
     assert all(source.name.startswith(f".{target.name}.") for source in sources)
     assert all(not source.exists() for source in sources)
     assert list(target.parent.glob(f".{target.name}.*.tmp")) == []
+
+
+def test_atomic_write_text_applies_mode_before_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opaihub import atomic_io
+
+    target = tmp_path / "state.txt"
+    events: list[tuple[str, Path, int | None]] = []
+    real_replace = atomic_io.os.replace
+    real_chmod = atomic_io.os.chmod
+
+    def record_replace(source: Path, destination: Path) -> None:
+        events.append(("replace", Path(source), None))
+        real_replace(source, destination)
+
+    def record_chmod(path: Path, mode: int) -> None:
+        events.append(("chmod", Path(path), mode))
+        real_chmod(path, mode)
+
+    monkeypatch.setattr(atomic_io.os, "replace", record_replace)
+    monkeypatch.setattr(atomic_io.os, "chmod", record_chmod)
+
+    atomic_io.atomic_write_text(target, "owned", mode=0o640)
+
+    # The mode lands on the temp file first, so the published file is never
+    # visible carrying the temp file's private permissions.
+    assert [event[0] for event in events] == ["chmod", "replace"]
+    assert events[0][1] == events[1][1]
+    assert events[0][2] == 0o640
+    if os.name != "nt":
+        assert stat.S_IMODE(target.stat().st_mode) == 0o640
+
+
+def test_atomic_write_text_without_mode_does_not_chmod(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from opaihub import atomic_io
+
+    calls: list[Path] = []
+    monkeypatch.setattr(
+        atomic_io.os, "chmod", lambda path, mode: calls.append(Path(path))
+    )
+
+    atomic_io.atomic_write_text(tmp_path / "state.txt", "plain")
+
+    assert calls == []
 
 
 def test_atomic_write_text_syncs_parent_directory_after_replace(
