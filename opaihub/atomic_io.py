@@ -164,8 +164,13 @@ def atomic_write_text(
     text: str,
     *,
     encoding: str = "utf-8",
+    mode: int | None = None,
 ) -> None:
-    """Flush text to a unique sibling temporary file, then atomically replace."""
+    """Flush text to a unique sibling temporary file, then atomically replace.
+
+    ``mode`` sets the permission bits on the temporary file before the replace,
+    so the published file never carries the temporary file's private mode.
+    """
 
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -183,6 +188,8 @@ def atomic_write_text(
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+        if mode is not None:
+            os.chmod(temporary, mode)
         _replace_with_retry(temporary, target)
         temporary = None
         _sync_parent_directory(target.parent)
