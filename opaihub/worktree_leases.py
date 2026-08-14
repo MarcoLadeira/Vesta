@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from . import run_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .repository_safety import (
@@ -141,6 +142,89 @@ def _valid_branch(value: str) -> str:
     return branch
 
 
+# --- #613 Stage 3: shadow journal --------------------------------------
+#
+# Stage 1's inventory names this module JOURNAL_OWNED -- "leases: worktree
+# ownership" -- and #613 asks for a migration, not a cutover: the same
+# shadow-write plus dual-read pattern Stage 2 proved on ``opaihub.owner_lease``
+# applies here.
+#
+# The shape differs from Stage 2 in one respect that simplifies rather than
+# complicates it: every lease file is a *whole-record* overwrite already --
+# ``_save`` always writes the complete ``lease.to_dict()``, never a partial
+# field update -- so the mirrored event needs no field-level reduce logic the
+# way owner_lease's acquire/renew distinction did. One choke point
+# (``_save``), one event shape: "this is the lease that was just published."
+#
+# ``_save`` is the single place every state transition in this module reaches
+# disk through (``create``, ``_reconcile_loaded``, ``heartbeat``, ``release``,
+# ``cleanup`` all funnel through it), so mirroring there covers all of them
+# without touching each call site.
+
+
+def _lease_journal_path(path: Path) -> Path:
+    """The shadow journal for the lease file at ``path``.
+
+    Deliberately *not* a sibling of the lease file: :func:`list` globs its
+    directory non-recursively for ``*.json``, and ``run_journal``'s own head
+    cache is unconditionally named ``<name>.head.json`` -- a sibling
+    ``<lease_id>.journal.jsonl`` would have made its own head cache end in
+    ``.json`` and land in that glob, corrupting the legacy lease listing with
+    a filename that is not a lease id. Caught by the existing test suite, not
+    by inspection. A dedicated ``journal/`` subdirectory is structurally
+    outside a non-recursive glob of its parent, which removes the collision
+    instead of trying to out-name it.
+    """
+    path = Path(path)
+    return path.parent / "journal" / (path.stem + ".journal.jsonl")
+
+
+def _empty_lease_snapshot() -> dict[str, Any]:
+    return {}
+
+
+def _reduce_lease_snapshot(
+    _projection: dict[str, Any], event: dict[str, Any]
+) -> dict[str, Any]:
+    return dict(event["lease"])
+
+
+def _validate_lease_snapshot(event: dict[str, Any]) -> bool:
+    if event.get("type") != "lease_saved":
+        return False
+    lease = event.get("lease")
+    if not isinstance(lease, dict):
+        return False
+    return (
+        lease.get("schema_version") == LEASE_SCHEMA_VERSION
+        and lease.get("state") in LEASE_STATES
+        and isinstance(lease.get("lease_id"), str)
+        and bool(lease.get("lease_id"))
+    )
+
+
+def _shadow_record_lease(path: Path, lease: WorktreeLease) -> None:
+    """Best-effort mirror of an already-decided, already-written lease.
+
+    Called from inside the caller's own ``interprocess_transaction(path)`` --
+    the same lock :func:`WorktreeManager._save` holds while writing the
+    legacy file -- so the journal can never observe transitions in a
+    different order than the file did. Never raises: a worktree lease is a
+    liveness/ownership primitive, and refusing a real transition over a
+    logging concern would be a worse failure than the logging gap itself.
+    """
+    try:
+        run_journal.append(
+            _lease_journal_path(path),
+            {"type": "lease_saved", "lease": lease.to_dict()},
+            reduce=_reduce_lease_snapshot,
+            empty=_empty_lease_snapshot,
+            validate=_validate_lease_snapshot,
+        )
+    except Exception:  # nosec B110 -- shadow evidence, never authoritative
+        pass
+
+
 class WorktreeManager:
     """Create and reconcile OPai-owned worktrees without touching user ones."""
 
@@ -215,6 +299,10 @@ class WorktreeManager:
                 atomic_write_text(
                     path, json.dumps(lease.to_dict(), sort_keys=True, indent=2) + "\n"
                 )
+                # #613 Stage 3: mirrored while still holding the file's own
+                # lock, so the journal can never observe saves in a different
+                # order than the file did.
+                _shadow_record_lease(path, lease)
         except (OSError, TimeoutError, ValueError) as exc:
             raise WorktreeLeaseError(
                 f"Could not persist worktree lease: {redact(str(exc))[:240]}"
@@ -270,6 +358,65 @@ class WorktreeManager:
         if lease.state not in LEASE_STATES:
             raise WorktreeLeaseError("Unknown worktree lease state")
         return lease
+
+    def _raw_legacy_snapshot(self, lease_id: str) -> dict[str, Any]:
+        """The on-disk lease dict without :func:`load`'s strict validation.
+
+        :func:`load` raises on anything invalid, by design -- every other
+        caller in this module needs a lease it can trust or an explicit
+        error, never a silent guess. The comparator needs the opposite: read
+        whatever is actually there, valid or not, so a real divergence can be
+        reported rather than raised past.
+        """
+        try:
+            data = json.loads(self._lease_path(lease_id).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def shadow_journal_projection(self, lease_id: str) -> dict[str, Any]:
+        """The lease state the shadow journal alone would reconstruct.
+
+        Read-only and never raises past a corrupt journal
+        (:func:`run_journal.load` quarantines and recovers); comparing this
+        against the legacy file is the dual-read #613 asks for.
+        """
+        try:
+            return run_journal.load(
+                _lease_journal_path(self._lease_path(lease_id)),
+                reduce=_reduce_lease_snapshot,
+                empty=_empty_lease_snapshot,
+                validate=_validate_lease_snapshot,
+            ).projection
+        except Exception:
+            return {}
+
+    def lease_contradiction_report(self, lease_id: str) -> dict[str, Any] | None:
+        """``None`` when the file and its shadow agree; otherwise, what disagrees.
+
+        Reads both under the lease file's own lock -- the same one
+        :func:`_save` holds while writing file and shadow together -- so the
+        two reads are a single consistent snapshot, never a mix of
+        before-and-after one process's in-flight save (see #613 Stage 2,
+        where an earlier fence-distance tolerance was found to mask exactly
+        this kind of race instead of removing it).
+        """
+        path = self._lease_path(lease_id)
+        with interprocess_transaction(path):
+            legacy = self._raw_legacy_snapshot(lease_id)
+            shadow = self.shadow_journal_projection(lease_id)
+        if legacy == shadow:
+            return None
+        mismatched = sorted(
+            {*legacy.keys(), *shadow.keys()}
+            - {key for key in legacy if legacy.get(key) == shadow.get(key)}
+        )
+        return {
+            "lease_id": lease_id,
+            "legacy": legacy,
+            "shadow": shadow,
+            "mismatched_fields": mismatched,
+        }
 
     def list(self) -> list[WorktreeLease]:
         directory = self._directory()
