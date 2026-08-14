@@ -141,9 +141,11 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         # approval card instead of a dead end (see
         # test_opening_a_pull_request_asks_instead_of_dead_ending). What remains
         # here is the class the user must perform themselves.
+        # `gh pr merge` was here. It now reaches the one-time approval card for
+        # the same reason `gh pr create` did: refusing it did not hand the
+        # decision to the user, it removed the option and dead-ended the run.
         blocked = (
             "gh issue close 219 --comment done",
-            "gh pr merge 5",
             "git reset --hard HEAD~1",
             "rm -rf /tmp/x",
         )
@@ -315,15 +317,65 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
                 _decision_of(claude_pre_tool_decision(_hook_payload(command))), "deny"
             )
 
-    def test_irreversible_github_commands_never_enter_the_approval_channel(self):
-        """Ask-once is for reversible outward actions, not for decisions.
+    def test_the_real_chained_command_shape_reaches_the_approval_card(self):
+        """Reported: OPai still could not open a PR after all of the above.
 
-        Merging, closing, deleting a repo or release, and raw destructive API
-        calls are the user's to make: they must stay refused rather than become
-        a card someone clicks through.
+        Providers issue every command as ``cd "<repo>" && <command>``, and the
+        allowlist was anchored at the start of the string -- so the chained form
+        matched nothing, fell through to the destructive/confirmation-only
+        refusal, and the user was told to open the PR by hand. The tests here
+        only ever passed a bare ``gh pr create``, which is why the channel
+        looked reachable while being unreachable in practice.
+        """
+        repo = 'cd "C:/Users/Frist/Documents/Apps/OPai" && '
+        for command in (
+            repo + "gh pr create --base main --title 'fix: x'",
+            repo + "gh pr merge 703 --squash --delete-branch",
+            repo + "gh issue comment 614 --body 'done'",
+        ):
+            with self.subTest(command=command):
+                with _hermetic_hub(), _consent_store():
+                    from opaihub import command_consent
+
+                    result = claude_pre_tool_decision(_hook_payload(command))
+                    self.assertEqual(_decision_of(result), "deny")
+                    self.assertIn("one-time approval", _reason_of(result))
+                    pending = command_consent.take_pending()
+                    self.assertIsNotNone(pending)
+                    self.assertEqual(pending["command"], command)
+
+    def test_a_chained_prefix_cannot_smuggle_a_second_command(self):
+        """Stripping the ``cd`` prefix must not widen anything else."""
+        for command in (
+            'cd "C:/x" && gh pr create --title x && rm -rf /',
+            'cd "C:/x" && cd /y && gh pr merge 1',
+            "cd $(evil) && gh pr merge 1",
+            "echo hi && gh pr merge 1",
+            'cd "C:/x" && gh pr merge 1 | sh',
+            'cd "C:/x" && gh repo delete foo',
+        ):
+            with self.subTest(command=command):
+                with _hermetic_hub(), _consent_store():
+                    from opaihub import command_consent
+
+                    result = claude_pre_tool_decision(_hook_payload(command))
+                    self.assertEqual(_decision_of(result), "deny")
+                    self.assertIsNone(command_consent.take_pending())
+
+    def test_irreversible_github_commands_never_enter_the_approval_channel(self):
+        """Ask-once is for outward actions, not for unrecoverable ones.
+
+        Closing, deleting a repo or release, and raw destructive API calls are
+        the user's to make: they must stay refused rather than become a card
+        someone clicks through.
+
+        ``gh pr merge`` used to be in this list. Excluding it did not put the
+        decision in the user's hands -- it removed the option, dead-ending the
+        run and telling them to go and merge by hand. The approval card *is*
+        their decision, so a merge now asks (see the test above) and every merge
+        gets its own card.
         """
         for command in (
-            "gh pr merge 5 --squash",
             "gh pr close 5",
             "gh repo delete MarcoLadeira/OPai",
             "gh release delete v1",

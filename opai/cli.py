@@ -978,17 +978,49 @@ _PUSH_COMMAND = re.compile(r"\bgit\s+push\b", re.IGNORECASE)
 # the same one-shot approval channel as `gh pr comment`, not in the same class as
 # a force push.
 #
-# Deliberately an allowlist of read-modify-request verbs. Anything that merges,
-# closes, deletes or changes repository settings stays out: those are not "ask
-# once", they are decisions the user makes themselves.
+# Deliberately an allowlist of outward-facing verbs a user can sensibly approve
+# one at a time. Anything that closes, deletes, or changes repository settings
+# stays out: those are not "ask once", they are decisions the user makes
+# themselves.
+#
+# `pr merge` is in the list. It was excluded on the reasoning that merging is a
+# decision the user makes -- but excluding it did not put the decision in their
+# hands, it removed the option: OPai hit a hard refusal and told the user to go
+# run it themselves. The user's decision is exactly what the approval card is,
+# so a merge now asks instead of dead-ending. Every merge still shows its own
+# card; approval is never inherited from an earlier one.
 _APPROVABLE_GH_COMMAND = re.compile(
     r"^\s*gh(?:\.exe)?\s+(?:"
-    r"pr\s+(?:create|comment|ready)"
+    r"pr\s+(?:create|comment|ready|merge)"
     r"|issue\s+(?:create|comment)"
     r")(?:\s|$)",
     re.IGNORECASE,
 )
 _SHELL_OPERATORS = re.compile(r"[|&;<>`]|\$\(|\$\{")
+
+# Providers issue essentially every command as `cd "<repo>" && <real command>`,
+# so anchoring the allowlist at the start of the string made the approval
+# channel unreachable in practice: a chained `gh pr create` matched nothing,
+# fell through to the destructive/confirmation-only refusal, and the user was
+# told to open the PR by hand. `git push` never had this problem because its
+# detection searches the string rather than anchoring to it -- the asymmetry,
+# not the anchoring, was the defect.
+#
+# Exactly one leading `cd <dir> &&` is removed, and the directory itself may not
+# contain a shell operator, so nothing new can be smuggled in: the remainder is
+# still required to *start* with an allowlisted verb and to carry no operators
+# of its own.
+_LEADING_CD = re.compile(
+    r"^\s*cd\s+(?:\"[^\"]*\"|'[^']*'|[^\s&|;<>`$]+)\s*&&\s*",
+    re.IGNORECASE,
+)
+
+
+def _without_leading_cd(command: str) -> str:
+    """Drop one leading ``cd <dir> &&`` prefix, if present."""
+
+    return _LEADING_CD.sub("", str(command or ""), count=1)
+
 
 #: Why each approvable command is outward-facing, in the user's terms. Keyed by
 #: the `gh` subcommand so the approval card can say what will actually happen
@@ -1000,6 +1032,7 @@ _APPROVABLE_GH_REASONS = (
     ),
     ("pr comment", "Posting this comment changes the pull request conversation."),
     ("pr ready", "Marking this pull request ready requests review from collaborators."),
+    ("pr merge", "This updates the default branch for everyone on the repository."),
     (
         "issue create",
         "Creating an issue is visible to everyone with repository access.",
@@ -1047,7 +1080,7 @@ def _is_approvable_gh_command(command: str) -> bool:
     approval.
     """
 
-    text = str(command or "")
+    text = _without_leading_cd(command)
     return bool(_APPROVABLE_GH_COMMAND.match(text)) and not bool(
         _SHELL_OPERATORS.search(text)
     )
