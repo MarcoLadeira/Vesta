@@ -71,6 +71,10 @@ REVIEWED_LITERALS: dict[str, str] = {
         "and storage, downstream of the completion verdict, never an authority "
         "over it."
     ),
+    "opai/update/runtime.py": (
+        "GUI workflow-phase vocabulary used only to detect a safe replacement "
+        "boundary. A workflow phase is active work, not a run lifecycle state."
+    ),
     "opaihub/checkpoints.py": (
         "checkpoint outcomes (answered / read_only / cancelled_before_edit). A "
         "different domain that happens to share several words."

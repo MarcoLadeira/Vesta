@@ -186,7 +186,6 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
     environment:
       name: opai-provider-canary
-      deployment: false
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -271,6 +270,7 @@ jobs:
       EXPECTED_TAG_OBJECT_SHA: ${{ needs.source-qualification.outputs.tag_object_sha }}
       PACKAGE_VERSION: ${{ needs.source-qualification.outputs.package_version }}
       DESKTOP_BUILD_LOCK: ${{ matrix.build_lock }}
+      SPARKLE_COMMIT: b6496a74a087257ef5e6da1c5b29a447a60f5bd7
 
     steps:
       # runner.temp is unavailable in job-level env, so resolve the runner-scoped
@@ -356,6 +356,33 @@ jobs:
             --output-dir "$BUNDLE" \
             --channel unsigned-prealpha
 
+      - name: Build pinned Sparkle 2 external-bundle helper from source
+        if: env.RELEASE_CHANNEL == 'production' && matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SPARKLE_SOURCE="$RUNNER_TEMP/Sparkle"
+          SPARKLE_DERIVED="$RUNNER_TEMP/SparkleDerived"
+          git init "$SPARKLE_SOURCE"
+          git -C "$SPARKLE_SOURCE" remote add origin https://github.com/sparkle-project/Sparkle.git
+          git -C "$SPARKLE_SOURCE" fetch --depth 1 origin "$SPARKLE_COMMIT"
+          git -C "$SPARKLE_SOURCE" checkout --detach FETCH_HEAD
+          test "$(git -C "$SPARKLE_SOURCE" rev-parse HEAD)" = "$SPARKLE_COMMIT"
+          /usr/bin/xcodebuild -project "$SPARKLE_SOURCE/Sparkle.xcodeproj" \
+            -scheme sparkle-cli -configuration Release \
+            -derivedDataPath "$SPARKLE_DERIVED" CODE_SIGNING_ALLOWED=NO build
+          /usr/bin/xcodebuild -project "$SPARKLE_SOURCE/Sparkle.xcodeproj" \
+            -scheme sign_update -configuration Release \
+            -derivedDataPath "$SPARKLE_DERIVED" CODE_SIGNING_ALLOWED=NO build
+          SPARKLE_APP="$(find "$SPARKLE_DERIVED/Build/Products/Release" -maxdepth 2 -type d -name sparkle.app -print -quit)"
+          SIGN_UPDATE="$(find "$SPARKLE_DERIVED/Build/Products/Release" -maxdepth 2 -type f -name sign_update -print -quit)"
+          test -n "$SPARKLE_APP"
+          test -n "$SIGN_UPDATE"
+          mkdir -p "$BUNDLE/support"
+          /usr/bin/ditto "$SPARKLE_APP" "$BUNDLE/support/sparkle.app"
+          cp "$SIGN_UPDATE" "$BUNDLE/support/sign_update"
+          chmod 0755 "$BUNDLE/support/sign_update"
+
       - name: Create mode-preserving production signing transport
         if: env.RELEASE_CHANNEL == 'production'
         shell: bash
@@ -431,7 +458,6 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
     environment:
       name: opai-production-signing
-      deployment: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions:
@@ -450,6 +476,13 @@ jobs:
       PACKAGE_VERSION: ${{ needs.source-qualification.outputs.package_version }}
       EXPECTED_WINDOWS_SIGNER_THUMBPRINT: ${{ vars.OPAI_WINDOWS_SIGNER_THUMBPRINT }}
       EXPECTED_MACOS_TEAM_ID: ${{ vars.OPAI_MACOS_TEAM_ID }}
+      WINDOWS_PACKAGE_IDENTITY: ${{ vars.OPAI_WINDOWS_PACKAGE_IDENTITY }}
+      WINDOWS_PUBLISHER_IDENTITY: ${{ vars.OPAI_WINDOWS_PUBLISHER_IDENTITY }}
+      MACOS_PACKAGE_IDENTITY: ${{ vars.OPAI_MACOS_PACKAGE_IDENTITY }}
+      UPDATE_CHANNEL: ${{ vars.OPAI_UPDATE_CHANNEL }}
+      UPDATE_FEED_URL: ${{ vars.OPAI_UPDATE_FEED_URL }}
+      UPDATE_TRUST_JSON: ${{ vars.OPAI_UPDATE_TRUST_JSON }}
+      SPARKLE_PUBLIC_KEY: ${{ vars.OPAI_SPARKLE_PUBLIC_KEY }}
 
     steps:
       - name: Check out trusted release tooling from main
@@ -469,6 +502,9 @@ jobs:
             echo "SIGNING_INPUT=$RUNNER_TEMP/opai-production-signing-input"
             echo "VERIFY_LOG=$RUNNER_TEMP/opai-signing-verification.log"
             echo "PUBLISHER_IDENTITY=$RUNNER_TEMP/opai-publisher-identity.json"
+            echo "TRUST_FILE=$RUNNER_TEMP/opai-update-trust.json"
+            echo "MSIX_LAYOUT=$RUNNER_TEMP/opai-msix-layout"
+            echo "NATIVE_OUTPUT=$RUNNER_TEMP/opai-native-output"
           } >> "$GITHUB_ENV"
 
       - name: Set up trusted Python
@@ -524,6 +560,51 @@ jobs:
             --bundle "$BUNDLE" --release-tag "$RELEASE_TAG" \
             --candidate-sha "$EXPECTED_CANDIDATE_SHA" --platform "${{ matrix.os }}"
 
+      - name: Embed protected updater trust and native runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$UPDATE_TRUST_JSON"
+          test -n "$UPDATE_FEED_URL"
+          test -n "$UPDATE_CHANNEL"
+          python - "$TRUST_FILE" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          value = json.loads(os.environ["UPDATE_TRUST_JSON"])
+          if value.get("feed_url") != os.environ["UPDATE_FEED_URL"]:
+              raise SystemExit("protected trust feed does not match protected feed URL")
+          Path(sys.argv[1]).write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            test -n "$WINDOWS_PACKAGE_IDENTITY"
+            test -n "$WINDOWS_PUBLISHER_IDENTITY"
+            python scripts/prepare_native_update.py configure \
+              --bundle "$BUNDLE" --trust "$TRUST_FILE" --version "$PACKAGE_VERSION" \
+              --build-id "$EXPECTED_CANDIDATE_SHA" --channel "$UPDATE_CHANNEL" \
+              --platform windows --architecture x86_64 --install-type windows_msix \
+              --package-identity "$WINDOWS_PACKAGE_IDENTITY" \
+              --publisher-identity "$WINDOWS_PUBLISHER_IDENTITY"
+          else
+            test -n "$MACOS_PACKAGE_IDENTITY"
+            test -n "$EXPECTED_MACOS_TEAM_ID"
+            test -n "$SPARKLE_PUBLIC_KEY"
+            test -d "$BUNDLE/support/sparkle.app"
+            ARCHITECTURE="$(uname -m)"
+            [ "$ARCHITECTURE" = "x86_64" ] || [ "$ARCHITECTURE" = "arm64" ]
+            python scripts/prepare_native_update.py macos-sparkle \
+              --bundle "$BUNDLE" --sparkle-app "$BUNDLE/support/sparkle.app" \
+              --version "$PACKAGE_VERSION" --feed-url "$UPDATE_FEED_URL" \
+              --sparkle-public-key "$SPARKLE_PUBLIC_KEY"
+            python scripts/prepare_native_update.py configure \
+              --bundle "$BUNDLE" --trust "$TRUST_FILE" --version "$PACKAGE_VERSION" \
+              --build-id "$EXPECTED_CANDIDATE_SHA" --channel "$UPDATE_CHANNEL" \
+              --platform macos --architecture "$ARCHITECTURE" --install-type macos_sparkle \
+              --package-identity "$MACOS_PACKAGE_IDENTITY" \
+              --publisher-identity "$EXPECTED_MACOS_TEAM_ID"
+          fi
+
       - name: Sign and verify Windows production bundle
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -547,6 +628,7 @@ jobs:
               if ($signature.Status -ne 'Valid') { throw "Authenticode verification failed for $($_.FullName): $($signature.Status)" }
               $thumbprint = ($signature.SignerCertificate.Thumbprint -replace '\s', '').ToUpperInvariant()
               if ($thumbprint -ne $expectedThumbprint) { throw "Authenticode publisher did not match the protected signer thumbprint for $($_.FullName)" }
+              if ($signature.SignerCertificate.Subject -ne $env:WINDOWS_PUBLISHER_IDENTITY) { throw "Authenticode subject did not match the protected MSIX publisher identity for $($_.FullName)" }
               $log += $signature
             }
             if ($log.Count -eq 0) { throw "No Windows executable code files were signed." }
@@ -626,6 +708,99 @@ jobs:
             --tool "$TOOL" \
             --status "$STATUS"
 
+      - name: Create and sign final Windows MSIX package
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.OPAI_WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.OPAI_WINDOWS_PFX_PASSWORD }}
+        run: |
+          New-Item -ItemType Directory -Path $env:NATIVE_OUTPUT -Force | Out-Null
+          $assets = Join-Path $env:RUNNER_TEMP "opai-msix-assets"
+          New-Item -ItemType Directory -Path $assets -Force | Out-Null
+          Add-Type -AssemblyName System.Drawing
+          $source = [System.Drawing.Image]::FromFile((Resolve-Path "opai/assets/opai-icon.png"))
+          try {
+            $sizes = @{
+              "StoreLogo.png" = @(50, 50)
+              "Square150x150Logo.png" = @(150, 150)
+              "Square44x44Logo.png" = @(44, 44)
+              "Wide310x150Logo.png" = @(310, 150)
+            }
+            foreach ($entry in $sizes.GetEnumerator()) {
+              $bitmap = New-Object System.Drawing.Bitmap($entry.Value[0], $entry.Value[1])
+              try {
+                $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                try { $graphics.DrawImage($source, 0, 0, $entry.Value[0], $entry.Value[1]) }
+                finally { $graphics.Dispose() }
+                $bitmap.Save((Join-Path $assets $entry.Key), [System.Drawing.Imaging.ImageFormat]::Png)
+              }
+              finally { $bitmap.Dispose() }
+            }
+          }
+          finally { $source.Dispose() }
+          python scripts/prepare_native_update.py windows-layout \
+            --bundle $env:BUNDLE --layout $env:MSIX_LAYOUT --assets $assets \
+            --version $env:PACKAGE_VERSION --architecture x86_64 \
+            --package-identity $env:WINDOWS_PACKAGE_IDENTITY \
+            --publisher-identity $env:WINDOWS_PUBLISHER_IDENTITY
+          $makeAppx = Get-ChildItem -LiteralPath (Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin") -Filter makeappx.exe -Recurse -File |
+            Where-Object { $_.DirectoryName -match '[\\/]x64$' } |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          $signTool = Get-ChildItem -LiteralPath (Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin") -Filter signtool.exe -Recurse -File |
+            Where-Object { $_.DirectoryName -match '[\\/]x64$' } |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeAppx -or -not $signTool) { throw "Windows SDK packaging tools are unavailable." }
+          $native = Join-Path $env:NATIVE_OUTPUT ("OPai-{0}-windows-x64.msix" -f $env:RELEASE_TAG)
+          python scripts/prepare_native_update.py make-msix --layout $env:MSIX_LAYOUT --output $native --makeappx $makeAppx.FullName
+          $certificate = Join-Path $env:RUNNER_TEMP "opai-msix-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+            & $signTool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificate /p $env:WINDOWS_PFX_PASSWORD $native
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for final MSIX" }
+            & $signTool.FullName verify /pa /all /v $native
+            if ($LASTEXITCODE -ne 0) { throw "final MSIX signature verification failed" }
+            $signature = Get-AuthenticodeSignature -LiteralPath $native
+            $thumbprint = ($signature.SignerCertificate.Thumbprint -replace '\s', '').ToUpperInvariant()
+            $expectedThumbprint = ($env:EXPECTED_WINDOWS_SIGNER_THUMBPRINT -replace '\s', '').ToUpperInvariant()
+            if ($signature.Status -ne 'Valid' -or $thumbprint -ne $expectedThumbprint -or $signature.SignerCertificate.Subject -ne $env:WINDOWS_PUBLISHER_IDENTITY) {
+              throw "final MSIX publisher identity did not match protected release policy"
+            }
+          }
+          finally { Remove-Item -LiteralPath $certificate -Force -ErrorAction SilentlyContinue }
+          "NATIVE_PACKAGE=$native" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Create and Sparkle-sign final notarized macOS archive
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          SPARKLE_PRIVATE_KEY_BASE64: ${{ secrets.OPAI_SPARKLE_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$SPARKLE_PRIVATE_KEY_BASE64"
+          mkdir -p "$NATIVE_OUTPUT"
+          NATIVE_PACKAGE="$NATIVE_OUTPUT/OPai-${RELEASE_TAG}-macos.zip"
+          /usr/bin/ditto -c -k --keepParent --sequesterRsrc "$BUNDLE/gui/OPai.app" "$NATIVE_PACKAGE"
+          SPARKLE_KEY="$RUNNER_TEMP/opai-sparkle-private-key"
+          cleanup_sparkle_key() { /bin/rm -f "$SPARKLE_KEY"; }
+          trap cleanup_sparkle_key EXIT
+          printf '%s' "$SPARKLE_PRIVATE_KEY_BASE64" | /usr/bin/base64 -D > "$SPARKLE_KEY"
+          SIGNATURE_FRAGMENT="$($BUNDLE/support/sign_update --ed-key-file "$SPARKLE_KEY" "$NATIVE_PACKAGE")"
+          python - "$SIGNATURE_FRAGMENT" "$NATIVE_OUTPUT/sparkle-signature.json" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+          fragment, output = sys.argv[1:]
+          signature = re.search(r'sparkle:edSignature="([A-Za-z0-9+/=]+)"', fragment)
+          length = re.search(r'length="([0-9]+)"', fragment)
+          if not signature or not length:
+              raise SystemExit("Sparkle sign_update returned an invalid signature fragment")
+          Path(output).write_text(json.dumps({"sparkle_ed_signature": signature.group(1), "length": int(length.group(1))}, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+          test "$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["length"])' "$NATIVE_OUTPUT/sparkle-signature.json")" = "$(stat -f%z "$NATIVE_PACKAGE")"
+          printf 'NATIVE_PACKAGE=%s\n' "$NATIVE_PACKAGE" >> "$GITHUB_ENV"
+
       - name: Record validated publisher identity for credential-free smoke
         shell: bash
         run: |
@@ -689,6 +864,8 @@ jobs:
           name: OPai-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-signed-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.ARCHIVE }}
+            ${{ env.NATIVE_PACKAGE }}
+            ${{ env.NATIVE_OUTPUT }}/sparkle-signature.json
             ${{ env.VERIFY_LOG }}
             ${{ env.PUBLISHER_IDENTITY }}
           if-no-files-found: error
@@ -867,7 +1044,6 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
     environment:
       name: opai-production-signing
-      deployment: false
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
@@ -958,10 +1134,16 @@ jobs:
         shell: bash
         run: |
           ARCHIVE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-${{ matrix.os }}-production.zip"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            NATIVE_PACKAGE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-windows-x64.msix"
+          else
+            NATIVE_PACKAGE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-macos.zip"
+          fi
           SIGNING_LOG="$SIGNED_OUTPUT/opai-signing-verification.log"
           PUBLISHER_IDENTITY="$SIGNED_OUTPUT/opai-publisher-identity.json"
           SMOKE_REPORT="$SMOKE_OUTPUT/opai-smoke-report.json"
           test -f "$ARCHIVE"
+          test -f "$NATIVE_PACKAGE"
           test -f "$SIGNING_LOG"
           test -f "$PUBLISHER_IDENTITY"
           test -f "$SMOKE_REPORT"
@@ -982,6 +1164,7 @@ jobs:
           EVIDENCE="$RUNNER_TEMP/opai-release-evidence"
           mkdir -p "$EVIDENCE"
           cp "$ARCHIVE" "$EVIDENCE/"
+          cp "$NATIVE_PACKAGE" "$EVIDENCE/"
           cp "$BUNDLE/SHA256SUMS.txt" "$EVIDENCE/"
           cp "$BUNDLE/provenance.json" "$EVIDENCE/"
           cp "$BUNDLE/signing-status.json" "$EVIDENCE/"
@@ -989,6 +1172,7 @@ jobs:
           cp "$PUBLISHER_IDENTITY" "$EVIDENCE/"
           cp "$SMOKE_REPORT" "$EVIDENCE/"
           printf 'ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
+          printf 'NATIVE_PACKAGE=%s\n' "$NATIVE_PACKAGE" >> "$GITHUB_ENV"
           printf 'RELEASE_EVIDENCE=%s\n' "$EVIDENCE" >> "$GITHUB_ENV"
 
       - name: Revalidate immutable remote tag at final attestation boundary
@@ -1024,4 +1208,21 @@ jobs:
       - name: Attest signed production archive after immutable staging upload
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
         with:
-          subject-path: ${{ env.ARCHIVE }}
+          subject-path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.NATIVE_PACKAGE }}
+
+  publish-packaged-update:
+    name: Qualify and publish signed packaged update
+    needs: [source-qualification, attest]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+    uses: ./.github/workflows/publish-packaged-update.yml
+    with:
+      release_tag: ${{ github.event.inputs.release_tag }}
+      package_version: ${{ needs.source-qualification.outputs.package_version }}
+      candidate_sha: ${{ needs.source-qualification.outputs.candidate_sha }}
+    secrets: inherit

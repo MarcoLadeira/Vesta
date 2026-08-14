@@ -737,6 +737,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "model_registry": model_catalog(),
         "model_check": _doctor_model_check(root, validate_model),
         "local_models": discover_local_models(root),
+        "updater": _update_doctor(root),
         "next_steps": [
             "Run opai activate --repair to fix broken or missing client integrations.",
             "Restart AI clients after global skill changes.",
@@ -745,6 +746,19 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     }
     print_json(payload)
     return 0
+
+
+def _update_doctor(root: Path) -> dict[str, object]:
+    try:
+        from opai.update.factory import create_update_service
+
+        return create_update_service(workspaces=[root]).doctor()
+    except Exception:  # noqa: BLE001 - doctor reports a stable safe category
+        return {
+            "schema_version": 1,
+            "available": False,
+            "error_category": "updater_unavailable",
+        }
 
 
 def cmd_support_bundle(args: argparse.Namespace) -> int:
@@ -779,28 +793,84 @@ def cmd_support_bundle(args: argparse.Namespace) -> int:
 
 
 def cmd_update(args: argparse.Namespace) -> int:
-    """Check for, or apply, an OPai update — the desktop Settings button's CLI twin.
+    """Operate the canonical updater used by the desktop and doctor."""
+    from opai.update.errors import UpdateError
+    from opai.update.adapters import DeveloperGitUpdateAdapter
+    from opai.update.factory import create_update_service
+    from opai.update.models import UpdateState
 
-    Operates on OPai's own running source checkout, never the project passed
-    to other commands with ``--project``. Bare ``opai update`` checks and
-    reports; ``opai update --apply`` fetches, fast-forwards, and reinstalls —
-    refusing outright on any uncommitted local change unless ``--force`` is
-    also given, in which case those changes are stashed before the update
-    and restored afterward.
-    """
-    from opai.updater import apply_update, check_for_update, install_root
-
-    root = install_root()
-    if getattr(args, "apply", False):
-        result = apply_update(root, force=getattr(args, "force", False))
-        print_json(result)
-        return 0 if result.get("ok") else 1
-
-    result = check_for_update(root, force=not getattr(args, "cached", False))
-    print_json(result)
-    if not result.get("checked"):
-        return 0
-    return 0 if result.get("up_to_date") else 3
+    root = _project(getattr(args, "project", None))
+    service = create_update_service(workspaces=[root])
+    command = str(getattr(args, "update_command", None) or "status")
+    try:
+        if command == "developer-git":
+            if not isinstance(service.adapter, DeveloperGitUpdateAdapter):
+                raise UpdateError("developer_update_requires_source_checkout")
+            payload = (
+                service.adapter.apply_source(force=bool(getattr(args, "force", False)))
+                if bool(getattr(args, "apply", False))
+                else service.adapter.check_source(force=True)
+            )
+            payload = {"schema_version": 1, "developer_source_update": True, **payload}
+        elif command == "status":
+            service.reconcile_native_result()
+            payload = service.status()
+        elif command == "doctor":
+            service.reconcile_native_result()
+            payload = service.doctor()
+        elif command == "check":
+            operation = service.check(force=not bool(getattr(args, "cached", False)))
+            payload = service.status()
+        elif command == "download":
+            operation = service.store.load_operation()
+            if operation.state in {
+                UpdateState.IDLE,
+                UpdateState.UP_TO_DATE,
+                UpdateState.UNAVAILABLE,
+            }:
+                operation = service.check(force=True)
+            if operation.state in {UpdateState.AVAILABLE, UpdateState.FAILED_RETRIABLE}:
+                service.download(operation.operation_id)
+            payload = service.status()
+        elif command == "install":
+            operation = service.store.load_operation()
+            mode = (
+                "when_idle"
+                if bool(getattr(args, "when_idle", False))
+                else "on_quit"
+                if bool(getattr(args, "on_quit", False))
+                else "now"
+            )
+            service.install(operation.operation_id, mode=mode)
+            payload = service.status()
+        elif command == "rollback":
+            operation = service.store.load_operation()
+            service.rollback(operation.operation_id)
+            payload = service.status()
+        else:
+            raise UpdateError("update_command_invalid")
+    except UpdateError as exc:
+        payload = {
+            "schema_version": 1,
+            "ok": False,
+            "error_category": exc.category,
+            "retriable": exc.retriable,
+            "status": service.status(),
+        }
+        print_json(payload)
+        return 2
+    print_json(payload)
+    state = str(payload.get("operation", {}).get("state", ""))
+    if command == "check" and state == UpdateState.AVAILABLE.value:
+        return 3
+    if state in {
+        UpdateState.UNAVAILABLE.value,
+        UpdateState.FAILED_RETRIABLE.value,
+        UpdateState.FAILED_TERMINAL.value,
+        UpdateState.NEEDS_ATTENTION.value,
+    }:
+        return 2
+    return 0
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
@@ -3577,24 +3647,40 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "update",
-        help="Check whether a newer OPai is available, or apply it with --apply",
+        help="Check, download, install, roll back, or diagnose signed OPai updates",
     )
-    p.add_argument(
+    update_sub = p.add_subparsers(dest="update_command")
+    for update_name in ("status", "download", "rollback", "doctor"):
+        update_parser = update_sub.add_parser(update_name)
+        update_parser.add_argument("--json", action="store_true")
+        update_parser.set_defaults(func=cmd_update)
+    update_check = update_sub.add_parser("check")
+    update_check.add_argument("--cached", action="store_true")
+    update_check.add_argument("--json", action="store_true")
+    update_check.set_defaults(func=cmd_update)
+    update_install = update_sub.add_parser("install")
+    install_mode = update_install.add_mutually_exclusive_group()
+    install_mode.add_argument("--when-idle", action="store_true")
+    install_mode.add_argument("--on-quit", action="store_true")
+    update_install.add_argument("--json", action="store_true")
+    update_install.set_defaults(func=cmd_update)
+    update_developer = update_sub.add_parser(
+        "developer-git",
+        help="Explicitly check or update a detected developer source checkout",
+    )
+    update_developer.add_argument(
         "--apply",
         action="store_true",
-        help="Fetch, fast-forward, and reinstall (refuses on uncommitted local changes)",
+        help="Apply the source update; without this flag the command only checks",
     )
-    p.add_argument(
+    update_developer.add_argument(
         "--force",
         action="store_true",
-        help="With --apply: update anyway on uncommitted local changes, stashing and restoring them",
+        help="Allow the legacy source updater's explicit force mode",
     )
-    p.add_argument(
-        "--cached",
-        action="store_true",
-        help="Reuse the last check (within an hour) instead of hitting the network again",
-    )
-    p.set_defaults(func=cmd_update)
+    update_developer.add_argument("--json", action="store_true")
+    update_developer.set_defaults(func=cmd_update)
+    p.set_defaults(func=cmd_update, update_command="status")
 
     p = sub.add_parser(
         "uninstall", help="Remove OPai-managed blocks and wrappers (dry-run by default)"

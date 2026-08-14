@@ -31,8 +31,12 @@
       { id: "conv-1", title: "summarize my changes", message_count: 2, updated_at: "2026-08-02" },
     ],
     update: {
-      current_version: "0.2.1a1", checked: true, up_to_date: true,
-      latest_version: "0.2.1a1", commits_behind: 0, branch: "main", reason: null,
+      operation: { state: "up_to_date", candidate: null, safe_diagnostic: null },
+      policy: {
+        discovery_enabled: true, automatic_downloads: false,
+        automatic_install_on_quit: false, channel: "stable", owner: "opai",
+      },
+      installed: { version: "0.2.1a1", build_id: "test-build", install_type: "portable" },
     },
     brand: {
       name: "OPai",
@@ -83,6 +87,7 @@
   var dashboards = merge(defaultDashboards, scenario.dashboards || {});
   var promptData = scenario.prompts || [];
   var settings = scenario.settings || { prefs: {}, firewall: {}, permissions: [], accounts: [], about: {} };
+  var updateState = boot.update;
   // GitHub connect/consent state (#300): stateful so connect/toggle change what
   // subsequent settingsData / githubStatus report — the real flow.
   var githubState = scenario.github || {
@@ -96,7 +101,7 @@
     else cb(JSON.stringify(value));
   }
   var bridge = {
-    replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), cancelReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(),
+    replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), cancelReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(), updateReady: Sig(),
     dashboardReady: Sig(), settingsReady: Sig(), toolApplied: Sig(), statusReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     // Round 2: the header's "N uncommitted" badge came from the boot payload
@@ -212,29 +217,46 @@
       window.__mock.codexRepairs++;
       cb(JSON.stringify({ repaired: true, backupPath: "/tmp/config.toml.bak" }));
     },
+    markInteractive: function () { window.__mock.interactiveMarks++; },
+    updateStatus: function (cb) { cb(JSON.stringify(updateState)); },
     checkForUpdates: function (force, cb) {
       window.__mock.updateChecks.push(!!force);
-      cb(JSON.stringify(scenario.updateCheckResponse || {
-        current_version: "0.2.1a1", checked: true, up_to_date: true,
-        latest_version: "0.2.1a1", commits_behind: 0, branch: "main", reason: null,
-      }));
+      updateState = scenario.updateCheckResponse || updateState;
+      boot.update = updateState;
+      setTimeout(function () {
+        bridge.updateReady.emit(JSON.stringify(updateState));
+        if (cb) cb(JSON.stringify(updateState));
+      }, scenario.updateDelayMs || 0);
     },
-    applyUpdate: function (force, cb) {
-      window.__mock.updateApplies++;
-      window.__mock.updateApplyForce.push(!!force);
-      if (!force && scenario.applyUpdateDirty) {
-        cb(JSON.stringify(scenario.applyUpdateDirtyResponse || {
-          ok: false, dirty: true,
-          error: "There are uncommitted local changes — commit, stash, or discard them before updating.",
-        }));
-        return;
+    updateAction: function (action) {
+      window.__mock.updateActions.push(action);
+      var canned = scenario.updateActionResponses && scenario.updateActionResponses[action];
+      if (canned) updateState = canned;
+      else {
+        var operation = merge((updateState && updateState.operation) || {}, {});
+        var transitions = {
+          download: "ready_to_install", install_now: "restarting",
+          when_idle: "waiting_for_idle", on_quit: "install_on_quit",
+          later: "deferred", retry: "downloading", rollback: "rolled_back",
+        };
+        if (action === "check") operation.state = "checking";
+        else if (action === "resume") operation.state = operation.artifact_staged ? "ready_to_install" : "available";
+        else operation.state = transitions[action] || operation.state;
+        if (action === "download") operation.artifact_staged = true;
+        updateState = merge(updateState || {}, { ok: true, operation: operation });
       }
-      cb(JSON.stringify(scenario.applyUpdateResponse || {
-        ok: true, restart_required: true, installed_version: "0.3.0",
-      }));
+      boot.update = updateState;
+      setTimeout(function () { bridge.updateReady.emit(JSON.stringify(updateState)); }, scenario.updateDelayMs || 0);
     },
-    restartOPai: function () {
-      window.__mock.updateRestarts++;
+    setUpdatePolicy: function (key, value, cb) {
+      var on = String(value) === "true";
+      window.__mock.updatePolicies.push([key, on]);
+      var policy = merge((updateState && updateState.policy) || {}, {});
+      policy[key] = on;
+      updateState = merge(updateState || {}, { ok: true, policy: policy });
+      boot.update = updateState;
+      if (settings.about) settings.about.update = updateState;
+      if (cb) cb(JSON.stringify(updateState));
     },
     disconnectAccount: function (provider, cb) {
       window.__mock.disconnects.push(provider);
@@ -428,10 +450,6 @@
       if (!canned) { if (cb) cb(JSON.stringify({ ok: false, error: "That chat is no longer available." })); return; }
       if (cb) cb(JSON.stringify({ ok: true, conversation: canned }));
     },
-    runAutoUpdate: function (cb) {
-      window.__mock.autoUpdateRuns++;
-      if (cb) cb(JSON.stringify(scenario.autoUpdateResult || { outcome: "disabled", applied: false }));
-    },
     saveRecent: function (t) {
       window.__mock.savedRecents.push(t);
       // Mirror the backend: begin_thread_turn archives the chat as the turn
@@ -482,7 +500,7 @@
     },
     openWorkspaceCount: 0, switched: [], opened: [], savedRecents: [], savedPrefs: [],
     clearedRecents: 0, resumedSessions: 0, clearedSessions: 0,
-    conversationLists: 0, openedConversations: [], autoUpdateRuns: 0,
+    conversationLists: 0, openedConversations: [],
     copiedTexts: [], contextFilePicks: 0, contextFolderPicks: 0,
     fullAutoPins: 0, fullAutoUnpins: 0,
     windowMoves: 0, windowResizes: [], windowMinimizes: 0,
@@ -492,7 +510,7 @@
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
     dashboardRequests: [], settingsRequests: [], statusRequests: [],
-    updateChecks: [], updateApplies: 0, updateApplyForce: [], updateRestarts: 0, usageRefreshes: 0,
+    updateChecks: [], updateActions: [], updatePolicies: [], interactiveMarks: 0, usageRefreshes: 0,
     workspaceStateCalls: 0,
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));

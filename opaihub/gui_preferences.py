@@ -39,11 +39,6 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     # First-run onboarding (#250): the three-step tour shows once on a fresh
     # profile and never again after it is completed or skipped.
     "onboarding_seen": False,
-    # Automatic updates (opt-in). Off by default because updating mutates the
-    # user's checkout and needs a restart to take effect — that is a decision
-    # to make deliberately, not one to inherit. When on, OPai checks on boot
-    # and applies only a clean fast-forward; see opai.auto_update.
-    "auto_update": False,
     "usage_limits": {},
     # Free-model ids the user has already consented to send to. One-time
     # confirmation per free provider is enough; asking on every message is a
@@ -86,7 +81,6 @@ _ALLOWED_KEYS = {
     "reduced_motion",
     "activity_copy",
     "onboarding_seen",
-    "auto_update",
     "usage_limits",
     "free_consent",
     "safe_auto",
@@ -116,7 +110,6 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
     if clean.get("activity_copy") not in {"on", "off"}:
         clean["activity_copy"] = "on"
     clean["onboarding_seen"] = bool(clean.get("onboarding_seen"))
-    clean["auto_update"] = bool(clean.get("auto_update"))
     safe = clean.get("safe_auto")
     if not isinstance(safe, dict):
         clean["safe_auto"] = DEFAULT_PREFERENCES["safe_auto"]

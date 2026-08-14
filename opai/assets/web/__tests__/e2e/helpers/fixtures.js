@@ -318,8 +318,12 @@ export const SETTINGS = {
       runtimeSource: "source_checkout",
     },
     update: {
-      current_version: "0.2.0a1", checked: true, up_to_date: true,
-      latest_version: "0.2.0a1", commits_behind: 0, branch: "main", reason: null,
+      operation: { state: "up_to_date", candidate: null, safe_diagnostic: null },
+      policy: {
+        discovery_enabled: true, automatic_downloads: false,
+        automatic_install_on_quit: false, channel: "stable", owner: "opai",
+      },
+      installed: { version: "0.2.0a1", build_id: "test-build", install_type: "portable" },
     },
   },
 };

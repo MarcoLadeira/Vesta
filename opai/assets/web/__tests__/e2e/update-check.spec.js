@@ -3,162 +3,205 @@ import { test, expect } from "@playwright/test";
 import { openApp, openSettings } from "./helpers/app.js";
 
 
-// Mandatory-update system: an honest "check for updates" everywhere it
-// matters — a shell-wide banner from the cached boot check, an About page
-// card with the same three states (unknown / up to date / available), and
-// an "Update now" action gated by the same styled inline confirm every
-// other mutating settings action uses.
-
 const seen = { useInnerText: true };
 
-test("no banner and an up-to-date About card when already current", async ({ page }) => {
+function updateState(state, operation = {}, policy = {}) {
+  return {
+    operation: {
+      state,
+      candidate: null,
+      safe_diagnostic: null,
+      downloaded_bytes: 0,
+      total_bytes: 0,
+      ...operation,
+    },
+    policy: {
+      discovery_enabled: true,
+      automatic_downloads: false,
+      automatic_install_on_quit: false,
+      channel: "stable",
+      owner: "opai",
+      ...policy,
+    },
+    installed: { version: "0.2.0a1", build_id: "old-build", install_type: "portable" },
+  };
+}
+
+const candidate = {
+  version: "0.3.0",
+  build_id: "build-030",
+  channel: "stable",
+  artifact_size: 12 * 1024 * 1024,
+  criticality: "recommended",
+  publisher_identity: "CN=OPai Software Ltd",
+  release_notes: "Safer updates and a calmer restart flow.",
+  verification: { native_mechanism: "Windows Package Manager + Authenticode" },
+};
+
+async function openWithUpdate(page, update) {
+  return openApp(page, {
+    boot: { update },
+    settings: { about: { update } },
+  });
+}
+
+test("up-to-date builds keep the persistent control hidden and report current in Settings", async ({ page }) => {
   await openApp(page);
-  await expect(page.locator("#updateBanner")).toBeHidden();
+  await expect(page.locator("#updateShell")).toBeHidden();
   await openSettings(page, "about");
-  const settings = page.locator("#settingsPage");
-  await expect(settings).toContainText("latest version", seen);
-  await expect(page.locator('[data-update-status="up-to-date"]')).toBeVisible();
+  await expect(page.locator('[data-update-status="up_to_date"]')).toBeVisible();
+  await expect(page.locator("#settingsPage")).toContainText("latest version", seen);
 });
 
-test("an available update shows the shell banner and the About card, with a working Update now flow", async ({ page }) => {
-  await openApp(page, {
-    settings: {
-      about: {
-        version: "0.2.0a1",
-        release_stage: "alpha.1",
-        update: {
-          current_version: "0.2.0a1", checked: true, up_to_date: false,
-          latest_version: "0.3.0", commits_behind: 5, branch: "main", reason: null,
-        },
-      },
-    },
-    boot: {
-      update: {
-        current_version: "0.2.0a1", checked: true, up_to_date: false,
-        latest_version: "0.3.0", commits_behind: 5, branch: "main", reason: null,
-      },
-    },
-  });
-  const banner = page.locator("#updateBanner");
-  await expect(banner).toBeVisible();
-  await expect(banner).toContainText("0.3.0");
-
-  // The banner's action opens Settings > About, the real home for the update.
-  await banner.getByRole("button", { name: "Update now" }).click();
-  await expect(page.locator("#view-settings")).toBeVisible();
-  await expect(page.locator('[data-update-status="available"]')).toBeVisible();
-  await expect(page.locator("#settingsPage")).toContainText("0.3.0", seen);
-  await expect(page.locator("#settingsPage")).toContainText("5 changes behind", seen);
-
-  // Applying goes through the styled inline confirm — never an instant mutation.
-  await page.locator("#settingsApplyUpdate").click();
-  const confirm = page.locator(".inline-confirm");
-  await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText("uncommitted local changes");
-  await confirm.locator('[data-ic="ok"]').click();
-
-  await expect(page.locator('[data-update-status="restart"]')).toBeVisible();
-  await expect(page.locator("#settingsPage")).toContainText("Updated to 0.3.0", seen);
-  // The shell banner clears once the update is installed — restart, not "behind".
-  await expect(page.locator("#updateBanner")).toBeHidden();
-
-  await page.locator("#settingsRestartOpai").click();
-  await expect.poll(() => page.evaluate(() => window.__mock.updateRestarts)).toBe(1);
+test("the UI marks the first interactive frame so discovery can start after launch", async ({ page }) => {
+  await openApp(page);
+  await expect.poll(() => page.evaluate(() => window.__mock.interactiveMarks)).toBe(1);
 });
 
-test("cancelling the update confirm applies nothing", async ({ page }) => {
-  await openApp(page, {
-    settings: {
-      about: {
-        version: "0.2.0a1",
-        release_stage: "alpha.1",
-        update: { checked: true, up_to_date: false, latest_version: "0.3.0", commits_behind: 1, branch: "main" },
-      },
-    },
-  });
-  await openSettings(page, "about");
-  await page.locator("#settingsApplyUpdate").click();
-  await page.locator(".inline-confirm [data-ic=\"cancel\"]").click();
-  expect(await page.evaluate(() => window.__mock.updateApplies)).toBe(0);
-  await expect(page.locator('[data-update-status="available"]')).toBeVisible();
+test("available update opens details without navigating away from active work", async ({ page }) => {
+  const available = updateState("available", { candidate });
+  await openWithUpdate(page, available);
+  await expect(page.locator("#view-chat")).toBeVisible();
+  await page.locator("#updateBanner").click();
+  await expect(page.locator("#view-chat")).toBeVisible();
+  await expect(page.locator("#updateSheet")).toBeVisible();
+  await expect(page.locator("#updateSheet")).toContainText("OPai 0.3.0", seen);
+  await expect(page.locator("#updateSheet")).toContainText("12.0 MB", seen);
+  await expect(page.locator("#updateSheet")).toContainText("stable", seen);
+  await expect(page.locator("#updateSheet")).toContainText("recommended", seen);
+  await expect(page.locator("#updateSheet")).toContainText("CN=OPai Software Ltd", seen);
+  await expect(page.locator("#updateSheet")).toContainText("Windows Package Manager + Authenticode", seen);
+  await expect(page.locator("#updateSheet")).toContainText(candidate.release_notes, seen);
 });
 
-test("uncommitted local changes offer an Update anyway choice that stashes and restores them", async ({ page }) => {
-  await openApp(page, {
-    settings: {
-      about: {
-        version: "0.2.0a1",
-        release_stage: "alpha.1",
-        update: {
-          current_version: "0.2.0a1", checked: true, up_to_date: false,
-          latest_version: "0.3.0", commits_behind: 5, branch: "main", reason: null,
-        },
-      },
-    },
-    applyUpdateDirty: true,
-    applyUpdateResponse: {
-      ok: true, restart_required: true, installed_version: "0.3.0",
-      local_changes_restored: true,
-    },
-  });
-  await openSettings(page, "about");
-
-  await page.locator("#settingsApplyUpdate").click();
-  await page.locator(".inline-confirm [data-ic=\"ok\"]").click();
-
-  // First attempt refuses (dirty) and offers "Update anyway" instead of a dead end.
-  const anywayConfirm = page.locator(".inline-confirm");
-  await expect(anywayConfirm).toBeVisible();
-  await expect(anywayConfirm).toContainText("Update anyway");
-  await anywayConfirm.getByRole("button", { name: "Update anyway" }).click();
-
-  await expect.poll(() => page.evaluate(() => window.__mock.updateApplyForce)).toEqual([false, true]);
-  await expect(page.locator('[data-update-status="restart"]')).toBeVisible();
-  await expect(page.locator("#settingsPage")).toContainText("restored", seen);
+test("download is a named backend action and advances to verified ready state", async ({ page }) => {
+  await openWithUpdate(page, updateState("available", { candidate }));
+  await page.locator("#updateBanner").click();
+  await page.getByRole("button", { name: "Download update" }).click();
+  await expect.poll(() => page.evaluate(() => window.__mock.updateActions)).toEqual(["download"]);
+  await expect(page.locator("#updateBannerText")).toHaveText("Ready to restart");
+  await expect(page.getByRole("button", { name: "Restart now" })).toBeVisible();
 });
 
-test("Check for updates always forces a live check, never the stale cache", async ({ page }) => {
+test("restart timing choices stay explicit", async ({ page }) => {
+  await openWithUpdate(page, updateState("ready_to_install", { candidate, artifact_staged: true }));
+  await page.locator("#updateBanner").click();
+  await expect(page.getByRole("button", { name: "Restart now" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "When finished" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "On quit" })).toBeVisible();
+  await page.getByRole("button", { name: "When finished" }).click();
+  await expect.poll(() => page.evaluate(() => window.__mock.updateActions)).toEqual(["when_idle"]);
+  await expect(page.locator("#updateBannerText")).toHaveText("Restart when finished");
+});
+
+test("Escape closes update details and restores focus to the control", async ({ page }) => {
+  await openWithUpdate(page, updateState("available", { candidate }));
+  const control = page.locator("#updateBanner");
+  await control.click();
+  await expect(page.locator("#updateSheetClose")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#updateSheet")).toBeHidden();
+  await expect(control).toBeFocused();
+});
+
+test("idle state does not show a false update notice", async ({ page }) => {
+  await openWithUpdate(page, updateState("idle"));
+  await expect(page.locator("#updateShell")).toBeHidden();
+});
+
+test("completed state clears the persistent update control", async ({ page }) => {
+  await openWithUpdate(page, updateState("completed"));
+  await expect(page.locator("#updateShell")).toBeHidden();
+});
+
+test("release notes are rendered as text, never trusted markup", async ({ page }) => {
+  const hostile = '<img src=x onerror="window.__updateXss=true">Security notes';
+  await openWithUpdate(page, updateState("available", { candidate: { ...candidate, release_notes: hostile } }));
+  await page.locator("#updateBanner").click();
+  await expect(page.locator("#updateReleaseNotes img")).toHaveCount(0);
+  await expect(page.locator("#updateReleaseNotes")).toContainText(hostile, seen);
+  expect(await page.evaluate(() => window.__updateXss)).toBeUndefined();
+});
+
+test("manual check always forces live discovery", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "about");
   await page.locator("#settingsCheckUpdate").click();
   await expect.poll(() => page.evaluate(() => window.__mock.updateChecks)).toEqual([true]);
 });
 
-test("an unknown check state is honest, not a false up-to-date claim", async ({ page }) => {
-  await openApp(page, {
-    settings: {
-      about: {
-        version: "0.2.0a1",
-        release_stage: "alpha.1",
-        update: { checked: false, reason: "You may be offline." },
-      },
-    },
-  });
-  await openSettings(page, "about");
-  const status = page.locator('[data-update-status="unknown"]');
-  await expect(status).toBeVisible();
-  await expect(status).toContainText("You may be offline.");
-  await expect(page.locator('[data-update-status="up-to-date"]')).toHaveCount(0);
-});
-
-test("automatic updates can be turned on from Settings", async ({ page }) => {
+test("automatic downloads use app-wide updater policy instead of workspace preferences", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "about");
-  const row = page.locator('[data-autoupdate-key="auto_update"]');
-  await expect(row).toContainText("Automatic updates");
-  // The label must be honest about the two things a user would otherwise
-  // assume: that it might touch their local work, and when it takes effect.
-  await expect(row).toContainText("never touches uncommitted changes");
-  await expect(row).toContainText("next restart");
-
+  const row = page.locator('[data-update-policy="automatic_downloads"]');
   await row.getByRole("button", { name: "On" }).click();
-  const saved = await page.evaluate(() => window.__mock.savedPrefs);
-  expect(saved).toContainEqual(["auto_update", "true"]);
+  await expect.poll(() => page.evaluate(() => window.__mock.updatePolicies)).toContainEqual(["automatic_downloads", true]);
+  expect(await page.evaluate(() => window.__mock.savedPrefs)).not.toContainEqual(["auto_update", "true"]);
 });
 
-test("automatic updates are off by default in Settings", async ({ page }) => {
+test("install-on-quit requires separate explicit app-wide consent", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "about");
-  const row = page.locator('[data-autoupdate-key="auto_update"]');
+  const row = page.locator('[data-update-policy="automatic_install_on_quit"]');
   await expect(row.getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");
+  await expect(row.getByRole("button", { name: "On" })).toBeDisabled();
+  await page.locator('[data-update-policy="automatic_downloads"]').getByRole("button", { name: "On" }).click();
+  await expect(row.getByRole("button", { name: "On" })).toBeEnabled();
+  await row.getByRole("button", { name: "On" }).click();
+  await expect.poll(() => page.evaluate(() => window.__mock.updatePolicies)).toContainEqual(["automatic_install_on_quit", true]);
 });
+
+test("update consent survives a workspace switch because it is application-wide", async ({ page }) => {
+  await openApp(page);
+  await openSettings(page, "about");
+  await page.locator('[data-update-policy="automatic_downloads"]').getByRole("button", { name: "On" }).click();
+  await page.evaluate(() => window.__mock.switchWorkspace("/other/workspace"));
+  await openSettings(page, "about");
+  await expect(page.locator('[data-update-policy="automatic_downloads"]').getByRole("button", { name: "On" })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("download progress exposes bounded assistive progress", async ({ page }) => {
+  await openWithUpdate(page, updateState("downloading", {
+    candidate, downloaded_bytes: 3 * 1024 * 1024, total_bytes: 12 * 1024 * 1024,
+  }));
+  await page.locator("#updateBanner").click();
+  const progress = page.locator("#updateProgress");
+  await expect(progress).toBeVisible();
+  await expect(progress).toHaveAttribute("aria-valuenow", "25");
+  await expect(progress).toHaveAttribute("aria-valuemin", "0");
+  await expect(progress).toHaveAttribute("aria-valuemax", "100");
+});
+
+test("reduced-motion preference disables updater transitions", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openWithUpdate(page, updateState("downloading", { candidate }));
+  const duration = await page.locator("#updateProgress span").evaluate((node) => getComputedStyle(node).transitionDuration);
+  expect(Number.parseFloat(duration)).toBeLessThan(0.001);
+});
+
+const visibleStates = [
+  ["available", "Update available"],
+  ["downloading", "Downloading update"],
+  ["verifying", "Verifying update"],
+  ["ready_to_install", "Ready to restart"],
+  ["waiting_for_idle", "Restart when finished"],
+  ["install_on_quit", "Installs on quit"],
+  ["deferred", "Update deferred"],
+  ["failed_retriable", "Update paused"],
+  ["failed_terminal", "Update blocked"],
+  ["policy_blocked", "Managed by administrator"],
+  ["unsupported_install", "Manual update required"],
+  ["rollback_pending", "Recovery required"],
+  ["needs_attention", "Update needs attention"],
+  ["rolled_back", "Update rolled back"],
+  ["unavailable", "Couldn’t check for updates"],
+];
+
+for (const [state, label] of visibleStates) {
+  test(`persistent control renders canonical ${state} state`, async ({ page }) => {
+    const policy = state === "policy_blocked" ? { owner: "intune" } : {};
+    await openWithUpdate(page, updateState(state, { candidate, safe_diagnostic: "Safe diagnostic." }, policy));
+    await expect(page.locator("#updateShell")).toBeVisible();
+    await expect(page.locator("#updateBannerText")).toHaveText(label);
+  });
+}

@@ -214,38 +214,79 @@ describe("About page: update status (mandatory-update system)", () => {
 
   it("shows an up-to-date state with a Check for updates button", () => {
     const html = section().render(
-      { about: { ...base, update: { checked: true, up_to_date: true } } },
+      { about: { ...base, update: { operation: { state: "up_to_date" }, policy: {} } } },
       ctx
     );
-    expect(html).toContain('data-update-status="up-to-date"');
+    expect(html).toContain('data-update-status="up_to_date"');
     expect(html).toContain("latest version");
     expect(html).toContain('id="settingsCheckUpdate"');
   });
 
-  it("shows an available state with the target version and an Update now button", () => {
+  it("shows canonical available target metadata without Git-update copy", () => {
     const html = section().render(
       {
         about: {
           ...base,
-          update: { checked: true, up_to_date: false, latest_version: "0.3.0", commits_behind: 5, branch: "main" },
+          update: {
+            operation: {
+              state: "available",
+              candidate: { version: "0.3.0", channel: "stable" },
+            },
+            policy: {},
+          },
         },
       },
       ctx
     );
     expect(html).toContain('data-update-status="available"');
     expect(html).toContain("0.3.0");
-    expect(html).toContain("5 changes behind");
-    expect(html).toContain('id="settingsApplyUpdate"');
+    expect(html).toContain('id="settingsCheckUpdate"');
+    expect(html).not.toContain("fast-forward");
+    expect(html).not.toContain('id="settingsApplyUpdate"');
   });
 
   it("never claims up to date when the check itself failed", () => {
     const html = section().render(
-      { about: { ...base, update: { checked: false, reason: "You may be offline." } } },
+      { about: { ...base, update: { operation: { state: "unavailable", safe_diagnostic: "You may be offline." }, policy: {} } } },
       ctx
     );
-    expect(html).toContain('data-update-status="unknown"');
+    expect(html).toContain('data-update-status="unavailable"');
     expect(html).toContain("You may be offline.");
-    expect(html).not.toContain('data-update-status="up-to-date"');
+    expect(html).not.toContain('data-update-status="up_to_date"');
+  });
+
+  it("renders automatic download and install-on-quit as app-wide policy controls", () => {
+    const html = section().render(
+      {
+        about: {
+          ...base,
+          update: {
+            operation: { state: "up_to_date" },
+            policy: { automatic_downloads: true, automatic_install_on_quit: false },
+          },
+        },
+      },
+      ctx
+    );
+    expect(html).toContain('data-update-policy="automatic_downloads"');
+    expect(html).toContain('data-update-policy="automatic_install_on_quit"');
+    expect(html).toContain("active work is never interrupted silently");
+  });
+
+  it("disables install-on-quit opt-in until automatic downloads are enabled", () => {
+    const html = section().render(
+      {
+        about: {
+          ...base,
+          update: {
+            operation: { state: "up_to_date" },
+            policy: { automatic_downloads: false, automatic_install_on_quit: false },
+          },
+        },
+      },
+      ctx
+    );
+    expect(html).toMatch(/data-value="on"[^>]*disabled aria-disabled="true"/);
   });
 
   it("degrades gracefully when the payload predates the update field", () => {
