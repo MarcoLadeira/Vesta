@@ -837,13 +837,55 @@ class BackgroundRunner:
 def recover_interrupted_runs(
     project_root: Path, *, active_run_ids: tuple[str, ...] = ()
 ) -> list[AutomationRun]:
-    """Mark orphaned 'running' runs (e.g. after a crash) as interrupted."""
+    """Reconcile orphaned 'running' runs (e.g. after a crash).
+
+    An ordinary in-flight run whose owning session died is honestly "failed:
+    interrupted" -- nothing controllable is running any more, and nothing
+    beyond "try again" was ever promised. A run that had reached
+    CANCEL_REQUESTED before the crash is different (#614): the user asked
+    OPai to stop it, and this process has no evidence the previous one ever
+    finished tearing it down -- a provider call or child process could have
+    kept running, spending money or writing files, for an arbitrary time
+    after the session disappeared. Filing that as a bare "failed" would
+    silently drop the stop request from the record and could let a naive
+    caller re-enqueue it as an ordinary retry, overlapping whatever the
+    unreconciled attempt is still doing -- the same defect #614's live
+    teardown path (``_finish``) already refuses to commit. It goes to
+    NEEDS_ATTENTION with "cancellation_unconfirmed" instead, carrying
+    whatever teardown evidence was durably recorded before the crash, so
+    recovery never claims a stop nobody observed.
+    """
 
     recovered = []
     for run in list_runs(project_root, status="running"):
         if run.run_id in active_run_ids:
             continue
         if _is_terminal_run(run):
+            continue
+        if _coerce_run_state(run.run_state) is RunState.CANCEL_REQUESTED:
+            tracker = _background_cancellation_tracker(project_root, run.run_id)
+            updated = _transition_run(
+                project_root,
+                run.run_id,
+                target=RunState.NEEDS_ATTENTION,
+                reason_code="cancellation_unconfirmed",
+                message=(
+                    "Cancellation could not be proven complete: the owning "
+                    "session ended before teardown was observed"
+                ),
+                finished_at=_now_iso(),
+                result=_bounded_result(
+                    {"status": "needs_attention", "cancellation": tracker.evidence()},
+                    run_state=RunState.NEEDS_ATTENTION,
+                    reason_code="cancellation_unconfirmed",
+                ),
+            )
+            _notify(
+                project_root,
+                updated,
+                "Stop was requested but not confirmed before the session ended",
+            )
+            recovered.append(updated)
             continue
         updated = _transition_run(
             project_root,
