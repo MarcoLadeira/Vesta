@@ -22,6 +22,8 @@ import io
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -29,11 +31,13 @@ from unittest import mock
 from opai.cli import claude_pre_tool_decision, main
 from opaihub.accounts import (
     AccountRunner,
+    ClaudeHookSettingsError,
     build_claude_hook_settings,
     claude_hook_command,
     claude_hook_settings_path,
     ensure_claude_hook_settings,
 )
+from opaihub.atomic_io import InterprocessLockTimeout
 from opaihub.proc import AGENT_SESSION_ENV, provider_child_env
 
 _CLAUDE_CLI = "/fake/claude"
@@ -636,6 +640,259 @@ class ClaudeHookSettingsTests(unittest.TestCase):
             self.assertEqual(written, build_claude_hook_settings())
 
 
+# ---------------------------------------------------------------------------
+# 2b. Hook settings publication under concurrency and failure (#481)
+#
+# The settings file lives on a deterministic shared path, so a second gated run
+# starting mid-refresh used to be able to read the file while it was truncated.
+# Claude then loads no PreToolUse hook and Full Auto runs with a blanket
+# --dangerously-skip-permissions and no gate at all. These tests pin the two
+# properties that prevent it: a reader never observes a partial document, and a
+# refresh that cannot complete never leaves invalid content on the path.
+# ---------------------------------------------------------------------------
+class _RotatingHookCommand:
+    """A hook command that differs (and is large) on every refresh.
+
+    Different each call so every ``ensure_claude_hook_settings`` finds the file
+    stale and republishes; large so a non-atomic publish spends long enough
+    mid-write for a concurrent reader to catch it.
+    """
+
+    def __init__(self, filler: int = 40_000) -> None:
+        self._lock = threading.Lock()
+        self._calls = 0
+        self._filler = filler
+
+    def __call__(self) -> str:
+        with self._lock:
+            self._calls += 1
+            serial = self._calls
+        return f'"python" -m opai hooks claude-pre-tool --refresh {serial} ' + (
+            "x" * self._filler
+        )
+
+
+def _arms_the_bash_gate(document: object) -> bool:
+    """Mirror of the posture a reader needs: a Bash PreToolUse command hook."""
+    if not isinstance(document, dict):
+        return False
+    hooks = document.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    for entry in hooks.get("PreToolUse") or ():
+        if entry.get("matcher") != "Bash":
+            continue
+        for hook in entry.get("hooks") or ():
+            if hook.get("type") == "command" and str(hook.get("command") or "").strip():
+                return True
+    return False
+
+
+class ClaudeHookSettingsPublicationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.target = Path(self._tmp.name) / "opai-claude-hooks.json"
+
+    # -- concurrent reader/writer ------------------------------------------
+    def test_concurrent_readers_never_observe_partial_settings(self):
+        rounds, writers, readers = 5, 3, 2
+        violations: list[str] = []
+        reads = [0]
+        reads_lock = threading.Lock()
+        stop = threading.Event()
+        failures: list[BaseException] = []
+
+        def read_loop() -> None:
+            seen = 0
+            try:
+                while not stop.is_set():
+                    try:
+                        text = self.target.read_text(encoding="utf-8")
+                    except (OSError, ValueError):
+                        # Missing (nothing published yet) or a transient
+                        # sharing violation against the replace. Neither is a
+                        # reader observing partial content.
+                        continue
+                    seen += 1
+                    if not text:
+                        violations.append("empty settings file")
+                        continue
+                    try:
+                        document = json.loads(text)
+                    except ValueError:
+                        violations.append(f"unparseable JSON: {text[:60]!r}")
+                        continue
+                    if not _arms_the_bash_gate(document):
+                        violations.append(f"gate not armed: {text[:60]!r}")
+                    # Windows denies the replace while a reader holds the file
+                    # open, so yield between reads: a reader that never lets
+                    # go measures the retry ceiling, not the race.
+                    time.sleep(0.001)
+            finally:
+                with reads_lock:
+                    reads[0] += seen
+
+        def write_loop() -> None:
+            try:
+                for _ in range(rounds):
+                    self.assertEqual(
+                        ensure_claude_hook_settings(self.target), self.target
+                    )
+            except BaseException as exc:  # pragma: no cover - reported below
+                failures.append(exc)
+
+        with mock.patch("opaihub.accounts.claude_hook_command", _RotatingHookCommand()):
+            reader_threads = [
+                threading.Thread(target=read_loop, daemon=True) for _ in range(readers)
+            ]
+            writer_threads = [
+                threading.Thread(target=write_loop, daemon=True) for _ in range(writers)
+            ]
+            for thread in reader_threads + writer_threads:
+                thread.start()
+            for thread in writer_threads:
+                thread.join(120)
+            stop.set()
+            for thread in reader_threads:
+                thread.join(30)
+
+        self.assertEqual(failures, [])
+        self.assertEqual(violations[:5], [])
+        # A pass is only meaningful if readers actually raced the writers.
+        self.assertGreater(reads[0], 0)
+        self.assertIsNotNone(json.loads(self.target.read_text(encoding="utf-8")))
+
+    def test_concurrent_refreshes_leave_one_complete_document(self):
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(6)
+
+        def refresh() -> None:
+            try:
+                barrier.wait(30)
+                ensure_claude_hook_settings(self.target)
+            except BaseException as exc:  # pragma: no cover - reported below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=refresh) for _ in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(60)
+
+        self.assertEqual(errors, [])
+        written = json.loads(self.target.read_text(encoding="utf-8"))
+        self.assertEqual(written, build_claude_hook_settings())
+        # The publish must not leave temporary files behind on the shared path.
+        siblings = {p.name for p in self.target.parent.iterdir()}
+        self.assertEqual({name for name in siblings if name.endswith(".tmp")}, set())
+
+    # -- malformed-file recovery -------------------------------------------
+    def test_malformed_settings_are_recovered(self):
+        payload = json.dumps(build_claude_hook_settings(), indent=2, sort_keys=True)
+        corruptions = {
+            "truncated": payload[: len(payload) // 2],
+            "empty": "",
+            "whitespace": "   \n",
+            "not_json": "not json{{",
+            # Parses, but registers no hook at all: gating would be silently off.
+            "parses_without_a_gate": "{}",
+            "gate_without_command": '{"hooks": {"PreToolUse": [{"matcher": "Bash"}]}}',
+        }
+        for name, content in corruptions.items():
+            with self.subTest(corruption=name):
+                self.target.write_text(content, encoding="utf-8")
+                returned = ensure_claude_hook_settings(self.target)
+                self.assertEqual(returned, self.target)
+                written = json.loads(self.target.read_text(encoding="utf-8"))
+                self.assertEqual(written, build_claude_hook_settings())
+
+    def test_undecodable_settings_are_recovered(self):
+        self.target.write_bytes(b'{"hooks": \xff\xfe truncated')
+        ensure_claude_hook_settings(self.target)
+        written = json.loads(self.target.read_text(encoding="utf-8"))
+        self.assertEqual(written, build_claude_hook_settings())
+
+    # -- failed refresh -----------------------------------------------------
+    def _previous_valid_document(self) -> str:
+        with mock.patch(
+            "opaihub.accounts.claude_hook_command",
+            lambda: '"python" -m opai hooks claude-pre-tool',
+        ):
+            text = (
+                json.dumps(build_claude_hook_settings(), indent=2, sort_keys=True)
+                + "\n"
+            )
+        self.target.write_text(text, encoding="utf-8")
+        return text
+
+    def test_failed_publish_keeps_the_previous_verified_document(self):
+        previous = self._previous_valid_document()
+        with mock.patch(
+            "opaihub.accounts.atomic_write_text", side_effect=OSError("disk full")
+        ):
+            returned = ensure_claude_hook_settings(self.target)
+        self.assertEqual(returned, self.target)
+        # Untouched, so the gate the CLI loads is still a real gate.
+        self.assertEqual(self.target.read_text(encoding="utf-8"), previous)
+        self.assertTrue(_arms_the_bash_gate(json.loads(previous)))
+
+    def test_lock_timeout_keeps_the_previous_verified_document(self):
+        previous = self._previous_valid_document()
+        with mock.patch(
+            "opaihub.accounts.interprocess_transaction",
+            side_effect=InterprocessLockTimeout("busy"),
+        ):
+            returned = ensure_claude_hook_settings(self.target)
+        self.assertEqual(returned, self.target)
+        self.assertEqual(self.target.read_text(encoding="utf-8"), previous)
+
+    def test_failed_publish_clears_invalid_content(self):
+        self.target.write_text('{"hooks": {"PreToolU', encoding="utf-8")
+        with mock.patch(
+            "opaihub.accounts.atomic_write_text", side_effect=OSError("disk full")
+        ):
+            returned = ensure_claude_hook_settings(self.target)
+        self.assertEqual(returned, self.target)
+        # A missing file makes the CLI fail closed; invalid content would not.
+        self.assertFalse(self.target.exists())
+
+    def test_unclearable_invalid_content_raises_instead_of_returning_the_path(self):
+        self.target.write_text('{"hooks": {"PreToolU', encoding="utf-8")
+        with (
+            mock.patch(
+                "opaihub.accounts.atomic_write_text", side_effect=OSError("disk full")
+            ),
+            mock.patch.object(Path, "unlink", side_effect=OSError("in use")),
+            self.assertRaises(ClaudeHookSettingsError),
+        ):
+            ensure_claude_hook_settings(self.target)
+
+    def test_unverifiable_publish_never_reports_a_usable_gate(self):
+        # atomic_write_text "succeeds" without producing readable settings, so
+        # the refresh must not report the path as carrying a gate. With nothing
+        # valid to fall back on, the path is left empty and the CLI fails
+        # closed on a missing --settings file.
+        self.target.write_text('{"hooks": {"PreToolU', encoding="utf-8")
+        with mock.patch("opaihub.accounts.atomic_write_text"):
+            returned = ensure_claude_hook_settings(self.target)
+        self.assertEqual(returned, self.target)
+        self.assertFalse(self.target.exists())
+
+    def test_current_settings_are_republished_without_taking_the_lock(self):
+        ensure_claude_hook_settings(self.target)
+        with mock.patch(
+            "opaihub.accounts.interprocess_transaction",
+            side_effect=AssertionError("took the lock for an up-to-date file"),
+        ):
+            self.assertEqual(ensure_claude_hook_settings(self.target), self.target)
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    def test_published_settings_are_private_to_this_user(self):
+        ensure_claude_hook_settings(self.target)
+        self.assertEqual(self.target.stat().st_mode & 0o777, 0o600)
+
+
 class ClaudeFullAutoPostureTests(unittest.TestCase):
     def _runner(self) -> AccountRunner:
         return AccountRunner("claude", _CLAUDE_CLI, model="sonnet")
@@ -688,6 +945,36 @@ class ClaudeFullAutoPostureTests(unittest.TestCase):
         ):
             runner.complete("explain it", mode="safe-auto")
         ensure.assert_not_called()
+
+    def test_complete_refuses_full_auto_when_the_gate_cannot_be_published(self):
+        # Fail closed: skipping permissions behind an unpublishable gate is the
+        # ungated posture #481 exists to prevent.
+        runner = self._runner()
+        with (
+            mock.patch(
+                "opaihub.accounts.ensure_claude_hook_settings",
+                side_effect=ClaudeHookSettingsError("cannot publish"),
+            ),
+            mock.patch("opaihub.accounts._hidden_run") as run,
+        ):
+            result = runner.complete("ship it", mode="full-auto")
+        run.assert_not_called()
+        self.assertEqual(result["text"], "")
+        self.assertIn("safety gate", result["error"]["title"])
+
+    def test_stream_refuses_full_auto_when_the_gate_cannot_be_published(self):
+        runner = self._runner()
+        with (
+            mock.patch(
+                "opaihub.accounts.ensure_claude_hook_settings",
+                side_effect=ClaudeHookSettingsError("cannot publish"),
+            ),
+            mock.patch("opaihub.accounts._popen") as popen,
+        ):
+            result = runner.stream("ship it", mode="full-auto")
+        popen.assert_not_called()
+        self.assertEqual(result["text"], "")
+        self.assertIn("safety gate", result["error"]["title"])
 
 
 # ---------------------------------------------------------------------------

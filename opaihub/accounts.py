@@ -40,6 +40,11 @@ from opaihub.deadlines import (
     timeout_event,
 )
 
+from .atomic_io import (
+    InterprocessLockTimeout,
+    atomic_write_text,
+    interprocess_transaction,
+)
 from .command_runner import redact
 from .proc import provider_child_env
 from .progress_evidence import ProgressLedger
@@ -1750,24 +1755,150 @@ def claude_hook_settings_path() -> Path:
     return Path(tempfile.gettempdir()) / "opai" / _CLAUDE_HOOK_SETTINGS_NAME
 
 
-def ensure_claude_hook_settings(path: Path | None = None) -> Path:
-    """Write the hook settings file if missing/stale; return its path.
+class ClaudeHookSettingsError(RuntimeError):
+    """The PreToolUse gate could not be published as a complete document.
 
-    Best-effort: a write failure leaves any previous (identical-content) file
-    in place, and the deterministic path is still returned so the CLI either
-    reads a valid gate or errors on a missing file rather than running
-    ungated.
+    Raised only when OPai can neither publish valid settings nor clear known-
+    invalid content off the deterministic path. Callers must refuse to spawn
+    Full Auto rather than hand the CLI a file that may silently fail to load
+    (#481).
+    """
+
+
+#: The settings file lives in a shared temp directory, so keep it readable by
+#: this user only -- the claude CLI OPai spawns runs as the same user.
+_CLAUDE_HOOK_SETTINGS_MODE = 0o600
+#: A refresh only ever rewrites a small file. Waiting a whole minute behind a
+#: peer's lock would stall a run for longer than simply re-verifying what is
+#: already on disk, so cap the wait and fall back to the published document.
+_CLAUDE_HOOK_SETTINGS_LOCK_SECONDS = 15.0
+
+
+def _hook_settings_arms_the_bash_gate(document: Any) -> bool:
+    """True when *document* is a settings file that still arms the Bash gate.
+
+    Parsing alone is not enough: a truncated write can leave a document that
+    happens to parse (``{}``) while registering no hook at all, which is the
+    ungated posture #481 exists to prevent.
+    """
+
+    if not isinstance(document, Mapping):
+        return False
+    entries = document.get("hooks")
+    if not isinstance(entries, Mapping):
+        return False
+    for entry in entries.get("PreToolUse") or ():
+        if not isinstance(entry, Mapping) or entry.get("matcher") != "Bash":
+            continue
+        for hook in entry.get("hooks") or ():
+            if not isinstance(hook, Mapping):
+                continue
+            if hook.get("type") == "command" and str(hook.get("command") or "").strip():
+                return True
+    return False
+
+
+def _verified_hook_settings(target: Path) -> str | None:
+    """Return the on-disk settings text only when a reader could use it.
+
+    ``None`` means missing, unreadable, partially written, or gate-less -- all
+    of which must never be reported to a caller as a usable gate.
+    """
+
+    try:
+        text = target.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError from a half-written file.
+        return None
+    try:
+        document = json.loads(text)
+    except ValueError:
+        return None
+    return text if _hook_settings_arms_the_bash_gate(document) else None
+
+
+def _fall_back_to_published_hook_settings(target: Path, cause: Exception) -> Path:
+    """Keep a verified previous document, or clear known-invalid content."""
+
+    if _verified_hook_settings(target) is not None:
+        # A previous refresh published a complete document that still arms the
+        # gate. Retaining it is strictly safer than removing the gate because
+        # this refresh could not improve on it.
+        return target
+    # Nothing usable is on disk. Removing the remains is what makes the failure
+    # fail closed: the CLI errors on a missing --settings file, where it may
+    # silently run ungated on an unparseable one. A peer that republished
+    # between the check above and this unlink loses its file, and its own run
+    # then fails closed too -- never the other way round.
+    try:
+        target.unlink(missing_ok=True)
+    except OSError:
+        pass
+    if target.exists() and _verified_hook_settings(target) is None:
+        raise ClaudeHookSettingsError(
+            f"cannot publish the Claude PreToolUse gate at {target}"
+        ) from cause
+    return target
+
+
+def ensure_claude_hook_settings(path: Path | None = None) -> Path:
+    """Publish the hook settings file if missing/stale; return its path.
+
+    The file is published by atomic same-directory replacement, so a
+    concurrently starting gated run reads either the previous document or the
+    new one -- never the partial JSON that would leave its Bash gate unarmed
+    (#481). Concurrent refreshes are serialized through an interprocess
+    transaction so the read/compare/publish sequence stays coherent.
+
+    A refresh that cannot complete keeps a previously verified document; if
+    none exists the invalid remains are cleared so the CLI fails closed on a
+    missing file. The returned path never refers to content OPai knows to be
+    invalid; when it cannot even be cleared, `ClaudeHookSettingsError` is
+    raised instead of returning that path.
     """
     target = path or claude_hook_settings_path()
     payload = json.dumps(build_claude_hook_settings(), indent=2, sort_keys=True) + "\n"
+    if _verified_hook_settings(target) == payload:
+        # Already current. Do not take the lock: this runs on every Full Auto
+        # spawn, and the common case must not serialize on a peer's refresh.
+        return target
     try:
-        current = target.read_text(encoding="utf-8") if target.exists() else None
-        if current != payload:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(payload, encoding="utf-8")
-    except OSError:
-        pass
+        with interprocess_transaction(
+            target, timeout_seconds=_CLAUDE_HOOK_SETTINGS_LOCK_SECONDS
+        ):
+            if _verified_hook_settings(target) != payload:
+                atomic_write_text(target, payload, mode=_CLAUDE_HOOK_SETTINGS_MODE)
+                # A publish is only complete once a reader can parse it back.
+                if _verified_hook_settings(target) != payload:
+                    raise ClaudeHookSettingsError(
+                        f"published Claude PreToolUse gate did not verify: {target}"
+                    )
+    except (OSError, ValueError, InterprocessLockTimeout, ClaudeHookSettingsError) as e:
+        return _fall_back_to_published_hook_settings(target, e)
     return target
+
+
+def _hook_gate_unavailable_error(
+    provider: str, model: str | None, cause: Exception
+) -> dict[str, Any]:
+    """The provider-error payload for a Full Auto run OPai refused to start.
+
+    The stable error `code` is left as normalization classified it so every
+    consumer keeps working; only the user-facing wording is replaced, because
+    "OPai could not complete this request" hides the one fact that matters --
+    the run was blocked deliberately, not lost.
+    """
+
+    from opai.provider_contract import normalize_provider_error
+
+    normalized = normalize_provider_error(provider, cause, model=model)
+    normalized["title"] = "OPai blocked Full Auto: its safety gate is unavailable."
+    normalized["userMessage"] = (
+        "OPai could not publish the command-approval gate that Full Auto runs "
+        "behind, so it did not start this run. Retry, or use a mode that does "
+        "not skip permissions."
+    )
+    return normalized
 
 
 #: Activity event types mapped onto the tool vocabulary `ProgressLedger`
@@ -2128,7 +2259,18 @@ class AccountRunner:
         if "--settings" in cmd:
             # Claude Full Auto: the PreToolUse hook settings file must exist
             # before the CLI starts or the Bash gate is silently absent (F23).
-            ensure_claude_hook_settings()
+            try:
+                ensure_claude_hook_settings()
+            except ClaudeHookSettingsError as exc:
+                # Never spawn --dangerously-skip-permissions behind a gate OPai
+                # cannot vouch for (#481).
+                return {
+                    "text": "",
+                    "cost": None,
+                    "error": _hook_gate_unavailable_error(
+                        self.account_id, self.model, exc
+                    ),
+                }
         try:
             proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
         except subprocess.TimeoutExpired:
@@ -2291,7 +2433,20 @@ class AccountRunner:
         if "--settings" in cmd:
             # Claude Full Auto: the PreToolUse hook settings file must exist
             # before the CLI starts or the Bash gate is silently absent (F23).
-            ensure_claude_hook_settings()
+            try:
+                ensure_claude_hook_settings()
+            except ClaudeHookSettingsError as exc:
+                # Never spawn --dangerously-skip-permissions behind a gate OPai
+                # cannot vouch for (#481).
+                if out_path:
+                    Path(out_path).unlink(missing_ok=True)
+                return {
+                    "text": "",
+                    "cost": None,
+                    "error": _hook_gate_unavailable_error(
+                        self.account_id, self.model, exc
+                    ),
+                }
         # Sanitized child env: parent AI-session variables must never steer
         # this CLI's auth or model selection (see opaihub.proc).
         child_env, _env_removed = provider_child_env(self.account_id)
