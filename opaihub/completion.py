@@ -418,6 +418,11 @@ MEASURED_EVIDENCE_KEYS = frozenset(
         "completion_state",
         "stopped_reason",
         "error",
+        # Work OPai observed this run start and never observed it finish, read
+        # from the provider's own tool stream by opai.activity. Allowlisted
+        # because it is measured, not claimed — and it is read-only downward:
+        # it can explain an unverified run, never promote one.
+        "background_work",
     }
 )
 
@@ -598,6 +603,42 @@ def answer_contradicts_verdict(answer: str, verdict: Any) -> bool:
     return bool(_SUCCESS_CLAIM.search(str(answer or "")))
 
 
+def unfinished_background_work(payload: Mapping[str, Any]) -> tuple[str, ...]:
+    """Commands this run started that OPai never observed finishing.
+
+    The #486 run is the shape this exists for: a full test suite was started in
+    the background, the turn ended before it reported, and the only thing the
+    verdict could see was the *absence* of a result — so it said the required
+    evidence was missing. That is true but useless, because it names OPai's
+    evidence as the problem when the real state is "the command is still
+    running". This returns the descriptions needed to say that instead.
+    """
+
+    record = payload.get("background_work")
+    if not isinstance(record, Mapping):
+        return ()
+    descriptions: list[str] = []
+    for item in record.get("unfinished") or ():
+        if not isinstance(item, Mapping):
+            continue
+        text = str(item.get("command") or item.get("id") or "").strip()
+        if text and text not in descriptions:
+            descriptions.append(text[:200])
+    return tuple(descriptions[:5])
+
+
+def _still_running_clause(payload: Mapping[str, Any]) -> str:
+    """One bounded sentence naming still-running work, or ``""``."""
+
+    pending = unfinished_background_work(payload)
+    if not pending:
+        return ""
+    named = "; ".join(pending[:3])
+    if len(pending) == 1:
+        return f"A command this run started is still running: {named}."
+    return f"{len(pending)} commands this run started are still running: {named}."
+
+
 def _evidence_from_payload(payload: Mapping[str, Any]) -> tuple[EvidenceRef, ...]:
     refs: list[EvidenceRef] = []
     files = [
@@ -735,6 +776,14 @@ def evaluate_completion(
 
     result = payload if isinstance(payload, Mapping) else {}
     evidence = _evidence_from_payload(result)
+    # Named once here and consulted by every branch that would otherwise report
+    # an absence of evidence: when work this run started has not finished, the
+    # absence has a known cause and the user is told the cause.
+    still_running = _still_running_clause(result)
+    still_running_action = (
+        "Wait for it to finish and check its output, or re-run it in the "
+        "foreground so OPai can verify the result."
+    )
     if AcceptanceRequirement.ANSWER_PRESENT not in objective.acceptance:
         evidence = tuple(item for item in evidence if item.kind != "answer")
     stopped_reason = _normalized(result.get("stopped_reason"))
@@ -759,19 +808,25 @@ def evaluate_completion(
                     "The run reached OPai's task deadline while work may still "
                     "have been active. Observed progress was retained, but "
                     "verification did not finish."
-                ),
+                )
+                + (f" {still_running}" if still_running else ""),
                 objective,
                 evidence,
-                "Inspect retained work and reconcile the prior operation before continuing.",
+                still_running_action
+                if still_running
+                else "Inspect retained work and reconcile the prior operation before continuing.",
             )
         if stopped_reason == PROVIDER_IDLE_TIMEOUT:
             return _verdict(
                 CompletionVerdict.TIMEOUT,
                 PROVIDER_IDLE_TIMEOUT,
-                "The provider stopped producing activity before OPai could verify the objective.",
+                "The provider stopped producing activity before OPai could verify the objective."
+                + (f" {still_running}" if still_running else ""),
                 objective,
                 evidence,
-                "Inspect any retained work, then retry or choose another provider.",
+                still_running_action
+                if still_running
+                else "Inspect any retained work, then retry or choose another provider.",
             )
         return _verdict(
             CompletionVerdict.TIMEOUT,
@@ -886,6 +941,19 @@ def evaluate_completion(
             verdict = CompletionVerdict.TIMEOUT
         else:
             verdict = CompletionVerdict.PARTIAL
+        # A failed or blocked check is its own truth and keeps its own reason.
+        # An *absent* one is the case #486 got wrong: reported as damaged or
+        # missing evidence when the run had simply not finished producing it.
+        if still_running and verdict is CompletionVerdict.PARTIAL:
+            return _verdict(
+                CompletionVerdict.PARTIAL,
+                "work_still_running",
+                f"{still_running} OPai has not seen its result, so the "
+                "objective is not verified yet.",
+                objective,
+                evidence,
+                still_running_action,
+            )
         return _verdict(
             verdict,
             "verification_" + manifest_status,
@@ -898,6 +966,15 @@ def evaluate_completion(
         AcceptanceRequirement.TESTS_PASS in objective.acceptance
         and "tests" not in kinds
     ):
+        if still_running:
+            return _verdict(
+                CompletionVerdict.PARTIAL,
+                "work_still_running",
+                f"Edits were observed, but the tests are not verified yet. {still_running}",
+                objective,
+                evidence,
+                still_running_action,
+            )
         return _verdict(
             CompletionVerdict.PARTIAL,
             "tests_not_verified",
