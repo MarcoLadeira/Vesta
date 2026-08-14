@@ -57,6 +57,11 @@ DURABLE_WRITE_CALLS = frozenset(
 JOURNAL_OWNED = {
     # runs / events / leases
     "opaihub/run_journal.py": "events — append-only journal this issue generalises",
+    # Not a durable writer in its own right: it mirrors a record another
+    # module has already decided and already persisted, into that module's own
+    # journal. Classified here rather than as a projection because what it
+    # writes *is* Stage 2's canonical event — it simply never originates one.
+    "opaihub/shadow_journal.py": "events — Stage 2 shadow mirror shared by every JOURNAL_OWNED record",
     "opaihub/workflow_runner.py": "runs — run/step transitions",
     "opaihub/background_runs.py": "runs — background run records and notifications",
     "opaihub/agent_runtime.py": "runs — agent process state",

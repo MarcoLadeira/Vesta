@@ -176,27 +176,28 @@ class ReplayDeterminismTests(_LeaseFixture):
     """#613's own acceptance criterion: repeated rebuilds must agree."""
 
     def test_replay_agrees_with_itself_and_with_load(self):
-        from opaihub import run_journal, worktree_leases
+        from opaihub import run_journal, shadow_journal, worktree_leases
 
         lease = self._create()
         self.manager.heartbeat(lease.lease_id, owner="worker-a")
         self.manager.release(lease.lease_id, owner="worker-a")
 
-        journal_path = worktree_leases._lease_journal_path(
+        # The journal mechanics moved to opaihub.shadow_journal, which this
+        # module and owner_lease each hand-rolled separately first.
+        journal_path = shadow_journal.journal_path_for(
             self.manager._lease_path(lease.lease_id)
         )
-        first = run_journal.replay(
-            journal_path,
-            reduce=worktree_leases._reduce_lease_snapshot,
-            empty=worktree_leases._empty_lease_snapshot,
-            validate=worktree_leases._validate_lease_snapshot,
-        )
-        second = run_journal.replay(
-            journal_path,
-            reduce=worktree_leases._reduce_lease_snapshot,
-            empty=worktree_leases._empty_lease_snapshot,
-            validate=worktree_leases._validate_lease_snapshot,
-        )
+
+        def replay() -> dict[str, object]:
+            return run_journal.replay(
+                journal_path,
+                reduce=shadow_journal._reduce,
+                empty=shadow_journal._empty,
+                validate=shadow_journal._validator(worktree_leases._valid_lease_record),
+            )
+
+        first = replay()
+        second = replay()
 
         self.assertEqual(first, second)
         self.assertEqual(first, self.manager.shadow_journal_projection(lease.lease_id))

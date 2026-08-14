@@ -26,7 +26,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from opaihub import owner_lease, run_journal
+from opaihub import owner_lease, run_journal, shadow_journal
 
 
 class ShadowMirrorsAcceptedTransitionsTests(unittest.TestCase):
@@ -187,19 +187,17 @@ class ReplayDeterminismTests(unittest.TestCase):
         owner_lease.renew(self.path, acquired, now=acquired["acquired_at"] + 5)
         owner_lease.acquire(self.path)
 
-        journal_path = owner_lease._lease_journal_path(self.path)
-        first = run_journal.replay(
+        # The journal mechanics moved to opaihub.shadow_journal, which this
+        # module and worktree_leases each hand-rolled separately first.
+        journal_path = shadow_journal.journal_path_for(self.path)
+        replay = lambda: run_journal.replay(  # noqa: E731 - two identical reads
             journal_path,
-            reduce=owner_lease._reduce_lease_event,
-            empty=owner_lease._empty_lease_projection,
-            validate=owner_lease._validate_lease_event,
+            reduce=shadow_journal._reduce,
+            empty=shadow_journal._empty,
+            validate=shadow_journal._validator(owner_lease._valid_lease_record),
         )
-        second = run_journal.replay(
-            journal_path,
-            reduce=owner_lease._reduce_lease_event,
-            empty=owner_lease._empty_lease_projection,
-            validate=owner_lease._validate_lease_event,
-        )
+        first = replay()
+        second = replay()
 
         self.assertEqual(first, second)
         self.assertEqual(first, owner_lease.shadow_journal_projection(self.path))

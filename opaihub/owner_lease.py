@@ -40,9 +40,10 @@ import os
 import time
 import uuid
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
-from . import run_journal
+from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 
 # The owner restamps its lease at least this often while it is working.
@@ -208,160 +209,63 @@ def _write_lease_file(path: Path, lease: dict[str, Any]) -> None:
 
 # --- #613 Stage 2: shadow journal ------------------------------------------
 #
-# Stage 1's inventory names this module JOURNAL_OWNED — "leases: ownership and
-# fencing" — and #613 asks for a *migration*, not a cutover: "shadow-write and
-# dual-read migration... not permission to rewrite every subsystem
-# simultaneously." This is that shadow.
+# Stage 1's inventory names this module JOURNAL_OWNED -- "leases: ownership and
+# fencing". The legacy file below stays the single decision-maker and the only
+# thing a caller's return value depends on; every accepted transition is *also*
+# mirrored into a run_journal event from inside the same
+# interprocess_transaction that made the decision, so the mirror can never
+# observe a different order of acquisitions than the file did.
 #
-# The legacy file above stays the single decision-maker and the single thing a
-# caller's return value depends on. Every accepted transition is *also*
-# mirrored into a run_journal (#517) event, from inside the same
-# interprocess_transaction that made the decision -- so the mirror can never
-# observe a different order of acquisitions than the file did. A shadow-write
-# failure is caught and discarded at the call site: journaling must never be
-# able to fail an acquire/renew the legacy path would have allowed, because a
-# lease is a liveness primitive and refusing one over a logging concern is a
-# worse failure than the logging gap itself.
+# The mechanics now live in opaihub.shadow_journal, which this module and
+# worktree_leases each hand-rolled separately first. Two details it carries
+# that were learned here: a shadow-write failure must never fail the lease it
+# mirrors (a liveness primitive must not be refused over a logging concern),
+# and the comparator must read both sides under the writer's own lock so the
+# comparison can be exact rather than tolerating a fence-distance window.
 #
-# What this buys, independent of anything else migrating: a real, running
-# comparison between the file and its journal-replayed projection, over
-# production traffic, before either one is asked to be authoritative alone.
+# An earlier revision wrote this journal as a sibling of the lease file. The
+# helper places it in a ``journal/`` subdirectory instead; any journal written
+# under the old layout is simply orphaned, which is harmless because it was
+# never authoritative -- the legacy file it shadowed is untouched.
 
 
-def _lease_journal_path(path: Path) -> Path:
-    """The shadow journal for the lease file at ``path`` -- a sibling file.
+def _valid_lease_record(record: Mapping[str, Any]) -> bool:
+    """A mirrored lease must carry the identity and fence a reader needs."""
 
-    Structural, not resource-id-based: every public function here already
-    takes the caller's own ``path`` (typically built by :func:`lease_path`),
-    so deriving the journal from it needs no second identifier and cannot
-    drift from whichever file it is shadowing.
-    """
-    path = Path(path)
-    return path.with_name(path.name.removesuffix(".json") + ".journal.jsonl")
-
-
-def _empty_lease_projection() -> dict[str, Any]:
-    return {}
+    return (
+        _as_int(record.get("fence")) is not None
+        and isinstance(record.get("heartbeat_at"), (int, float))
+        and not isinstance(record.get("heartbeat_at"), bool)
+        and isinstance(record.get("boot"), str)
+        and bool(record.get("boot"))
+    )
 
 
-def _reduce_lease_event(
-    projection: dict[str, Any], event: dict[str, Any]
-) -> dict[str, Any]:
-    etype = event.get("type")
-    if etype == "lease_acquired":
-        return {
-            "pid": event["pid"],
-            "boot": event["boot"],
-            "acquired_at": event["acquired_at"],
-            "heartbeat_at": event["heartbeat_at"],
-            "fence": event["fence"],
-        }
-    if etype == "lease_renewed":
-        # Mirrors touch()'s real effect: only heartbeat_at moves; fence and
-        # ownership identity are carried forward from the acquisition.
-        return {**projection, "heartbeat_at": event["heartbeat_at"]}
-    return projection
+def _shadow_record(path: Path, lease: dict[str, Any]) -> None:
+    """Mirror an already-written lease. Never raises."""
 
-
-def _validate_lease_event(event: dict[str, Any]) -> bool:
-    etype = event.get("type")
-    if etype not in {"lease_acquired", "lease_renewed"}:
-        return False
-    if _as_int(event.get("fence")) is None:
-        return False
-    if not isinstance(event.get("heartbeat_at"), (int, float)) or isinstance(
-        event.get("heartbeat_at"), bool
-    ):
-        return False
-    if etype == "lease_acquired":
-        return (
-            isinstance(event.get("pid"), int)
-            and not isinstance(event.get("pid"), bool)
-            and isinstance(event.get("boot"), str)
-            and bool(event.get("boot"))
-            and isinstance(event.get("acquired_at"), (int, float))
-            and not isinstance(event.get("acquired_at"), bool)
-        )
-    return True
-
-
-def _shadow_record(path: Path, event_type: str, lease: dict[str, Any]) -> None:
-    """Best-effort mirror of an already-decided transition. Never raises.
-
-    Called from inside the caller's own ``interprocess_transaction(path)``, so
-    two concurrent acquisitions are already serialized by the time either one
-    reaches here -- the journal observes the same order the legacy file did.
-    """
-    try:
-        event: dict[str, Any] = {"type": event_type, "fence": lease["fence"]}
-        if event_type == "lease_acquired":
-            event.update(
-                pid=lease["pid"],
-                boot=lease["boot"],
-                acquired_at=lease["acquired_at"],
-                heartbeat_at=lease["heartbeat_at"],
-            )
-        else:
-            event["heartbeat_at"] = lease["heartbeat_at"]
-        run_journal.append(
-            _lease_journal_path(path),
-            event,
-            reduce=_reduce_lease_event,
-            empty=_empty_lease_projection,
-            validate=_validate_lease_event,
-        )
-    except Exception:  # nosec B110 -- shadow evidence, never authoritative
-        pass
+    shadow_journal.record_snapshot(path, lease, is_valid_record=_valid_lease_record)
 
 
 def shadow_journal_projection(path: Path) -> dict[str, Any]:
-    """The lease state the shadow journal alone would reconstruct.
+    """The lease state the shadow journal alone would reconstruct."""
 
-    Read-only and never raises past a corrupt journal (:func:`run_journal.load`
-    quarantines and recovers); a caller comparing this against :func:`current`
-    is exactly the dual-read #613 asks for.
-    """
-    try:
-        return run_journal.load(
-            _lease_journal_path(path),
-            reduce=_reduce_lease_event,
-            empty=_empty_lease_projection,
-            validate=_validate_lease_event,
-        ).projection
-    except Exception:
-        return {}
+    return shadow_journal.projection(path, is_valid_record=_valid_lease_record)
 
 
 def lease_contradiction_report(path: Path) -> dict[str, Any] | None:
     """``None`` when the file and its shadow agree; otherwise, what disagrees.
 
-    Reads both under ``path``'s own lock -- the same one :func:`acquire` and
-    :func:`renew` hold while writing file and shadow together -- so the two
-    reads are a single consistent snapshot, never a mix of before-and-after
-    one process's in-flight transaction. An earlier version of this function
-    tolerated a fence one apart as "still mirroring", which was wrong: a
-    difference that happened to land on fence-minus-one for an unrelated
-    reason (a corrupted file, a competing writer) would have passed silently
-    on exactly the field #613 most needs checked. Locking the read instead of
-    guessing at a tolerance removes the race it was working around, and the
-    comparison can be exact.
+    This is the dual-read #613 asks for: "compare legacy and journal
+    projections and record contradictions."
     """
+
     path = Path(path)
-    with interprocess_transaction(path):
-        legacy = current(path)
-        shadow = shadow_journal_projection(path)
-    if legacy == shadow:
-        return None
-    mismatched = sorted(
-        {*legacy.keys(), *shadow.keys()}
-        - {key for key in legacy if legacy.get(key) == shadow.get(key)}
+    return shadow_journal.contradiction_report(
+        path,
+        lambda: _read_lease_file(path),
+        is_valid_record=_valid_lease_record,
     )
-    return {
-        "path": str(path),
-        "legacy": legacy,
-        "shadow": shadow,
-        "mismatched_fields": mismatched,
-    }
 
 
 def acquire(path: Path, *, now: float | None = None) -> dict[str, Any]:
@@ -385,7 +289,7 @@ def acquire(path: Path, *, now: float | None = None) -> dict[str, Any]:
         # #613 Stage 2: mirrored while still holding the file's own lock, so
         # the journal can never observe acquisitions in a different order
         # than the file did.
-        _shadow_record(path, "lease_acquired", acquired)
+        _shadow_record(path, acquired)
     return acquired
 
 
@@ -423,7 +327,7 @@ def renew(
         _write_lease_file(path, touched)
         # Only a real, accepted renewal is mirrored -- the refusal above
         # returns early and writes nothing, on either side.
-        _shadow_record(path, "lease_renewed", touched)
+        _shadow_record(path, touched)
     return touched
 
 
