@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .atomic_io import atomic_write_text, interprocess_transaction
+from .command_runner import redact
 from .cost_model import estimate_tokens, load_cost_model, tier_cost
 from .state import state_dir
 
@@ -363,7 +364,11 @@ def generate_client_ignores(
                     "client": client,
                     "file": name,
                     "status": "failed",
-                    "error": str(exc),
+                    # #622 AC9: never interpolate a caught exception raw — an
+                    # OSError can carry a full filesystem path. redact() is the
+                    # sanctioned boundary this result crosses on its way to the
+                    # GUI/CLI payload.
+                    "error": redact(str(exc)),
                 }
             )
     return {
