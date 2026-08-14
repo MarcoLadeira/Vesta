@@ -11,6 +11,7 @@ stop button, and the slow-model UX.
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -65,6 +66,26 @@ _TOOL_MAP = {
     "websearch": ("context_read", "Web search"),
     "task": ("tool_call", "Ran subtask"),
 }
+
+
+# Tools that ask about, or end, a command the provider previously backgrounded.
+_SHELL_QUERY_TOOLS = frozenset({"bashoutput", "killshell", "killbash"})
+
+# "Command running in background with ID: bash_1" — the tool_result a provider
+# returns when it backgrounds a command instead of waiting for it. The id is
+# what a later BashOutput/KillShell call refers to.
+_BACKGROUND_STARTED = re.compile(r"running in (?:the )?background", re.IGNORECASE)
+_BACKGROUND_ID = re.compile(r"\bid\b\s*[:=]?\s*([A-Za-z0-9_.:-]{1,64})", re.IGNORECASE)
+
+# A background shell's output report that says the command is over, rather than
+# still producing. Tolerant of the three shapes providers use: a status tag, an
+# exit code, or plain prose.
+_SHELL_FINISHED = re.compile(
+    r"<status>\s*(?:completed|failed|killed|error)\s*</status>"
+    r"|\bexit\s+code\b"
+    r"|\bhas\s+(?:completed|exited|finished|been\s+killed)\b",
+    re.IGNORECASE,
+)
 
 
 # Schema v2 channels (docs/AI_ACTIVITY_UX.md): "feed" renders a timeline row,
@@ -418,6 +439,19 @@ class ActivitySession:
         # Normalized Bash command strings -> invocation count, for the
         # repeated-command warning (F13).
         self._command_counts: dict[str, int] = {}
+        # Work this run started that has not reported back (#486 follow-up).
+        #
+        # ``_pending_tools`` is every tool_use whose tool_result has not
+        # arrived: while one is open the provider is *busy*, not silent, so the
+        # account runner must not call the stream idle and kill a command that
+        # is still progressing. ``_background_shells`` is every command the
+        # provider deliberately backgrounded, kept until this run observes it
+        # finish — so a turn that ends with one still running reports that,
+        # instead of the completion check concluding evidence is missing.
+        # tool_use_id -> {"tool", "detail", "started_ms", "background", "shell_id"}.
+        self._pending_tools: dict[str, dict[str, Any]] = {}
+        # shell_id -> {"id", "command", "started_ms"}.
+        self._background_shells: dict[str, dict[str, Any]] = {}
         # Open Codex items: event_id -> (started_ms, etype, title, detail).
         self._codex_open: dict[str, tuple[int, str, str, str | None]] = {}
         self._codex_execs: list[str] = []  # FIFO of open legacy exec ids
@@ -493,6 +527,20 @@ class ActivitySession:
                 str(event["title"]),
                 event.get("detail"),
             )
+            # This call is now in flight. Only ids the provider actually
+            # supplied are tracked: without one there is no way to observe the
+            # matching tool_result, and a call that could never be closed would
+            # suppress the idle watchdog for the rest of the run.
+            inputs = block.get("input") or {}
+            self._pending_tools[tool_use_id] = {
+                "tool": str(block.get("name") or "tool").strip()[:64],
+                "detail": str(event.get("detail") or "")[:200],
+                "started_ms": int(time.time() * 1000),
+                "background": bool(inputs.get("run_in_background")),
+                "shell_id": str(
+                    inputs.get("bash_id") or inputs.get("shell_id") or ""
+                ).strip()[:64],
+            }
         # F13: a Bash command identical to one already run this request is
         # flagged, not silently celebrated a second time.
         name = str(block.get("name") or "").strip().lower()
@@ -521,11 +569,16 @@ class ActivitySession:
         result flips it to ``warning`` — a green check for a command that
         returned nothing usable is how "✓ Ran" lies happened (F19/F11).
         """
+        tool_use_id = str(block.get("tool_use_id") or "").strip()
+        # Bookkeeping first, and for *every* result: a successful, non-empty
+        # result produces no correction event, but it is still the signal that
+        # the call is no longer in flight. Doing this after the early return
+        # below would leave every successful call open forever.
+        self._close_pending_tool(tool_use_id, block)
         correction = _tool_result_correction(block)
         if correction is None:
             return None
         status, suffix, detail = correction
-        tool_use_id = str(block.get("tool_use_id") or "").strip()
         prior = self._tool_use_index.get(tool_use_id)
         # F26: an Edit/Write refused by the provider's permission gate is an
         # approval request, not just a failed row. Record the file path so the
@@ -555,6 +608,85 @@ class ActivitySession:
             detail=detail,
             request_id=self.request_id,
         )
+
+    def _close_pending_tool(self, tool_use_id: str, block: dict[str, Any]) -> None:
+        """Close an in-flight tool_use, and follow the background shell it opened.
+
+        Three transitions matter here:
+
+        * an ordinary call returns — it is simply no longer in flight;
+        * a call that *backgrounded* a command returns immediately with a shell
+          id, so the call is finished but the command it started is not;
+        * a later BashOutput/KillShell reports that shell finished, which is the
+          only thing that closes the background record.
+        """
+
+        pending = self._pending_tools.pop(tool_use_id, None)
+        if pending is None:
+            return
+        text = _tool_result_text(block.get("content"))
+        if pending.get("background") or _BACKGROUND_STARTED.search(text):
+            match = _BACKGROUND_ID.search(text)
+            shell_id = (match.group(1) if match else "") or tool_use_id
+            self._background_shells.setdefault(
+                shell_id,
+                {
+                    "id": shell_id,
+                    "command": str(pending.get("detail") or "")[:200],
+                    "started_ms": int(pending.get("started_ms") or 0),
+                },
+            )
+            return
+        if str(pending.get("tool") or "").lower() not in _SHELL_QUERY_TOOLS:
+            return
+        shell_id = str(pending.get("shell_id") or "")
+        if not shell_id:
+            # No id to match: the report cannot be attributed to a shell, and
+            # guessing would clear the wrong one. Leave the record open — the
+            # honest outcome is "still running", not a silent close.
+            return
+        if str(pending.get("tool") or "").lower() != "bashoutput" or (
+            _SHELL_FINISHED.search(text)
+        ):
+            self._background_shells.pop(shell_id, None)
+
+    def has_work_in_flight(self) -> bool:
+        """True while a tool call this run started has not reported back.
+
+        Provider silence during one of these is the provider *working*, not the
+        provider stalling — which is the distinction the idle watchdog needs.
+        """
+
+        return bool(self._pending_tools or self._codex_open)
+
+    def background_work(self) -> dict[str, Any]:
+        """Bounded record of work started that was never observed to finish.
+
+        Consumed by the completion verdict, so it is deliberately small,
+        JSON-safe, and free of command output. It can only ever explain why a
+        run is unverified; nothing here can award a completion.
+        """
+
+        unfinished: list[dict[str, str]] = [
+            {
+                "kind": "background_command",
+                "id": str(item.get("id") or "")[:64],
+                "command": str(item.get("command") or "")[:200],
+            }
+            for item in self._background_shells.values()
+        ]
+        unfinished.extend(
+            {
+                "kind": "tool_call",
+                "id": str(call_id)[:64],
+                "command": (
+                    str(pending.get("detail") or "")
+                    or str(pending.get("tool") or "tool")
+                )[:200],
+            }
+            for call_id, pending in self._pending_tools.items()
+        )
+        return {"unfinished": unfinished[:20]}
 
     def _codex_item(
         self,

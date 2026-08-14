@@ -2402,6 +2402,15 @@ class AccountRunner:
             if (
                 provider_idle_timeout is not None
                 and now - (last_provider_activity or started) > provider_idle_timeout
+                # A tool call the provider started and has not got a result for
+                # is work in progress, not silence. Without this, a run that
+                # kicked off a long command (a full test suite is the ordinary
+                # case) was killed at the idle timeout while the command was
+                # still making progress, and the turn ended on missing evidence
+                # rather than on the command's result (#486 follow-up). The
+                # task deadline above is still the absolute bound, so a
+                # genuinely hung tool cannot hold the run open forever.
+                and not session.has_work_in_flight()
             ):
                 stopped = PROVIDER_IDLE_TIMEOUT
                 break
@@ -2427,8 +2436,15 @@ class AccountRunner:
                         diagnostic_parts.append(raw_line.strip())
                     continue
                 part = line_parser(raw_line)
-                if part["events"] or part["text"] or part["cost"] is not None:
-                    last_provider_activity = time.monotonic()
+                # Any successfully parsed line is proof the provider is alive,
+                # not only one that happened to produce a visible event, text
+                # chunk, or cost. A quiet, successful tool_result (the ordinary
+                # case — "1631 passed" needs no correction event) produced none
+                # of those, so it left last_provider_activity stale: the call
+                # closed, has_work_in_flight() correctly went False, and the
+                # very next loop iteration saw a large idle gap and killed the
+                # run in the same instant its result arrived (#486 follow-up).
+                last_provider_activity = time.monotonic()
                 for event in part["events"]:
                     _notify(on_event, event)
                     etype = str(event.get("type") or "")
@@ -2515,6 +2531,18 @@ class AccountRunner:
                     streamed_any = True
                     text_parts.append(chunk)
                     _notify(on_text, chunk)
+
+        # Work this run started that was never observed to finish: a command the
+        # provider backgrounded and never checked back on, or a tool call still
+        # open when the stream ended. Carried on the result so the completion
+        # verdict can say "still running" instead of "evidence missing". Empty
+        # (and therefore absent) on the ordinary run where everything reported.
+        background_work = session.background_work()
+        unfinished_work = (
+            {"background_work": background_work}
+            if background_work.get("unfinished")
+            else {}
+        )
 
         if terminal_provider_error is not None:
             # A terminal JSONL error is already enough to render the failure.
@@ -2611,6 +2639,7 @@ class AccountRunner:
                         verification_state="incomplete",
                     ),
                     "cancellation": cancellation_evidence,
+                    **unfinished_work,
                 }
             if stopped == "no_progress":
                 # F27: checkpoint, honestly. The paid spend so far is real and
@@ -2628,6 +2657,7 @@ class AccountRunner:
                     "tool_steps": len(step_ids),
                     "edit_denials": list(session.edit_denials),
                     "cancellation": cancellation_evidence,
+                    **unfinished_work,
                 }
             return {
                 "text": partial,
@@ -2715,6 +2745,7 @@ class AccountRunner:
                 "cost": cost,
                 "returncode": returncode,
                 "edit_denials": list(session.edit_denials),
+                **unfinished_work,
             }
         if returncode not in (0, None) or known_failure:
             _invalidate_cache_for_error(self.account_id, normalized)

@@ -1752,6 +1752,10 @@ def _ask_account(
             "ledger_dispatch_recorded": dispatch_recorded,
             "ledger_call_id": call_id if dispatch_recorded else None,
             "cancellation": result.get("cancellation"),
+            # Commands this run started and never saw finish. A deadline that
+            # expired with one still running is a different story from a
+            # provider that went quiet, and the verdict says which.
+            "background_work": result.get("background_work") or {},
             **cost_record,
         }
 
@@ -1864,6 +1868,13 @@ def _ask_account(
         "edit_denials": list(result.get("edit_denials") or [])
         if isinstance(result, dict)
         else [],
+        # #486 follow-up: a turn that backgrounded a command and ended before it
+        # reported must say so. Without this the verdict only saw the absence of
+        # the result and called the evidence missing, which sends the user to
+        # debug OPai instead of telling them their command is still running.
+        "background_work": (
+            result.get("background_work") or {} if isinstance(result, dict) else {}
+        ),
         "no_progress": no_progress,
         "answer": answer,
     }

@@ -1280,6 +1280,12 @@ def handle_gui_message(
             or raw_terminal.get("completion_state"),
             "stopped_reason": payload.get("stopped_reason")
             or raw_terminal.get("stopped_reason"),
+            # Commands the run started and never saw finish (#486 follow-up).
+            # The verdict reads this so a turn waiting on a long test run is
+            # reported as still running, not as missing evidence.
+            "background_work": payload.get("background_work")
+            or raw_terminal.get("background_work")
+            or {},
         }
         if verification_manifest_payload:
             evidence_extra["verification_manifest"] = verification_manifest_payload
