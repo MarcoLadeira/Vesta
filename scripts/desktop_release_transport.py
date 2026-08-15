@@ -14,7 +14,17 @@ import subprocess  # nosec B404 - fixed platform archive tool only
 import sys
 import tarfile
 import tempfile
-import tomllib
+
+try:  # Python 3.11+ ships a TOML reader in the standard library.
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - only reachable on 3.10
+    # pyproject declares requires-python = ">=3.10", and tomllib only exists
+    # from 3.11. Importing it unconditionally made this module unimportable on
+    # 3.10 and failed six desktop-artifact tests on every push to main --
+    # invisibly, because pull requests only run the 3.13 lane. Rather than add
+    # a `tomli` dependency for a single field, `_read_project_version` falls
+    # back to a scoped parse; both paths fail closed with TransportError.
+    tomllib = None  # type: ignore[assignment]
 from typing import Any, Iterable, Mapping
 import zipfile
 
@@ -68,17 +78,61 @@ def canonical_release_tag(version: str) -> str:
     return f"v{match.group('base')}{suffix}"
 
 
+#: ``version = "..."`` inside pyproject's ``[project]`` table, used only when
+#: the standard library has no TOML reader (Python 3.10). Anchored to the start
+#: of a line so a version key nested in another table cannot match.
+PROJECT_TABLE_PATTERN = re.compile(r"^\[project\]\s*$", re.MULTILINE)
+PROJECT_VERSION_PATTERN = re.compile(
+    r"^version\s*=\s*[\"'](?P<version>[^\"']+)[\"']\s*$", re.MULTILINE
+)
+
+
+def _read_project_version(pyproject_path: Path) -> str:
+    """The ``[project] version`` from pyproject, on any supported Python.
+
+    Prefers the standard library's TOML reader. On 3.10, which has none and
+    for which this repository declares support, it falls back to reading the
+    single field this function needs out of the ``[project]`` table -- the
+    same shape ``read_release_versions`` already uses to pull ``__version__``
+    out of the two package ``__init__`` files.
+
+    Both paths fail closed: an unreadable, malformed or absent version raises
+    :class:`TransportError` rather than returning a guess, because every
+    caller uses this to decide whether a release's identity is consistent.
+    """
+
+    try:
+        text = pyproject_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise TransportError("pyproject.toml has no readable project version") from exc
+
+    if tomllib is not None:
+        try:
+            return str(tomllib.loads(text)["project"]["version"])
+        except (KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
+            raise TransportError(
+                "pyproject.toml has no readable project version"
+            ) from exc
+
+    table = PROJECT_TABLE_PATTERN.search(text)
+    if table is None:
+        raise TransportError("pyproject.toml has no readable project version")
+    # Stop at the next table header so a `version` belonging to some later
+    # table can never be mistaken for the project's own.
+    rest = text[table.end() :]
+    next_table = re.search(r"^\[", rest, re.MULTILINE)
+    section = rest[: next_table.start()] if next_table else rest
+    match = PROJECT_VERSION_PATTERN.search(section)
+    if match is None:
+        raise TransportError("pyproject.toml has no readable project version")
+    return match.group("version")
+
+
 def read_release_versions(root: Path) -> dict[str, str]:
     """Read every authoritative package version without importing the package."""
 
     repository = root.expanduser().resolve()
-    try:
-        pyproject = tomllib.loads(
-            (repository / "pyproject.toml").read_text(encoding="utf-8")
-        )
-        project_version = str(pyproject["project"]["version"])
-    except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
-        raise TransportError("pyproject.toml has no readable project version") from exc
+    project_version = _read_project_version(repository / "pyproject.toml")
     versions = {"pyproject.toml": project_version}
     for relative in ("opai/__init__.py", "opaihub/__init__.py"):
         try:

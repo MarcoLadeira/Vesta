@@ -22,12 +22,14 @@ import uuid
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Callable
 
 from .command_runner import redact
 from .ledger import task_fingerprint
 from .proc import no_window_kwargs
 from .state import state_dir
+from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 
 GitRunner = Callable[..., "subprocess.CompletedProcess[str]"]
@@ -107,6 +109,24 @@ def _checkpoint_path(project_root: Path, checkpoint_id: str) -> Path:
     return _checkpoint_dir(project_root) / f"{_valid_id(checkpoint_id)}.json"
 
 
+def _valid_checkpoint_record(record: Mapping[str, Any]) -> bool:
+    """A mirrored checkpoint must carry the identity and state a reader needs.
+
+    ``pending`` is accepted alongside the terminal states, deliberately. A
+    checkpoint is *created* pending and only later finalized, so requiring a
+    terminal state here silently dropped every checkpoint's opening record
+    from the mirror: the shadow would only ever have seen finalized runs, and
+    an interrupted one -- precisely the case #613 exists to reconstruct --
+    would have left no trace at all. Caught by this module's shadow tests.
+    """
+
+    return (
+        isinstance(record.get("checkpoint_id"), str)
+        and bool(record.get("checkpoint_id"))
+        and record.get("completion_state") in (*COMPLETION_STATES, "pending")
+    )
+
+
 def _save(project_root: Path, checkpoint: RunCheckpoint) -> Path:
     path = _checkpoint_path(project_root, checkpoint.checkpoint_id)
     with interprocess_transaction(path):
@@ -114,7 +134,51 @@ def _save(project_root: Path, checkpoint: RunCheckpoint) -> Path:
             path,
             json.dumps(checkpoint.to_dict(), indent=2, sort_keys=True) + "\n",
         )
+        # #613 Stage 2: mirror the canonical event while still holding the
+        # file's own lock, so the journal can never observe saves in a
+        # different order than the file did. `_save` is the single place
+        # every checkpoint transition reaches disk through (create and
+        # finalize both funnel here), so this covers all of them.
+        shadow_journal.record_snapshot(
+            path, checkpoint.to_dict(), is_valid_record=_valid_checkpoint_record
+        )
     return path
+
+
+def shadow_journal_projection(project_root: Path, checkpoint_id: str) -> dict[str, Any]:
+    """The checkpoint state the shadow journal alone would reconstruct."""
+
+    return shadow_journal.projection(
+        _checkpoint_path(project_root, checkpoint_id),
+        is_valid_record=_valid_checkpoint_record,
+    )
+
+
+def checkpoint_contradiction_report(
+    project_root: Path, checkpoint_id: str
+) -> dict[str, Any] | None:
+    """``None`` when the file and its shadow agree; otherwise, what disagrees.
+
+    The dual-read #613 asks for. ``_load_checkpoint`` is deliberately not
+    reused here: it raises on anything malformed, which is right for every
+    other caller but would raise past the very divergence this reports.
+    """
+
+    path = _checkpoint_path(project_root, checkpoint_id)
+
+    def read_legacy() -> dict[str, Any]:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    return shadow_journal.contradiction_report(
+        path,
+        read_legacy,
+        is_valid_record=_valid_checkpoint_record,
+        identity={"checkpoint_id": checkpoint_id},
+    )
 
 
 def _git(root: Path, argv: list[str], *, run: GitRunner) -> str:
