@@ -440,3 +440,56 @@ class ExactShaCheckoutDepthTests(unittest.TestCase):
                 self.assertGreaterEqual(
                     int(depth), 2, "depth 1 truncates parents; the check needs them"
                 )
+
+
+class MergeGateCoversEverySupportedPythonTests(unittest.TestCase):
+    """A merge gate must not test less than the branch it protects.
+
+    The matrix used to narrow pull requests to 3.13 while pushes to main ran
+    3.10 and 3.13. That made a 3.10-only breakage structurally impossible to
+    catch before merge: ``scripts/desktop_release_transport.py`` imported
+    ``tomllib`` (3.11+) against a declared ``requires-python = ">=3.10"``,
+    every pull request went green, and every push to main then failed six
+    tests. Six merges landed on a red main before anyone read main's own CI
+    instead of the branch's green tick.
+    """
+
+    def _declared_minimum_python(self) -> str:
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        match = re.search(
+            r'requires-python\s*=\s*"[>=~^]*\s*([0-9]+\.[0-9]+)', pyproject
+        )
+        if match is None:
+            raise AssertionError("pyproject declares no requires-python floor")
+        return match.group(1)
+
+    def _matrix_versions(self) -> list[str]:
+        job = _workflow("ci.yml")["jobs"]["mandatory-python"]
+        versions = job["strategy"]["matrix"]["python-version"]
+        if not isinstance(versions, list):
+            raise AssertionError(
+                "the Python matrix must be a plain list, so it cannot vary by "
+                f"event; found: {versions!r}"
+            )
+        return [str(item) for item in versions]
+
+    def test_the_matrix_does_not_vary_by_event(self):
+        raw = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+        matrix_block = raw.split("mandatory-python:", 1)[1].split("steps:", 1)[0]
+
+        self.assertNotIn(
+            "github.event_name",
+            matrix_block,
+            "a matrix conditioned on the event lets pull requests test less "
+            "than main; that is how the 3.10 break stayed invisible",
+        )
+
+    def test_the_declared_minimum_python_is_actually_tested(self):
+        minimum = self._declared_minimum_python()
+
+        self.assertIn(
+            minimum,
+            self._matrix_versions(),
+            f"pyproject supports {minimum} but CI never runs it, so a "
+            f"{minimum}-only break can only be discovered after merge",
+        )
