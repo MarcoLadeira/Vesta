@@ -36,10 +36,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: >-
-          ${{ (github.event_name == 'pull_request'
-            && fromJSON('["3.13"]'))
-            || fromJSON('["3.10", "3.13"]') }}
+        # Every supported interpreter, on every event -- deliberately.
+        #
+        # This used to narrow pull requests to 3.13 while pushes to main ran
+        # 3.10 and 3.13, which made a 3.10-only breakage structurally
+        # impossible to catch before merge: scripts/desktop_release_transport
+        # imported tomllib (3.11+) against a declared
+        # requires-python = ">=3.10", every pull request went green, and every
+        # push to main then failed six tests. Six merges landed on a red main
+        # before anyone looked at main's own CI rather than the branch's.
+        #
+        # A merge gate that tests less than the branch it protects is not a
+        # gate. The minutes saved were paid back the first time someone had to
+        # learn from main why main was broken.
+        python-version: ["3.10", "3.13"]
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
