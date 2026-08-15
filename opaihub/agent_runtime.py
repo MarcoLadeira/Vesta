@@ -9,8 +9,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Iterable
 
+from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger, redact_structure
@@ -132,6 +134,23 @@ class AgentRuntimeState:
         }
 
 
+def _valid_runtime_record(record: Mapping[str, Any]) -> bool:
+    """A mirrored runtime state must carry the identity and phase a reader needs.
+
+    Every phase is accepted, including the initial ``idle`` the constructor
+    writes: a run that never left idle is exactly the kind of orphan #613
+    exists to reconstruct, so dropping its opening record would defeat the
+    purpose (the same trap that silently dropped every checkpoint's ``pending``
+    record before its tests caught it).
+    """
+
+    return (
+        isinstance(record.get("task_id"), str)
+        and bool(record.get("task_id"))
+        and record.get("phase") in {phase.value for phase in RuntimePhase}
+    )
+
+
 class AgentRuntime:
     def __init__(
         self, project_root: Path, *, task: str, task_id: str | None = None
@@ -155,6 +174,44 @@ class AgentRuntime:
         atomic_write_text(
             self.path,
             json.dumps(state.to_dict(), indent=2, sort_keys=True) + "\n",
+        )
+        # #613 Stage 2: mirror the canonical event. Both callers already hold
+        # interprocess_transaction(self.path) -- the constructor's first write
+        # and every phase transition -- so the journal observes writes in
+        # exactly the order the file did. Stage 1 names this module
+        # "runs: agent process state".
+        shadow_journal.record_snapshot(
+            self.path, state.to_dict(), is_valid_record=_valid_runtime_record
+        )
+
+    def shadow_journal_projection(self) -> dict[str, Any]:
+        """The runtime state the shadow journal alone would reconstruct."""
+
+        return shadow_journal.projection(
+            self.path, is_valid_record=_valid_runtime_record
+        )
+
+    def contradiction_report(self) -> dict[str, Any] | None:
+        """``None`` when the file and its shadow agree; otherwise what differs.
+
+        The dual-read #613 asks for. ``_read_state`` is deliberately not
+        reused: it raises on a mismatched task id or malformed history, which
+        is right for every other caller but would raise past the very
+        divergence this exists to report.
+        """
+
+        def read_legacy() -> dict[str, Any]:
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return {}
+            return data if isinstance(data, dict) else {}
+
+        return shadow_journal.contradiction_report(
+            self.path,
+            read_legacy,
+            is_valid_record=_valid_runtime_record,
+            identity={"task_id": self.task_id},
         )
 
     @classmethod
