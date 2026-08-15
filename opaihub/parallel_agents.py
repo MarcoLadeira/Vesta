@@ -20,8 +20,11 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from collections.abc import Mapping
 from typing import Any, Callable, Iterable
 
+from . import shadow_journal
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .repo_context import DirtyConflictError, classify_dirty_paths
 from .repository_safety import capture_repository_handle
@@ -188,16 +191,76 @@ def _assignment_path(project_root: Path, assignment_id: str) -> Path:
     )
 
 
+def _valid_assignment_record(record: Mapping[str, Any]) -> bool:
+    """A mirrored assignment must carry the identity and status a reader needs."""
+
+    return (
+        isinstance(record.get("assignment_id"), str)
+        and bool(record.get("assignment_id"))
+        and isinstance(record.get("status"), str)
+        and bool(record.get("status"))
+    )
+
+
 def save_assignment(project_root: Path, assignment: AgentAssignment) -> Path:
     path = _assignment_path(project_root, assignment.assignment_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(assignment.to_dict(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    # This module wrote with no interprocess lock at all -- a hand-rolled
+    # temp+replace. The replace itself is atomic, so a reader never saw a torn
+    # file, but two processes writing the same assignment could interleave,
+    # and #613 Stage 2 needs the journal to observe writes in the same order
+    # the file did. Taking the same lock every other migrated module uses
+    # gives both, and lets atomic_write_text replace the hand-rolled pair.
+    #
+    # Scope, stated plainly: this closes the window *inside* save. It does not
+    # close the wider check-then-claim race in claim_assignment, which reads,
+    # counts active assignments, and only then writes -- two claimants can
+    # still both pass the max_active check. That needs its own fix with
+    # multiprocess tests.
+    with interprocess_transaction(path):
+        atomic_write_text(
+            path, json.dumps(assignment.to_dict(), indent=2, sort_keys=True) + "\n"
+        )
+        shadow_journal.record_snapshot(
+            path, assignment.to_dict(), is_valid_record=_valid_assignment_record
+        )
     return path
+
+
+def shadow_journal_projection(project_root: Path, assignment_id: str) -> dict[str, Any]:
+    """The assignment the shadow journal alone would reconstruct."""
+
+    return shadow_journal.projection(
+        _assignment_path(project_root, assignment_id),
+        is_valid_record=_valid_assignment_record,
+    )
+
+
+def assignment_contradiction_report(
+    project_root: Path, assignment_id: str
+) -> dict[str, Any] | None:
+    """``None`` when the file and its shadow agree; otherwise what differs.
+
+    The dual-read #613 asks for. ``load_assignment`` is deliberately not
+    reused: it raises on anything malformed, which is right for its callers
+    but would raise past the very divergence this exists to report.
+    """
+
+    path = _assignment_path(project_root, assignment_id)
+
+    def read_legacy() -> dict[str, Any]:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    return shadow_journal.contradiction_report(
+        path,
+        read_legacy,
+        is_valid_record=_valid_assignment_record,
+        identity={"assignment_id": assignment_id},
+    )
 
 
 def load_assignment(project_root: Path, assignment_id: str) -> AgentAssignment:
