@@ -23,6 +23,7 @@ import contextlib
 import hashlib
 import importlib.util
 import json
+import logging
 import os
 import re
 import tempfile
@@ -63,6 +64,8 @@ from opai.gui_workspace import (
     workspace_label,
 )
 
+
+_LOG = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
 
 # Name of the generated, cache-busted copy of index.html the GUI actually loads.
@@ -707,7 +710,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         # Cache-only (no network at boot): lets the shell show an "update
         # available" nudge immediately, without the user opening Settings.
         # A live (TTL-guarded) check happens when the About page renders.
-        "update": _cached_update_check(),
+        "update": _cached_update_check(root),
     }
     _STARTUP.mark("boot:done")
     return payload
@@ -1102,18 +1105,26 @@ def settings_payload(root: Path) -> dict[str, Any]:
             # Cache only — no network in the payload build; the About page
             # triggers a live (TTL-guarded) check through checkForUpdates
             # after render, same pattern as providerBalances above.
-            "update": _cached_update_check(),
+            "update": _cached_update_check(root),
         },
     }
 
 
-def _cached_update_check() -> dict[str, Any]:
-    from opai.updater import check_for_update, install_root
+def _cached_update_check(root: Path) -> dict[str, Any]:
+    """Read canonical app-wide updater state without touching the network."""
+    from opai.update.factory import create_update_service
 
     try:
-        return check_for_update(install_root(), force=False)
+        return create_update_service(workspaces=[root]).status()
     except Exception:  # noqa: BLE001 - the About page must never fail to render
-        return {"checked": False, "up_to_date": True, "reason": None}
+        return {
+            "schema_version": 1,
+            "operation": {
+                "state": "unavailable",
+                "error_category": "updater_unavailable",
+                "safe_diagnostic": "Update status is unavailable right now.",
+            },
+        }
 
 
 def provider_balances_payload(
@@ -1342,6 +1353,7 @@ def _run_gui(
         settingsReady = QtCore.Signal(str)
         toolApplied = QtCore.Signal(str)
         statusReady = QtCore.Signal(str)
+        updateReady = QtCore.Signal(str)
 
         def __init__(self, window) -> None:
             super().__init__()
@@ -1353,6 +1365,11 @@ def _run_gui(
             self._cancelling: set[str] = set()
             self._resume_context_active = False
             self._session_epoch = _SessionPersistenceEpoch()
+            from opai.update.factory import create_update_service
+
+            self._update_service = create_update_service(workspaces=[self.root])
+            self._update_started = False
+            self._update_maintenance_running = False
 
         def shutdown(self) -> dict[str, int]:
             """Stop everything before the window dies (#140).
@@ -1378,11 +1395,46 @@ def _run_gui(
             # the chat view has first painted. Records the cold-start-to-
             # interactive span and flushes the trace — only when explicitly
             # enabled, and only to the local state dir.
-            if not _STARTUP.enabled:
+            if _STARTUP.enabled:
+                _STARTUP.mark("interactive")
+                with contextlib.suppress(Exception):
+                    _STARTUP.write(trace_path(self.root))
+            if self._update_started:
                 return
-            _STARTUP.mark("interactive")
-            with contextlib.suppress(Exception):
-                _STARTUP.write(trace_path(self.root))
+            self._update_started = True
+
+            def discover_after_interactive() -> dict[str, object]:
+                from opai.update.models import UpdateState
+
+                service = self._update_service
+                try:
+                    service.maintain()
+                    current = service.store.load_operation()
+                    health = service.startup_health(
+                        Path(__file__).resolve().parent / "assets" / "web"
+                    )
+                    if current.state is UpdateState.RESTARTING:
+                        current = service.confirm_health(
+                            current.operation_id,
+                            running=service.installed,
+                            interactive=True,
+                            **health,
+                        )
+                        if current.state is UpdateState.ROLLBACK_PENDING:
+                            service.rollback(current.operation_id)
+                    elif current.state is UpdateState.ROLLING_BACK:
+                        service.confirm_recovery(
+                            current.operation_id,
+                            running=service.installed,
+                            interactive=True,
+                            **health,
+                        )
+                    service.maintain()
+                except Exception:  # noqa: BLE001 - public state stays sanitized
+                    _LOG.debug("Updater launch maintenance failed", exc_info=True)
+                return service.status()
+
+            self._start_update_worker(discover_after_interactive)
 
         @QtCore.Slot(result=str)
         def resumeSession(self) -> str:
@@ -1560,6 +1612,106 @@ def _run_gui(
         def settingsData(self) -> str:
             return json.dumps(settings_payload(self.root))
 
+        def _start_update_worker(self, fn) -> None:
+            worker = Worker(fn)
+            worker.done.connect(self.updateReady.emit)
+            worker.finished.connect(
+                lambda w=worker: self._workers.remove(w) if w in self._workers else None
+            )
+            self._workers.append(worker)
+            worker.start()
+
+        @QtCore.Slot(result=str)
+        def updateStatus(self) -> str:
+            return json.dumps(self._update_service.status())
+
+        @QtCore.Slot()
+        def maintainUpdates(self) -> None:
+            if self._update_maintenance_running:
+                return
+            self._update_maintenance_running = True
+
+            def maintain() -> dict[str, object]:
+                try:
+                    self._update_service.maintain()
+                except Exception:  # noqa: BLE001 - persisted safe state is authoritative
+                    _LOG.debug("Periodic updater maintenance failed", exc_info=True)
+                return self._update_service.status()
+
+            worker = Worker(maintain)
+            worker.done.connect(self.updateReady.emit)
+
+            def finished(w=worker) -> None:
+                self._update_maintenance_running = False
+                if w in self._workers:
+                    self._workers.remove(w)
+
+            worker.finished.connect(finished)
+            self._workers.append(worker)
+            worker.start()
+
+        @QtCore.Slot(bool)
+        def checkForUpdates(self, force: bool) -> None:
+            def check() -> dict[str, object]:
+                try:
+                    self._update_service.check(
+                        force=bool(force), allow_automatic_download=True
+                    )
+                except Exception:  # noqa: BLE001 - state/error contract is persisted
+                    _LOG.debug("Updater discovery failed", exc_info=True)
+                return self._update_service.status()
+
+            self._start_update_worker(check)
+
+        @QtCore.Slot(str)
+        def updateAction(self, action: str) -> None:
+            def apply_action() -> dict[str, object]:
+                service = self._update_service
+                current = service.store.load_operation()
+                try:
+                    if action in {"download", "retry"}:
+                        service.download(current.operation_id)
+                    elif action == "install_now":
+                        service.install(current.operation_id, mode="now")
+                    elif action == "when_idle":
+                        service.install(current.operation_id, mode="when_idle")
+                    elif action == "on_quit":
+                        service.install(current.operation_id, mode="on_quit")
+                    elif action == "later":
+                        service.defer(current.operation_id)
+                    elif action == "resume":
+                        service.resume(current.operation_id)
+                    elif action == "rollback":
+                        service.rollback(current.operation_id)
+                    elif action == "check":
+                        service.check(force=True, allow_automatic_download=True)
+                except Exception:  # noqa: BLE001 - never leak raw updater errors
+                    _LOG.debug("Updater action failed: %s", action, exc_info=True)
+                return service.status()
+
+            self._start_update_worker(apply_action)
+
+        @QtCore.Slot(str, str, result=str)
+        def setUpdatePolicy(self, key: str, value: str) -> str:
+            allowed = {
+                "check_for_updates",
+                "automatic_downloads",
+                "automatic_install_on_quit",
+            }
+            if key not in allowed:
+                return json.dumps(
+                    {"ok": False, "error_category": "policy_change_invalid"}
+                )
+            try:
+                self._update_service.set_policy(
+                    **{key: str(value).casefold() in {"true", "on", "1"}}
+                )
+                return json.dumps({"ok": True, **self._update_service.status()})
+            except Exception:  # noqa: BLE001 - stable public error only
+                return json.dumps(
+                    {"ok": False, "error_category": "policy_change_failed"}
+                )
+
         @QtCore.Slot(result=str)
         def githubStatus(self) -> str:
             return json.dumps(github_status_payload())
@@ -1675,85 +1827,6 @@ def _run_gui(
                 )
             except Exception as exc:  # noqa: BLE001 - never crash the page
                 return json.dumps({"ok": False, "error": str(exc)})
-
-        @QtCore.Slot(bool, result=str)
-        def checkForUpdates(self, force: bool) -> str:
-            """Compare the running version against origin/main; never raises.
-
-            Checks OPai's own source checkout, not ``self.root`` (the user's
-            active project) — those are different directories entirely.
-            """
-            from opai.updater import check_for_update, install_root
-
-            try:
-                return json.dumps(check_for_update(install_root(), force=bool(force)))
-            except Exception as exc:  # noqa: BLE001 - never crash the page
-                return json.dumps(
-                    {"checked": False, "up_to_date": True, "reason": str(exc)}
-                )
-
-        @QtCore.Slot(bool, result=str)
-        def applyUpdate(self, force: bool) -> str:
-            """Fetch, fast-forward, and reinstall — the same steps install.ps1 runs.
-
-            ``force=True`` is the "update anyway" choice offered when a
-            plain attempt refuses on uncommitted local changes: it stashes
-            them before updating and restores them afterward.
-            """
-            from opai.updater import apply_update, install_root
-
-            try:
-                return json.dumps(apply_update(install_root(), force=bool(force)))
-            except Exception as exc:  # noqa: BLE001 - never crash the page
-                return json.dumps({"ok": False, "error": str(exc)})
-
-        @QtCore.Slot(result=str)
-        def runAutoUpdate(self) -> str:
-            """Run the opt-in launch update, if this workspace enabled it.
-
-            Called once after boot rather than during it: an update touches the
-            network and the checkout, and neither belongs on the path between
-            the user launching OPai and seeing a window.
-            """
-            from opai.auto_update import auto_update_enabled, run_auto_update
-            from opai.updater import install_root
-
-            try:
-                return json.dumps(
-                    run_auto_update(
-                        install_root(), enabled=auto_update_enabled(self.root)
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001 - never crash the page
-                return json.dumps({"outcome": "failed", "message": str(exc)[:200]})
-
-        @QtCore.Slot()
-        def restartOPai(self) -> None:
-            """Relaunch OPai on the updated code, then quit this process.
-
-            Spawns a fresh, detached ``opai gui`` for the same project so the
-            new window opens with the just-installed version, then closes the
-            current window — never leaves the user without a running app.
-            """
-            import subprocess  # nosec B404 - fixed argv/no shell below
-            import sys
-
-            try:
-                creationflags = 0
-                if sys.platform.startswith("win"):
-                    creationflags = (
-                        subprocess.DETACHED_PROCESS
-                        | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-                    )
-                subprocess.Popen(  # nosec B603 - fixed argv, no shell
-                    [sys.executable, "-m", "opai", "gui", "--project", str(self.root)],
-                    creationflags=creationflags,
-                    close_fds=True,
-                    start_new_session=not sys.platform.startswith("win"),
-                )
-            except OSError:
-                return
-            QtCore.QTimer.singleShot(150, QtWidgets.QApplication.quit)
 
         @QtCore.Slot(str, str, str, str, result=str)
         def saveUsageLimit(
@@ -1873,7 +1946,6 @@ def _run_gui(
                 "activity_copy",
                 "onboarding_seen",
                 "composer_style",
-                "auto_update",
             }
             if key not in allowed:
                 return
@@ -2424,6 +2496,8 @@ def _run_gui(
             # in-flight run (killing its CLI child) and drain workers before Qt
             # teardown, so nothing keeps spending after quit (#140).
             self.bridge.shutdown()
+            with contextlib.suppress(Exception):
+                self.bridge._update_service.install_on_quit()
             super().closeEvent(event)
 
     if QtWidgets.QApplication.instance() is None:

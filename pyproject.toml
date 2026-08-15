@@ -7,12 +7,16 @@ name = "opai"
 version = "0.2.1a1"
 description = "OPai alpha: the local-first AI coding cost firewall for routing, benchmarks, governance, and safe project workflows."
 requires-python = ">=3.10"
-dependencies = ["PyYAML>=6.0.2,<7"]
+dependencies = [
+    "PyYAML>=6.0.2,<7",
+    "cryptography>=50.0.0,<51",
+    "packaging>=25,<27",
+]
 
 [project.optional-dependencies]
 desktop-gui = ["PySide6>=6.7", "keyring==25.7.0"]
 terminal-ui = ["Pillow>=10"]
-test = ["hypothesis==6.160.0", "pytest==9.0.2"]
+test = ["hypothesis==6.160.0", "pytest==9.0.3"]
 
 [project.scripts]
 opai = "opai.cli:main"
@@ -42,6 +46,7 @@ exclude = ["tests", "tests.*"]
 # assets/web/* is the entire web GUI (issue #139) — extension globs keep the
 # __tests__/ subfolder out of the wheel.
 opai = [
+    "update/*.json",
     "assets/*",
     "assets/fonts/*",
     "assets/web/*.html",

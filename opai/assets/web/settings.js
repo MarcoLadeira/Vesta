@@ -1380,72 +1380,61 @@
     return h;
   }
 
-  // Update status card (Settings redesign): honest states only — never a
-  // fabricated "up to date" when the check itself failed (offline, no git
-  // checkout). `updateHtml` is also used to build the shell-wide nudge, so
-  // wording can never drift between the two.
+  // Read-only Settings projection of the canonical application-wide updater.
+  // Actions remain available in the persistent bottom-left control.
   function updateStatusHtml(esc, update) {
     var u = update || {};
-    if (!u.checked) {
-      var reason = u.reason || "Update status is unknown right now.";
-      return (
-        '<div class="update-card unknown" data-update-status="unknown">' +
-        '<div class="update-head"><span class="update-title">Update status unknown</span></div>' +
-        '<div class="update-desc">' +
-        esc(reason) +
-        "</div>" +
-        '<div class="actions"><button class="btn" id="settingsCheckUpdate">Check for updates</button></div>' +
-        "</div>"
-      );
-    }
-    if (u.up_to_date) {
-      return (
-        '<div class="update-card ok" data-update-status="up-to-date">' +
-        '<div class="update-head"><span class="update-dot"></span><span class="update-title">You\'re on the latest version</span></div>' +
-        '<div class="actions"><button class="btn ghost" id="settingsCheckUpdate">Check for updates</button></div>' +
-        "</div>"
-      );
-    }
+    var operation = u.operation || {};
+    var candidate = operation.candidate || {};
+    var state = String(operation.state || "idle");
+    var labels = {
+      idle: "Not checked yet", checking: "Checking for updates", up_to_date: "You're on the latest version",
+      available: "Update available", downloading: "Downloading update", verifying: "Verifying update",
+      ready_to_install: "Ready to restart", waiting_for_idle: "Waiting for active work",
+      install_on_quit: "Installs on quit", deferred: "Update deferred", failed_retriable: "Update can be retried",
+      failed_terminal: "Update blocked by verification", policy_blocked: "Managed by update policy",
+      unsupported_install: "Manual update required", restarting: "Restarting into update",
+      health_checking: "Checking updated application", rollback_pending: "Recovery required",
+      needs_attention: "Update needs attention", rolled_back: "Update rolled back", completed: "Update completed",
+      unavailable: "Update status unavailable",
+    };
+    var description = operation.safe_diagnostic || (candidate.version ? "Target OPai " + candidate.version + "." : "");
     return (
-      '<div class="update-card available" data-update-status="available">' +
-      '<div class="update-head"><span class="update-dot"></span><span class="update-title">Update available' +
-      (u.latest_version ? ": " + esc(u.latest_version) : "") +
+      '<div class="update-card ' + (state === "available" || state === "ready_to_install" ? "available" : "unknown") + '" data-update-status="' + esc(state) + '">' +
+      '<div class="update-head"><span class="update-dot"></span><span class="update-title">' +
+      esc(labels[state] || "Update status") +
       "</span></div>" +
-      '<div class="update-desc">' +
-      esc(
-        (u.commits_behind ? u.commits_behind + " change" + (u.commits_behind === 1 ? "" : "s") + " behind. " : "") +
-          "OPai fetches, fast-forwards, and reinstalls — nothing is discarded, and it refuses if you have uncommitted local changes."
-      ) +
-      "</div>" +
-      '<div class="actions"><button class="btn primary" id="settingsApplyUpdate">Update now</button><button class="btn ghost" id="settingsCheckUpdate">Check again</button></div>' +
+      '<div class="update-desc">' + esc(description || "Signed packaged updates are checked after launch and every four hours.") + "</div>" +
+      '<div class="actions"><button class="btn ghost" id="settingsCheckUpdate">Check now</button></div>' +
       "</div>"
     );
   }
 
-  // Automatic updates (opt-in). Deliberately narrow: OPai applies a clean
-  // fast-forward and nothing else. `apply_update(force=True)` — the "update
-  // anyway" path that stashes and restores local changes — stays behind the
-  // button a present user just pressed, because an unattended stash/pop can
-  // conflict, and resolving a conflict in the user's own uncommitted work is
-  // not something to spring on someone who is not watching.
   function autoUpdateHtml(esc, d) {
-    var on = !!(d.prefs && d.prefs.auto_update);
-    var option = function (value, label, active) {
+    var policy = (d.about && d.about.update && d.about.update.policy) || {};
+    var on = !!policy.automatic_downloads;
+    var install = !!policy.automatic_install_on_quit;
+    var option = function (value, label, active, disabled) {
       return (
         '<button type="button" class="seg-btn' + (active ? " active" : "") + '"' +
-        ' data-value="' + value + '" aria-pressed="' + (active ? "true" : "false") + '">' +
+        ' data-value="' + value + '" aria-pressed="' + (active ? "true" : "false") + '"' +
+        (disabled ? ' disabled aria-disabled="true"' : "") + '>' +
         esc(label) + "</button>"
       );
     };
     return (
-      '<div class="appearance-row" data-autoupdate-key="auto_update">' +
-      '<div class="appearance-label"><span class="k">Automatic updates</span>' +
-      '<span class="hint">Check on launch and install updates that fast-forward cleanly. ' +
-      "OPai never touches uncommitted changes to do it — if this checkout is dirty you'll be " +
-      'told, and updating stays your call. Takes effect on the next restart.</span></div>' +
+      '<div class="appearance-row" data-update-policy="automatic_downloads">' +
+      '<div class="appearance-label"><span class="k">Automatic downloads</span>' +
+      '<span class="hint">Discovery stays on. When enabled, signed packaged updates download and verify in the background.</span></div>' +
       '<div class="seg" role="group" aria-label="Automatic updates">' +
       option("off", "Off", !on) +
       option("on", "On", on) +
+      "</div></div>" +
+      '<div class="appearance-row" data-update-policy="automatic_install_on_quit">' +
+      '<div class="appearance-label"><span class="k">Install on quit</span>' +
+      '<span class="hint">Explicit opt-in. Requires automatic downloads, installs only at a safe quit boundary, and active work is never interrupted silently.</span></div>' +
+      '<div class="seg" role="group" aria-label="Install updates on quit">' +
+      option("off", "Off", !install, false) + option("on", "On", install, !on) +
       "</div></div>"
     );
   }
@@ -2228,11 +2217,8 @@
         );
       };
     });
-    // Check for updates / Update now (mandatory-update system): a live check
-    // always bypasses the cache (force=true) — a click is explicit intent to
-    // know right now, never served stale. Applying an update mutates the
-    // working tree (fetch, fast-forward, reinstall), so it goes through the
-    // same styled inline confirm every other mutating settings action uses.
+    // Manual checks bypass freshness caching. The async result reaches every
+    // surface through the shared update event emitted by app.js.
     var updateCard = q("#settingsUpdateCard");
     function wireUpdateButtons() {
       var checkBtn = q("#settingsCheckUpdate");
@@ -2240,100 +2226,23 @@
         checkBtn.onclick = function () {
           checkBtn.disabled = true;
           checkBtn.textContent = "Checking…";
-          bridge.checkForUpdates(true, function (json2) {
-            var result = {};
-            try {
-              result = JSON.parse(json2);
-            } catch (_e) {
-              /* keep {} */
-            }
-            if (updateCard) updateCard.innerHTML = updateStatusHtml(esc, result);
-            wireUpdateButtons();
-            if (global.__opai && global.__opai.renderUpdateBanner) global.__opai.renderUpdateBanner(result);
-            if (result.checked && !result.up_to_date)
-              toast("Update available: " + (result.latest_version || result.branch));
-            else if (result.checked) toast("You're on the latest version");
-            else toast(result.reason || "Could not check for updates");
-          });
-        };
-      var applyBtn = q("#settingsApplyUpdate");
-      function runApplyUpdate(force) {
-        applyBtn.disabled = true;
-        applyBtn.textContent = "Updating…";
-        bridge.applyUpdate(!!force, function (json2) {
-          var result = {};
-          try {
-            result = JSON.parse(json2);
-          } catch (_e) {
-            /* keep {} */
-          }
-          if (!result.ok) {
-            applyBtn.textContent = "Update now";
-            // Uncommitted local changes: offer the "update anyway" choice
-            // instead of a dead-end toast. It stashes local changes,
-            // updates, and restores them — nothing is discarded.
-            if (!force && result.dirty) {
-              var dirtyHost = applyBtn.closest(".update-card") || applyBtn.parentElement;
-              ctx
-                .inlineConfirm(dirtyHost, {
-                  title: "Update anyway?",
-                  body: "You have uncommitted local changes. OPai can set them aside with a git stash, apply the update, and restore them afterward — nothing is discarded, unless the update conflicts with your changes, in which case they stay safe in the stash for you to resolve by hand.",
-                  confirmLabel: "Update anyway",
-                  danger: true,
-                })
-                .then(function (okAnyway) {
-                  if (!okAnyway) {
-                    applyBtn.disabled = false;
-                    return;
-                  }
-                  runApplyUpdate(true);
-                });
-              return;
-            }
-            applyBtn.disabled = false;
-            toast(result.error || "Could not update OPai");
-            return;
-          }
-          if (updateCard)
-            updateCard.innerHTML =
-              '<div class="update-card ok" data-update-status="restart"><div class="update-head"><span class="update-dot"></span><span class="update-title">Updated to ' +
-              esc(result.installed_version || "the latest version") +
-              ' — restart to finish</span></div>' +
-              (result.local_changes_restored
-                ? '<div class="update-desc">Your uncommitted local changes were restored.</div>'
-                : "") +
-              '<div class="actions"><button class="btn primary" id="settingsRestartOpai">Restart now</button></div></div>';
-          if (global.__opai && global.__opai.renderUpdateBanner)
-            global.__opai.renderUpdateBanner({ checked: true, up_to_date: true });
-          var restartBtn = q("#settingsRestartOpai");
-          if (restartBtn)
-            restartBtn.onclick = function () {
-              restartBtn.disabled = true;
-              restartBtn.textContent = "Restarting…";
-              bridge.restartOPai();
-            };
-        });
-      }
-      if (applyBtn)
-        applyBtn.onclick = function () {
-          var host = applyBtn.closest(".update-card") || applyBtn.parentElement;
-          applyBtn.disabled = true;
-          ctx
-            .inlineConfirm(host, {
-              title: "Update OPai now?",
-              body: "OPai fetches the latest version, fast-forwards to it, and reinstalls. It refuses if you have uncommitted local changes — nothing is ever discarded.",
-              confirmLabel: "Update now",
-            })
-            .then(function (ok) {
-              if (!ok) {
-                applyBtn.disabled = false;
-                return;
-              }
-              runApplyUpdate(false);
-            });
+          bridge.checkForUpdates(true);
         };
     }
     wireUpdateButtons();
+    if (global.__opaiSettingsUpdateListener) {
+      global.removeEventListener("opai-update-state", global.__opaiSettingsUpdateListener);
+    }
+    global.__opaiSettingsUpdateListener = function (event) {
+      var result = event.detail || {};
+      if (updateCard) updateCard.innerHTML = updateStatusHtml(esc, result);
+      wireUpdateButtons();
+      var operation = result.operation || {};
+      if (operation.state === "available") toast("Update available");
+      else if (operation.state === "up_to_date") toast("You're on the latest version");
+      else if (operation.safe_diagnostic) toast(operation.safe_diagnostic);
+    };
+    global.addEventListener("opai-update-state", global.__opaiSettingsUpdateListener);
     // Replay the first-run tour (#250) — reuses the real onboarding overlay.
     var replayBtn = q("#settingsReplayTour");
     if (replayBtn && ctx.replayTour)
@@ -2406,24 +2315,36 @@
       });
     });
 
-    // Automatic updates: a preference only. Flipping it on does not update
-    // anything right now — the check runs at the next launch, which is what the
-    // label says, so the toggle never implies an action it did not take.
-    page.querySelectorAll("[data-autoupdate-key]").forEach(function (segment) {
-      var key = segment.dataset.autoupdateKey;
+    // App-wide updater policy. Workspace switches cannot change this consent.
+    page.querySelectorAll("[data-update-policy]").forEach(function (segment) {
+      var key = segment.dataset.updatePolicy;
       segment.querySelectorAll("button").forEach(function (button) {
         button.onclick = function () {
-          segment.querySelectorAll("button").forEach(function (other) {
-            other.classList.toggle("active", other === button);
-            other.setAttribute("aria-pressed", other === button ? "true" : "false");
-          });
+          if (button.disabled) return;
           var on = button.dataset.value === "on";
-          // savePref is Slot(str, str) and parses "true"/"false" itself.
-          bridge.savePref(key, on ? "true" : "false");
-          if (ctx.d && ctx.d.prefs) ctx.d.prefs.auto_update = on;
-          if (ctx.toast) {
-            ctx.toast(on ? "Automatic updates on — applied at next launch" : "Automatic updates off");
-          }
+          bridge.setUpdatePolicy(key, on ? "true" : "false", function (json2) {
+            var result = {};
+            try { result = JSON.parse(json2 || "{}"); } catch (_e) { /* keep {} */ }
+            if (result.ok && result.policy) {
+              page.querySelectorAll("[data-update-policy]").forEach(function (policySegment) {
+                var policyKey = policySegment.dataset.updatePolicy;
+                var enabled = !!result.policy[policyKey];
+                policySegment.querySelectorAll("button").forEach(function (other) {
+                  var active = (other.dataset.value === "on") === enabled;
+                  other.classList.toggle("active", active);
+                  other.setAttribute("aria-pressed", active ? "true" : "false");
+                  if (policyKey === "automatic_install_on_quit" && other.dataset.value === "on") {
+                    other.disabled = !result.policy.automatic_downloads;
+                    other.setAttribute("aria-disabled", other.disabled ? "true" : "false");
+                  }
+                });
+              });
+            }
+            if (result.ok && global.__opai && global.__opai.renderUpdateBanner) {
+              global.__opai.renderUpdateBanner(result);
+            }
+            if (ctx.toast) ctx.toast(result.ok ? "Update preference saved" : "Could not save update preference");
+          });
         };
       });
     });

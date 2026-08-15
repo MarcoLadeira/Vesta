@@ -217,7 +217,7 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 }
 .foot-settings:hover { background: var(--glass-hi); color: var(--ink); }
 
-.side-foot { padding: var(--space-3) var(--space-2) var(--space-1); border-top: 1px solid var(--border); margin-top: var(--space-2); }
+.side-foot { position: relative; padding: var(--space-3) var(--space-2) var(--space-1); border-top: 1px solid var(--border); margin-top: var(--space-2); }
 .acct { display: flex; align-items: center; gap: var(--space-2); font-size: var(--type-caption); color: var(--muted); font-weight: 600; flex-wrap: wrap; }
 .acct .d { width: 7px; height: 7px; border-radius: 50%; }
 .priv-foot { color: var(--faint); font-size: var(--type-caption); margin-top: var(--space-1); }
@@ -1331,15 +1331,40 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .update-title { font-size: var(--type-body); font-weight: 750; color: var(--ink); }
 .update-desc { font-size: var(--type-label); color: var(--muted); margin-top: var(--space-2); line-height: var(--leading-normal); }
 .update-card .actions { margin-top: var(--space-3); }
-/* Shell-wide nudge (header banner) — same honest states as the About card. */
-.update-banner {
-  display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4);
-  background: linear-gradient(180deg, rgba(52, 211, 153, 0.1), rgba(52, 211, 153, 0.04));
-  border-bottom: 1px solid rgba(52, 211, 153, 0.28); font-size: var(--type-label); color: var(--ink);
+/* Quiet bottom-left updater control and non-modal sheet. */
+.update-shell { position: relative; margin-bottom: var(--space-1); }
+.update-shell[hidden], .update-sheet[hidden] { display: none; }
+.update-control {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%;
+  border: 1px solid rgba(52, 211, 153, 0.28); border-radius: var(--r-sm);
+  background: rgba(52, 211, 153, 0.07); color: var(--ink); cursor: pointer;
+  font: inherit; font-size: var(--type-caption); font-weight: 700; padding: var(--space-2);
+  text-align: left;
 }
-.update-banner .update-dot { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
-.update-banner button { margin-left: auto; }
-.update-banner[hidden] { display: none; }
+.update-control:hover, .update-control:focus-visible { background: rgba(52, 211, 153, 0.12); border-color: var(--accent); outline: none; }
+.update-control-copy { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.update-shell[data-tone="warning"] .update-control { border-color: rgba(251,191,36,.38); background: rgba(251,191,36,.07); }
+.update-shell[data-tone="danger"] .update-control { border-color: rgba(242,118,138,.38); background: rgba(242,118,138,.07); }
+.update-shell[data-tone="neutral"] .update-control { border-color: var(--border-strong); background: var(--glass); }
+.update-shell[data-state="downloading"] .update-dot,
+.update-shell[data-state="verifying"] .update-dot { animation: pulse 1.3s ease-in-out infinite; }
+.update-sheet {
+  position: absolute; left: 0; bottom: calc(100% + var(--space-2)); z-index: 140;
+  width: min(360px, calc(100vw - 28px)); max-height: min(560px, calc(100vh - 80px)); overflow: auto;
+  border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface-2);
+  box-shadow: 0 18px 55px rgba(0,0,0,.45); padding: var(--space-4); color: var(--ink);
+}
+.update-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.update-sheet-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--type-heading); }
+.update-sheet p, .update-release-notes { color: var(--muted); font-size: var(--type-caption); line-height: 1.5; }
+.update-sheet-meta { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); font-size: var(--type-caption); }
+.update-sheet-meta dt { color: var(--faint); }
+.update-sheet-meta dd { color: var(--ink); margin: 0; overflow-wrap: anywhere; }
+.update-progress { height: 7px; overflow: hidden; border-radius: 5px; background: var(--panel); margin: var(--space-3) 0; }
+.update-progress span { display: block; width: 0; height: 100%; background: var(--brand-gradient); }
+.update-sheet-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+@media (prefers-reduced-motion: reduce) { .update-shell .update-dot { animation: none !important; } }
+html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 
 /* ---------- Credits & Balance (per-provider credit truth) ---------- */
 .balance-card { background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--space-3) var(--space-3); margin: var(--space-2) 0; }

@@ -1,0 +1,727 @@
+name: Publish signed packaged update
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      package_version:
+        required: true
+        type: string
+      candidate_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opai-update-publication-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    name: Stage candidate without changing the live feed
+    environment:
+      name: opai-production-updates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+    outputs:
+      qualification_feed_url: ${{ steps.feed.outputs.qualification_feed_url }}
+      baseline_manifest_url: ${{ steps.feed.outputs.baseline_manifest_url }}
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      PACKAGE_VERSION: ${{ inputs.package_version }}
+      EXPECTED_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      UPDATE_CHANNEL: ${{ vars.OPAI_UPDATE_CHANNEL }}
+      UPDATE_TRUST_JSON: ${{ vars.OPAI_UPDATE_TRUST_JSON }}
+      WINDOWS_PACKAGE_IDENTITY: ${{ vars.OPAI_WINDOWS_PACKAGE_IDENTITY }}
+      WINDOWS_PUBLISHER_IDENTITY: ${{ vars.OPAI_WINDOWS_PUBLISHER_IDENTITY }}
+      WINDOWS_SIGNER_THUMBPRINT: ${{ vars.OPAI_WINDOWS_SIGNER_THUMBPRINT }}
+      MACOS_PACKAGE_IDENTITY: ${{ vars.OPAI_MACOS_PACKAGE_IDENTITY }}
+      MACOS_TEAM_ID: ${{ vars.OPAI_MACOS_TEAM_ID }}
+      WINDOWS_BASELINE_URL: ${{ vars.OPAI_WINDOWS_BASELINE_MSIX_URL }}
+      MACOS_BASELINE_URL: ${{ vars.OPAI_MACOS_BASELINE_ARCHIVE_URL }}
+
+    steps:
+      - name: Check out trusted release tooling from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up trusted Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Install bounded metadata-generation dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check
+          cryptography==50.0.0 packaging==26.0
+
+      - name: Resolve runner-scoped staging paths
+        shell: bash
+        run: |
+          {
+            echo "WINDOWS_STAGING=$RUNNER_TEMP/opai-windows-staging"
+            echo "MACOS_STAGING=$RUNNER_TEMP/opai-macos-staging"
+            echo "FEED_STAGING=$RUNNER_TEMP/opai-feed-staging"
+            echo "METADATA_KEYS=$RUNNER_TEMP/opai-metadata-keys"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve same-run Windows staging evidence by immutable artifact ID
+        id: windows_staging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-staging-artifacts.json"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-windows-latest-production-staging-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Resolve same-run macOS staging evidence by immutable artifact ID
+        id: macos_staging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-staging-artifacts.json"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-macos-latest-production-staging-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Download attested Windows release evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.windows_staging.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ env.WINDOWS_STAGING }}
+
+      - name: Download attested macOS release evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.macos_staging.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ env.MACOS_STAGING }}
+
+      - name: Verify exact native subjects have same-run attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          WINDOWS_MSIX="$WINDOWS_STAGING/OPai-${RELEASE_TAG}-windows-x64.msix"
+          MACOS_ARCHIVE="$MACOS_STAGING/OPai-${RELEASE_TAG}-macos.zip"
+          test -f "$WINDOWS_MSIX"
+          test -f "$MACOS_ARCHIVE"
+          gh attestation verify "$WINDOWS_MSIX" --repo "$GITHUB_REPOSITORY"
+          gh attestation verify "$MACOS_ARCHIVE" --repo "$GITHUB_REPOSITORY"
+          printf 'WINDOWS_MSIX=%s\n' "$WINDOWS_MSIX" >> "$GITHUB_ENV"
+          printf 'MACOS_ARCHIVE=%s\n' "$MACOS_ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Materialize protected metadata keys without logging them
+        shell: bash
+        env:
+          UPDATE_METADATA_KEYS_JSON: ${{ secrets.OPAI_UPDATE_METADATA_KEYS_JSON }}
+        run: |
+          mkdir -p "$METADATA_KEYS"
+          chmod 700 "$METADATA_KEYS"
+          python - "$METADATA_KEYS" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          value = json.loads(os.environ["UPDATE_METADATA_KEYS_JSON"])
+          keys = value.get("keys") if isinstance(value, dict) else value
+          if not isinstance(keys, list) or not keys:
+              raise SystemExit("protected update metadata keys are missing")
+          root = Path(sys.argv[1])
+          for index, key in enumerate(keys):
+              if not isinstance(key, dict) or set(key) < {"key_id", "private_key"}:
+                  raise SystemExit("protected update metadata key is malformed")
+              path = root / f"{index:02d}.json"
+              path.write_text(json.dumps(key, sort_keys=True) + "\n", encoding="utf-8")
+              path.chmod(0o600)
+          PY
+
+      - name: Fetch the authenticated live baseline manifest
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP/opai-baseline-manifest.json" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          from opai.update.network import fetch_manifest, parse_https_origins
+
+          trust = json.loads(os.environ["UPDATE_TRUST_JSON"])
+          feed_url = str(trust.get("feed_url") or "")
+          if not feed_url.startswith("https://"):
+              raise SystemExit("protected live update feed is not HTTPS")
+          payload = fetch_manifest(
+              feed_url,
+              allowed_origins=parse_https_origins(
+                  trust.get("feed_redirect_origins") or []
+              ),
+          )
+          Path(sys.argv[1]).write_bytes(payload)
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as output:
+              output.write(f"BASELINE_MANIFEST={sys.argv[1]}\n")
+              output.write(f"BASELINE_MANIFEST_URL={feed_url}\n")
+          PY
+
+      - name: Build descriptor from canonical release identity
+        shell: bash
+        run: |
+          mkdir -p "$FEED_STAGING"
+          python - "$RUNNER_TEMP/opai-update-descriptor.json" <<'PY'
+          import json
+          import os
+          import sys
+          import zipfile
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          from packaging.version import Version
+
+          from opai.update.manifest import verify_manifest
+          from opai.update.models import InstallType, InstalledBuild, UpdateCandidate
+
+          trust = json.loads(os.environ["UPDATE_TRUST_JSON"])
+          feed_url = str(trust.get("feed_url") or "")
+          channel = os.environ["UPDATE_CHANNEL"]
+          if not feed_url.endswith("/manifest.json"):
+              raise SystemExit("protected update feed URL must end in /manifest.json")
+          if channel not in {"stable", "beta", "alpha"} or f"/opai-update-{channel}/" not in feed_url:
+              raise SystemExit("protected update channel and feed URL do not agree")
+          repository = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["RELEASE_TAG"]
+          release_base = f"https://github.com/{repository}/releases/download/{tag}"
+          generated = datetime.now(timezone.utc).replace(microsecond=0)
+          baseline_payload = Path(os.environ["BASELINE_MANIFEST"]).read_bytes()
+          verified_baseline = verify_manifest(
+              baseline_payload,
+              trust=trust,
+              installed=InstalledBuild(
+                  version="0",
+                  build_id="0" * 40,
+                  channel=channel,
+                  platform="baseline",
+                  architecture="baseline",
+                  install_type=InstallType.UNKNOWN,
+              ),
+              cohort=0,
+              prior_metadata_version=0,
+              now=generated,
+              metadata_only=True,
+          )
+          new_metadata_version = int(os.environ["GITHUB_RUN_ID"])
+          if verified_baseline.metadata_version >= new_metadata_version:
+              raise SystemExit("new metadata version does not advance the live feed")
+          baseline_envelope = json.loads(baseline_payload)
+          baseline_releases = baseline_envelope["signed"]["releases"]
+          sparkle_signature = json.loads(
+              (Path(os.environ["MACOS_STAGING"]) / "sparkle-signature.json").read_text(encoding="utf-8")
+          )
+          def embedded_identity(path, suffix):
+              with zipfile.ZipFile(path) as archive:
+                  names = [name for name in archive.namelist() if name.endswith(suffix)]
+                  if len(names) != 1:
+                      raise SystemExit("native package runtime identity is missing or ambiguous")
+                  return json.loads(archive.read(names[0]))
+
+          windows_identity = embedded_identity(
+              os.environ["WINDOWS_MSIX"], "release-identity.json"
+          )
+          macos_identity = embedded_identity(
+              os.environ["MACOS_ARCHIVE"],
+              ".app/Contents/Resources/release-identity.json",
+          )
+          def recovery_candidate(*, url, platform, architecture, install_type, publisher, package):
+              matches = [
+                  item for item in baseline_releases
+                  if isinstance(item, dict) and item.get("artifact_url") == url
+              ]
+              if len(matches) != 1:
+                  raise SystemExit("protected baseline URL is not uniquely signed by the live feed")
+              candidate = UpdateCandidate.from_dict(matches[0])
+              native = candidate.native
+              valid = (
+                  candidate.channel == channel
+                  and candidate.platform == platform
+                  and candidate.architecture == architecture
+                  and candidate.install_type is InstallType(install_type)
+                  and candidate.publisher_identity == publisher
+                  and Version(candidate.version) < Version(os.environ["PACKAGE_VERSION"])
+                  and native.get("recovery") is None
+              )
+              if install_type == "windows_msix":
+                  valid = valid and native.get("package_name") == package and bool(
+                      native.get("application_id") and native.get("windows_signer_thumbprint")
+                  )
+              else:
+                  valid = valid and native.get("package_identity") == package and bool(
+                      native.get("sparkle_ed_signature")
+                      and native.get("appcast_url")
+                      and len(str(native.get("appcast_sha256") or "")) == 64
+                  )
+              if not valid:
+                  raise SystemExit("signed baseline recovery identity is incompatible")
+              return matches[0]
+
+          windows_recovery = recovery_candidate(
+              url=os.environ["WINDOWS_BASELINE_URL"],
+              platform="windows",
+              architecture=windows_identity["architecture"],
+              install_type="windows_msix",
+              publisher=os.environ["WINDOWS_PUBLISHER_IDENTITY"],
+              package=os.environ["WINDOWS_PACKAGE_IDENTITY"],
+          )
+          macos_recovery = recovery_candidate(
+              url=os.environ["MACOS_BASELINE_URL"],
+              platform="macos",
+              architecture=macos_identity["architecture"],
+              install_type="macos_sparkle",
+              publisher=os.environ["MACOS_TEAM_ID"],
+              package=os.environ["MACOS_PACKAGE_IDENTITY"],
+          )
+          trust_keys = {
+              str(item["key_id"]): str(item["public_key"])
+              for item in trust.get("keys", [])
+              if isinstance(item, dict) and item.get("key_id") and item.get("public_key")
+          }
+          revoked_keys = [
+              str(item["key_id"])
+              for item in trust.get("keys", [])
+              if isinstance(item, dict) and item.get("revoked") is True
+          ]
+          descriptor = {
+              "version": os.environ["PACKAGE_VERSION"],
+              "build_id": os.environ["EXPECTED_CANDIDATE_SHA"],
+              "channel": channel,
+              "metadata_version": new_metadata_version,
+              "generated_at": generated.isoformat().replace("+00:00", "Z"),
+              "expires_at": (generated + timedelta(days=14)).isoformat().replace("+00:00", "Z"),
+              "feed_base_url": feed_url.rsplit("/", 1)[0],
+              "native_feed_base_url": release_base,
+              "native_feed_suffix": tag,
+              "feed_redirect_origins": trust.get("feed_redirect_origins") or [],
+              "release_id": tag,
+              "release_title": f"OPai {os.environ['PACKAGE_VERSION']}",
+              "release_notes": "Signed packaged update qualified by the OPai release pipeline.",
+              "release_notes_url": f"https://github.com/{repository}/releases/tag/{tag}",
+              "signature_threshold": trust["threshold"],
+              "metadata_public_keys": trust_keys,
+              "revoked_key_ids": revoked_keys,
+              "sparkle_public_key": trust["sparkle_public_key"],
+              "artifacts": [
+                  {
+                      "path": os.environ["WINDOWS_MSIX"],
+                      "url": f"{release_base}/{Path(os.environ['WINDOWS_MSIX']).name}",
+                      "platform": "windows",
+                      "architecture": windows_identity["architecture"],
+                      "install_type": "windows_msix",
+                      "publisher_identity": os.environ["WINDOWS_PUBLISHER_IDENTITY"],
+                      "package_identity": os.environ["WINDOWS_PACKAGE_IDENTITY"],
+                      "native": {
+                          "windows_signer_thumbprint": os.environ["WINDOWS_SIGNER_THUMBPRINT"],
+                          "allowed_redirect_origins": ["https://release-assets.githubusercontent.com"],
+                          "recovery": windows_recovery,
+                      },
+                  },
+                  {
+                      "path": os.environ["MACOS_ARCHIVE"],
+                      "url": f"{release_base}/{Path(os.environ['MACOS_ARCHIVE']).name}",
+                      "platform": "macos",
+                      "architecture": macos_identity["architecture"],
+                      "install_type": "macos_sparkle",
+                      "publisher_identity": os.environ["MACOS_TEAM_ID"],
+                      "package_identity": os.environ["MACOS_PACKAGE_IDENTITY"],
+                      "native": {
+                          "sparkle_ed_signature": sparkle_signature["sparkle_ed_signature"],
+                          "allowed_redirect_origins": ["https://release-assets.githubusercontent.com"],
+                          "recovery": macos_recovery,
+                      },
+                  },
+              ],
+          }
+          Path(sys.argv[1]).write_text(
+              json.dumps(descriptor, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+          printf 'UPDATE_DESCRIPTOR=%s\n' "$RUNNER_TEMP/opai-update-descriptor.json" >> "$GITHUB_ENV"
+
+      - name: Generate signed versioned native feeds and candidate manifest
+        shell: bash
+        run: |
+          command=(python scripts/generate_update_release.py \
+            --descriptor "$UPDATE_DESCRIPTOR" --output "$FEED_STAGING")
+          while IFS= read -r key; do
+            command+=(--metadata-key "$key")
+          done < <(find "$METADATA_KEYS" -maxdepth 1 -type f -name '*.json' -print | sort)
+          "${command[@]}"
+          cp "$FEED_STAGING/manifest.json" "$FEED_STAGING/qualified-manifest.json"
+
+      - name: Prove generated public trust matches packaged trust
+        shell: bash
+        run: |
+          python - "$FEED_STAGING/update-trust.json" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          generated = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          packaged = json.loads(os.environ["UPDATE_TRUST_JSON"])
+          fields = (
+              "schema_version",
+              "threshold",
+              "feed_url",
+              "sparkle_public_key",
+              "keys",
+              "feed_redirect_origins",
+          )
+          if any(generated.get(field) != packaged.get(field) for field in fields):
+              raise SystemExit("generated public trust does not match packaged trust")
+          PY
+
+      - name: Stage native bytes, versioned feeds, and qualification manifest together
+        id: feed
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to alter an existing immutable candidate release."
+            exit 2
+          fi
+          gh release create "$RELEASE_TAG" \
+            --verify-tag --prerelease \
+            --title "OPai $PACKAGE_VERSION" \
+            --notes "Signed candidate pending native update qualification." \
+            "$WINDOWS_MSIX" "$MACOS_ARCHIVE" \
+            "$FEED_STAGING/OPai-${RELEASE_TAG}.appinstaller" \
+            "$FEED_STAGING/appcast-${RELEASE_TAG}.xml" \
+            "$FEED_STAGING/qualified-manifest.json" \
+            "$FEED_STAGING/release-inventory.json"
+          QUALIFICATION_FEED_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/qualified-manifest.json"
+          printf 'qualification_feed_url=%s\n' "$QUALIFICATION_FEED_URL" >> "$GITHUB_OUTPUT"
+          printf 'baseline_manifest_url=%s\n' "$BASELINE_MANIFEST_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact generated feed for publication
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-signed-update-feed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.FEED_STAGING }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove private update metadata keys
+        if: always()
+        shell: bash
+        run: find "$METADATA_KEYS" -maxdepth 1 -type f -name '*.json' -delete 2>/dev/null || true
+
+  native:
+    name: Real packaged update qualification (${{ matrix.platform }})
+    needs: stage
+    environment:
+      name: opai-production-updates
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            staging_os: windows-latest
+            baseline_url: ${{ vars.OPAI_WINDOWS_BASELINE_MSIX_URL }}
+            baseline_feed_url: ""
+            package_identity: ${{ vars.OPAI_WINDOWS_PACKAGE_IDENTITY }}
+            publisher_identity: ${{ vars.OPAI_WINDOWS_PUBLISHER_IDENTITY }}
+          - platform: macos
+            os: macos-latest
+            staging_os: macos-latest
+            baseline_url: ${{ vars.OPAI_MACOS_BASELINE_ARCHIVE_URL }}
+            baseline_feed_url: ${{ vars.OPAI_MACOS_BASELINE_APPCAST_URL }}
+            package_identity: ${{ vars.OPAI_MACOS_PACKAGE_IDENTITY }}
+            publisher_identity: ${{ vars.OPAI_MACOS_TEAM_ID }}
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      PACKAGE_VERSION: ${{ inputs.package_version }}
+      QUALIFICATION_FEED_URL: ${{ needs.stage.outputs.qualification_feed_url }}
+      BASELINE_URL: ${{ matrix.baseline_url }}
+      BASELINE_FEED_URL: ${{ matrix.baseline_feed_url }}
+      BASELINE_MANIFEST_URL: ${{ needs.stage.outputs.baseline_manifest_url }}
+
+    steps:
+      - name: Check out trusted native qualification harness from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve same-run candidate by immutable artifact ID
+        id: candidate_artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-candidate-artifacts.json"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.staging_os }}-production-staging-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Download attested candidate package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.candidate_artifact.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/opai-candidate
+
+      - name: Resolve and verify native qualification inputs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -n "$BASELINE_URL"
+          case "$BASELINE_URL" in https://*) ;; *) exit 2 ;; esac
+          case "$QUALIFICATION_FEED_URL" in https://*) ;; *) exit 2 ;; esac
+          case "$BASELINE_MANIFEST_URL" in https://*) ;; *) exit 2 ;; esac
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            CANDIDATE="$RUNNER_TEMP/opai-candidate/OPai-${RELEASE_TAG}-windows-x64.msix"
+            BASELINE="$RUNNER_TEMP/opai-baseline.msix"
+          else
+            CANDIDATE="$RUNNER_TEMP/opai-candidate/OPai-${RELEASE_TAG}-macos.zip"
+            BASELINE="$RUNNER_TEMP/opai-baseline-macos.zip"
+            case "$BASELINE_FEED_URL" in https://*) ;; *) exit 2 ;; esac
+          fi
+          test -f "$CANDIDATE"
+          gh attestation verify "$CANDIDATE" --repo "$GITHUB_REPOSITORY"
+          curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 --output "$BASELINE" "$BASELINE_URL"
+          test -s "$BASELINE"
+          printf 'CANDIDATE=%s\n' "$CANDIDATE" >> "$GITHUB_ENV"
+          printf 'BASELINE=%s\n' "$BASELINE" >> "$GITHUB_ENV"
+          printf 'QUALIFICATION_REPORT=%s\n' \
+            "$RUNNER_TEMP/native-qualification-${{ matrix.platform }}.json" >> "$GITHUB_ENV"
+
+      - name: Prepare macOS managed-policy path
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          sudo mkdir -p "/Library/Managed Preferences"
+          sudo touch "/Library/Managed Preferences/com.opai.desktop.update.json"
+          sudo chown "$USER" "/Library/Managed Preferences/com.opai.desktop.update.json"
+
+      - name: Execute 16+ fail-closed scenarios on the native host
+        shell: bash
+        run: |
+          command=(python scripts/qualify_native_update.py \
+            --platform "${{ matrix.platform }}" \
+            --baseline "$BASELINE" \
+            --candidate "$CANDIDATE" \
+            --feed-url "$QUALIFICATION_FEED_URL" \
+            --baseline-manifest-url "$BASELINE_MANIFEST_URL" \
+            --expected-version "$PACKAGE_VERSION" \
+            --package-identity "${{ matrix.package_identity }}" \
+            --publisher-identity "${{ matrix.publisher_identity }}" \
+            --report "$QUALIFICATION_REPORT")
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            command+=(--baseline-feed-url "$BASELINE_FEED_URL" \
+              --application "$RUNNER_TEMP/OPai.app")
+          fi
+          "${command[@]}"
+          python - "$QUALIFICATION_REPORT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not report.get("native_execution") or not report.get("complete"):
+              raise SystemExit("native qualification was not completed")
+          if report.get("passed", 0) < 16 or any(
+              item.get("status") != "passed" for item in report.get("scenarios", [])
+          ):
+              raise SystemExit("native qualification scenario failed")
+          PY
+
+      - name: Upload native qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: OPai-${{ inputs.release_tag }}-native-qualification-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.QUALIFICATION_REPORT }}
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish release and advance live feed last
+    needs: [stage, native]
+    environment:
+      name: opai-production-updates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      UPDATE_CHANNEL: ${{ vars.OPAI_UPDATE_CHANNEL }}
+
+    steps:
+      - name: Check out trusted publication tooling from main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve same-run staged feed by immutable artifact ID
+        id: feed_artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-publication-artifacts.json"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-signed-update-feed-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Resolve same-run Windows native evidence by immutable artifact ID
+        id: windows_native
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-publication-artifacts.json"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-native-qualification-windows-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Resolve same-run macOS native evidence by immutable artifact ID
+        id: macos_native
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INVENTORY="$RUNNER_TEMP/opai-publication-artifacts.json"
+          python scripts/desktop_release_transport.py resolve-artifact \
+            --inventory "$INVENTORY" \
+            --name-prefix "OPai-${RELEASE_TAG}-native-qualification-macos-${GITHUB_RUN_ID}-" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Download exact staged signed feed
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.feed_artifact.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/opai-feed
+
+      - name: Download Windows native qualification evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.windows_native.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/opai-qualification
+
+      - name: Download macOS native qualification evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.macos_native.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/opai-qualification
+
+      - name: Revalidate staged manifest and native evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FEED="$RUNNER_TEMP/opai-feed"
+          REMOTE="$RUNNER_TEMP/opai-remote-feed"
+          mkdir -p "$REMOTE"
+          test -f "$FEED/manifest.json"
+          test -f "$FEED/qualified-manifest.json"
+          cmp "$FEED/manifest.json" "$FEED/qualified-manifest.json"
+          gh release download "$RELEASE_TAG" \
+            --pattern qualified-manifest.json --dir "$REMOTE"
+          cmp "$FEED/qualified-manifest.json" "$REMOTE/qualified-manifest.json"
+          for platform in windows macos; do
+            REPORT="$RUNNER_TEMP/opai-qualification/native-qualification-${platform}.json"
+            python - "$REPORT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not report.get("complete") or report.get("passed", 0) < 16:
+              raise SystemExit("native qualification evidence is incomplete")
+          PY
+          done
+          printf 'FEED=%s\n' "$FEED" >> "$GITHUB_ENV"
+
+      - name: Finalize immutable candidate release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            "$RUNNER_TEMP/opai-qualification/native-qualification-windows.json" \
+            "$RUNNER_TEMP/opai-qualification/native-qualification-macos.json"
+          if [ "$UPDATE_CHANNEL" = "stable" ]; then
+            gh release edit "$RELEASE_TAG" --prerelease=false --latest
+          else
+            gh release edit "$RELEASE_TAG" --prerelease=false --latest=false
+          fi
+
+      - name: Advance channel manifest only after every artifact is addressable
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$UPDATE_CHANNEL" in stable|beta|alpha) ;; *) exit 2 ;; esac
+          FEED_TAG="opai-update-$UPDATE_CHANNEL"
+          if ! gh release view "$FEED_TAG" >/dev/null 2>&1; then
+            gh release create "$FEED_TAG" --target "$GITHUB_SHA" \
+              --title "OPai $UPDATE_CHANNEL update feed" \
+              --notes "Machine-consumed signed update metadata. Product releases remain immutable."
+          fi
+          # Native feeds and packages are immutable, versioned assets. Replacing
+          # this one signed manifest can yield offline, never mixed publication.
+          gh release upload "$FEED_TAG" "$FEED/manifest.json" --clobber

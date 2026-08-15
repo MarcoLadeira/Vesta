@@ -177,25 +177,3 @@ test("clearing history removes saved chats from the sidebar too", async ({ page 
   await expect(page.locator("#recents")).toContainText("No saved chats yet");
   await expect(page.locator("#recents")).not.toContainText("How does routing work?");
 });
-
-test("automatic updates are off unless the workspace opted in", async ({ page }) => {
-  // The launch check must not run for someone who never enabled it: it reaches
-  // the network and can mutate the checkout.
-  await openApp(page);
-  const result = await page.evaluate(() => window.__mock.autoUpdateRuns);
-  expect(result).toBe(1); // asked once
-  // ...and the mock's default answer is "disabled", so nothing was applied.
-  await expect(page.locator("#toast")).not.toContainText("updated");
-});
-
-test("an automatic update that applied asks for a restart", async ({ page }) => {
-  await openApp(page, { autoUpdateResult: { outcome: "applied", applied: true, restart_required: true } });
-  await expect(page.locator("#toast")).toContainText("restart");
-});
-
-test("an automatic update blocked by local changes says so", async ({ page }) => {
-  // Silence here would mean automatic updates quietly stop working and the
-  // user has no way to know they are on old code.
-  await openApp(page, { autoUpdateResult: { outcome: "blocked_dirty", applied: false } });
-  await expect(page.locator("#toast")).toContainText("uncommitted changes");
-});

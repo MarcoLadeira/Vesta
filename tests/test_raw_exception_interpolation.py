@@ -63,11 +63,10 @@ REDACTORS = frozenset(
 # Raw-interpolation debt as measured on 2026-08-05, per module. Every number
 # here is a defect budget, not an allowance to spend. Lower them.
 SNAPSHOT: dict[str, int] = {
-    "opai/auto_update.py": 2,
     "opai/cli.py": 13,
     "opai/cli_stream.py": 1,
     "opai/gui_desktop.py": 1,
-    "opai/gui_web.py": 20,
+    "opai/gui_web.py": 17,
     "opai/integrations.py": 2,
     "opaihub/accounts.py": 1,
     "opaihub/app_verify.py": 2,

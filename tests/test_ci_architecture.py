@@ -191,6 +191,11 @@ class CiArchitectureContractTests(unittest.TestCase):
                 stripped = line.strip()
                 if stripped.startswith("uses:"):
                     action = stripped.split(":", 1)[1].strip().split(" #", 1)[0]
+                    if action.startswith("./"):
+                        referenced = (ROOT / action).resolve()
+                        self.assertTrue(referenced.is_relative_to(ROOT), action)
+                        self.assertTrue(referenced.is_file(), action)
+                        continue
                     self.assertRegex(
                         action,
                         PINNED_ACTION,
