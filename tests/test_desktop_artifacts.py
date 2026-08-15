@@ -869,7 +869,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             },
         )
         self.assertEqual(sign["environment"]["name"], "opai-production-signing")
-        self.assertEqual(sign["environment"]["deployment"], "false")
+        self.assertNotIn("deployment", sign["environment"])
         self.assertIn("inputs.release_channel == 'production'", sign["if"])
         self.assertIn("github.ref == 'refs/heads/main'", sign["if"])
         self.assertNotIn("secrets.", str(build.get("env", {})))

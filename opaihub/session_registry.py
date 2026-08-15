@@ -15,8 +15,14 @@ from __future__ import annotations
 
 import threading
 import time
+import hashlib
+import json
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
+
+from .atomic_io import atomic_write_text
 
 
 # Session states. Only ``running`` sessions are "active"; the rest are terminal.
@@ -64,10 +70,57 @@ class Session:
 class SessionRegistry:
     """Thread-safe, single-flight registry of active sessions."""
 
-    def __init__(self, *, now: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        *,
+        now: Callable[[], float] = time.monotonic,
+        durable_root: Path | None = None,
+        process_id: int | None = None,
+    ) -> None:
         self._now = now
         self._lock = threading.RLock()
         self._sessions: dict[str, Session] = {}
+        self._durable_root = Path(durable_root) if durable_root is not None else None
+        self._process_id = os.getpid() if process_id is None else int(process_id)
+
+    def _durable_path(self, request_id: str) -> Path | None:
+        if self._durable_root is None:
+            return None
+        token = hashlib.sha256(
+            f"{self._process_id}:{request_id}".encode("utf-8")
+        ).hexdigest()[:32]
+        return self._durable_root / f"{token}.json"
+
+    def _persist_running(self, session: Session) -> None:
+        path = self._durable_path(session.request_id)
+        if path is None:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(
+                path,
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "pid": self._process_id,
+                        "provider": session.provider,
+                        "started_at": time.time(),
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                mode=0o600,
+            )
+        except OSError:
+            pass
+
+    def _clear_durable(self, request_id: str) -> None:
+        path = self._durable_path(request_id)
+        if path is not None:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def start(
         self,
@@ -118,6 +171,7 @@ class SessionRegistry:
             admission_key=(str(admission_key) if admission_key else None),
         )
         self._sessions[rid] = session
+        self._persist_running(session)
         return session
 
     def claim(
@@ -181,6 +235,7 @@ class SessionRegistry:
                 return
             session.state = end_state
             session.finished_at = self._now()
+            self._clear_durable(rid)
 
     def cancel(self, request_id: str) -> bool:
         """Fire a running session's cancel Event and mark it cancelled. Returns
@@ -193,6 +248,7 @@ class SessionRegistry:
             self._signal_cancel(session)
             session.state = CANCELLED
             session.finished_at = self._now()
+            self._clear_durable(rid)
             return True
 
     def get(self, request_id: str) -> Session | None:
@@ -267,8 +323,60 @@ def sweep_orphans(
     return terminated
 
 
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def durable_active_count(
+    root: Path,
+    *,
+    is_pid_alive: Callable[[int], bool] = _pid_is_alive,
+) -> int:
+    """Read the canonical session registry across OPai processes."""
+
+    path = Path(root)
+    if (
+        not path.is_dir()
+        or path.is_symlink()
+        or (hasattr(path, "is_junction") and path.is_junction())
+    ):
+        return 0
+    active = 0
+    for record in path.glob("*.json"):
+        try:
+            value = json.loads(record.read_text(encoding="utf-8"))
+            pid = int(value.get("pid") or 0) if isinstance(value, dict) else 0
+            if (
+                not isinstance(value, dict)
+                or value.get("schema_version") != 1
+                or pid <= 0
+                or not is_pid_alive(pid)
+            ):
+                record.unlink(missing_ok=True)
+                continue
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        active += 1
+    return active
+
+
 # One process-wide registry the runner boundary and GUI read (#169).
-_SHARED = SessionRegistry()
+def durable_session_root(home: Path | None = None) -> Path:
+    override = os.environ.get("OPAI_ACTIVE_SESSION_ROOT")
+    if override:
+        return Path(override).expanduser().resolve(strict=False)
+    return (
+        (home or Path.home()).expanduser().resolve(strict=False)
+        / ".opai"
+        / "active-sessions"
+    )
+
+
+_SHARED = SessionRegistry(durable_root=durable_session_root())
 
 
 def registry() -> SessionRegistry:

@@ -207,6 +207,7 @@ function boot() {
     renderSidebar(); renderWorkspace(); renderComposerSelects(); renderComposerContext(); renderInspector();
     renderStatus(b.status); renderAccount(); applyPanel();
     renderEmptyChips();
+    wireUpdateSheet();
     renderUpdateBanner(b.update);
     syncBuildMode();
     // Composer Redesign: apply the saved direction (toolbar / single / command).
@@ -228,9 +229,6 @@ function boot() {
     }
     // #246: signal cold-start-to-interactive to the (opt-in) startup trace.
     if (bridge.markInteractive) { try { bridge.markInteractive(); } catch (_e) { /* trace is best-effort */ } }
-    // Opt-in automatic update, after the window is usable. It is a no-op unless
-    // the workspace enabled it, and it never blocks the boot path.
-    maybeAutoUpdate();
   });
   // #612 AC6: give the message store somewhere durable to report a refused
   // transition. Without this the browser rejected the edge correctly and then
@@ -265,6 +263,11 @@ function boot() {
   if (bridge.dashboardReady) bridge.dashboardReady.connect(onDashboardReady);
   if (bridge.settingsReady) bridge.settingsReady.connect(onSettingsReady);
   if (bridge.statusReady) bridge.statusReady.connect(onStatusReady);
+  if (bridge.updateReady) bridge.updateReady.connect((raw) => {
+    let update = {};
+    try { update = JSON.parse(raw || "{}"); } catch (_e) { return; }
+    renderUpdateBanner(update);
+  });
   if (bridge.toolApplied) bridge.toolApplied.connect((json) => {
     let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
     const pending = (state.pendingToolApplies || {})[d.requestId];
@@ -273,6 +276,16 @@ function boot() {
     pending(JSON.stringify(d.data || {}));
   });
   if (bridge.discoverModels) setTimeout(() => bridge.discoverModels(), 0);
+  if (bridge.updateStatus) setInterval(() => {
+    if (bridge.maintainUpdates) bridge.maintainUpdates();
+    bridge.updateStatus((raw) => {
+      let update = {};
+      try { update = JSON.parse(raw || "{}"); } catch (_e) { return; }
+      if (JSON.stringify(update.operation || {}) !== JSON.stringify((state.update || {}).operation || {})) {
+        renderUpdateBanner(update);
+      }
+    });
+  }, 2000);
 }
 
 // One brand voice, one source: copy comes from opai/brand.py via the boot
@@ -289,31 +302,139 @@ function applyBrand(brand) {
   if (eyebrow && brand.tagline) eyebrow.textContent = brand.name + " · " + brand.tagline;
 }
 
-// Shell-wide update nudge (mandatory-update system): a cache-only signal from
-// boot (never a fresh network call on its own), so it can appear before the
-// user ever opens Settings. Honest states only — never shown unless the
-// check actually succeeded and found OPai behind; settings.js's About page
-// re-calls this after a live check or a completed update.
+// Canonical app-wide updater projection. The backend owns every transition;
+// this control only renders state and asks for named actions.
 function renderUpdateBanner(update) {
-  const banner = $("#updateBanner");
-  if (!banner) return;
-  const available = !!(update && update.checked && !update.up_to_date);
-  banner.hidden = !available;
-  if (!available) return;
-  const text = $("#updateBannerText");
-  if (text) {
-    text.textContent = update.latest_version
-      ? `OPai ${update.latest_version} is available.`
-      : "An update is available.";
+  const shell = $("#updateShell");
+  const control = $("#updateBanner");
+  const operation = (update && update.operation) || {};
+  const policy = (update && update.policy) || {};
+  const candidate = operation.candidate || {};
+  const status = String(operation.state || "idle");
+  if (!shell || !control) return;
+  state.update = update || {};
+  const states = {
+    available: ["Update available", "A signed OPai update is ready to download.", "accent"],
+    downloading: ["Downloading update", "You can keep working while OPai downloads.", "accent"],
+    verifying: ["Verifying update", "Checking the artifact digest and publisher identity.", "accent"],
+    ready_to_install: ["Ready to restart", "The verified update is staged and ready.", "accent"],
+    waiting_for_idle: ["Restart when finished", operation.safe_diagnostic || "Waiting for active work to finish.", "warning"],
+    install_on_quit: ["Installs on quit", "The verified update will install after OPai closes safely.", "accent"],
+    deferred: ["Update deferred", "The verified update remains available for later.", "neutral"],
+    failed_retriable: ["Update paused", operation.safe_diagnostic || "The update can be retried.", "warning"],
+    failed_terminal: ["Update blocked", operation.safe_diagnostic || "The update failed a security check.", "danger"],
+    policy_blocked: [policy.owner && policy.owner !== "opai" ? "Managed by administrator" : "Updates disabled by policy", "OPai will not race another update owner.", "neutral"],
+    unsupported_install: ["Manual update required", "This installation cannot update transactionally.", "neutral"],
+    rollback_pending: ["Recovery required", "The new build did not pass startup health checks.", "danger"],
+    needs_attention: ["Update needs attention", operation.safe_diagnostic || "Automatic recovery could not complete.", "danger"],
+    rolled_back: ["Update rolled back", "OPai restored the last-known-good build.", "warning"],
+    unavailable: ["Couldn’t check for updates", operation.safe_diagnostic || "Update status is temporarily unavailable.", "warning"],
+  };
+  const visible = Object.prototype.hasOwnProperty.call(states, status);
+  shell.hidden = !visible;
+  if (!visible) {
+    $("#updateSheet").hidden = true;
+    control.setAttribute("aria-expanded", "false");
+    return;
   }
-  const action = $("#updateBannerAction");
-  if (action && !action.dataset.wired) {
-    action.dataset.wired = "1";
-    action.onclick = () => {
-      try { window.history.replaceState(null, "", "#settings/about"); } catch (_e) { /* best-effort deep link */ }
-      switchView("settings");
-    };
-  }
+  const config = states[status];
+  shell.dataset.state = status;
+  shell.dataset.tone = config[2];
+  $("#updateBannerText").textContent = config[0];
+  $("#updateSheetTitle").textContent = candidate.version
+    ? `${config[0]} · OPai ${candidate.version}`
+    : config[0];
+  $("#updateSheetDescription").textContent = config[1];
+  const meta = $("#updateSheetMeta");
+  meta.replaceChildren();
+  const metadata = [
+    ["Version", candidate.version],
+    ["Channel", candidate.channel],
+    ["Size", candidate.artifact_size ? formatUpdateBytes(candidate.artifact_size) : ""],
+    ["Criticality", candidate.criticality],
+    ["Publisher", candidate.publisher_identity],
+    ["Verification", candidate.verification && candidate.verification.native_mechanism],
+  ];
+  metadata.forEach(([label, value]) => {
+    if (!value) return;
+    const dt = document.createElement("dt"); dt.textContent = label;
+    const dd = document.createElement("dd"); dd.textContent = String(value).replace(/_/g, " ");
+    meta.append(dt, dd);
+  });
+  const progress = $("#updateProgress");
+  const total = Number(operation.total_bytes || 0);
+  const downloaded = Number(operation.downloaded_bytes || 0);
+  progress.hidden = !["downloading", "verifying"].includes(status);
+  const percent = total > 0 ? Math.max(0, Math.min(100, Math.round(downloaded * 100 / total))) : 0;
+  progress.setAttribute("aria-valuemin", "0");
+  progress.setAttribute("aria-valuemax", "100");
+  if (total > 0) progress.setAttribute("aria-valuenow", String(percent));
+  else progress.removeAttribute("aria-valuenow");
+  progress.querySelector("span").style.width = `${percent}%`;
+  const notes = $("#updateReleaseNotes");
+  notes.textContent = candidate.release_notes || "";
+  notes.hidden = !candidate.release_notes;
+  renderUpdateActions(status, operation);
+  try { window.dispatchEvent(new CustomEvent("opai-update-state", { detail: update })); } catch (_e) { /* old web engine */ }
+}
+
+function formatUpdateBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function updateActionButton(label, action, primary) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = primary ? "btn primary" : "btn ghost";
+  button.textContent = label;
+  button.dataset.updateAction = action;
+  button.onclick = () => runUpdateAction(action, button);
+  return button;
+}
+
+function renderUpdateActions(status, operation) {
+  const host = $("#updateSheetActions");
+  host.replaceChildren();
+  const actions = {
+    available: [["Download update", "download", true], ["Later", "later", false]],
+    failed_retriable: [["Retry", "retry", true], ["Later", "later", false]],
+    ready_to_install: [["Restart now", "install_now", true], ["When finished", "when_idle", false], ["On quit", "on_quit", false], ["Later", "later", false]],
+    waiting_for_idle: [["Install on quit", "on_quit", true], ["Later", "later", false]],
+    install_on_quit: [["Install now", "install_now", true], ["Later", "later", false]],
+    deferred: [[operation.artifact_staged ? "Ready options" : "Resume" , "resume", true]],
+    rollback_pending: [["Restore previous version", "rollback", true]],
+    needs_attention: operation.rollback_available ? [["Try recovery", "rollback", true]] : [],
+    unavailable: [["Check again", "check", true]],
+    failed_terminal: [["Check for another release", "check", false]],
+    rolled_back: [["Check for updates", "check", false]],
+  };
+  (actions[status] || []).forEach((item) => host.appendChild(updateActionButton(item[0], item[1], item[2])));
+}
+
+function runUpdateAction(action, button) {
+  if (!bridge || !bridge.updateAction) return;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  bridge.updateAction(action);
+}
+
+function wireUpdateSheet() {
+  const control = $("#updateBanner");
+  const sheet = $("#updateSheet");
+  const close = $("#updateSheetClose");
+  if (!control || control.dataset.wired) return;
+  control.dataset.wired = "1";
+  const hide = () => { sheet.hidden = true; control.setAttribute("aria-expanded", "false"); control.focus(); };
+  control.onclick = () => {
+    sheet.hidden = !sheet.hidden;
+    control.setAttribute("aria-expanded", String(!sheet.hidden));
+    if (!sheet.hidden) close.focus();
+  };
+  close.onclick = hide;
+  sheet.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); hide(); } });
 }
 
 function rebootFromState() {
@@ -3622,29 +3743,6 @@ function setComposerDraft(value, options = {}) {
   autoSize();
   updateComposerAvailability();
   if (options.focus) input.focus();
-}
-
-/* ---------- opt-in automatic update ---------- */
-
-// Reports only what actually happened. An update that could not be applied
-// because the checkout is dirty is surfaced as a real outcome, not swallowed —
-// otherwise "automatic updates" silently stops updating and the user has no way
-// to know why they are on old code.
-function maybeAutoUpdate() {
-  if (!bridge || !bridge.runAutoUpdate) return;
-  bridge.runAutoUpdate((raw) => {
-    let result = {};
-    try { result = JSON.parse(raw || "{}"); } catch (_e) { return; }
-    if (result.outcome === "applied") {
-      toast("OPai updated — restart to use the new version");
-      // The banner already knows how to offer a restart.
-      renderUpdateBanner({ checked: true, up_to_date: false, updated: true });
-      return;
-    }
-    if (result.outcome === "blocked_dirty") {
-      toast("Update available — this checkout has uncommitted changes");
-    }
-  });
 }
 
 /* ---------- composer prompt history (shell-style Up/Down) ---------- */

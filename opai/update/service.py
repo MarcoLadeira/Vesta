@@ -1,0 +1,1068 @@
+"""One canonical updater service shared by GUI, CLI, doctor, and adapters."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Callable, Mapping
+from urllib.parse import urlparse
+
+from opaihub.atomic_io import InterprocessLockTimeout
+from packaging.version import InvalidVersion, Version
+
+from .adapters import UpdateAdapter
+from .download import DownloadError, SecureDownloader
+from .errors import UpdateError
+from .manifest import ManifestError, verify_manifest
+from .models import (
+    InstallType,
+    InstalledBuild,
+    UpdateCandidate,
+    UpdateOperation,
+    UpdateOwner,
+    UpdatePolicy,
+    UpdateState,
+    can_transition,
+)
+from .runtime import ActiveWorkStatus
+from .storage import UpdateStore
+
+
+ManifestFetcher = Callable[[str], bytes]
+RuntimeProbe = Callable[[], ActiveWorkStatus]
+
+
+_SAFE_DIAGNOSTICS = {
+    "offline": "The update service is unreachable right now.",
+    "feed_unavailable": "The update feed could not be read.",
+    "artifact_hash_mismatch": "The downloaded update did not match its signed digest.",
+    "artifact_size_mismatch": "The downloaded update was incomplete or the wrong size.",
+    "publisher_mismatch": "The update publisher identity did not match this installation.",
+    "active_work_blocked": "OPai is waiting for active work to reach a safe boundary.",
+    "installer_failed": "The platform updater could not start the installation.",
+    "rollback_failed": "The platform updater could not restore the last-known-good build.",
+    "recovery_unavailable": "A verified recovery package is not available for this update.",
+}
+
+
+def _diagnostic(category: str) -> str:
+    return _SAFE_DIAGNOSTICS.get(
+        category, "The update operation could not be completed safely."
+    )
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _contained_regular_file(path: Path, root: Path, expected_sha256: str) -> bool:
+    """Revalidate a deferred artifact at its final mutation boundary."""
+
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(resolved_root)
+        linked = path.is_symlink() or (
+            hasattr(path, "is_junction") and path.is_junction()
+        )
+        return (
+            not linked
+            and resolved.is_file()
+            and len(expected_sha256) == 64
+            and _sha256(resolved) == expected_sha256
+        )
+    except (OSError, ValueError):
+        return False
+
+
+def _parse_time(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+
+
+def _jittered_check_interval(policy: UpdatePolicy) -> float:
+    """Apply stable local jitter without sending or persisting client identity."""
+
+    cohort = policy.rollout_cohort if policy.rollout_cohort >= 0 else 50
+    percent = ((cohort * 37) % 21) - 10
+    return policy.minimum_check_interval_seconds * (1 + percent / 100)
+
+
+class UpdateService:
+    def __init__(
+        self,
+        *,
+        store: UpdateStore,
+        installed: InstalledBuild,
+        trust: Mapping[str, Any],
+        manifest_fetcher: ManifestFetcher,
+        downloader: SecureDownloader,
+        adapter: UpdateAdapter,
+        runtime_probe: RuntimeProbe,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.store = store
+        self.installed = installed
+        self.trust = dict(trust)
+        self.manifest_fetcher = manifest_fetcher
+        self.downloader = downloader
+        self.adapter = adapter
+        self.runtime_probe = runtime_probe
+        self._now = now or (lambda: datetime.now(timezone.utc))
+
+    def policy(self) -> UpdatePolicy:
+        return self.store.load_policy()
+
+    def set_policy(self, **changes: object) -> UpdatePolicy:
+        allowed = {
+            "check_for_updates",
+            "automatic_downloads",
+            "automatic_install_on_quit",
+            "channel",
+            "minimum_check_interval_seconds",
+            "critical_update_enforcement_hours",
+            "remind_later_until",
+        }
+        if not changes or any(key not in allowed for key in changes):
+            raise UpdateError("policy_change_invalid")
+        current = self.policy()
+        downloads = bool(
+            changes.get("automatic_downloads", current.automatic_downloads)
+        )
+        if changes.get("automatic_install_on_quit") is True and not downloads:
+            raise UpdateError("automatic_download_required")
+        return self.store.update_policy(**changes)
+
+    def _recovery_candidate(self, target: UpdateCandidate) -> UpdateCandidate:
+        raw = target.native.get("recovery")
+        if not target.rollback_compatible or not isinstance(raw, Mapping):
+            raise UpdateError("recovery_unavailable")
+        try:
+            recovery = UpdateCandidate.from_dict(raw)
+            target_version = Version(target.version)
+            recovery_version = Version(recovery.version)
+        except (TypeError, ValueError, InvalidVersion) as exc:
+            raise UpdateError("recovery_unavailable") from exc
+        parsed = urlparse(recovery.artifact_url)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or recovery_version >= target_version
+            or recovery.version != self.installed.version
+            or recovery.build_id != self.installed.build_id
+            or recovery.channel != self.installed.channel
+            or recovery.platform.casefold() != self.installed.platform.casefold()
+            or recovery.architecture.casefold()
+            != self.installed.architecture.casefold()
+            or recovery.install_type is not self.installed.install_type
+            or recovery.publisher_identity != self.installed.publisher_identity
+            or recovery.native.get("recovery") is not None
+        ):
+            raise UpdateError("recovery_unavailable")
+        return recovery
+
+    def _prepare_recovery(
+        self,
+        target: UpdateCandidate,
+        operation_id: str,
+    ) -> dict[str, object]:
+        recovery = self._recovery_candidate(target)
+        recovery_operation = f"{operation_id}-recovery"
+        try:
+            source = self.downloader.download(
+                recovery,
+                self.store.paths.downloads,
+                recovery_operation,
+                lambda _downloaded, _total: None,
+            )
+            verification = self.adapter.verify(source, recovery)
+            if (
+                not verification.verified
+                or verification.publisher_identity != recovery.publisher_identity
+            ):
+                raise UpdateError("recovery_unavailable")
+            staged = self.downloader.stage(
+                source,
+                recovery,
+                self.store.paths.staging,
+                recovery_operation,
+            )
+        except DownloadError as exc:
+            raise UpdateError(
+                "recovery_unavailable",
+                retriable=exc.retriable,
+            ) from exc
+        if not _contained_regular_file(
+            staged,
+            self.store.paths.staging,
+            recovery.artifact_sha256,
+        ):
+            raise UpdateError("recovery_unavailable")
+        previous = recovery.to_dict()
+        previous.update(
+            {
+                "package_identity": self.installed.package_identity,
+                "artifact_path": str(staged),
+                "artifact_sha256": recovery.artifact_sha256,
+            }
+        )
+        return previous
+
+    def _guard(self):
+        try:
+            return self.store.operation_guard()
+        except InterprocessLockTimeout as exc:  # pragma: no cover - enter raises lazily
+            raise UpdateError("operation_busy", retriable=True) from exc
+
+    def _current_for(self, operation_id: str) -> UpdateOperation:
+        current = self.store.load_operation()
+        if current.operation_id != operation_id:
+            raise UpdateError("stale_operation")
+        return current
+
+    def _save(self, operation: UpdateOperation) -> UpdateOperation:
+        return self.store.save_operation(operation)
+
+    def _begin_check(self, current: UpdateOperation) -> UpdateOperation:
+        if current.state is UpdateState.IDLE or can_transition(
+            current.state, UpdateState.CHECKING
+        ):
+            return current.transition(
+                UpdateState.CHECKING,
+                last_check_at=self._now().isoformat(),
+                error_category="",
+                safe_diagnostic="",
+                candidate={},
+                downloaded_bytes=0,
+                total_bytes=0,
+                staged_artifact="",
+                staged_sha256="",
+                native_transaction="",
+                desired_state="",
+            )
+        raise UpdateError("operation_busy", retriable=True)
+
+    def _retry_changes(self, operation: UpdateOperation) -> dict[str, object]:
+        retries = min(operation.retry_count + 1, 8)
+        delay = min(60 * (2 ** (retries - 1)), 60 * 60)
+        return {
+            "retry_count": retries,
+            "next_retry_at": (self._now() + timedelta(seconds=delay)).isoformat(),
+        }
+
+    def check(
+        self, *, force: bool = False, allow_automatic_download: bool = False
+    ) -> UpdateOperation:
+        policy = self.policy()
+        current = self.store.load_operation()
+        checked = _parse_time(current.last_successful_check_at)
+        retry_at = _parse_time(current.next_retry_at)
+        if not force and (
+            (
+                current.state is UpdateState.UNAVAILABLE
+                and retry_at is not None
+                and self._now() < retry_at
+            )
+            or (
+                current.state is not UpdateState.UNAVAILABLE
+                and checked is not None
+                and (self._now() - checked).total_seconds()
+                < _jittered_check_interval(policy)
+            )
+        ):
+            return current
+        try:
+            with self.store.operation_guard():
+                policy = self.policy()
+                current = self.store.load_operation()
+                checking = self._save(self._begin_check(current))
+                if not policy.discovery_allowed:
+                    return self._save(checking.transition(UpdateState.POLICY_BLOCKED))
+                feed_url = str(self.trust.get("feed_url") or "")
+                try:
+                    payload = self.manifest_fetcher(feed_url)
+                except (OSError, TimeoutError):
+                    return self._save(
+                        checking.transition(
+                            UpdateState.UNAVAILABLE,
+                            error_category="offline",
+                            safe_diagnostic=_diagnostic("offline"),
+                            **self._retry_changes(checking),
+                        )
+                    )
+                except Exception:  # noqa: BLE001 - raw feed errors are normalized here
+                    return self._save(
+                        checking.transition(
+                            UpdateState.UNAVAILABLE,
+                            error_category="feed_unavailable",
+                            safe_diagnostic=_diagnostic("feed_unavailable"),
+                            **self._retry_changes(checking),
+                        )
+                    )
+                try:
+                    unsupported = self.installed.install_type in {
+                        InstallType.PORTABLE,
+                        InstallType.SOURCE_CHECKOUT,
+                        InstallType.UNKNOWN,
+                    }
+                    verified = verify_manifest(
+                        payload,
+                        trust=self.trust,
+                        installed=self.installed,
+                        cohort=policy.rollout_cohort,
+                        prior_metadata_version=max(
+                            checking.highest_metadata_version,
+                            self.store.load_metadata_floor(self.installed.channel),
+                        ),
+                        now=self._now(),
+                        metadata_only=unsupported,
+                    )
+                except ManifestError as exc:
+                    return self._save(
+                        checking.transition(
+                            UpdateState.UNAVAILABLE,
+                            error_category=exc.code,
+                            safe_diagnostic="The signed update metadata was rejected.",
+                            **self._retry_changes(checking),
+                        )
+                    )
+                durable_version = self.store.record_metadata_version(
+                    verified.channel, verified.metadata_version
+                )
+                changes = {
+                    "highest_metadata_version": durable_version,
+                    "last_successful_check_at": self._now().isoformat(),
+                    "retry_count": 0,
+                    "next_retry_at": "",
+                }
+                if unsupported:
+                    return self._save(
+                        checking.transition(
+                            UpdateState.UNSUPPORTED_INSTALL,
+                            candidate={},
+                            error_category="manual_update_required",
+                            safe_diagnostic=(
+                                "This installation is not transactionally replaceable; use a "
+                                "verified package or the explicit developer update command."
+                            ),
+                            **changes,
+                        )
+                    )
+                if verified.candidate is None:
+                    return self._save(
+                        checking.transition(
+                            UpdateState.UP_TO_DATE,
+                            candidate={},
+                            **changes,
+                        )
+                    )
+                changes["candidate"] = verified.candidate.to_dict()
+                if policy.owner is not UpdateOwner.OPAI:
+                    result = self._save(
+                        checking.transition(UpdateState.POLICY_BLOCKED, **changes)
+                    )
+                else:
+                    result = self._save(
+                        checking.transition(UpdateState.AVAILABLE, **changes)
+                    )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+        if (
+            allow_automatic_download
+            and policy.automatic_downloads
+            and result.state is UpdateState.AVAILABLE
+        ):
+            return self.download(result.operation_id)
+        return result
+
+    def download(self, operation_id: str) -> UpdateOperation:
+        try:
+            with self.store.operation_guard():
+                current = self._current_for(operation_id)
+                if current.state in {
+                    UpdateState.READY_TO_INSTALL,
+                    UpdateState.INSTALL_ON_QUIT,
+                    UpdateState.WAITING_FOR_IDLE,
+                    UpdateState.INSTALLING,
+                    UpdateState.RESTARTING,
+                    UpdateState.HEALTH_CHECKING,
+                    UpdateState.COMPLETED,
+                }:
+                    return current
+                if current.state not in {
+                    UpdateState.AVAILABLE,
+                    UpdateState.FAILED_RETRIABLE,
+                    UpdateState.PAUSED,
+                }:
+                    raise UpdateError("operation_not_downloadable")
+                policy = self.policy()
+                if not policy.installation_allowed:
+                    return self._save(
+                        current.transition(
+                            UpdateState.POLICY_BLOCKED,
+                            error_category="installation_owned_elsewhere",
+                            safe_diagnostic=(
+                                "Updates for this installation are managed outside OPai."
+                            ),
+                        )
+                    )
+                candidate = UpdateCandidate.from_dict(current.candidate)
+                downloading = self._save(
+                    current.transition(
+                        UpdateState.DOWNLOADING,
+                        downloaded_bytes=0,
+                        total_bytes=candidate.artifact_size,
+                        error_category="",
+                        safe_diagnostic="",
+                    )
+                )
+
+                def progress(downloaded: int, total: int) -> None:
+                    nonlocal downloading
+                    downloading = replace(
+                        downloading,
+                        downloaded_bytes=downloaded,
+                        total_bytes=total,
+                    )
+                    self._save(downloading)
+
+                try:
+                    source = self.downloader.download(
+                        candidate,
+                        self.store.paths.downloads,
+                        current.operation_id,
+                        progress,
+                    )
+                    verifying = self._save(
+                        downloading.transition(UpdateState.VERIFYING)
+                    )
+                    if source.stat().st_size != candidate.artifact_size:
+                        raise DownloadError("artifact_size_mismatch")
+                    digest = _sha256(source)
+                    if digest != candidate.artifact_sha256:
+                        raise DownloadError("artifact_hash_mismatch")
+                    native = self.adapter.verify(source, candidate)
+                    if not native.verified:
+                        raise DownloadError(
+                            native.error_category or "native_signature_invalid"
+                        )
+                    if native.publisher_identity != candidate.publisher_identity:
+                        raise DownloadError("publisher_mismatch")
+                    staged = self.downloader.stage(
+                        source,
+                        candidate,
+                        self.store.paths.staging,
+                        current.operation_id,
+                    )
+                    try:
+                        previous = self._prepare_recovery(
+                            candidate,
+                            current.operation_id,
+                        )
+                    except UpdateError as exc:
+                        raise DownloadError(
+                            exc.category,
+                            retriable=exc.retriable,
+                        ) from exc
+                    ready = self._save(
+                        verifying.transition(
+                            UpdateState.READY_TO_INSTALL,
+                            staged_artifact=str(staged),
+                            staged_sha256=digest,
+                            last_known_good=previous,
+                            downloaded_bytes=candidate.artifact_size,
+                            total_bytes=candidate.artifact_size,
+                        )
+                    )
+                except DownloadError as exc:
+                    latest = self.store.load_operation()
+                    if not exc.retriable:
+                        if latest.state is UpdateState.DOWNLOADING:
+                            latest = self._save(
+                                latest.transition(UpdateState.VERIFYING)
+                            )
+                        return self._save(
+                            latest.transition(
+                                UpdateState.FAILED_TERMINAL,
+                                error_category=exc.category,
+                                safe_diagnostic=_diagnostic(exc.category),
+                                staged_artifact="",
+                                staged_sha256="",
+                            )
+                        )
+                    return self._save(
+                        latest.transition(
+                            UpdateState.FAILED_RETRIABLE,
+                            error_category=exc.category,
+                            safe_diagnostic=_diagnostic(exc.category),
+                        )
+                    )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+        policy = self.policy()
+        if policy.automatic_install_on_quit:
+            return self.install(ready.operation_id, mode="on_quit")
+        return ready
+
+    def defer(self, operation_id: str) -> UpdateOperation:
+        try:
+            with self.store.operation_guard():
+                current = self._current_for(operation_id)
+                if current.state is UpdateState.DEFERRED:
+                    return current
+                if current.state not in {
+                    UpdateState.AVAILABLE,
+                    UpdateState.READY_TO_INSTALL,
+                    UpdateState.WAITING_FOR_IDLE,
+                    UpdateState.INSTALL_ON_QUIT,
+                }:
+                    raise UpdateError("operation_not_deferrable")
+                self.store.update_policy(
+                    last_user_decision="later",
+                    last_user_decision_at=self._now().isoformat(),
+                )
+                return self._save(
+                    current.transition(
+                        UpdateState.DEFERRED,
+                        desired_state="later",
+                        error_category="",
+                        safe_diagnostic="",
+                    )
+                )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+
+    def resume(self, operation_id: str) -> UpdateOperation:
+        try:
+            with self.store.operation_guard():
+                current = self._current_for(operation_id)
+                if current.state is not UpdateState.DEFERRED:
+                    return current
+                target = (
+                    UpdateState.READY_TO_INSTALL
+                    if current.staged_artifact and current.staged_sha256
+                    else UpdateState.AVAILABLE
+                )
+                return self._save(
+                    current.transition(
+                        target,
+                        desired_state="",
+                        error_category="",
+                        safe_diagnostic="",
+                    )
+                )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+
+    def skip(self, operation_id: str) -> UpdateOperation:
+        try:
+            with self.store.operation_guard():
+                current = self._current_for(operation_id)
+                if current.state is UpdateState.SKIPPED:
+                    return current
+                if current.state is not UpdateState.AVAILABLE:
+                    raise UpdateError("operation_not_skippable")
+                candidate = UpdateCandidate.from_dict(current.candidate)
+                self.store.update_policy(
+                    skipped_version=candidate.version,
+                    last_user_decision="skip",
+                    last_user_decision_at=self._now().isoformat(),
+                )
+                return self._save(
+                    current.transition(UpdateState.SKIPPED, desired_state="skip")
+                )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+
+    def install(
+        self,
+        operation_id: str,
+        *,
+        mode: str,
+        consequence_accepted: bool = False,
+    ) -> UpdateOperation:
+        if mode not in {"now", "when_idle", "on_quit"}:
+            raise UpdateError("install_mode_invalid")
+        try:
+            with self.store.operation_guard():
+                current = self._current_for(operation_id)
+                policy = self.policy()
+                if not policy.installation_allowed:
+                    if current.state in {
+                        UpdateState.READY_TO_INSTALL,
+                        UpdateState.WAITING_FOR_IDLE,
+                        UpdateState.INSTALL_ON_QUIT,
+                    }:
+                        return self._save(
+                            current.transition(
+                                UpdateState.POLICY_BLOCKED,
+                                error_category="installation_owned_elsewhere",
+                                safe_diagnostic=(
+                                    "Updates for this installation are managed outside OPai."
+                                ),
+                            )
+                        )
+                    return current
+                if mode == "on_quit" and current.state in {
+                    UpdateState.READY_TO_INSTALL,
+                    UpdateState.WAITING_FOR_IDLE,
+                }:
+                    return self._save(current.transition(UpdateState.INSTALL_ON_QUIT))
+                if (
+                    mode == "when_idle"
+                    and current.state is UpdateState.READY_TO_INSTALL
+                ):
+                    return self._save(current.transition(UpdateState.WAITING_FOR_IDLE))
+                if current.state not in {
+                    UpdateState.READY_TO_INSTALL,
+                    UpdateState.WAITING_FOR_IDLE,
+                    UpdateState.INSTALL_ON_QUIT,
+                }:
+                    if current.state in {
+                        UpdateState.RESTARTING,
+                        UpdateState.HEALTH_CHECKING,
+                        UpdateState.COMPLETED,
+                    }:
+                        return current
+                    raise UpdateError("operation_not_installable")
+                active = self.runtime_probe()
+                if not active.safe_to_install:
+                    if current.state is UpdateState.READY_TO_INSTALL:
+                        current = current.transition(UpdateState.WAITING_FOR_IDLE)
+                    return self._save(
+                        replace(
+                            current,
+                            error_category="active_work_blocked",
+                            safe_diagnostic=_diagnostic("active_work_blocked"),
+                        )
+                    )
+                candidate = UpdateCandidate.from_dict(current.candidate)
+                staged = Path(current.staged_artifact)
+                if (
+                    current.staged_sha256 != candidate.artifact_sha256
+                    or not _contained_regular_file(
+                        staged, self.store.paths.staging, current.staged_sha256
+                    )
+                ):
+                    if current.state is UpdateState.WAITING_FOR_IDLE:
+                        current = current.transition(UpdateState.INSTALLING)
+                    elif current.state is UpdateState.INSTALL_ON_QUIT:
+                        current = current.transition(UpdateState.INSTALLING)
+                    else:
+                        current = current.transition(UpdateState.INSTALLING)
+                    return self._save(
+                        current.transition(
+                            UpdateState.FAILED_TERMINAL,
+                            error_category="staged_artifact_substituted",
+                            safe_diagnostic="The staged update changed after verification.",
+                        )
+                    )
+                previous = current.last_known_good
+                recovery_path = Path(str(previous.get("artifact_path") or ""))
+                recovery_digest = str(previous.get("artifact_sha256") or "")
+                if (
+                    not candidate.rollback_compatible
+                    or previous.get("version") != self.installed.version
+                    or previous.get("build_id") != self.installed.build_id
+                    or previous.get("install_type") != self.installed.install_type.value
+                    or previous.get("publisher_identity")
+                    != self.installed.publisher_identity
+                    or not _contained_regular_file(
+                        recovery_path,
+                        self.store.paths.staging,
+                        recovery_digest,
+                    )
+                ):
+                    installing = self._save(
+                        current.transition(
+                            UpdateState.INSTALLING,
+                            error_category="",
+                            safe_diagnostic="",
+                        )
+                    )
+                    return self._save(
+                        installing.transition(
+                            UpdateState.FAILED_TERMINAL,
+                            error_category="recovery_unavailable",
+                            safe_diagnostic=_diagnostic("recovery_unavailable"),
+                        )
+                    )
+                installing = self._save(
+                    current.transition(
+                        UpdateState.INSTALLING,
+                        error_category="",
+                        safe_diagnostic="",
+                    )
+                )
+                result = self.adapter.install(staged, candidate, mode=mode)
+                if not result.started:
+                    category = result.error_category or "installer_failed"
+                    return self._save(
+                        installing.transition(
+                            UpdateState.FAILED_TERMINAL,
+                            error_category=category,
+                            safe_diagnostic=_diagnostic(category),
+                        )
+                    )
+                return self._save(
+                    installing.transition(
+                        UpdateState.RESTARTING,
+                        native_transaction=result.transaction_id,
+                        native_result_path=result.result_path,
+                        native_action="install",
+                        health_deadline_at=(
+                            self._now() + timedelta(minutes=5)
+                        ).isoformat(),
+                    )
+                )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+
+    def install_on_quit(self) -> UpdateOperation:
+        current = self.store.load_operation()
+        if current.state is not UpdateState.INSTALL_ON_QUIT:
+            return current
+        return self.install(current.operation_id, mode="on_quit")
+
+    def reconcile_native_result(self) -> UpdateOperation:
+        """Persist a completed native helper failure without doing network work."""
+
+        current = self.store.load_operation()
+        if current.state not in {UpdateState.RESTARTING, UpdateState.ROLLING_BACK}:
+            return current
+        native_result = self._native_result(current)
+        if not native_result or native_result.get("success") is not False:
+            return current
+        category = str(native_result.get("error_category") or "installer_failed")
+        try:
+            with self.store.operation_guard():
+                latest = self._current_for(current.operation_id)
+                target = (
+                    UpdateState.FAILED_RETRIABLE
+                    if latest.state is UpdateState.RESTARTING
+                    else UpdateState.NEEDS_ATTENTION
+                )
+                return self._save(
+                    latest.transition(
+                        target,
+                        error_category=category,
+                        safe_diagnostic=_diagnostic(category),
+                    )
+                )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+
+    def maintain(self) -> UpdateOperation:
+        """Advance periodic discovery and persisted safe-boundary work."""
+
+        current = self.reconcile_native_result()
+        if current.state in {UpdateState.RESTARTING, UpdateState.ROLLING_BACK}:
+            deadline = _parse_time(current.health_deadline_at)
+            if deadline is not None and self._now() >= deadline:
+                if current.state is UpdateState.ROLLING_BACK:
+                    with self.store.operation_guard():
+                        latest = self._current_for(current.operation_id)
+                        return self._save(
+                            latest.transition(
+                                UpdateState.NEEDS_ATTENTION,
+                                error_category="rollback_health_timeout",
+                                safe_diagnostic=(
+                                    "The recovery build did not confirm health before its deadline."
+                                ),
+                            )
+                        )
+                with self.store.operation_guard():
+                    latest = self._current_for(current.operation_id)
+                    checking = self._save(
+                        latest.transition(UpdateState.HEALTH_CHECKING)
+                    )
+                    candidate = UpdateCandidate.from_dict(checking.candidate)
+                    pending = self._save(
+                        checking.transition(
+                            UpdateState.ROLLBACK_PENDING,
+                            quarantined_versions=tuple(
+                                dict.fromkeys(
+                                    (*checking.quarantined_versions, candidate.version)
+                                )
+                            ),
+                            error_category="health_startup_timeout",
+                            safe_diagnostic=(
+                                "The updated application did not confirm health before its deadline."
+                            ),
+                        )
+                    )
+                return self.rollback(pending.operation_id)
+            return current
+        if current.state is UpdateState.WAITING_FOR_IDLE:
+            if self.runtime_probe().safe_to_install:
+                return self.install(current.operation_id, mode="when_idle")
+            return current
+        if current.state in {
+            UpdateState.IDLE,
+            UpdateState.UP_TO_DATE,
+            UpdateState.AVAILABLE,
+            UpdateState.UNAVAILABLE,
+            UpdateState.UNSUPPORTED_INSTALL,
+            UpdateState.POLICY_BLOCKED,
+            UpdateState.DEFERRED,
+            UpdateState.SKIPPED,
+            UpdateState.COMPLETED,
+            UpdateState.ROLLED_BACK,
+            UpdateState.FAILED_RETRIABLE,
+            UpdateState.FAILED_TERMINAL,
+            UpdateState.NEEDS_ATTENTION,
+        }:
+            return self.check(force=False, allow_automatic_download=True)
+        return current
+
+    def _native_result(self, operation: UpdateOperation) -> dict[str, object]:
+        if not operation.native_result_path:
+            return {}
+        path = Path(operation.native_result_path)
+        try:
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(self.store.paths.staging.resolve(strict=True))
+            linked = path.is_symlink() or (
+                hasattr(path, "is_junction") and path.is_junction()
+            )
+        except (OSError, ValueError):
+            return {}
+        if linked or not resolved.is_file():
+            return {}
+        try:
+            if resolved.stat().st_size > 64 * 1024:
+                return {}
+            value = json.loads(resolved.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return (
+            value
+            if isinstance(value, dict) and value.get("schema_version") == 1
+            else {}
+        )
+
+    def startup_health(self, assets_root: Path) -> dict[str, bool]:
+        """Run local, side-effect-free startup checks over real packaged state."""
+
+        assets = Path(assets_root)
+        required = ("index.html", "app.js", "settings.js", "styles.css")
+        assets_ok = all((assets / name).is_file() for name in required)
+        try:
+            doctor_ok = bool(self.adapter.doctor(self.installed).get("available"))
+        except Exception:  # noqa: BLE001 - converted to a health fact
+            doctor_ok = False
+        return {
+            "assets_ok": assets_ok,
+            "state_schema_ok": self.store.state_schema_ok(),
+            "doctor_ok": doctor_ok,
+        }
+
+    def confirm_health(
+        self,
+        operation_id: str,
+        *,
+        running: InstalledBuild,
+        interactive: bool,
+        assets_ok: bool,
+        state_schema_ok: bool,
+        doctor_ok: bool,
+    ) -> UpdateOperation:
+        try:
+            with self.store.operation_guard():
+                current = self._current_for(operation_id)
+                if current.state is UpdateState.COMPLETED:
+                    return current
+                if current.state is not UpdateState.RESTARTING:
+                    raise UpdateError("health_not_expected")
+                checking = self._save(current.transition(UpdateState.HEALTH_CHECKING))
+                candidate = UpdateCandidate.from_dict(checking.candidate)
+                category = ""
+                if (
+                    running.version != candidate.version
+                    or running.build_id != candidate.build_id
+                ):
+                    category = "health_build_mismatch"
+                elif not interactive:
+                    category = "health_not_interactive"
+                elif not assets_ok:
+                    category = "health_assets_failed"
+                elif not state_schema_ok:
+                    category = "health_state_failed"
+                elif not doctor_ok:
+                    category = "health_doctor_failed"
+                if not category:
+                    installed_record = running.to_dict()
+                    if checking.staged_artifact and checking.staged_sha256:
+                        installed_record.update(
+                            {
+                                "artifact_path": checking.staged_artifact,
+                                "artifact_sha256": checking.staged_sha256,
+                            }
+                        )
+                    return self._save(
+                        checking.transition(
+                            UpdateState.COMPLETED,
+                            installed_build=installed_record,
+                            error_category="",
+                            safe_diagnostic="",
+                        )
+                    )
+                quarantined = tuple(
+                    dict.fromkeys((*checking.quarantined_versions, candidate.version))
+                )
+                return self._save(
+                    checking.transition(
+                        UpdateState.ROLLBACK_PENDING,
+                        quarantined_versions=quarantined,
+                        error_category=category,
+                        safe_diagnostic="The updated application did not pass its startup health check.",
+                    )
+                )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+
+    def rollback(self, operation_id: str) -> UpdateOperation:
+        try:
+            with self.store.operation_guard():
+                current = self._current_for(operation_id)
+                if current.state is UpdateState.ROLLED_BACK:
+                    return current
+                if current.state not in {
+                    UpdateState.ROLLBACK_PENDING,
+                    UpdateState.NEEDS_ATTENTION,
+                }:
+                    raise UpdateError("rollback_not_available")
+                rolling = self._save(current.transition(UpdateState.ROLLING_BACK))
+                recovery_path = str(rolling.last_known_good.get("artifact_path") or "")
+                if recovery_path:
+                    artifact = Path(recovery_path)
+                    try:
+                        artifact.resolve(strict=True).relative_to(
+                            self.store.paths.staging.resolve(strict=True)
+                        )
+                        linked = artifact.is_symlink() or (
+                            hasattr(artifact, "is_junction") and artifact.is_junction()
+                        )
+                        expected = str(
+                            rolling.last_known_good.get("artifact_sha256") or ""
+                        )
+                        valid_recovery = (
+                            not linked
+                            and len(expected) == 64
+                            and _sha256(artifact) == expected
+                        )
+                    except (OSError, ValueError):
+                        valid_recovery = False
+                    if not valid_recovery:
+                        return self._save(
+                            rolling.transition(
+                                UpdateState.NEEDS_ATTENTION,
+                                error_category="rollback_artifact_invalid",
+                                safe_diagnostic="The last-known-good recovery package could not be verified.",
+                            )
+                        )
+                result = self.adapter.rollback(rolling.last_known_good)
+                if result.started:
+                    return self._save(
+                        replace(
+                            rolling,
+                            native_transaction=result.transaction_id,
+                            native_result_path=result.result_path,
+                            native_action="rollback",
+                            health_deadline_at=(
+                                self._now() + timedelta(minutes=5)
+                            ).isoformat(),
+                        )
+                    )
+                return self._save(
+                    rolling.transition(
+                        UpdateState.NEEDS_ATTENTION,
+                        error_category=result.error_category or "rollback_failed",
+                        safe_diagnostic=_diagnostic("rollback_failed"),
+                    )
+                )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+
+    def confirm_recovery(
+        self,
+        operation_id: str,
+        *,
+        running: InstalledBuild,
+        interactive: bool,
+        assets_ok: bool,
+        state_schema_ok: bool,
+        doctor_ok: bool,
+    ) -> UpdateOperation:
+        """Claim rollback only after the restored process proves exact health."""
+
+        try:
+            with self.store.operation_guard():
+                current = self._current_for(operation_id)
+                if current.state is UpdateState.ROLLED_BACK:
+                    return current
+                if current.state is not UpdateState.ROLLING_BACK:
+                    raise UpdateError("recovery_health_not_expected")
+                expected = current.last_known_good
+                healthy = (
+                    running.version == str(expected.get("version") or "")
+                    and running.build_id == str(expected.get("build_id") or "")
+                    and interactive
+                    and assets_ok
+                    and state_schema_ok
+                    and doctor_ok
+                )
+                if healthy:
+                    return self._save(
+                        current.transition(
+                            UpdateState.ROLLED_BACK,
+                            error_category="",
+                            safe_diagnostic="",
+                        )
+                    )
+                return self._save(
+                    current.transition(
+                        UpdateState.NEEDS_ATTENTION,
+                        error_category="rollback_health_failed",
+                        safe_diagnostic=(
+                            "The recovery build did not pass its startup health check."
+                        ),
+                    )
+                )
+        except InterprocessLockTimeout as exc:
+            raise UpdateError("operation_busy", retriable=True) from exc
+
+    def status(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "installed": self.installed.to_dict(),
+            "policy": self.policy().to_dict(),
+            "operation": self.store.load_operation().to_public_dict(),
+        }
+
+    def doctor(self) -> dict[str, object]:
+        operation = self.store.load_operation()
+        rollback_available = bool(
+            operation.last_known_good.get("artifact_path")
+            and operation.last_known_good.get("artifact_sha256")
+        )
+        return {
+            **self.status(),
+            "native": self.adapter.doctor(self.installed),
+            "rollback_available": rollback_available,
+            "state_scope": "application",
+        }

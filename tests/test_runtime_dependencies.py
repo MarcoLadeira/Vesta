@@ -71,7 +71,9 @@ class RuntimeDependencyMetadataTests(unittest.TestCase):
     def test_pyyaml_is_a_bounded_core_runtime_dependency(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-        self.assertIn('dependencies = ["PyYAML>=6.0.2,<7"]', pyproject)
+        dependencies = re.search(r"(?ms)^dependencies = \[(.*?)^\]", pyproject)
+        self.assertIsNotNone(dependencies)
+        self.assertIn('"PyYAML>=6.0.2,<7"', dependencies.group(1))
 
     def test_pytest_collection_warnings_are_errors(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")

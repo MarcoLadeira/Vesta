@@ -1,0 +1,9 @@
+{
+  "configured": false,
+  "feed_redirect_origins": [],
+  "feed_url": "https://updates.opai.dev/stable/manifest.json",
+  "keys": [],
+  "schema_version": 1,
+  "sparkle_public_key": "",
+  "threshold": 1
+}

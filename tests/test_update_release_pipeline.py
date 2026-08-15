@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "publish-packaged-update.yml"
+HARNESS = ROOT / "scripts" / "qualify_native_update.py"
+
+
+def _workflow() -> dict[str, object]:
+    return yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+def test_desktop_release_delegates_only_after_signed_attestation():
+    workflow = yaml.load(
+        (ROOT / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+            encoding="utf-8"
+        ),
+        Loader=yaml.BaseLoader,
+    )
+    publish = workflow["jobs"]["publish-packaged-update"]
+
+    assert set(publish["needs"]) == {"source-qualification", "attest"}
+    assert publish["uses"] == "./.github/workflows/publish-packaged-update.yml"
+    assert publish["secrets"] == "inherit"
+
+
+def test_macos_native_artifact_has_one_canonical_name_across_release_jobs():
+    desktop = (ROOT / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+        encoding="utf-8"
+    )
+    publication = WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'NATIVE_PACKAGE="$NATIVE_OUTPUT/OPai-${RELEASE_TAG}-macos.zip"' in desktop
+    assert "macos-$(uname -m).zip" not in desktop
+    assert 'MACOS_ARCHIVE="$MACOS_STAGING/OPai-${RELEASE_TAG}-macos.zip"' in publication
+
+
+def test_publication_requires_both_real_native_matrix_hosts():
+    jobs = _workflow()["jobs"]
+    native = jobs["native"]
+    publish = jobs["publish"]
+    matrix = native["strategy"]["matrix"]["include"]
+
+    assert {(item["platform"], item["os"]) for item in matrix} == {
+        ("windows", "windows-latest"),
+        ("macos", "macos-latest"),
+    }
+    assert set(publish["needs"]) == {"stage", "native"}
+    native_commands = "\n".join(str(step.get("run", "")) for step in native["steps"])
+    assert "qualify_native_update.py" in native_commands
+    assert "native_execution" in native_commands
+    assert 'report.get("passed", 0) < 16' in native_commands
+    assert "skip" not in native_commands.casefold()
+
+
+def test_native_harness_defines_at_least_sixteen_named_executed_scenarios():
+    tree = ast.parse(HARNESS.read_text(encoding="utf-8"))
+    names = [
+        call.args[0].value
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "prove"
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+    ]
+
+    assert len(names) >= 16
+    assert len(names) == len(set(names))
+    assert {
+        "signed-feed-discovers-candidate",
+        "download-hash-and-native-signature-verify",
+        "native-installer-starts-from-canonical-operation",
+        "new-gui-confirms-post-update-health",
+        "native-platform-rejects-downgrade",
+        "offline-check-is-not-reported-up-to-date",
+    }.issubset(names)
+
+
+def test_native_harness_exercises_real_concurrency_recovery_and_non_deferred_downgrade():
+    source = HARNESS.read_text(encoding="utf-8")
+
+    assert "concurrent-process-cannot-acquire-update-operation" in source
+    assert "active-work-blocks-native-replacement" in source
+    assert "native-rollback-restores-baseline" in source
+    assert "replayed-or-mixed-feed-is-rejected" in source
+    downgrade = source[
+        source.index("def assert_downgrade_rejected") : source.index("@contextmanager")
+    ]
+    assert "--defer-install" not in downgrade
+
+
+def test_reruns_resolve_exact_artifact_ids_instead_of_merging_patterns():
+    jobs = _workflow()["jobs"]
+    for job_name in ("stage", "native", "publish"):
+        job = jobs[job_name]
+        commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
+        downloads = [
+            step
+            for step in job["steps"]
+            if str(step.get("uses", "")).startswith("actions/download-artifact@")
+        ]
+        assert "resolve-artifact" in commands
+        assert downloads
+        assert all("artifact-ids" in step["with"] for step in downloads)
+        assert all("pattern" not in step["with"] for step in downloads)
+
+
+def test_live_manifest_is_the_final_remote_mutation():
+    publish = _workflow()["jobs"]["publish"]
+    final_step = publish["steps"][-1]
+    commands = str(final_step["run"])
+
+    assert final_step["name"] == (
+        "Advance channel manifest only after every artifact is addressable"
+    )
+    assert 'gh release upload "$FEED_TAG" "$FEED/manifest.json" --clobber' in commands
+    assert "qualified-manifest.json" not in commands
