@@ -62,6 +62,7 @@ JOURNAL_OWNED = {
     "opaihub/agent_runtime.py": "runs — agent process state",
     "opaihub/owner_lease.py": "leases — ownership and fencing",
     "opaihub/worktree_leases.py": "leases — worktree ownership",
+    "opaihub/session_registry.py": "leases — cross-process active provider sessions",
     "opaihub/parallel_agents.py": "runs — concurrent agent slots",
     "opaihub/scheduler.py": "runs — scheduled work",
     # operations / approvals
@@ -70,6 +71,7 @@ JOURNAL_OWNED = {
     "opaihub/github_connector.py": "operations — GitHub delivery",
     "opaihub/repository_safety.py": "operations — repository mutation guards",
     "opai/integrations.py": "approvals — connected-service consent",
+    "opai/update/storage.py": "operations — packaged update state and fencing",
     # cost
     "opaihub/ledger.py": "cost_events — usage and spend",
     "opaihub/budget.py": "cost_events — budget ceilings and spend",
@@ -91,6 +93,9 @@ PROJECTION_OR_EXPORT = {
     "opaihub/evidence_cache.py",
     "opai/gui_web.py",
     "opai/publish.py",
+    "opai/update/native.py",
+    "opai/update/packaging.py",
+    "opai/update/release.py",
     "opai/visibility.py",
     "opcoding/dashboard.py",
     "opcoding/doctor.py",

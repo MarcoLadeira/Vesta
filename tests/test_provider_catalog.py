@@ -114,7 +114,7 @@ class ProviderCatalogTests(unittest.TestCase):
         requirements = metadata.requires("opai") or []
 
         self.assertIn('hypothesis==6.160.0; extra == "test"', requirements)
-        self.assertIn('pytest==9.0.2; extra == "test"', requirements)
+        self.assertIn('pytest==9.0.3; extra == "test"', requirements)
 
     def test_fixture_is_the_exact_replayable_catalog_bytes(self):
         self.assertEqual(
