@@ -80,6 +80,8 @@ class ProviderTurnUsage:
     cached_input_tokens: UsageValue = UNKNOWN_USAGE
     reasoning_tokens: UsageValue = UNKNOWN_USAGE
     cost_usd: UsageValue = UNKNOWN_USAGE
+    tier_estimate_usd: UsageValue = UNKNOWN_USAGE
+    estimated_actual_usd: UsageValue = UNKNOWN_USAGE
     provider_quota: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
@@ -107,6 +109,12 @@ class ProviderTurnUsage:
             raise TypeError("cost_usd must be a UsageValue")
         if self.cost_usd.provenance not in _COST_PROVENANCE:
             raise ValueError("invalid cost provenance")
+        for name in ("tier_estimate_usd", "estimated_actual_usd"):
+            measurement = getattr(self, name)
+            if not isinstance(measurement, UsageValue):
+                raise TypeError(f"{name} must be a UsageValue")
+            if measurement.provenance not in _COST_PROVENANCE:
+                raise ValueError(f"invalid cost provenance for {name}")
         if self.provider_quota is not None:
             if not isinstance(self.provider_quota, Mapping):
                 raise TypeError("provider_quota must be a mapping or None")
@@ -128,6 +136,9 @@ class ProviderTurnUsage:
         reasoning_tokens: int | None = None,
         cost_usd: int | float | None = None,
         cost_provenance: UsageProvenance = "actual",
+        tier_estimate_usd: int | float | None = None,
+        estimated_actual_usd: int | float | None = None,
+        estimated_actual_provenance: UsageProvenance | None = None,
         provider_quota: Mapping[str, Any] | None = None,
     ) -> ProviderTurnUsage:
         total_value = cls._provider_value(total)
@@ -138,6 +149,20 @@ class ProviderTurnUsage:
             if cost_usd is not None
             else UNKNOWN_USAGE
         )
+        tier_estimate = (
+            UsageValue(tier_estimate_usd, "estimated")
+            if tier_estimate_usd is not None
+            else UNKNOWN_USAGE
+        )
+        effective_actual = (
+            cost_usd if estimated_actual_usd is None else estimated_actual_usd
+        )
+        effective_provenance = estimated_actual_provenance or cost_provenance
+        estimated_actual = (
+            UsageValue(effective_actual, effective_provenance)
+            if effective_actual is not None
+            else UNKNOWN_USAGE
+        )
         return cls(
             turn_index=turn_index,
             input_tokens=cls._provider_value(input_tokens),
@@ -146,6 +171,8 @@ class ProviderTurnUsage:
             cached_input_tokens=cls._provider_value(cached_input_tokens),
             reasoning_tokens=cls._provider_value(reasoning_tokens),
             cost_usd=cost_value,
+            tier_estimate_usd=tier_estimate,
+            estimated_actual_usd=estimated_actual,
             provider_quota=provider_quota,
         )
 
@@ -158,6 +185,8 @@ class ProviderTurnUsage:
             "cachedInputTokens": self.cached_input_tokens.to_dict(),
             "reasoningTokens": self.reasoning_tokens.to_dict(),
             "costUsd": self.cost_usd.to_dict(),
+            "tierEstimateUsd": self.tier_estimate_usd.to_dict(),
+            "estimatedActualUsd": self.estimated_actual_usd.to_dict(),
             "providerQuota": _thaw(self.provider_quota),
         }
 

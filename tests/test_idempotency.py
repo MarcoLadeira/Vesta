@@ -15,6 +15,8 @@ skip silently drops work.
 
 from __future__ import annotations
 
+import json
+import multiprocessing
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,6 +35,21 @@ from opaihub.idempotency import (
     operation_key,
     status,
 )
+
+
+def _claim_in_child(
+    project_root: str,
+    key: str,
+    start: multiprocessing.synchronize.Event,
+    results: multiprocessing.queues.Queue,
+) -> None:
+    """Spawn-compatible worker for the duplicate-dispatch race."""
+
+    start.wait(timeout=15)
+    try:
+        results.put(begin(Path(project_root), key)["state"])
+    except Exception as exc:  # pragma: no cover - asserted in parent
+        results.put(f"error:{exc!r}")
 
 
 class KeyTests(unittest.TestCase):
@@ -114,12 +131,14 @@ class LifecycleTests(unittest.TestCase):
         abandon(self.root, self.key)
         self.assertEqual(status(self.root, self.key)["state"], FRESH)
 
-    def test_uncertainty_expires_rather_than_blocking_forever(self) -> None:
+    def test_uncertainty_never_expires_into_an_automatic_retry(self) -> None:
         begin(self.root, self.key, now=1000.0)
         still = status(self.root, self.key, now=1000.0 + UNCERTAIN_TTL_SECONDS - 1)
         self.assertEqual(still["state"], IN_FLIGHT)
         later = status(self.root, self.key, now=1000.0 + UNCERTAIN_TTL_SECONDS + 1)
-        self.assertEqual(later["state"], FRESH)
+        self.assertEqual(later["state"], IN_FLIGHT)
+        self.assertTrue(later["expired"])
+        self.assertTrue(later["requires_reconciliation"])
 
     def test_the_stored_result_holds_no_bodies_or_secrets(self) -> None:
         begin(self.root, self.key)
@@ -132,13 +151,80 @@ class LifecycleTests(unittest.TestCase):
         self.assertLessEqual(len(stored.get("body", "")), 200)
         self.assertLessEqual(len(stored), 8)
 
-    def test_an_unwritable_store_never_blocks_the_users_work(self) -> None:
-        # Losing duplicate protection for one operation is the position OPai was
-        # in before this existed. Refusing to work would be worse.
+    def test_an_unwritable_store_blocks_the_external_effect(self) -> None:
         with mock.patch("opaihub.idempotency._save", side_effect=OSError("read-only")):
             outcome = begin(self.root, self.key)
-        self.assertEqual(outcome["state"], FRESH)
-        self.assertTrue(outcome.get("unrecorded"))
+        self.assertEqual(outcome["state"], IN_FLIGHT)
+        self.assertTrue(outcome["persistence_blocked"])
+
+    def test_a_corrupt_store_blocks_instead_of_forgetting_uncertainty(self) -> None:
+        from opaihub import idempotency
+
+        path = idempotency._path(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not-json", encoding="utf-8")
+
+        outcome = begin(self.root, self.key)
+
+        self.assertEqual(outcome["state"], IN_FLIGHT)
+        self.assertTrue(outcome["persistence_blocked"])
+
+    def test_a_malformed_record_blocks_instead_of_looking_fresh(self) -> None:
+        from opaihub import idempotency
+
+        path = idempotency._path(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            '{"open_pr:test": {"state": "unexpected", "at": 1, "result": {}}}',
+            encoding="utf-8",
+        )
+
+        outcome = begin(self.root, "open_pr:test")
+
+        self.assertEqual(outcome["state"], IN_FLIGHT)
+        self.assertTrue(outcome["persistence_blocked"])
+
+    def test_store_capacity_never_evicts_exact_once_history(self) -> None:
+        from opaihub import idempotency
+
+        path = idempotency._path(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        store = {
+            f"key-{index}": {"state": DONE, "at": 1, "result": {}}
+            for index in range(idempotency.MAX_RECORDS)
+        }
+        path.write_text(json.dumps(store), encoding="utf-8")
+
+        outcome = begin(self.root, "one-too-many")
+
+        self.assertEqual(outcome["state"], IN_FLIGHT)
+        self.assertTrue(outcome["persistence_blocked"])
+        preserved = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(len(preserved), idempotency.MAX_RECORDS)
+        self.assertNotIn("one-too-many", preserved)
+
+    def test_concurrent_processes_create_one_claim(self) -> None:
+        context = multiprocessing.get_context("spawn")
+        start = context.Event()
+        results = context.Queue()
+        workers = [
+            context.Process(
+                target=_claim_in_child,
+                args=(str(self.root), self.key, start, results),
+            )
+            for _ in range(8)
+        ]
+        for worker in workers:
+            worker.start()
+        start.set()
+        for worker in workers:
+            worker.join(timeout=20)
+            self.assertFalse(worker.is_alive(), "operation claimant timed out")
+            self.assertEqual(worker.exitcode, 0)
+
+        states = [results.get(timeout=5) for _ in workers]
+        self.assertEqual(states.count(FRESH), 1, states)
+        self.assertEqual(states.count(IN_FLIGHT), len(workers) - 1, states)
 
 
 class OpenPrTests(unittest.TestCase):
@@ -207,6 +293,23 @@ class OpenPrTests(unittest.TestCase):
         self.assertEqual(retry["error_code"], "PR_STATE_UNCERTAIN")
         # The message has to tell the user what to actually do about it.
         self.assertIn("may already exist", retry["message"])
+
+    def test_claim_persistence_failure_blocks_before_github_dispatch(self) -> None:
+        calls = []
+        executor = self._executor()
+
+        with (
+            mock.patch("opaihub.idempotency._save", side_effect=OSError("disk full")),
+            mock.patch(
+                "opaihub.github_connector.create_pull_request",
+                side_effect=lambda *args, **kwargs: calls.append((args, kwargs)),
+            ),
+        ):
+            result = executor._open_pr({"title": "Fix the bug", "base": "main"})
+
+        self.assertEqual(calls, [])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_code"], "PR_STATE_UNCERTAIN")
 
     def test_a_rejected_request_leaves_a_corrected_retry_free(self) -> None:
         executor = self._executor()
