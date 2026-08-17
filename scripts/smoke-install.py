@@ -32,6 +32,7 @@ _EXPECTED_PROVIDER_CATALOG_IDS = (
     "gemini",
     "groq",
     "mistral",
+    "deepseek",
     "ollama",
     "openai-compatible",
 )
