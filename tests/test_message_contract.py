@@ -125,7 +125,8 @@ class AccountStatusContractTests(_Base):
         self.assertEqual(res["raw_result"]["provider_condition"], "responsive")
         self.assertEqual(res["raw_result"]["partial_answer"], "partial work")
         self.assertEqual(res["raw_result"]["cost_usd"], 0.04)
-        self.assertEqual(res["raw_result"]["cost_integrity"], "complete")
+        self.assertEqual(res["raw_result"]["cost_integrity"], "unreconciled")
+        self.assertTrue(res["raw_result"]["cost_unreconciled"])
         self.assertTrue(
             any(path.endswith("retained.txt") for path in res["changed_files"])
         )

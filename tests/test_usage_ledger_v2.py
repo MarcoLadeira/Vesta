@@ -12,16 +12,24 @@ from opaihub import ledger
 from opaihub.atomic_io import atomic_write_text
 from opaihub.ledger import (
     EVENT_MODEL_CALL,
+    EVENT_MODEL_CALL_NOT_DISPATCHED,
     EVENT_MODEL_CALL_STARTED,
+    EVENT_MODEL_CALL_USAGE_OBSERVED,
     EVENT_USAGE_BASELINE_RESET,
     MODEL_CALL_SCHEMA_VERSION,
     ledger_head_path,
     ledger_path,
     read_events,
+    reconcile_observed_model_calls,
     record_event,
     record_model_call_finalized,
+    record_model_call_not_dispatched,
     record_model_call_started,
+    record_model_call_usage_observed,
     reset_usage_baseline,
+    summarize_ledger,
+    pending_model_call_observations,
+    unresolved_model_calls,
 )
 from opaihub.usage_report import ProviderTurnUsage
 
@@ -224,6 +232,143 @@ def test_start_and_finalize_are_idempotent(tmp_path: Path) -> None:
     head = _head(tmp_path)
     assert head["active_calls"] == {}
     assert "finalized_calls" not in head
+
+
+def test_usage_observation_is_a_durable_outbox_until_finalized(tmp_path: Path) -> None:
+    _start(tmp_path)
+    observed = record_model_call_usage_observed(
+        tmp_path,
+        "private task text",
+        call_id="run-1:1",
+        usage=_turn(),
+    )
+
+    assert observed["event_type"] == EVENT_MODEL_CALL_USAGE_OBSERVED
+    assert observed["cost_usd"] == 0.25
+    assert pending_model_call_observations(tmp_path) == [observed]
+    assert len(unresolved_model_calls(tmp_path)) == 1
+
+    [finalized] = reconcile_observed_model_calls(tmp_path)
+
+    assert finalized["event_type"] == EVENT_MODEL_CALL
+    assert finalized["cost_usd"] == 0.25
+    assert pending_model_call_observations(tmp_path) == []
+    assert unresolved_model_calls(tmp_path) == []
+    assert summarize_ledger(tmp_path)["model_call_count"] == 1
+    assert reconcile_observed_model_calls(tmp_path) == []
+    assert [event["event_type"] for event in read_events(tmp_path)] == [
+        EVENT_MODEL_CALL_STARTED,
+        EVENT_MODEL_CALL_USAGE_OBSERVED,
+        EVENT_MODEL_CALL,
+    ]
+
+
+def test_replayed_usage_observation_cannot_double_charge(tmp_path: Path) -> None:
+    _start(tmp_path)
+    first = record_model_call_usage_observed(
+        tmp_path, "task", call_id="run-1:1", usage=_turn()
+    )
+    repeated = record_model_call_usage_observed(
+        tmp_path, "different task", call_id="run-1:1", usage=_turn(total=999)
+    )
+
+    assert repeated == first
+    assert len(pending_model_call_observations(tmp_path)) == 1
+    assert len(reconcile_observed_model_calls(tmp_path)) == 1
+    assert reconcile_observed_model_calls(tmp_path) == []
+    assert summarize_ledger(tmp_path)["model_call_count"] == 1
+
+
+def test_malformed_observation_is_not_promoted_to_authoritative_cost(
+    tmp_path: Path,
+) -> None:
+    _start(tmp_path)
+    record_event(
+        tmp_path,
+        EVENT_MODEL_CALL_USAGE_OBSERVED,
+        task="task",
+        call_id="run-1:1",
+        turn_index=1,
+        cost_usd="not-a-number",
+        cost_usd_provenance="actual",
+    )
+
+    assert reconcile_observed_model_calls(tmp_path) == []
+    assert len(pending_model_call_observations(tmp_path)) == 1
+    assert len(unresolved_model_calls(tmp_path)) == 1
+    assert summarize_ledger(tmp_path)["model_call_count"] == 0
+
+
+def test_proven_non_dispatch_closes_without_counting_a_model_call(
+    tmp_path: Path,
+) -> None:
+    _start(tmp_path)
+
+    closed = record_model_call_not_dispatched(
+        tmp_path,
+        "task",
+        call_id="run-1:1",
+        reason_code="AUTH_INVALID",
+    )
+    repeated = record_model_call_not_dispatched(
+        tmp_path,
+        "different task",
+        call_id="run-1:1",
+        reason_code="CONFIG_INVALID",
+    )
+
+    assert repeated == closed
+    assert closed["event_type"] == EVENT_MODEL_CALL_NOT_DISPATCHED
+    assert closed["dispatch_proof"] == "not_dispatched"
+    assert unresolved_model_calls(tmp_path) == []
+    assert summarize_ledger(tmp_path)["model_call_count"] == 0
+    assert [event["event_type"] for event in read_events(tmp_path)] == [
+        EVENT_MODEL_CALL_STARTED,
+        EVENT_MODEL_CALL_NOT_DISPATCHED,
+    ]
+
+
+def test_ambiguous_failure_cannot_be_recorded_as_non_dispatch(tmp_path: Path) -> None:
+    _start(tmp_path)
+
+    with pytest.raises(ValueError, match="does not prove non-dispatch"):
+        record_model_call_not_dispatched(
+            tmp_path,
+            "task",
+            call_id="run-1:1",
+            reason_code="PROVIDER_TIMEOUT",
+        )
+
+    assert len(unresolved_model_calls(tmp_path)) == 1
+
+
+def test_finalized_usage_keeps_measured_cost_and_tier_estimate_separate(
+    tmp_path: Path,
+) -> None:
+    _start(tmp_path)
+    usage = ProviderTurnUsage.from_provider(
+        turn_index=1,
+        total=100,
+        cost_usd=0.0,
+        cost_provenance="actual",
+        tier_estimate_usd=0.25,
+        estimated_actual_usd=0.25,
+        estimated_actual_provenance="estimated",
+    )
+
+    event = record_model_call_finalized(
+        tmp_path,
+        "task",
+        call_id="run-1:1",
+        usage=usage,
+    )
+
+    assert event["cost_usd"] == 0.0
+    assert event["cost_usd_provenance"] == "actual"
+    assert event["tier_estimate_usd"] == 0.25
+    assert event["tier_estimate_usd_provenance"] == "estimated"
+    assert event["estimated_actual_usd"] == 0.25
+    assert event["estimated_actual_usd_provenance"] == "estimated"
 
 
 def test_repeated_start_with_conflicting_identity_fails_closed(tmp_path: Path) -> None:

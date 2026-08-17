@@ -32,6 +32,12 @@ import tempfile
 from pathlib import Path
 
 from opaihub.ask import _complete_streaming, _supports_kwarg
+from opaihub.ledger import read_events
+from opaihub.provider_invocation import (
+    INVOCATION_PROTOCOL_VERSION,
+    ProviderInvocationCompatibilityError,
+    ProviderInvocationPlan,
+)
 from tests._helpers import make_repo
 
 
@@ -183,6 +189,53 @@ class CompleteStreamingSingleDispatchTests(unittest.TestCase):
         )
 
 
+class ProviderInvocationPlanTests(unittest.TestCase):
+    def test_required_capability_is_rejected_before_the_callable_runs(self):
+        calls = []
+
+        def complete(prompt, *, system=None):
+            calls.append(prompt)
+            return "answer"
+
+        plan = ProviderInvocationPlan.prepare(
+            complete,
+            provider_id="ollama",
+            method_name="complete",
+        )
+        with self.assertRaises(ProviderInvocationCompatibilityError):
+            plan.keyword_arguments(
+                required={"system": "system", "project_root": self},
+            )
+        self.assertEqual(calls, [])
+
+    def test_compiled_plan_has_one_versioned_execution_point(self):
+        calls = []
+
+        def complete(prompt, **kwargs):
+            calls.append((prompt, kwargs))
+            return "answer"
+
+        plan = ProviderInvocationPlan.prepare(
+            complete,
+            provider_id="claude",
+            method_name="complete",
+        )
+        kwargs = plan.keyword_arguments(
+            required={"project_root": self, "allow_edits": False},
+            optional={"operation_id": "operation-1"},
+        )
+
+        self.assertEqual(plan.invoke("task", kwargs), "answer")
+        self.assertEqual(len(calls), 1)
+        descriptor = plan.to_dict(
+            operation_id="operation-1",
+            model_id="account:claude:sonnet",
+        )
+        self.assertEqual(descriptor["schema_version"], INVOCATION_PROTOCOL_VERSION)
+        self.assertTrue(descriptor["single_dispatch"])
+        self.assertTrue(descriptor["native_operation_id"])
+
+
 class AskAccountSingleDispatchTests(unittest.TestCase):
     """The second site the issue names: opai/app_state.py's account
     dispatch. Same reproduction shape, now against a fake mimicking
@@ -301,6 +354,33 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
         self.assertEqual(result["status"], "answered_by_account")
         self.assertTrue(received.get("operation_id"))
         self.assertEqual(received["operation_id"], result["ledger_call_id"])
+        descriptor = result["provider_invocation"]
+        self.assertEqual(descriptor["operation_id"], result["operation_id"])
+        self.assertEqual(descriptor["schema_version"], INVOCATION_PROTOCOL_VERSION)
+        self.assertTrue(descriptor["single_dispatch"])
+
+    def test_incompatible_runner_is_rejected_before_operation_or_dispatch(self):
+        from opai.app_state import _ask_account
+
+        calls = []
+
+        def complete(*, project_root=None, allow_edits=False):
+            calls.append(1)
+            return {"text": "should not run", "cost": 0.01}
+
+        run = self._fake_account_runner_module(complete)
+        result = _ask_account(
+            self.root,
+            "do a paid task",
+            "claude",
+            runner=run,
+        )
+
+        self.assertEqual(result["status"], "capability_mismatch")
+        self.assertEqual(result["error"]["code"], "ADAPTER_INCOMPATIBLE")
+        self.assertFalse(result["operation_recorded"])
+        self.assertEqual(calls, [])
+        self.assertEqual(read_events(self.root), [])
 
 
 if __name__ == "__main__":

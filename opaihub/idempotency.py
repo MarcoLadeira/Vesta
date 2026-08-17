@@ -44,27 +44,30 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .state import state_dir
 
 FRESH = "fresh"
 IN_FLIGHT = "in_flight"
 DONE = "done"
 
-# An operation that started and never confirmed stays uncertain for this long.
-# Past it the record is treated as abandoned rather than uncertain forever: a
-# process that died mid-PUSH days ago should not block the user permanently.
-# Deliberately generous — an outward side effect wrongly repeated is worse than
-# one the user has to confirm by hand.
+# After this long an unresolved operation is explicitly stale and requires
+# reconciliation. Time alone never proves that an external effect did not
+# happen, so expiry cannot make the operation fresh again (#616).
 UNCERTAIN_TTL_SECONDS = 24 * 3600.0
 
-# Bound the store so a long-lived workspace cannot grow it without limit.
+# Bound the store without deleting exact-once history. At capacity, new claims
+# fail closed until confirmed history is deliberately archived by a future
+# reconciliation/retention policy.
 MAX_RECORDS = 512
+
+
+class OperationPersistenceError(OSError):
+    """The exact-once claim store could not preserve a trustworthy state."""
 
 
 def operation_key(kind: str, **parts: Any) -> str:
@@ -99,61 +102,90 @@ def _path(project_root: Path) -> Path:
 
 
 def _load(project_root: Path) -> dict[str, Any]:
+    path = _path(project_root)
     try:
-        data = json.loads(_path(project_root).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, ValueError):
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return {}
-    return data if isinstance(data, dict) else {}
+    except OSError as exc:
+        raise OperationPersistenceError("operation claim store is unreadable") from exc
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise OperationPersistenceError("operation claim store is corrupt") from exc
+    if not isinstance(data, dict):
+        raise OperationPersistenceError("operation claim store has an invalid schema")
+    return data
 
 
 def _save(project_root: Path, store: dict[str, Any]) -> None:
     if len(store) > MAX_RECORDS:
-        # Drop the oldest by timestamp. Confirmed records are the ones safe to
-        # forget first: re-running a `done` operation is at worst wasted work,
-        # while forgetting an `in_flight` one loses a real uncertainty.
-        ordered = sorted(
-            store.items(),
-            key=lambda item: (
-                0 if str(item[1].get("state")) == IN_FLIGHT else 1,
-                -float(item[1].get("at") or 0.0),
-            ),
+        raise OperationPersistenceError(
+            "operation claim store is full and requires reconciliation"
         )
-        store = dict(ordered[:MAX_RECORDS])
     path = _path(project_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(store, sort_keys=True, indent=2) + "\n")
-        os.replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+        atomic_write_text(path, json.dumps(store, sort_keys=True, indent=2) + "\n")
+    except OSError as exc:
+        raise OperationPersistenceError("operation claim store is unwritable") from exc
+
+
+def _blocked(key: str, exc: BaseException) -> dict[str, Any]:
+    return {
+        "state": IN_FLIGHT,
+        "result": {},
+        "key": str(key),
+        "persistence_blocked": True,
+        "requires_reconciliation": True,
+        "reason": str(exc)[:200],
+    }
+
+
+def _status_from_store(
+    store: dict[str, Any], key: str, *, now: float | None = None
+) -> dict[str, Any]:
+    stable_key = str(key)
+    if stable_key not in store:
+        return {"state": FRESH, "result": {}, "key": stable_key}
+    entry = store.get(stable_key)
+    if not isinstance(entry, dict):
+        raise OperationPersistenceError("operation claim record has an invalid schema")
+    state = str(entry.get("state") or "")
+    stamp = time.time() if now is None else float(now)
+    try:
+        at = float(entry["at"])
+    except (TypeError, ValueError):
+        raise OperationPersistenceError(
+            "operation claim record has an invalid timestamp"
+        ) from None
+    except KeyError:
+        raise OperationPersistenceError(
+            "operation claim record has no timestamp"
+        ) from None
+    if state not in {IN_FLIGHT, DONE}:
+        raise OperationPersistenceError("operation claim record has an invalid state")
+    result = entry.get("result")
+    if not isinstance(result, dict):
+        raise OperationPersistenceError("operation claim result has an invalid schema")
+    outcome = {
+        "state": state,
+        "result": result,
+        "key": stable_key,
+        "at": at,
+    }
+    if state == IN_FLIGHT and (stamp - at) > UNCERTAIN_TTL_SECONDS:
+        outcome["expired"] = True
+        outcome["requires_reconciliation"] = True
+    return outcome
 
 
 def status(project_root: Path, key: str, *, now: float | None = None) -> dict[str, Any]:
     """What is known about ``key`` without changing anything."""
-    entry = _load(project_root).get(str(key))
-    if not isinstance(entry, dict):
-        return {"state": FRESH, "result": {}, "key": str(key)}
-    state = str(entry.get("state") or "")
-    stamp = time.time() if now is None else float(now)
     try:
-        at = float(entry.get("at") or 0.0)
-    except (TypeError, ValueError):
-        at = 0.0
-    if state == IN_FLIGHT and (stamp - at) > UNCERTAIN_TTL_SECONDS:
-        # Old enough that holding the user hostage to it helps nobody.
-        return {"state": FRESH, "result": {}, "key": str(key), "expired": True}
-    if state not in {IN_FLIGHT, DONE}:
-        return {"state": FRESH, "result": {}, "key": str(key)}
-    result = entry.get("result")
-    return {
-        "state": state,
-        "result": result if isinstance(result, dict) else {},
-        "key": str(key),
-        "at": at,
-    }
+        with interprocess_transaction(_path(project_root)):
+            return _status_from_store(_load(project_root), str(key), now=now)
+    except (OSError, ValueError) as exc:
+        return _blocked(str(key), exc)
 
 
 def begin(project_root: Path, key: str, *, now: float | None = None) -> dict[str, Any]:
@@ -166,20 +198,18 @@ def begin(project_root: Path, key: str, *, now: float | None = None) -> dict[str
     Only a ``fresh`` key is claimed — this never overwrites an existing record,
     because that would erase the very uncertainty it exists to preserve.
     """
-    current = status(project_root, key, now=now)
-    if current["state"] != FRESH:
-        return current
-    stamp = time.time() if now is None else float(now)
     try:
-        store = _load(project_root)
-        store[str(key)] = {"state": IN_FLIGHT, "at": stamp, "result": {}}
-        _save(project_root, store)
-    except OSError:
-        # An unwritable store must not block the user's work. The cost is that
-        # this one operation loses its duplicate protection, which is the same
-        # position OPai was in before this module existed — never worse.
-        return {"state": FRESH, "result": {}, "key": str(key), "unrecorded": True}
-    return current
+        with interprocess_transaction(_path(project_root)):
+            store = _load(project_root)
+            current = _status_from_store(store, str(key), now=now)
+            if current["state"] != FRESH:
+                return current
+            stamp = time.time() if now is None else float(now)
+            store[str(key)] = {"state": IN_FLIGHT, "at": stamp, "result": {}}
+            _save(project_root, store)
+            return current
+    except (OSError, ValueError) as exc:
+        return _blocked(str(key), exc)
 
 
 def complete(
@@ -191,7 +221,7 @@ def complete(
 ) -> None:
     """Confirm ``key`` succeeded, recording a small result summary."""
     stamp = time.time() if now is None else float(now)
-    try:
+    with interprocess_transaction(_path(project_root)):
         store = _load(project_root)
         store[str(key)] = {
             "state": DONE,
@@ -199,8 +229,6 @@ def complete(
             "result": _clean_result(result),
         }
         _save(project_root, store)
-    except OSError:
-        return
 
 
 def abandon(project_root: Path, key: str) -> None:
@@ -211,13 +239,11 @@ def abandon(project_root: Path, key: str) -> None:
     machine. A network timeout is **not** one of those: the request may have
     arrived, so its key must stay ``in_flight``.
     """
-    try:
+    with interprocess_transaction(_path(project_root)):
         store = _load(project_root)
         if str(key) in store:
             store.pop(str(key), None)
             _save(project_root, store)
-    except OSError:
-        return
 
 
 def _clean_result(result: dict[str, Any] | None) -> dict[str, Any]:
