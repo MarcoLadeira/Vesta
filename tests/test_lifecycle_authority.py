@@ -75,6 +75,13 @@ REVIEWED_LITERALS: dict[str, str] = {
         "GUI workflow-phase vocabulary used only to detect a safe replacement "
         "boundary. A workflow phase is active work, not a run lifecycle state."
     ),
+    "opaihub/change_attribution.py": (
+        "external-operation and change-set outcomes for #620 run-scoped "
+        "attribution (intent / succeeded / uncertain, plus worktree probe "
+        "kinds). These describe whether a repository *mutation* happened and "
+        "who caused it, not what state a run is in; the overlap with the "
+        "lifecycle is only the generic words 'failed' and 'cancelled'."
+    ),
     "opaihub/checkpoints.py": (
         "checkpoint outcomes (answered / read_only / cancelled_before_edit). A "
         "different domain that happens to share several words."

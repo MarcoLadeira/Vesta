@@ -558,9 +558,7 @@ class RepositorySnapshot:
             raise ValueError("paths must contain PathIdentity values")
         if len({item.path_bytes_hex for item in paths}) != len(paths):
             raise ValueError("paths must not contain duplicate raw identities")
-        if status == "available" and any(
-            not item.filesystem_alias for item in paths
-        ):
+        if status == "available" and any(not item.filesystem_alias for item in paths):
             raise ValueError(
                 "available path evidence requires a probed filesystem alias"
             )
@@ -1217,8 +1215,7 @@ class ChangeSet:
         payload = _mapping(value, "change_set")
         if payload.get("schema_version") != SCHEMA_VERSION:
             raise ValueError(
-                "unsupported ChangeSet schema_version: "
-                f"{payload.get('schema_version')}"
+                f"unsupported ChangeSet schema_version: {payload.get('schema_version')}"
             )
         terminal_raw = payload.get("terminal_snapshot")
         change_set = cls(
