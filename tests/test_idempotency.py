@@ -406,9 +406,12 @@ class CommentPrTests(unittest.TestCase):
         attempts: list[int] = []
 
         def run(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                # The reconcile read: GitHub reachable, comment absent.
+                return '{"comments": []}'
             attempts.append(1)
             if len(attempts) == 1:
-                raise RuntimeError("gh not installed")
+                raise RuntimeError("gh exited non-zero")
             return "posted"
 
         adapter = self._adapter(run)
@@ -568,6 +571,10 @@ class MergePrTests(unittest.TestCase):
         attempts: list[int] = []
 
         def run(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                # The reconcile read: GitHub reachable, PR observably open —
+                # the failed merge provably never landed.
+                return '{"state": "OPEN"}'
             attempts.append(1)
             if len(attempts) == 1:
                 raise RuntimeError("required checks are still pending")
@@ -581,12 +588,14 @@ class MergePrTests(unittest.TestCase):
 
     def test_an_unconfirmed_attempt_fails_closed_as_uncertain(self) -> None:
         # Simulated crash: the key stays in_flight because the process died
-        # between GitHub accepting the merge and OPai recording it. A retry
-        # must refuse to guess — never a silent second merge, never a false
-        # "merged".
+        # between GitHub accepting the merge and OPai recording it. With the
+        # remote unobservable, a retry must refuse to guess — never a silent
+        # second merge, never a false "merged".
         from opaihub.idempotency import begin, operation_key
 
         def run(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                raise RuntimeError("network unreachable")
             raise AssertionError("must not dispatch while uncertain")
 
         adapter = self._adapter(run)
@@ -1172,6 +1181,216 @@ class ApplyPatchToolTests(unittest.TestCase):
         )
         self.assertFalse(result["ok"], result)
         self.assertEqual(result["error_code"], "PATCH_CHECK_FAILED")
+
+
+class GithubAdapterReconcileTests(unittest.TestCase):
+    """#616 reconciliation for the gh-CLI adapter: a lost response is settled
+    by observing GitHub, never by guessing.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _adapter(self, run):
+        from opaihub.github_workflow import GitHubAdapter
+
+        adapter = GitHubAdapter(self.root)
+        adapter._run = run  # type: ignore[method-assign]
+        return adapter
+
+    def test_a_lost_merge_that_landed_is_confirmed_not_repeated(self) -> None:
+        dispatches: list[list[str]] = []
+
+        def run(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return '{"state": "MERGED"}'
+            dispatches.append(list(args))
+            raise RuntimeError("network connection lost")
+
+        adapter = self._adapter(run)
+        # The merge "failed" from gh's perspective, but GitHub says MERGED:
+        # the answer is the confirmation, not a second merge.
+        self.assertEqual(adapter.merge_pr(9), "confirmed merged")
+        self.assertEqual(len(dispatches), 1)
+
+    def test_an_unconfirmed_merge_with_an_open_pr_retries_safely(self) -> None:
+        from opaihub.idempotency import begin, operation_key
+
+        dispatches: list[list[str]] = []
+
+        def run(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return '{"state": "OPEN"}'
+            dispatches.append(list(args))
+            return "merged"
+
+        adapter = self._adapter(run)
+        key = operation_key("merge_pr", root=str(self.root), pr=9, method="squash")
+        self.assertEqual(begin(self.root, key)["state"], "fresh")
+        self.assertEqual(adapter.merge_pr(9), "merged")
+        self.assertEqual(len(dispatches), 1)
+
+    def test_a_lost_comment_that_landed_is_confirmed_not_repeated(self) -> None:
+        dispatches: list[list[str]] = []
+
+        def run(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return '{"comments": [{"body": "Looks good to me"}]}'
+            dispatches.append(list(args))
+            raise RuntimeError("network connection lost")
+
+        adapter = self._adapter(run)
+        self.assertEqual(
+            adapter.comment_pr(4, "Looks good to me"), "confirmed on GitHub"
+        )
+        self.assertEqual(len(dispatches), 1)
+
+    def test_an_unconfirmed_comment_absent_on_github_posts_normally(self) -> None:
+        from opaihub.idempotency import begin, operation_key
+
+        dispatches: list[list[str]] = []
+
+        def run(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return '{"comments": []}'
+            dispatches.append(list(args))
+            return "posted"
+
+        adapter = self._adapter(run)
+        key = operation_key(
+            "comment_pr", root=str(self.root), pr=4, body="LGTM"
+        )
+        self.assertEqual(begin(self.root, key)["state"], "fresh")
+        self.assertEqual(adapter.comment_pr(4, "LGTM"), "posted")
+        self.assertEqual(len(dispatches), 1)
+
+
+class GithubToolReconcileTests(unittest.TestCase):
+    """#616 reconciliation for the provider_tools GitHub writes: transport
+    loss marks the operation uncertain, and the next attempt settles it by
+    reading GitHub rather than re-posting blind.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _executor(self):
+        from opaihub.provider_tools import RepositoryToolExecutor
+
+        executor = RepositoryToolExecutor(
+            self.root, allow_edits=True, allow_git_ops=True, allow_github_write=True
+        )
+        executor._current_branch = lambda: "feature-branch"  # type: ignore[method-assign]
+        return executor
+
+    def test_a_lost_pr_creation_reconciles_to_the_existing_pr(self) -> None:
+        creates: list[dict] = []
+
+        def fake_create(root, **kwargs):
+            creates.append(kwargs)
+            return {"ok": False, "uncertain": True, "error": "response lost"}
+
+        def fake_find(root, *, head, base="main", **kwargs):
+            return {"ok": True, "found": True, "url": "https://example/pr/9", "number": 9}
+
+        executor = self._executor()
+        with mock.patch(
+            "opaihub.github_connector.create_pull_request", side_effect=fake_create
+        ):
+            first = executor._open_pr({"title": "Fix", "base": "main"})
+        self.assertEqual(first["error_code"], "PR_STATE_UNCERTAIN")
+        with mock.patch(
+            "opaihub.github_connector.find_pull_request", side_effect=fake_find
+        ):
+            second = executor._open_pr({"title": "Fix", "base": "main"})
+        self.assertTrue(second["ok"], second)
+        self.assertIn("confirmed on GitHub", second["message"])
+        self.assertEqual(len(creates), 1)
+
+    def test_a_lost_pr_creation_with_no_pr_on_github_retries(self) -> None:
+        calls: list[dict] = []
+
+        def fake_create(root, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return {"ok": False, "uncertain": True, "error": "response lost"}
+            return {"ok": True, "url": "https://example/pr/9", "number": 9}
+
+        def fake_find(root, *, head, base="main", **kwargs):
+            return {"ok": True, "found": False}
+
+        executor = self._executor()
+        with mock.patch(
+            "opaihub.github_connector.create_pull_request", side_effect=fake_create
+        ):
+            first = executor._open_pr({"title": "Fix", "base": "main"})
+            self.assertEqual(first["error_code"], "PR_STATE_UNCERTAIN")
+            with mock.patch(
+                "opaihub.github_connector.find_pull_request", side_effect=fake_find
+            ):
+                second = executor._open_pr({"title": "Fix", "base": "main"})
+        self.assertTrue(second["ok"], second)
+        self.assertEqual(len(calls), 2)
+
+    def test_a_lost_comment_reconciles_to_the_existing_comment(self) -> None:
+        posts: list[dict] = []
+
+        def fake_add(root, number, body, **kwargs):
+            posts.append({"number": number, "body": body})
+            return {"ok": False, "uncertain": True, "error": "response lost"}
+
+        def fake_find(root, number, *, body, **kwargs):
+            return {"ok": True, "found": True, "url": "https://example/pr/5#c1"}
+
+        executor = self._executor()
+        executor.grant_command_once("gh pr comment 5")
+        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+            first = executor._github_comment({"number": 5, "body": "hi"})
+        self.assertEqual(first["error_code"], "COMMENT_STATE_UNCERTAIN")
+        with mock.patch(
+            "opaihub.github_connector.find_comment", side_effect=fake_find
+        ):
+            second = executor._github_comment({"number": 5, "body": "hi"})
+        self.assertTrue(second["ok"], second)
+        self.assertIn("confirmed", second["message"])
+        self.assertEqual(len(posts), 1)
+
+    def test_a_lost_review_request_reconciles_to_requested_reviewers(self) -> None:
+        calls: list[dict] = []
+
+        def fake_request(root, number, reviewers, **kwargs):
+            calls.append({"number": number})
+            return {"ok": False, "uncertain": True, "error": "response lost"}
+
+        def fake_find(root, number, reviewers, **kwargs):
+            return {"ok": True, "found": True}
+
+        executor = self._executor()
+        executor.grant_command_once("gh pr edit 7 --add-reviewer alice")
+        with mock.patch(
+            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+        ):
+            first = executor._github_request_review(
+                {"number": 7, "reviewers": ["alice"]}
+            )
+        self.assertEqual(first["error_code"], "REVIEW_REQUEST_UNCERTAIN")
+        with mock.patch(
+            "opaihub.github_connector.find_requested_reviewers", side_effect=fake_find
+        ):
+            second = executor._github_request_review(
+                {"number": 7, "reviewers": ["alice"]}
+            )
+        self.assertTrue(second["ok"], second)
+        self.assertIn("confirmed", second["message"])
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":  # pragma: no cover

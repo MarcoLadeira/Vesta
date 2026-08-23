@@ -1307,7 +1307,7 @@ class RepositoryToolExecutor:
         # #295 gate 4: a retried, resumed or reconnected turn must not open a
         # second pull request. The key is the request's identity — repo, branch
         # pair, title — never an attempt counter, or every retry would look new.
-        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
         from .idempotency import operation_key
 
         body = str(arguments.get("body") or "")
@@ -1324,14 +1324,28 @@ class RepositoryToolExecutor:
                 message=f"PR already open: {recorded.get('url', '')}",
             ).to_dict()
         if prior["state"] == IN_FLIGHT:
-            # Started and never confirmed: the PR may exist. Opening another is
-            # the duplicate this gate forbids, and claiming success would be a
-            # lie — so report the uncertainty and let a human settle it.
-            return _error(
-                "PR_STATE_UNCERTAIN",
-                "An earlier attempt to open this pull request did not confirm. "
-                "It may already exist — check the repository before retrying.",
-            )
+            # Started and never confirmed: the PR may exist. Reconcile against
+            # GitHub — the head/base pair is the PR's observable identity —
+            # before deciding whether any retry is safe (#616).
+            reconciled, decided = self._reconcile_open_pr(key, head, base)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "PR_STATE_UNCERTAIN",
+                    "An earlier attempt to open this pull request did not "
+                    "confirm, and GitHub could not be checked. It may already "
+                    "exist — check the repository before retrying.",
+                )
+            # GitHub answered and no such PR exists: the earlier attempt
+            # provably never landed. Claim fresh and continue below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "PR_STATE_UNCERTAIN",
+                    "PR operation state changed during reconciliation; "
+                    "check the repository before retrying.",
+                )
         result = create_pull_request(
             self.repo_root,
             title=title,
@@ -1340,8 +1354,17 @@ class RepositoryToolExecutor:
             base=base,
         )
         if not result.get("ok"):
-            # A refused or invalid request never reached GitHub, so the key is
-            # released and a corrected retry is free to proceed.
+            if result.get("uncertain"):
+                # The request left the machine but no response came back —
+                # the PR may exist. Keep the claim; the next attempt
+                # reconciles instead of duplicating.
+                return _error(
+                    "PR_STATE_UNCERTAIN",
+                    "The PR creation response was lost. The PR may already "
+                    "exist — it will be reconciled before any retry.",
+                )
+            # A refused or invalid request provably never created anything,
+            # so the key is released and a corrected retry is free to proceed.
             abandon(self.repo_root, key)
             return _error("GIT_PR_FAILED", str(result.get("error") or "PR failed"))
         complete(
@@ -1355,6 +1378,42 @@ class RepositoryToolExecutor:
             {"url": result.get("url", ""), "number": result.get("number")},
             message=f"Opened PR {result.get('url', '')}",
         ).to_dict()
+
+    def _reconcile_open_pr(
+        self, key: str, head: str, base: str
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Settle an uncertain open_pr by querying GitHub for the head/base pair.
+
+        ``(result, True)`` records and confirms a found PR; ``(None, True)``
+        proves no such PR exists and releases the key; ``(None, False)``
+        means GitHub could not be observed — the operation stays uncertain.
+        """
+        from .github_connector import find_pull_request
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        found = find_pull_request(self.repo_root, head=head, base=base)
+        if not found.get("ok"):
+            return None, False
+        if found.get("found"):
+            try:
+                complete(
+                    self.repo_root,
+                    key,
+                    {"url": found.get("url", ""), "number": found.get("number")},
+                )
+            except OperationPersistenceError:
+                return None, False
+            return Observation(
+                "open_pr",
+                True,
+                {"url": found.get("url", ""), "number": found.get("number")},
+                message=f"PR confirmed on GitHub: {found.get('url', '')}",
+            ).to_dict(), True
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
+        return None, True
 
     def _github_read(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Read-only GitHub context (PR/CI status or an issue) via the connector."""
@@ -1724,7 +1783,7 @@ class RepositoryToolExecutor:
         body = str(arguments.get("body") or "").strip()
         if not body:
             return _error("INVALID_TOOL_ARGUMENTS", "A comment body is required")
-        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
         from .idempotency import operation_key
 
         # #295 gate 4 / #541: a retried, resumed or reconnected turn must not
@@ -1745,11 +1804,28 @@ class RepositoryToolExecutor:
                 message=f"Already commented on #{number}",
             ).to_dict()
         if prior["state"] == IN_FLIGHT:
-            return _error(
-                "COMMENT_STATE_UNCERTAIN",
-                "An earlier attempt to post this comment did not confirm. "
-                "It may already be on GitHub — check before retrying.",
-            )
+            # Started and never confirmed: the comment may exist. Reconcile
+            # against GitHub — the exact body on this issue/PR is observable —
+            # before deciding whether any retry is safe (#616).
+            reconciled, decided = self._reconcile_comment(key, number, body)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "COMMENT_STATE_UNCERTAIN",
+                    "An earlier attempt to post this comment did not confirm, "
+                    "and GitHub could not be checked. It may already be on "
+                    "GitHub — check before retrying.",
+                )
+            # GitHub answered and the comment is not there: the earlier
+            # attempt provably never landed. Claim fresh and continue below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "COMMENT_STATE_UNCERTAIN",
+                    "Comment operation state changed during reconciliation; "
+                    "check GitHub before retrying.",
+                )
         # The approval card shows this reason verbatim, so it carries a preview of
         # the actual text: the Round 5 report's headline was a *fabricated* claim
         # of having posted a comment, and seeing the words before they go out is
@@ -1770,6 +1846,15 @@ class RepositoryToolExecutor:
 
         result = add_comment(self.repo_root, number, body)
         if not result.get("ok"):
+            if result.get("uncertain"):
+                # The request left the machine but no response came back —
+                # the comment may exist. Keep the claim; the next attempt
+                # reconciles instead of duplicating.
+                return _error(
+                    "COMMENT_STATE_UNCERTAIN",
+                    "The comment response was lost. It may already be on "
+                    "GitHub — it will be reconciled before any retry.",
+                )
             abandon(self.repo_root, key)
             return _error("GITHUB_WRITE_FAILED", str(result.get("error") or "failed"))
         complete(self.repo_root, key, {"url": result.get("url", "")})
@@ -1789,7 +1874,7 @@ class RepositoryToolExecutor:
         reviewers = [item for item in reviewers if item]
         if not reviewers:
             return _error("INVALID_TOOL_ARGUMENTS", "At least one reviewer is required")
-        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
         from .idempotency import operation_key
 
         # #616 / #295 gate 4: a review request notifies real people under the
@@ -1815,12 +1900,31 @@ class RepositoryToolExecutor:
                 message=f"Already requested review on #{number}",
             ).to_dict()
         if prior["state"] == IN_FLIGHT:
-            return _error(
-                "REVIEW_REQUEST_UNCERTAIN",
-                "An earlier attempt to request this review did not confirm. "
-                "The reviewers may already be notified — check the pull "
-                "request before retrying.",
+            # Started and never confirmed: the notification may have gone
+            # out. Reconcile against GitHub's requested-reviewers list before
+            # deciding whether any retry is safe (#616).
+            reconciled, decided = self._reconcile_review_request(
+                key, number, reviewers
             )
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "REVIEW_REQUEST_UNCERTAIN",
+                    "An earlier attempt to request this review did not "
+                    "confirm, and GitHub could not be checked. The reviewers "
+                    "may already be notified — check the pull request before "
+                    "retrying.",
+                )
+            # GitHub answered and the reviewers are not requested: the
+            # earlier attempt provably never landed. Claim fresh below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "REVIEW_REQUEST_UNCERTAIN",
+                    "Review-request operation state changed during "
+                    "reconciliation; check the pull request before retrying.",
+                )
         approval = self._needs_approval(
             f"gh pr edit {number} --add-reviewer " + ",".join(sorted(reviewers)),
             "Requesting a review notifies those people on GitHub.",
@@ -1835,6 +1939,16 @@ class RepositoryToolExecutor:
 
         result = request_reviewers(self.repo_root, number, reviewers)
         if not result.get("ok"):
+            if result.get("uncertain"):
+                # The request left the machine but no response came back —
+                # the notification may have gone out. Keep the claim; the
+                # next attempt reconciles instead of re-notifying.
+                return _error(
+                    "REVIEW_REQUEST_UNCERTAIN",
+                    "The review-request response was lost. The reviewers may "
+                    "already be notified — it will be reconciled before any "
+                    "retry.",
+                )
             abandon(self.repo_root, key)
             return _error("GITHUB_WRITE_FAILED", str(result.get("error") or "failed"))
         complete(self.repo_root, key, {"requested": result.get("requested", [])})
@@ -1844,6 +1958,75 @@ class RepositoryToolExecutor:
             {"requested": result.get("requested", [])},
             message=f"Requested review on #{number}",
         ).to_dict()
+
+    def _reconcile_comment(
+        self, key: str, number: int, body: str
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Settle an uncertain comment by searching the thread for its body.
+
+        ``(result, True)`` records and confirms a found comment;
+        ``(None, True)`` proves it absent and releases the key;
+        ``(None, False)`` keeps the operation uncertain.
+        """
+        from .github_connector import find_comment
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        found = find_comment(self.repo_root, number, body=body)
+        if not found.get("ok"):
+            return None, False
+        if found.get("found"):
+            try:
+                complete(self.repo_root, key, {"url": found.get("url", "")})
+            except OperationPersistenceError:
+                return None, False
+            return Observation(
+                "github_comment",
+                True,
+                {"url": found.get("url", "")},
+                message=f"Comment confirmed on #{number}",
+            ).to_dict(), True
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
+        return None, True
+
+    def _reconcile_review_request(
+        self, key: str, number: int, reviewers: list[str]
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Settle an uncertain review request via GitHub's requested_reviewers.
+
+        Requesting an already-requested reviewer is a GitHub-side no-op, so
+        finding every reviewer already requested confirms the operation;
+        finding any missing proves the request never landed and releases the
+        key. An unreachable GitHub keeps the operation uncertain.
+        """
+        from .github_connector import find_requested_reviewers
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        found = find_requested_reviewers(self.repo_root, number, reviewers)
+        if not found.get("ok"):
+            return None, False
+        if found.get("found"):
+            try:
+                complete(
+                    self.repo_root,
+                    key,
+                    {"requested": ",".join(sorted(reviewers))},
+                )
+            except OperationPersistenceError:
+                return None, False
+            return Observation(
+                "github_request_review",
+                True,
+                {"requested": sorted(reviewers)},
+                message=f"Review request on #{number} confirmed on GitHub",
+            ).to_dict(), True
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
+        return None, True
 
     def invoke(
         self,

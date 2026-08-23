@@ -1000,7 +1000,7 @@ class GitHubAdapter:
         number, body), never an attempt counter.
         """
 
-        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
         from .idempotency import operation_key
 
         key = operation_key(
@@ -1010,21 +1010,80 @@ class GitHubAdapter:
         if prior["state"] == DONE:
             return str(prior["result"].get("output") or "")
         if prior["state"] == IN_FLIGHT:
-            # Started and never confirmed. Posting again risks the duplicate;
-            # claiming success would be a lie. Say which it is.
-            raise RuntimeError(
-                "An earlier attempt to post this comment did not confirm. "
-                "It may already be on the pull request — check before retrying."
-            )
+            # Started and never confirmed. Reconcile against the thread —
+            # the exact body on this PR is observable — before deciding
+            # whether posting again is safe (#616).
+            reconciled, decided = self._reconcile_comment_pr(key, number, body)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                raise RuntimeError(
+                    "An earlier attempt to post this comment did not confirm, "
+                    "and GitHub could not be checked. It may already be on "
+                    "the pull request — check before retrying."
+                )
+            # GitHub answered and the comment is absent: the earlier attempt
+            # provably never landed. Claim fresh and continue below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                raise RuntimeError(
+                    "Comment operation state changed during reconciliation; "
+                    "check the pull request before retrying."
+                )
         try:
             output = self._run(["pr", "comment", str(number), "--body", body])
-        except (OSError, RuntimeError, ValueError):
-            # The gh invocation failed outright, so nothing was posted; release
-            # the key so a corrected retry can proceed.
+        except OSError:
+            # gh itself never ran: provably nothing was posted.
             abandon(self.repo_root, key)
+            raise
+        except (RuntimeError, ValueError) as exc:
+            # gh ran and failed. A refused post (4xx) provably landed nothing,
+            # but a network drop after GitHub accepted the comment exits
+            # nonzero too — reconcile before releasing the key (#616).
+            reconciled, decided = self._reconcile_comment_pr(key, number, body)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                raise RuntimeError(
+                    "The comment did not confirm and GitHub could not be "
+                    "checked. It may already be on the pull request — check "
+                    "before retrying."
+                ) from exc
             raise
         complete(self.repo_root, key, {"output": output})
         return output
+
+    def _reconcile_comment_pr(
+        self, key: str, number: int, body: str
+    ) -> tuple[str | None, bool]:
+        """Settle an uncertain comment by searching the thread for its body.
+
+        ``(output, True)`` records and confirms a found comment;
+        ``(None, True)`` proves it absent and releases the key;
+        ``(None, False)`` keeps the operation uncertain.
+        """
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        try:
+            raw = self._run(["pr", "view", str(number), "--json", "comments"])
+            comments = json.loads(raw).get("comments") or []
+        except (OSError, RuntimeError, ValueError, AttributeError):
+            return None, False
+        for comment in comments:
+            if (
+                isinstance(comment, dict)
+                and str(comment.get("body") or "").strip() == body.strip()
+            ):
+                try:
+                    complete(self.repo_root, key, {"output": "confirmed on GitHub"})
+                except OperationPersistenceError:
+                    return None, False
+                return "confirmed on GitHub", True
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
+        return None, True
 
     def merge_pr(self, number: int, *, method: str = "squash") -> str:
         if method not in {"merge", "squash", "rebase"}:
@@ -1036,7 +1095,7 @@ class GitHubAdapter:
         # GitHub accepted the merge must fail closed as uncertain rather than
         # silently dispatching a second merge. The key is the merge's identity
         # (repo, PR number, method), never an attempt counter.
-        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
         from .idempotency import operation_key
 
         key = operation_key(
@@ -1046,13 +1105,26 @@ class GitHubAdapter:
         if prior["state"] == DONE:
             return str(prior["result"].get("output") or "")
         if prior["state"] == IN_FLIGHT:
-            # Started and never confirmed. Merging again risks rewriting
-            # history expectations; claiming success would be a lie.
-            raise RuntimeError(
-                "An earlier attempt to merge this pull request did not "
-                "confirm. It may already be merged — check the repository "
-                "before retrying."
-            )
+            # Started and never confirmed. Reconcile against the PR's observed
+            # state — a merge is atomic server-side, so MERGED proves it
+            # landed and OPEN proves it did not (#616).
+            reconciled, decided = self._reconcile_merge_pr(key, number)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                raise RuntimeError(
+                    "An earlier attempt to merge this pull request did not "
+                    "confirm, and GitHub could not be checked. It may already "
+                    "be merged — check the repository before retrying."
+                )
+            # The PR is observably not merged: the earlier attempt provably
+            # never landed. Claim fresh and continue below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                raise RuntimeError(
+                    "Merge operation state changed during reconciliation; "
+                    "check the repository before retrying."
+                )
         started_at = time.monotonic()
         event = self._activity(
             "command_run",
@@ -1062,10 +1134,56 @@ class GitHubAdapter:
         )
         try:
             output = self._run(["pr", "merge", str(number), f"--{method}"])
-        except (OSError, RuntimeError, ValueError):
-            # The gh invocation failed outright (checks failing, gh missing,
-            # refused), so nothing was merged; release the key so a corrected
-            # retry can proceed.
+        except OSError:
+            # gh itself never ran: provably nothing was merged.
+            abandon(self.repo_root, key)
+            self._activity(
+                "command_complete",
+                "error",
+                "Pull request could not be merged",
+                event_id=event["id"],
+                duration_ms=int((time.monotonic() - started_at) * 1000),
+                metadata={"operation": "merge_pr", "pr": int(number), "method": method},
+            )
+            raise
+        except (RuntimeError, ValueError) as exc:
+            # gh ran and failed. A refusal (checks pending, not mergeable)
+            # provably merged nothing, but a network drop after GitHub
+            # accepted the merge exits nonzero too — reconcile before
+            # releasing the key (#616).
+            reconciled, decided = self._reconcile_merge_pr(key, number)
+            if reconciled is not None:
+                self._activity(
+                    "command_complete",
+                    "success",
+                    "Pull request merge confirmed on GitHub",
+                    event_id=event["id"],
+                    duration_ms=int((time.monotonic() - started_at) * 1000),
+                    metadata={
+                        "operation": "merge_pr",
+                        "pr": int(number),
+                        "method": method,
+                    },
+                )
+                return reconciled
+            if not decided:
+                self._activity(
+                    "command_complete",
+                    "error",
+                    "Pull request merge state is uncertain",
+                    event_id=event["id"],
+                    duration_ms=int((time.monotonic() - started_at) * 1000),
+                    metadata={
+                        "operation": "merge_pr",
+                        "pr": int(number),
+                        "method": method,
+                    },
+                )
+                raise RuntimeError(
+                    "The merge did not confirm and GitHub could not be "
+                    "checked. It may already be merged — check the repository "
+                    "before retrying."
+                ) from exc
             abandon(self.repo_root, key)
             self._activity(
                 "command_complete",
@@ -1086,6 +1204,36 @@ class GitHubAdapter:
         )
         complete(self.repo_root, key, {"output": output})
         return output
+
+    def _reconcile_merge_pr(
+        self, key: str, number: int
+    ) -> tuple[str | None, bool]:
+        """Settle an uncertain merge by observing the PR's state on GitHub.
+
+        A merge is atomic server-side: ``MERGED`` proves it landed (recorded
+        as done), ``OPEN``/``CLOSED`` prove this merge never did (key
+        released, retry free). Anything unobservable keeps it uncertain.
+        """
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        try:
+            raw = self._run(["pr", "view", str(number), "--json", "state"])
+            state = str(json.loads(raw).get("state") or "").upper()
+        except (OSError, RuntimeError, ValueError, AttributeError):
+            return None, False
+        if state == "MERGED":
+            try:
+                complete(self.repo_root, key, {"output": "confirmed merged"})
+            except OperationPersistenceError:
+                return None, False
+            return "confirmed merged", True
+        if state in {"OPEN", "CLOSED"}:
+            try:
+                abandon(self.repo_root, key)
+            except OperationPersistenceError:
+                return None, False
+            return None, True
+        return None, False
 
 
 class CodingWorkflow:
