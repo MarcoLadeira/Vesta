@@ -20,6 +20,7 @@ import time
 import uuid
 from contextlib import contextmanager
 
+from opaihub import shadow_journal
 from opaihub.generated_lifecycle import TERMINAL_STATE_IDS
 from opaihub.owner_lease import new_lease, owned_by_this_process
 from opaihub.owner_lease import touch as touch_lease
@@ -899,6 +900,66 @@ def _conversation_payload(root: Path, thread: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _valid_conversation_record(record: dict[str, Any]) -> bool:
+    """Accept exactly what :func:`_read_conversation` would accept.
+
+    Deliberately the same bar as the legacy reader rather than a stricter one.
+    A validator that demanded more than the module itself demands would drop
+    records the module considers real -- silent history loss, which is the
+    failure #613 exists to remove rather than to add a second copy of.
+    """
+
+    return (
+        isinstance(record.get("id"), str)
+        and bool(record.get("id"))
+        and record.get("schema_version") == CONVERSATION_SCHEMA_VERSION
+    )
+
+
+def conversation_shadow_projection(
+    workspace_root: str | Path, conversation_id: str
+) -> dict[str, Any]:
+    """Rebuild one saved conversation from its shadow journal."""
+
+    try:
+        target = _conversation_target(workspace_root, conversation_id)
+    except ValueError:
+        return {}
+    return shadow_journal.projection(target, is_valid_record=_valid_conversation_record)
+
+
+def conversation_contradiction_report(
+    workspace_root: str | Path, conversation_id: str
+) -> dict[str, Any] | None:
+    """``None`` when the saved conversation and its shadow agree, else what differs."""
+
+    try:
+        target = _conversation_target(workspace_root, conversation_id)
+    except ValueError:
+        return None
+    return shadow_journal.contradiction_report(
+        target,
+        lambda: _read_conversation_raw(target),
+        is_valid_record=_valid_conversation_record,
+        identity={"conversation_id": conversation_id},
+    )
+
+
+def _read_conversation_raw(path: Path) -> dict[str, Any]:
+    """Read the file as persisted, without :func:`_read_conversation`'s cleaning.
+
+    ``_read_conversation`` re-cleans messages and drops foreign schemas, which
+    is right for the sidebar but would hide the very divergence the
+    contradiction report exists to describe.
+    """
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
 def archive_conversation(
     workspace_root: str | Path, thread: dict[str, Any]
 ) -> dict[str, Any]:
@@ -917,7 +978,17 @@ def archive_conversation(
     try:
         target = _conversation_target(workspace_root, payload["id"])
         target.parent.mkdir(parents=True, exist_ok=True)
-        _write_thread_payload(target.parent, target, payload)
+        # #613 Stage 2: the archive write had no cross-process lock at all --
+        # only `save_thread` and friends used `_thread_transaction`. Two
+        # concurrent archives of one conversation could interleave, and the
+        # mirror would then record an order the file never took. Holding the
+        # module's own lock here makes the shadow order-faithful and fixes the
+        # underlying race for the legacy file at the same time.
+        with _thread_transaction(target.parent, target):
+            _write_thread_payload(target.parent, target, payload)
+            shadow_journal.record_snapshot(
+                target, payload, is_valid_record=_valid_conversation_record
+            )
         _prune_conversations(workspace_root)
     except (OSError, ValueError):
         return {}
@@ -1011,12 +1082,36 @@ def _prune_conversations(workspace_root: str | Path) -> None:
             # leaving it would only grow the folder forever.
             with _suppress_os_error():
                 path.unlink(missing_ok=True)
+            _tombstone(path)
             continue
         entries.append((record.get("updated_ts") or 0.0, path))
     entries.sort(key=lambda item: item[0], reverse=True)
     for _, path in entries[MAX_CONVERSATIONS:]:
         with _suppress_os_error():
             path.unlink(missing_ok=True)
+        _tombstone(path)
+
+
+def _tombstone(path: Path) -> None:
+    """Mirror a conversation's removal so the shadow forgets it too.
+
+    #613 Stage 2, and the single most important judgement call in this
+    migration. Retention pruning and :func:`clear_conversations` are both
+    *deliberate* removals, so the journal records a deletion rather than
+    quietly keeping the record.
+
+    Not tombstoning would have been the easier code and two separate bugs.
+    Pruning would have left the journal holding conversations past
+    ``MAX_CONVERSATIONS``, so Stage 5's cutover to canonical reads would flip
+    this workspace's retention from twenty conversations to unbounded without
+    anyone deciding that. Worse, ``clear_conversations`` would have left the
+    shadow holding chats the user explicitly deleted -- and this module's
+    stated privacy contract is that chat history is *clearable*. A shadow that
+    outlives an erasure is not a migration detail; it is the erasure failing.
+    """
+
+    with _suppress_os_error():
+        shadow_journal.record_deletion(path)
 
 
 def clear_conversations(workspace_root: str | Path) -> bool:
@@ -1025,6 +1120,7 @@ def clear_conversations(workspace_root: str | Path) -> bool:
     for path in _conversation_files(workspace_root):
         with _suppress_os_error():
             path.unlink(missing_ok=True)
+        _tombstone(path)
     return True
 
 
