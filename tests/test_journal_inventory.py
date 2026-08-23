@@ -327,6 +327,68 @@ class AdoptedJournalTests(unittest.TestCase):
                     "longer fsyncs",
                 )
 
+    def test_every_journal_owned_record_has_a_dual_read(self):
+        """Stage 2's completion, pinned so it cannot quietly regress.
+
+        #613 Stage 2 is shadow-write *plus* dual-read: every JOURNAL_OWNED
+        record is mirrored into a journal, and something can be asked at
+        runtime whether the two still agree. The mirror alone is not enough --
+        an unverified shadow is just a second file to go stale, and Stage 4
+        cannot qualify a cutover on real traffic without a comparator.
+
+        This is a ratchet, not a survey. Its real job is the *next* module
+        somebody adds to JOURNAL_OWNED: the entry is cheap to write and the
+        migration is not, and without this the gap would only surface at Stage
+        4, long after the record started being trusted.
+
+        Three ways to satisfy it, and each is a real design:
+
+        - a shared-helper mirror plus a ``*contradiction_report`` accessor,
+          which is what sixteen of these modules do;
+        - membership in ALREADY_APPEND_ONLY -- the record *is* the log, so
+          there is no second copy to disagree with;
+        - the journal machinery itself, which has no record of its own.
+        """
+
+        machinery = {"opaihub/run_journal.py", "opaihub/shadow_journal.py"}
+        missing = []
+        for module in sorted(JOURNAL_OWNED):
+            if module in machinery or module in ALREADY_APPEND_ONLY:
+                continue
+            source = (ROOT / module).read_text(encoding="utf-8")
+            if "contradiction_report" not in source:
+                missing.append(module)
+        self.assertEqual(
+            missing,
+            [],
+            "JOURNAL_OWNED without a dual read -- add a contradiction report, "
+            "or justify an ALREADY_APPEND_ONLY exemption",
+        )
+
+    def test_every_mirrored_module_actually_writes_to_a_journal(self):
+        """A comparator with nothing behind it would pass the test above.
+
+        Reading a projection that is always empty and comparing it to a file
+        that is always populated would report a contradiction on every record
+        rather than none -- loud rather than silent, but still wrong. This
+        pins that each module reaches a journal, via the shared helper or
+        #517 directly.
+        """
+
+        machinery = {"opaihub/run_journal.py", "opaihub/shadow_journal.py"}
+        unmirrored = []
+        for module in sorted(JOURNAL_OWNED):
+            if module in machinery or module in ALREADY_APPEND_ONLY:
+                continue
+            source = (ROOT / module).read_text(encoding="utf-8")
+            if "shadow_journal" not in source and "run_journal" not in source:
+                unmirrored.append(module)
+        self.assertEqual(
+            unmirrored,
+            [],
+            "JOURNAL_OWNED with a contradiction report but no journal behind it",
+        )
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
