@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import json
+import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .atomic_io import atomic_write_text, interprocess_transaction
 from .ledger import task_fingerprint
 from .model_intelligence import classify_task, recommend_model
 from .policy import tier_value
 from .state import state_dir
+
+
+_READ_ATTEMPTS = 20
+_READ_RETRY_SECONDS = 0.01
 
 
 # Offline fixtures for common coding tasks. These describe the cheapest tier
@@ -43,6 +50,95 @@ def eval_path(project_root: Path) -> Path:
     return state_dir(project_root) / "eval" / "scorecard.json"
 
 
+def read_scorecard(project_root: Path) -> dict[str, Any]:
+    """Read the latest complete scorecard with an explicit integrity state."""
+
+    path = eval_path(project_root.expanduser().resolve())
+    for attempt in range(_READ_ATTEMPTS):
+        try:
+            raw = path.read_text(encoding="utf-8")
+            break
+        except FileNotFoundError:
+            return {
+                "state": "missing",
+                "reason": "scorecard_missing",
+                "path": str(path),
+            }
+        except UnicodeError:
+            return {
+                "state": "degraded",
+                "reason": "scorecard_invalid_json",
+                "path": str(path),
+            }
+        except PermissionError as exc:
+            if attempt < _READ_ATTEMPTS - 1:
+                time.sleep(_READ_RETRY_SECONDS * (attempt + 1))
+                continue
+            return {
+                "state": "degraded",
+                "reason": "scorecard_unreadable",
+                "error_type": type(exc).__name__,
+                "path": str(path),
+            }
+        except OSError as exc:
+            return {
+                "state": "degraded",
+                "reason": "scorecard_unreadable",
+                "error_type": type(exc).__name__,
+                "path": str(path),
+            }
+
+    try:
+        scorecard = json.loads(raw)
+    except json.JSONDecodeError:
+        return {
+            "state": "degraded",
+            "reason": "scorecard_invalid_json",
+            "path": str(path),
+        }
+
+    sequence = (
+        scorecard.get("publication_sequence") if isinstance(scorecard, dict) else None
+    )
+    if (
+        not isinstance(scorecard, dict)
+        or scorecard.get("report") != "opai-model-eval"
+        or not isinstance(scorecard.get("evaluation_id"), str)
+        or not scorecard["evaluation_id"]
+        or isinstance(sequence, bool)
+        or not isinstance(sequence, int)
+        or sequence < 1
+        or not isinstance(scorecard.get("results"), list)
+    ):
+        return {
+            "state": "degraded",
+            "reason": "scorecard_schema_invalid",
+            "path": str(path),
+        }
+
+    return {"state": "ready", "path": str(path), "scorecard": scorecard}
+
+
+def _publish_scorecard(project_root: Path, scorecard: dict[str, Any]) -> Path:
+    """Serialize and atomically publish one explicitly ordered scorecard."""
+
+    path = eval_path(project_root)
+    with interprocess_transaction(path):
+        current = read_scorecard(project_root)
+        previous_sequence = (
+            int(current["scorecard"]["publication_sequence"])
+            if current["state"] == "ready"
+            else 0
+        )
+        scorecard["publication_sequence"] = previous_sequence + 1
+        scorecard["published_at"] = _now_iso()
+        atomic_write_text(
+            path,
+            json.dumps(scorecard, indent=2, sort_keys=True) + "\n",
+        )
+    return path
+
+
 def run_eval(
     project_root: Path,
     fixtures: list[dict[str, Any]] | None = None,
@@ -56,6 +152,8 @@ def run_eval(
     """
     root = project_root.expanduser().resolve()
     fixtures = fixtures or DEFAULT_FIXTURES
+    evaluation_id = uuid.uuid4().hex
+    evaluation_started_at = _now_iso()
     results: list[dict[str, Any]] = []
     total = 0.0
 
@@ -90,6 +188,8 @@ def run_eval(
     count = len(results) or 1
     scorecard = {
         "report": "opai-model-eval",
+        "evaluation_id": evaluation_id,
+        "evaluation_started_at": evaluation_started_at,
         "created_at": _now_iso(),
         "project": str(root),
         "fixtures": len(results),
@@ -102,11 +202,7 @@ def run_eval(
     }
 
     if write:
-        path = eval_path(root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(scorecard, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        path = _publish_scorecard(root, scorecard)
         scorecard["scorecard_path"] = str(path)
 
     return scorecard
