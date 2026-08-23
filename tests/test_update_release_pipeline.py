@@ -45,7 +45,8 @@ def test_production_signing_binds_assets_from_the_candidate_provenance():
     )
 
     assert '--candidate-provenance "$BUNDLE/provenance.json"' in source
-    assert '--candidate-platform "${{ matrix.os }}"' in source
+    assert "--candidate-platform windows" in source
+    assert "--candidate-platform darwin" in source
     assert '--asset-root "$GITHUB_WORKSPACE/opai/assets"' not in source
 
 
@@ -53,31 +54,38 @@ def test_native_runtime_configuration_uses_validated_candidate_assets(
     tmp_path: Path, monkeypatch
 ):
     build_id = "a" * 40
+    candidate_version = "0.2.0a1"
     candidate_assets = asset_manifest(ROOT / "opai" / "assets")
+    candidate_assets["application_version"] = candidate_version
     candidate_assets["fingerprint_sha256"] = "f" * 64
+    candidate_compatibility = {
+        "lifecycle_schema_version": 1,
+        "provider_catalog_version": "v1",
+        "provider_protocol_version": 1,
+        "update_schema_version": 1,
+        "updater_protocol_version": 1,
+    }
     provenance = tmp_path / "provenance.json"
     provenance.write_text(
         json.dumps(
             {
                 "schema_version": 2,
-                "tag": "v0.2.1a1",
+                "tag": "v0.2.0a1",
                 "commit": build_id,
                 "rehearsal": False,
-                "platform": "windows-latest",
+                "platform": "windows",
                 "artifact_identity": {
-                    **runtime_identity(
-                        version=APPLICATION_VERSION,
-                        build_id=build_id,
-                        channel=RELEASE_CHANNEL,
-                        platform="windows-latest",
-                        architecture="x86_64",
-                        install_type=InstallType.WINDOWS_MSIX,
-                        package_identity="OPai.Desktop",
-                        publisher_identity="CN=OPai",
-                        assets=candidate_assets,
-                    ),
-                    "published_tag": "v0.2.1a1",
+                    "application_version": candidate_version,
+                    "assets": candidate_assets,
+                    "build_id": build_id,
+                    "compatibility": candidate_compatibility,
+                    "architecture": "x86_64",
+                    "install_type": "portable",
+                    "platform": "windows",
+                    "published_tag": "v0.2.0a1",
+                    "release_channel": "alpha",
                     "release_stage": "alpha.1",
+                    "schema_version": 1,
                 },
             }
         ),
@@ -102,11 +110,11 @@ def test_native_runtime_configuration_uses_validated_candidate_assets(
             "--candidate-provenance",
             str(provenance),
             "--release-tag",
-            "v0.2.1a1",
+            "v0.2.0a1",
             "--candidate-platform",
-            "windows-latest",
+            "windows",
             "--version",
-            APPLICATION_VERSION,
+            candidate_version,
             "--build-id",
             build_id,
             "--channel",
@@ -126,6 +134,8 @@ def test_native_runtime_configuration_uses_validated_candidate_assets(
 
     assert result == 0
     assert captured["identity"]["assets"] == candidate_assets
+    assert captured["identity"]["application_version"] == candidate_version
+    assert captured["identity"]["compatibility"] == candidate_compatibility
 
 
 def test_macos_native_artifact_has_one_canonical_name_across_release_jobs():

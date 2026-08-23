@@ -227,6 +227,17 @@ class SmokeInstallContractTests(unittest.TestCase):
         self.assertIn("build_id", command[3])
         self.assertIn(build_id, command[3])
 
+    def test_smoke_candidate_argument_is_the_documented_exact_build_source(self):
+        smoke = _load_smoke_module()
+        candidate = "b" * 40
+
+        self.assertEqual(
+            smoke.resolve_candidate_build_id(candidate, {"OPAI_BUILD_ID": "a" * 40}),
+            candidate,
+        )
+        publishing = (ROOT / "docs" / "PUBLISHING.md").read_text(encoding="utf-8")
+        self.assertIn("--candidate-sha $candidateSha", publishing)
+
     def test_wheel_smoke_inventory_matches_the_canonical_provider_catalog(self):
         smoke = _load_smoke_module()
 

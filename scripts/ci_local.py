@@ -678,6 +678,7 @@ def _run(step: Step, *, candidate_sha: str | None = None) -> dict[str, Any]:
 
     child_environment = os.environ.copy()
     child_environment.update(dict(step.env))
+    launch_argv = _launch_argv(step)
     if step.name == "isolated-wheel-smoke":
         if candidate_sha is None or SHA_PATTERN.fullmatch(candidate_sha) is None:
             return _unavailable_record(
@@ -685,10 +686,11 @@ def _run(step: Step, *, candidate_sha: str | None = None) -> dict[str, Any]:
                 "exact candidate SHA is required for native wheel qualification",
             )
         child_environment["OPAI_BUILD_ID"] = candidate_sha.lower()
+        launch_argv.extend(("--candidate-sha", candidate_sha.lower()))
     start = time.monotonic()
     try:
         completed = subprocess.run(  # nosec B603 - fixed argv, no shell
-            _launch_argv(step),
+            launch_argv,
             cwd=str(ROOT),
             env=child_environment,
             check=False,

@@ -583,7 +583,7 @@ jobs:
             python scripts/prepare_native_update.py configure \
               --bundle "$BUNDLE" --trust "$TRUST_FILE" \
               --candidate-provenance "$BUNDLE/provenance.json" \
-              --release-tag "$RELEASE_TAG" --candidate-platform "${{ matrix.os }}" \
+              --release-tag "$RELEASE_TAG" --candidate-platform windows \
               --version "$PACKAGE_VERSION" \
               --build-id "$EXPECTED_CANDIDATE_SHA" --channel "$UPDATE_CHANNEL" \
               --platform windows --architecture x86_64 --install-type windows_msix \
@@ -603,7 +603,7 @@ jobs:
             python scripts/prepare_native_update.py configure \
               --bundle "$BUNDLE" --trust "$TRUST_FILE" \
               --candidate-provenance "$BUNDLE/provenance.json" \
-              --release-tag "$RELEASE_TAG" --candidate-platform "${{ matrix.os }}" \
+              --release-tag "$RELEASE_TAG" --candidate-platform darwin \
               --version "$PACKAGE_VERSION" \
               --build-id "$EXPECTED_CANDIDATE_SHA" --channel "$UPDATE_CHANNEL" \
               --platform macos --architecture "$ARCHITECTURE" --install-type macos_sparkle \

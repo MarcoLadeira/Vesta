@@ -40,6 +40,17 @@ _EXPECTED_PROVIDER_CATALOG_IDS = (
 _EXACT_BUILD_ID = re.compile(r"^[0-9a-f]{40}$")
 
 
+def resolve_candidate_build_id(
+    candidate_sha: str | None, environment: Mapping[str, str]
+) -> str:
+    value = str(candidate_sha or environment.get("OPAI_BUILD_ID") or "").lower()
+    if _EXACT_BUILD_ID.fullmatch(value) is None:
+        raise ValueError(
+            "candidate SHA must name the exact lowercase commit for wheel smoke"
+        )
+    return value
+
+
 def run(argv: list[str], cwd: Path, *, env: Mapping[str, str] | None = None) -> None:
     print("+", " ".join(argv))
     subprocess.run(  # nosec B603
@@ -195,15 +206,18 @@ def main() -> int:
         "--work-dir",
         help="Optional external smoke-test work directory. Defaults to a temp folder.",
     )
+    parser.add_argument(
+        "--candidate-sha",
+        help="Exact candidate commit to embed and assert (or set OPAI_BUILD_ID).",
+    )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
     version = project_version(root)
-    expected_build_id = str(os.environ.get("OPAI_BUILD_ID") or "").lower()
-    if _EXACT_BUILD_ID.fullmatch(expected_build_id) is None:
-        raise SystemExit(
-            "OPAI_BUILD_ID must name the exact lowercase candidate commit for wheel smoke."
-        )
+    try:
+        expected_build_id = resolve_candidate_build_id(args.candidate_sha, os.environ)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     work_dir = Path(args.work_dir).expanduser().resolve() if args.work_dir else None
     created_work_dir = False
     if work_dir is None:

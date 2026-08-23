@@ -33,7 +33,7 @@ def _object(path: Path) -> dict[str, object]:
     return value
 
 
-def _candidate_assets(
+def _candidate_identity(
     provenance_path: Path,
     *,
     version: str,
@@ -69,15 +69,15 @@ def _candidate_assets(
         platform_name=candidate_platform,
         release_tag=release_tag,
         rehearsal=False,
+        application_version=version,
     )
     if validated.get("application_version") != version:
         raise ReleaseError("candidate provenance application version is incompatible")
     if validated.get("release_channel") != channel:
         raise ReleaseError("candidate provenance release channel is incompatible")
-    assets = validated.get("assets")
-    if not isinstance(assets, dict):
+    if not isinstance(validated.get("assets"), dict):
         raise ReleaseError("candidate provenance asset binding is missing")
-    return dict(assets)
+    return validated
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -126,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "configure":
-            assets = _candidate_assets(
+            candidate_identity = _candidate_identity(
                 args.candidate_provenance,
                 version=args.version,
                 build_id=args.build_id,
@@ -134,6 +134,9 @@ def main(argv: list[str] | None = None) -> int:
                 release_tag=args.release_tag,
                 candidate_platform=args.candidate_platform,
             )
+            assets = candidate_identity["assets"]
+            if not isinstance(assets, dict):  # pragma: no cover - validation guard
+                raise ReleaseError("candidate provenance asset binding is missing")
             identity = runtime_identity(
                 version=args.version,
                 build_id=args.build_id,
@@ -144,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
                 package_identity=args.package_identity,
                 publisher_identity=args.publisher_identity,
                 assets=assets,
+                candidate_identity=candidate_identity,
             )
             write_runtime_configuration(
                 args.bundle, identity=identity, trust=_object(args.trust)

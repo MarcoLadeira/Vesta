@@ -387,6 +387,34 @@ def test_newer_persisted_project_schema_fails_before_runtime_mutation(
     assert "project-state" in error
 
 
+def test_implicit_nested_project_schema_fails_before_runtime_import(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project = tmp_path / "project"
+    nested = project / "src" / "package"
+    nested.mkdir(parents=True)
+    (project / "pyproject.toml").write_text(
+        '[project]\nname = "fixture"\nversion = "1"\n', encoding="utf-8"
+    )
+    state_path = project / ".opaihub" / "project.json"
+    state_path.parent.mkdir()
+    state_path.write_text(json.dumps({"schema_version": 999}), encoding="utf-8")
+    imported: list[str] = []
+    monkeypatch.chdir(nested)
+
+    code = bootstrap.run_cli(
+        ["doctor"],
+        source_root=ROOT,
+        spec_finder=SpecFinder(),
+        distribution_lookup=_installed_version,
+        importer=lambda name: imported.append(name),
+    )
+
+    assert code == bootstrap.BOOTSTRAP_EXIT_CODE
+    assert imported == []
+    assert "incompatible_schema" in capsys.readouterr().err
+
+
 def test_malformed_user_configuration_is_classified_without_a_traceback(
     capsys,
 ) -> None:

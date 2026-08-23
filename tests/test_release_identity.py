@@ -83,13 +83,14 @@ def test_explicit_packaged_identity_ignores_neighbouring_checkout(
     assert identity.metadata_source == str(embedded.resolve())
 
 
-def test_packaged_runtime_uses_only_explicit_nearby_artifact_identity(
+def test_packaged_runtime_discovers_only_its_exact_windows_bundle_identity(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
-    package = tmp_path / "package"
-    package.mkdir()
-    embedded = package / "release-identity.json"
+    bundle = tmp_path / "package"
+    executable = bundle / "cli" / "opai.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"native")
+    embedded = bundle / "release-identity.json"
     embedded.write_text(
         json.dumps(
             {
@@ -105,17 +106,72 @@ def test_packaged_runtime_uses_only_explicit_nearby_artifact_identity(
         encoding="utf-8",
     )
 
+    unrelated = tmp_path / "release-identity.json"
+    unrelated.write_text('{"schema_version": 999}', encoding="utf-8")
     release_module = _release_module()
-    monkeypatch.setattr(
-        release_module, "nearby_metadata_paths", lambda _name: (embedded,)
+    paths = release_module.packaged_metadata_paths(
+        "release-identity.json", executable_path=executable
     )
-    identity = release_module.current_release_identity(
-        source_root=package,
-        packaged=True,
+    identity = release_module.load_release_identity(
+        identity_paths=paths,
+        distribution_version=None,
+        source_root=bundle,
     )
 
+    assert paths == (embedded,)
+    assert unrelated not in paths
     assert identity.build_id == "d" * 40
     assert identity.install_type == "windows_msix"
+
+
+def test_packaged_metadata_discovery_does_not_fall_back_to_an_ancestor(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "parent" / "bundle"
+    executable = bundle / "gui" / "opai-gui.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"native")
+    ancestor = tmp_path / "parent" / "release-identity.json"
+    ancestor.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "application_version": "0.2.1a1",
+                "build_id": "e" * 40,
+                "release_channel": "alpha",
+            }
+        ),
+        encoding="utf-8",
+    )
+    release_module = _release_module()
+    paths = release_module.packaged_metadata_paths(
+        "release-identity.json", executable_path=executable
+    )
+
+    assert paths == (bundle / "release-identity.json",)
+    assert ancestor not in paths
+    with pytest.raises(release_module.ReleaseIdentityError):
+        release_module.load_release_identity(
+            identity_paths=paths,
+            distribution_version=None,
+            source_root=bundle,
+        )
+
+
+def test_packaged_metadata_discovery_uses_macos_resources_directory(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "OPai.app" / "Contents" / "MacOS" / "opai-gui"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"native")
+
+    paths = _release_module().packaged_metadata_paths(
+        "release-identity.json", executable_path=executable
+    )
+
+    assert paths == (
+        tmp_path / "OPai.app" / "Contents" / "Resources" / "release-identity.json",
+    )
 
 
 def test_development_projection_is_honest_when_no_build_identity_exists() -> None:

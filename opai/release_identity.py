@@ -35,23 +35,36 @@ class ReleaseIdentityError(RuntimeError):
     """Canonical or embedded release identity is unreadable or inconsistent."""
 
 
-def nearby_metadata_paths(name: str) -> tuple[Path, ...]:
-    """Find immutable metadata beside this runtime without consulting cwd/PATH."""
+def packaged_metadata_paths(
+    name: str,
+    *,
+    executable_path: Path | None = None,
+    packaged: bool | None = None,
+) -> tuple[Path, ...]:
+    """Return the one layout-owned metadata path for a packaged process.
 
-    starts = (Path(sys.executable).resolve(strict=False), Path(__file__).resolve())
-    candidates: list[Path] = []
-    for start in starts:
-        directory = start if start.is_dir() else start.parent
-        for parent in (directory, *tuple(directory.parents)[:6]):
-            candidates.extend(
-                (
-                    parent / name,
-                    parent / "Resources" / name,
-                    parent / "resources" / name,
-                    parent / "opai" / "update" / name,
-                )
-            )
-    return tuple(dict.fromkeys(candidates))
+    Generic ancestor walking is forbidden: an absent bundle-local manifest
+    must not be replaced by a neighboring checkout or unrelated admin file.
+    """
+
+    if not name or Path(name).name != name:
+        raise ValueError("packaged metadata name must be one plain filename")
+    is_packaged = (
+        bool(getattr(sys, "frozen", False) or "__compiled__" in globals())
+        if packaged is None
+        else packaged
+    )
+    if executable_path is None and not is_packaged:
+        return ()
+    executable = Path(executable_path or sys.executable).resolve(strict=False)
+    directory = executable if executable.is_dir() else executable.parent
+    if directory.name.casefold() in {"cli", "gui"}:
+        root = directory.parent
+    elif directory.name == "MacOS" and directory.parent.name == "Contents":
+        root = directory.parent / "Resources"
+    else:
+        root = directory
+    return (root / name,)
 
 
 @dataclass(frozen=True)
@@ -478,7 +491,7 @@ def current_release_identity(
     )
     paths = identity_paths
     if paths is None and is_packaged and not source_checkout:
-        paths = nearby_metadata_paths("release-identity.json")
+        paths = packaged_metadata_paths("release-identity.json", packaged=is_packaged)
     return load_release_identity(identity_paths=paths, source_root=root)
 
 
@@ -551,14 +564,20 @@ def validate_artifact_identity(
     platform_name: str,
     release_tag: str,
     rehearsal: bool,
+    application_version: str | None = None,
 ) -> dict[str, object]:
     """Reject artifact evidence that contradicts canonical release identity."""
 
     from .asset_identity import ASSET_SCHEMA_VERSION
-    from .compatibility import validate_runtime_compatibility
+    from .compatibility import validate_compatibility_coordinates
 
     actual = dict(value)
-    release = _generated_release()
+    if application_version is not None:
+        release = derive_project_release(application_version)
+    elif not rehearsal and release_tag.startswith("v"):
+        release = derive_project_release(release_tag.removeprefix("v"))
+    else:
+        release = _generated_release()
     expected = {
         "application_version": release.application_version,
         "build_id": str(build_id).lower(),
@@ -596,7 +615,7 @@ def validate_artifact_identity(
         mismatched.append("compatibility")
     else:
         try:
-            validate_runtime_compatibility(compatibility)
+            validate_compatibility_coordinates(compatibility)
         except RuntimeError:
             mismatched.append("compatibility")
     if (

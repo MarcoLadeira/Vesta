@@ -25,6 +25,51 @@ class RuntimeCompatibilityError(RuntimeError):
         )
 
 
+_BASE_COMPATIBILITY_COORDINATES = frozenset(
+    {
+        "lifecycle_schema_version",
+        "provider_catalog_version",
+        "provider_protocol_version",
+        "update_schema_version",
+        "updater_protocol_version",
+    }
+)
+_COMPATIBILITY_COORDINATE_TYPES = {
+    "lifecycle_schema_version": int,
+    "provider_catalog_version": str,
+    "provider_protocol_version": int,
+    "update_schema_version": int,
+    "updater_protocol_version": int,
+}
+
+
+def validate_compatibility_coordinates(
+    actual: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate candidate coordinates without comparing them to current main."""
+
+    observed = dict(actual)
+    if not _BASE_COMPATIBILITY_COORDINATES.issubset(observed):
+        raise RuntimeCompatibilityError(expected={}, actual=observed)
+    if any(
+        isinstance(observed[name], bool)
+        or not isinstance(observed[name], expected_type)
+        for name, expected_type in _COMPATIBILITY_COORDINATE_TYPES.items()
+    ):
+        raise RuntimeCompatibilityError(expected={}, actual=observed)
+    if any(
+        not isinstance(key, str)
+        or not key
+        or isinstance(value, bool)
+        or not isinstance(value, (int, str))
+        or (isinstance(value, int) and value < 0)
+        or (isinstance(value, str) and not value.strip())
+        for key, value in observed.items()
+    ):
+        raise RuntimeCompatibilityError(expected={}, actual=observed)
+    return observed
+
+
 def runtime_compatibility_payload() -> dict[str, object]:
     """Return independently versioned compatibility coordinates."""
 

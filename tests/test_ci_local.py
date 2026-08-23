@@ -203,6 +203,7 @@ class LocalCiEvidenceTests(unittest.TestCase):
 
         self.assertEqual(record["status"]["outcome"], "passed")
         self.assertEqual(run.call_args.kwargs["env"]["OPAI_BUILD_ID"], candidate_sha)
+        self.assertEqual(run.call_args.args[0][-2:], ["--candidate-sha", candidate_sha])
 
     def test_required_timeout_is_typed_infrastructure_blockage(self):
         ci = _load_ci_local_module()

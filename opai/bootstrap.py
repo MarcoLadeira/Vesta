@@ -29,8 +29,9 @@ from .compatibility import (
     runtime_compatibility_payload,
     validate_runtime_compatibility,
 )
+from .project_discovery import discover_project_root
 from .release_identity import (
-    nearby_metadata_paths,
+    packaged_metadata_paths,
     release_version_text,
     surface_identity_payload,
 )
@@ -222,7 +223,7 @@ def _project_root(arguments: Iterable[str]) -> Path:
             return Path(values[index + 1]).expanduser().resolve(strict=False)
         if value.startswith("--project="):
             return Path(value.split("=", 1)[1]).expanduser().resolve(strict=False)
-    return Path.cwd().resolve(strict=False)
+    return discover_project_root(Path.cwd())
 
 
 def _validate_persisted_project_schema(
@@ -324,7 +325,7 @@ def preflight_startup(
         if metadata_paths is not None
         else (
             Path(__file__).resolve().with_name("_embedded_build.json"),
-            *nearby_metadata_paths("release-identity.json"),
+            *packaged_metadata_paths("release-identity.json"),
         )
     )
     require_binding = context.startup_mode != "source_checkout"

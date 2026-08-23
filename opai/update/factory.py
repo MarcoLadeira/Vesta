@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
 from opai import __version__
-from opai.release_identity import nearby_metadata_paths
+from opai.release_identity import packaged_metadata_paths
 
 from .identity import detect_install_type
 from .models import InstallType, InstalledBuild
@@ -46,7 +46,7 @@ def load_installed_build(
     paths = (
         tuple(identity_paths)
         if identity_paths is not None
-        else nearby_metadata_paths("release-identity.json")
+        else packaged_metadata_paths("release-identity.json")
     )
     value = next((item for path in paths if (item := _read_object(path))), {})
     install_type = detect_install_type()
@@ -76,7 +76,7 @@ def load_trust_store(*, paths: Iterable[Path] | None = None) -> dict[str, object
     candidates = (
         tuple(paths)
         if paths is not None
-        else nearby_metadata_paths("update-trust.json")
+        else packaged_metadata_paths("update-trust.json")
     )
     value = next((item for path in candidates if (item := _read_object(path))), {})
     if value.get("schema_version") != 1:

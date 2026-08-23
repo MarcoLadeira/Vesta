@@ -776,6 +776,15 @@ def write_bundle_evidence(
         )
     except (ReleaseIdentityError, TypeError, ValueError) as exc:
         raise ArtifactReleaseError(str(exc)) from exc
+    if normalized_build_metadata is not None:
+        build_compatibility = normalized_build_metadata.get("compatibility")
+        if (
+            isinstance(build_compatibility, dict)
+            and normalized_artifact_identity.get("compatibility") != build_compatibility
+        ):
+            raise ArtifactReleaseError(
+                "artifact compatibility does not match candidate build metadata"
+            )
     provenance_value: dict[str, Any] = {
         "artifact_identity": normalized_artifact_identity,
         "schema_version": EVIDENCE_SCHEMA_VERSION,
