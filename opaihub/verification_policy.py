@@ -893,8 +893,9 @@ def _valid_policy_record(record: Mapping[str, Any]) -> bool:
         return False
     payload = {key: value for key, value in record.items() if key != "digest"}
     computed = sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        .encode("utf-8")
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
     ).hexdigest()
     return computed == claimed
 
