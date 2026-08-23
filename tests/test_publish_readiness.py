@@ -36,8 +36,8 @@ class PublishReadinessTests(unittest.TestCase):
     def test_op_command_is_the_opai_cli(self):
         scripts = _project_scripts()
 
-        self.assertEqual(scripts["op"], "opai.cli:main")
-        self.assertEqual(scripts["opai"], "opai.cli:main")
+        self.assertEqual(scripts["op"], "opai.bootstrap:cli_main")
+        self.assertEqual(scripts["opai"], "opai.bootstrap:cli_main")
         self.assertEqual(scripts["opcoding"], "opcoding.cli:main")
 
     def test_publish_parser_supports_python_310_without_tomllib(self):

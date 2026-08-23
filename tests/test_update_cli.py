@@ -100,3 +100,6 @@ def test_main_doctor_payload_contains_same_canonical_updater_state(monkeypatch, 
     assert cli.main(["doctor"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["updater"] == update
+    expected = cli.current_release_identity().to_dict()
+    expected.pop("metadata_source")
+    assert payload["release_identity"] == expected

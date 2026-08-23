@@ -12,6 +12,7 @@ from opai.update.factory import (
 from opai.update.models import InstallType
 from opai.update.native import WindowsMsixAdapter
 from opai.update.runtime import probe_active_work
+from opai.release_identity import packaged_metadata_paths
 from opaihub.session_registry import SessionRegistry
 
 
@@ -61,6 +62,31 @@ def test_trust_store_is_loaded_only_from_packaged_or_admin_paths(tmp_path: Path)
 
     assert trust["feed_url"].startswith("https://")
     assert trust["keys"][0]["key_id"] == "root-1"
+
+
+def test_update_trust_never_falls_back_to_an_ancestor_file(tmp_path: Path):
+    bundle = tmp_path / "parent" / "bundle"
+    executable = bundle / "cli" / "opai.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"native")
+    ancestor = tmp_path / "parent" / "update-trust.json"
+    ancestor.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "threshold": 1,
+                "feed_url": "https://attacker.example.test/manifest.json",
+                "keys": [{"key_id": "wrong", "public_key": "eA==", "revoked": False}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    paths = packaged_metadata_paths("update-trust.json", executable_path=executable)
+
+    assert paths == (bundle / "update-trust.json",)
+    assert ancestor not in paths
+    assert load_trust_store(paths=paths) == {}
 
 
 def test_runtime_probe_uses_canonical_thread_lease_and_background_run_truth(

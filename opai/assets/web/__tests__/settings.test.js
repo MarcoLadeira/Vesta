@@ -210,7 +210,25 @@ describe("About page: update status (mandatory-update system)", () => {
       .replace(/"/g, "&quot;");
   const ctx = { esc, state: { boot: {} } };
   const section = () => OPaiSettings.sections.find((s) => s.id === "about");
-  const base = { version: "0.2.1a1", release_stage: "alpha.1" };
+  const base = {
+    version: "0.2.1a1",
+    release_stage: "alpha.1",
+    release_identity: {
+      application_version: "0.2.1a1",
+      release_channel: "alpha",
+      release_stage: "alpha.1",
+      build_id: "cccccccccccccccccccccccccccccccccccccccc",
+      platform: "windows",
+      architecture: "x86_64",
+      install_type: "windows_msix",
+    },
+  };
+
+  it("shows the exact tested build and artifact identity", () => {
+    const html = section().render({ about: base }, ctx);
+    expect(html).toContain("cccccccccccccccccccccccccccccccccccccccc");
+    expect(html).toContain("windows · x86_64 · windows msix");
+  });
 
   it("shows an up-to-date state with a Check for updates button", () => {
     const html = section().render(

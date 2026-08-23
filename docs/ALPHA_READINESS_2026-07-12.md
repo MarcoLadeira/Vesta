@@ -1,5 +1,8 @@
 # OPai Free Public Alpha Readiness
 
+> **Historical readiness record.** Version and release targets below describe
+> the 2026-07-12 evidence snapshot, not the current application identity.
+
 **Assessment date:** 2026-07-12
 **Repository:** MarcoLadeira/OPai
 **Evidence snapshot:** origin/main at f4c27b715d83b9febbcaab59d1d58dec8acf28ab

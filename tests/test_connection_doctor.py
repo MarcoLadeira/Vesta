@@ -155,6 +155,11 @@ class ConnectionDoctorTests(unittest.TestCase):
 
         by_id = {item["providerId"]: item for item in entries}
         self.assertEqual(by_id["claude"]["health"], "not_installed")
+        self.assertEqual(
+            by_id["claude"]["errorCategory"], "provider_dependency_missing"
+        )
+        self.assertIn("install_provider_cli", by_id["claude"]["recoveryActions"])
+        self.assertEqual(by_id["codex"]["errorCategory"], "")
         self.assertEqual(by_id["codex"]["health"], "detected")
         self.assertEqual(by_id["codex"]["cliVersion"], "codex 1.2.3")
 

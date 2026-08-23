@@ -19,6 +19,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from opai.release_identity import surface_identity_payload
+
 from .audit import export_audit
 from .ledger import read_events
 
@@ -66,6 +68,7 @@ def build_support_bundle(project_root: Path) -> dict[str, Any]:
     bundle: dict[str, Any] = {
         "report": "opai-support-bundle",
         "schema_version": 1,
+        **surface_identity_payload(),
         "project_root": str(root),
         "audit": {**audit, "events": audit_events},
         "ledger_events": ledger_events,

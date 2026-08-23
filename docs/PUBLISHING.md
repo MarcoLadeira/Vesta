@@ -19,7 +19,8 @@ python -m opaihub validate
 python -m opcoding tools . run bandit
 python -m opcoding tools . run pip-audit
 python -m opcoding tools . run detect-secrets
-python scripts\smoke-install.py
+$candidateSha = git rev-parse HEAD
+python scripts\smoke-install.py --candidate-sha $candidateSha
 python -m opai benchmark run --suite max --mode both
 python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
 ```
