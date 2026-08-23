@@ -20,8 +20,10 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Callable
 
+from . import shadow_journal
 from .atomic_io import atomic_write_text
 
 
@@ -65,6 +67,18 @@ class Session:
             "elapsed_ms": max(0, int((end - self.started_at) * 1000)),
             "admission_key": self.admission_key,
         }
+
+
+def _valid_session_record(record: Mapping[str, Any]) -> bool:
+    """A mirrored session must carry the identity durable_active_count reads."""
+
+    pid = record.get("pid")
+    return (
+        record.get("schema_version") == 1
+        and isinstance(pid, int)
+        and not isinstance(pid, bool)
+        and pid > 0
+    )
 
 
 class SessionRegistry:
@@ -111,6 +125,24 @@ class SessionRegistry:
                 + "\n",
                 mode=0o600,
             )
+            # #613 Stage 2: mirror the canonical event. Each durable path is
+            # unique per (pid, request_id), so only one process ever writes a
+            # given record and the journal cannot observe a different order
+            # than the file took -- no additional lock is needed here.
+            #
+            # started_at is deliberately omitted from the mirrored record: it
+            # is wall-clock at write time, so including it would make every
+            # rewrite differ from the file the comparator reads back and
+            # report a contradiction that is really just a clock reading.
+            shadow_journal.record_snapshot(
+                path,
+                {
+                    "schema_version": 1,
+                    "pid": self._process_id,
+                    "provider": session.provider,
+                },
+                is_valid_record=_valid_session_record,
+            )
         except OSError:
             pass
 
@@ -119,6 +151,12 @@ class SessionRegistry:
         if path is not None:
             try:
                 path.unlink(missing_ok=True)
+                # A finished session removes its record. Without a tombstone
+                # the shadow would assert "still running" forever, and every
+                # completed session would read as a contradiction against an
+                # absent file -- turning the dual read into constant noise
+                # exactly where it should be quiet.
+                shadow_journal.record_deletion(path)
             except OSError:
                 pass
 

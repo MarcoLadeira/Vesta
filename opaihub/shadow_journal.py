@@ -52,6 +52,14 @@ JOURNAL_SUBDIR = "journal"
 #: field-level reduce logic is required.
 SNAPSHOT_EVENT = "record_saved"
 
+#: A record the owning module deleted. Snapshots alone cannot express this: a
+#: module that removes a record when its work finishes would leave the shadow
+#: asserting the last state forever, so every completed record would read as a
+#: contradiction against an absent file. A tombstone reduces the projection
+#: back to ``{}``, which is exactly what the legacy reader sees once the file
+#: is gone -- so deletion becomes agreement rather than permanent noise.
+DELETION_EVENT = "record_deleted"
+
 
 def journal_path_for(record_path: Path | str) -> Path:
     """The shadow journal for the legacy record at ``record_path``."""
@@ -65,6 +73,8 @@ def _empty() -> dict[str, Any]:
 
 
 def _reduce(_projection: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+    if event.get("type") == DELETION_EVENT:
+        return {}
     return dict(event["record"])
 
 
@@ -72,7 +82,12 @@ def _validator(
     is_valid_record: Callable[[Mapping[str, Any]], bool] | None,
 ) -> Callable[[dict[str, Any]], bool]:
     def validate(event: dict[str, Any]) -> bool:
-        if event.get("type") != SNAPSHOT_EVENT:
+        kind = event.get("type")
+        if kind == DELETION_EVENT:
+            # A tombstone carries no record to validate; its whole content is
+            # the fact that the record is gone.
+            return True
+        if kind != SNAPSHOT_EVENT:
             return False
         record = event.get("record")
         if not isinstance(record, Mapping):
@@ -109,6 +124,30 @@ def record_snapshot(
             reduce=_reduce,
             empty=_empty,
             validate=_validator(is_valid_record),
+        )
+    except Exception:  # nosec B110 - shadow evidence, never authoritative
+        pass
+
+
+def record_deletion(record_path: Path | str) -> None:
+    """Mirror an already-performed deletion. Never raises.
+
+    Call this from inside the same lock the legacy delete happened under, for
+    the same ordering reason :func:`record_snapshot` needs it.
+
+    Without this, a module that removes a record when its work finishes would
+    leave the shadow asserting the last state forever, and every completed
+    record would read as a contradiction against an absent file -- turning the
+    dual read into constant noise precisely where it should be quiet.
+    """
+
+    try:
+        run_journal.append(
+            journal_path_for(record_path),
+            {"type": DELETION_EVENT},
+            reduce=_reduce,
+            empty=_empty,
+            validate=_validator(None),
         )
     except Exception:  # nosec B110 - shadow evidence, never authoritative
         pass
