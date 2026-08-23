@@ -35,6 +35,9 @@ class DispatchProofTests(unittest.TestCase):
             dispatch_proof("PROVIDER_UNAVAILABLE"), DispatchProof.NOT_DISPATCHED
         )
 
+    def test_a_rejected_model_proves_inference_never_started(self) -> None:
+        self.assertIs(dispatch_proof("MODEL_UNAVAILABLE"), DispatchProof.NOT_DISPATCHED)
+
     def test_an_aborted_stream_proves_the_provider_started_working(self) -> None:
         # Tokens were already coming back, so the provider generated — and
         # bills for — real output. This is the strongest case against retry.

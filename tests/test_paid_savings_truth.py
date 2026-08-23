@@ -137,6 +137,10 @@ class PipelineSpendTruthTests(unittest.TestCase):
         self.assertFalse(receipt["paid_call_avoided"])
         self.assertEqual(receipt["confidence"], "actual")
         self.assertTrue(receipt["paid_call"])
+        invocation = receipt["provider_invocation"]
+        self.assertEqual(invocation["provider_id"], "claude")
+        self.assertTrue(invocation["operation_id"])
+        self.assertTrue(invocation["single_dispatch"])
 
     def test_subscription_zero_account_turn_is_unknown(self):
         fake = FakeAccountRunner(text="done", cost=0.0)
@@ -218,6 +222,81 @@ class PipelineSpendTruthTests(unittest.TestCase):
             "a timed-out account dispatch must not be finalized or legacy-counted",
         )
 
+    def test_timeout_with_partial_numeric_cost_stays_unresolved(self):
+        class PartialCostTimeout(FakeAccountRunner):
+            def complete(self, prompt, **kwargs):
+                self.calls.append({"prompt": prompt, **kwargs})
+                return {"text": "partial", "cost": 0.04, "timed_out": True}
+
+        result = _ask_account(
+            self.root,
+            "task",
+            "claude",
+            model="sonnet",
+            runner=PartialCostTimeout(),
+        )
+
+        self.assertEqual(result["completion_state"], "timeout")
+        self.assertTrue(result["cost_unreconciled"])
+        self.assertEqual(len(unresolved_model_calls(self.root)), 1)
+        self.assertFalse(
+            any(
+                event.get("event_type") == "model_call"
+                for event in read_events(self.root)
+            )
+        )
+
+    def test_cancelled_paid_turn_with_cost_stays_unresolved(self):
+        class CancelledRunner(FakeAccountRunner):
+            def complete(self, prompt, **kwargs):
+                self.calls.append({"prompt": prompt, **kwargs})
+                return {
+                    "text": "partial",
+                    "cost": 0.03,
+                    "cancelled": True,
+                    "cancellation": {"phase": "terminated"},
+                }
+
+        result = _ask_account(
+            self.root,
+            "task",
+            "claude",
+            model="sonnet",
+            runner=CancelledRunner(),
+        )
+
+        self.assertEqual(result["status"], "cancelled")
+        self.assertTrue(result["cost_unreconciled"])
+        self.assertEqual(len(unresolved_model_calls(self.root)), 1)
+
+    def test_proven_non_dispatch_closes_without_recording_spend(self):
+        class AuthRejectedRunner(FakeAccountRunner):
+            def complete(self, prompt, **kwargs):
+                self.calls.append({"prompt": prompt, **kwargs})
+                return {
+                    "text": "",
+                    "cost": None,
+                    "error": {
+                        "code": "AUTH_INVALID",
+                        "userMessage": "Sign in again.",
+                    },
+                }
+
+        result = _ask_account(
+            self.root,
+            "task",
+            "claude",
+            model="sonnet",
+            runner=AuthRejectedRunner(),
+        )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["dispatch_proof"], "not_dispatched")
+        self.assertEqual(unresolved_model_calls(self.root), [])
+        event_types = [event.get("event_type") for event in read_events(self.root)]
+        self.assertIn("model_call_not_dispatched", event_types)
+        self.assertNotIn("model_call", event_types)
+
     def test_dirty_file_modified_by_account_run_is_attributed(self):
         self.root = make_repo(
             Path(self._tmp.name),
@@ -266,13 +345,10 @@ class PipelineSpendTruthTests(unittest.TestCase):
     def test_final_cost_persistence_failure_degrades_receipt_not_answer(self):
         with (
             mock.patch(
-                "opaihub.ledger.record_model_call_finalized",
+                "opaihub.ledger.reconcile_observed_model_calls",
                 side_effect=OSError("disk full"),
             ),
-            mock.patch(
-                "opaihub.ledger.record_model_call",
-                side_effect=OSError("disk full"),
-            ),
+            mock.patch("opaihub.ledger.record_model_call") as legacy_writer,
         ):
             result = handle_gui_message(
                 self.root,
@@ -287,6 +363,19 @@ class PipelineSpendTruthTests(unittest.TestCase):
         self.assertEqual(receipt["confidence"], "unreconciled")
         self.assertTrue(receipt["cost_unreconciled"])
         self.assertEqual(receipt["savings_basis"], "cost_unreconciled_savings_withheld")
+        legacy_writer.assert_not_called()
+        self.assertEqual(len(unresolved_model_calls(self.root)), 1)
+
+        from opaihub.ledger import (
+            pending_model_call_observations,
+            reconcile_observed_model_calls,
+        )
+
+        self.assertEqual(len(pending_model_call_observations(self.root)), 1)
+        finalized = reconcile_observed_model_calls(self.root)
+        self.assertEqual(len(finalized), 1)
+        self.assertEqual(pending_model_call_observations(self.root), [])
+        self.assertEqual(unresolved_model_calls(self.root), [])
 
 
 class LegacyExclusionTests(unittest.TestCase):

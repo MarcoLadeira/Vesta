@@ -156,12 +156,10 @@ class CaptureSessionLedgerTests(unittest.TestCase):
     def test_model_ledger_failure_is_reported_without_breaking_the_answer(self):
         with (
             mock.patch(
-                "opaihub.ledger.record_model_call_finalized",
+                "opaihub.ledger.reconcile_observed_model_calls",
                 side_effect=OSError("disk full"),
             ),
-            mock.patch(
-                "opaihub.ledger.record_model_call", side_effect=OSError("disk full")
-            ),
+            mock.patch("opaihub.ledger.record_model_call") as legacy_writer,
         ):
             result = proxy_run(
                 self.root,
@@ -173,6 +171,7 @@ class CaptureSessionLedgerTests(unittest.TestCase):
         self.assertEqual(result["status"], "answered_by_account")
         self.assertFalse(result["ledger_recorded"])
         self.assertFalse(_capture_events(self.root)[0]["spend_accounted"])
+        legacy_writer.assert_not_called()
 
     def test_capture_event_is_idempotent_by_capture_id(self):
         first = record_capture_session(

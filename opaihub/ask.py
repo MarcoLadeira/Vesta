@@ -10,7 +10,6 @@ and recorded to the ledger. Cloud-tier tasks are never auto-called - they return
 from __future__ import annotations
 
 import hashlib
-import inspect
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -22,6 +21,10 @@ from .cancellation import LocalRunCancelled
 from .evidence import collect_evidence
 from .local_runner import LocalRunner, detect_local_runner
 from .model_intelligence import recommend_model
+from .provider_invocation import (
+    ProviderInvocationCompatibilityError,
+    ProviderInvocationPlan,
+)
 from .project_instructions import build_system_prompt
 
 SYSTEM_PROMPT = (
@@ -106,14 +109,15 @@ def _supports_kwarg(func: Any, name: str) -> bool:
     with nothing to do with argument support — was called twice.
     """
     try:
-        parameters = inspect.signature(func).parameters
-    except (TypeError, ValueError):
-        # No introspectable signature (e.g. some C callables) — an unknown
-        # capability must never be assumed present.
+        plan = ProviderInvocationPlan.prepare(
+            func,
+            provider_id="compatibility-probe",
+            method_name=str(getattr(func, "__name__", "provider_call")),
+            require_request=False,
+        )
+    except ProviderInvocationCompatibilityError:
         return False
-    return name in parameters or any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()
-    )
+    return plan.supports(name)
 
 
 def _complete_streaming(
@@ -128,13 +132,20 @@ def _complete_streaming(
     call — see :func:`_supports_kwarg` — never from retrying after an
     exception (#617): one operation, at most one dispatch.
     """
-    kwargs: dict[str, Any] = {"system": system}
-    if _supports_kwarg(runner.complete, "cancel"):
-        kwargs["cancel"] = cancel
-    streaming = on_text is not None and _supports_kwarg(runner.complete, "on_text")
-    if streaming:
-        kwargs["on_text"] = on_text
-    return runner.complete(text, **kwargs), streaming
+    plan = ProviderInvocationPlan.prepare(
+        runner.complete,
+        provider_id=str(getattr(runner, "name", "local") or "local"),
+        method_name="complete",
+    )
+    streaming = on_text is not None and plan.supports("on_text")
+    kwargs = plan.keyword_arguments(
+        required={"system": system},
+        optional={
+            "cancel": cancel,
+            **({"on_text": on_text} if streaming else {}),
+        },
+    )
+    return plan.invoke(text, kwargs), streaming
 
 
 def run_ask(
@@ -353,24 +364,22 @@ def _call_tool_loop(
         "guard": guard,
     }
 
-    def _accepts(name: str) -> bool:
-        try:
-            params = inspect.signature(complete_with_tools).parameters
-        except (TypeError, ValueError):
-            return True
-        return name in params or any(
-            param.kind is inspect.Parameter.VAR_KEYWORD for param in params.values()
-        )
-
-    if allow_command and _accepts("allow_command"):
-        kwargs["allow_command"] = allow_command
-    if tool_loop_policy is not None and _accepts("tool_loop_policy"):
-        kwargs["tool_loop_policy"] = tool_loop_policy
-    if repository_handle is not None and _accepts("repository_handle"):
-        kwargs["repository_handle"] = repository_handle
-    if provider_id and _accepts("provider_id"):
-        kwargs["provider_id"] = provider_id
-    return complete_with_tools(task, **kwargs)
+    plan = ProviderInvocationPlan.prepare(
+        complete_with_tools,
+        provider_id=provider_id or "local",
+        method_name="complete_with_tools",
+    )
+    optional = {
+        "allow_command": allow_command,
+        "tool_loop_policy": tool_loop_policy,
+        "repository_handle": repository_handle,
+        "provider_id": provider_id,
+    }
+    compiled = plan.keyword_arguments(
+        required=kwargs,
+        optional={name: value for name, value in optional.items() if value is not None},
+    )
+    return plan.invoke(task, compiled)
 
 
 def run_explicit_model(
@@ -458,12 +467,9 @@ def run_explicit_model(
             # A runner accepting provider_id is one that self-records per-turn
             # ledger entries (opaihub/local_runner.py); a runner without it
             # (predates Task 6/7) still needs the caller's legacy aggregate call.
-            try:
-                ledger_recorded_per_turn = (
-                    "provider_id" in inspect.signature(complete_with_tools).parameters
-                )
-            except (TypeError, ValueError):
-                ledger_recorded_per_turn = False
+            ledger_recorded_per_turn = _supports_kwarg(
+                complete_with_tools, "provider_id"
+            )
             answer = str(completed.get("text") or "")
             tool_trace = list(completed.get("tool_trace") or [])
             stopped_reason = str(completed.get("stopped_reason") or "")
@@ -499,6 +505,19 @@ def run_explicit_model(
             last_error = ""
             # F8: a single-shot free run that produced nothing is not "done".
             completion_state = "completed" if answer.strip() else "failed"
+    except ProviderInvocationCompatibilityError as exc:
+        return {
+            **base,
+            "status": "capability_mismatch",
+            "error": {
+                "code": exc.code,
+                "userMessage": (
+                    "The selected provider adapter is incompatible with this "
+                    "OPai runtime. Update the provider integration and try again."
+                ),
+                "technicalMessage": redact(str(exc)),
+            },
+        }
     except LocalRunCancelled:
         return {**base, "status": "cancelled", "answer": ""}
     except Exception as exc:  # noqa: BLE001 - normalize provider failures upstream

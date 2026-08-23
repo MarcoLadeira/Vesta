@@ -83,6 +83,7 @@ _ERROR_PROOF: dict[str, DispatchProof] = {
     "CONNECTION_REFUSED": DispatchProof.NOT_DISPATCHED,
     "AUTH_INVALID": DispatchProof.NOT_DISPATCHED,
     "CONFIG_INVALID": DispatchProof.NOT_DISPATCHED,
+    "MODEL_UNAVAILABLE": DispatchProof.NOT_DISPATCHED,
     # A cancel that landed before the request was handed to the provider.
     "CANCELLED_BEFORE_DISPATCH": DispatchProof.NOT_DISPATCHED,
     # The request was accepted and tokens were already streaming back. The

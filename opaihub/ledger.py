@@ -29,7 +29,7 @@ from .cost_model import (
 )
 from .model_identity import canonical_usage_model_id, model_provider
 from .state import state_dir
-from .usage_report import ProviderTurnUsage
+from .usage_report import ProviderTurnUsage, UsageValue
 
 
 # Event types recorded in the local usage ledger.
@@ -41,6 +41,11 @@ EVENT_CAPTURE_SESSION = "capture_session"
 EVENT_TASK_OUTCOME = "task_outcome"
 EVENT_OPERATION_INTENT = "operation_intent"
 EVENT_MODEL_CALL_STARTED = "model_call_started"
+EVENT_MODEL_CALL_USAGE_OBSERVED = "model_call_usage_observed"
+# A pre-dispatch identity whose adapter later proved that no provider request
+# left OPai. This closes the open item without inventing usage or counting a
+# model call.
+EVENT_MODEL_CALL_NOT_DISPATCHED = "model_call_not_dispatched"
 # A dispatched call retired without ever learning its cost (#685). Terminal and
 # honest: it closes the call as an *open item* while keeping it visible as
 # unaccounted spend. Never carries a cost — see `abandon_model_call`.
@@ -58,6 +63,8 @@ KNOWN_EVENT_TYPES = {
     EVENT_TASK_OUTCOME,
     EVENT_OPERATION_INTENT,
     EVENT_MODEL_CALL_STARTED,
+    EVENT_MODEL_CALL_USAGE_OBSERVED,
+    EVENT_MODEL_CALL_NOT_DISPATCHED,
     EVENT_MODEL_CALL_ABANDONED,
     EVENT_USAGE_BASELINE_RESET,
     EVENT_USAGE_ADVISORY_NOTICE,
@@ -89,12 +96,17 @@ CAPTURE_RATE_DEFINITION = {
 }
 
 _LEDGER_LOCK = threading.RLock()
-_LEDGER_HEAD_SCHEMA_VERSION = 1
+_LEDGER_HEAD_SCHEMA_VERSION = 2
 _USAGE_INDEX_SCHEMA_VERSION = 1
 _MAX_LEDGER_STRING_CHARS = 4_096
 _MAX_LEDGER_IDENTIFIER_CHARS = 4_096
 _MAX_ADVISORY_HEAD_KEYS = 2_048
-_HEAD_MAPPING_KEYS = ("model_epochs", "active_calls", "advisory_notice_keys")
+_HEAD_MAPPING_KEYS = (
+    "model_epochs",
+    "active_calls",
+    "pending_usage_observations",
+    "advisory_notice_keys",
+)
 _HEAD_STATE_KEYS = (
     *_HEAD_MAPPING_KEYS,
     "last_call_sequence",
@@ -139,6 +151,7 @@ def _empty_ledger_head() -> dict[str, Any]:
         "last_event_hash": "",
         "model_epochs": {},
         "active_calls": {},
+        "pending_usage_observations": {},
         "advisory_notice_keys": {},
     }
     head["state_hash"] = _head_state_hash(head)
@@ -197,7 +210,12 @@ def _apply_event_to_head(head: dict[str, Any], event: dict[str, Any]) -> None:
         return
     head["last_sequence"] = max(int(head.get("last_sequence") or 0), sequence)
     event_type = event.get("event_type")
-    if event_type in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}:
+    if event_type in {
+        EVENT_MODEL_CALL_STARTED,
+        EVENT_MODEL_CALL_USAGE_OBSERVED,
+        EVENT_MODEL_CALL,
+        EVENT_MODEL_CALL_NOT_DISPATCHED,
+    }:
         head["last_call_sequence"] = max(
             int(head.get("last_call_sequence") or 0),
             sequence,
@@ -218,13 +236,23 @@ def _apply_event_to_head(head: dict[str, Any], event: dict[str, Any]) -> None:
                 },
             )
         return
-    if event_type in {EVENT_MODEL_CALL, EVENT_MODEL_CALL_ABANDONED}:
+    if event_type == EVENT_MODEL_CALL_USAGE_OBSERVED:
+        call_id = str(event.get("call_id") or "")
+        if call_id:
+            head["pending_usage_observations"].setdefault(call_id, event)
+        return
+    if event_type in {
+        EVENT_MODEL_CALL,
+        EVENT_MODEL_CALL_NOT_DISPATCHED,
+        EVENT_MODEL_CALL_ABANDONED,
+    }:
         # Both are terminal for the *open item*: one learned the cost, one
         # proved it never will. Either way the call stops being outstanding.
         call_id = str(event.get("call_id") or "")
         if not call_id:
             return
         head["active_calls"].pop(call_id, None)
+        head["pending_usage_observations"].pop(call_id, None)
         return
     if event_type == EVENT_USAGE_BASELINE_RESET:
         canonical = str(event.get("canonical_model_id") or "")
@@ -420,7 +448,14 @@ def _write_usage_index_events(
                         "ON CONFLICT(call_id) DO UPDATE SET start_json=excluded.start_json",
                         (call_id, json.dumps(event, sort_keys=True, allow_nan=False)),
                     )
-                elif event.get("event_type") == EVENT_MODEL_CALL and call_id:
+                elif (
+                    event.get("event_type")
+                    in {
+                        EVENT_MODEL_CALL,
+                        EVENT_MODEL_CALL_NOT_DISPATCHED,
+                    }
+                    and call_id
+                ):
                     encoded = json.dumps(event, sort_keys=True, allow_nan=False)
                     updated = connection.execute(
                         "UPDATE calls SET final_json=? WHERE call_id=?",
@@ -507,7 +542,13 @@ def _rebuild_usage_index(project_root: Path) -> None:
             records,
             key=lambda item: int(item[0]["ledger_sequence"]),
         )
-        if event.get("event_type") in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}
+        if event.get("event_type")
+        in {
+            EVENT_MODEL_CALL_STARTED,
+            EVENT_MODEL_CALL_USAGE_OBSERVED,
+            EVENT_MODEL_CALL,
+            EVENT_MODEL_CALL_NOT_DISPATCHED,
+        }
     ]
     if not events:
         try:
@@ -545,7 +586,13 @@ def _update_usage_index(project_root: Path, events: Iterable[dict[str, Any]]) ->
     values = tuple(
         event
         for event in events
-        if event.get("event_type") in {EVENT_MODEL_CALL_STARTED, EVENT_MODEL_CALL}
+        if event.get("event_type")
+        in {
+            EVENT_MODEL_CALL_STARTED,
+            EVENT_MODEL_CALL_USAGE_OBSERVED,
+            EVENT_MODEL_CALL,
+            EVENT_MODEL_CALL_NOT_DISPATCHED,
+        }
     )
     if not values:
         return
@@ -1180,6 +1227,182 @@ def record_model_call_started(
         return _append_and_commit(root, path, head, event)
 
 
+def _model_call_usage_fields(
+    started: Mapping[str, Any],
+    usage: ProviderTurnUsage,
+    *,
+    call_id: str,
+) -> dict[str, Any]:
+    if usage.turn_index != started.get("turn_index"):
+        raise ValueError("usage turn_index does not match the started call")
+    estimated_actual = usage.estimated_actual_usd
+    if estimated_actual.value is None:
+        estimated_actual = usage.cost_usd
+    return {
+        "schema_version": MODEL_CALL_SCHEMA_VERSION,
+        "call_id": call_id,
+        "run_id": started["run_id"],
+        "turn_index": started["turn_index"],
+        "model_id": started["model_id"],
+        "canonical_model_id": started["canonical_model_id"],
+        "provider_id": started["provider_id"],
+        "model_tier": started["model_tier"],
+        "provider_type": started["provider_type"],
+        "confirmed": started["confirmed"],
+        "is_local_route": started["is_local_route"],
+        "usage_epoch": started["usage_epoch"],
+        "model_calls": 1,
+        "tokens": usage.total_tokens.value,
+        "measurement": usage.total_tokens.provenance,
+        "input_tokens": usage.input_tokens.value,
+        "input_tokens_provenance": usage.input_tokens.provenance,
+        "output_tokens": usage.output_tokens.value,
+        "output_tokens_provenance": usage.output_tokens.provenance,
+        "total_tokens": usage.total_tokens.value,
+        "total_tokens_provenance": usage.total_tokens.provenance,
+        "cached_input_tokens": usage.cached_input_tokens.value,
+        "cached_input_tokens_provenance": usage.cached_input_tokens.provenance,
+        "reasoning_tokens": usage.reasoning_tokens.value,
+        "reasoning_tokens_provenance": usage.reasoning_tokens.provenance,
+        "cost_usd": usage.cost_usd.value,
+        "cost_usd_provenance": usage.cost_usd.provenance,
+        "tier_estimate_usd": usage.tier_estimate_usd.value,
+        "tier_estimate_usd_provenance": usage.tier_estimate_usd.provenance,
+        "estimated_actual_usd": estimated_actual.value,
+        "estimated_actual_usd_provenance": estimated_actual.provenance,
+        "provider_quota": usage.to_dict()["providerQuota"],
+    }
+
+
+def _usage_from_observation(
+    observation: Mapping[str, Any], started: Mapping[str, Any]
+) -> ProviderTurnUsage:
+    for name in (
+        "run_id",
+        "turn_index",
+        "model_id",
+        "canonical_model_id",
+        "provider_id",
+    ):
+        if observation.get(name) != started.get(name):
+            raise ValueError(f"usage observation {name} does not match started call")
+
+    def measurement(value_name: str, provenance_name: str) -> UsageValue:
+        value = observation.get(value_name)
+        provenance = str(observation.get(provenance_name) or "unknown")
+        return UsageValue(value, provenance)
+
+    return ProviderTurnUsage(
+        turn_index=observation.get("turn_index"),
+        input_tokens=measurement("input_tokens", "input_tokens_provenance"),
+        output_tokens=measurement("output_tokens", "output_tokens_provenance"),
+        total_tokens=measurement("total_tokens", "total_tokens_provenance"),
+        cached_input_tokens=measurement(
+            "cached_input_tokens", "cached_input_tokens_provenance"
+        ),
+        reasoning_tokens=measurement("reasoning_tokens", "reasoning_tokens_provenance"),
+        cost_usd=measurement("cost_usd", "cost_usd_provenance"),
+        tier_estimate_usd=measurement(
+            "tier_estimate_usd", "tier_estimate_usd_provenance"
+        ),
+        estimated_actual_usd=measurement(
+            "estimated_actual_usd", "estimated_actual_usd_provenance"
+        ),
+        provider_quota=observation.get("provider_quota"),
+    )
+
+
+def record_model_call_usage_observed(
+    project_root: Path,
+    task: str,
+    *,
+    call_id: str,
+    usage: ProviderTurnUsage,
+    source: str = "provider_result",
+) -> dict[str, Any]:
+    """Persist returned usage before attempting its terminal ledger commit."""
+
+    stable_call_id = _required_identifier(call_id, "call_id")
+    if not isinstance(usage, ProviderTurnUsage):
+        raise TypeError("usage must be a ProviderTurnUsage")
+    with _ledger_transaction(project_root) as (root, path, head):
+        indexed = _load_indexed_call(root, stable_call_id)
+        if indexed is not None and isinstance(indexed.get("final"), dict):
+            return indexed["final"]
+        pending = head["pending_usage_observations"].get(stable_call_id)
+        if isinstance(pending, dict):
+            return pending
+        started = head["active_calls"].get(stable_call_id)
+        if not isinstance(started, dict) and indexed is not None:
+            started = indexed.get("start")
+        if not isinstance(started, dict):
+            raise ValueError(f"unknown call_id: {stable_call_id}")
+        fields = _model_call_usage_fields(started, usage, call_id=stable_call_id)
+        fields["observation_source"] = str(source or "provider_result")[:120]
+        event = _build_event(
+            EVENT_MODEL_CALL_USAGE_OBSERVED,
+            task=task,
+            store_summary=False,
+            fields=fields,
+        )
+        return _append_and_commit(root, path, head, event)
+
+
+def pending_model_call_observations(project_root: Path) -> list[dict[str, Any]]:
+    """Usage evidence durably observed but not yet committed as final spend."""
+
+    with _ledger_transaction(project_root) as (_root, _path, head):
+        pending = head.get("pending_usage_observations") or {}
+        return sorted(
+            (dict(event) for event in pending.values() if isinstance(event, Mapping)),
+            key=lambda event: int(event.get("ledger_sequence") or 0),
+        )
+
+
+def reconcile_observed_model_calls(
+    project_root: Path,
+    *,
+    call_ids: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Finalize durable usage observations without dispatching inference again."""
+
+    selected = (
+        None
+        if call_ids is None
+        else {_required_identifier(call_id, "call_id") for call_id in call_ids}
+    )
+    root = project_root.expanduser().resolve()
+    if not ledger_path(root).exists():
+        return []
+    with _ledger_transaction(root) as (root, path, head):
+        pending = head.get("pending_usage_observations") or {}
+        finalized: list[dict[str, Any]] = []
+        for call_id, observation in sorted(pending.items()):
+            if selected is not None and call_id not in selected:
+                continue
+            if not isinstance(observation, Mapping):
+                continue
+            started = head["active_calls"].get(call_id)
+            if not isinstance(started, Mapping):
+                continue
+            try:
+                usage = _usage_from_observation(observation, started)
+            except (TypeError, ValueError):
+                continue
+            fields = _model_call_usage_fields(started, usage, call_id=call_id)
+            event = _build_event(
+                EVENT_MODEL_CALL,
+                task="",
+                store_summary=False,
+                fields=fields,
+            )
+            event["task_hash"] = str(observation.get("task_hash") or "")
+            finalized.append(_append_without_persisting_head(root, path, head, event))
+        if finalized:
+            _persist_ledger_head(root, head)
+        return finalized
+
+
 def record_model_call_finalized(
     project_root: Path,
     task: str,
@@ -1204,6 +1427,9 @@ def record_model_call_finalized(
         if usage.turn_index != started.get("turn_index"):
             raise ValueError("usage turn_index does not match the started call")
 
+        estimated_actual = usage.estimated_actual_usd
+        if estimated_actual.value is None:
+            estimated_actual = usage.cost_usd
         fields: dict[str, Any] = {
             "schema_version": MODEL_CALL_SCHEMA_VERSION,
             "call_id": stable_call_id,
@@ -1232,7 +1458,10 @@ def record_model_call_finalized(
             "reasoning_tokens_provenance": usage.reasoning_tokens.provenance,
             "cost_usd": usage.cost_usd.value,
             "cost_usd_provenance": usage.cost_usd.provenance,
-            "estimated_actual_usd": usage.cost_usd.value,
+            "tier_estimate_usd": usage.tier_estimate_usd.value,
+            "tier_estimate_usd_provenance": usage.tier_estimate_usd.provenance,
+            "estimated_actual_usd": estimated_actual.value,
+            "estimated_actual_usd_provenance": estimated_actual.provenance,
             "provider_quota": usage.to_dict()["providerQuota"],
         }
         event = _build_event(
@@ -1240,6 +1469,53 @@ def record_model_call_finalized(
             task=task,
             store_summary=False,
             fields=fields,
+        )
+        return _append_and_commit(root, path, head, event)
+
+
+def record_model_call_not_dispatched(
+    project_root: Path,
+    task: str,
+    *,
+    call_id: str,
+    reason_code: str,
+) -> dict[str, Any]:
+    """Close a pre-dispatch call only when typed evidence proves no dispatch."""
+
+    stable_call_id = _required_identifier(call_id, "call_id")
+    stable_reason = _required_identifier(reason_code, "reason_code").upper()
+    from .operation_class import DispatchProof, dispatch_proof
+
+    if dispatch_proof(stable_reason) is not DispatchProof.NOT_DISPATCHED:
+        raise ValueError("reason_code does not prove non-dispatch")
+    with _ledger_transaction(project_root) as (root, path, head):
+        indexed = _load_indexed_call(root, stable_call_id)
+        if indexed is not None and isinstance(indexed.get("final"), dict):
+            return indexed["final"]
+        started = head["active_calls"].get(stable_call_id)
+        if not isinstance(started, dict) and indexed is not None:
+            started = indexed.get("start")
+        if not isinstance(started, dict):
+            raise ValueError(f"unknown call_id: {stable_call_id}")
+        event = _build_event(
+            EVENT_MODEL_CALL_NOT_DISPATCHED,
+            task=task,
+            store_summary=False,
+            fields={
+                "schema_version": MODEL_CALL_SCHEMA_VERSION,
+                "call_id": stable_call_id,
+                "run_id": started["run_id"],
+                "turn_index": started["turn_index"],
+                "model_id": started["model_id"],
+                "canonical_model_id": started["canonical_model_id"],
+                "provider_id": started["provider_id"],
+                "model_tier": started["model_tier"],
+                "provider_type": started["provider_type"],
+                "usage_epoch": started["usage_epoch"],
+                "dispatch_proof": "not_dispatched",
+                "reason_code": stable_reason,
+                "model_calls": 0,
+            },
         )
         return _append_and_commit(root, path, head, event)
 
@@ -1324,6 +1600,10 @@ def reconcile_abandoned_calls(
     """
 
     now = datetime.now(timezone.utc) if now is None else now
+    # #619: usage returned before a crash/final-write failure is a durable
+    # outbox item. Commit it before considering any still-open call abandoned;
+    # this never invokes the provider or repeats inference.
+    reconcile_observed_model_calls(project_root)
     # No ledger, no calls. Checked before opening a transaction, which would
     # otherwise create ledger state and a lock file under a root that has
     # never recorded anything — making every caller a writer.

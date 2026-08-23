@@ -14,7 +14,7 @@ from unittest import mock
 import yaml
 
 from _helpers import isolated_home
-from opaihub import loader
+from opaihub import loader, provider_catalog
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -215,6 +215,14 @@ class SmokeInstallContractTests(unittest.TestCase):
         self.assertEqual(command[:3], [sys.executable, "-I", "-c"])
         self.assertIn("provider_catalog.catalog_bytes()", command[3])
         self.assertIn("provider_catalog.all_catalog_records()", command[3])
+
+    def test_wheel_smoke_inventory_matches_the_canonical_provider_catalog(self):
+        smoke = _load_smoke_module()
+
+        self.assertEqual(
+            smoke._EXPECTED_PROVIDER_CATALOG_IDS,
+            provider_catalog.provider_ids(),
+        )
 
     def test_catalog_check_runs_before_required_smoke_commands(self):
         smoke = _load_smoke_module()

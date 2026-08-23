@@ -71,6 +71,7 @@ JOURNAL_OWNED = {
     "opaihub/parallel_agents.py": "runs — concurrent agent slots",
     "opaihub/scheduler.py": "runs — scheduled work",
     # operations / approvals
+    "opaihub/idempotency.py": "operations -- exact-once external-effect claims",
     "opaihub/checkpoints.py": "operations — run checkpoints",
     "opaihub/audit.py": "approvals — audit trail",
     "opaihub/github_connector.py": "operations — GitHub delivery",
