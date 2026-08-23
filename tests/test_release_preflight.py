@@ -13,6 +13,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from opai.release_identity import (
+    derive_project_release,
+    render_documentation_projection,
+)
 from opaihub import release_preflight as rp
 
 
@@ -88,7 +92,16 @@ def _write_release_repo(
         )
     (root / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
     (root / "LICENSE").write_text("X" * 200, encoding="utf-8")
-    (root / "README.md").write_text("# OPai\n\nA real readme.\n", encoding="utf-8")
+    release = derive_project_release(version)
+    readme_identity = render_documentation_projection(release, surface="README.md")
+    install_identity = render_documentation_projection(
+        release, surface="docs/INSTALL_PROOF.md"
+    )
+    (root / "README.md").write_text(f"# OPai\n\n{readme_identity}\n", encoding="utf-8")
+    (root / "docs").mkdir()
+    (root / "docs" / "INSTALL_PROOF.md").write_text(
+        f"# Install proof\n\n{install_identity}\n", encoding="utf-8"
+    )
     (root / "CONTRIBUTING.md").write_text(
         "# Contributing\n\nGuidelines.\n", encoding="utf-8"
     )

@@ -100,3 +100,29 @@ def test_drift_cli_prints_expected_actual_surface_and_remediation(
     assert "generated.application_version" in output
     assert str(generated.resolve()) in output
     assert "generate_release_identity.py" in output
+
+
+def test_current_documentation_identity_drift_is_actionable(tmp_path: Path) -> None:
+    root = _fixture(tmp_path)
+    (root / "docs").mkdir()
+    module = importlib.import_module("opai.release_identity")
+    release = module.read_project_release(root / "pyproject.toml")
+    readme = module.render_documentation_projection(release, surface="README.md")
+    install_projection = module.render_documentation_projection(
+        release, surface="docs/INSTALL_PROOF.md"
+    )
+    (root / "README.md").write_text(readme + "\n", encoding="utf-8")
+    install = root / "docs" / "INSTALL_PROOF.md"
+    install.write_text(
+        install_projection.replace("0.2.1a1", "9.9.9", 1) + "\n",
+        encoding="utf-8",
+    )
+
+    drift = _validation_module().validate_release_identity(root)
+    documentation = next(
+        item for item in drift if item.surface == "documentation.docs/INSTALL_PROOF.md"
+    )
+
+    assert "application_version=0.2.1a1" in documentation.expected
+    assert "application_version=9.9.9" in documentation.actual
+    assert documentation.remediation.endswith("generate_release_identity.py")

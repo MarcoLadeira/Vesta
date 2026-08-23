@@ -211,6 +211,45 @@ def render_generated_release(release: ProjectRelease) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_documentation_identity(release: ProjectRelease) -> str:
+    """Render the generated marker validated in current release documentation."""
+
+    return (
+        "<!-- opai-release-identity: "
+        f"application_version={release.application_version}; "
+        f"release_stage={release.release_stage}; "
+        f"published_tag={release.published_tag} -->"
+    )
+
+
+def render_documentation_projection(release: ProjectRelease, *, surface: str) -> str:
+    """Render one complete current-documentation identity block."""
+
+    marker = render_documentation_identity(release)
+    if surface == "README.md":
+        body = (
+            f"The current application release is **{release.display_name}** (package\n"
+            f"`{release.application_version}`, channel `{release.release_channel}`, "
+            f"canonical tag `{release.published_tag}`). OPai is a local-first\n"
+            "AI coding hub that installs into your terminal and AI coding clients so every\n"
+            "project gets better routing, safer automation, reusable context, Superpowers\n"
+            "skills, MCP-ready registries, testing workflows, GitOps helpers, governance\n"
+            "controls, benchmark proof, and a real cost ledger."
+        )
+    elif surface == "docs/INSTALL_PROOF.md":
+        body = (
+            f"- [ ] **CLI resolves.** `opai version` begins with `OPai "
+            f"{release.application_version} {release.release_stage}`\n"
+            "      and reports either the exact packaged build SHA or the honest\n"
+            "      `development`/`unknown` fallback."
+        )
+    else:
+        raise ReleaseIdentityError(
+            f"unsupported documentation identity projection: {surface}"
+        )
+    return f"{marker}\n{body}\n<!-- /opai-release-identity -->"
+
+
 def _normal_architecture(value: str | None = None) -> str:
     machine = str(value or platform_module.machine()).casefold()
     return {"amd64": "x86_64", "x64": "x86_64", "aarch64": "arm64"}.get(

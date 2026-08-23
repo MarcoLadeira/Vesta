@@ -76,9 +76,19 @@ contract:
   "workflow": ".github/workflows/desktop-artifacts.yml",
   "run_id": "123456789",
   "run_attempt": "1",
-  "tag": "v0.2.0a2",
+  "tag": "<canonical-published-tag>",
   "candidate_sha": "<40-hex-commit>",
   "commit_sha": "<same-40-hex-commit>",
+  "release_identity": {
+    "application_version": "<canonical-application-version>",
+    "build_id": "<same-40-hex-commit>",
+    "published_tag": "<canonical-published-tag>",
+    "release_channel": "<canonical-release-channel>",
+    "release_stage": "<canonical-release-stage>",
+    "platform": "linux",
+    "architecture": "x86_64",
+    "install_type": "qualification_source"
+  },
   "provider_evidence": {
     "path": "provider-qualification.json",
     "sha256": "<64-hex-evidence-digest>"
@@ -162,14 +172,14 @@ never silently ship.
 Plan a rollback to the previous tested release (read-only by default):
 
 ```bash
-opai release rollback --previous-manifest previous/manifest.json --to 0.2.0a1
+opai release rollback --previous-manifest previous/manifest.json --to "<previous-version>"
 ```
 
 Execute it against an installed release, protecting user state:
 
 ```bash
 opai release rollback --execute \
-  --previous-manifest previous/manifest.json --to 0.2.0a1 \
+  --previous-manifest previous/manifest.json --to "<previous-version>" \
   --release-root /opt/opai --pointer /opt/opai/active.json \
   --protect /opt/opai/.opaihub
 ```

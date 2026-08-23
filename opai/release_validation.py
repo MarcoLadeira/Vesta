@@ -11,6 +11,7 @@ from .release_identity import (
     ProjectRelease,
     ReleaseIdentityError,
     read_project_release,
+    render_documentation_projection,
 )
 
 
@@ -34,6 +35,7 @@ _APPLICATION_IDENTITY_NAMES = frozenset(
     }
 )
 _PROJECTION_REMEDIATION = "Run: python scripts/generate_release_identity.py"
+_CURRENT_DOCUMENTATION = (Path("README.md"), Path("docs/INSTALL_PROOF.md"))
 
 
 @dataclass(frozen=True)
@@ -277,4 +279,30 @@ def validate_release_identity(root: Path) -> tuple[IdentityDrift, ...]:
                 ),
             )
         )
+    for relative in _CURRENT_DOCUMENTATION:
+        path = (repository / relative).resolve()
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            start = next(
+                index
+                for index, line in enumerate(lines)
+                if line.strip().startswith("<!-- opai-release-identity:")
+            )
+            end = lines.index("<!-- /opai-release-identity -->", start + 1)
+            actual_projection = "\n".join(lines[start : end + 1])
+        except (OSError, StopIteration, ValueError):
+            actual_projection = "<missing>"
+        expected_projection = render_documentation_projection(
+            release, surface=relative.as_posix()
+        )
+        if actual_projection != expected_projection:
+            drifts.append(
+                IdentityDrift(
+                    surface=f"documentation.{relative.as_posix()}",
+                    path=path,
+                    expected=expected_projection,
+                    actual=actual_projection,
+                    remediation=_PROJECTION_REMEDIATION,
+                )
+            )
     return tuple(drifts)

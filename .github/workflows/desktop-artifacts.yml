@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Exact annotated package-version tag (for example v0.2.1a1)
+        description: Exact annotated v-prefixed PEP 440 package-version tag
         required: true
         type: string
       release_channel:
@@ -290,7 +290,7 @@ jobs:
         shell: bash
         run: |
           if ! [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)((a|b|rc)(0|[1-9][0-9]*))?$ ]]; then
-            echo "release_tag must be a safe package-version tag such as v0.2.1a1."
+            echo "release_tag must be a safe v-prefixed PEP 440 package-version tag."
             exit 2
           fi
           if [ "$RELEASE_CHANNEL" = "unsigned-prealpha" ] && [ "$ALLOW_UNSIGNED_PREALPHA" != "true" ]; then
