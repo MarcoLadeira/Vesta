@@ -13,9 +13,11 @@ from __future__ import annotations
 import json
 import math
 from datetime import datetime, timezone
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .cost_model import is_degraded, is_local_tier, load_cost_model
 from .ledger import (
@@ -148,6 +150,43 @@ def load_budget(project_root: Path) -> dict[str, Any]:
     return caps
 
 
+def _valid_budget_record(record) -> bool:
+    """Match :func:`_read_budget_dict`'s own bar: any object is a budget.
+
+    Deliberately permissive, because an *unset* cap is ``None`` and that is a
+    real, meaningful record -- ``_default_caps`` returns ``None`` for every cap
+    the policy does not set, and removing a cap persists ``None`` over a
+    number. A validator demanding numeric caps would drop exactly the record
+    that says "this ceiling was lifted", which is the sixth module in this
+    migration where rejecting the empty state would discard the record #613
+    most needs. Getting it wrong here is the expensive direction too: a shadow
+    that kept a stale ceiling would misreport a spending limit the user has
+    already removed.
+    """
+
+    return isinstance(record, Mapping)
+
+
+def budget_shadow_projection(project_root: Path) -> dict[str, Any]:
+    """Rebuild the persisted budget caps from their shadow journal."""
+
+    return shadow_journal.projection(
+        budget_path(project_root.expanduser().resolve()),
+        is_valid_record=_valid_budget_record,
+    )
+
+
+def budget_contradiction_report(project_root: Path) -> dict[str, Any] | None:
+    """``None`` when the budget file and its shadow agree, else what differs."""
+
+    path = budget_path(project_root.expanduser().resolve())
+    return shadow_journal.contradiction_report(
+        path,
+        lambda: _read_budget_dict(path) or {},
+        is_valid_record=_valid_budget_record,
+    )
+
+
 def set_budget(
     project_root: Path,
     *,
@@ -184,6 +223,13 @@ def set_budget(
         # replacement. Keep primary and its recovery backup in this transaction.
         atomic_write_text(path, payload)
         atomic_write_text(_backup_path(root), payload)
+        # #613 Stage 2: the .bak above is a hand-rolled single-slot version
+        # of what the journal does properly -- it survives a torn write but
+        # not a bad value written twice. Mirrored inside the same transaction
+        # as both files so all three agree on the order caps changed in.
+        shadow_journal.record_snapshot(
+            path, caps, is_valid_record=_valid_budget_record
+        )
         return {"status": "updated", **caps, "path": str(path)}
 
 
