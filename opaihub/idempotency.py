@@ -46,8 +46,10 @@ import hashlib
 import json
 import time
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
+from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .state import state_dir
 
@@ -118,6 +120,19 @@ def _load(project_root: Path) -> dict[str, Any]:
     return data
 
 
+def _valid_operation_store(record: Mapping[str, Any]) -> bool:
+    """A mirrored store must carry the operation map a reader needs.
+
+    An empty map is valid, deliberately: abandoning the last in-flight claim
+    is a state change worth recording. Requiring a non-empty map would drop it
+    and leave the shadow asserting claims that no longer exist -- the same
+    trap already met in checkpoints (`pending`), agent runtime (`idle`) and
+    scheduler (an empty list).
+    """
+
+    return isinstance(record.get("operations"), dict)
+
+
 def _save(project_root: Path, store: dict[str, Any]) -> None:
     if len(store) > MAX_RECORDS:
         raise OperationPersistenceError(
@@ -128,6 +143,47 @@ def _save(project_root: Path, store: dict[str, Any]) -> None:
         atomic_write_text(path, json.dumps(store, sort_keys=True, indent=2) + "\n")
     except OSError as exc:
         raise OperationPersistenceError("operation claim store is unwritable") from exc
+    # #613 Stage 2: mirror the canonical event. Every caller (begin, complete,
+    # abandon) already holds interprocess_transaction(_path(...)), so the
+    # journal observes writes in exactly the order the file took them.
+    #
+    # This file is one document keyed by operation rather than one file per
+    # record, so the journalled "record" is the whole store, carried under a
+    # single key because the helper mirrors mappings.
+    shadow_journal.record_snapshot(
+        path, {"operations": store}, is_valid_record=_valid_operation_store
+    )
+
+
+def shadow_journal_projection(project_root: Path) -> dict[str, Any]:
+    """The operation store the shadow journal alone would reconstruct."""
+
+    return shadow_journal.projection(
+        _path(project_root), is_valid_record=_valid_operation_store
+    )
+
+
+def operation_contradiction_report(project_root: Path) -> dict[str, Any] | None:
+    """``None`` when the file and its shadow agree; otherwise what differs.
+
+    The dual-read #613 asks for. ``_load`` is deliberately not reused: it
+    raises OperationPersistenceError on a corrupt or invalid-schema store,
+    which is right for its callers -- an idempotency claim must fail closed --
+    but would raise past the very divergence this exists to report.
+    """
+
+    path = _path(project_root)
+
+    def read_legacy() -> dict[str, Any]:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return {"operations": data} if isinstance(data, dict) else {}
+
+    return shadow_journal.contradiction_report(
+        path, read_legacy, is_valid_record=_valid_operation_store
+    )
 
 
 def _blocked(key: str, exc: BaseException) -> dict[str, Any]:
