@@ -294,8 +294,6 @@ class AdoptedJournalTests(unittest.TestCase):
             "a dead primitive",
         )
 
-
-
     def test_already_append_only_modules_are_journal_owned_and_earn_it(self):
         """An exemption must be structural, not a line in a set.
 

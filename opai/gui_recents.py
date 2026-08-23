@@ -925,9 +925,7 @@ def conversation_shadow_projection(
         target = _conversation_target(workspace_root, conversation_id)
     except ValueError:
         return {}
-    return shadow_journal.projection(
-        target, is_valid_record=_valid_conversation_record
-    )
+    return shadow_journal.projection(target, is_valid_record=_valid_conversation_record)
 
 
 def conversation_contradiction_report(
