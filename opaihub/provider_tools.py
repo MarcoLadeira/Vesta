@@ -777,15 +777,53 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("git_create_branch", tuple(self.written_paths))
         if blocked is not None:
             return blocked
+        # #616: branch creation is a Git mutation; persist the operation
+        # before dispatch so a replayed turn resolves to the recorded branch
+        # instead of erroring on "already exists" or, worse, racing a second
+        # creation. A lost response fails closed as uncertain: the branch may
+        # already exist.
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        key = operation_key("git_create_branch", root=str(self.repo_root), name=name)
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return Observation(
+                "git_branch",
+                True,
+                {"branch": name},
+                message=f"Branch {name} already created",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            return _error(
+                "BRANCH_STATE_UNCERTAIN",
+                "An earlier attempt to create this branch did not confirm. "
+                "It may already exist — check `git branch` before retrying.",
+            )
         result = self._git(["checkout", "-b", name], cancel=cancel)
-        if result["ok"] and not self._refresh_repository_handle():
+        if result.get("cancelled"):
+            # _git checks cancel before spawning, so nothing was dispatched.
+            abandon(self.repo_root, key)
+            return _cancelled_error()
+        if not result["ok"]:
+            # checkout -b failed before creating the ref (invalid start
+            # point, existing branch): provably no effect, key released.
+            abandon(self.repo_root, key)
+            return Observation(
+                "git_branch",
+                False,
+                {"branch": name},
+                "GIT_BRANCH_FAILED",
+                result["output"],
+            ).to_dict()
+        complete(self.repo_root, key, {"branch": name})
+        if not self._refresh_repository_handle():
             return self._repository_safety_blocked("git_create_branch")
         return Observation(
             "git_branch",
-            result["ok"],
+            True,
             {"branch": name},
-            "" if result["ok"] else "GIT_BRANCH_FAILED",
-            result["output"] if not result["ok"] else f"Created branch {name}",
+            message=f"Created branch {name}",
         ).to_dict()
 
     def _git_commit(
