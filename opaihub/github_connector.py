@@ -23,9 +23,11 @@ import re
 import subprocess  # nosec B404 - fixed git argv, never a shell
 import time
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Callable
 from urllib.parse import urlencode
 
+from . import shadow_journal
 from .command_runner import redact
 from .credentials import CredentialStore, CredentialStoreUnavailable
 from .proc import no_window_kwargs
@@ -88,6 +90,51 @@ def _load_config() -> dict[str, Any]:
         return {}
 
 
+#: Substrings that mark a config key as credential-bearing. The connector
+#: stores its token in the OS keychain and keeps only ``login`` and the two
+#: consent flags in ``github.json`` -- see :func:`connect_github`. This guard
+#: exists so that stays true. A journal is an append-only file that nothing
+#: prunes; a secret written into one survives disconnects, token rotations and
+#: `opai github disconnect` alike. If a later change ever starts persisting a
+#: credential in the config, the mirror must refuse the record rather than
+#: quietly duplicate the secret into a second file with its own permissions.
+_CREDENTIAL_KEY_MARKERS = ("token", "secret", "password", "credential", "key")
+
+
+def _looks_like_a_credential(key: object) -> bool:
+    text = str(key).lower()
+    return any(marker in text for marker in _CREDENTIAL_KEY_MARKERS)
+
+
+def _valid_connector_record(record: "dict[str, Any]") -> bool:
+    """Accept a connector config, but never one carrying a credential.
+
+    Deliberately permissive about *shape* -- the config grows keys over time
+    and dropping an unrecognised one would be silent history loss -- and
+    deliberately strict about secrets, for the reason above.
+    """
+
+    if not isinstance(record, Mapping):
+        return False
+    return not any(_looks_like_a_credential(key) for key in record)
+
+
+def github_config_projection() -> "dict[str, Any]":
+    """Rebuild the connector config from its shadow journal."""
+
+    return shadow_journal.projection(
+        _config_path(), is_valid_record=_valid_connector_record
+    )
+
+
+def github_config_contradiction_report() -> "dict[str, Any] | None":
+    """``None`` when the connector config and its shadow agree, else what differs."""
+
+    return shadow_journal.contradiction_report(
+        _config_path(), _load_config, is_valid_record=_valid_connector_record
+    )
+
+
 def _save_config(config: dict[str, Any]) -> None:
     # Crash-safe: a temp file + atomic replace can never leave a torn config.
     from .atomic_io import atomic_write_text
@@ -114,6 +161,11 @@ def _update_config(
         config = _load_config()
         mutator(config)
         _save_config(config)
+        # #613 Stage 2: mirrored from inside the same lock that decided the
+        # config, so the journal cannot observe an order the file never took.
+        shadow_journal.record_snapshot(
+            path, config, is_valid_record=_valid_connector_record
+        )
         return config
 
 
