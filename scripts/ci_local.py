@@ -106,6 +106,11 @@ PYTHON_STEPS = (
         failure_class="policy",
     ),
     Step(
+        "release-identity-drift",
+        [sys.executable, "scripts/check_release_identity.py"],
+        failure_class="policy",
+    ),
+    Step(
         "lifecycle-test-collection",
         [sys.executable, "scripts/check_test_collection.py"],
         failure_class="policy",

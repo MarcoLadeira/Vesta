@@ -60,11 +60,26 @@ def _write_release_repo(
     (root / "pyproject.toml").write_text(
         f'[project]\nname = "opai"\nversion = "{version}"\n', encoding="utf-8"
     )
+    base, alpha = version.split("a", 1)
+    (root / "opai" / "_generated_release.py").write_text(
+        '"""Generated fixture."""\n\n'
+        f'APPLICATION_VERSION = "{version}"\n'
+        'RELEASE_CHANNEL = "alpha"\n'
+        f'RELEASE_STAGE = "{stage}"\n'
+        f'DISPLAY_NAME = "OPai {base} Alpha.{alpha}"\n'
+        f'PUBLISHED_TAG = "v{version}"\n',
+        encoding="utf-8",
+    )
     (root / "opai" / "__init__.py").write_text(
-        f'__version__ = "{version}"\n__release_stage__ = "{stage}"\n', encoding="utf-8"
+        "from ._generated_release import APPLICATION_VERSION, RELEASE_STAGE\n\n"
+        "__version__ = APPLICATION_VERSION\n"
+        "__release_stage__ = RELEASE_STAGE\n",
+        encoding="utf-8",
     )
     (root / "opaihub" / "__init__.py").write_text(
-        f'__version__ = "{version}"\n', encoding="utf-8"
+        "from opai._generated_release import APPLICATION_VERSION\n\n"
+        "__version__ = APPLICATION_VERSION\n",
+        encoding="utf-8",
     )
     if changelog is None:
         changelog = (
@@ -232,8 +247,13 @@ class PreflightBlockerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_release_repo(root)
-            (root / "opaihub" / "__init__.py").write_text(
-                '__version__ = "9.9.9"\n', encoding="utf-8"
+            generated = root / "opai" / "_generated_release.py"
+            generated.write_text(
+                generated.read_text(encoding="utf-8").replace(
+                    'APPLICATION_VERSION = "0.2.0a2"',
+                    'APPLICATION_VERSION = "9.9.9"',
+                ),
+                encoding="utf-8",
             )
             self.assertIn("version_consistency", self._blockers(root))
 

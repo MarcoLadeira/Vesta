@@ -178,6 +178,19 @@ class LocalCiEvidenceTests(unittest.TestCase):
             _check(evidence, "security check")["failure_class"], "security"
         )
 
+    def test_python_profile_runs_release_identity_drift_after_generation_drift(self):
+        ci = _load_ci_local_module()
+        names = [step.name for step in ci.PYTHON_STEPS]
+
+        assert "release-identity-drift" in names
+        assert (
+            names.index("release-identity-drift")
+            == names.index("lifecycle-projection-drift") + 1
+        )
+        step = ci.PYTHON_STEPS[names.index("release-identity-drift")]
+        assert step.argv == [sys.executable, "scripts/check_release_identity.py"]
+        assert step.failure_class == "policy"
+
     def test_required_timeout_is_typed_infrastructure_blockage(self):
         ci = _load_ci_local_module()
         step = ci.Step(

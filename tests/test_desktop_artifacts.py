@@ -146,8 +146,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
                 release_tag="v0.2.1a2",
                 versions={
                     "pyproject.toml": "0.2.1a1",
-                    "opai/__init__.py": "0.2.1a1",
-                    "opaihub/__init__.py": "0.2.1a1",
+                    "opai/_generated_release.py": "0.2.1a1",
                 },
             )
 

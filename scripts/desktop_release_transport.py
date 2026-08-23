@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -41,9 +42,6 @@ RELEASE_TAG_PATTERN = re.compile(
 PEP440_PATTERN = re.compile(
     r"^(?P<base>(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\."
     r"(?:0|[1-9][0-9]*))(?:(?P<kind>a|b|rc)(?P<number>0|[1-9][0-9]*))?$"
-)
-DUNDER_VERSION_PATTERN = re.compile(
-    r'(?m)^\s*__version__\s*=\s*"(?P<version>[^"]+)"\s*$'
 )
 PLATFORM_PROVENANCE = {
     "windows-latest": "windows",
@@ -93,8 +91,7 @@ def _read_project_version(pyproject_path: Path) -> str:
     Prefers the standard library's TOML reader. On 3.10, which has none and
     for which this repository declares support, it falls back to reading the
     single field this function needs out of the ``[project]`` table -- the
-    same shape ``read_release_versions`` already uses to pull ``__version__``
-    out of the two package ``__init__`` files.
+    same scoped shape used by the canonical release-identity reader.
 
     Both paths fail closed: an unreadable, malformed or absent version raises
     :class:`TransportError` rather than returning a guess, because every
@@ -128,26 +125,36 @@ def _read_project_version(pyproject_path: Path) -> str:
     return match.group("version")
 
 
+def _read_generated_version(path: Path) -> str:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError) as exc:
+        raise TransportError("generated release projection is unreadable") from exc
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if (
+            isinstance(target, ast.Name)
+            and target.id == "APPLICATION_VERSION"
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            return node.value.value
+    raise TransportError("generated release projection has no application version")
+
+
 def read_release_versions(root: Path) -> dict[str, str]:
-    """Read every authoritative package version without importing the package."""
+    """Read canonical input and its generated runtime projection."""
 
     repository = root.expanduser().resolve()
     project_version = _read_project_version(repository / "pyproject.toml")
-    versions = {"pyproject.toml": project_version}
-    for relative in ("opai/__init__.py", "opaihub/__init__.py"):
-        try:
-            text = (repository / relative).read_text(encoding="utf-8")
-        except OSError as exc:
-            raise TransportError(
-                f"cannot read canonical version source: {relative}"
-            ) from exc
-        match = DUNDER_VERSION_PATTERN.search(text)
-        if match is None:
-            raise TransportError(
-                f"canonical version source has no __version__: {relative}"
-            )
-        versions[relative] = match.group("version")
-    return versions
+    return {
+        "pyproject.toml": project_version,
+        "opai/_generated_release.py": _read_generated_version(
+            repository / "opai" / "_generated_release.py"
+        ),
+    }
 
 
 def validate_release_versions(*, release_tag: str, versions: Mapping[str, str]) -> str:
@@ -157,12 +164,14 @@ def validate_release_versions(*, release_tag: str, versions: Mapping[str, str]) 
         raise TransportError(
             f"release tag is not a canonical v-prefixed PEP 440 version: {release_tag!r}"
         )
-    required = {"pyproject.toml", "opai/__init__.py", "opaihub/__init__.py"}
+    required = {"pyproject.toml", "opai/_generated_release.py"}
     if set(versions) != required:
-        raise TransportError("canonical package version sources are incomplete")
+        raise TransportError("canonical release identity projections are incomplete")
     unique = {str(value).strip() for value in versions.values()}
     if len(unique) != 1:
-        raise TransportError(f"canonical package versions disagree: {dict(versions)!r}")
+        raise TransportError(
+            f"canonical release identity projections disagree: {dict(versions)!r}"
+        )
     version = unique.pop()
     expected_tag = canonical_release_tag(version)
     if release_tag != expected_tag:
