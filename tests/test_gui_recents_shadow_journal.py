@@ -22,6 +22,7 @@ import concurrent.futures
 import json
 import subprocess  # nosec B404 - fixed argv, throwaway test repo
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -143,6 +144,17 @@ class ShadowMirrorsArchivedConversationsTests(_ConversationFixture):
             no lock: A writes file, stalls; B writes file *and* mirrors;
                      A mirrors last  ->  file is B's, shadow is A's
             lock:    B cannot start until A has both written and mirrored
+
+        The patch is applied **once, from this thread**, and each writer's
+        stall is looked up by thread name. Patching from inside each worker
+        instead -- the obvious way to write this -- corrupts the whole test
+        session: two threads entering ``mock.patch.object`` on the same global
+        attribute means the second captures the first's *stalled* function as
+        the original and restores that on exit, leaving every
+        ``record_snapshot`` call in the process sleeping for the rest of the
+        run. That surfaced as a 30-minute CI timeout on an unrelated suite
+        rather than a failure here, which is how a test that mutates shared
+        global state fails: somewhere else, much later, for no visible reason.
         """
 
         conversation_id = self._chat("r1", "How does auth work?", "OAuth.")
@@ -150,33 +162,35 @@ class ShadowMirrorsArchivedConversationsTests(_ConversationFixture):
         real_snapshot = shadow_journal.record_snapshot
         stalls = {"slow": 0.6, "fast": 0.0}
 
+        def stalled(*args, **kwargs):
+            time.sleep(stalls.get(threading.current_thread().name, 0.0))
+            return real_snapshot(*args, **kwargs)
+
         def archive(name: str) -> None:
-            def stalled(*args, **kwargs):
-                time.sleep(stalls[name])
-                return real_snapshot(*args, **kwargs)
+            threading.current_thread().name = name
+            archive_conversation(
+                self.root,
+                {
+                    "conversation_id": conversation_id,
+                    "mode": "ask",
+                    "messages": [
+                        *base["messages"],
+                        {"role": "user", "text": f"follow-up from {name}"},
+                    ],
+                },
+            )
 
-            with mock.patch.object(
-                gui_recents.shadow_journal, "record_snapshot", stalled
-            ):
-                archive_conversation(
-                    self.root,
-                    {
-                        "conversation_id": conversation_id,
-                        "mode": "ask",
-                        "messages": [
-                            *base["messages"],
-                            {"role": "user", "text": f"follow-up from {name}"},
-                        ],
-                    },
-                )
+        with mock.patch.object(gui_recents.shadow_journal, "record_snapshot", stalled):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                slow = pool.submit(archive, "slow")
+                time.sleep(0.15)  # let the slow writer reach its stalled mirror
+                fast = pool.submit(archive, "fast")
+                slow.result()
+                fast.result()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            slow = pool.submit(archive, "slow")
-            time.sleep(0.15)  # let the slow writer reach its stalled mirror
-            fast = pool.submit(archive, "fast")
-            slow.result()
-            fast.result()
-
+        # The attribute must be exactly what it was; a leaked patch is what
+        # caused the timeout this test now guards against.
+        self.assertIs(shadow_journal.record_snapshot, real_snapshot)
         self.assertIsNone(conversation_contradiction_report(self.root, conversation_id))
 
 
