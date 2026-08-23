@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .generated_lifecycle import (
@@ -268,11 +269,73 @@ def _schedules_path(project_root: Path) -> Path:
     return _background_dir(project_root) / "schedules.json"
 
 
+def _valid_run_record(record) -> bool:
+    """Match :func:`load_run`'s own bar: a run is anything carrying a run_id.
+
+    Deliberately does *not* check ``run_state`` against a list of states.
+    #612 made the lifecycle schema the single authority on that vocabulary and
+    forbids modules from restating it; a hand-written tuple here would be a
+    second copy to drift. It would also be the empty-state trap again -- a
+    freshly queued run is the record most worth keeping, and a validator that
+    knew only the states someone remembered to type would drop the rest in
+    silence.
+    """
+
+    return isinstance(record.get("run_id"), str) and bool(record.get("run_id"))
+
+
+def _read_run_raw(path: Path) -> dict[str, Any]:
+    """Read a run file as persisted, without :func:`load_run`'s coercion.
+
+    ``load_run`` raises on an unknown ``run_state`` -- correct for callers who
+    must not act on a corrupt run, but it would raise past exactly the
+    divergence the contradiction report exists to describe.
+    """
+
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def run_shadow_projection(project_root: Path, run_id: str) -> dict[str, Any]:
+    """Rebuild one background run from its shadow journal."""
+
+    try:
+        path = _run_path(project_root, run_id)
+    except ValueError:
+        return {}
+    return shadow_journal.projection(path, is_valid_record=_valid_run_record)
+
+
+def run_contradiction_report(project_root: Path, run_id: str) -> dict[str, Any] | None:
+    """``None`` when the persisted run and its shadow agree, else what differs."""
+
+    try:
+        path = _run_path(project_root, run_id)
+    except ValueError:
+        return None
+    return shadow_journal.contradiction_report(
+        path,
+        lambda: _read_run_raw(path),
+        is_valid_record=_valid_run_record,
+        identity={"run_id": run_id},
+    )
+
+
 def _save_run(project_root: Path, run: AutomationRun) -> Path:
     path = _run_path(project_root, run.run_id)
     with interprocess_transaction(path):
         atomic_write_text(
             path, json.dumps(run.to_dict(), indent=2, sort_keys=True) + "\n"
+        )
+        # #613 Stage 2: mirrored inside the same lock. Every lifecycle
+        # transition routes through here, so the journal sees the same
+        # sequence of states the file took -- including the ones a terminal
+        # state later makes unreachable.
+        shadow_journal.record_snapshot(
+            path, run.to_dict(), is_valid_record=_valid_run_record
         )
     return path
 

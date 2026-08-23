@@ -859,6 +859,41 @@ def _valid_manifest_record(record) -> bool:
     return isinstance(record.get("targets"), list)
 
 
+def _read_manifest_raw(path: Path) -> dict[str, Any]:
+    """Read the manifest as persisted, without the loader's normalisation."""
+
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def global_manifest_projection(home: Path | None = None) -> dict[str, Any]:
+    """Rebuild the connected-service consent manifest from its shadow journal."""
+
+    # opai_home() is the module's own resolver and applies .resolve(); a
+    # re-derived path here would read a different file on any platform where
+    # the resolved and unresolved forms differ, which is exactly where a
+    # comparator quietly comparing the wrong file would be hardest to notice.
+    return shadow_journal.projection(
+        opai_home(home) / "global.json", is_valid_record=_valid_manifest_record
+    )
+
+
+def global_manifest_contradiction_report(
+    home: Path | None = None,
+) -> dict[str, Any] | None:
+    """``None`` when the consent manifest and its shadow agree, else what differs."""
+
+    manifest_path = opai_home(home) / "global.json"
+    return shadow_journal.contradiction_report(
+        manifest_path,
+        lambda: _read_manifest_raw(manifest_path),
+        is_valid_record=_valid_manifest_record,
+    )
+
+
 def load_global_status(home: Path | None = None) -> dict[str, Any]:
     path = opai_home(home) / "global.json"
     if not path.exists():
