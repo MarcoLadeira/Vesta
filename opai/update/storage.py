@@ -279,6 +279,40 @@ class UpdateStore:
             )
         return int(clean[channel])
 
+    def document_projection(self, name: str) -> dict[str, object]:
+        """Rebuild one updater document from its shadow journal.
+
+        ``name`` is one of ``policy``, ``operation`` or ``trust`` -- the three
+        documents that are mirrored. The lease is deliberately not: it is
+        fencing state owned by :func:`operation_guard`, rebuilt from scratch on
+        every acquisition, and a journal of superseded fences would be a record
+        of things that are true only until the next process starts.
+        """
+
+        path = self._document_path(name)
+        return shadow_journal.projection(path, is_valid_record=_valid_update_record)
+
+    def document_contradiction_report(self, name: str) -> dict[str, object] | None:
+        """``None`` when one updater document and its shadow agree, else what differs."""
+
+        path = self._document_path(name)
+        return shadow_journal.contradiction_report(
+            path,
+            lambda: _read_object(path),
+            is_valid_record=_valid_update_record,
+            identity={"document": name},
+        )
+
+    def _document_path(self, name: str) -> Path:
+        try:
+            return {
+                "policy": self.paths.policy,
+                "operation": self.paths.operation,
+                "trust": self.paths.trust,
+            }[name]
+        except KeyError:
+            raise ValueError(f"unknown updater document: {name!r}") from None
+
     @contextmanager
     def operation_guard(self, *, timeout_seconds: float = 0.25) -> Iterator[int]:
         """Hold one cross-process operation lock and issue a fencing token."""

@@ -81,6 +81,35 @@ def _valid_session_record(record: Mapping[str, Any]) -> bool:
     )
 
 
+def _read_session_record(path: Path) -> dict[str, Any]:
+    """Read a durable session file as persisted, tolerating a corrupt one."""
+
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _mirrored_fields(record: Mapping[str, Any]) -> dict[str, Any]:
+    """The subset of a session record the shadow actually carries.
+
+    ``_persist_running`` deliberately omits ``started_at`` -- it is wall-clock
+    at write time, so mirroring it would make every rewrite differ from the
+    file and report a contradiction that is really just a clock reading. The
+    comparator has to drop it on the legacy side too, or the asymmetry that
+    keeps the *mirror* honest would make the *report* useless: it would fire on
+    every healthy session and nobody would look at the ones that mattered.
+
+    This is why the module went a while with a mirror and no dual read. The
+    generic comparator could not express it, and a report that cries wolf is
+    worse than none -- but no report at all is worse still, because then
+    nothing checks the shadow.
+    """
+
+    return {key: value for key, value in record.items() if key not in {"started_at"}}
+
+
 class SessionRegistry:
     """Thread-safe, single-flight registry of active sessions."""
 
@@ -159,6 +188,41 @@ class SessionRegistry:
                 shadow_journal.record_deletion(path)
             except OSError:
                 pass
+
+    def session_shadow_projection(self, request_id: str) -> dict[str, Any]:
+        """Rebuild one durable session record from its shadow journal."""
+
+        path = self._durable_path(request_id)
+        if path is None:
+            return {}
+        return shadow_journal.projection(path, is_valid_record=_valid_session_record)
+
+    def session_contradiction_report(self, request_id: str) -> dict[str, Any] | None:
+        """``None`` when the durable session and its shadow agree, else what differs.
+
+        Compares only the fields the mirror carries -- see
+        :func:`_mirrored_fields` for why ``started_at`` is excluded on both
+        sides rather than on neither.
+        """
+
+        path = self._durable_path(request_id)
+        if path is None:
+            return None
+        legacy = _mirrored_fields(_read_session_record(path))
+        shadow = shadow_journal.projection(path, is_valid_record=_valid_session_record)
+        if legacy == shadow:
+            return None
+        mismatched = sorted(
+            {*legacy, *shadow}
+            - {key for key in legacy if legacy.get(key) == shadow.get(key)}
+        )
+        return {
+            "path": str(path),
+            "request_id": request_id,
+            "legacy": legacy,
+            "shadow": shadow,
+            "mismatched_fields": mismatched,
+        }
 
     def start(
         self,
