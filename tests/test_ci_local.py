@@ -178,6 +178,33 @@ class LocalCiEvidenceTests(unittest.TestCase):
             _check(evidence, "security check")["failure_class"], "security"
         )
 
+    def test_python_profile_runs_release_identity_drift_after_generation_drift(self):
+        ci = _load_ci_local_module()
+        names = [step.name for step in ci.PYTHON_STEPS]
+
+        assert "release-identity-drift" in names
+        assert (
+            names.index("release-identity-drift")
+            == names.index("lifecycle-projection-drift") + 1
+        )
+        step = ci.PYTHON_STEPS[names.index("release-identity-drift")]
+        assert step.argv == [sys.executable, "scripts/check_release_identity.py"]
+        assert step.failure_class == "policy"
+
+    def test_native_wheel_qualification_receives_the_validated_candidate_sha(self):
+        ci = _load_ci_local_module()
+        candidate_sha = "a" * 40
+        completed = __import__("subprocess").CompletedProcess(
+            args=ci.NATIVE_STEPS[0].argv, returncode=0, stdout="", stderr=""
+        )
+
+        with mock.patch.object(ci.subprocess, "run", return_value=completed) as run:
+            record = ci._run(ci.NATIVE_STEPS[0], candidate_sha=candidate_sha)
+
+        self.assertEqual(record["status"]["outcome"], "passed")
+        self.assertEqual(run.call_args.kwargs["env"]["OPAI_BUILD_ID"], candidate_sha)
+        self.assertEqual(run.call_args.args[0][-2:], ["--candidate-sha", candidate_sha])
+
     def test_required_timeout_is_typed_infrastructure_blockage(self):
         ci = _load_ci_local_module()
         step = ci.Step(
@@ -495,6 +522,8 @@ class LocalCiEvidenceTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(evidence["candidate_sha"], merge_sha)
+        self.assertEqual(evidence["release_identity"]["build_id"], merge_sha)
+        self.assertEqual(evidence["release_identity"]["application_version"], "0.2.1a1")
         self.assertEqual(evidence["source_sha"], source_sha)
         self.assertTrue(evidence["candidate"]["tests_merge_candidate"])
         self.assertTrue(evidence["candidate"]["promotable"])

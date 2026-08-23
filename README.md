@@ -9,7 +9,14 @@ your confirmation — then proves the savings in numbers, locally and privately.
 OPai measures the sessions it observes (its GUI chat and wrapped/proxy runs);
 direct unwrapped launches are shown as pass-through, not counted as captured.
 
-OPai 0.2.0 alpha.2 is a local-first AI coding hub that installs into your terminal and AI coding clients so every project gets better routing, safer automation, reusable context, Superpowers skills, MCP-ready registries, testing workflows, GitOps helpers, governance controls, benchmark proof, and a real cost ledger.
+<!-- opai-release-identity: application_version=0.2.1a1; release_stage=alpha.1; published_tag=v0.2.1a1 -->
+The current application release is **OPai 0.2.1 Alpha.1** (package
+`0.2.1a1`, channel `alpha`, canonical tag `v0.2.1a1`). OPai is a local-first
+AI coding hub that installs into your terminal and AI coding clients so every
+project gets better routing, safer automation, reusable context, Superpowers
+skills, MCP-ready registries, testing workflows, GitOps helpers, governance
+controls, benchmark proof, and a real cost ledger.
+<!-- /opai-release-identity -->
 
 The goal is simple: make AI-assisted development feel close to "one prompt to build, one prompt to ship" without blindly burning expensive model credits.
 
@@ -357,7 +364,7 @@ After the first install, restart terminal sessions and AI coding clients so nati
 
 ## Ultra-Low Credit Mode
 
-OPai 0.2.0 alpha.2 is tuned to spend less than normal AI coding by default:
+This OPai alpha is tuned to spend less than normal AI coding by default:
 
 - `opai route` returns compact local evidence instead of large logs and full diffs.
 - `opai slim` writes AI-client ignore files and reports generated context bloat.
@@ -405,7 +412,7 @@ OPai writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAUD
 ## OPai Commands
 
 ```text
-opai version          show OPai 0.2.1a1 alpha.1
+opai version          show canonical app version, stage, and exact build identity
 op version            same as opai version
 op activate           attach current project and ensure Superpowers/AI instructions
 op status             show activation, Superpowers, wrappers, and project state

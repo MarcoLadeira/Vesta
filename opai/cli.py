@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from opai import __brand__, __release_stage__, __version__
+from opai import __brand__
 from opai.context_slim import (
     clean_generated_context,
     context_bloat_report,
@@ -28,6 +28,12 @@ from opai.integrations import (
 )
 from opai.installer import install_project
 from opai.publish import publish_status, write_publish_status
+from opai.project_discovery import discover_project_root
+from opai.release_identity import (
+    current_release_identity,
+    release_version_text,
+    surface_identity_payload,
+)
 from opai.terminal_ui import build_welcome, play_animation
 from opaihub.cli import main as hub_main
 from opaihub.model_intelligence import recommend_model
@@ -35,39 +41,9 @@ from opaihub.proc import AGENT_SESSION_ENV
 from opaihub.router import compact_decision, route_task
 from opaihub.skills import skill_items, skill_status
 
-PROJECT_ROOT_MARKERS = [
-    ".opaihub",
-    ".git",
-    "pyproject.toml",
-    "package.json",
-    "pnpm-lock.yaml",
-    "package-lock.json",
-    "yarn.lock",
-    "bun.lock",
-    "bun.lockb",
-    "Cargo.toml",
-    "go.mod",
-    "composer.json",
-    "Gemfile",
-    "mix.exs",
-    "pom.xml",
-    "build.gradle",
-    "settings.gradle",
-    "Dockerfile",
-]
-
 
 def print_json(data: Any) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
-
-
-def discover_project_root(start: Path) -> Path:
-    path = start.expanduser().resolve()
-    current = path.parent if path.is_file() else path
-    for candidate in [current, *current.parents]:
-        if any((candidate / marker).exists() for marker in PROJECT_ROOT_MARKERS):
-            return candidate
-    return current
 
 
 def _project(value: str | None) -> Path:
@@ -78,15 +54,9 @@ def _project(value: str | None) -> Path:
 
 def cmd_version(args: argparse.Namespace) -> int:
     if args.json:
-        print_json(
-            {
-                "brand": __brand__,
-                "version": __version__,
-                "release_stage": __release_stage__,
-            }
-        )
+        print_json(surface_identity_payload(brand=__brand__))
     else:
-        print(f"{__brand__} {__version__} {__release_stage__}")
+        print(release_version_text(brand=__brand__))
     return 0
 
 
@@ -717,9 +687,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         else "attention"
     )
     payload = {
-        "brand": __brand__,
-        "version": __version__,
-        "release_stage": __release_stage__,
+        **surface_identity_payload(brand=__brand__),
         "project_root": str(root),
         "readiness": readiness,
         "client_integrations": clients,
@@ -775,9 +743,7 @@ def cmd_support_bundle(args: argparse.Namespace) -> int:
 
     root = _project(args.project)
     bundle = build_support_bundle(root)
-    bundle["brand"] = __brand__
-    bundle["version"] = __version__
-    bundle["release_stage"] = __release_stage__
+    bundle.update(surface_identity_payload(brand=__brand__))
     out = getattr(args, "out", None)
     if not out:
         print_json(bundle)
@@ -2601,7 +2567,15 @@ def cmd_publish(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="opai",
-        description="OPai 0.2.0 alpha.2: local-first AI coding cost firewall.",
+        description=(
+            f"{current_release_identity().display_name}: "
+            "local-first AI coding cost firewall."
+        ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=release_version_text(brand=__brand__),
     )
     parser.add_argument("--project", default=".", help="Project root")
     sub = parser.add_subparsers(dest="command", required=True)

@@ -4,8 +4,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-from opai import __brand__, __release_stage__, __version__
+from opai import __brand__
 from opai.integrations import project_status
+from opai.release_identity import surface_identity_payload
 from opaihub.benchmark import latest_benchmark_report
 from opaihub.budget import budget_status
 from opaihub.cost_telemetry import summarize_cost_telemetry
@@ -90,9 +91,7 @@ def build_cockpit(project_root: Path) -> dict[str, Any]:
     )
     return {
         "report": "opai-cockpit",
-        "brand": __brand__,
-        "version": __version__,
-        "release_stage": __release_stage__,
+        **surface_identity_payload(brand=__brand__),
         "status": readiness,
         "project": {
             "root": str(root),

@@ -470,6 +470,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
       PACKAGE_VERSION: ${{ inputs.package_version }}
+      EXPECTED_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
       QUALIFICATION_FEED_URL: ${{ needs.stage.outputs.qualification_feed_url }}
       BASELINE_URL: ${{ matrix.baseline_url }}
       BASELINE_FEED_URL: ${{ matrix.baseline_feed_url }}
@@ -550,6 +551,7 @@ jobs:
             --feed-url "$QUALIFICATION_FEED_URL" \
             --baseline-manifest-url "$BASELINE_MANIFEST_URL" \
             --expected-version "$PACKAGE_VERSION" \
+            --expected-build-id "$EXPECTED_CANDIDATE_SHA" \
             --package-identity "${{ matrix.package_identity }}" \
             --publisher-identity "${{ matrix.publisher_identity }}" \
             --report "$QUALIFICATION_REPORT")
@@ -560,12 +562,20 @@ jobs:
           "${command[@]}"
           python - "$QUALIFICATION_REPORT" <<'PY'
           import json
+          import os
           import sys
           from pathlib import Path
 
           report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
           if not report.get("native_execution") or not report.get("complete"):
               raise SystemExit("native qualification was not completed")
+          identity = report.get("artifact_identity", {})
+          if (
+              identity.get("application_version") != os.environ["PACKAGE_VERSION"]
+              or identity.get("build_id") != os.environ["EXPECTED_CANDIDATE_SHA"]
+              or identity.get("platform") != "${{ matrix.platform }}"
+          ):
+              raise SystemExit("native qualification identity is incorrect")
           if report.get("passed", 0) < 16 or any(
               item.get("status") != "passed" for item in report.get("scenarios", [])
           ):
@@ -594,6 +604,8 @@ jobs:
       contents: write
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
+      PACKAGE_VERSION: ${{ inputs.package_version }}
+      EXPECTED_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
       UPDATE_CHANNEL: ${{ vars.OPAI_UPDATE_CHANNEL }}
 
     steps:
@@ -684,14 +696,22 @@ jobs:
           cmp "$FEED/qualified-manifest.json" "$REMOTE/qualified-manifest.json"
           for platform in windows macos; do
             REPORT="$RUNNER_TEMP/opai-qualification/native-qualification-${platform}.json"
-            python - "$REPORT" <<'PY'
+            python - "$REPORT" "$platform" <<'PY'
           import json
+          import os
           import sys
           from pathlib import Path
 
           report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
           if not report.get("complete") or report.get("passed", 0) < 16:
               raise SystemExit("native qualification evidence is incomplete")
+          identity = report.get("artifact_identity", {})
+          if (
+              identity.get("application_version") != os.environ["PACKAGE_VERSION"]
+              or identity.get("build_id") != os.environ["EXPECTED_CANDIDATE_SHA"]
+              or identity.get("platform") != sys.argv[2]
+          ):
+              raise SystemExit("native qualification evidence names another build")
           PY
           done
           printf 'FEED=%s\n' "$FEED" >> "$GITHUB_ENV"

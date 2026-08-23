@@ -1443,14 +1443,36 @@
     var esc = ctx.esc;
     if (!(d.about && d.about.version)) return "";
     var build = d.about.build || {};
+    var identity = d.about.release_identity || {};
     var fingerprint = String(build.assetFingerprint || "");
     var runtimeSource = String(build.runtimeSource || "").replace(/_/g, " ");
+    var artifact = [
+      identity.platform,
+      identity.architecture,
+      identity.install_type
+        ? String(identity.install_type).replace(/_/g, " ")
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     return (
       heroHtml(esc, "About", "Version and release information for this build.", null) +
       '<div class="set-head">About</div>' +
       '<div class="stat-grid two">' +
       statTile(esc, { label: "Version", value: d.about.version, mono: true }) +
       statTile(esc, { label: "Release stage", value: d.about.release_stage || "—" }) +
+      "</div>" +
+      '<div class="set-head">Runtime build</div>' +
+      '<div class="stat-grid two">' +
+      statTile(esc, {
+        label: "Build identity",
+        value: identity.build_id || "unknown",
+        mono: true,
+      }) +
+      statTile(esc, {
+        label: "Artifact",
+        value: artifact || "unknown",
+      }) +
       "</div>" +
       '<div class="set-head">Hosted build</div>' +
       '<div class="stat-grid two">' +

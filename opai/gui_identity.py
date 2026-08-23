@@ -12,6 +12,7 @@ import sys
 from typing import Any, Callable
 
 from opai.brand import NAME, app_icon_path
+from opai.release_identity import current_release_identity
 
 # A stable AppUserModelID lets Windows group the app under its own window icon
 # rather than the host launcher's (pythonw.exe). Must be set before the first
@@ -49,7 +50,12 @@ def apply_window_identity(
     step is best-effort — a missing icon or an old Qt binding degrades to the
     default window chrome rather than blocking the GUI from opening.
     """
-    result = {"icon_set": False, "app_name_set": False, "windows_app_id_set": False}
+    result = {
+        "icon_set": False,
+        "app_name_set": False,
+        "app_version_set": False,
+        "windows_app_id_set": False,
+    }
 
     path = app_icon_path()
     if path is not None:
@@ -75,6 +81,12 @@ def apply_window_identity(
         result["app_name_set"] = True
     except Exception as exc:  # noqa: BLE001 - older bindings may lack a setter
         result["app_name_error"] = type(exc).__name__
+
+    try:
+        app.setApplicationVersion(current_release_identity().application_version)
+        result["app_version_set"] = True
+    except Exception as exc:  # noqa: BLE001 - older bindings may lack a setter
+        result["app_version_error"] = type(exc).__name__
 
     result["windows_app_id_set"] = set_windows_app_id()
     return result

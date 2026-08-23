@@ -55,6 +55,11 @@ DURABLE_WRITE_CALLS = frozenset(
 #: Runtime truth the journal must own. Ordered by #613's schema sections so a
 #: reader can map each module to the table that will absorb it.
 JOURNAL_OWNED = {
+    # the store itself
+    # Not a record with a legacy counterpart to disagree with: it is the
+    # transactional history the other entries are migrating *into*, so it is
+    # machinery in the same sense run_journal and shadow_journal are.
+    "opaihub/journal_store.py": "events — the SQLite WAL journal every other entry migrates into",
     # runs / events / leases
     "opaihub/run_journal.py": "events — append-only journal this issue generalises",
     # Not a durable writer in its own right: it mirrors a record another
@@ -88,8 +93,27 @@ JOURNAL_OWNED = {
     "opai/gui_recents.py": "events — conversation/thread history",
 }
 
+#: JOURNAL_OWNED modules that need no Stage 2 shadow mirror, because the record
+#: they own is *already* an append-only sequenced log with replay -- the thing
+#: Stage 2's mirror exists to create. Layering a second journal on top would
+#: double-write every event and give the migration two append-only logs to keep
+#: consistent instead of one.
+#:
+#: This is a deliberately small and justified list, not a place to park awkward
+#: modules: each entry is checked below for the structure that earns the
+#: exemption, so a module cannot be excused by assertion alone.
+ALREADY_APPEND_ONLY = {
+    # Hash-chained, fsync'd audit trail; tamper-evident by construction.
+    "opaihub/audit.py",
+    # Sequenced + digest-chained event log with a persisted head, torn-line
+    # repair and a rebuildable SQLite index.
+    "opaihub/ledger.py",
+}
+
 #: Derived views and support output. Rebuildable, never sole authority.
 PROJECTION_OR_EXPORT = {
+    # Build-only generated identity written into wheel/sdist staging trees.
+    "opai/build_metadata.py",
     "opaihub/dashboard.py",
     "opaihub/dashboard_html.py",
     "opaihub/desktop_artifacts.py",
@@ -111,6 +135,13 @@ PROJECTION_OR_EXPORT = {
 #: Caches, preferences, scaffolding, benchmarks, docs. Explicit #613 non-goal.
 NOT_RUNTIME_STATE = {
     "opai/app_state.py",
+    # User-authored notes and decisions, not execution truth. Surfaced only
+    # once the scan learned to see SQLite writers -- it had persisted to its
+    # own database, untriaged, the whole time. Classified here rather than
+    # JOURNAL_OWNED because #613 reconstructs what a *run* did; losing these
+    # would be bad, but no crash-recovery replay would rebuild them, and the
+    # issue's non-goals rule out absorbing every durable store.
+    "opcoding/memory.py",
     "opai/cli.py",
     "opai/context_slim.py",
     "opai/gui_workspace.py",
@@ -144,6 +175,33 @@ NOT_RUNTIME_STATE = {
 }
 
 
+def _opens_a_database(tree: ast.AST) -> bool:
+    """True when the module calls ``sqlite3.connect`` (however it imported it)."""
+
+    aliases = {"sqlite3"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "sqlite3" and alias.asname:
+                    aliases.add(alias.asname)
+        elif isinstance(node, ast.ImportFrom) and node.module == "sqlite3":
+            for alias in node.names:
+                if alias.name == "connect":
+                    return True
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "connect"
+            and isinstance(func.value, ast.Name)
+            and func.value.id in aliases
+        ):
+            return True
+    return False
+
+
 def _durable_writers() -> dict[str, set[str]]:
     """Every module that calls a durable-write primitive, with which ones."""
 
@@ -166,6 +224,18 @@ def _durable_writers() -> dict[str, set[str]]:
                 for node in ast.walk(tree)
                 if isinstance(node, ast.Call)
             } & DURABLE_WRITE_CALLS
+            # A SQLite writer is a durable writer. The scan missed them
+            # entirely until #613's own journal store arrived and was *not*
+            # flagged -- a blind spot for exactly the storage engine this issue
+            # standardises on, which would have quietly exempted every future
+            # table from triage.
+            #
+            # Matched as `sqlite3.connect` rather than a bare `connect` in
+            # DURABLE_WRITE_CALLS: the bare name also matches Qt's
+            # `signal.connect(slot)`, which flagged two GUI modules that
+            # persist nothing.
+            if _opens_a_database(tree):
+                hits = hits | {"sqlite3.connect"}
             if hits:
                 found[relative] = hits
     return found
@@ -275,6 +345,107 @@ class AdoptedJournalTests(unittest.TestCase):
             callers,
             "run_journal has no production caller; #613 would be migrating onto "
             "a dead primitive",
+        )
+
+    def test_already_append_only_modules_are_journal_owned_and_earn_it(self):
+        """An exemption must be structural, not a line in a set.
+
+        Stage 2 skips these two modules, so the reason has to survive someone
+        later editing them. Each must still be JOURNAL_OWNED (they own runtime
+        truth) and must still actually append rather than overwrite -- if a
+        refactor turned one into a whole-file rewrite, the exemption would be
+        silently wrong and this fails.
+        """
+
+        for module in sorted(ALREADY_APPEND_ONLY):
+            with self.subTest(module=module):
+                self.assertIn(
+                    module,
+                    JOURNAL_OWNED,
+                    "an exempt module must still own runtime truth",
+                )
+                source = (ROOT / module).read_text(encoding="utf-8")
+                # assertTrue, not assertIn: a failing assertIn would dump the
+                # whole module into the report and bury the actual reason.
+                self.assertTrue(
+                    'open("a' in source,
+                    f"{module} is exempt from the shadow mirror only because it "
+                    "appends rather than overwrites -- that is no longer true",
+                )
+                self.assertTrue(
+                    "fsync" in source,
+                    f"{module} is trusted as a durable append-only log, but no "
+                    "longer fsyncs",
+                )
+
+    def test_every_journal_owned_record_has_a_dual_read(self):
+        """Stage 2's completion, pinned so it cannot quietly regress.
+
+        #613 Stage 2 is shadow-write *plus* dual-read: every JOURNAL_OWNED
+        record is mirrored into a journal, and something can be asked at
+        runtime whether the two still agree. The mirror alone is not enough --
+        an unverified shadow is just a second file to go stale, and Stage 4
+        cannot qualify a cutover on real traffic without a comparator.
+
+        This is a ratchet, not a survey. Its real job is the *next* module
+        somebody adds to JOURNAL_OWNED: the entry is cheap to write and the
+        migration is not, and without this the gap would only surface at Stage
+        4, long after the record started being trusted.
+
+        Three ways to satisfy it, and each is a real design:
+
+        - a shared-helper mirror plus a ``*contradiction_report`` accessor,
+          which is what sixteen of these modules do;
+        - membership in ALREADY_APPEND_ONLY -- the record *is* the log, so
+          there is no second copy to disagree with;
+        - the journal machinery itself, which has no record of its own.
+        """
+
+        machinery = {
+            "opaihub/journal_store.py",
+            "opaihub/run_journal.py",
+            "opaihub/shadow_journal.py",
+        }
+        missing = []
+        for module in sorted(JOURNAL_OWNED):
+            if module in machinery or module in ALREADY_APPEND_ONLY:
+                continue
+            source = (ROOT / module).read_text(encoding="utf-8")
+            if "contradiction_report" not in source:
+                missing.append(module)
+        self.assertEqual(
+            missing,
+            [],
+            "JOURNAL_OWNED without a dual read -- add a contradiction report, "
+            "or justify an ALREADY_APPEND_ONLY exemption",
+        )
+
+    def test_every_mirrored_module_actually_writes_to_a_journal(self):
+        """A comparator with nothing behind it would pass the test above.
+
+        Reading a projection that is always empty and comparing it to a file
+        that is always populated would report a contradiction on every record
+        rather than none -- loud rather than silent, but still wrong. This
+        pins that each module reaches a journal, via the shared helper or
+        #517 directly.
+        """
+
+        machinery = {
+            "opaihub/journal_store.py",
+            "opaihub/run_journal.py",
+            "opaihub/shadow_journal.py",
+        }
+        unmirrored = []
+        for module in sorted(JOURNAL_OWNED):
+            if module in machinery or module in ALREADY_APPEND_ONLY:
+                continue
+            source = (ROOT / module).read_text(encoding="utf-8")
+            if "shadow_journal" not in source and "run_journal" not in source:
+                unmirrored.append(module)
+        self.assertEqual(
+            unmirrored,
+            [],
+            "JOURNAL_OWNED with a contradiction report but no journal behind it",
         )
 
 

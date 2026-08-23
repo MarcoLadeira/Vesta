@@ -216,6 +216,28 @@ class SmokeInstallContractTests(unittest.TestCase):
         self.assertIn("provider_catalog.catalog_bytes()", command[3])
         self.assertIn("provider_catalog.all_catalog_records()", command[3])
 
+    def test_wheel_smoke_asserts_the_exact_installed_build_identity(self):
+        smoke = _load_smoke_module()
+        build_id = "a" * 40
+        command = smoke.installed_identity_smoke_command(Path("python"), build_id)
+
+        self.assertEqual(command[:3], ["python", "-I", "-c"])
+        self.assertIn("opai", command[3])
+        self.assertIn("version", command[3])
+        self.assertIn("build_id", command[3])
+        self.assertIn(build_id, command[3])
+
+    def test_smoke_candidate_argument_is_the_documented_exact_build_source(self):
+        smoke = _load_smoke_module()
+        candidate = "b" * 40
+
+        self.assertEqual(
+            smoke.resolve_candidate_build_id(candidate, {"OPAI_BUILD_ID": "a" * 40}),
+            candidate,
+        )
+        publishing = (ROOT / "docs" / "PUBLISHING.md").read_text(encoding="utf-8")
+        self.assertIn("--candidate-sha $candidateSha", publishing)
+
     def test_wheel_smoke_inventory_matches_the_canonical_provider_catalog(self):
         smoke = _load_smoke_module()
 
@@ -231,11 +253,16 @@ class SmokeInstallContractTests(unittest.TestCase):
         environment = {"PYTHONPATH": "host-checkout", "PYTHONHOME": "host-python"}
 
         with mock.patch.object(smoke, "run") as run:
-            smoke.run_post_install_smoke_checks(python, project, environment)
+            smoke.run_post_install_smoke_checks(
+                python, project, environment, expected_build_id="a" * 40
+            )
 
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(commands[0], smoke.provider_catalog_smoke_command(python))
-        self.assertEqual(commands[1:], smoke.required_smoke_commands(python))
+        self.assertEqual(
+            commands[1], smoke.installed_identity_smoke_command(python, "a" * 40)
+        )
+        self.assertEqual(commands[2:], smoke.required_smoke_commands(python))
         self.assertEqual(run.call_args_list[0].args[1], project)
         self.assertIs(run.call_args_list[0].kwargs["env"], environment)
 

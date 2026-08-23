@@ -10,9 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from opai import __brand__, __release_stage__, __version__
+from opai import __brand__
 from opai.context_slim import AI_IGNORE_FILES, write_ai_ignore_files
+from opai.release_identity import release_version_text, surface_identity_payload
 from opai.terminal_ui import render_badge
+from opaihub import shadow_journal
 from opaihub.atomic_io import atomic_write_text, interprocess_transaction
 from opaihub.loader import hub_root
 from opaihub.proc import no_window_kwargs
@@ -63,7 +65,7 @@ def _python_executable() -> str:
 def instruction_text(project_root: Path | None = None) -> str:
     project_line = f"Root: `{project_root}`.\n" if project_root else "Root: cwd.\n"
     return f"""# OPai Active
-{STATUS_TEXT}. OPai {__version__} {__release_stage__}. {project_line}OPai manages routing, cost controls, and safety policy for this session. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by OPai (F12). The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
+{STATUS_TEXT}. {release_version_text()}. {project_line}OPai manages routing, cost controls, and safety policy for this session. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by OPai (F12). The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
 """
 
 
@@ -509,9 +511,7 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
         }
 
     return {
-        "brand": __brand__,
-        "version": __version__,
-        "release_stage": __release_stage__,
+        **surface_identity_payload(brand=__brand__),
         "project": {
             "root": str(root),
             "activated": state.exists() and activation.exists(),
@@ -800,9 +800,7 @@ def install_global_integrations(
     )
 
     manifest = {
-        "brand": __brand__,
-        "version": __version__,
-        "release_stage": __release_stage__,
+        **surface_identity_payload(brand=__brand__),
         "status_text": STATUS_TEXT,
         "project_root": str(root),
         "targets": sorted(selected),
@@ -834,16 +832,73 @@ def install_global_integrations(
             or latest_global.get("shell_aliases_installed")
         )
         _write(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        # #613 Stage 2: mirror the consent manifest, inside the lock that
+        # already serialises the read-merge-write above.
+        #
+        # Deliberately here rather than inside `_write`: that helper is shared
+        # with instruction-file emission (CLAUDE.md, GEMINI.md and friends),
+        # which are generated content, not runtime truth. Mirroring every
+        # `_write` would journal documents Stage 1 classifies as
+        # NOT_RUNTIME_STATE and bury the one record that matters.
+        shadow_journal.record_snapshot(
+            manifest_path, manifest, is_valid_record=_valid_manifest_record
+        )
     return {"status": "installed", "manifest": str(manifest_path), **manifest}
+
+
+def _valid_manifest_record(record) -> bool:
+    """A mirrored consent manifest must carry the targets a reader needs.
+
+    An empty target list is valid and deliberately so: removing the last
+    integration is a consent withdrawal, and dropping it would leave the
+    shadow asserting consent the user has revoked. Fifth module where
+    rejecting the empty state would have discarded exactly the record #613
+    needs -- and the only one where the discarded record is a permission.
+    """
+
+    return isinstance(record.get("targets"), list)
+
+
+def _read_manifest_raw(path: Path) -> dict[str, Any]:
+    """Read the manifest as persisted, without the loader's normalisation."""
+
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def global_manifest_projection(home: Path | None = None) -> dict[str, Any]:
+    """Rebuild the connected-service consent manifest from its shadow journal."""
+
+    # opai_home() is the module's own resolver and applies .resolve(); a
+    # re-derived path here would read a different file on any platform where
+    # the resolved and unresolved forms differ, which is exactly where a
+    # comparator quietly comparing the wrong file would be hardest to notice.
+    return shadow_journal.projection(
+        opai_home(home) / "global.json", is_valid_record=_valid_manifest_record
+    )
+
+
+def global_manifest_contradiction_report(
+    home: Path | None = None,
+) -> dict[str, Any] | None:
+    """``None`` when the consent manifest and its shadow agree, else what differs."""
+
+    manifest_path = opai_home(home) / "global.json"
+    return shadow_journal.contradiction_report(
+        manifest_path,
+        lambda: _read_manifest_raw(manifest_path),
+        is_valid_record=_valid_manifest_record,
+    )
 
 
 def load_global_status(home: Path | None = None) -> dict[str, Any]:
     path = opai_home(home) / "global.json"
     if not path.exists():
         return {
-            "brand": __brand__,
-            "version": __version__,
-            "release_stage": __release_stage__,
+            **surface_identity_payload(brand=__brand__),
             "status_text": STATUS_TEXT,
             "installed": False,
         }
