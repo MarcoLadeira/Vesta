@@ -227,9 +227,7 @@ def set_budget(
         # of what the journal does properly -- it survives a torn write but
         # not a bad value written twice. Mirrored inside the same transaction
         # as both files so all three agree on the order caps changed in.
-        shadow_journal.record_snapshot(
-            path, caps, is_valid_record=_valid_budget_record
-        )
+        shadow_journal.record_snapshot(path, caps, is_valid_record=_valid_budget_record)
         return {"status": "updated", **caps, "path": str(path)}
 
 

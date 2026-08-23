@@ -133,13 +133,14 @@ class TheMirrorMustNeverPersistACredentialTests(unittest.TestCase):
         """Pins the property the guard is protecting, at the real call site."""
 
         with isolated_home():
-            with mock.patch.object(
-                github_connector, "CredentialStore"
-            ) as store, mock.patch.object(
-                github_connector,
-                "_verify_token",
-                create=True,
-                return_value="octocat",
+            with (
+                mock.patch.object(github_connector, "CredentialStore") as store,
+                mock.patch.object(
+                    github_connector,
+                    "_verify_token",
+                    create=True,
+                    return_value="octocat",
+                ),
             ):
                 store.return_value.set.return_value = {"stored": True}
                 try:
@@ -153,7 +154,9 @@ class TheMirrorMustNeverPersistACredentialTests(unittest.TestCase):
                 else ""
             )
             journal = github_connector.shadow_journal.journal_path_for(_config_path())
-            journal_text = journal.read_text(encoding="utf-8") if journal.exists() else ""
+            journal_text = (
+                journal.read_text(encoding="utf-8") if journal.exists() else ""
+            )
 
             self.assertNotIn("ghp_a_real_looking_token", config_text)
             self.assertNotIn("ghp_a_real_looking_token", journal_text)

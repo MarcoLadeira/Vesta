@@ -81,7 +81,9 @@ class ShadowMirrorsSavedHandlesTests(_HandleFixture):
 
     def test_re_saving_the_same_handle_moves_both_sides_together(self):
         handle, _path = self._save()
-        (self.root / "src" / "app.py").write_text("print('changed')\n", encoding="utf-8")
+        (self.root / "src" / "app.py").write_text(
+            "print('changed')\n", encoding="utf-8"
+        )
         again = capture_repository_handle(self.root, task_id="task-a", run_id="run-a")
         save_repository_handle(self.root, again)
 
