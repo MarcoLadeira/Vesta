@@ -55,6 +55,11 @@ DURABLE_WRITE_CALLS = frozenset(
 #: Runtime truth the journal must own. Ordered by #613's schema sections so a
 #: reader can map each module to the table that will absorb it.
 JOURNAL_OWNED = {
+    # the store itself
+    # Not a record with a legacy counterpart to disagree with: it is the
+    # transactional history the other entries are migrating *into*, so it is
+    # machinery in the same sense run_journal and shadow_journal are.
+    "opaihub/journal_store.py": "events — the SQLite WAL journal every other entry migrates into",
     # runs / events / leases
     "opaihub/run_journal.py": "events — append-only journal this issue generalises",
     # Not a durable writer in its own right: it mirrors a record another
@@ -130,6 +135,13 @@ PROJECTION_OR_EXPORT = {
 #: Caches, preferences, scaffolding, benchmarks, docs. Explicit #613 non-goal.
 NOT_RUNTIME_STATE = {
     "opai/app_state.py",
+    # User-authored notes and decisions, not execution truth. Surfaced only
+    # once the scan learned to see SQLite writers -- it had persisted to its
+    # own database, untriaged, the whole time. Classified here rather than
+    # JOURNAL_OWNED because #613 reconstructs what a *run* did; losing these
+    # would be bad, but no crash-recovery replay would rebuild them, and the
+    # issue's non-goals rule out absorbing every durable store.
+    "opcoding/memory.py",
     "opai/cli.py",
     "opai/context_slim.py",
     "opai/gui_workspace.py",
@@ -163,6 +175,33 @@ NOT_RUNTIME_STATE = {
 }
 
 
+def _opens_a_database(tree: ast.AST) -> bool:
+    """True when the module calls ``sqlite3.connect`` (however it imported it)."""
+
+    aliases = {"sqlite3"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "sqlite3" and alias.asname:
+                    aliases.add(alias.asname)
+        elif isinstance(node, ast.ImportFrom) and node.module == "sqlite3":
+            for alias in node.names:
+                if alias.name == "connect":
+                    return True
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "connect"
+            and isinstance(func.value, ast.Name)
+            and func.value.id in aliases
+        ):
+            return True
+    return False
+
+
 def _durable_writers() -> dict[str, set[str]]:
     """Every module that calls a durable-write primitive, with which ones."""
 
@@ -185,6 +224,18 @@ def _durable_writers() -> dict[str, set[str]]:
                 for node in ast.walk(tree)
                 if isinstance(node, ast.Call)
             } & DURABLE_WRITE_CALLS
+            # A SQLite writer is a durable writer. The scan missed them
+            # entirely until #613's own journal store arrived and was *not*
+            # flagged -- a blind spot for exactly the storage engine this issue
+            # standardises on, which would have quietly exempted every future
+            # table from triage.
+            #
+            # Matched as `sqlite3.connect` rather than a bare `connect` in
+            # DURABLE_WRITE_CALLS: the bare name also matches Qt's
+            # `signal.connect(slot)`, which flagged two GUI modules that
+            # persist nothing.
+            if _opens_a_database(tree):
+                hits = hits | {"sqlite3.connect"}
             if hits:
                 found[relative] = hits
     return found
@@ -350,7 +401,11 @@ class AdoptedJournalTests(unittest.TestCase):
         - the journal machinery itself, which has no record of its own.
         """
 
-        machinery = {"opaihub/run_journal.py", "opaihub/shadow_journal.py"}
+        machinery = {
+            "opaihub/journal_store.py",
+            "opaihub/run_journal.py",
+            "opaihub/shadow_journal.py",
+        }
         missing = []
         for module in sorted(JOURNAL_OWNED):
             if module in machinery or module in ALREADY_APPEND_ONLY:
@@ -375,7 +430,11 @@ class AdoptedJournalTests(unittest.TestCase):
         #517 directly.
         """
 
-        machinery = {"opaihub/run_journal.py", "opaihub/shadow_journal.py"}
+        machinery = {
+            "opaihub/journal_store.py",
+            "opaihub/run_journal.py",
+            "opaihub/shadow_journal.py",
+        }
         unmirrored = []
         for module in sorted(JOURNAL_OWNED):
             if module in machinery or module in ALREADY_APPEND_ONLY:
