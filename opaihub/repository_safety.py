@@ -22,6 +22,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
+from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .state import state_dir
@@ -1044,6 +1045,53 @@ def _handle_path(project_root: Path, handle_id: str) -> Path:
     )
 
 
+def _valid_handle_record(record):
+    """A mirrored handle must carry the identity the loader checks it against."""
+
+    return (
+        isinstance(record.get("handle_id"), str)
+        and bool(record.get("handle_id"))
+        and record.get("schema_version") == SCHEMA_VERSION
+    )
+
+
+def _read_handle_raw(path: Path) -> dict[str, Any]:
+    """Read the handle as persisted, without the loader's strict validation.
+
+    ``load_repository_handle`` raises on anything malformed, which is right
+    for a safety gate but would raise past the very divergence the
+    contradiction report exists to describe.
+    """
+
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def repository_handle_projection(project_root: Path, handle_id: str) -> dict[str, Any]:
+    """Rebuild one repository handle from its shadow journal."""
+
+    return shadow_journal.projection(
+        _handle_path(project_root, handle_id), is_valid_record=_valid_handle_record
+    )
+
+
+def repository_handle_contradiction_report(
+    project_root: Path, handle_id: str
+) -> dict[str, Any] | None:
+    """``None`` when the persisted handle and its shadow agree, else what differs."""
+
+    path = _handle_path(project_root, handle_id)
+    return shadow_journal.contradiction_report(
+        path,
+        lambda: _read_handle_raw(path),
+        is_valid_record=_valid_handle_record,
+        identity={"handle_id": handle_id},
+    )
+
+
 def save_repository_handle(project_root: Path, handle: RepositoryHandle) -> Path:
     """Durably save a redacted handle; inability to save is a safety failure."""
 
@@ -1052,6 +1100,15 @@ def save_repository_handle(project_root: Path, handle: RepositoryHandle) -> Path
     try:
         with interprocess_transaction(path):
             atomic_write_text(path, payload)
+            # #613 Stage 2: mirrored inside the same lock. Deliberately
+            # still best-effort even though this module fails closed on a
+            # save error: during Stage 2 the file is authoritative, so a
+            # journal that could not be appended is a lost shadow, not a lost
+            # safety guarantee. Raising here would turn a Stage 2 migration
+            # detail into a new way for the safety gate to refuse work.
+            shadow_journal.record_snapshot(
+                path, handle.to_dict(), is_valid_record=_valid_handle_record
+            )
     except (OSError, TimeoutError, ValueError) as exc:
         raise RepositorySafetyPersistenceError(
             f"Could not persist repository safety handle: {redact(str(exc))[:240]}"
