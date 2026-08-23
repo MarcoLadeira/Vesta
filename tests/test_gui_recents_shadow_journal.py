@@ -90,9 +90,7 @@ class ShadowMirrorsArchivedConversationsTests(_ConversationFixture):
             [(m["role"], m["text"]) for m in shadow["messages"]],
             [("user", "How does auth work?"), ("assistant", "It uses OAuth.")],
         )
-        self.assertIsNone(
-            conversation_contradiction_report(self.root, conversation_id)
-        )
+        self.assertIsNone(conversation_contradiction_report(self.root, conversation_id))
 
     def test_a_growing_multi_turn_chat_moves_both_sides_together(self):
         """Archiving is per finished turn, so the shadow must track the growth."""
@@ -106,9 +104,7 @@ class ShadowMirrorsArchivedConversationsTests(_ConversationFixture):
 
         self.assertEqual(len(shadow["messages"]), 4)
         self.assertEqual(shadow["messages"], stored["messages"])
-        self.assertIsNone(
-            conversation_contradiction_report(self.root, conversation_id)
-        )
+        self.assertIsNone(conversation_contradiction_report(self.root, conversation_id))
 
     def test_separate_chats_keep_separate_shadows(self):
         first = self._chat("r1", "How does auth work?", "OAuth.")
@@ -181,9 +177,7 @@ class ShadowMirrorsArchivedConversationsTests(_ConversationFixture):
             slow.result()
             fast.result()
 
-        self.assertIsNone(
-            conversation_contradiction_report(self.root, conversation_id)
-        )
+        self.assertIsNone(conversation_contradiction_report(self.root, conversation_id))
 
 
 class DeliberateRemovalsMustBeMirroredTests(_ConversationFixture):
@@ -309,9 +303,7 @@ class ContradictionReportIsExactTests(_ConversationFixture):
         conversation_id = self._chat("r1", "How does auth work?", "OAuth.")
         stored = load_conversation(self.root, conversation_id)
         tampered = {**stored, "title": "something else entirely"}
-        self._path(conversation_id).write_text(
-            json.dumps(tampered), encoding="utf-8"
-        )
+        self._path(conversation_id).write_text(json.dumps(tampered), encoding="utf-8")
 
         report = conversation_contradiction_report(self.root, conversation_id)
 
