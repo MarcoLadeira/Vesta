@@ -901,6 +901,13 @@ class RepositoryToolExecutor:
         name = _valid_branch(branch) if branch else self._current_branch()
         if not name:
             return _error("INVALID_BRANCH_NAME", "No valid branch to push")
+        if cancel is not None and cancel.is_set():
+            return _cancelled_error()
+        # Approval deliberately comes before any git invocation: a refused
+        # push must not touch the repository at all. The idempotency claim
+        # below therefore happens after the grant — a replayed turn may be
+        # re-asked, but once granted it resolves to the recorded operation
+        # instead of dispatching a second push (#616).
         approval = self._needs_approval(
             f"git push -u origin {name}",
             "Pushing sends this branch to the remote.",
@@ -910,18 +917,125 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("git_push", tuple(self.written_paths))
         if blocked is not None:
             return blocked
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        # The key identifies the *content being published* — branch at a
+        # resolved head — so pushing new commits is a new operation while
+        # replaying the same push resolves to the existing one. rev-parse is
+        # also the pre-dispatch validation that the branch exists locally;
+        # its failure proves nothing left the machine, so no key is claimed.
+        head = self._git(["rev-parse", name], cancel=cancel)
+        if head.get("cancelled"):
+            return _cancelled_error()
+        if not head["ok"]:
+            return _error("GIT_PUSH_FAILED", head["output"])
+        head_sha = head["output"].strip()
+        key = operation_key(
+            "git_push", root=str(self.repo_root), branch=name, head=head_sha
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return Observation(
+                "git_push",
+                True,
+                {"branch": name},
+                message=f"Already pushed {name} to origin",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            # Started and never confirmed. Push is reconcilable: a ref update
+            # is atomic, so observing the remote answers whether it landed.
+            reconciled, decided = self._reconcile_push(
+                key, name, head_sha, cancel=cancel
+            )
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "PUSH_STATE_UNCERTAIN",
+                    "An earlier attempt to push this branch at this head did "
+                    "not confirm, and the remote could not be checked. Run "
+                    f"`git ls-remote origin {name}` before retrying.",
+                )
+            # The remote provably does not carry this head: claim fresh and
+            # continue with the dispatch below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "PUSH_STATE_UNCERTAIN",
+                    "Push operation state changed during reconciliation; "
+                    "check the remote before retrying.",
+                )
         result = self._git(["push", "-u", "origin", name], timeout=120.0, cancel=cancel)
         if result.get("cancelled"):
+            # _git checks cancel before spawning, so nothing was dispatched.
+            abandon(self.repo_root, key)
             return _cancelled_error()
-        if result["ok"] and not self._refresh_repository_handle():
-            return self._repository_safety_blocked("git_push")
-        return Observation(
-            "git_push",
-            result["ok"],
-            {"branch": name},
-            "" if result["ok"] else "GIT_PUSH_FAILED",
-            result["output"] if not result["ok"] else f"Pushed {name} to origin",
-        ).to_dict()
+        if result["ok"]:
+            # The push landed — record it before anything else can fail.
+            complete(self.repo_root, key, {"branch": name})
+            if not self._refresh_repository_handle():
+                return self._repository_safety_blocked("git_push")
+            return Observation(
+                "git_push",
+                True,
+                {"branch": name},
+                message=f"Pushed {name} to origin",
+            ).to_dict()
+        # Failure is not proof of non-delivery: a timeout or dropped
+        # connection can follow a successful ref update. Observe the remote
+        # before deciding what a retry may do.
+        reconciled, decided = self._reconcile_push(key, name, head_sha, cancel=cancel)
+        if reconciled is not None:
+            return reconciled
+        if decided:
+            # Remote reachable, this head absent: the push provably did not
+            # land, the key is released, and a corrected retry is free.
+            return _error("GIT_PUSH_FAILED", result["output"])
+        return _error(
+            "PUSH_STATE_UNCERTAIN",
+            "The push did not confirm and the remote could not be checked. "
+            f"It may have landed — run `git ls-remote origin {name}` before "
+            "retrying.",
+        )
+
+    def _reconcile_push(
+        self, key: str, name: str, head_sha: str, *, cancel: Any = None
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Resolve an uncertain push by observing the remote ref (#616).
+
+        Git ref updates are atomic, so ``ls-remote`` settles the question:
+        the remote carrying our exact head proves the push landed; a
+        reachable remote without it proves the ref was never updated.
+
+        Returns ``(result, decided)``. When decided, ``result`` is the
+        user-facing confirmation for a landed push, or ``None`` for a push
+        proven absent (its key is released, freeing a corrected retry).
+        ``(None, False)`` means the remote could not be observed and the
+        operation must stay uncertain.
+        """
+        from .idempotency import abandon, complete
+
+        if not head_sha:
+            return None, False
+        remote = self._git(["ls-remote", "origin", name], timeout=30.0, cancel=cancel)
+        if remote.get("cancelled") or not remote.get("ok"):
+            return None, False
+        shas = {
+            line.split(None, 1)[0]
+            for line in remote["output"].splitlines()
+            if line.strip()
+        }
+        if head_sha in shas:
+            complete(self.repo_root, key, {"branch": name})
+            return Observation(
+                "git_push",
+                True,
+                {"branch": name},
+                message=f"Push of {name} confirmed on origin",
+            ).to_dict(), True
+        abandon(self.repo_root, key)
+        return None, True
 
     def _open_pr(
         self, arguments: dict[str, Any], *, cancel: Any = None

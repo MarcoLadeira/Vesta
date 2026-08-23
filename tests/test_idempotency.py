@@ -712,5 +712,183 @@ class GithubRequestReviewToolTests(unittest.TestCase):
             self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL")
 
 
+class GitPushToolTests(unittest.TestCase):
+    """provider_tools._git_push (#616): a push publishes history to the
+    remote. A lost response is not proof the ref was never updated, so the
+    operation is persisted before dispatch and an uncertain push is
+    reconciled against the remote — never blindly repeated.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name), commit=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _executor(self):
+        from opaihub.provider_tools import RepositoryToolExecutor
+
+        # allow_edits=True so the repository-safety handle is established;
+        # the mutation gate fails closed without it.
+        return RepositoryToolExecutor(
+            self.root, allow_edits=True, allow_git_ops=True
+        )
+
+    def _grant(self, executor, branch="feat/x"):
+        executor.grant_command_once(f"git push -u origin {branch}")
+
+    def test_an_approved_replay_resolves_to_the_recorded_push(self) -> None:
+        dispatches: list[list[str]] = []
+
+        def fake_git(argv, **kwargs):
+            if argv[0] == "rev-parse":
+                return {"ok": True, "output": "abc123"}
+            if argv[0] == "push":
+                dispatches.append(list(argv))
+                return {"ok": True, "output": "pushed"}
+            return {"ok": True, "output": ""}
+
+        executor = self._executor()
+        with mock.patch.object(executor, "_git", side_effect=fake_git):
+            self._grant(executor)
+            first = executor._git_push({"branch": "feat/x"})
+            self._grant(executor)
+            second = executor._git_push({"branch": "feat/x"})
+        self.assertTrue(first["ok"], first)
+        self.assertTrue(second["ok"], second)
+        self.assertIn("Already pushed", second["message"])
+        self.assertEqual(len(dispatches), 1)
+
+    def test_new_commits_are_a_new_operation(self) -> None:
+        heads = iter(["abc123", "def456"])
+        dispatches: list[list[str]] = []
+
+        def fake_git(argv, **kwargs):
+            if argv[0] == "rev-parse":
+                return {"ok": True, "output": next(heads)}
+            if argv[0] == "push":
+                dispatches.append(list(argv))
+                return {"ok": True, "output": "pushed"}
+            return {"ok": True, "output": ""}
+
+        executor = self._executor()
+        with mock.patch.object(executor, "_git", side_effect=fake_git):
+            for _ in range(2):
+                self._grant(executor)
+                result = executor._git_push({"branch": "feat/x"})
+                self.assertTrue(result["ok"], result)
+        self.assertEqual(len(dispatches), 2)
+
+    def test_a_lost_push_that_landed_is_confirmed_not_repeated(self) -> None:
+        # Push reports failure (timeout), but the remote carries the head:
+        # reconciliation confirms the landing instead of dispatching again.
+        dispatches: list[list[str]] = []
+
+        def fake_git(argv, **kwargs):
+            if argv[0] == "rev-parse":
+                return {"ok": True, "output": "abc123"}
+            if argv[0] == "push":
+                dispatches.append(list(argv))
+                return {"ok": False, "output": "timed out"}
+            if argv[0] == "ls-remote":
+                return {"ok": True, "output": "abc123\trefs/heads/feat/x"}
+            return {"ok": True, "output": ""}
+
+        executor = self._executor()
+        with mock.patch.object(executor, "_git", side_effect=fake_git):
+            self._grant(executor)
+            result = executor._git_push({"branch": "feat/x"})
+        self.assertTrue(result["ok"], result)
+        self.assertIn("confirmed on origin", result["message"])
+        self.assertEqual(len(dispatches), 1)
+
+    def test_a_lost_push_that_never_landed_leaves_retry_free(self) -> None:
+        # Push reports failure and the reachable remote does not carry the
+        # head: ref updates are atomic, so the push provably did not land.
+        dispatches: list[list[str]] = []
+        attempts: list[int] = []
+
+        def fake_git(argv, **kwargs):
+            if argv[0] == "rev-parse":
+                return {"ok": True, "output": "abc123"}
+            if argv[0] == "push":
+                attempts.append(1)
+                if len(attempts) == 1:
+                    return {"ok": False, "output": "connection reset"}
+                dispatches.append(list(argv))
+                return {"ok": True, "output": "pushed"}
+            if argv[0] == "ls-remote":
+                return {"ok": True, "output": "999fff\trefs/heads/feat/x"}
+            return {"ok": True, "output": ""}
+
+        executor = self._executor()
+        with mock.patch.object(executor, "_git", side_effect=fake_git):
+            self._grant(executor)
+            failed = executor._git_push({"branch": "feat/x"})
+            self.assertEqual(failed["error_code"], "GIT_PUSH_FAILED")
+            self._grant(executor)
+            retry = executor._git_push({"branch": "feat/x"})
+        self.assertTrue(retry["ok"], retry)
+        self.assertEqual(len(dispatches), 1)
+
+    def test_an_unobservable_remote_fails_closed_as_uncertain(self) -> None:
+        # Push reports failure AND the remote cannot be checked: the push may
+        # have landed, so the operation stays in_flight and a retry is told
+        # to reconcile — never silently dispatched again.
+        dispatches: list[list[str]] = []
+
+        def fake_git(argv, **kwargs):
+            if argv[0] == "rev-parse":
+                return {"ok": True, "output": "abc123"}
+            if argv[0] == "push":
+                dispatches.append(list(argv))
+                return {"ok": False, "output": "timed out"}
+            if argv[0] == "ls-remote":
+                return {"ok": False, "output": "could not resolve host"}
+            return {"ok": True, "output": ""}
+
+        executor = self._executor()
+        with mock.patch.object(executor, "_git", side_effect=fake_git):
+            self._grant(executor)
+            first = executor._git_push({"branch": "feat/x"})
+            self.assertEqual(first["error_code"], "PUSH_STATE_UNCERTAIN")
+            self._grant(executor)
+            second = executor._git_push({"branch": "feat/x"})
+        self.assertEqual(second["error_code"], "PUSH_STATE_UNCERTAIN")
+        self.assertIn("did not confirm", second["message"])
+        self.assertEqual(len(dispatches), 1)
+
+    def test_an_unconfirmed_attempt_reconciles_before_any_redispatch(self) -> None:
+        # Crash between dispatch and record: the key is in_flight. The next
+        # attempt observes the remote first; finding the head there turns the
+        # retry into a confirmation without a second push.
+        from opaihub.idempotency import begin, operation_key
+
+        dispatches: list[list[str]] = []
+
+        def fake_git(argv, **kwargs):
+            if argv[0] == "rev-parse":
+                return {"ok": True, "output": "abc123"}
+            if argv[0] == "push":
+                dispatches.append(list(argv))
+                return {"ok": True, "output": "pushed"}
+            if argv[0] == "ls-remote":
+                return {"ok": True, "output": "abc123\trefs/heads/feat/x"}
+            return {"ok": True, "output": ""}
+
+        executor = self._executor()
+        key = operation_key(
+            "git_push", root=str(self.root), branch="feat/x", head="abc123"
+        )
+        self.assertEqual(begin(self.root, key)["state"], "fresh")
+        with mock.patch.object(executor, "_git", side_effect=fake_git):
+            self._grant(executor)
+            result = executor._git_push({"branch": "feat/x"})
+        self.assertTrue(result["ok"], result)
+        self.assertIn("confirmed on origin", result["message"])
+        self.assertEqual(len(dispatches), 0)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

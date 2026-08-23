@@ -236,7 +236,8 @@ class OutwardActionApprovalTests(unittest.TestCase):
             self.assertTrue(first["ok"], first)
             self.assertFalse(second["ok"])
             self.assertEqual(second["error_code"], "COMMAND_NEEDS_APPROVAL")
-            self.assertEqual(git.call_count, 1)
+            pushes = [c for c in git.call_args_list if c.args[0][0] == "push"]
+            self.assertEqual(len(pushes), 1)
 
     def test_github_writes_ask_too(self):
         with tempfile.TemporaryDirectory() as tmp:
