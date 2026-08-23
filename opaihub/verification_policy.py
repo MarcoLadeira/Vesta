@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 from typing import Any, Mapping
 
+from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .loader import RegistryLoadError, load_registry
 from .state import state_dir
@@ -867,6 +868,80 @@ def _policy_artifact_path(root: Path, *, task_id: str, run_id: str) -> Path:
     return target
 
 
+def _valid_policy_record(record: Mapping[str, Any]) -> bool:
+    """A mirrored policy artifact must verify its own digest.
+
+    Every earlier #613 migration could only check a record's *shape*, because
+    nothing in those records proved anything about their own content. This one
+    is different: :class:`VerificationPolicy` computes ``digest`` as a SHA-256
+    over its payload, so a mirrored event can be checked against itself.
+
+    That buys a property the others do not have. Elsewhere the shadow is only
+    trustworthy while the journal file is; here a journal event whose content
+    was altered -- by tampering or by a torn write that still parsed as JSON --
+    fails the digest check and is skipped on replay, so the projection falls
+    back to the last event that genuinely verifies instead of serving altered
+    policy as fact. This artifact records which verification a run was
+    dispatched under, so silently serving an altered one is the specific
+    outcome worth spending a stricter validator on.
+    """
+
+    if not isinstance(record, Mapping):
+        return False
+    claimed = record.get("digest")
+    if not isinstance(claimed, str) or not re.fullmatch(r"[0-9a-f]{64}", claimed):
+        return False
+    payload = {key: value for key, value in record.items() if key != "digest"}
+    computed = sha256(
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
+    ).hexdigest()
+    return computed == claimed
+
+
+def _read_policy_artifact(target: Path) -> dict[str, Any]:
+    """Read the artifact as persisted, without the strict loader's validation.
+
+    ``VerificationPolicy.from_dict`` is right for callers who need a policy
+    they can act on, but it raises on exactly the divergence the contradiction
+    report exists to describe.
+    """
+
+    try:
+        value = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def policy_artifact_projection(
+    root: Path, *, task_id: str, run_id: str
+) -> dict[str, Any]:
+    """Rebuild one run's effective-policy artifact from its shadow journal."""
+
+    target = _policy_artifact_path(
+        Path(root).expanduser().resolve(), task_id=task_id, run_id=run_id
+    )
+    return shadow_journal.projection(target, is_valid_record=_valid_policy_record)
+
+
+def policy_artifact_contradiction_report(
+    root: Path, *, task_id: str, run_id: str
+) -> dict[str, Any] | None:
+    """``None`` when artifact and shadow agree, else what differs."""
+
+    target = _policy_artifact_path(
+        Path(root).expanduser().resolve(), task_id=task_id, run_id=run_id
+    )
+    return shadow_journal.contradiction_report(
+        target,
+        lambda: _read_policy_artifact(target),
+        is_valid_record=_valid_policy_record,
+        identity={"task_id": task_id, "run_id": run_id},
+    )
+
+
 def persist_effective_policy(
     root: Path, policy: VerificationPolicy, *, task_id: str, run_id: str
 ) -> PolicyArtifactRef:
@@ -882,6 +957,11 @@ def persist_effective_policy(
     )
     with interprocess_transaction(target):
         atomic_write_text(target, payload)
+        # #613 Stage 2: mirrored from inside the same lock that wrote the
+        # file, so the journal cannot observe an order the artifact never took.
+        shadow_journal.record_snapshot(
+            target, policy.to_dict(), is_valid_record=_valid_policy_record
+        )
     return PolicyArtifactRef(path=target, digest=policy.digest)
 
 
