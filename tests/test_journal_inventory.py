@@ -88,6 +88,23 @@ JOURNAL_OWNED = {
     "opai/gui_recents.py": "events — conversation/thread history",
 }
 
+#: JOURNAL_OWNED modules that need no Stage 2 shadow mirror, because the record
+#: they own is *already* an append-only sequenced log with replay -- the thing
+#: Stage 2's mirror exists to create. Layering a second journal on top would
+#: double-write every event and give the migration two append-only logs to keep
+#: consistent instead of one.
+#:
+#: This is a deliberately small and justified list, not a place to park awkward
+#: modules: each entry is checked below for the structure that earns the
+#: exemption, so a module cannot be excused by assertion alone.
+ALREADY_APPEND_ONLY = {
+    # Hash-chained, fsync'd audit trail; tamper-evident by construction.
+    "opaihub/audit.py",
+    # Sequenced + digest-chained event log with a persisted head, torn-line
+    # repair and a rebuildable SQLite index.
+    "opaihub/ledger.py",
+}
+
 #: Derived views and support output. Rebuildable, never sole authority.
 PROJECTION_OR_EXPORT = {
     "opaihub/dashboard.py",
@@ -276,6 +293,37 @@ class AdoptedJournalTests(unittest.TestCase):
             "run_journal has no production caller; #613 would be migrating onto "
             "a dead primitive",
         )
+
+    def test_already_append_only_modules_are_journal_owned_and_earn_it(self):
+        """An exemption must be structural, not a line in a set.
+
+        Stage 2 skips these two modules, so the reason has to survive someone
+        later editing them. Each must still be JOURNAL_OWNED (they own runtime
+        truth) and must still actually append rather than overwrite -- if a
+        refactor turned one into a whole-file rewrite, the exemption would be
+        silently wrong and this fails.
+        """
+
+        for module in sorted(ALREADY_APPEND_ONLY):
+            with self.subTest(module=module):
+                self.assertIn(
+                    module,
+                    JOURNAL_OWNED,
+                    "an exempt module must still own runtime truth",
+                )
+                source = (ROOT / module).read_text(encoding="utf-8")
+                # assertTrue, not assertIn: a failing assertIn would dump the
+                # whole module into the report and bury the actual reason.
+                self.assertTrue(
+                    'open("a' in source,
+                    f"{module} is exempt from the shadow mirror only because it "
+                    "appends rather than overwrites -- that is no longer true",
+                )
+                self.assertTrue(
+                    "fsync" in source,
+                    f"{module} is trusted as a durable append-only log, but no "
+                    "longer fsyncs",
+                )
 
 
 if __name__ == "__main__":  # pragma: no cover
