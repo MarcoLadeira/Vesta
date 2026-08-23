@@ -90,6 +90,8 @@ JOURNAL_OWNED = {
 
 #: Derived views and support output. Rebuildable, never sole authority.
 PROJECTION_OR_EXPORT = {
+    # Build-only generated identity written into wheel/sdist staging trees.
+    "opai/build_metadata.py",
     "opaihub/dashboard.py",
     "opaihub/dashboard_html.py",
     "opaihub/desktop_artifacts.py",
