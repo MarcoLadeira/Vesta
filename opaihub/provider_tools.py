@@ -644,6 +644,44 @@ class RepositoryToolExecutor:
         safe_paths = self._safe_paths(list(paths))
         if safe_paths is None:
             return _error("PATH_OUTSIDE_REPO", "Patch target is outside the repository")
+        # #616: a patch is a filesystem mutation; persist the operation before
+        # dispatch, keyed on the patch digest. The store is consulted BEFORE
+        # the dirty guard and the forward validation below: files our own
+        # crashed attempt left behind look like pre-existing user changes, and
+        # a patch that "no longer applies" may have already been applied by
+        # that attempt — both must reconcile, not misreport.
+        import hashlib
+
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key, status
+
+        patch_sha = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+        key = operation_key("apply_patch", root=str(self.repo_root), sha=patch_sha)
+        known = status(self.repo_root, key)
+        if known["state"] == DONE:
+            return Observation(
+                "patch_apply",
+                True,
+                {"paths": list(safe_paths)},
+                message="Patch already applied",
+            ).to_dict()
+        if known["state"] == IN_FLIGHT:
+            # git apply is all-or-nothing, so a lost response is reconcilable:
+            # if the patch still applies cleanly it never landed, and if the
+            # reverse applies cleanly it fully did. Anything else (partial
+            # hand-edits, conflicts) fails closed.
+            reconciled, decided = self._reconcile_patch(key, patch, safe_paths)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "PATCH_STATE_UNCERTAIN",
+                    "An earlier attempt to apply this patch did not confirm, "
+                    "and the files no longer match either the unpatched or "
+                    "patched state. Check them before retrying.",
+                )
+            # Provably never applied (key released): fall through to the
+            # normal guards and a fresh claim below.
         dirty = classify_dirty_paths(self.initial_dirty_paths, safe_paths)
         if not dirty.can_proceed:
             return _error(
@@ -664,13 +702,33 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("apply_patch", safe_paths)
         if blocked is not None:
             return blocked
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return Observation(
+                "patch_apply",
+                True,
+                {"paths": list(safe_paths)},
+                message="Patch already applied",
+            ).to_dict()
+        if prior["state"] != FRESH:
+            # Raced with another claimant between status() and begin().
+            return _error(
+                "PATCH_STATE_UNCERTAIN",
+                "Patch operation state changed during reconciliation; "
+                "check the files before retrying.",
+            )
         applied = self.aci.apply_patch(patch)
         if applied.ok:
+            complete(self.repo_root, key, {"paths": ",".join(sorted(safe_paths))})
             for path in safe_paths:
                 if path not in self.written_paths:
                     self.written_paths.append(path)
             if not self._refresh_repository_handle():
                 return self._repository_safety_blocked("apply_patch")
+        else:
+            # git apply is atomic: a failed apply changed nothing, so the key
+            # is released and a corrected retry is free.
+            abandon(self.repo_root, key)
         return Observation(
             "patch_apply",
             applied.ok,
@@ -679,6 +737,39 @@ class RepositoryToolExecutor:
             applied.message,
             applied.duration_ms,
         ).to_dict()
+
+    def _reconcile_patch(
+        self, key: str, patch: str, safe_paths: tuple[str, ...]
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Resolve an uncertain patch application using git apply's atomicity.
+
+        A forward ``--check`` passing proves the patch never landed (key
+        released, retry free); a reverse ``--check`` passing proves it fully
+        landed (recorded as done). Neither passing means the files are in a
+        state this patch alone cannot explain — genuinely uncertain.
+        """
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        forward = self.aci.apply_patch(patch, check_only=True)
+        if forward.ok:
+            try:
+                abandon(self.repo_root, key)
+            except OperationPersistenceError:
+                return None, False
+            return None, True
+        reverse = self.aci.apply_patch(patch, check_only=True, reverse=True)
+        if reverse.ok:
+            try:
+                complete(self.repo_root, key, {"paths": ",".join(sorted(safe_paths))})
+            except OperationPersistenceError:
+                return None, False
+            return Observation(
+                "patch_apply",
+                True,
+                {"paths": list(safe_paths)},
+                message="Patch application confirmed on disk",
+            ).to_dict(), True
+        return None, False
 
     def _write_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Create or fully replace one repository file (never delete).
@@ -705,6 +796,45 @@ class RepositoryToolExecutor:
             lowered
         ):
             return _error("PATH_BLOCKED", f"Writing to {relative} is not allowed")
+        # #616: consult the operation store BEFORE the dirty-path guard. A
+        # file our own crashed attempt left behind looks like a pre-existing
+        # user change to a fresh executor; only the operation record can tell
+        # "ours, mid-flight" apart from "the user's, do not touch".
+        import hashlib
+
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key, status
+
+        content_sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        key = operation_key(
+            "write_file", root=str(self.repo_root), path=relative, sha=content_sha
+        )
+        known = status(self.repo_root, key)
+        if known["state"] == DONE:
+            recorded = known["result"]
+            return Observation(
+                "file_write",
+                True,
+                {
+                    "path": relative,
+                    "created": bool(recorded.get("created")),
+                    "bytes": len(content.encode("utf-8")),
+                },
+                message=f"Already wrote {relative}",
+            ).to_dict()
+        if known["state"] == IN_FLIGHT:
+            reconciled, decided = self._reconcile_write(key, relative, content_sha)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "WRITE_STATE_UNCERTAIN",
+                    f"An earlier attempt to write {relative} did not confirm, "
+                    "and the file now holds different content. Check the file "
+                    "before retrying.",
+                )
+            # Provably never written (key released): fall through to the
+            # normal guards and a fresh claim below.
         dirty = classify_dirty_paths(self.initial_dirty_paths, (relative,))
         if not dirty.can_proceed and relative not in self.written_paths:
             return _error(
@@ -714,13 +844,41 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("write_file", (relative,))
         if blocked is not None:
             return blocked
+        # The claim happens here, immediately before dispatch: a replayed
+        # turn resolves to the recorded write while genuinely new content is
+        # a new operation, and a crash between write and record is reconciled
+        # against the bytes on disk on the next attempt.
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            recorded = prior["result"]
+            return Observation(
+                "file_write",
+                True,
+                {
+                    "path": relative,
+                    "created": bool(recorded.get("created")),
+                    "bytes": len(content.encode("utf-8")),
+                },
+                message=f"Already wrote {relative}",
+            ).to_dict()
+        if prior["state"] != FRESH:
+            return _error(
+                "WRITE_STATE_UNCERTAIN",
+                "Write operation state changed during reconciliation; "
+                f"check {relative} before retrying.",
+            )
         target = self.repo_root / relative
         created = not target.exists()
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8", newline="\n")
         except OSError as exc:
+            # An observed local write failure: a partial file is possible but
+            # the next attempt reconciles against the bytes on disk, so the
+            # key is released rather than left to misreport a live write.
+            abandon(self.repo_root, key)
             return _error("WRITE_FAILED", f"Could not write {relative}: {exc}")
+        complete(self.repo_root, key, {"path": relative, "created": created})
         if relative not in self.written_paths:
             self.written_paths.append(relative)
         if not self._refresh_repository_handle():
@@ -735,6 +893,45 @@ class RepositoryToolExecutor:
             },
             message=f"{'Created' if created else 'Replaced'} {relative}",
         ).to_dict()
+
+    def _reconcile_write(
+        self, key: str, relative: str, content_sha: str
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Resolve an uncertain file write by hashing what is on disk (#616).
+
+        ``(result, True)`` settles the operation: the file carrying exactly
+        the intended bytes proves the write landed (recorded as done); the
+        file being absent proves it never did (key released, retry free).
+        ``(None, False)`` keeps it uncertain — different content may be a
+        partial write or a user's edit, and neither may be overwritten blind.
+        """
+        import hashlib
+
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        target = self.repo_root / relative
+        try:
+            if not target.is_file():
+                try:
+                    abandon(self.repo_root, key)
+                except OperationPersistenceError:
+                    return None, False
+                return None, True
+            on_disk = hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            return None, False
+        if on_disk == content_sha:
+            try:
+                complete(self.repo_root, key, {"path": relative, "created": False})
+            except OperationPersistenceError:
+                return None, False
+            return Observation(
+                "file_write",
+                True,
+                {"path": relative, "created": False},
+                message=f"Write of {relative} confirmed on disk",
+            ).to_dict(), True
+        return None, False
 
     def _git(
         self, argv: list[str], *, timeout: float = 60.0, cancel: Any = None
@@ -1052,7 +1249,7 @@ class RepositoryToolExecutor:
         ``(None, False)`` means the remote could not be observed and the
         operation must stay uncertain.
         """
-        from .idempotency import abandon, complete
+        from .idempotency import OperationPersistenceError, abandon, complete
 
         if not head_sha:
             return None, False
@@ -1065,14 +1262,20 @@ class RepositoryToolExecutor:
             if line.strip()
         }
         if head_sha in shas:
-            complete(self.repo_root, key, {"branch": name})
+            try:
+                complete(self.repo_root, key, {"branch": name})
+            except OperationPersistenceError:
+                return None, False
             return Observation(
                 "git_push",
                 True,
                 {"branch": name},
                 message=f"Push of {name} confirmed on origin",
             ).to_dict(), True
-        abandon(self.repo_root, key)
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
         return None, True
 
     def _open_pr(

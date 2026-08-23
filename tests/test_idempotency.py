@@ -990,5 +990,189 @@ class GrantedCommandToolTests(unittest.TestCase):
         self.assertEqual(len(attempts), 2)
 
 
+class WriteFileToolTests(unittest.TestCase):
+    """provider_tools._write_file (#616): a file write is a filesystem
+    mutation. The operation is keyed on the intended content, so a replay
+    resolves to the record, and a crash mid-write is reconciled against the
+    bytes on disk — never a blind rewrite over content that may now be the
+    user's.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name), commit=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _executor(self):
+        from opaihub.provider_tools import RepositoryToolExecutor
+
+        return RepositoryToolExecutor(self.root, allow_edits=True)
+
+    def _key(self, path: str, content: str) -> str:
+        import hashlib
+
+        from opaihub.idempotency import operation_key
+
+        sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        return operation_key(
+            "write_file", root=str(self.root), path=path, sha=sha
+        )
+
+    def test_an_identical_rewrite_resolves_to_the_record(self) -> None:
+        executor = self._executor()
+        first = executor._write_file({"path": "a.txt", "content": "one"})
+        second = executor._write_file({"path": "a.txt", "content": "one"})
+        self.assertTrue(first["ok"], first)
+        self.assertTrue(second["ok"], second)
+        self.assertIn("Already wrote", second["message"])
+
+    def test_new_content_is_a_new_operation(self) -> None:
+        executor = self._executor()
+        executor._write_file({"path": "a.txt", "content": "one"})
+        result = executor._write_file({"path": "a.txt", "content": "two"})
+        self.assertTrue(result["ok"], result)
+        self.assertEqual((self.root / "a.txt").read_text(encoding="utf-8"), "two")
+
+    def test_a_crash_after_landing_is_confirmed_from_disk(self) -> None:
+        # Process died between writing the bytes and recording them: the key
+        # is in_flight while the file already holds the intended content.
+        from opaihub.idempotency import begin
+
+        (self.root / "a.txt").write_text("one", encoding="utf-8", newline="\n")
+        key = self._key("a.txt", "one")
+        self.assertEqual(begin(self.root, key)["state"], "fresh")
+        result = self._executor()._write_file({"path": "a.txt", "content": "one"})
+        self.assertTrue(result["ok"], result)
+        self.assertIn("confirmed on disk", result["message"])
+
+    def test_a_crash_before_landing_leaves_the_retry_free(self) -> None:
+        from opaihub.idempotency import begin
+
+        key = self._key("a.txt", "one")
+        self.assertEqual(begin(self.root, key)["state"], "fresh")
+        result = self._executor()._write_file({"path": "a.txt", "content": "one"})
+        self.assertTrue(result["ok"], result)
+        self.assertEqual((self.root / "a.txt").read_text(encoding="utf-8"), "one")
+
+    def test_different_content_on_disk_fails_closed(self) -> None:
+        from opaihub.idempotency import begin
+
+        # The file holds something the operation cannot explain — a partial
+        # write or a user's edit — so the retry must not overwrite it blind.
+        (self.root / "a.txt").write_text("someone else", encoding="utf-8")
+        key = self._key("a.txt", "one")
+        self.assertEqual(begin(self.root, key)["state"], "fresh")
+        result = self._executor()._write_file({"path": "a.txt", "content": "one"})
+        self.assertEqual(result["error_code"], "WRITE_STATE_UNCERTAIN")
+        self.assertEqual(
+            (self.root / "a.txt").read_text(encoding="utf-8"), "someone else"
+        )
+
+
+class ApplyPatchToolTests(unittest.TestCase):
+    """provider_tools._apply_patch (#616): git apply is all-or-nothing, so a
+    lost response is reconcilable — forward check proves 'never landed',
+    reverse check proves 'fully landed', anything else fails closed.
+    """
+
+    PATCH = (
+        "diff --git a/a.txt b/a.txt\n"
+        "--- a/a.txt\n"
+        "+++ b/a.txt\n"
+        "@@ -1,2 +1,2 @@\n"
+        " line1\n"
+        "-line2\n"
+        "+line2 changed\n"
+    )
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(
+            Path(self._tmp.name), files={"a.txt": "line1\nline2\n"}, commit=True
+        )
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _executor(self):
+        from opaihub.provider_tools import RepositoryToolExecutor
+
+        return RepositoryToolExecutor(self.root, allow_edits=True)
+
+    def _key(self) -> str:
+        import hashlib
+
+        from opaihub.idempotency import operation_key
+
+        sha = hashlib.sha256(self.PATCH.encode("utf-8")).hexdigest()
+        return operation_key("apply_patch", root=str(self.root), sha=sha)
+
+    def _apply_on_disk(self) -> None:
+        import subprocess
+
+        subprocess.run(
+            ["git", "apply", "--whitespace=nowarn", "-"],
+            cwd=self.root,
+            input=self.PATCH,
+            text=True,
+            check=True,
+            capture_output=True,
+        )
+
+    def test_a_replayed_patch_is_not_applied_twice(self) -> None:
+        executor = self._executor()
+        first = executor._apply_patch({"patch": self.PATCH})
+        self.assertTrue(first["ok"], first)
+        second = executor._apply_patch({"patch": self.PATCH})
+        self.assertTrue(second["ok"], second)
+        self.assertIn("already applied", second["message"])
+        self.assertIn(
+            "line2 changed", (self.root / "a.txt").read_text(encoding="utf-8")
+        )
+
+    def test_a_crash_after_landing_is_confirmed_by_reverse_check(self) -> None:
+        from opaihub.idempotency import begin
+
+        self._apply_on_disk()
+        self.assertEqual(begin(self.root, self._key())["state"], "fresh")
+        result = self._executor()._apply_patch({"patch": self.PATCH})
+        self.assertTrue(result["ok"], result)
+        self.assertIn("confirmed on disk", result["message"])
+
+    def test_a_crash_before_landing_leaves_the_retry_free(self) -> None:
+        from opaihub.idempotency import begin
+
+        self.assertEqual(begin(self.root, self._key())["state"], "fresh")
+        result = self._executor()._apply_patch({"patch": self.PATCH})
+        self.assertTrue(result["ok"], result)
+        self.assertIn(
+            "line2 changed", (self.root / "a.txt").read_text(encoding="utf-8")
+        )
+
+    def test_an_unexplainable_file_state_fails_closed(self) -> None:
+        from opaihub.idempotency import begin
+
+        # Hand-edited to match neither the unpatched nor the patched state.
+        (self.root / "a.txt").write_text("something\nelse entirely\n",
+                                         encoding="utf-8")
+        self.assertEqual(begin(self.root, self._key())["state"], "fresh")
+        result = self._executor()._apply_patch({"patch": self.PATCH})
+        self.assertEqual(result["error_code"], "PATCH_STATE_UNCERTAIN")
+        self.assertEqual(
+            (self.root / "a.txt").read_text(encoding="utf-8"),
+            "something\nelse entirely\n",
+        )
+
+    def test_an_invalid_patch_is_still_a_plain_validation_error(self) -> None:
+        executor = self._executor()
+        result = executor._apply_patch(
+            {"patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ bad\n"}
+        )
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["error_code"], "PATCH_CHECK_FAILED")
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
