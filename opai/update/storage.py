@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
+from opaihub import shadow_journal
 from opaihub.atomic_io import atomic_write_text, interprocess_transaction
 from opaihub.owner_lease import acquire as acquire_lease
 from opaihub.owner_lease import is_current as lease_is_current
@@ -42,6 +43,20 @@ class UpdaterPaths:
             mutex=base / "operation.mutex",
             health=base / "health.json",
         )
+
+
+def _valid_update_record(record):
+    """A mirrored updater record must at least be a readable object.
+
+    Deliberately permissive: this module keeps four distinct documents
+    (policy, operation, trust floors, lease) whose schemas differ, and each
+    already validates itself on read. The mirror's job is to preserve what
+    was written, not to re-litigate four schemas -- a stricter validator here
+    would silently drop a record the module itself considers valid, which is
+    the failure mode #613 is trying to remove rather than add.
+    """
+
+    return isinstance(record, Mapping)
 
 
 def _read_object(path: Path) -> dict[str, object]:
@@ -144,6 +159,12 @@ class UpdateStore:
             json.dumps(policy.to_dict(), indent=2, sort_keys=True) + "\n",
             mode=0o600,
         )
+        # #613 Stage 2: every caller already holds
+        # interprocess_transaction(self.paths.policy) before reaching here, so
+        # the journal observes writes in the order the file took them.
+        shadow_journal.record_snapshot(
+            self.paths.policy, policy.to_dict(), is_valid_record=_valid_update_record
+        )
 
     def save_policy(self, policy: UpdatePolicy) -> UpdatePolicy:
         self._prepare()
@@ -194,6 +215,11 @@ class UpdateStore:
                 json.dumps(operation.to_dict(), indent=2, sort_keys=True) + "\n",
                 mode=0o600,
             )
+            shadow_journal.record_snapshot(
+                self.paths.operation,
+                operation.to_dict(),
+                is_valid_record=_valid_update_record,
+            )
         return operation
 
     def state_schema_ok(self) -> bool:
@@ -239,15 +265,17 @@ class UpdateStore:
             )
             clean = dict(versions) if isinstance(versions, Mapping) else {}
             clean[channel] = max(self.load_metadata_floor(channel), version)
+            trust = {"schema_version": 1, "metadata_versions": clean}
             atomic_write_text(
                 self.paths.trust,
-                json.dumps(
-                    {"schema_version": 1, "metadata_versions": clean},
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
+                json.dumps(trust, indent=2, sort_keys=True) + "\n",
                 mode=0o600,
+            )
+            # A metadata floor only ever moves forward; mirroring it keeps the
+            # anti-rollback high-water mark reconstructible if the file is
+            # lost, which is the one value here an attacker would want reset.
+            shadow_journal.record_snapshot(
+                self.paths.trust, trust, is_valid_record=_valid_update_record
             )
         return int(clean[channel])
 
