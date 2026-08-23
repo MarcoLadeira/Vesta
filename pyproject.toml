@@ -19,8 +19,8 @@ terminal-ui = ["Pillow>=10"]
 test = ["hypothesis==6.160.0", "pytest==9.0.3"]
 
 [project.scripts]
-opai = "opai.cli:main"
-op = "opai.cli:main"
+opai = "opai.bootstrap:cli_main"
+op = "opai.bootstrap:cli_main"
 op-hub = "opaihub.cli:main"
 opcoding = "opcoding.cli:main"
 
@@ -28,7 +28,7 @@ opcoding = "opcoding.cli:main"
 # from a gui_scripts entry point, so a Start-menu/taskbar shortcut opens the app
 # with no attached console window (#148). `opai gui` from a terminal still works.
 [project.gui-scripts]
-opai-gui = "opai.cli:gui_main"
+opai-gui = "opai.bootstrap:desktop_main"
 
 [project.urls]
 Homepage = "https://github.com/MarcoLadeira/OPai"

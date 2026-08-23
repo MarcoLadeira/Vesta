@@ -74,8 +74,8 @@ def publish_status(root: Path) -> dict[str, Any]:
         is_repo_root
         and all(files.values())
         and all(gitignore.values())
-        and scripts.get("op") == "opai.cli:main"
-        and scripts.get("opai") == "opai.cli:main"
+        and scripts.get("op") == "opai.bootstrap:cli_main"
+        and scripts.get("opai") == "opai.bootstrap:cli_main"
     )
     next_steps: list[str] = []
     if not is_repo_root:
@@ -84,7 +84,7 @@ def publish_status(root: Path) -> dict[str, Any]:
         next_steps.append("add missing publish files")
     if not all(gitignore.values()):
         next_steps.append("complete generated-artifact .gitignore coverage")
-    if scripts.get("op") != "opai.cli:main":
+    if scripts.get("op") != "opai.bootstrap:cli_main":
         next_steps.append("make op entry point launch OPai")
     return {
         "ready": ready,

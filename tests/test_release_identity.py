@@ -88,7 +88,19 @@ def test_development_projection_is_honest_when_no_build_identity_exists() -> Non
 
     assert identity.application_version == "0.2.1a1"
     assert identity.build_id == "development"
+
+
+def test_source_checkout_does_not_adopt_unrelated_installed_metadata() -> None:
+    identity = _release_module().load_release_identity(
+        identity_paths=(),
+        embedded_build_paths=(),
+        distribution_version="9.9.9",
+        source_root=ROOT,
+    )
+
+    assert identity.application_version == "0.2.1a1"
     assert identity.install_type == "source_checkout"
+    assert identity.build_id == "development"
     assert identity.metadata_source == "generated-development-projection"
 
 

@@ -279,6 +279,30 @@ def load_release_identity(
             metadata_source=str(Path(raw_path).expanduser().resolve()),
         )
 
+    root = (
+        Path(source_root or Path(__file__).resolve().parents[1]).expanduser().resolve()
+    )
+    source_checkout = (root / ".git").exists() and (root / "pyproject.toml").is_file()
+    if source_checkout:
+        canonical = read_project_release(root / "pyproject.toml")
+        if canonical != generated:
+            raise ReleaseIdentityError(
+                "generated runtime release projection disagrees with pyproject.toml; "
+                "run python scripts/generate_release_identity.py"
+            )
+        return ReleaseIdentity(
+            application_version=generated.application_version,
+            release_channel=generated.release_channel,
+            release_stage=generated.release_stage,
+            build_id="development",
+            display_name=generated.display_name,
+            published_tag=generated.published_tag,
+            platform=_normal_platform(platform_name),
+            architecture=_normal_architecture(architecture),
+            install_type="source_checkout",
+            metadata_source="generated-development-projection",
+        )
+
     resolved_distribution: str | None
     if distribution_version is _DISTRIBUTION_UNSET:
         try:
@@ -297,10 +321,6 @@ def load_release_identity(
             f"installed package metadata {resolved_distribution!r} does not match runtime projection {generated.application_version!r}"
         )
 
-    root = (
-        Path(source_root or Path(__file__).resolve().parents[1]).expanduser().resolve()
-    )
-    source_checkout = (root / ".git").exists() and (root / "pyproject.toml").is_file()
     build_paths = (
         tuple(embedded_build_paths)
         if embedded_build_paths is not None
@@ -349,36 +369,23 @@ def load_release_identity(
             ),
             metadata_source=str(Path(raw_path).expanduser().resolve()),
         )
-    if source_checkout:
-        canonical = read_project_release(root / "pyproject.toml")
-        if canonical != generated:
-            raise ReleaseIdentityError(
-                "generated runtime release projection disagrees with pyproject.toml; "
-                "run python scripts/generate_release_identity.py"
-            )
     install_type = (
-        "source_checkout"
-        if source_checkout
-        else (
-            "installed_distribution"
-            if resolved_distribution is not None
-            else "source_archive"
-        )
+        "installed_distribution"
+        if resolved_distribution is not None
+        else "source_archive"
     )
     return ReleaseIdentity(
         application_version=generated.application_version,
         release_channel=generated.release_channel,
         release_stage=generated.release_stage,
-        build_id="development" if source_checkout else "unknown",
+        build_id="unknown",
         display_name=generated.display_name,
         published_tag=generated.published_tag,
         platform=_normal_platform(platform_name),
         architecture=_normal_architecture(architecture),
         install_type=install_type,
         metadata_source=(
-            "generated-development-projection"
-            if source_checkout
-            else "installed-distribution-metadata"
+            "installed-distribution-metadata"
             if resolved_distribution is not None
             else "generated-source-archive-projection"
         ),

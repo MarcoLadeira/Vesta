@@ -182,6 +182,52 @@ def test_installed_wheel_reports_distribution_and_candidate_identity(
     ) or payload["identity"]["metadata_source"].endswith("opai/_embedded_build.json")
 
 
+def test_installed_wheel_without_dependencies_reports_missing_pyyaml_at_bootstrap(
+    built_distributions,
+) -> None:
+    _source, wheel, _sdist = built_distributions
+    install_root = wheel.parent / "bootstrap-no-deps"
+    installed = subprocess.run(  # nosec B603 - local wheel, isolated target
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-deps",
+            "--target",
+            str(install_root),
+            str(wheel),
+        ],
+        cwd=wheel.parent,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=60,
+    )
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(install_root)
+    environment["PYTHONNOUSERSITE"] = "1"
+    probe = subprocess.run(  # nosec B603 - fixed local interpreter probe
+        [sys.executable, "-S", "-m", "opai", "doctor", "--json"],
+        cwd=wheel.parent,
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
+
+    assert probe.returncode == 78, probe.stdout + probe.stderr
+    payload = json.loads(probe.stdout)
+    assert payload["category"] == "missing_dependency"
+    assert payload["component"] == "PyYAML"
+    assert payload["startup_mode"] == "installed_distribution"
+    assert "invalid JSON" not in probe.stdout + probe.stderr
+    assert "Traceback" not in probe.stdout + probe.stderr
+
+
 def test_invalid_build_identity_fails_before_an_artifact_is_created() -> None:
     from opai.build_metadata import BuildMetadataError, build_metadata_payload
 
