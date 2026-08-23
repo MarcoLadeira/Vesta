@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from opai.asset_identity import REQUIRED_WEB_ASSETS
 from .proc import no_window_kwargs
 
 
@@ -24,17 +25,6 @@ PROVENANCE_NAME = "provenance.json"
 SIGNING_STATUS_NAME = "signing-status.json"
 BUILD_REQUIREMENTS_PATH = Path("requirements") / "desktop-build.txt"
 REQUIRED_BUILD_PINS = {"PySide6": "6.11.1", "Nuitka": "4.0"}
-REQUIRED_WEB_ASSETS = (
-    "index.html",
-    "app.js",
-    "icons.js",
-    "styles.css",
-    "design-tokens.css",
-    "activity.js",
-    "message-state.js",
-    "settings.js",
-    "onboarding.js",
-)
 GUI_QT_MODULES = (
     "Core",
     "Gui",

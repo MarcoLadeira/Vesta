@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from opai import app_state as A
+from opai.asset_identity import asset_manifest
 from opai.activity_batch import FLUSH_INTERVAL_MS, ActivityBatcher
 from opai.gui_controls import (
     header_status,
@@ -85,6 +86,20 @@ def asset_build_identity(asset_dir: Path = WEB_DIR) -> dict[str, Any]:
     """
 
     root = asset_dir.expanduser().resolve()
+    if root == WEB_DIR.resolve():
+        manifest = asset_manifest(root.parent)
+        source_root = Path(__file__).resolve().parents[1]
+        return {
+            "applicationVersion": manifest["application_version"],
+            "assetFingerprint": manifest["fingerprint_sha256"],
+            "assetCount": manifest["asset_count"],
+            "schemaVersion": manifest["schema_version"],
+            "runtimeSource": (
+                "source_checkout"
+                if (source_root / ".git").exists()
+                else "installed_package"
+            ),
+        }
     candidates = sorted(
         (
             path
@@ -1102,6 +1117,7 @@ def settings_payload(root: Path) -> dict[str, Any]:
             "version": overview.get("version"),
             "release_stage": overview.get("release_stage"),
             "release_identity": overview.get("release_identity"),
+            "compatibility": overview.get("compatibility"),
             "build": asset_build_identity(),
             # Cache only — no network in the payload build; the About page
             # triggers a live (TTL-guarded) check through checkForUpdates

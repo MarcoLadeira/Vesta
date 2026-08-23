@@ -14,6 +14,7 @@ import importlib.metadata
 import json
 import platform as platform_module
 import re
+import sys
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -31,6 +32,25 @@ _DISTRIBUTION_UNSET = object()
 
 class ReleaseIdentityError(RuntimeError):
     """Canonical or embedded release identity is unreadable or inconsistent."""
+
+
+def nearby_metadata_paths(name: str) -> tuple[Path, ...]:
+    """Find immutable metadata beside this runtime without consulting cwd/PATH."""
+
+    starts = (Path(sys.executable).resolve(strict=False), Path(__file__).resolve())
+    candidates: list[Path] = []
+    for start in starts:
+        directory = start if start.is_dir() else start.parent
+        for parent in (directory, *tuple(directory.parents)[:6]):
+            candidates.extend(
+                (
+                    parent / name,
+                    parent / "Resources" / name,
+                    parent / "resources" / name,
+                    parent / "opai" / "update" / name,
+                )
+            )
+    return tuple(dict.fromkeys(candidates))
 
 
 @dataclass(frozen=True)
@@ -415,9 +435,12 @@ def safe_identity_payload() -> dict[str, str]:
 def surface_identity_payload(*, brand: str = "OPai") -> dict[str, object]:
     """Project one identity onto backward-compatible user/evidence fields."""
 
+    from .compatibility import runtime_compatibility_payload
+
     identity = safe_identity_payload()
     return {
         "brand": brand,
+        "compatibility": runtime_compatibility_payload(),
         "version": identity["application_version"],
         "release_stage": identity["release_stage"],
         "release_identity": identity,

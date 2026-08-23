@@ -10,6 +10,7 @@ from _helpers import make_repo
 
 from opai import cli
 from opai.cockpit import build_cockpit
+from opai.compatibility import runtime_compatibility_payload
 from opai.installer import install_project
 from opai.release_identity import current_release_identity
 from opaihub.gui_pipeline import build_savings_receipt
@@ -28,6 +29,7 @@ def _assert_surface_identity(payload: dict[str, object]) -> None:
     assert payload["version"] == expected["application_version"]
     assert payload["release_stage"] == expected["release_stage"]
     assert payload["release_identity"] == expected
+    assert payload["compatibility"] == runtime_compatibility_payload()
 
 
 def test_machine_readable_cli_version_uses_the_canonical_identity(capsys) -> None:

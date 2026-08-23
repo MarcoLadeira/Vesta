@@ -423,6 +423,8 @@ class WebAssetsTests(unittest.TestCase):
 
 class SettingsPayloadTests(unittest.TestCase):
     def test_about_exposes_the_same_asset_build_identity_as_boot(self):
+        from opai.compatibility import runtime_compatibility_payload
+
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             payload = settings_payload(root)
@@ -431,6 +433,9 @@ class SettingsPayloadTests(unittest.TestCase):
         expected = current_release_identity().to_dict()
         expected.pop("metadata_source")
         self.assertEqual(payload["about"]["release_identity"], expected)
+        self.assertEqual(
+            payload["about"]["compatibility"], runtime_compatibility_payload()
+        )
 
     def test_settings_exposes_normalized_connections(self):
         from opaihub.provider_catalog import provider_ids

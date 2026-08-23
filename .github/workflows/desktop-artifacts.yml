@@ -581,7 +581,8 @@ jobs:
             test -n "$WINDOWS_PACKAGE_IDENTITY"
             test -n "$WINDOWS_PUBLISHER_IDENTITY"
             python scripts/prepare_native_update.py configure \
-              --bundle "$BUNDLE" --trust "$TRUST_FILE" --version "$PACKAGE_VERSION" \
+              --bundle "$BUNDLE" --trust "$TRUST_FILE" \
+              --asset-root "$GITHUB_WORKSPACE/opai/assets" --version "$PACKAGE_VERSION" \
               --build-id "$EXPECTED_CANDIDATE_SHA" --channel "$UPDATE_CHANNEL" \
               --platform windows --architecture x86_64 --install-type windows_msix \
               --package-identity "$WINDOWS_PACKAGE_IDENTITY" \
@@ -598,7 +599,8 @@ jobs:
               --version "$PACKAGE_VERSION" --feed-url "$UPDATE_FEED_URL" \
               --sparkle-public-key "$SPARKLE_PUBLIC_KEY"
             python scripts/prepare_native_update.py configure \
-              --bundle "$BUNDLE" --trust "$TRUST_FILE" --version "$PACKAGE_VERSION" \
+              --bundle "$BUNDLE" --trust "$TRUST_FILE" \
+              --asset-root "$GITHUB_WORKSPACE/opai/assets" --version "$PACKAGE_VERSION" \
               --build-id "$EXPECTED_CANDIDATE_SHA" --channel "$UPDATE_CHANNEL" \
               --platform macos --architecture "$ARCHITECTURE" --install-type macos_sparkle \
               --package-identity "$MACOS_PACKAGE_IDENTITY" \

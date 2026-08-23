@@ -14,6 +14,7 @@ from xml.etree import ElementTree  # nosec B405
 from opaihub.atomic_io import atomic_write_text
 from opaihub.proc import no_window_kwargs
 
+from opai.compatibility import runtime_compatibility_payload
 from .models import InstallType
 from .release import ReleaseError, msix_version
 
@@ -54,13 +55,30 @@ def runtime_identity(
     install_type: InstallType,
     package_identity: str,
     publisher_identity: str,
+    assets: Mapping[str, Any],
 ) -> dict[str, Any]:
     if not re.fullmatch(r"[0-9a-f]{40}", build_id):
         raise ReleaseError("runtime build ID must be an exact commit SHA")
     msix_version(version)
     if channel not in {"stable", "beta", "alpha"}:
         raise ReleaseError("runtime release channel is unsupported")
+    asset_identity = dict(assets)
+    if (
+        asset_identity.get("schema_version") != 1
+        or asset_identity.get("application_version") != version
+        or not isinstance(asset_identity.get("asset_count"), int)
+        or isinstance(asset_identity.get("asset_count"), bool)
+        or int(asset_identity["asset_count"]) < 1
+        or re.fullmatch(
+            r"[0-9a-f]{64}", str(asset_identity.get("fingerprint_sha256") or "")
+        )
+        is None
+    ):
+        raise ReleaseError("runtime asset identity is invalid")
+    compatibility = runtime_compatibility_payload()
     return {
+        "assets": asset_identity,
+        "compatibility": compatibility,
         "schema_version": 1,
         "version": version,
         "build_id": build_id,
@@ -70,7 +88,7 @@ def runtime_identity(
         "install_type": InstallType(install_type).value,
         "package_identity": package_identity,
         "publisher_identity": publisher_identity,
-        "updater_protocol_version": 1,
+        "updater_protocol_version": compatibility["updater_protocol_version"],
     }
 
 

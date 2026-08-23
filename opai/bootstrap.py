@@ -18,7 +18,21 @@ import sys
 from typing import Callable, Iterable, TextIO
 
 from ._generated_release import APPLICATION_VERSION
-from .release_identity import release_version_text, surface_identity_payload
+from .asset_identity import (
+    AssetIntegrityError,
+    load_asset_binding,
+    verify_asset_binding,
+)
+from .compatibility import (
+    RuntimeCompatibilityError,
+    load_compatibility_binding,
+    validate_runtime_compatibility,
+)
+from .release_identity import (
+    nearby_metadata_paths,
+    release_version_text,
+    surface_identity_payload,
+)
 
 
 BOOTSTRAP_EXIT_CODE = 78
@@ -197,6 +211,9 @@ def preflight_startup(
     distribution_lookup: Callable[[str], str] = importlib.metadata.version,
     packaged: bool | None = None,
     check_dependencies: bool = True,
+    validate_integrity: bool = True,
+    asset_root: Path | None = None,
+    metadata_paths: Iterable[Path] | None = None,
 ) -> StartupContext:
     """Validate installation and dependency boundaries before deep imports."""
 
@@ -206,22 +223,76 @@ def preflight_startup(
         distribution_lookup=distribution_lookup,
         packaged=packaged,
     )
-    if not check_dependencies:
+    if check_dependencies:
+        requirements = list(CORE_DEPENDENCIES)
+        if desktop:
+            requirements.append(DESKTOP_DEPENDENCY)
+            if "--classic" not in arguments:
+                requirements.extend(WEBENGINE_DEPENDENCIES)
+        missing = _missing_specs(requirements, spec_finder)
+        if missing is not None:
+            raise BootstrapFailure(
+                category="missing_dependency",
+                component=missing.component,
+                message=f"OPai requires {missing.component} before {missing.purpose}.",
+                remediation=_repair_command(context.startup_mode, desktop=desktop),
+                startup_mode=context.startup_mode,
+            )
+    if not validate_integrity:
         return context
-    requirements = list(CORE_DEPENDENCIES)
-    if desktop:
-        requirements.append(DESKTOP_DEPENDENCY)
-        if "--classic" not in arguments:
-            requirements.extend(WEBENGINE_DEPENDENCIES)
-    missing = _missing_specs(requirements, spec_finder)
-    if missing is not None:
+
+    paths = (
+        tuple(metadata_paths)
+        if metadata_paths is not None
+        else (
+            Path(__file__).resolve().with_name("_embedded_build.json"),
+            *nearby_metadata_paths("release-identity.json"),
+        )
+    )
+    require_binding = context.startup_mode != "source_checkout"
+    try:
+        if require_binding:
+            compatibility = load_compatibility_binding(paths)
+            if compatibility is None:
+                raise AssetIntegrityError(
+                    "package_integrity_failure",
+                    "compatibility-identity",
+                    "packaged compatibility identity is missing; reinstall OPai",
+                )
+            validate_runtime_compatibility(compatibility)
+        if desktop:
+            assets = load_asset_binding(paths) if require_binding else None
+            verify_asset_binding(
+                asset_root or Path(__file__).resolve().parent / "assets",
+                expected=assets,
+                require_binding=require_binding,
+            )
+    except AssetIntegrityError as exc:
         raise BootstrapFailure(
-            category="missing_dependency",
-            component=missing.component,
-            message=f"OPai requires {missing.component} before {missing.purpose}.",
+            category=exc.code,
+            component=exc.component,
+            message=str(exc),
             remediation=_repair_command(context.startup_mode, desktop=desktop),
             startup_mode=context.startup_mode,
-        )
+        ) from exc
+    except RuntimeCompatibilityError as exc:
+        fields = sorted(set(exc.expected) | set(exc.actual))
+        mismatched = [
+            field
+            for field in fields
+            if exc.expected.get(field) != exc.actual.get(field)
+        ]
+        raise BootstrapFailure(
+            category="incompatible_schema",
+            component="runtime-compatibility",
+            message=(
+                "Packaged runtime compatibility is unsupported for: "
+                + ", ".join(mismatched)
+                + "."
+            ),
+            remediation=_repair_command(context.startup_mode, desktop=desktop),
+            startup_mode=context.startup_mode,
+        ) from exc
     return context
 
 
@@ -350,6 +421,9 @@ def _run(
     stdout: TextIO,
     stderr: TextIO,
     failure_handler: Callable[[BootstrapFailure], None] | None = None,
+    asset_root: Path | None = None,
+    metadata_paths: Iterable[Path] | None = None,
+    validate_integrity: bool = True,
 ) -> int:
     try:
         needs_desktop = (desktop or _gui_requested(arguments)) and (
@@ -362,6 +436,9 @@ def _run(
             spec_finder=spec_finder,
             distribution_lookup=distribution_lookup,
             check_dependencies=not _version_requested(arguments),
+            validate_integrity=validate_integrity,
+            asset_root=asset_root,
+            metadata_paths=metadata_paths,
         )
         if _version_requested(arguments):
             if _json_requested(arguments):
@@ -400,6 +477,9 @@ def run_cli(
     importer: Callable[[str], object] = importlib.import_module,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
+    asset_root: Path | None = None,
+    metadata_paths: Iterable[Path] | None = None,
+    validate_integrity: bool = True,
 ) -> int:
     return _run(
         list(sys.argv[1:] if argv is None else argv),
@@ -411,6 +491,9 @@ def run_cli(
         stdout=stdout or sys.stdout,
         stderr=stderr or sys.stderr,
         failure_handler=None,
+        asset_root=asset_root,
+        metadata_paths=metadata_paths,
+        validate_integrity=validate_integrity,
     )
 
 
@@ -424,6 +507,9 @@ def run_desktop(
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
     failure_handler: Callable[[BootstrapFailure], None] | None = None,
+    asset_root: Path | None = None,
+    metadata_paths: Iterable[Path] | None = None,
+    validate_integrity: bool = True,
 ) -> int:
     return _run(
         list(sys.argv[1:] if argv is None else argv),
@@ -435,6 +521,9 @@ def run_desktop(
         stdout=stdout or sys.stdout,
         stderr=stderr or sys.stderr,
         failure_handler=failure_handler,
+        asset_root=asset_root,
+        metadata_paths=metadata_paths,
+        validate_integrity=validate_integrity,
     )
 
 

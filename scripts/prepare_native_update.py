@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from opai.update.models import InstallType  # noqa: E402
+from opai.asset_identity import asset_manifest  # noqa: E402
 from opai.update.packaging import (  # noqa: E402
     make_msix,
     prepare_macos_sparkle_bundle,
@@ -35,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     configure = commands.add_parser("configure")
     configure.add_argument("--bundle", type=Path, required=True)
     configure.add_argument("--trust", type=Path, required=True)
+    configure.add_argument("--asset-root", type=Path, required=True)
     for command in (configure,):
         command.add_argument("--version", required=True)
         command.add_argument("--build-id", required=True)
@@ -81,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
                 install_type=InstallType(args.install_type),
                 package_identity=args.package_identity,
                 publisher_identity=args.publisher_identity,
+                assets=asset_manifest(args.asset_root),
             )
             write_runtime_configuration(
                 args.bundle, identity=identity, trust=_object(args.trust)

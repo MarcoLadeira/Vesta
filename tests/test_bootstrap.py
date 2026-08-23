@@ -4,6 +4,7 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import pytest
@@ -228,6 +229,7 @@ def test_installed_package_never_uses_neighboring_checkout_identity(
             source_root=package,
             spec_finder=SpecFinder(),
             distribution_lookup=_installed_version,
+            validate_integrity=False,
         )
     finally:
         os.chdir(original)
@@ -246,6 +248,94 @@ def test_source_checkout_ignores_an_unrelated_installed_distribution() -> None:
 
     assert context.startup_mode == "source_checkout"
     assert context.application_version == "0.2.1a1"
+
+
+def test_missing_packaged_asset_stops_before_qt_import(tmp_path: Path, capsys) -> None:
+    assets = tmp_path / "assets"
+    shutil.copytree(ROOT / "opai" / "assets", assets)
+    (assets / "web" / "index.html").unlink()
+    imported: list[str] = []
+
+    code = bootstrap.run_desktop(
+        [],
+        source_root=ROOT,
+        asset_root=assets,
+        spec_finder=SpecFinder(),
+        distribution_lookup=_installed_version,
+        importer=lambda name: imported.append(name),
+    )
+
+    assert code == bootstrap.BOOTSTRAP_EXIT_CODE
+    assert imported == []
+    error = capsys.readouterr().err
+    assert "missing_packaged_asset" in error
+    assert "assets/web/index.html" in error
+
+
+def test_mismatched_installed_assets_fail_before_application_import(
+    tmp_path: Path, capsys
+) -> None:
+    from opai.asset_identity import asset_manifest
+    from opai.compatibility import runtime_compatibility_payload
+
+    assets = tmp_path / "assets"
+    shutil.copytree(ROOT / "opai" / "assets", assets)
+    metadata = tmp_path / "_embedded_build.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "assets": asset_manifest(assets),
+                "compatibility": runtime_compatibility_payload(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    (assets / "web" / "app.js").write_text("partial update", encoding="utf-8")
+
+    code = bootstrap.run_desktop(
+        [],
+        source_root=tmp_path,
+        asset_root=assets,
+        metadata_paths=(metadata,),
+        spec_finder=SpecFinder(),
+        distribution_lookup=_installed_version,
+        importer=lambda _name: pytest.fail("application import must not run"),
+    )
+
+    assert code == bootstrap.BOOTSTRAP_EXIT_CODE
+    assert "package_integrity_failure" in capsys.readouterr().err
+
+
+def test_incompatible_schema_fails_before_any_runtime_mutation(
+    tmp_path: Path, capsys
+) -> None:
+    from opai.asset_identity import asset_manifest
+    from opai.compatibility import runtime_compatibility_payload
+
+    assets = tmp_path / "assets"
+    shutil.copytree(ROOT / "opai" / "assets", assets)
+    compatibility = runtime_compatibility_payload()
+    compatibility["update_schema_version"] = 999
+    metadata = tmp_path / "release-identity.json"
+    metadata.write_text(
+        json.dumps({"assets": asset_manifest(assets), "compatibility": compatibility}),
+        encoding="utf-8",
+    )
+
+    code = bootstrap.run_desktop(
+        [],
+        source_root=tmp_path,
+        asset_root=assets,
+        metadata_paths=(metadata,),
+        spec_finder=SpecFinder(),
+        distribution_lookup=_installed_version,
+        importer=lambda _name: pytest.fail("runtime mutation boundary was crossed"),
+    )
+
+    assert code == bootstrap.BOOTSTRAP_EXIT_CODE
+    error = capsys.readouterr().err
+    assert "incompatible_schema" in error
+    assert "update_schema_version" in error
 
 
 def test_malformed_user_configuration_is_classified_without_a_traceback(

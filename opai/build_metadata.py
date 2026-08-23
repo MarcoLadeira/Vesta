@@ -9,6 +9,8 @@ import re
 from typing import Mapping
 
 from ._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL
+from .asset_identity import AssetIntegrityError, asset_manifest
+from .compatibility import runtime_compatibility_payload
 
 
 _COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -66,9 +68,15 @@ def build_metadata_payload(
         raise BuildMetadataError(
             "source archive build metadata disagrees with the distribution version"
         )
+    try:
+        assets = asset_manifest(root / "opai" / "assets")
+    except AssetIntegrityError as exc:
+        raise BuildMetadataError(str(exc)) from exc
     return {
         "application_version": version,
+        "assets": assets,
         "build_id": build_id,
+        "compatibility": runtime_compatibility_payload(),
         "release_channel": channel,
         "schema_version": 1,
     }

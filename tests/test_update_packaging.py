@@ -7,6 +7,9 @@ from xml.etree import ElementTree
 
 import pytest
 
+from opai._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL
+from opai.asset_identity import asset_manifest
+from opai.compatibility import runtime_compatibility_payload
 from opai.update.models import InstallType
 from opai.update.packaging import (
     prepare_macos_sparkle_bundle,
@@ -17,6 +20,9 @@ from opai.update.packaging import (
     write_runtime_configuration,
 )
 from opai.update.release import ReleaseError
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _trust() -> dict[str, object]:
@@ -31,9 +37,9 @@ def _trust() -> dict[str, object]:
 
 def _identity(install_type: InstallType, **overrides: object) -> dict[str, object]:
     values = {
-        "version": "0.3.0",
+        "version": APPLICATION_VERSION,
         "build_id": "b" * 40,
-        "channel": "stable",
+        "channel": RELEASE_CHANNEL,
         "platform": "windows" if install_type is InstallType.WINDOWS_MSIX else "macos",
         "architecture": "x86_64"
         if install_type is InstallType.WINDOWS_MSIX
@@ -45,6 +51,7 @@ def _identity(install_type: InstallType, **overrides: object) -> dict[str, objec
         "publisher_identity": "CN=OPai"
         if install_type is InstallType.WINDOWS_MSIX
         else "ABCDE12345",
+        "assets": asset_manifest(ROOT / "opai" / "assets"),
     }
     values.update(overrides)
     return runtime_identity(**values)
@@ -95,6 +102,8 @@ def test_runtime_identity_is_canonical_and_package_typed():
     assert value["schema_version"] == 1
     assert value["install_type"] == "windows_msix"
     assert value["updater_protocol_version"] == 1
+    assert value["assets"] == asset_manifest(ROOT / "opai" / "assets")
+    assert value["compatibility"] == runtime_compatibility_payload()
 
 
 @pytest.mark.parametrize(

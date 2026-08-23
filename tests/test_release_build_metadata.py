@@ -12,6 +12,9 @@ import zipfile
 
 import pytest
 
+from opai.asset_identity import asset_manifest
+from opai.compatibility import runtime_compatibility_payload
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CANDIDATE_SHA = "c" * 40
@@ -89,12 +92,12 @@ def test_wheel_embeds_exact_candidate_sha_and_canonical_version(
         )
         metadata = email.parser.Parser().parsestr(archive.read(metadata_name).decode())
 
-    assert embedded == {
-        "application_version": "0.2.1a1",
-        "build_id": CANDIDATE_SHA,
-        "release_channel": "alpha",
-        "schema_version": 1,
-    }
+    assert embedded["application_version"] == "0.2.1a1"
+    assert embedded["build_id"] == CANDIDATE_SHA
+    assert embedded["release_channel"] == "alpha"
+    assert embedded["schema_version"] == 1
+    assert embedded["assets"] == asset_manifest(ROOT / "opai" / "assets")
+    assert embedded["compatibility"] == runtime_compatibility_payload()
     assert metadata["Version"] == embedded["application_version"]
 
 
@@ -271,7 +274,7 @@ def test_local_build_without_candidate_sha_reports_unknown(tmp_path: Path) -> No
     from opai.build_metadata import build_metadata_payload
 
     embedded = build_metadata_payload(
-        application_version="0.2.1a1", environment={}, source_root=tmp_path
+        application_version="0.2.1a1", environment={}, source_root=ROOT
     )
 
     assert embedded["build_id"] == "unknown"
