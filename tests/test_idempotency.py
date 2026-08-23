@@ -508,5 +508,209 @@ class GithubCommentToolTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
 
 
+class MergePrTests(unittest.TestCase):
+    """A merge lands on the default branch's history and cannot be undone by
+    OPai -- the most irreversible outward action there is. A retried, resumed
+    or reconnected turn must not dispatch it twice (#616).
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _adapter(self, run):
+        from opaihub.github_workflow import GitHubAdapter
+
+        adapter = GitHubAdapter(self.root)
+        adapter._run = run  # type: ignore[method-assign]
+        return adapter
+
+    def test_a_retried_turn_does_not_merge_twice(self) -> None:
+        calls: list[list[str]] = []
+
+        def run(args, **kwargs):
+            calls.append(list(args))
+            return "merged"
+
+        adapter = self._adapter(run)
+        adapter.merge_pr(9)
+        adapter.merge_pr(9)
+        self.assertEqual(len(calls), 1)
+
+    def test_a_different_method_is_a_different_operation(self) -> None:
+        calls: list[list[str]] = []
+
+        def run(args, **kwargs):
+            calls.append(list(args))
+            return "merged"
+
+        adapter = self._adapter(run)
+        adapter.merge_pr(9, method="squash")
+        adapter.merge_pr(9, method="rebase")
+        self.assertEqual(len(calls), 2)
+
+    def test_the_same_method_on_a_different_pr_still_merges(self) -> None:
+        calls: list[list[str]] = []
+
+        def run(args, **kwargs):
+            calls.append(list(args))
+            return "merged"
+
+        adapter = self._adapter(run)
+        adapter.merge_pr(9)
+        adapter.merge_pr(10)
+        self.assertEqual(len(calls), 2)
+
+    def test_a_failed_invocation_leaves_a_retry_free(self) -> None:
+        attempts: list[int] = []
+
+        def run(args, **kwargs):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("required checks are still pending")
+            return "merged"
+
+        adapter = self._adapter(run)
+        with self.assertRaises(RuntimeError):
+            adapter.merge_pr(9)
+        self.assertEqual(adapter.merge_pr(9), "merged")
+        self.assertEqual(len(attempts), 2)
+
+    def test_an_unconfirmed_attempt_fails_closed_as_uncertain(self) -> None:
+        # Simulated crash: the key stays in_flight because the process died
+        # between GitHub accepting the merge and OPai recording it. A retry
+        # must refuse to guess — never a silent second merge, never a false
+        # "merged".
+        from opaihub.idempotency import begin, operation_key
+
+        def run(args, **kwargs):
+            raise AssertionError("must not dispatch while uncertain")
+
+        adapter = self._adapter(run)
+        key = operation_key(
+            "merge_pr", root=str(self.root), pr=9, method="squash"
+        )
+        self.assertEqual(begin(self.root, key)["state"], "fresh")
+        self.assertEqual(status(self.root, key)["state"], "in_flight")
+        with self.assertRaises(RuntimeError) as caught:
+            adapter.merge_pr(9)
+        self.assertIn("may already be merged", str(caught.exception))
+
+
+class GithubRequestReviewToolTests(unittest.TestCase):
+    """provider_tools._github_request_review: requesting a review notifies
+    real people under the user's account. A retried turn must not notify
+    them again (#616).
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _executor(self):
+        from opaihub.provider_tools import RepositoryToolExecutor
+
+        return RepositoryToolExecutor(
+            self.root, allow_edits=False, allow_github_write=True
+        )
+
+    def test_a_retried_turn_does_not_notify_twice(self) -> None:
+        calls: list[dict] = []
+
+        def fake_request(root, number, reviewers, **kwargs):
+            calls.append({"number": number, "reviewers": list(reviewers)})
+            return {"ok": True, "requested": list(reviewers)}
+
+        executor = self._executor()
+        executor.grant_command_once("gh pr edit 7 --add-reviewer alice")
+        with mock.patch(
+            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+        ):
+            first = executor._github_request_review(
+                {"number": 7, "reviewers": ["alice"]}
+            )
+        self.assertTrue(first["ok"], first)
+        # The retry needs no fresh grant: the completed record answers first.
+        second = executor._github_request_review({"number": 7, "reviewers": ["alice"]})
+        self.assertTrue(second["ok"], second)
+        self.assertIn("Already requested", second["message"])
+        self.assertEqual(len(calls), 1)
+
+    def test_reviewer_order_does_not_create_a_second_operation(self) -> None:
+        calls: list[dict] = []
+
+        def fake_request(root, number, reviewers, **kwargs):
+            calls.append({"number": number, "reviewers": list(reviewers)})
+            return {"ok": True, "requested": list(reviewers)}
+
+        executor = self._executor()
+        executor.grant_command_once("gh pr edit 7 --add-reviewer alice,bob")
+        with mock.patch(
+            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+        ):
+            executor._github_request_review({"number": 7, "reviewers": ["alice", "bob"]})
+        second = executor._github_request_review(
+            {"number": 7, "reviewers": ["bob", "alice"]}
+        )
+        self.assertTrue(second["ok"], second)
+        self.assertEqual(len(calls), 1)
+
+    def test_a_failed_request_leaves_a_retry_free(self) -> None:
+        attempts: list[int] = []
+
+        def fake_request(root, number, reviewers, **kwargs):
+            attempts.append(1)
+            if len(attempts) == 1:
+                return {"ok": False, "error": "reviewer not found"}
+            return {"ok": True, "requested": list(reviewers)}
+
+        executor = self._executor()
+        executor.grant_command_once("gh pr edit 7 --add-reviewer alice")
+        with mock.patch(
+            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+        ):
+            failed = executor._github_request_review(
+                {"number": 7, "reviewers": ["alice"]}
+            )
+        self.assertEqual(failed["error_code"], "GITHUB_WRITE_FAILED")
+        executor.grant_command_once("gh pr edit 7 --add-reviewer alice")
+        with mock.patch(
+            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+        ):
+            retry = executor._github_request_review(
+                {"number": 7, "reviewers": ["alice"]}
+            )
+        self.assertTrue(retry["ok"], retry)
+        self.assertEqual(len(attempts), 2)
+
+    def test_an_unconfirmed_attempt_fails_closed_as_uncertain(self) -> None:
+        from opaihub.idempotency import begin, operation_key
+
+        executor = self._executor()
+        key = operation_key(
+            "github_request_review", root=str(self.root), number=7, reviewers="alice"
+        )
+        self.assertEqual(begin(self.root, key)["state"], "fresh")
+        self.assertEqual(status(self.root, key)["state"], "in_flight")
+        result = executor._github_request_review({"number": 7, "reviewers": ["alice"]})
+        self.assertEqual(result["error_code"], "REVIEW_REQUEST_UNCERTAIN")
+        self.assertIn("may already be notified", result["message"])
+
+    def test_an_unapproved_retry_still_asks_for_approval_not_uncertain(self) -> None:
+        # No grant at all: both calls must hit COMMAND_NEEDS_APPROVAL, never a
+        # false "uncertain" — nothing was ever sent to GitHub either time.
+        executor = self._executor()
+        first = executor._github_request_review({"number": 7, "reviewers": ["alice"]})
+        second = executor._github_request_review({"number": 7, "reviewers": ["alice"]})
+        for result in (first, second):
+            self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL")
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

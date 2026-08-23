@@ -1379,17 +1379,55 @@ class RepositoryToolExecutor:
         reviewers = [item for item in reviewers if item]
         if not reviewers:
             return _error("INVALID_TOOL_ARGUMENTS", "At least one reviewer is required")
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        # #616 / #295 gate 4: a review request notifies real people under the
+        # user's account — outward and not undoable by OPai. A retried,
+        # resumed or reconnected turn must not notify them again. The key is
+        # the request's identity (repo, PR number, sorted reviewer set), never
+        # an attempt counter. Checked before approval so a completed or
+        # in-flight retry is answered directly instead of re-prompting to
+        # approve a request that already went out (or might have).
+        key = operation_key(
+            "github_request_review",
+            root=str(self.repo_root),
+            number=number,
+            reviewers=",".join(sorted(reviewers)),
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            recorded = prior["result"]
+            return Observation(
+                "github_request_review",
+                True,
+                {"requested": recorded.get("requested", [])},
+                message=f"Already requested review on #{number}",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            return _error(
+                "REVIEW_REQUEST_UNCERTAIN",
+                "An earlier attempt to request this review did not confirm. "
+                "The reviewers may already be notified — check the pull "
+                "request before retrying.",
+            )
         approval = self._needs_approval(
             f"gh pr edit {number} --add-reviewer " + ",".join(sorted(reviewers)),
             "Requesting a review notifies those people on GitHub.",
         )
         if approval is not None:
+            # No request reached GitHub, so the key must not linger as
+            # in_flight — that would misreport an unapproved request as
+            # uncertain and block a corrected or newly-approved retry.
+            abandon(self.repo_root, key)
             return approval
         from .github_connector import request_reviewers
 
         result = request_reviewers(self.repo_root, number, reviewers)
         if not result.get("ok"):
+            abandon(self.repo_root, key)
             return _error("GITHUB_WRITE_FAILED", str(result.get("error") or "failed"))
+        complete(self.repo_root, key, {"requested": result.get("requested", [])})
         return Observation(
             "github_request_review",
             True,

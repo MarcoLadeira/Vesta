@@ -787,23 +787,28 @@ class GitHubWorkflowTests(unittest.TestCase):
             calls.append(argv)
             return subprocess.CompletedProcess(argv, 0, "merged\n", "")
 
-        workflow = CodingWorkflow(GitHubAdapter(Path("C:/repo"), run=fake_run))
-        blocked = ShipChecks()
-        self.assertFalse(workflow.merge_if_safe(5, blocked)["merged"])
-        self.assertEqual(calls, [])
+        # merge_pr persists its operation intent before dispatch (#616), so it
+        # needs a real repository root — the claim store lives under it.
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow = CodingWorkflow(
+                GitHubAdapter(make_repo(Path(tmp)), run=fake_run)
+            )
+            blocked = ShipChecks()
+            self.assertFalse(workflow.merge_if_safe(5, blocked)["merged"])
+            self.assertEqual(calls, [])
 
-        safe = ShipChecks(
-            tests_pass=True,
-            correct_branch=True,
-            no_secrets=True,
-            no_risky_files=True,
-            production_auth_safe=True,
-            no_unrelated_files=True,
-            no_conflicts=True,
-            checks_acceptable=True,
-        )
-        result = workflow.merge_if_safe(5, safe)
-        self.assertTrue(result["merged"])
+            safe = ShipChecks(
+                tests_pass=True,
+                correct_branch=True,
+                no_secrets=True,
+                no_risky_files=True,
+                production_auth_safe=True,
+                no_unrelated_files=True,
+                no_conflicts=True,
+                checks_acceptable=True,
+            )
+            result = workflow.merge_if_safe(5, safe)
+            self.assertTrue(result["merged"])
         self.assertEqual(calls[-1][:4], ["gh", "pr", "merge", "5"])
 
     def test_each_failed_ship_gate_names_the_blocker(self):

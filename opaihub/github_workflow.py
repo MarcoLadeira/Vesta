@@ -1029,6 +1029,30 @@ class GitHubAdapter:
     def merge_pr(self, number: int, *, method: str = "squash") -> str:
         if method not in {"merge", "squash", "rebase"}:
             raise ValueError("Unsupported merge method")
+        # #616 / #295 gate 4: a merge is the single most irreversible outward
+        # action OPai can take — it lands on the repository's default branch
+        # history and cannot be undone by OPai. A retried, resumed or
+        # reconnected turn must not merge twice, and a lost response after
+        # GitHub accepted the merge must fail closed as uncertain rather than
+        # silently dispatching a second merge. The key is the merge's identity
+        # (repo, PR number, method), never an attempt counter.
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        key = operation_key(
+            "merge_pr", root=str(self.repo_root), pr=int(number), method=method
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return str(prior["result"].get("output") or "")
+        if prior["state"] == IN_FLIGHT:
+            # Started and never confirmed. Merging again risks rewriting
+            # history expectations; claiming success would be a lie.
+            raise RuntimeError(
+                "An earlier attempt to merge this pull request did not "
+                "confirm. It may already be merged — check the repository "
+                "before retrying."
+            )
         started_at = time.monotonic()
         event = self._activity(
             "command_run",
@@ -1039,6 +1063,10 @@ class GitHubAdapter:
         try:
             output = self._run(["pr", "merge", str(number), f"--{method}"])
         except (OSError, RuntimeError, ValueError):
+            # The gh invocation failed outright (checks failing, gh missing,
+            # refused), so nothing was merged; release the key so a corrected
+            # retry can proceed.
+            abandon(self.repo_root, key)
             self._activity(
                 "command_complete",
                 "error",
@@ -1056,6 +1084,7 @@ class GitHubAdapter:
             duration_ms=int((time.monotonic() - started_at) * 1000),
             metadata={"operation": "merge_pr", "pr": int(number), "method": method},
         )
+        complete(self.repo_root, key, {"output": output})
         return output
 
 

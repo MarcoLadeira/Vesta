@@ -10,8 +10,11 @@ reliable ``--json`` form with a malformed/empty guard. All hermetic.
 from __future__ import annotations
 
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
+
+from _helpers import make_repo
 
 from opaihub.github_workflow import GitHubAdapter
 
@@ -48,9 +51,12 @@ class RunEmptyStdoutTests(unittest.TestCase):
             calls.append(argv)
             return _completed(argv, "")
 
-        adapter = GitHubAdapter(Path("C:/repo"), run=fake_run)
-        # pr merge reports success via exit code only; empty stdout is fine.
-        self.assertEqual(adapter.merge_pr(12, method="squash"), "")
+        # merge_pr persists its operation intent before dispatch (#616), so it
+        # needs a real repository root — the claim store lives under it.
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = GitHubAdapter(make_repo(Path(tmp)), run=fake_run)
+            # pr merge reports success via exit code only; empty stdout is fine.
+            self.assertEqual(adapter.merge_pr(12, method="squash"), "")
         self.assertEqual(calls[0][1:3], ["pr", "merge"])
 
     def test_explicit_expect_output_override(self):
