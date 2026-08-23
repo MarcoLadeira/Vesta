@@ -14,7 +14,7 @@ from xml.etree import ElementTree  # nosec B405
 from opaihub.atomic_io import atomic_write_text
 from opaihub.proc import no_window_kwargs
 
-from opai.compatibility import runtime_compatibility_payload
+from opai.release_identity import artifact_identity_payload
 from .models import InstallType
 from .release import ReleaseError, msix_version
 
@@ -75,17 +75,27 @@ def runtime_identity(
         is None
     ):
         raise ReleaseError("runtime asset identity is invalid")
-    compatibility = runtime_compatibility_payload()
+    identity = artifact_identity_payload(
+        build_id=build_id,
+        assets=asset_identity,
+        platform_name=platform,
+        architecture=architecture,
+        install_type=InstallType(install_type).value,
+    )
+    if (
+        version != identity["application_version"]
+        or channel != identity["release_channel"]
+    ):
+        raise ReleaseError(
+            "runtime version/channel does not match canonical application identity"
+        )
+    compatibility = identity["compatibility"]
+    if not isinstance(compatibility, Mapping):  # pragma: no cover - construction guard
+        raise ReleaseError("runtime compatibility identity is invalid")
     return {
-        "assets": asset_identity,
-        "compatibility": compatibility,
-        "schema_version": 1,
+        **identity,
         "version": version,
-        "build_id": build_id,
         "channel": channel,
-        "platform": platform,
-        "architecture": architecture,
-        "install_type": InstallType(install_type).value,
         "package_identity": package_identity,
         "publisher_identity": publisher_identity,
         "updater_protocol_version": compatibility["updater_protocol_version"],

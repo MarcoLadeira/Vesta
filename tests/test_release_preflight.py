@@ -227,6 +227,10 @@ class CandidateIdentityTests(unittest.TestCase):
         evidence = rp.sanitized_evidence(readiness)
         self.assertEqual(evidence["candidate_sha"], CANDIDATE_SHA)
         self.assertEqual(evidence["commit_sha"], CANDIDATE_SHA)
+        self.assertEqual(
+            evidence["release_identity"]["application_version"], readiness.version
+        )
+        self.assertEqual(evidence["release_identity"]["build_id"], CANDIDATE_SHA)
         self.assertTrue(evidence["qualification_required"])
 
 

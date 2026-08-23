@@ -15,11 +15,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from opai.asset_identity import REQUIRED_WEB_ASSETS
+from opai._generated_release import PUBLISHED_TAG
+from opai.asset_identity import REQUIRED_WEB_ASSETS, asset_manifest
+from opai.release_identity import (
+    ReleaseIdentityError,
+    artifact_identity_payload,
+    validate_artifact_identity,
+)
 from .proc import no_window_kwargs
 
 
-EVIDENCE_SCHEMA_VERSION = 1
+EVIDENCE_SCHEMA_VERSION = 2
 CHECKSUMS_NAME = "SHA256SUMS.txt"
 PROVENANCE_NAME = "provenance.json"
 SIGNING_STATUS_NAME = "signing-status.json"
@@ -603,6 +609,10 @@ def release_ref(
         ) from None
     if not tag.startswith("v"):
         raise ArtifactReleaseError("desktop artifact tags must begin with v")
+    if tag != PUBLISHED_TAG:
+        raise ArtifactReleaseError(
+            f"desktop artifact tag {tag!r} does not match canonical {PUBLISHED_TAG!r}"
+        )
     return ReleaseRef(tag=tag, commit=commit)
 
 
@@ -698,6 +708,7 @@ def write_bundle_evidence(
     signing_status: str = "unsigned-prealpha",
     signing_evidence: dict[str, Any] | None = None,
     build_metadata: dict[str, Any] | None = None,
+    artifact_identity: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
     """Write provenance, checksums, and explicit non-root-of-trust signing state."""
     root = bundle.expanduser().resolve()
@@ -741,7 +752,32 @@ def write_bundle_evidence(
             ) from exc
     else:
         normalized_build_metadata = None
+    if artifact_identity is None:
+        artifact_identity = artifact_identity_payload(
+            build_id=release.commit,
+            assets=asset_manifest(
+                Path(__file__).resolve().parents[1] / "opai" / "assets"
+            ),
+            platform_name=platform,
+            architecture="unknown",
+        )
+    try:
+        normalized_artifact_identity = validate_artifact_identity(
+            artifact_identity,
+            build_id=release.commit,
+            platform_name=platform,
+            release_tag=release.tag,
+            rehearsal=release.rehearsal,
+        )
+        normalized_artifact_identity = json.loads(
+            json.dumps(
+                normalized_artifact_identity, sort_keys=True, separators=(",", ":")
+            )
+        )
+    except (ReleaseIdentityError, TypeError, ValueError) as exc:
+        raise ArtifactReleaseError(str(exc)) from exc
     provenance_value: dict[str, Any] = {
+        "artifact_identity": normalized_artifact_identity,
         "schema_version": EVIDENCE_SCHEMA_VERSION,
         "tag": release.tag,
         "commit": release.commit,
@@ -831,6 +867,19 @@ def verify_bundle(
         or provenance.get("schema_version") != EVIDENCE_SCHEMA_VERSION
     ):
         problems.append("invalid provenance")
+    elif not isinstance(provenance.get("artifact_identity"), dict):
+        problems.append("invalid artifact identity")
+    else:
+        try:
+            validate_artifact_identity(
+                provenance["artifact_identity"],
+                build_id=str(provenance.get("commit") or ""),
+                platform_name=str(provenance.get("platform") or ""),
+                release_tag=str(provenance.get("tag") or ""),
+                rehearsal=bool(provenance.get("rehearsal")),
+            )
+        except ReleaseIdentityError:
+            problems.append("invalid artifact identity")
     provenance_platform = (
         provenance.get("platform") if isinstance(provenance, dict) else None
     )
@@ -879,6 +928,9 @@ def verify_bundle(
         "tag": provenance.get("tag") if provenance else None,
         "commit": provenance.get("commit") if provenance else None,
         "platform": provenance.get("platform") if provenance else None,
+        "artifact_identity": (
+            provenance.get("artifact_identity") if provenance else None
+        ),
         "rehearsal": bool(provenance.get("rehearsal")) if provenance else None,
         "signing_status": signing_status,
         "platform_signature_verified": platform_signature_verified,

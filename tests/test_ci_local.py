@@ -508,6 +508,8 @@ class LocalCiEvidenceTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(evidence["candidate_sha"], merge_sha)
+        self.assertEqual(evidence["release_identity"]["build_id"], merge_sha)
+        self.assertEqual(evidence["release_identity"]["application_version"], "0.2.1a1")
         self.assertEqual(evidence["source_sha"], source_sha)
         self.assertTrue(evidence["candidate"]["tests_merge_candidate"])
         self.assertTrue(evidence["candidate"]["promotable"])

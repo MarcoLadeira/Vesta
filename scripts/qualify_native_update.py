@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 import tempfile
@@ -20,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from opai.compatibility import runtime_compatibility_payload
 from opai.update.storage import UpdaterPaths
 from opaihub.atomic_io import atomic_write_text, interprocess_transaction
 from opaihub.owner_lease import new_lease
@@ -364,9 +366,16 @@ def _managed_feed(path: Path, feed_url: str) -> Iterator[Callable[[str], None]]:
 
 
 class Qualification:
-    def __init__(self, *, host: NativeHost, report: Path) -> None:
+    def __init__(
+        self,
+        *,
+        host: NativeHost,
+        report: Path,
+        artifact_identity: dict[str, Any],
+    ) -> None:
         self.host = host
         self.report = report
+        self.artifact_identity = artifact_identity
         self.results: list[dict[str, object]] = []
 
     def prove(self, name: str, action: Callable[[], object]) -> object:
@@ -396,6 +405,7 @@ class Qualification:
     def write(self, *, complete: bool) -> None:
         self.report.parent.mkdir(parents=True, exist_ok=True)
         value = {
+            "artifact_identity": self.artifact_identity,
             "schema_version": 1,
             "platform": self.host.platform,
             "native_execution": True,
@@ -420,6 +430,50 @@ def _state(payload: dict[str, Any]) -> str:
     return str(operation.get("state") or "") if isinstance(operation, dict) else ""
 
 
+def _qualified_candidate_identity(
+    package: Path,
+    *,
+    host: NativeHost,
+    expected_version: str,
+    expected_build_id: str,
+) -> dict[str, Any]:
+    """Validate and return the exact immutable identity under qualification."""
+
+    identity = _embedded_identity(package)
+    expected_install_type = (
+        "windows_msix" if host.platform == "windows" else "macos_sparkle"
+    )
+    expected = {
+        "application_version": expected_version,
+        "build_id": expected_build_id,
+        "compatibility": runtime_compatibility_payload(),
+        "install_type": expected_install_type,
+        "package_identity": host.package_identity,
+        "platform": host.platform,
+        "publisher_identity": host.publisher_identity,
+        "version": expected_version,
+    }
+    mismatched = [
+        field
+        for field, expected_value in expected.items()
+        if identity.get(field) != expected_value
+    ]
+    assets = identity.get("assets")
+    if (
+        not isinstance(assets, dict)
+        or assets.get("schema_version") != 1
+        or assets.get("application_version") != expected_version
+        or re.fullmatch(r"[0-9a-f]{64}", str(assets.get("fingerprint_sha256") or ""))
+        is None
+    ):
+        mismatched.append("assets")
+    if mismatched:
+        raise QualificationError(
+            "candidate package identity mismatch: " + ", ".join(sorted(set(mismatched)))
+        )
+    return identity
+
+
 def _wait_until(action: Callable[[], Any], *, timeout: int = 300) -> Any:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -441,9 +495,20 @@ def qualify(
     feed_url: str,
     baseline_manifest_url: str,
     expected_version: str,
+    expected_build_id: str,
     report: Path,
 ) -> None:
-    qualification = Qualification(host=host, report=report)
+    candidate_identity = _qualified_candidate_identity(
+        candidate,
+        host=host,
+        expected_version=expected_version,
+        expected_build_id=expected_build_id,
+    )
+    qualification = Qualification(
+        host=host,
+        report=report,
+        artifact_identity=candidate_identity,
+    )
     workspace = Path(tempfile.mkdtemp(prefix="opai-native-qualification-workspace-"))
     qualification.prove(
         "baseline-package-is-present",
@@ -705,12 +770,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--feed-url", required=True)
     parser.add_argument("--baseline-manifest-url", required=True)
     parser.add_argument("--expected-version", required=True)
+    parser.add_argument("--expected-build-id", required=True)
     parser.add_argument("--package-identity", required=True)
     parser.add_argument("--publisher-identity", required=True)
     parser.add_argument("--baseline-feed-url", default="")
     parser.add_argument("--application", type=Path)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args(argv)
+    if re.fullmatch(r"[0-9a-f]{40}", args.expected_build_id) is None:
+        parser.error("--expected-build-id must be an exact lowercase commit SHA")
     if not args.feed_url.startswith("https://"):
         parser.error("--feed-url must use HTTPS")
     if not args.baseline_manifest_url.startswith("https://"):
@@ -738,6 +806,7 @@ def main(argv: list[str] | None = None) -> int:
             feed_url=args.feed_url,
             baseline_manifest_url=args.baseline_manifest_url,
             expected_version=args.expected_version,
+            expected_build_id=args.expected_build_id,
             report=args.report.resolve(strict=False),
         )
         return 0

@@ -36,6 +36,9 @@ ROOT = Path(__file__).resolve().parent.parent
 # imports the canonical redactor, so make the repository package authoritative.
 if sys.path[0] != str(ROOT):
     sys.path.insert(0, str(ROOT))
+from opai.asset_identity import asset_manifest  # noqa: E402
+from opai.release_identity import artifact_identity_payload  # noqa: E402
+
 SCHEMA_VERSION = 2
 PROFILE_VERSION = 2
 MAX_DIAGNOSTIC_CHARS = 4_000
@@ -1158,6 +1161,18 @@ def main(argv: list[str] | None = None) -> int:
         },
         "commit_sha": revision,
         "candidate_sha": candidate_sha,
+        "release_identity": (
+            artifact_identity_payload(
+                build_id=candidate_sha,
+                assets=asset_manifest(ROOT / "opai" / "assets"),
+                platform_name=platform.system(),
+                architecture=platform.machine(),
+                install_type="qualification_source",
+            )
+            if isinstance(candidate_sha, str)
+            and SHA_PATTERN.fullmatch(candidate_sha) is not None
+            else None
+        ),
         "source_sha": source_sha,
         "candidate": {
             "expected_sha": candidate_sha,

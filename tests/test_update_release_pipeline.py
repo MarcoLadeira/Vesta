@@ -1,9 +1,19 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
+from types import SimpleNamespace
+import zipfile
 
+import pytest
 import yaml
+
+from opai._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL
+from opai.asset_identity import asset_manifest
+from opai.update.models import InstallType
+from opai.update.packaging import runtime_identity
+from scripts import qualify_native_update
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,8 +64,49 @@ def test_publication_requires_both_real_native_matrix_hosts():
     native_commands = "\n".join(str(step.get("run", "")) for step in native["steps"])
     assert "qualify_native_update.py" in native_commands
     assert "native_execution" in native_commands
+    assert "--expected-build-id" in native_commands
+    assert "artifact_identity" in native_commands
     assert 'report.get("passed", 0) < 16' in native_commands
     assert "skip" not in native_commands.casefold()
+
+
+def test_native_qualification_rejects_an_artifact_for_another_build(tmp_path: Path):
+    commit = "a" * 40
+    identity = runtime_identity(
+        version=APPLICATION_VERSION,
+        build_id=commit,
+        channel=RELEASE_CHANNEL,
+        platform="windows",
+        architecture="x86_64",
+        install_type=InstallType.WINDOWS_MSIX,
+        package_identity="OPai.Desktop",
+        publisher_identity="CN=OPai",
+        assets=asset_manifest(ROOT / "opai" / "assets"),
+    )
+    package = tmp_path / "candidate.msix"
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("release-identity.json", json.dumps(identity))
+    host = SimpleNamespace(
+        platform="windows",
+        package_identity="OPai.Desktop",
+        publisher_identity="CN=OPai",
+    )
+
+    qualified = qualify_native_update._qualified_candidate_identity(
+        package,
+        host=host,
+        expected_version=APPLICATION_VERSION,
+        expected_build_id=commit,
+    )
+    assert qualified["build_id"] == commit
+
+    with pytest.raises(qualify_native_update.QualificationError, match="build_id"):
+        qualify_native_update._qualified_candidate_identity(
+            package,
+            host=host,
+            expected_version=APPLICATION_VERSION,
+            expected_build_id="b" * 40,
+        )
 
 
 def test_native_harness_defines_at_least_sixteen_named_executed_scenarios():

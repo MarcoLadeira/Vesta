@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import socket
@@ -40,7 +41,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence
 
-from opai.release_identity import ReleaseIdentityError, read_project_release
+from opai.release_identity import (
+    ReleaseIdentityError,
+    derive_project_release,
+    read_project_release,
+)
 from opai.release_validation import validate_release_identity
 
 # ---- result model --------------------------------------------------------- #
@@ -162,6 +167,7 @@ class ReleaseReadiness:
     generated_at: str
     candidate_sha: str | None = None
     commit_sha: str | None = None
+    release_identity: dict[str, Any] | None = None
     qualification_required: bool = False
     qualification_scope: str = "planning"
     verdict: str = "qualified"
@@ -201,6 +207,7 @@ class ReleaseReadiness:
             "qualification_scope": self.qualification_scope,
             "candidate_sha": self.candidate_sha,
             "commit_sha": self.commit_sha,
+            "release_identity": self.release_identity,
             "ready": self.ready,
             "final_release_ready": self.final_release_ready,
             "artifact_qualification": self.artifact_qualification,
@@ -1270,6 +1277,29 @@ def run_preflight(ctx: ReleaseContext) -> ReleaseReadiness:
     commit_sha = resolve_commit_sha(ctx)
     checks = tuple(check(ctx) for check in CHECKS)
     verdict, reason, classification = _aggregate_verdict(checks)
+    try:
+        release = derive_project_release(version) if version else None
+    except ReleaseIdentityError:
+        release = None
+    candidate = str(ctx.candidate_sha or commit_sha or "").strip().lower()
+    release_identity = (
+        {
+            "application_version": release.application_version,
+            "build_id": candidate,
+            "platform": (
+                "macos"
+                if platform.system().casefold() == "darwin"
+                else platform.system().casefold()
+            ),
+            "architecture": platform.machine().casefold() or "unknown",
+            "published_tag": release.published_tag,
+            "release_channel": release.release_channel,
+            "release_stage": release.release_stage,
+            "install_type": "qualification_source",
+        }
+        if release is not None and _COMMIT_SHA.fullmatch(candidate)
+        else None
+    )
     return ReleaseReadiness(
         version=version or "unknown",
         dry_run=ctx.dry_run,
@@ -1279,6 +1309,7 @@ def run_preflight(ctx: ReleaseContext) -> ReleaseReadiness:
             str(ctx.candidate_sha).strip().lower() if ctx.candidate_sha else None
         ),
         commit_sha=commit_sha,
+        release_identity=release_identity,
         qualification_required=ctx.qualification_required,
         qualification_scope=ctx.qualification_scope,
         verdict=verdict,

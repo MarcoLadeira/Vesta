@@ -474,6 +474,26 @@ def verify_bundle_identity(
         raise TransportError(
             "bundle provenance does not match trusted release identity"
         )
+    artifact_identity = value.get("artifact_identity")
+    expected_platform = expected["platform"]
+    runtime_platform = "macos" if expected_platform == "darwin" else expected_platform
+    if not isinstance(artifact_identity, dict) or any(
+        artifact_identity.get(key) != item
+        for key, item in {
+            "application_version": release_tag.removeprefix("v"),
+            "build_id": candidate_sha,
+            "platform": runtime_platform,
+            "published_tag": release_tag,
+            "schema_version": 1,
+        }.items()
+    ):
+        raise TransportError(
+            "bundle artifact metadata does not match trusted release identity"
+        )
+    if not isinstance(artifact_identity.get("assets"), dict) or not isinstance(
+        artifact_identity.get("compatibility"), dict
+    ):
+        raise TransportError("bundle artifact metadata is incomplete")
     return value
 
 

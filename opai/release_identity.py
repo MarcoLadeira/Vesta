@@ -16,7 +16,7 @@ import platform as platform_module
 import re
 import sys
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Mapping
 
 
 _VERSION = re.compile(
@@ -26,6 +26,7 @@ _VERSION = re.compile(
     r"(?:\+(?P<local>[0-9A-Za-z.-]+))?$"
 )
 _BUILD_ID = re.compile(r"^[0-9a-f]{40}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _CHANNELS = frozenset({"development", "alpha", "beta", "stable", "nightly", "canary"})
 _DISTRIBUTION_UNSET = object()
 
@@ -412,10 +413,25 @@ def load_release_identity(
     )
 
 
-def current_release_identity() -> ReleaseIdentity:
+def current_release_identity(
+    *,
+    source_root: Path | None = None,
+    packaged: bool | None = None,
+    identity_paths: Iterable[Path] | None = None,
+) -> ReleaseIdentity:
     """Return the current process identity without caching mutable environment."""
 
-    return load_release_identity()
+    root = Path(source_root or Path(__file__).resolve().parents[1]).resolve()
+    source_checkout = (root / ".git").exists() and (root / "pyproject.toml").is_file()
+    is_packaged = (
+        bool(getattr(sys, "frozen", False) or "__compiled__" in globals())
+        if packaged is None
+        else packaged
+    )
+    paths = identity_paths
+    if paths is None and is_packaged and not source_checkout:
+        paths = nearby_metadata_paths("release-identity.json")
+    return load_release_identity(identity_paths=paths, source_root=root)
 
 
 def identity_payload() -> dict[str, str]:
@@ -445,6 +461,112 @@ def surface_identity_payload(*, brand: str = "OPai") -> dict[str, object]:
         "release_stage": identity["release_stage"],
         "release_identity": identity,
     }
+
+
+def artifact_identity_payload(
+    *,
+    build_id: str,
+    assets: Mapping[str, object],
+    platform_name: str | None = None,
+    architecture: str | None = None,
+    install_type: str = "portable",
+) -> dict[str, object]:
+    """Bind canonical app identity to one immutable artifact candidate."""
+
+    from .compatibility import runtime_compatibility_payload
+
+    normalized_build = str(build_id or "").strip().lower()
+    if _BUILD_ID.fullmatch(normalized_build) is None:
+        raise ReleaseIdentityError(
+            "artifact build identity must be an exact commit SHA"
+        )
+    release = _generated_release()
+    return {
+        "application_version": release.application_version,
+        "assets": dict(assets),
+        "build_id": normalized_build,
+        "compatibility": runtime_compatibility_payload(),
+        "architecture": _normal_architecture(architecture),
+        "install_type": str(install_type or "unknown"),
+        "platform": _normal_platform(platform_name),
+        "published_tag": release.published_tag,
+        "release_channel": release.release_channel,
+        "release_stage": release.release_stage,
+        "schema_version": 1,
+    }
+
+
+def validate_artifact_identity(
+    value: Mapping[str, object],
+    *,
+    build_id: str,
+    platform_name: str,
+    release_tag: str,
+    rehearsal: bool,
+) -> dict[str, object]:
+    """Reject artifact evidence that contradicts canonical release identity."""
+
+    from .asset_identity import ASSET_SCHEMA_VERSION
+    from .compatibility import validate_runtime_compatibility
+
+    actual = dict(value)
+    release = _generated_release()
+    expected = {
+        "application_version": release.application_version,
+        "build_id": str(build_id).lower(),
+        "platform": _normal_platform(platform_name),
+        "published_tag": release.published_tag,
+        "release_channel": release.release_channel,
+        "release_stage": release.release_stage,
+        "schema_version": 1,
+    }
+    mismatched = [
+        key
+        for key, expected_value in expected.items()
+        if actual.get(key) != expected_value
+    ]
+    expected_release_tag = "untagged-rehearsal" if rehearsal else release.published_tag
+    if release_tag != expected_release_tag:
+        mismatched.append("release_tag")
+    assets = actual.get("assets")
+    if not isinstance(assets, Mapping):
+        mismatched.append("assets")
+    else:
+        fingerprint = str(assets.get("fingerprint_sha256") or "")
+        count = assets.get("asset_count")
+        if (
+            assets.get("schema_version") != ASSET_SCHEMA_VERSION
+            or assets.get("application_version") != release.application_version
+            or _SHA256.fullmatch(fingerprint) is None
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 1
+        ):
+            mismatched.append("assets")
+    compatibility = actual.get("compatibility")
+    if not isinstance(compatibility, Mapping):
+        mismatched.append("compatibility")
+    else:
+        try:
+            validate_runtime_compatibility(compatibility)
+        except RuntimeError:
+            mismatched.append("compatibility")
+    if (
+        not isinstance(actual.get("architecture"), str)
+        or not str(actual.get("architecture")).strip()
+    ):
+        mismatched.append("architecture")
+    if (
+        not isinstance(actual.get("install_type"), str)
+        or not str(actual.get("install_type")).strip()
+    ):
+        mismatched.append("install_type")
+    if mismatched:
+        fields = ", ".join(sorted(set(mismatched)))
+        raise ReleaseIdentityError(
+            f"artifact identity conflicts with canonical release fields: {fields}"
+        )
+    return actual
 
 
 def release_version_text(*, brand: str = "OPai") -> str:

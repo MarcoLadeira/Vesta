@@ -81,6 +81,41 @@ def test_explicit_packaged_identity_ignores_neighbouring_checkout(
     assert identity.metadata_source == str(embedded.resolve())
 
 
+def test_packaged_runtime_uses_only_explicit_nearby_artifact_identity(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    package = tmp_path / "package"
+    package.mkdir()
+    embedded = package / "release-identity.json"
+    embedded.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "application_version": "0.2.1a1",
+                "build_id": "d" * 40,
+                "release_channel": "alpha",
+                "platform": "windows",
+                "architecture": "x86_64",
+                "install_type": "windows_msix",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    release_module = _release_module()
+    monkeypatch.setattr(
+        release_module, "nearby_metadata_paths", lambda _name: (embedded,)
+    )
+    identity = release_module.current_release_identity(
+        source_root=package,
+        packaged=True,
+    )
+
+    assert identity.build_id == "d" * 40
+    assert identity.install_type == "windows_msix"
+
+
 def test_development_projection_is_honest_when_no_build_identity_exists() -> None:
     identity = _release_module().load_release_identity(
         identity_paths=(), distribution_version=None, source_root=ROOT
