@@ -79,7 +79,6 @@ extend-exclude = ["opaihub/generated_lifecycle.py"]
 
 [tool.opai]
 brand = "OPai"
-release = "0.2.0-alpha.2"
 default_mode = "local-first"
 
 [tool.opcoding]
