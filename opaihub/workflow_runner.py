@@ -448,6 +448,111 @@ def replay_workflow_run(project_root: Path, run_id: str) -> dict[str, Any]:
     )
 
 
+def _snapshot_for_comparison(project_root: Path, run_id: str) -> dict[str, Any] | None:
+    """The persisted snapshot, read without failing on a legacy or broken one."""
+
+    raw, _reason = _read_json_object(workflow_log_path(project_root, run_id))
+    if raw is None:
+        return None
+    try:
+        return _canonical_workflow_snapshot(raw)
+    except (KeyError, TypeError, ValueError):
+        # A snapshot too broken to canonicalise is exactly the divergence this
+        # report exists to surface, so return it as-is rather than raising past
+        # it the way a strict reader would.
+        return raw
+
+
+def workflow_contradiction_report(
+    project_root: Path, run_id: str
+) -> dict[str, Any] | None:
+    """``None`` when snapshot and journal agree about state, else what differs.
+
+    #613 Stage 2 asks every journal-owned record for a dual read. This module
+    already had the other half -- it has shadow-written its state transitions
+    to a #517 journal since the start, and :func:`replay_workflow_run` already
+    rebuilds them -- but the agreement between the two was only ever asserted
+    in tests and in that function's docstring. Nothing checked it at runtime,
+    which is the one thing Stage 2 needs before Stage 4 can qualify a cutover
+    on real traffic.
+
+    Comparison is exact, including the timestamps inside each history entry.
+    Both sides are written from the same ``now`` value in the same
+    transaction, so they are byte-identical in practice -- a looser comparison
+    would be weaker than the invariant actually is.
+
+    Scope matches what the journal is evidence *for*.
+    ``_reduce_workflow_journal`` is deliberately narrow -- state only, never
+    step commands, output tails or results -- so comparing anything wider
+    would report a difference that is by design rather than a contradiction.
+    """
+
+    root = project_root.expanduser().resolve()
+    try:
+        clean_id = _valid_run_id(run_id)
+    except ValueError:
+        return None
+    snapshot = _snapshot_for_comparison(root, clean_id)
+    replayed = replay_workflow_run(root, clean_id)
+    empty = _empty_workflow_projection()
+
+    if snapshot is None:
+        # Never persisted, or the snapshot is gone. A journal still holding
+        # transitions is itself the finding.
+        if replayed == empty:
+            return None
+        return _workflow_report(clean_id, {}, replayed, ["snapshot_missing"])
+
+    if replayed == empty:
+        # A run migrated from the pre-journal schema has no journal to
+        # disagree with. Reported with its own marker rather than as a state
+        # mismatch, so a backlog of legacy runs cannot bury a real
+        # contradiction in noise.
+        reason = (
+            "journal_absent_legacy_run"
+            if snapshot.get("migrated_from_schema_version") is not None
+            else "journal_absent"
+        )
+        return _workflow_report(clean_id, snapshot, replayed, [reason])
+
+    mismatched: list[str] = []
+    for field_name in ("run_state", "reason_code", "state_history"):
+        if snapshot.get(field_name) != replayed.get(field_name):
+            mismatched.append(field_name)
+
+    steps = snapshot.get("steps")
+    steps = steps if isinstance(steps, list) else []
+    replayed_steps = replayed.get("steps") or {}
+    if len(steps) != len(replayed_steps):
+        mismatched.append("step_count")
+    for index, step in enumerate(steps):
+        mirrored = replayed_steps.get(str(index)) or {}
+        if not isinstance(step, dict):
+            mismatched.append(f"steps[{index}]")
+            continue
+        for field_name in ("run_state", "reason_code", "state_history"):
+            if step.get(field_name) != mirrored.get(field_name):
+                mismatched.append(f"steps[{index}].{field_name}")
+
+    if not mismatched:
+        return None
+    return _workflow_report(clean_id, snapshot, replayed, mismatched)
+
+
+def _workflow_report(
+    run_id: str,
+    snapshot: dict[str, Any],
+    journal: dict[str, Any],
+    mismatched: list[str],
+) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "snapshot": snapshot,
+        "journal": journal,
+        "mismatched_fields": mismatched,
+    }
+
+
 def _renew_workflow_lease(project_root: Path, run_id: str) -> dict[str, Any]:
     """Best-effort heartbeat for a run's supervisor lease.
 
