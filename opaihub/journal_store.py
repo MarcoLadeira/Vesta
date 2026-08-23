@@ -20,6 +20,16 @@ API rather than SQL scattered through the application. Every statement lives
 here and every value is bound as a parameter, which is also the security
 requirement: no dynamic untrusted SQL.
 
+*Exception text goes through the sanctioned redactor before it is stored.* An
+integrity detail reaches doctor output and support bundles, so every
+``str(exc)`` here is wrapped in ``redact``. #622's ratchet exists because 58
+sites already are not; this module was not going to be the 59th.
+
+To be precise about what that buys: ``redact`` scrubs *secrets*, not
+filesystem paths, so a corrupt-database detail can still name the file it
+failed to open. That is the boundary the codebase has agreed on, not a claim
+that the string is safe for anywhere.
+
 *Corruption is typed, never emptied.* Requirement 8 says corruption must not
 become permissive default state. :class:`IntegrityReport` distinguishes
 complete / degraded / incompatible / corrupt and carries the first bad
@@ -40,6 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
+from .command_runner import redact
 from .state import state_dir
 
 #: Bumped whenever :data:`_MIGRATIONS` grows. A database reporting a higher
@@ -388,7 +399,7 @@ def check_integrity(connection: sqlite3.Connection) -> IntegrityReport:
         version = _stored_version(connection)
     except sqlite3.DatabaseError as exc:
         return IntegrityReport(
-            state=INTEGRITY_CORRUPT, schema_version=0, detail=str(exc)[:200]
+            state=INTEGRITY_CORRUPT, schema_version=0, detail=redact(str(exc))[:200]
         )
     checks.append("schema_version")
     if version > SCHEMA_VERSION:
@@ -408,7 +419,7 @@ def check_integrity(connection: sqlite3.Connection) -> IntegrityReport:
         return IntegrityReport(
             state=INTEGRITY_CORRUPT,
             schema_version=version,
-            detail=str(exc)[:200],
+            detail=redact(str(exc))[:200],
             checks=tuple(checks),
         )
     checks.append("quick_check")
@@ -427,7 +438,7 @@ def check_integrity(connection: sqlite3.Connection) -> IntegrityReport:
         return IntegrityReport(
             state=INTEGRITY_CORRUPT,
             schema_version=version,
-            detail=str(exc)[:200],
+            detail=redact(str(exc))[:200],
             checks=tuple(checks),
         )
     checks.append("foreign_key_check")
@@ -909,7 +920,7 @@ def store_health(project_root: Path) -> dict[str, Any]:
             "present": True,
             "path": str(path),
             "integrity": IntegrityReport(
-                state=INTEGRITY_CORRUPT, schema_version=0, detail=str(exc)[:200]
+                state=INTEGRITY_CORRUPT, schema_version=0, detail=redact(str(exc))[:200]
             ).to_dict(),
         }
     try:
