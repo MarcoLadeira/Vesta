@@ -46,6 +46,7 @@ exclude = ["tests", "tests.*"]
 # assets/web/* is the entire web GUI (issue #139) — extension globs keep the
 # __tests__/ subfolder out of the wheel.
 opai = [
+    "_embedded_build.json",
     "update/*.json",
     "assets/*",
     "assets/fonts/*",

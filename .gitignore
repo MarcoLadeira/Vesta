@@ -37,6 +37,9 @@ id_rsa*
 
 # Generated per-launch cache-busted GUI index (opai/gui_web.py)
 opai/assets/web/.runtime-index.html
+
+# Generated only inside wheel/sdist staging by setup.py.
+opai/_embedded_build.json
 .worktrees
 
 # #618: machine-readable Playwright result, read by ci_local for diagnostics.

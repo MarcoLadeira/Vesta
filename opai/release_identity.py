@@ -226,6 +226,7 @@ def _generated_release() -> ProjectRelease:
 def load_release_identity(
     *,
     identity_paths: Iterable[Path] | None = None,
+    embedded_build_paths: Iterable[Path] | None = None,
     distribution_version: str | None | object = _DISTRIBUTION_UNSET,
     source_root: Path | None = None,
     platform_name: str | None = None,
@@ -300,6 +301,54 @@ def load_release_identity(
         Path(source_root or Path(__file__).resolve().parents[1]).expanduser().resolve()
     )
     source_checkout = (root / ".git").exists() and (root / "pyproject.toml").is_file()
+    build_paths = (
+        tuple(embedded_build_paths)
+        if embedded_build_paths is not None
+        else (Path(__file__).resolve().with_name("_embedded_build.json"),)
+    )
+    for raw_path in build_paths:
+        value = _read_embedded_identity(raw_path)
+        if not value:
+            continue
+        if value.get("schema_version") != 1:
+            raise ReleaseIdentityError(
+                f"embedded build identity has unsupported schema: {raw_path}"
+            )
+        version = str(value.get("application_version") or "")
+        build_id = str(value.get("build_id") or "")
+        channel = str(value.get("release_channel") or "")
+        if version != generated.application_version:
+            raise ReleaseIdentityError(
+                f"embedded build version {version!r} does not match runtime {generated.application_version!r}"
+            )
+        if build_id != "unknown" and _BUILD_ID.fullmatch(build_id) is None:
+            raise ReleaseIdentityError(
+                "embedded build identity is not an exact commit SHA or unknown"
+            )
+        if channel not in _CHANNELS:
+            raise ReleaseIdentityError(
+                f"embedded build release channel is unsupported: {channel!r}"
+            )
+        return ReleaseIdentity(
+            application_version=version,
+            release_channel=channel,
+            release_stage=generated.release_stage,
+            build_id=build_id,
+            display_name=generated.display_name,
+            published_tag=generated.published_tag,
+            platform=_normal_platform(platform_name),
+            architecture=_normal_architecture(architecture),
+            install_type=(
+                "source_checkout"
+                if source_checkout
+                else (
+                    "installed_distribution"
+                    if resolved_distribution is not None
+                    else "source_archive"
+                )
+            ),
+            metadata_source=str(Path(raw_path).expanduser().resolve()),
+        )
     if source_checkout:
         canonical = read_project_release(root / "pyproject.toml")
         if canonical != generated:
