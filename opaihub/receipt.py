@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from opai.release_identity import surface_identity_payload
+
 from .command_runner import redact
 from .savings import build_savings_report
 from .signing import sign as sign_payload
@@ -52,6 +54,7 @@ def build_receipt(project_root: Path, *, sign: bool = True) -> dict[str, Any]:
     body: dict[str, Any] = {
         "report": "opai-savings-receipt",
         "schema_version": SCHEMA_VERSION,
+        **surface_identity_payload(),
         "generated_at": _now_iso(),
         "project_name": redact(root.name),
         "has_data": bool(report["has_data"]),

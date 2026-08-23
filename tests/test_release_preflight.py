@@ -13,6 +13,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from opai.release_identity import (
+    derive_project_release,
+    render_documentation_projection,
+)
 from opaihub import release_preflight as rp
 
 
@@ -60,11 +64,26 @@ def _write_release_repo(
     (root / "pyproject.toml").write_text(
         f'[project]\nname = "opai"\nversion = "{version}"\n', encoding="utf-8"
     )
+    base, alpha = version.split("a", 1)
+    (root / "opai" / "_generated_release.py").write_text(
+        '"""Generated fixture."""\n\n'
+        f'APPLICATION_VERSION = "{version}"\n'
+        'RELEASE_CHANNEL = "alpha"\n'
+        f'RELEASE_STAGE = "{stage}"\n'
+        f'DISPLAY_NAME = "OPai {base} Alpha.{alpha}"\n'
+        f'PUBLISHED_TAG = "v{version}"\n',
+        encoding="utf-8",
+    )
     (root / "opai" / "__init__.py").write_text(
-        f'__version__ = "{version}"\n__release_stage__ = "{stage}"\n', encoding="utf-8"
+        "from ._generated_release import APPLICATION_VERSION, RELEASE_STAGE\n\n"
+        "__version__ = APPLICATION_VERSION\n"
+        "__release_stage__ = RELEASE_STAGE\n",
+        encoding="utf-8",
     )
     (root / "opaihub" / "__init__.py").write_text(
-        f'__version__ = "{version}"\n', encoding="utf-8"
+        "from opai._generated_release import APPLICATION_VERSION\n\n"
+        "__version__ = APPLICATION_VERSION\n",
+        encoding="utf-8",
     )
     if changelog is None:
         changelog = (
@@ -73,7 +92,21 @@ def _write_release_repo(
         )
     (root / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
     (root / "LICENSE").write_text("X" * 200, encoding="utf-8")
-    (root / "README.md").write_text("# OPai\n\nA real readme.\n", encoding="utf-8")
+    release = derive_project_release(version)
+    readme_identity = render_documentation_projection(release, surface="README.md")
+    install_identity = render_documentation_projection(
+        release, surface="docs/INSTALL_PROOF.md"
+    )
+    site_identity = render_documentation_projection(release, surface="site/index.html")
+    (root / "README.md").write_text(f"# OPai\n\n{readme_identity}\n", encoding="utf-8")
+    (root / "docs").mkdir()
+    (root / "docs" / "INSTALL_PROOF.md").write_text(
+        f"# Install proof\n\n{install_identity}\n", encoding="utf-8"
+    )
+    (root / "site").mkdir()
+    (root / "site" / "index.html").write_text(
+        f"<!doctype html>\n{site_identity}\n", encoding="utf-8"
+    )
     (root / "CONTRIBUTING.md").write_text(
         "# Contributing\n\nGuidelines.\n", encoding="utf-8"
     )
@@ -212,6 +245,10 @@ class CandidateIdentityTests(unittest.TestCase):
         evidence = rp.sanitized_evidence(readiness)
         self.assertEqual(evidence["candidate_sha"], CANDIDATE_SHA)
         self.assertEqual(evidence["commit_sha"], CANDIDATE_SHA)
+        self.assertEqual(
+            evidence["release_identity"]["application_version"], readiness.version
+        )
+        self.assertEqual(evidence["release_identity"]["build_id"], CANDIDATE_SHA)
         self.assertTrue(evidence["qualification_required"])
 
 
@@ -232,8 +269,13 @@ class PreflightBlockerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_release_repo(root)
-            (root / "opaihub" / "__init__.py").write_text(
-                '__version__ = "9.9.9"\n', encoding="utf-8"
+            generated = root / "opai" / "_generated_release.py"
+            generated.write_text(
+                generated.read_text(encoding="utf-8").replace(
+                    'APPLICATION_VERSION = "0.2.0a2"',
+                    'APPLICATION_VERSION = "9.9.9"',
+                ),
+                encoding="utf-8",
             )
             self.assertIn("version_consistency", self._blockers(root))
 

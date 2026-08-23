@@ -6,7 +6,7 @@ that process: one deterministic readiness result assembled from independent,
 individually inspectable checks —
 
 - the working tree is clean,
-- the version is consistent across pyproject and both packages,
+- the canonical version and generated runtime projections agree,
 - the version's changelog entry exists and is on top,
 - the license and required documentation are present,
 - the release tag does not already exist (so the release is new),
@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import socket
@@ -39,6 +40,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence
+
+from opai.release_identity import (
+    ReleaseIdentityError,
+    derive_project_release,
+    read_project_release,
+)
+from opai.release_validation import validate_release_identity
+from .command_runner import redact
 
 # ---- result model --------------------------------------------------------- #
 PASS = "pass"  # nosec B105
@@ -159,6 +168,7 @@ class ReleaseReadiness:
     generated_at: str
     candidate_sha: str | None = None
     commit_sha: str | None = None
+    release_identity: dict[str, Any] | None = None
     qualification_required: bool = False
     qualification_scope: str = "planning"
     verdict: str = "qualified"
@@ -198,6 +208,7 @@ class ReleaseReadiness:
             "qualification_scope": self.qualification_scope,
             "candidate_sha": self.candidate_sha,
             "commit_sha": self.commit_sha,
+            "release_identity": self.release_identity,
             "ready": self.ready,
             "final_release_ready": self.final_release_ready,
             "artifact_qualification": self.artifact_qualification,
@@ -413,9 +424,6 @@ def _workflow_path_from_ref(value: str) -> str | None:
 
 
 # ---- version identity ----------------------------------------------------- #
-_PYPROJECT_VERSION = re.compile(r'(?m)^\s*version\s*=\s*"([^"]+)"')
-_DUNDER_VERSION = re.compile(r'(?m)^\s*__version__\s*=\s*"([^"]+)"')
-_STAGE = re.compile(r'(?m)^\s*__release_stage__\s*=\s*"([^"]+)"')
 _PEP440 = re.compile(r"^(\d+\.\d+\.\d+)(?:(a|b|rc)(\d+))?$")
 _STAGE_KIND = {"a": "alpha", "b": "beta", "rc": "rc"}
 _COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -427,11 +435,6 @@ def _read(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except OSError:
         return ""
-
-
-def _first(pattern: re.Pattern[str], text: str) -> str | None:
-    match = pattern.search(text)
-    return match.group(1) if match else None
 
 
 def changelog_heading_for(version: str, stage: str) -> str | None:
@@ -459,63 +462,50 @@ def changelog_heading_for(version: str, stage: str) -> str | None:
 # ---- individual checks ---------------------------------------------------- #
 def check_version_consistency(ctx: ReleaseContext) -> CheckResult:
     root = ctx.root
-    pyproject = _first(_PYPROJECT_VERSION, _read(root / "pyproject.toml"))
-    opai_v = _first(_DUNDER_VERSION, _read(root / "opai" / "__init__.py"))
-    hub_v = _first(_DUNDER_VERSION, _read(root / "opaihub" / "__init__.py"))
-    stage = _first(_STAGE, _read(root / "opai" / "__init__.py"))
-    found = {
-        "pyproject.toml": pyproject,
-        "opai/__init__.py": opai_v,
-        "opaihub/__init__.py": hub_v,
+    try:
+        release = read_project_release(root / "pyproject.toml")
+    except ReleaseIdentityError as exc:
+        return CheckResult(
+            "version_consistency",
+            "Canonical release identity has no drift",
+            FAIL,
+            blocker=True,
+            detail=redact(str(exc)),
+            evidence={"canonical_source": "pyproject.toml"},
+        )
+    drift = validate_release_identity(root)
+    evidence = {
+        "canonical_source": "pyproject.toml [project].version",
+        "application_version": release.application_version,
+        "release_channel": release.release_channel,
+        "release_stage": release.release_stage,
+        "drift": [item.to_dict() for item in drift],
     }
-    versions = {v for v in found.values() if v}
-    evidence = {"versions": found, "release_stage": stage}
-    if None in found.values():
-        missing = [name for name, v in found.items() if not v]
+    if drift:
         return CheckResult(
             "version_consistency",
-            "Version is declared consistently",
+            "Canonical release identity has no drift",
             FAIL,
             blocker=True,
-            detail=f"Version not found in: {', '.join(missing)}",
-            evidence=evidence,
-        )
-    if len(versions) != 1:
-        return CheckResult(
-            "version_consistency",
-            "Version is declared consistently",
-            FAIL,
-            blocker=True,
-            detail=f"Version mismatch across sources: {found}",
-            evidence=evidence,
-        )
-    version = next(iter(versions))
-    if changelog_heading_for(version, stage or "") is None:
-        return CheckResult(
-            "version_consistency",
-            "Version is declared consistently",
-            FAIL,
-            blocker=True,
-            detail=(
-                f"PEP 440 version {version!r} and release stage {stage!r} disagree"
-            ),
+            detail=drift[0].message(),
             evidence=evidence,
         )
     return CheckResult(
         "version_consistency",
-        "Version is declared consistently",
+        "Canonical release identity has no drift",
         PASS,
-        detail=f"{version} ({stage})",
+        detail=f"{release.application_version} ({release.release_stage})",
         evidence=evidence,
     )
 
 
 def resolve_version(ctx: ReleaseContext) -> tuple[str, str]:
     """The single agreed version + stage (best-effort; empty on inconsistency)."""
-    root = ctx.root
-    version = _first(_DUNDER_VERSION, _read(root / "opai" / "__init__.py")) or ""
-    stage = _first(_STAGE, _read(root / "opai" / "__init__.py")) or ""
-    return version, stage
+    try:
+        release = read_project_release(ctx.root / "pyproject.toml")
+    except ReleaseIdentityError:
+        return "", ""
+    return release.application_version, release.release_stage
 
 
 def resolve_commit_sha(ctx: ReleaseContext) -> str | None:
@@ -972,7 +962,7 @@ def check_artifacts(ctx: ReleaseContext) -> CheckResult:
             "Final artifacts have authenticated same-run evidence",
             FAIL,
             blocker=True,
-            detail=f"Cannot read artifact manifest: {exc}",
+            detail=f"Cannot read artifact manifest: {redact(str(exc))}",
         )
     if not isinstance(manifest, dict):
         return CheckResult(
@@ -1288,6 +1278,29 @@ def run_preflight(ctx: ReleaseContext) -> ReleaseReadiness:
     commit_sha = resolve_commit_sha(ctx)
     checks = tuple(check(ctx) for check in CHECKS)
     verdict, reason, classification = _aggregate_verdict(checks)
+    try:
+        release = derive_project_release(version) if version else None
+    except ReleaseIdentityError:
+        release = None
+    candidate = str(ctx.candidate_sha or commit_sha or "").strip().lower()
+    release_identity = (
+        {
+            "application_version": release.application_version,
+            "build_id": candidate,
+            "platform": (
+                "macos"
+                if platform.system().casefold() == "darwin"
+                else platform.system().casefold()
+            ),
+            "architecture": platform.machine().casefold() or "unknown",
+            "published_tag": release.published_tag,
+            "release_channel": release.release_channel,
+            "release_stage": release.release_stage,
+            "install_type": "qualification_source",
+        }
+        if release is not None and _COMMIT_SHA.fullmatch(candidate)
+        else None
+    )
     return ReleaseReadiness(
         version=version or "unknown",
         dry_run=ctx.dry_run,
@@ -1297,6 +1310,7 @@ def run_preflight(ctx: ReleaseContext) -> ReleaseReadiness:
             str(ctx.candidate_sha).strip().lower() if ctx.candidate_sha else None
         ),
         commit_sha=commit_sha,
+        release_identity=release_identity,
         qualification_required=ctx.qualification_required,
         qualification_scope=ctx.qualification_scope,
         verdict=verdict,

@@ -24,6 +24,7 @@ class _Recorder:
         self.icons: list = []
         self.app_name = None
         self.display_name = None
+        self.app_version = None
 
     def setWindowIcon(self, icon) -> None:  # noqa: N802 - Qt signature
         self.icons.append(icon)
@@ -33,6 +34,9 @@ class _Recorder:
 
     def setApplicationDisplayName(self, name) -> None:  # noqa: N802 - Qt signature
         self.display_name = name
+
+    def setApplicationVersion(self, version) -> None:  # noqa: N802 - Qt signature
+        self.app_version = version
 
 
 class AppIconTests(unittest.TestCase):
@@ -78,6 +82,7 @@ class WindowIdentityTests(unittest.TestCase):
         self.assertEqual(app.icons[0], f"icon::{built[0]}")
         self.assertEqual(app.app_name, brand.NAME)
         self.assertEqual(app.display_name, brand.NAME)
+        self.assertEqual(app.app_version, "0.2.1a1")
 
     def test_missing_icon_still_sets_name_and_never_raises(self):
         app, window = _Recorder(), _Recorder()
@@ -125,9 +130,9 @@ class EntryPointTests(unittest.TestCase):
             data = tomllib.loads(text)
             # PEP 621 canonical table name is dashed: [project.gui-scripts].
             gui_scripts = data["project"]["gui-scripts"]
-            self.assertEqual(gui_scripts.get("opai-gui"), "opai.cli:gui_main")
+            self.assertEqual(gui_scripts.get("opai-gui"), "opai.bootstrap:desktop_main")
         except ModuleNotFoundError:  # Python 3.10 has no tomllib
-            self.assertIn('opai-gui = "opai.cli:gui_main"', text)
+            self.assertIn('opai-gui = "opai.bootstrap:desktop_main"', text)
 
     def test_gui_main_target_is_callable(self):
         from opai import cli

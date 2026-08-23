@@ -146,10 +146,40 @@ class DesktopArtifactContractTests(unittest.TestCase):
                 release_tag="v0.2.1a2",
                 versions={
                     "pyproject.toml": "0.2.1a1",
-                    "opai/__init__.py": "0.2.1a1",
-                    "opaihub/__init__.py": "0.2.1a1",
+                    "opai/_generated_release.py": "0.2.1a1",
                 },
             )
+
+    def test_transport_rejects_bundle_metadata_for_another_application_version(self):
+        transport = _load_release_transport_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.1a1-macos"
+            executable = bundle / "cli" / "opai"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"artifact")
+            reference = release_ref(
+                bundle,
+                run_git=_git_with(commit="a" * 40, tag="v0.2.1a1"),
+            )
+            write_bundle_evidence(bundle, reference, platform="darwin")
+            transport.verify_bundle_identity(
+                bundle,
+                release_tag="v0.2.1a1",
+                candidate_sha="a" * 40,
+                platform="macos-latest",
+            )
+            provenance_path = bundle / "provenance.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["artifact_identity"]["application_version"] = "9.9.9"
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+
+            with self.assertRaisesRegex(transport.TransportError, "artifact metadata"):
+                transport.verify_bundle_identity(
+                    bundle,
+                    release_tag="v0.2.1a1",
+                    candidate_sha="a" * 40,
+                    platform="macos-latest",
+                )
 
     def test_artifact_resolver_selects_latest_available_producer_attempt(self):
         transport = _load_release_transport_module()
@@ -230,6 +260,11 @@ class DesktopArtifactContractTests(unittest.TestCase):
                 Path("C:/repo"),
                 run_git=_git_with(commit="a" * 40, tag="alpha.2"),
             )
+        with self.assertRaisesRegex(ArtifactReleaseError, "canonical"):
+            release_ref(
+                Path("C:/repo"),
+                run_git=_git_with(commit="a" * 40, tag="v9.9.9"),
+            )
 
     def test_internal_git_uses_the_resolved_absolute_executable(self):
         from opaihub import desktop_artifacts
@@ -283,13 +318,13 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             executable = bundle / "cli" / "opai.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
                 bundle,
-                run_git=_git_with(commit="c" * 40, tag="v0.2.0a2"),
+                run_git=_git_with(commit="c" * 40, tag="v0.2.1a1"),
             )
             write_bundle_evidence(bundle, reference, platform="windows")
             verified = verify_bundle(bundle)
@@ -310,13 +345,13 @@ class DesktopArtifactContractTests(unittest.TestCase):
             "lock": {"name": "desktop-build.windows.lock", "sha256": "a" * 64},
         }
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             executable = bundle / "cli" / "opai.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
                 bundle,
-                run_git=_git_with(commit="e" * 40, tag="v0.2.0a2"),
+                run_git=_git_with(commit="e" * 40, tag="v0.2.1a1"),
             )
             write_bundle_evidence(
                 bundle,
@@ -335,6 +370,36 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertFalse(verified["ok"])
         self.assertIn("hash mismatch", verified["problems"])
 
+    def test_bundle_evidence_rejects_an_incorrect_artifact_version(self):
+        from opai.asset_identity import asset_manifest
+        from opai.release_identity import artifact_identity_payload
+
+        root = Path(__file__).resolve().parents[1]
+        commit = "e" * 40
+        identity = artifact_identity_payload(
+            build_id=commit,
+            assets=asset_manifest(root / "opai" / "assets"),
+            platform_name="windows",
+            architecture="x86_64",
+        )
+        identity["application_version"] = "9.9.9"
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
+            executable = bundle / "cli" / "opai.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"artifact")
+            reference = release_ref(
+                bundle,
+                run_git=_git_with(commit=commit, tag="v0.2.1a1"),
+            )
+            with self.assertRaisesRegex(ArtifactReleaseError, "application_version"):
+                write_bundle_evidence(
+                    bundle,
+                    reference,
+                    platform="windows",
+                    artifact_identity=identity,
+                )
+
     def test_finalizer_preserves_build_metadata_from_unsigned_evidence(self):
         assert release_ref is not None
         assert write_bundle_evidence is not None
@@ -346,13 +411,13 @@ class DesktopArtifactContractTests(unittest.TestCase):
         spec.loader.exec_module(module)
         build_metadata = {"lock": {"name": "desktop-build.windows.lock"}}
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             executable = bundle / "cli" / "opai.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
                 bundle,
-                run_git=_git_with(commit="f" * 40, tag="v0.2.0a2"),
+                run_git=_git_with(commit="f" * 40, tag="v0.2.1a1"),
             )
             write_bundle_evidence(
                 bundle,
@@ -360,22 +425,25 @@ class DesktopArtifactContractTests(unittest.TestCase):
                 platform="windows",
                 build_metadata=build_metadata,
             )
-            _release, _platform, preserved = module._release_ref_from_bundle(bundle)
+            _release, _platform, preserved, identity = module._release_ref_from_bundle(
+                bundle
+            )
 
         self.assertEqual(preserved, build_metadata)
+        self.assertEqual(identity["build_id"], "f" * 40)
 
     def test_unsigned_bundle_is_explicitly_prealpha(self):
         assert release_ref is not None
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             executable = bundle / "cli" / "opai.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
                 bundle,
-                run_git=_git_with(commit="d" * 40, tag="v0.2.0a2"),
+                run_git=_git_with(commit="d" * 40, tag="v0.2.1a1"),
             )
             write_bundle_evidence(bundle, reference, platform="windows")
             verified = verify_bundle(bundle)
@@ -482,14 +550,14 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertIn(f"project_dir = {root.as_posix()}", staged_gui_config)
 
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows-unsigned-prealpha"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows-unsigned-prealpha"
             gui = bundle / "gui" / "OPai.exe"
             cli = bundle / "cli" / "opai.exe"
             gui.parent.mkdir(parents=True)
             cli.parent.mkdir(parents=True)
             gui.write_bytes(b"gui")
             cli.write_bytes(b"cli")
-            reference = desktop_artifacts.ReleaseRef("v0.2.0a2", "e" * 40)
+            reference = desktop_artifacts.ReleaseRef("v0.2.1a1", "e" * 40)
             desktop_artifacts.write_bundle_evidence(
                 bundle, reference, platform="windows"
             )
@@ -552,13 +620,13 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert write_bundle_evidence is not None
         assert ArtifactReleaseError is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             executable = bundle / "cli" / "opai.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
                 bundle,
-                run_git=_git_with(commit="f" * 40, tag="v0.2.0a2"),
+                run_git=_git_with(commit="f" * 40, tag="v0.2.1a1"),
             )
 
             with self.assertRaises(ArtifactReleaseError):
@@ -574,13 +642,13 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             executable = bundle / "cli" / "opai.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
                 bundle,
-                run_git=_git_with(commit="1" * 40, tag="v0.2.0a2"),
+                run_git=_git_with(commit="1" * 40, tag="v0.2.1a1"),
             )
             write_bundle_evidence(
                 bundle,
@@ -607,13 +675,13 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-macos"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-macos"
             executable = bundle / "cli" / "opai"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
                 bundle,
-                run_git=_git_with(commit="2" * 40, tag="v0.2.0a2"),
+                run_git=_git_with(commit="2" * 40, tag="v0.2.1a1"),
             )
             write_bundle_evidence(
                 bundle,
@@ -640,13 +708,13 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             executable = bundle / "cli" / "opai.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
                 bundle,
-                run_git=_git_with(commit="3" * 40, tag="v0.2.0a2"),
+                run_git=_git_with(commit="3" * 40, tag="v0.2.1a1"),
             )
             write_bundle_evidence(
                 bundle,
@@ -673,13 +741,13 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             executable = bundle / "cli" / "opai.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"unsigned executable")
             reference = release_ref(
                 bundle,
-                run_git=_git_with(commit="4" * 40, tag="v0.2.0a2"),
+                run_git=_git_with(commit="4" * 40, tag="v0.2.1a1"),
             )
             signing_evidence = {
                 "verified": True,
@@ -713,7 +781,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         from opaihub import desktop_artifacts
 
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             targets = (
                 bundle / "gui" / "OPai.exe",
                 bundle / "cli" / "opai.exe",
@@ -752,7 +820,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         from opaihub import desktop_artifacts
 
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.0a2-windows"
+            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
             target = bundle / "cli" / "opai.exe"
             target.parent.mkdir(parents=True)
             target.write_bytes(b"signed test binary")

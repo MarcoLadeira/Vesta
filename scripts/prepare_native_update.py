@@ -11,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from opai.release_identity import (  # noqa: E402
+    ReleaseIdentityError,
+    validate_artifact_identity,
+)
 from opai.update.models import InstallType  # noqa: E402
 from opai.update.packaging import (  # noqa: E402
     make_msix,
@@ -29,12 +33,63 @@ def _object(path: Path) -> dict[str, object]:
     return value
 
 
+def _candidate_identity(
+    provenance_path: Path,
+    *,
+    version: str,
+    build_id: str,
+    channel: str,
+    release_tag: str,
+    candidate_platform: str,
+) -> dict[str, object]:
+    provenance = _object(provenance_path)
+    if provenance.get("schema_version") != 2:
+        raise ReleaseError("candidate provenance schema is unsupported")
+    expected = {
+        "commit": build_id,
+        "tag": release_tag,
+        "platform": candidate_platform,
+        "rehearsal": False,
+    }
+    mismatched = [
+        key for key, value in expected.items() if provenance.get(key) != value
+    ]
+    artifact = provenance.get("artifact_identity")
+    if not isinstance(artifact, dict):
+        mismatched.append("artifact_identity")
+    if mismatched:
+        raise ReleaseError(
+            "candidate provenance conflicts with requested release fields: "
+            + ", ".join(sorted(set(mismatched)))
+        )
+    if not isinstance(artifact, dict):
+        raise ReleaseError("candidate provenance artifact identity is invalid")
+    validated = validate_artifact_identity(
+        artifact,
+        build_id=build_id,
+        platform_name=candidate_platform,
+        release_tag=release_tag,
+        rehearsal=False,
+        application_version=version,
+    )
+    if validated.get("application_version") != version:
+        raise ReleaseError("candidate provenance application version is incompatible")
+    if validated.get("release_channel") != channel:
+        raise ReleaseError("candidate provenance release channel is incompatible")
+    if not isinstance(validated.get("assets"), dict):
+        raise ReleaseError("candidate provenance asset binding is missing")
+    return validated
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     configure = commands.add_parser("configure")
     configure.add_argument("--bundle", type=Path, required=True)
     configure.add_argument("--trust", type=Path, required=True)
+    configure.add_argument("--candidate-provenance", type=Path, required=True)
+    configure.add_argument("--release-tag", required=True)
+    configure.add_argument("--candidate-platform", required=True)
     for command in (configure,):
         command.add_argument("--version", required=True)
         command.add_argument("--build-id", required=True)
@@ -72,6 +127,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "configure":
+            candidate_identity = _candidate_identity(
+                args.candidate_provenance,
+                version=args.version,
+                build_id=args.build_id,
+                channel=args.channel,
+                release_tag=args.release_tag,
+                candidate_platform=args.candidate_platform,
+            )
+            assets = candidate_identity["assets"]
+            if not isinstance(assets, dict):  # pragma: no cover - validation guard
+                raise ReleaseError("candidate provenance asset binding is missing")
             identity = runtime_identity(
                 version=args.version,
                 build_id=args.build_id,
@@ -81,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
                 install_type=InstallType(args.install_type),
                 package_identity=args.package_identity,
                 publisher_identity=args.publisher_identity,
+                assets=assets,
+                candidate_identity=candidate_identity,
             )
             write_runtime_configuration(
                 args.bundle, identity=identity, trust=_object(args.trust)
@@ -107,7 +175,13 @@ def main(argv: list[str] | None = None) -> int:
             )
         print(json.dumps({"ok": True, "command": args.command}))
         return 0
-    except (OSError, ValueError, json.JSONDecodeError, ReleaseError) as exc:
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        ReleaseError,
+        ReleaseIdentityError,
+    ) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
         return 2
 

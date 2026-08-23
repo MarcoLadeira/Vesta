@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Exact annotated package-version tag (for example v0.2.1a1)
+        description: Exact annotated v-prefixed PEP 440 package-version tag
         required: true
         type: string
       release_channel:
@@ -290,7 +290,7 @@ jobs:
         shell: bash
         run: |
           if ! [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)((a|b|rc)(0|[1-9][0-9]*))?$ ]]; then
-            echo "release_tag must be a safe package-version tag such as v0.2.1a1."
+            echo "release_tag must be a safe v-prefixed PEP 440 package-version tag."
             exit 2
           fi
           if [ "$RELEASE_CHANNEL" = "unsigned-prealpha" ] && [ "$ALLOW_UNSIGNED_PREALPHA" != "true" ]; then
@@ -581,7 +581,10 @@ jobs:
             test -n "$WINDOWS_PACKAGE_IDENTITY"
             test -n "$WINDOWS_PUBLISHER_IDENTITY"
             python scripts/prepare_native_update.py configure \
-              --bundle "$BUNDLE" --trust "$TRUST_FILE" --version "$PACKAGE_VERSION" \
+              --bundle "$BUNDLE" --trust "$TRUST_FILE" \
+              --candidate-provenance "$BUNDLE/provenance.json" \
+              --release-tag "$RELEASE_TAG" --candidate-platform windows \
+              --version "$PACKAGE_VERSION" \
               --build-id "$EXPECTED_CANDIDATE_SHA" --channel "$UPDATE_CHANNEL" \
               --platform windows --architecture x86_64 --install-type windows_msix \
               --package-identity "$WINDOWS_PACKAGE_IDENTITY" \
@@ -598,7 +601,10 @@ jobs:
               --version "$PACKAGE_VERSION" --feed-url "$UPDATE_FEED_URL" \
               --sparkle-public-key "$SPARKLE_PUBLIC_KEY"
             python scripts/prepare_native_update.py configure \
-              --bundle "$BUNDLE" --trust "$TRUST_FILE" --version "$PACKAGE_VERSION" \
+              --bundle "$BUNDLE" --trust "$TRUST_FILE" \
+              --candidate-provenance "$BUNDLE/provenance.json" \
+              --release-tag "$RELEASE_TAG" --candidate-platform darwin \
+              --version "$PACKAGE_VERSION" \
               --build-id "$EXPECTED_CANDIDATE_SHA" --channel "$UPDATE_CHANNEL" \
               --platform macos --architecture "$ARCHITECTURE" --install-type macos_sparkle \
               --package-identity "$MACOS_PACKAGE_IDENTITY" \

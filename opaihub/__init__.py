@@ -1,3 +1,6 @@
 """OP AI Hub registry and CLI foundation."""
 
-__version__ = "0.2.1a1"
+from opai._generated_release import APPLICATION_VERSION
+
+
+__version__ = APPLICATION_VERSION

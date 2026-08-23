@@ -966,8 +966,18 @@ def provider_connection_doctor(
         recovery = (
             list(error.get("recoveryActions") or []) if isinstance(error, dict) else []
         )
+        cli_installed = bool(account.get("cli_present"))
+        if not cli_installed and "install_provider_cli" not in recovery:
+            recovery.insert(0, "install_provider_cli")
         if connection.get("authStatus") != "connected" and "sign_in" not in recovery:
             recovery.append("sign_in")
+        safe_diagnostic = str(connection.get("safeDiagnostic") or "")
+        if not cli_installed:
+            executable = str(account.get("cli") or provider)
+            safe_diagnostic = (
+                f"The {executable} provider executable was not found on PATH. "
+                "Install it, then run `opai doctor` again."
+            )
         entry = {
             "providerId": provider,
             "displayName": str(account.get("label") or provider.title()),
@@ -977,7 +987,7 @@ def provider_connection_doctor(
             "credentialSource": "user_account",
             "accountType": str(connection.get("accountType") or "unknown"),
             "credentialSourceLabel": "Subscription sign-in",
-            "cliInstalled": bool(account.get("cli_present")),
+            "cliInstalled": cli_installed,
             "cliVersion": (
                 _account_cli_version(account, run=version_run)
                 if include_cli_versions
@@ -986,7 +996,8 @@ def provider_connection_doctor(
             "lastCheckedAt": connection.get("lastCheckedAt"),
             "lastError": str(connection.get("lastError") or ""),
             "lastErrorCode": str(connection.get("lastErrorCode") or ""),
-            "safeDiagnostic": str(connection.get("safeDiagnostic") or ""),
+            "safeDiagnostic": safe_diagnostic,
+            "errorCategory": ("" if cli_installed else "provider_dependency_missing"),
             "envOverridesRemoved": [
                 str(item) for item in connection.get("envOverridesRemoved") or []
             ],
@@ -1058,6 +1069,7 @@ def provider_connection_doctor(
             "lastCheckedAt": credential.get("lastCheckedAt"),
             "lastError": "",
             "lastErrorCode": "",
+            "errorCategory": "",
             "safeDiagnostic": (
                 "API credential detected; use Test connection to verify it."
                 if configured
@@ -1102,6 +1114,7 @@ def provider_connection_doctor(
                 "lastCheckedAt": None,
                 "lastError": "",
                 "lastErrorCode": "",
+                "errorCategory": "",
                 "safeDiagnostic": "No local readiness observation is available.",
                 "envOverridesRemoved": [],
                 "recoveryActions": [],

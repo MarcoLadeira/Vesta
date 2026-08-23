@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from opai._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL  # noqa: E402
+from opai.asset_identity import asset_manifest  # noqa: E402
+from opai.update.models import InstallType  # noqa: E402
+from opai.update.packaging import runtime_identity  # noqa: E402
 from opaihub.desktop_artifacts import (  # noqa: E402
     ArtifactReleaseError,
     DeploymentSpecs,
@@ -312,12 +316,28 @@ def main() -> int:
                 _component_output(staged_specs.cli.output_dir, staged_specs.cli.name),
                 destination / "cli",
             )
+        artifact_identity = runtime_identity(
+            version=APPLICATION_VERSION,
+            build_id=reference.commit,
+            channel=RELEASE_CHANNEL,
+            platform=platform.system(),
+            architecture=platform.machine(),
+            install_type=InstallType.PORTABLE,
+            package_identity="",
+            publisher_identity="",
+            assets=asset_manifest(ROOT / "opai" / "assets"),
+        )
+        (destination / "release-identity.json").write_text(
+            json.dumps(artifact_identity, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         write_bundle_evidence(
             destination,
             reference,
             platform=platform.system().lower(),
             signing_status="unsigned-prealpha",
             build_metadata=build_metadata,
+            artifact_identity=artifact_identity,
         )
         print(
             json.dumps(

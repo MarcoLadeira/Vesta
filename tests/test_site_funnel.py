@@ -1,10 +1,10 @@
 """Funnel + positioning guards (business strategy GTM)."""
 
-import re
 import unittest
 from pathlib import Path
 
 from opai.cli import build_parser
+from opai.release_identity import read_project_release
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -61,10 +61,8 @@ class SiteFunnelTests(unittest.TestCase):
         self.assertIn("Free public alpha", self.html)
 
     def test_footer_uses_the_current_release_identifier(self):
-        pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
-        match = re.search(r'^release = "([^"]+)"$', pyproject, re.MULTILINE)
-        self.assertIsNotNone(match)
-        self.assertIn(match.group(1).replace("-", " "), self.html)
+        release = read_project_release(REPO / "pyproject.toml")
+        self.assertIn(release.display_name, self.html)
 
     def test_free_alpha_has_no_paid_checkout_or_private_intake(self):
         self.assertNotIn("issues/new", self.html)

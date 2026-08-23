@@ -36,6 +36,9 @@ ROOT = Path(__file__).resolve().parent.parent
 # imports the canonical redactor, so make the repository package authoritative.
 if sys.path[0] != str(ROOT):
     sys.path.insert(0, str(ROOT))
+from opai.asset_identity import asset_manifest  # noqa: E402
+from opai.release_identity import artifact_identity_payload  # noqa: E402
+
 SCHEMA_VERSION = 2
 PROFILE_VERSION = 2
 MAX_DIAGNOSTIC_CHARS = 4_000
@@ -103,6 +106,11 @@ PYTHON_STEPS = (
     Step(
         "lifecycle-projection-drift",
         [sys.executable, "scripts/generate_lifecycle.py", "--check"],
+        failure_class="policy",
+    ),
+    Step(
+        "release-identity-drift",
+        [sys.executable, "scripts/check_release_identity.py"],
         failure_class="policy",
     ),
     Step(
@@ -647,7 +655,7 @@ def _unavailable_record(
     )
 
 
-def _run(step: Step) -> dict[str, Any]:
+def _run(step: Step, *, candidate_sha: str | None = None) -> dict[str, Any]:
     """Execute one check without ever converting required absence into success."""
 
     missing_modules = _missing_modules(step)
@@ -670,10 +678,19 @@ def _run(step: Step) -> dict[str, Any]:
 
     child_environment = os.environ.copy()
     child_environment.update(dict(step.env))
+    launch_argv = _launch_argv(step)
+    if step.name == "isolated-wheel-smoke":
+        if candidate_sha is None or SHA_PATTERN.fullmatch(candidate_sha) is None:
+            return _unavailable_record(
+                step,
+                "exact candidate SHA is required for native wheel qualification",
+            )
+        child_environment["OPAI_BUILD_ID"] = candidate_sha.lower()
+        launch_argv.extend(("--candidate-sha", candidate_sha.lower()))
     start = time.monotonic()
     try:
         completed = subprocess.run(  # nosec B603 - fixed argv, no shell
-            _launch_argv(step),
+            launch_argv,
             cwd=str(ROOT),
             env=child_environment,
             check=False,
@@ -1140,7 +1157,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         for step in steps:
             print(f"\n=== {step.name} ===", flush=True)
-            checks.append(_run(step))
+            checks.append(_run(step, candidate_sha=candidate_sha))
 
     verdict, reason, classification = _verdict(checks)
     component = args.component or "all"
@@ -1153,6 +1170,18 @@ def main(argv: list[str] | None = None) -> int:
         },
         "commit_sha": revision,
         "candidate_sha": candidate_sha,
+        "release_identity": (
+            artifact_identity_payload(
+                build_id=candidate_sha,
+                assets=asset_manifest(ROOT / "opai" / "assets"),
+                platform_name=platform.system(),
+                architecture=platform.machine(),
+                install_type="qualification_source",
+            )
+            if isinstance(candidate_sha, str)
+            and SHA_PATTERN.fullmatch(candidate_sha) is not None
+            else None
+        ),
         "source_sha": source_sha,
         "candidate": {
             "expected_sha": candidate_sha,

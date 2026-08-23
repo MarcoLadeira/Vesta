@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from opai.release_identity import surface_identity_payload
+
 from . import command_consent
 from .agent_policy import (
     AgentMode,
@@ -474,6 +476,7 @@ def build_savings_receipt(
         basis = "cost_unreconciled_savings_withheld"
     receipt = {
         "schema": 2,
+        **surface_identity_payload(),
         "session_id": uuid.uuid4().hex[:12],
         "message_id": uuid.uuid4().hex[:12],
         "selected_model": selected_model,

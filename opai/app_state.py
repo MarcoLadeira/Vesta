@@ -210,6 +210,8 @@ def overview(project_root: Path) -> dict[str, Any]:
         "status_label": "ON" if cockpit["status"] == "on" else "ATTENTION",
         "version": cockpit["version"],
         "release_stage": cockpit["release_stage"],
+        "release_identity": cockpit["release_identity"],
+        "compatibility": cockpit["compatibility"],
         "project_root": cockpit["project"]["root"],
         "activated": cockpit["project"]["activated"],
         "clients": cockpit["clients"],
