@@ -395,3 +395,33 @@ def identity_payload() -> dict[str, str]:
     """Return JSON-safe canonical identity for CLI/GUI/evidence projections."""
 
     return current_release_identity().to_dict()
+
+
+def safe_identity_payload() -> dict[str, str]:
+    """Return persistable identity without exposing a local installation path."""
+
+    payload = identity_payload()
+    payload.pop("metadata_source", None)
+    return payload
+
+
+def surface_identity_payload(*, brand: str = "OPai") -> dict[str, object]:
+    """Project one identity onto backward-compatible user/evidence fields."""
+
+    identity = safe_identity_payload()
+    return {
+        "brand": brand,
+        "version": identity["application_version"],
+        "release_stage": identity["release_stage"],
+        "release_identity": identity,
+    }
+
+
+def release_version_text(*, brand: str = "OPai") -> str:
+    """Render a human version string that never hides the exact build identity."""
+
+    identity = safe_identity_payload()
+    return (
+        f"{brand} {identity['application_version']} {identity['release_stage']} "
+        f"(build {identity['build_id']})"
+    )

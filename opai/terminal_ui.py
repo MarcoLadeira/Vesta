@@ -9,7 +9,7 @@ from importlib import resources
 from pathlib import Path
 from typing import TextIO
 
-from opai import __release_stage__, __version__
+from opai.release_identity import release_version_text
 
 
 BLUE = "\033[38;5;39m"
@@ -187,7 +187,7 @@ def build_welcome(
     graphic = shift_block(
         render_graphic(mode=image_mode, color=color, width=graphic_width), motion_offset
     )
-    title = colorize(f"OPai {__version__} {__release_stage__}", BLUE, color)
+    title = colorize(release_version_text(), BLUE, color)
     subtitle = "local-first AI coding hub"
 
     if compact:

@@ -27,6 +27,7 @@ from opai.gui_web import (
     settings_payload,
     web_available,
 )
+from opai.release_identity import current_release_identity
 from opaihub.run_result import RunResult
 
 
@@ -427,6 +428,9 @@ class SettingsPayloadTests(unittest.TestCase):
             payload = settings_payload(root)
 
         self.assertEqual(payload["about"]["build"], asset_build_identity())
+        expected = current_release_identity().to_dict()
+        expected.pop("metadata_source")
+        self.assertEqual(payload["about"]["release_identity"], expected)
 
     def test_settings_exposes_normalized_connections(self):
         from opaihub.provider_catalog import provider_ids

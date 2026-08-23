@@ -1101,6 +1101,7 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "about": {
             "version": overview.get("version"),
             "release_stage": overview.get("release_stage"),
+            "release_identity": overview.get("release_identity"),
             "build": asset_build_identity(),
             # Cache only — no network in the payload build; the About page
             # triggers a live (TTL-guarded) check through checkForUpdates

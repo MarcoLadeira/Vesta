@@ -5,8 +5,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from opai import __brand__, __release_stage__, __version__
+from opai import __brand__
 from opai.integrations import activate_project
+from opai.release_identity import surface_identity_payload
 from opaihub.command_runner import run_policy_command
 from opaihub.dashboard import build_dashboard
 from opaihub.dashboard_html import build_dashboard_html
@@ -58,9 +59,7 @@ def install_project(
     )
 
     manifest = {
-        "brand": __brand__,
-        "version": __version__,
-        "release_stage": __release_stage__,
+        **surface_identity_payload(brand=__brand__),
         "project_root": str(root),
         "state_path": attach["state_path"],
         "validation_ok": validation["ok"],
