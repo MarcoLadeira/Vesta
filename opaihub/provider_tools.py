@@ -659,6 +659,9 @@ class RepositoryToolExecutor:
         key = operation_key("apply_patch", root=str(self.repo_root), sha=patch_sha)
         known = status(self.repo_root, key)
         if known["state"] == DONE:
+            for path in safe_paths:
+                if path not in self.written_paths:
+                    self.written_paths.append(path)
             return Observation(
                 "patch_apply",
                 True,
@@ -704,6 +707,9 @@ class RepositoryToolExecutor:
             return blocked
         prior = begin(self.repo_root, key)
         if prior["state"] == DONE:
+            for path in safe_paths:
+                if path not in self.written_paths:
+                    self.written_paths.append(path)
             return Observation(
                 "patch_apply",
                 True,
@@ -763,6 +769,9 @@ class RepositoryToolExecutor:
                 complete(self.repo_root, key, {"paths": ",".join(sorted(safe_paths))})
             except OperationPersistenceError:
                 return None, False
+            for path in safe_paths:
+                if path not in self.written_paths:
+                    self.written_paths.append(path)
             return Observation(
                 "patch_apply",
                 True,
@@ -812,6 +821,8 @@ class RepositoryToolExecutor:
         known = status(self.repo_root, key)
         if known["state"] == DONE:
             recorded = known["result"]
+            if relative not in self.written_paths:
+                self.written_paths.append(relative)
             return Observation(
                 "file_write",
                 True,
@@ -851,6 +862,8 @@ class RepositoryToolExecutor:
         prior = begin(self.repo_root, key)
         if prior["state"] == DONE:
             recorded = prior["result"]
+            if relative not in self.written_paths:
+                self.written_paths.append(relative)
             return Observation(
                 "file_write",
                 True,
@@ -925,6 +938,8 @@ class RepositoryToolExecutor:
                 complete(self.repo_root, key, {"path": relative, "created": False})
             except OperationPersistenceError:
                 return None, False
+            if relative not in self.written_paths:
+                self.written_paths.append(relative)
             return Observation(
                 "file_write",
                 True,
