@@ -1268,6 +1268,34 @@ class GithubAdapterReconcileTests(unittest.TestCase):
         self.assertEqual(adapter.comment_pr(4, "LGTM"), "posted")
         self.assertEqual(len(dispatches), 1)
 
+    def test_a_replayed_pr_edit_resolves_to_the_record(self) -> None:
+        edits: list[list[str]] = []
+
+        def run(args, **kwargs):
+            edits.append(list(args))
+            return "edited"
+
+        adapter = self._adapter(run)
+        adapter.update_pr(3, title="New title", body="New body")
+        adapter.update_pr(3, title="New title", body="New body")
+        self.assertEqual(len(edits), 1)
+
+    def test_a_lost_pr_edit_that_landed_is_confirmed_not_repeated(self) -> None:
+        edits: list[list[str]] = []
+
+        def run(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return '{"title": "New title", "body": "New body"}'
+            edits.append(list(args))
+            raise RuntimeError("network connection lost")
+
+        adapter = self._adapter(run)
+        self.assertEqual(
+            adapter.update_pr(3, title="New title", body="New body"),
+            "confirmed on GitHub",
+        )
+        self.assertEqual(len(edits), 1)
+
 
 class GithubToolReconcileTests(unittest.TestCase):
     """#616 reconciliation for the provider_tools GitHub writes: transport

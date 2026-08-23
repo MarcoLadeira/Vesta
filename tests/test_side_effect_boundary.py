@@ -33,7 +33,7 @@ GITHUB_ADAPTER_SINKS = {"create_pull_request", "add_comment", "request_reviewers
 GIT_MUTATION_VERBS = {"add", "checkout", "commit", "merge", "push", "rebase", "tag"}
 
 #: ``self._run(["pr", <verb>, ...])`` gh verbs with outward, visible effects.
-GH_MUTATION_VERBS = {"comment", "merge"}
+GH_MUTATION_VERBS = {"comment", "edit", "merge"}
 
 #: Direct process execution sinks (a granted command can do anything).
 PROCESS_SINKS = {"_git_run"}

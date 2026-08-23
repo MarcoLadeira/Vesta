@@ -399,7 +399,96 @@ class GitHubAdapter:
         return None
 
     def update_pr(self, number: int, *, title: str, body: str) -> str:
-        return self._run(["pr", "edit", str(number), "--title", title, "--body", body])
+        # #616: outward set-state. Repeating an identical edit is naturally
+        # idempotent, but a lost response still needs an operation record so
+        # the turn can prove what happened instead of guessing.
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        key = operation_key(
+            "update_pr",
+            root=str(self.repo_root),
+            pr=int(number),
+            title=title,
+            body=body,
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return str(prior["result"].get("output") or "")
+        if prior["state"] == IN_FLIGHT:
+            reconciled, decided = self._reconcile_update_pr(
+                key, number, title, body
+            )
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                raise RuntimeError(
+                    "An earlier attempt to edit this pull request did not "
+                    "confirm, and GitHub could not be checked. The edit may "
+                    "already be applied — check before retrying."
+                )
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                raise RuntimeError(
+                    "Edit operation state changed during reconciliation; "
+                    "check the pull request before retrying."
+                )
+        try:
+            output = self._run(
+                ["pr", "edit", str(number), "--title", title, "--body", body]
+            )
+        except OSError:
+            abandon(self.repo_root, key)
+            raise
+        except (RuntimeError, ValueError):
+            reconciled, decided = self._reconcile_update_pr(
+                key, number, title, body
+            )
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                raise RuntimeError(
+                    "The edit did not confirm and GitHub could not be "
+                    "checked. It may already be applied — check before "
+                    "retrying."
+                )
+            raise
+        complete(self.repo_root, key, {"output": output})
+        return output
+
+    def _reconcile_update_pr(
+        self, key: str, number: int, title: str, body: str
+    ) -> tuple[str | None, bool]:
+        """Settle an uncertain PR edit by observing its title and body.
+
+        Set-state is idempotent: the PR already carrying exactly this title
+        and body proves the edit landed; anything else proves nothing usable
+        except through a fresh edit, so the key is released and the dispatch
+        proceeds — applying the same state again is safe.
+        """
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        try:
+            raw = self._run(
+                ["pr", "view", str(number), "--json", "title,body"]
+            )
+            observed = json.loads(raw)
+        except (OSError, RuntimeError, ValueError, AttributeError):
+            return None, False
+        if (
+            str(observed.get("title") or "") == title
+            and str(observed.get("body") or "") == body
+        ):
+            try:
+                complete(self.repo_root, key, {"output": "confirmed on GitHub"})
+            except OperationPersistenceError:
+                return None, False
+            return "confirmed on GitHub", True
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
+        return None, True
 
     def _trusted_required_check_manifest(self) -> dict[str, Any] | None:
         """Load policy from an immutable snapshot of the default branch.
