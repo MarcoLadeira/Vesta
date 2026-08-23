@@ -1366,6 +1366,46 @@ class RepositoryToolExecutor:
                 "CANCELLED",
                 "Command was cancelled",
             ).to_dict()
+        # #616: a granted command is an arbitrary confirm-class side effect —
+        # it can write files, push, call gh. Persist the operation before
+        # dispatch so a retried or resumed turn resolves to one identity, and
+        # a lost process status (timeout kill) fails closed as uncertain
+        # instead of inviting a blind rerun while effects may exist.
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        key = operation_key(
+            "granted_command",
+            root=str(self.repo_root),
+            argv=" ".join(argv),
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            recorded = prior["result"]
+            return Observation(
+                "command",
+                True,
+                {
+                    "command": [redact(item) for item in argv],
+                    "purpose": purpose,
+                    "returncode": int(recorded.get("returncode") or 0),
+                    "stdout": "",
+                    "stderr": "",
+                    "approved": True,
+                    "replayed": True,
+                },
+                message="Command already ran for this operation; not repeated",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            return Observation(
+                "command",
+                False,
+                {"command": [redact(item) for item in argv], "purpose": purpose},
+                "COMMAND_STATE_UNCERTAIN",
+                "An earlier attempt to run this command did not confirm its "
+                "exit status. Its effects may already exist — check before "
+                "running it again.",
+            ).to_dict()
         started = time.monotonic()
         try:
             completed = self._git_run(
@@ -1380,24 +1420,39 @@ class RepositoryToolExecutor:
                 **no_window_kwargs(),
             )
         except subprocess.TimeoutExpired:
+            # The runner killed the process, but any effects it produced
+            # before the kill are real. The key stays in_flight: a retry must
+            # reconcile, not rerun blind.
             return Observation(
                 "command",
                 False,
-                {"command": argv, "purpose": purpose},
+                {"command": [redact(item) for item in argv], "purpose": purpose},
                 "TIMEOUT",
-                "Command timed out",
+                "Command timed out; its effects may already exist — check "
+                "before running it again",
             ).to_dict()
         except OSError as exc:
+            # Spawn failed: the command provably never started.
+            abandon(self.repo_root, key)
             return Observation(
                 "command",
                 False,
-                {"command": argv, "purpose": purpose},
+                {"command": [redact(item) for item in argv], "purpose": purpose},
                 "SPAWN_FAILED",
                 redact(str(exc)),
             ).to_dict()
         max_chars = self.aci.max_output_chars
         stdout = redact(str(completed.stdout or ""))[:max_chars]
         stderr = redact(str(completed.stderr or ""))[:max_chars]
+        if completed.returncode == 0:
+            # Observed success: the operation is terminal and a replayed turn
+            # resolves to this record instead of running again.
+            complete(self.repo_root, key, {"returncode": 0})
+        else:
+            # Observed failure with a known exit status: continuity is not in
+            # doubt, so the key is released. Running the command again takes a
+            # fresh explicit grant — that grant IS the deliberate new attempt.
+            abandon(self.repo_root, key)
         return Observation(
             "command",
             completed.returncode == 0,

@@ -890,5 +890,105 @@ class GitPushToolTests(unittest.TestCase):
         self.assertEqual(len(dispatches), 0)
 
 
+class GrantedCommandToolTests(unittest.TestCase):
+    """provider_tools._run_granted_command (#616): a granted confirm-class
+    command is an arbitrary side effect — it can write files, push, call gh.
+    The operation must be persisted before dispatch, and a lost process
+    status (timeout kill) must fail closed rather than invite a blind rerun
+    while the command's effects may already exist.
+    """
+
+    COMMAND = "git push origin HEAD"
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = make_repo(Path(self._tmp.name), commit=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _executor(self, git_run):
+        from opaihub.provider_tools import RepositoryToolExecutor
+
+        return RepositoryToolExecutor(
+            self.root, allow_edits=True, allow_git_ops=True, git_run=git_run
+        )
+
+    def _invoke(self, executor):
+        executor.grant_command_once(self.COMMAND)
+        return executor.invoke("run_command", {"command": self.COMMAND})
+
+    def test_a_replayed_granted_command_is_not_run_twice(self) -> None:
+        import subprocess
+
+        dispatches: list[list[str]] = []
+
+        def fake_run(argv, **kwargs):
+            dispatches.append(list(argv))
+            return subprocess.CompletedProcess(argv, 0, "done", "")
+
+        executor = self._executor(fake_run)
+        first = self._invoke(executor)
+        second = self._invoke(executor)
+        self.assertTrue(first["ok"], first)
+        self.assertTrue(second["ok"], second)
+        self.assertIn("not repeated", second["message"])
+        self.assertEqual(len(dispatches), 1)
+
+    def test_a_timeout_leaves_the_operation_uncertain_not_rerunnable(self) -> None:
+        import subprocess
+
+        dispatches: list[list[str]] = []
+
+        def fake_run(argv, **kwargs):
+            dispatches.append(list(argv))
+            raise subprocess.TimeoutExpired(argv, 30)
+
+        executor = self._executor(fake_run)
+        first = self._invoke(executor)
+        self.assertEqual(first["error_code"], "TIMEOUT")
+        self.assertIn("effects may already exist", first["message"])
+        second = self._invoke(executor)
+        self.assertEqual(second["error_code"], "COMMAND_STATE_UNCERTAIN")
+        self.assertEqual(len(dispatches), 1)
+
+    def test_a_spawn_failure_leaves_the_retry_free(self) -> None:
+        import subprocess
+
+        attempts: list[int] = []
+
+        def fake_run(argv, **kwargs):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise OSError("executable not found")
+            return subprocess.CompletedProcess(argv, 0, "done", "")
+
+        executor = self._executor(fake_run)
+        first = self._invoke(executor)
+        self.assertEqual(first["error_code"], "SPAWN_FAILED")
+        second = self._invoke(executor)
+        self.assertTrue(second["ok"], second)
+        self.assertEqual(len(attempts), 2)
+
+    def test_an_observed_failure_allows_a_deliberate_new_attempt(self) -> None:
+        import subprocess
+
+        attempts: list[int] = []
+
+        def fake_run(argv, **kwargs):
+            attempts.append(1)
+            code = 1 if len(attempts) == 1 else 0
+            return subprocess.CompletedProcess(argv, code, "", "boom")
+
+        executor = self._executor(fake_run)
+        first = self._invoke(executor)
+        self.assertEqual(first["error_code"], "COMMAND_FAILED")
+        # The exit status was observed, so continuity is not in doubt: the
+        # fresh explicit grant is the deliberate new attempt, and it runs.
+        second = self._invoke(executor)
+        self.assertTrue(second["ok"], second)
+        self.assertEqual(len(attempts), 2)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
