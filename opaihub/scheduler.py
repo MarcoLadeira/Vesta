@@ -94,7 +94,6 @@ def create_schedule(
     if not workflow:
         return {"status": "error", "message": f"workflow not found: {workflow_id}"}
     schedule_id = f"{workflow_id}:{cadence}"
-    schedules = [item for item in _read(root) if item.get("id") != schedule_id]
     schedule = {
         "id": schedule_id,
         "workflow_id": workflow_id,
@@ -104,8 +103,15 @@ def create_schedule(
         "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "notes": "No background daemon is started; run with opai hub workflow run when desired.",
     }
-    schedules.append(schedule)
-    path = _write(root, schedules)
+    path = _path(root)
+    # The atomic publisher alone cannot protect a read-modify-write sequence:
+    # two creators can both read the same document and then atomically replace
+    # it in turn, losing whichever change published first (#438). Re-read and
+    # merge while holding the same re-entrant transaction used by `_write`.
+    with interprocess_transaction(path):
+        schedules = [item for item in _read(root) if item.get("id") != schedule_id]
+        schedules.append(schedule)
+        _write(root, schedules)
     return {"status": "created", "path": str(path), "schedule": schedule}
 
 
