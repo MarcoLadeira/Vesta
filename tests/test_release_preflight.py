@@ -97,10 +97,15 @@ def _write_release_repo(
     install_identity = render_documentation_projection(
         release, surface="docs/INSTALL_PROOF.md"
     )
+    site_identity = render_documentation_projection(release, surface="site/index.html")
     (root / "README.md").write_text(f"# OPai\n\n{readme_identity}\n", encoding="utf-8")
     (root / "docs").mkdir()
     (root / "docs" / "INSTALL_PROOF.md").write_text(
         f"# Install proof\n\n{install_identity}\n", encoding="utf-8"
+    )
+    (root / "site").mkdir()
+    (root / "site" / "index.html").write_text(
+        f"<!doctype html>\n{site_identity}\n", encoding="utf-8"
     )
     (root / "CONTRIBUTING.md").write_text(
         "# Contributing\n\nGuidelines.\n", encoding="utf-8"
