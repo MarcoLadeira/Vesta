@@ -353,10 +353,16 @@ def preflight_startup(
                 require_binding=require_binding,
             )
     except AssetIntegrityError as exc:
+        message = {
+            "missing_packaged_asset": "Required packaged OPai assets are missing.",
+            "package_integrity_failure": (
+                "Packaged OPai assets or identity metadata failed integrity validation."
+            ),
+        }.get(exc.code, "Packaged OPai integrity validation failed.")
         raise BootstrapFailure(
             category=exc.code,
             component=exc.component,
-            message=str(exc),
+            message=message,
             remediation=_repair_command(context.startup_mode, desktop=desktop),
             startup_mode=context.startup_mode,
         ) from exc
@@ -388,6 +394,10 @@ def _json_requested(arguments: Iterable[str]) -> bool:
 def _version_requested(arguments: Iterable[str]) -> bool:
     values = tuple(arguments)
     return values == ("--version",) or bool(values and values[0] == "version")
+
+
+def _help_requested(arguments: Iterable[str]) -> bool:
+    return any(value in {"-h", "--help"} for value in arguments)
 
 
 def _gui_requested(arguments: Iterable[str]) -> bool:
@@ -537,7 +547,9 @@ def _run(
             source_root=source_root,
             spec_finder=spec_finder,
             distribution_lookup=distribution_lookup,
-            check_dependencies=not _version_requested(arguments),
+            check_dependencies=not (
+                _version_requested(arguments) or _help_requested(arguments)
+            ),
             validate_integrity=validate_integrity,
             asset_root=asset_root,
             metadata_paths=metadata_paths,

@@ -71,7 +71,9 @@ def build_metadata_payload(
     try:
         assets = asset_manifest(root / "opai" / "assets")
     except AssetIntegrityError as exc:
-        raise BuildMetadataError(str(exc)) from exc
+        raise BuildMetadataError(
+            f"packaged asset metadata generation failed ({exc.code})"
+        ) from exc
     return {
         "application_version": version,
         "assets": assets,

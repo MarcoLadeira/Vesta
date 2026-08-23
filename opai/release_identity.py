@@ -256,6 +256,8 @@ def render_documentation_projection(release: ProjectRelease, *, surface: str) ->
             "      and reports either the exact packaged build SHA or the honest\n"
             "      `development`/`unknown` fallback."
         )
+    elif surface == "site/index.html":
+        body = f"      <p>{release.display_name} — MIT Licensed</p>"
     else:
         raise ReleaseIdentityError(
             f"unsupported documentation identity projection: {surface}"

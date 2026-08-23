@@ -10,7 +10,11 @@ from types import ModuleType
 from typing import Sequence
 
 
-CURRENT_DOCUMENTATION = (Path("README.md"), Path("docs/INSTALL_PROOF.md"))
+CURRENT_DOCUMENTATION = (
+    Path("README.md"),
+    Path("docs/INSTALL_PROOF.md"),
+    Path("site/index.html"),
+)
 
 
 def _identity_module(root: Path) -> ModuleType:

@@ -62,7 +62,8 @@ def _candidate_identity(
             "candidate provenance conflicts with requested release fields: "
             + ", ".join(sorted(set(mismatched)))
         )
-    assert isinstance(artifact, dict)
+    if not isinstance(artifact, dict):
+        raise ReleaseError("candidate provenance artifact identity is invalid")
     validated = validate_artifact_identity(
         artifact,
         build_id=build_id,

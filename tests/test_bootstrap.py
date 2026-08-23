@@ -98,6 +98,25 @@ def test_version_json_remains_available_without_optional_dependencies(capsys) ->
     assert payload["release_identity"]["build_id"] == "development"
 
 
+def test_cli_help_remains_available_without_runtime_dependencies() -> None:
+    received: list[str] = []
+
+    def main(arguments: list[str]) -> int:
+        received.extend(arguments)
+        return 0
+
+    code = bootstrap.run_cli(
+        ["ask", "--help"],
+        source_root=ROOT,
+        spec_finder=SpecFinder("yaml", "cryptography", "packaging"),
+        distribution_lookup=_installed_version,
+        importer=lambda _name: SimpleNamespace(main=main),
+    )
+
+    assert code == 0
+    assert received == ["ask", "--help"]
+
+
 @pytest.mark.parametrize(
     ("missing", "component"),
     [

@@ -105,6 +105,7 @@ def test_drift_cli_prints_expected_actual_surface_and_remediation(
 def test_current_documentation_identity_drift_is_actionable(tmp_path: Path) -> None:
     root = _fixture(tmp_path)
     (root / "docs").mkdir()
+    (root / "site").mkdir()
     module = importlib.import_module("opai.release_identity")
     release = module.read_project_release(root / "pyproject.toml")
     readme = module.render_documentation_projection(release, surface="README.md")
@@ -117,6 +118,10 @@ def test_current_documentation_identity_drift_is_actionable(tmp_path: Path) -> N
         install_projection.replace("0.2.1a1", "9.9.9", 1) + "\n",
         encoding="utf-8",
     )
+    site_projection = module.render_documentation_projection(
+        release, surface="site/index.html"
+    )
+    (root / "site" / "index.html").write_text(site_projection + "\n", encoding="utf-8")
 
     drift = _validation_module().validate_release_identity(root)
     documentation = next(
@@ -125,4 +130,28 @@ def test_current_documentation_identity_drift_is_actionable(tmp_path: Path) -> N
 
     assert "application_version=0.2.1a1" in documentation.expected
     assert "application_version=9.9.9" in documentation.actual
+    assert documentation.remediation.endswith("generate_release_identity.py")
+
+
+def test_site_release_identity_drift_is_actionable(tmp_path: Path) -> None:
+    root = _fixture(tmp_path)
+    (root / "docs").mkdir()
+    (root / "site").mkdir()
+    module = importlib.import_module("opai.release_identity")
+    release = module.read_project_release(root / "pyproject.toml")
+    for surface in ("README.md", "docs/INSTALL_PROOF.md", "site/index.html"):
+        path = root / surface
+        path.parent.mkdir(parents=True, exist_ok=True)
+        projection = module.render_documentation_projection(release, surface=surface)
+        if surface == "site/index.html":
+            projection = projection.replace(release.display_name, "OPai 9.9.9")
+        path.write_text(projection + "\n", encoding="utf-8")
+
+    drift = _validation_module().validate_release_identity(root)
+    documentation = next(
+        item for item in drift if item.surface == "documentation.site/index.html"
+    )
+
+    assert release.display_name in documentation.expected
+    assert "OPai 9.9.9" in documentation.actual
     assert documentation.remediation.endswith("generate_release_identity.py")

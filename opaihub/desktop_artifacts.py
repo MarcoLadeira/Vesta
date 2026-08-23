@@ -22,6 +22,7 @@ from opai.release_identity import (
     artifact_identity_payload,
     validate_artifact_identity,
 )
+from .command_runner import redact
 from .proc import no_window_kwargs
 
 
@@ -775,7 +776,7 @@ def write_bundle_evidence(
             )
         )
     except (ReleaseIdentityError, TypeError, ValueError) as exc:
-        raise ArtifactReleaseError(str(exc)) from exc
+        raise ArtifactReleaseError(redact(str(exc))) from exc
     if normalized_build_metadata is not None:
         build_compatibility = normalized_build_metadata.get("compatibility")
         if (

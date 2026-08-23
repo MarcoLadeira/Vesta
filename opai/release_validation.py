@@ -35,7 +35,11 @@ _APPLICATION_IDENTITY_NAMES = frozenset(
     }
 )
 _PROJECTION_REMEDIATION = "Run: python scripts/generate_release_identity.py"
-_CURRENT_DOCUMENTATION = (Path("README.md"), Path("docs/INSTALL_PROOF.md"))
+_CURRENT_DOCUMENTATION = (
+    Path("README.md"),
+    Path("docs/INSTALL_PROOF.md"),
+    Path("site/index.html"),
+)
 
 
 @dataclass(frozen=True)
@@ -193,13 +197,13 @@ def validate_release_identity(root: Path) -> tuple[IdentityDrift, ...]:
     pyproject = repository / "pyproject.toml"
     try:
         release = read_project_release(pyproject)
-    except ReleaseIdentityError as exc:
+    except ReleaseIdentityError:
         return (
             IdentityDrift(
                 surface="canonical.application_version",
                 path=pyproject,
                 expected="a readable [project].version for project opai",
-                actual=str(exc),
+                actual="<unreadable canonical release source>",
                 remediation="Restore pyproject.toml [project].version.",
             ),
         )
@@ -207,13 +211,13 @@ def validate_release_identity(root: Path) -> tuple[IdentityDrift, ...]:
     generated_path = (repository / "opai" / "_generated_release.py").resolve()
     try:
         actual_generated = read_generated_release(generated_path)
-    except ReleaseIdentityError as exc:
+    except ReleaseIdentityError:
         drifts.append(
             IdentityDrift(
                 surface="generated.runtime_projection",
                 path=generated_path,
                 expected="a complete generated release projection",
-                actual=str(exc),
+                actual="<unreadable or incomplete generated projection>",
                 remediation=_PROJECTION_REMEDIATION,
             )
         )

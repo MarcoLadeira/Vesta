@@ -47,6 +47,7 @@ from opai.release_identity import (
     read_project_release,
 )
 from opai.release_validation import validate_release_identity
+from .command_runner import redact
 
 # ---- result model --------------------------------------------------------- #
 PASS = "pass"  # nosec B105
@@ -469,7 +470,7 @@ def check_version_consistency(ctx: ReleaseContext) -> CheckResult:
             "Canonical release identity has no drift",
             FAIL,
             blocker=True,
-            detail=str(exc),
+            detail=redact(str(exc)),
             evidence={"canonical_source": "pyproject.toml"},
         )
     drift = validate_release_identity(root)
@@ -961,7 +962,7 @@ def check_artifacts(ctx: ReleaseContext) -> CheckResult:
             "Final artifacts have authenticated same-run evidence",
             FAIL,
             blocker=True,
-            detail=f"Cannot read artifact manifest: {exc}",
+            detail=f"Cannot read artifact manifest: {redact(str(exc))}",
         )
     if not isinstance(manifest, dict):
         return CheckResult(
