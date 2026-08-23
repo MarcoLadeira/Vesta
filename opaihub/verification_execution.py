@@ -17,6 +17,7 @@ import time
 from typing import Any, Callable, Iterable, Mapping
 
 from .command_runner import redact
+from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .process_tree import adopt, isolated_group_kwargs, terminate_tree
 from .state import state_dir
@@ -822,6 +823,72 @@ def verification_manifest_from_dict(payload: Mapping[str, Any]) -> VerificationM
     return _manifest_from_dict(dict(payload))
 
 
+def _valid_manifest_record(record) -> bool:
+    """A mirrored evidence manifest must verify its own digest.
+
+    Same self-verifying property as the policy artifact, and for the same
+    reason: a manifest records *what was actually run and what it produced*,
+    so serving an altered one is worse than serving none. Recomputing the
+    digest means an event altered inside the journal is skipped on replay
+    rather than believed.
+
+    Deliberately structural-plus-digest only. It does *not* re-verify the
+    on-disk output artifacts -- ``load_verification_manifest`` does that, and
+    marks missing or replaced evidence unverified. Re-doing it here would make
+    rebuilding a projection depend on the very files the journal is supposed
+    to outlive.
+    """
+
+    if not isinstance(record, Mapping):
+        return False
+    claimed = str(record.get("digest") or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", claimed):
+        return False
+    payload = {key: value for key, value in record.items() if key != "digest"}
+    return _sha256(payload) == claimed
+
+
+def _read_manifest_raw(target: Path) -> dict[str, Any]:
+    """Read the manifest as persisted, without the loader's strict validation."""
+
+    try:
+        value = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _manifest_target(root: Path, context: "VerificationExecutionContext") -> Path:
+    return (
+        _evidence_directory(Path(root).expanduser().resolve(), context)
+        / "manifest.json"
+    )
+
+
+def manifest_shadow_projection(
+    root: Path, context: "VerificationExecutionContext"
+) -> dict[str, Any]:
+    """Rebuild one run's evidence manifest from its shadow journal."""
+
+    return shadow_journal.projection(
+        _manifest_target(root, context), is_valid_record=_valid_manifest_record
+    )
+
+
+def manifest_contradiction_report(
+    root: Path, context: "VerificationExecutionContext"
+) -> dict[str, Any] | None:
+    """``None`` when the persisted manifest and its shadow agree, else what differs."""
+
+    target = _manifest_target(root, context)
+    return shadow_journal.contradiction_report(
+        target,
+        lambda: _read_manifest_raw(target),
+        is_valid_record=_valid_manifest_record,
+        identity={"task_id": context.task_id, "run_id": context.run_id},
+    )
+
+
 def persist_verification_manifest(
     root: Path, manifest: VerificationManifest
 ) -> EvidenceManifestReference:
@@ -853,6 +920,14 @@ def persist_verification_manifest(
             target,
             json.dumps(persisted.to_dict(), indent=2, sort_keys=True, ensure_ascii=True)
             + "\n",
+        )
+        # #613 Stage 2: mirrored inside the same lock, after the artifacts
+        # it references are on disk. The manifest carries the policy digest it
+        # ran under, so with verification_policy already mirrored the shadow
+        # can rebuild the whole chain -- which policy, which run, which
+        # evidence -- from journals alone.
+        shadow_journal.record_snapshot(
+            target, persisted.to_dict(), is_valid_record=_valid_manifest_record
         )
     return EvidenceManifestReference(path=target, digest=persisted.digest)
 
