@@ -655,7 +655,7 @@ def _unavailable_record(
     )
 
 
-def _run(step: Step) -> dict[str, Any]:
+def _run(step: Step, *, candidate_sha: str | None = None) -> dict[str, Any]:
     """Execute one check without ever converting required absence into success."""
 
     missing_modules = _missing_modules(step)
@@ -678,6 +678,13 @@ def _run(step: Step) -> dict[str, Any]:
 
     child_environment = os.environ.copy()
     child_environment.update(dict(step.env))
+    if step.name == "isolated-wheel-smoke":
+        if candidate_sha is None or SHA_PATTERN.fullmatch(candidate_sha) is None:
+            return _unavailable_record(
+                step,
+                "exact candidate SHA is required for native wheel qualification",
+            )
+        child_environment["OPAI_BUILD_ID"] = candidate_sha.lower()
     start = time.monotonic()
     try:
         completed = subprocess.run(  # nosec B603 - fixed argv, no shell
@@ -1148,7 +1155,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         for step in steps:
             print(f"\n=== {step.name} ===", flush=True)
-            checks.append(_run(step))
+            checks.append(_run(step, candidate_sha=candidate_sha))
 
     verdict, reason, classification = _verdict(checks)
     component = args.component or "all"

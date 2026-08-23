@@ -10,6 +10,9 @@ from typing import Any
 from .loader import registry_items
 
 
+PROJECT_STATE_SCHEMA_VERSION = 1
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -66,7 +69,7 @@ def _read_state_dict(path: Path) -> dict[str, Any] | None:
 
 def default_state(project_root: Path) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": PROJECT_STATE_SCHEMA_VERSION,
         "created_at": now_iso(),
         "updated_at": now_iso(),
         "project_root": str(project_root.resolve()),

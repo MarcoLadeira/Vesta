@@ -4,6 +4,8 @@ import importlib
 import json
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -123,6 +125,38 @@ def test_development_projection_is_honest_when_no_build_identity_exists() -> Non
 
     assert identity.application_version == "0.2.1a1"
     assert identity.build_id == "development"
+
+
+def test_explicit_packaged_identity_boundary_rejects_a_missing_manifest(
+    tmp_path: Path,
+) -> None:
+    release_module = _release_module()
+
+    with pytest.raises(
+        release_module.ReleaseIdentityError, match="usable embedded release identity"
+    ):
+        release_module.load_release_identity(
+            identity_paths=(tmp_path / "missing-release-identity.json",),
+            distribution_version=None,
+            source_root=ROOT,
+        )
+
+
+def test_explicit_packaged_identity_boundary_rejects_a_corrupt_manifest(
+    tmp_path: Path,
+) -> None:
+    embedded = tmp_path / "release-identity.json"
+    embedded.write_text("{not-json", encoding="utf-8")
+    release_module = _release_module()
+
+    with pytest.raises(
+        release_module.ReleaseIdentityError, match="release-identity.json"
+    ):
+        release_module.load_release_identity(
+            identity_paths=(embedded,),
+            distribution_version=None,
+            source_root=ROOT,
+        )
 
 
 def test_source_checkout_does_not_adopt_unrelated_installed_metadata() -> None:

@@ -9,6 +9,7 @@ from opai.asset_identity import load_metadata_binding
 from opai.update.models import UPDATE_SCHEMA_VERSION, UPDATER_PROTOCOL_VERSION
 from opaihub.generated_lifecycle import SCHEMA_VERSION as LIFECYCLE_SCHEMA_VERSION
 from opaihub.provider_catalog import CATALOG_VERSION, PROTOCOL_VERSION
+from opaihub.state import PROJECT_STATE_SCHEMA_VERSION
 
 
 class RuntimeCompatibilityError(RuntimeError):
@@ -31,6 +32,7 @@ def runtime_compatibility_payload() -> dict[str, object]:
         "lifecycle_schema_version": LIFECYCLE_SCHEMA_VERSION,
         "provider_catalog_version": CATALOG_VERSION,
         "provider_protocol_version": PROTOCOL_VERSION,
+        "project_state_schema_version": PROJECT_STATE_SCHEMA_VERSION,
         "update_schema_version": UPDATE_SCHEMA_VERSION,
         "updater_protocol_version": UPDATER_PROTOCOL_VERSION,
     }

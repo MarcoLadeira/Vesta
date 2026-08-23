@@ -8,6 +8,7 @@ import sys
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
+import re
 
 
 EXTERNAL_STATE_ENV = {
@@ -36,6 +37,7 @@ _EXPECTED_PROVIDER_CATALOG_IDS = (
     "ollama",
     "openai-compatible",
 )
+_EXACT_BUILD_ID = re.compile(r"^[0-9a-f]{40}$")
 
 
 def run(argv: list[str], cwd: Path, *, env: Mapping[str, str] | None = None) -> None:
@@ -88,12 +90,45 @@ def provider_catalog_smoke_command(python: Path) -> list[str]:
     return [str(python), "-I", "-c", check]
 
 
+def installed_identity_smoke_command(python: Path, expected_build_id: str) -> list[str]:
+    """Assert the installed CLI reports the exact candidate embedded at build."""
+
+    if _EXACT_BUILD_ID.fullmatch(expected_build_id) is None:
+        raise ValueError(
+            "expected build identity must be an exact lowercase commit SHA"
+        )
+    check = (
+        "import json, subprocess, sys\n"
+        "result = subprocess.run([sys.executable, '-m', 'opai', 'version', '--json'], "
+        "check=False, capture_output=True, text=True, timeout=30)\n"
+        "if result.returncode != 0:\n"
+        "    raise SystemExit(result.stdout + result.stderr)\n"
+        "payload = json.loads(result.stdout)\n"
+        "identity = payload.get('release_identity', {})\n"
+        f"expected = {expected_build_id!r}\n"
+        "if identity.get('build_id') != expected:\n"
+        "    raise SystemExit(f'installed build_id {identity.get(\"build_id\")!r} ' "
+        "+ f'does not match qualified candidate {expected}')\n"
+        "print('installed build identity:', expected)\n"
+    )
+    return [str(python), "-I", "-c", check]
+
+
 def run_post_install_smoke_checks(
-    python: Path, cwd: Path, environment: Mapping[str, str]
+    python: Path,
+    cwd: Path,
+    environment: Mapping[str, str],
+    *,
+    expected_build_id: str,
 ) -> None:
     """Run the checks that must prove the just-installed wheel is usable."""
 
     run(provider_catalog_smoke_command(python), cwd, env=environment)
+    run(
+        installed_identity_smoke_command(python, expected_build_id),
+        cwd,
+        env=environment,
+    )
     for command in required_smoke_commands(python):
         run(command, cwd, env=environment)
 
@@ -164,6 +199,11 @@ def main() -> int:
 
     root = Path(__file__).resolve().parents[1]
     version = project_version(root)
+    expected_build_id = str(os.environ.get("OPAI_BUILD_ID") or "").lower()
+    if _EXACT_BUILD_ID.fullmatch(expected_build_id) is None:
+        raise SystemExit(
+            "OPAI_BUILD_ID must name the exact lowercase candidate commit for wheel smoke."
+        )
     work_dir = Path(args.work_dir).expanduser().resolve() if args.work_dir else None
     created_work_dir = False
     if work_dir is None:
@@ -175,7 +215,13 @@ def main() -> int:
         wheelhouse = work_dir / "wheelhouse"
         wheelhouse.mkdir(parents=True, exist_ok=True)
 
-        run(wheel_build_command(Path(sys.executable), root, wheelhouse), root)
+        build_environment = dict(os.environ)
+        build_environment["OPAI_BUILD_ID"] = expected_build_id
+        run(
+            wheel_build_command(Path(sys.executable), root, wheelhouse),
+            root,
+            env=build_environment,
+        )
         wheels = sorted(
             wheelhouse.glob(f"opai-{version}-*.whl"),
             key=lambda path: path.stat().st_mtime,
@@ -209,7 +255,12 @@ def main() -> int:
             ],
             root,
         )
-        run_post_install_smoke_checks(python, outside_repo, smoke_env)
+        run_post_install_smoke_checks(
+            python,
+            outside_repo,
+            smoke_env,
+            expected_build_id=expected_build_id,
+        )
 
         # The web GUI ships as package data; a wheel without it silently falls
         # back to the legacy Qt window (issue #139). Fail the smoke instead.

@@ -92,6 +92,7 @@ def test_compatibility_contract_is_independent_and_fails_on_schema_mismatch() ->
         "lifecycle_schema_version": 1,
         "provider_catalog_version": "v1",
         "provider_protocol_version": 1,
+        "project_state_schema_version": 1,
         "update_schema_version": 1,
         "updater_protocol_version": 1,
     }

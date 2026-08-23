@@ -210,6 +210,29 @@ def test_corrupt_distribution_metadata_has_its_own_category(
     assert "package_metadata_unavailable" in capsys.readouterr().err
 
 
+def test_packaged_payload_without_dist_info_is_not_misclassified_as_raw_source(
+    tmp_path: Path, capsys
+) -> None:
+    package = tmp_path / "site-packages"
+    embedded = package / "opai" / "_embedded_build.json"
+    embedded.parent.mkdir(parents=True)
+    embedded.write_text("{}\n", encoding="utf-8")
+
+    code = bootstrap.run_cli(
+        ["doctor"],
+        source_root=package,
+        spec_finder=SpecFinder(),
+        distribution_lookup=lambda _name: (_ for _ in ()).throw(
+            importlib.metadata.PackageNotFoundError("opai")
+        ),
+    )
+
+    assert code == bootstrap.BOOTSTRAP_EXIT_CODE
+    error = capsys.readouterr().err
+    assert "package_metadata_unavailable" in error
+    assert "unsupported_startup_mode" not in error
+
+
 def test_installed_package_never_uses_neighboring_checkout_identity(
     tmp_path: Path,
 ) -> None:
@@ -338,6 +361,32 @@ def test_incompatible_schema_fails_before_any_runtime_mutation(
     assert "update_schema_version" in error
 
 
+def test_newer_persisted_project_schema_fails_before_runtime_mutation(
+    tmp_path: Path, capsys
+) -> None:
+    project = tmp_path / "project"
+    state_path = project / ".opaihub" / "project.json"
+    state_path.parent.mkdir(parents=True)
+    persisted = {"schema_version": 999, "sentinel": "must-remain"}
+    state_path.write_text(json.dumps(persisted), encoding="utf-8")
+    imported: list[str] = []
+
+    code = bootstrap.run_cli(
+        ["doctor", "--project", str(project)],
+        source_root=ROOT,
+        spec_finder=SpecFinder(),
+        distribution_lookup=_installed_version,
+        importer=lambda name: imported.append(name),
+    )
+
+    assert code == bootstrap.BOOTSTRAP_EXIT_CODE
+    assert imported == []
+    assert json.loads(state_path.read_text(encoding="utf-8")) == persisted
+    error = capsys.readouterr().err
+    assert "incompatible_schema" in error
+    assert "project-state" in error
+
+
 def test_malformed_user_configuration_is_classified_without_a_traceback(
     capsys,
 ) -> None:
@@ -359,6 +408,29 @@ def test_malformed_user_configuration_is_classified_without_a_traceback(
     error = capsys.readouterr().err
     assert "malformed_user_configuration" in error
     assert "secret raw config" not in error
+    assert "Traceback" not in error
+
+
+def test_real_malformed_yaml_is_classified_as_user_configuration(
+    tmp_path: Path, capsys
+) -> None:
+    from opaihub import loader
+
+    registry = tmp_path / "tools.yaml"
+    registry.write_text("tools: [unterminated", encoding="utf-8")
+    module = SimpleNamespace(main=lambda _argv: loader.load_registry(registry))
+
+    code = bootstrap.run_cli(
+        ["doctor"],
+        source_root=ROOT,
+        spec_finder=SpecFinder(),
+        distribution_lookup=_installed_version,
+        importer=lambda _name: module,
+    )
+
+    assert code == bootstrap.BOOTSTRAP_EXIT_CODE
+    error = capsys.readouterr().err
+    assert "malformed_user_configuration" in error
     assert "Traceback" not in error
 
 

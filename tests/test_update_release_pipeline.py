@@ -13,7 +13,7 @@ from opai._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL
 from opai.asset_identity import asset_manifest
 from opai.update.models import InstallType
 from opai.update.packaging import runtime_identity
-from scripts import qualify_native_update
+from scripts import prepare_native_update, qualify_native_update
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +37,95 @@ def test_desktop_release_delegates_only_after_signed_attestation():
     assert set(publish["needs"]) == {"source-qualification", "attest"}
     assert publish["uses"] == "./.github/workflows/publish-packaged-update.yml"
     assert publish["secrets"] == "inherit"
+
+
+def test_production_signing_binds_assets_from_the_candidate_provenance():
+    source = (ROOT / ".github" / "workflows" / "desktop-artifacts.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert '--candidate-provenance "$BUNDLE/provenance.json"' in source
+    assert '--candidate-platform "${{ matrix.os }}"' in source
+    assert '--asset-root "$GITHUB_WORKSPACE/opai/assets"' not in source
+
+
+def test_native_runtime_configuration_uses_validated_candidate_assets(
+    tmp_path: Path, monkeypatch
+):
+    build_id = "a" * 40
+    candidate_assets = asset_manifest(ROOT / "opai" / "assets")
+    candidate_assets["fingerprint_sha256"] = "f" * 64
+    provenance = tmp_path / "provenance.json"
+    provenance.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "tag": "v0.2.1a1",
+                "commit": build_id,
+                "rehearsal": False,
+                "platform": "windows-latest",
+                "artifact_identity": {
+                    **runtime_identity(
+                        version=APPLICATION_VERSION,
+                        build_id=build_id,
+                        channel=RELEASE_CHANNEL,
+                        platform="windows-latest",
+                        architecture="x86_64",
+                        install_type=InstallType.WINDOWS_MSIX,
+                        package_identity="OPai.Desktop",
+                        publisher_identity="CN=OPai",
+                        assets=candidate_assets,
+                    ),
+                    "published_tag": "v0.2.1a1",
+                    "release_stage": "alpha.1",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    trust = tmp_path / "trust.json"
+    trust.write_text('{"schema_version": 1}', encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def capture(_bundle, *, identity, trust):
+        captured["identity"] = identity
+        captured["trust"] = trust
+
+    monkeypatch.setattr(prepare_native_update, "write_runtime_configuration", capture)
+    result = prepare_native_update.main(
+        [
+            "configure",
+            "--bundle",
+            str(tmp_path / "bundle"),
+            "--trust",
+            str(trust),
+            "--candidate-provenance",
+            str(provenance),
+            "--release-tag",
+            "v0.2.1a1",
+            "--candidate-platform",
+            "windows-latest",
+            "--version",
+            APPLICATION_VERSION,
+            "--build-id",
+            build_id,
+            "--channel",
+            RELEASE_CHANNEL,
+            "--platform",
+            "windows",
+            "--architecture",
+            "x86_64",
+            "--install-type",
+            "windows_msix",
+            "--package-identity",
+            "OPai.Desktop",
+            "--publisher-identity",
+            "CN=OPai",
+        ]
+    )
+
+    assert result == 0
+    assert captured["identity"]["assets"] == candidate_assets
 
 
 def test_macos_native_artifact_has_one_canonical_name_across_release_jobs():

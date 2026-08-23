@@ -300,9 +300,14 @@ def load_release_identity(
     """
 
     generated = _generated_release()
-    for raw_path in tuple(identity_paths or ()):
+    explicit_identity_paths = tuple(identity_paths or ())
+    for raw_path in explicit_identity_paths:
         value = _read_embedded_identity(raw_path)
         if not value:
+            if raw_path.exists() or raw_path.is_symlink():
+                raise ReleaseIdentityError(
+                    f"embedded release identity is unreadable or unsafe: {raw_path}"
+                )
             continue
         if value.get("schema_version") != 1:
             raise ReleaseIdentityError(
@@ -337,6 +342,10 @@ def load_release_identity(
             ),
             install_type=str(value.get("install_type") or "packaged"),
             metadata_source=str(Path(raw_path).expanduser().resolve()),
+        )
+    if identity_paths is not None and explicit_identity_paths:
+        raise ReleaseIdentityError(
+            "no usable embedded release identity exists at the explicit package boundary"
         )
 
     root = (

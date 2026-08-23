@@ -191,6 +191,19 @@ class LocalCiEvidenceTests(unittest.TestCase):
         assert step.argv == [sys.executable, "scripts/check_release_identity.py"]
         assert step.failure_class == "policy"
 
+    def test_native_wheel_qualification_receives_the_validated_candidate_sha(self):
+        ci = _load_ci_local_module()
+        candidate_sha = "a" * 40
+        completed = __import__("subprocess").CompletedProcess(
+            args=ci.NATIVE_STEPS[0].argv, returncode=0, stdout="", stderr=""
+        )
+
+        with mock.patch.object(ci.subprocess, "run", return_value=completed) as run:
+            record = ci._run(ci.NATIVE_STEPS[0], candidate_sha=candidate_sha)
+
+        self.assertEqual(record["status"]["outcome"], "passed")
+        self.assertEqual(run.call_args.kwargs["env"]["OPAI_BUILD_ID"], candidate_sha)
+
     def test_required_timeout_is_typed_infrastructure_blockage(self):
         ci = _load_ci_local_module()
         step = ci.Step(

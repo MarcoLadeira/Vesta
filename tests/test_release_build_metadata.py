@@ -231,6 +231,37 @@ def test_installed_wheel_without_dependencies_reports_missing_pyyaml_at_bootstra
     assert "Traceback" not in probe.stdout + probe.stderr
 
 
+def test_installed_wheel_without_dist_info_reports_package_metadata_failure(
+    built_distributions, tmp_path: Path
+) -> None:
+    _source, wheel, _sdist = built_distributions
+    install_root = tmp_path / "missing-dist-info"
+    with zipfile.ZipFile(wheel) as archive:
+        archive.extractall(install_root)
+    for metadata_dir in install_root.glob("opai-*.dist-info"):
+        shutil.rmtree(metadata_dir)
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(install_root)
+    environment["PYTHONNOUSERSITE"] = "1"
+
+    probe = subprocess.run(  # nosec B603 - isolated local wheel payload
+        [sys.executable, "-S", "-m", "opai", "doctor", "--json"],
+        cwd=wheel.parent,
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
+
+    assert probe.returncode == 78, probe.stdout + probe.stderr
+    payload = json.loads(probe.stdout)
+    assert payload["category"] == "package_metadata_unavailable"
+    assert payload["component"] == "opai-distribution-metadata"
+    assert payload["startup_mode"] == "installed_distribution"
+    assert "unsupported_startup_mode" not in probe.stdout + probe.stderr
+
+
 def test_invalid_build_identity_fails_before_an_artifact_is_created() -> None:
     from opai.build_metadata import BuildMetadataError, build_metadata_payload
 

@@ -26,6 +26,7 @@ from .asset_identity import (
 from .compatibility import (
     RuntimeCompatibilityError,
     load_compatibility_binding,
+    runtime_compatibility_payload,
     validate_runtime_compatibility,
 )
 from .release_identity import (
@@ -108,6 +109,16 @@ def _packaged_runtime() -> bool:
     return bool(getattr(sys, "frozen", False) or "__compiled__" in globals())
 
 
+def _embedded_build_exists(root: Path) -> bool:
+    return any(
+        candidate.is_file() and not candidate.is_symlink()
+        for candidate in (
+            root / "opai" / "_embedded_build.json",
+            root / "_embedded_build.json",
+        )
+    )
+
+
 def _repair_command(mode: str, *, desktop: bool = False) -> str:
     if mode == "source_checkout":
         suffix = '".[desktop-gui]"' if desktop else "."
@@ -135,7 +146,23 @@ def detect_startup_context(
     else:
         try:
             distribution_version = distribution_lookup("opai")
-        except importlib.metadata.PackageNotFoundError:
+        except importlib.metadata.PackageNotFoundError as exc:
+            if _embedded_build_exists(root):
+                mode = (
+                    "packaged_application"
+                    if (_packaged_runtime() if packaged is None else packaged)
+                    else "installed_distribution"
+                )
+                raise BootstrapFailure(
+                    category="package_metadata_unavailable",
+                    component="opai-distribution-metadata",
+                    message=(
+                        "This packaged OPai payload is missing its installed "
+                        "distribution metadata."
+                    ),
+                    remediation=_repair_command(mode),
+                    startup_mode=mode,
+                ) from exc
             distribution_version = None
         except Exception as exc:
             raise BootstrapFailure(
@@ -186,6 +213,57 @@ def detect_startup_context(
         application_version=APPLICATION_VERSION,
         source_root=root,
     )
+
+
+def _project_root(arguments: Iterable[str]) -> Path:
+    values = tuple(str(value) for value in arguments)
+    for index, value in enumerate(values):
+        if value == "--project" and index + 1 < len(values):
+            return Path(values[index + 1]).expanduser().resolve(strict=False)
+        if value.startswith("--project="):
+            return Path(value.split("=", 1)[1]).expanduser().resolve(strict=False)
+    return Path.cwd().resolve(strict=False)
+
+
+def _validate_persisted_project_schema(
+    arguments: Iterable[str],
+    compatibility: dict[str, object],
+    *,
+    startup_mode: str,
+) -> None:
+    """Read only the existing project schema sentinel before runtime imports."""
+
+    supported = compatibility.get("project_state_schema_version")
+    if not isinstance(supported, int) or isinstance(supported, bool):
+        return
+    state_path = _project_root(arguments) / ".opaihub" / "project.json"
+    try:
+        if state_path.is_symlink() or not state_path.is_file():
+            return
+        value = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        # Existing state recovery/configuration diagnostics remain authoritative
+        # for malformed content. This probe owns only forward compatibility.
+        return
+    observed = value.get("schema_version") if isinstance(value, dict) else None
+    if (
+        isinstance(observed, int)
+        and not isinstance(observed, bool)
+        and observed > supported
+    ):
+        raise BootstrapFailure(
+            category="incompatible_schema",
+            component="project-state",
+            message=(
+                f"Runtime project schema {observed} is newer than this OPai build "
+                f"supports ({supported})."
+            ),
+            remediation=(
+                "Use the newer OPai version that wrote this project state, or restore "
+                "a compatible project-state backup before retrying."
+            ),
+            startup_mode=startup_mode,
+        )
 
 
 def _missing_specs(
@@ -251,6 +329,7 @@ def preflight_startup(
     )
     require_binding = context.startup_mode != "source_checkout"
     try:
+        compatibility = runtime_compatibility_payload()
         if require_binding:
             compatibility = load_compatibility_binding(paths)
             if compatibility is None:
@@ -260,6 +339,11 @@ def preflight_startup(
                     "packaged compatibility identity is missing; reinstall OPai",
                 )
             validate_runtime_compatibility(compatibility)
+        _validate_persisted_project_schema(
+            arguments,
+            compatibility,
+            startup_mode=context.startup_mode,
+        )
         if desktop:
             assets = load_asset_binding(paths) if require_binding else None
             verify_asset_binding(
@@ -384,6 +468,23 @@ def _module_failure(exc: BaseException, mode: str) -> BootstrapFailure | None:
             ),
             startup_mode=mode,
         )
+    if (
+        type(exc).__name__ == "RegistryLoadError"
+        and type(exc).__module__ == "opaihub.loader"
+    ):
+        if isinstance(exc.__cause__, ModuleNotFoundError):
+            dependency_failure = _module_failure(exc.__cause__, mode)
+            if dependency_failure is not None:
+                return dependency_failure
+        return BootstrapFailure(
+            category="malformed_user_configuration",
+            component="user-configuration",
+            message="OPai could not parse a user registry configuration file.",
+            remediation=(
+                "Run `opai doctor`, repair the reported configuration file, and retry."
+            ),
+            startup_mode=mode,
+        )
     if isinstance(exc, importlib.metadata.PackageNotFoundError):
         return BootstrapFailure(
             category="package_metadata_unavailable",
@@ -453,7 +554,7 @@ def _run(
         if desktop:
             return int(module.gui_main())  # type: ignore[attr-defined]
         return int(module.main(arguments))  # type: ignore[attr-defined]
-    except (BootstrapFailure, json.JSONDecodeError, ModuleNotFoundError) as exc:
+    except Exception as exc:
         failure = _module_failure(
             exc,
             locals().get("context", None).startup_mode
