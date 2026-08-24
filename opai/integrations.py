@@ -10,8 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from opai import __brand__, __release_stage__, __version__
+from opai import __brand__
 from opai.context_slim import AI_IGNORE_FILES, write_ai_ignore_files
+from opai.release_identity import release_version_text, surface_identity_payload
 from opai.terminal_ui import render_badge
 from opaihub import shadow_journal
 from opaihub.atomic_io import atomic_write_text, interprocess_transaction
@@ -64,7 +65,7 @@ def _python_executable() -> str:
 def instruction_text(project_root: Path | None = None) -> str:
     project_line = f"Root: `{project_root}`.\n" if project_root else "Root: cwd.\n"
     return f"""# OPai Active
-{STATUS_TEXT}. OPai {__version__} {__release_stage__}. {project_line}OPai manages routing, cost controls, and safety policy for this session. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by OPai (F12). The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
+{STATUS_TEXT}. {release_version_text()}. {project_line}OPai manages routing, cost controls, and safety policy for this session. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by OPai (F12). The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
 """
 
 
@@ -510,9 +511,7 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
         }
 
     return {
-        "brand": __brand__,
-        "version": __version__,
-        "release_stage": __release_stage__,
+        **surface_identity_payload(brand=__brand__),
         "project": {
             "root": str(root),
             "activated": state.exists() and activation.exists(),
@@ -801,9 +800,7 @@ def install_global_integrations(
     )
 
     manifest = {
-        "brand": __brand__,
-        "version": __version__,
-        "release_stage": __release_stage__,
+        **surface_identity_payload(brand=__brand__),
         "status_text": STATUS_TEXT,
         "project_root": str(root),
         "targets": sorted(selected),
@@ -901,9 +898,7 @@ def load_global_status(home: Path | None = None) -> dict[str, Any]:
     path = opai_home(home) / "global.json"
     if not path.exists():
         return {
-            "brand": __brand__,
-            "version": __version__,
-            "release_stage": __release_stage__,
+            **surface_identity_payload(brand=__brand__),
             "status_text": STATUS_TEXT,
             "installed": False,
         }

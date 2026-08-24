@@ -14,6 +14,8 @@ from xml.etree import ElementTree  # nosec B405
 from opaihub.atomic_io import atomic_write_text
 from opaihub.proc import no_window_kwargs
 
+from opai.compatibility import validate_compatibility_coordinates
+from opai.release_identity import artifact_identity_payload
 from .models import InstallType
 from .release import ReleaseError, msix_version
 
@@ -54,23 +56,85 @@ def runtime_identity(
     install_type: InstallType,
     package_identity: str,
     publisher_identity: str,
+    assets: Mapping[str, Any],
+    candidate_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not re.fullmatch(r"[0-9a-f]{40}", build_id):
         raise ReleaseError("runtime build ID must be an exact commit SHA")
     msix_version(version)
     if channel not in {"stable", "beta", "alpha"}:
         raise ReleaseError("runtime release channel is unsupported")
+    asset_identity = dict(assets)
+    if (
+        asset_identity.get("schema_version") != 1
+        or asset_identity.get("application_version") != version
+        or not isinstance(asset_identity.get("asset_count"), int)
+        or isinstance(asset_identity.get("asset_count"), bool)
+        or int(asset_identity["asset_count"]) < 1
+        or re.fullmatch(
+            r"[0-9a-f]{64}", str(asset_identity.get("fingerprint_sha256") or "")
+        )
+        is None
+    ):
+        raise ReleaseError("runtime asset identity is invalid")
+    if candidate_identity is None:
+        identity = artifact_identity_payload(
+            build_id=build_id,
+            assets=asset_identity,
+            platform_name=platform,
+            architecture=architecture,
+            install_type=InstallType(install_type).value,
+        )
+        if (
+            version != identity["application_version"]
+            or channel != identity["release_channel"]
+        ):
+            raise ReleaseError(
+                "runtime version/channel does not match canonical application identity"
+            )
+    else:
+        identity = dict(candidate_identity)
+        if any(
+            (
+                identity.get("application_version") != version,
+                identity.get("build_id") != build_id,
+                identity.get("release_channel") != channel,
+                identity.get("assets") != asset_identity,
+            )
+        ):
+            raise ReleaseError(
+                "candidate runtime identity conflicts with requested package fields"
+            )
+        normalized_platform = str(platform).casefold()
+        if normalized_platform == "darwin":
+            normalized_platform = "macos"
+        normalized_architecture = str(architecture).casefold()
+        normalized_architecture = {
+            "amd64": "x86_64",
+            "x64": "x86_64",
+            "aarch64": "arm64",
+        }.get(normalized_architecture, normalized_architecture)
+        identity.update(
+            {
+                "platform": normalized_platform,
+                "architecture": normalized_architecture,
+                "install_type": InstallType(install_type).value,
+            }
+        )
+    compatibility = identity.get("compatibility")
+    if not isinstance(compatibility, Mapping):
+        raise ReleaseError("runtime compatibility identity is invalid")
+    try:
+        compatibility = validate_compatibility_coordinates(compatibility)
+    except RuntimeError as exc:
+        raise ReleaseError("runtime compatibility identity is invalid") from exc
     return {
-        "schema_version": 1,
+        **identity,
         "version": version,
-        "build_id": build_id,
         "channel": channel,
-        "platform": platform,
-        "architecture": architecture,
-        "install_type": InstallType(install_type).value,
         "package_identity": package_identity,
         "publisher_identity": publisher_identity,
-        "updater_protocol_version": 1,
+        "updater_protocol_version": compatibility["updater_protocol_version"],
     }
 
 

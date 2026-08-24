@@ -210,6 +210,8 @@ def overview(project_root: Path) -> dict[str, Any]:
         "status_label": "ON" if cockpit["status"] == "on" else "ATTENTION",
         "version": cockpit["version"],
         "release_stage": cockpit["release_stage"],
+        "release_identity": cockpit["release_identity"],
+        "compatibility": cockpit["compatibility"],
         "project_root": cockpit["project"]["root"],
         "activated": cockpit["project"]["activated"],
         "clients": cockpit["clients"],
@@ -876,6 +878,7 @@ def ask(
             cancel=cancel,
             on_text=on_text,
             tool_loop_policy=tool_loop_policy,
+            deadline_budget=deadline_budget,
             repository_handle=repository_handle,
         )
 
@@ -896,6 +899,7 @@ def ask(
         # Live token streaming for local/free chat (#154); edits use the tool
         # loop, which doesn't stream prose.
         on_text=None if allow_edits else on_text,
+        deadline_budget=deadline_budget,
     )
 
 
@@ -913,6 +917,7 @@ def _ask_direct_api_model(
     cancel: Any = None,
     on_text: Any = None,
     tool_loop_policy: Any = None,
+    deadline_budget: Any = None,
     repository_handle: Any = None,
 ) -> dict[str, Any]:
     """Run a task through a direct public-API model — free tier (Gemini, Groq,
@@ -1009,6 +1014,7 @@ def _ask_direct_api_model(
         # The turn's contract budgets (tool calls, wall clock, compaction),
         # so a long multi-file task is not held to a short task's allowance.
         tool_loop_policy=tool_loop_policy,
+        deadline_budget=deadline_budget,
         repository_handle=repository_handle,
     )
     if result.get("status") == "runner_error":

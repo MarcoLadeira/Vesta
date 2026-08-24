@@ -2,6 +2,21 @@
 
 ## 0.2.1 Alpha.1
 
+### Release identity and startup
+
+- Made `pyproject.toml [project].version` the only editable application-version
+  source and added generated, CI-validated projections for runtime and current
+  documentation. Wheels, source archives, portable bundles, native packages,
+  checksums, provenance, qualification evidence, diagnostics, receipts, and the
+  GUI now distinguish the application version from the exact build SHA,
+  platform/architecture/install identity, asset fingerprint, and independently
+  versioned compatibility coordinates.
+- Added one dependency-light bootstrap boundary for installed CLI, packaged
+  desktop, editable, supported source, and unsupported raw-source startup.
+  Missing PyYAML, Qt, QtWebEngine, provider executables, package metadata, web
+  assets, incompatible schemas, corrupt packages, and malformed user config now
+  produce stable actionable categories before application/runtime imports.
+
 ### Repository safety
 
 - Added canonical repository handles and fail-closed mutation gates. OPai now

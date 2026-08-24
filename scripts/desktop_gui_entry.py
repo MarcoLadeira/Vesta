@@ -1,7 +1,7 @@
 """Narrow frozen-entry point for the OPai QtWebEngine desktop application."""
 
-from opai.cli import gui_main
+from opai.bootstrap import desktop_main
 
 
 if __name__ == "__main__":
-    raise SystemExit(gui_main())
+    raise SystemExit(desktop_main())

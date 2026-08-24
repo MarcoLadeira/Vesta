@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
 from opai import __version__
+from opai.release_identity import packaged_metadata_paths
 
 from .identity import detect_install_type
 from .models import InstallType, InstalledBuild
@@ -32,23 +33,6 @@ def _read_object(path: Path) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
 
 
-def _nearby(name: str) -> tuple[Path, ...]:
-    starts = [Path(sys.executable).resolve(strict=False), Path(__file__).resolve()]
-    candidates: list[Path] = []
-    for start in starts:
-        directory = start if start.is_dir() else start.parent
-        for parent in (directory, *tuple(directory.parents)[:6]):
-            candidates.extend(
-                (
-                    parent / name,
-                    parent / "Resources" / name,
-                    parent / "resources" / name,
-                    parent / "opai" / "update" / name,
-                )
-            )
-    return tuple(dict.fromkeys(candidates))
-
-
 def _architecture() -> str:
     machine = platform.machine().casefold()
     return {"amd64": "x86_64", "x64": "x86_64", "aarch64": "arm64"}.get(
@@ -62,7 +46,7 @@ def load_installed_build(
     paths = (
         tuple(identity_paths)
         if identity_paths is not None
-        else _nearby("release-identity.json")
+        else packaged_metadata_paths("release-identity.json")
     )
     value = next((item for path in paths if (item := _read_object(path))), {})
     install_type = detect_install_type()
@@ -89,7 +73,11 @@ def load_installed_build(
 
 
 def load_trust_store(*, paths: Iterable[Path] | None = None) -> dict[str, object]:
-    candidates = tuple(paths) if paths is not None else _nearby("update-trust.json")
+    candidates = (
+        tuple(paths)
+        if paths is not None
+        else packaged_metadata_paths("update-trust.json")
+    )
     value = next((item for path in candidates if (item := _read_object(path))), {})
     if value.get("schema_version") != 1:
         return {}

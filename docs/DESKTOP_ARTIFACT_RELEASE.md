@@ -1,6 +1,6 @@
 # OPai Desktop Artifact Release Runbook
 
-OPai 0.2.0 alpha is fully free. Desktop artifacts must never add a payment,
+The OPai alpha is fully free. Desktop artifacts must never add a payment,
 license, entitlement, activation, account, or telemetry requirement.
 
 ## Production trust boundary
@@ -72,9 +72,11 @@ permission. It verifies the exact publisher using the non-secret identity record
 written after protected signing, rather than reading protected environment
 variables.
 
-The resulting smoke report binds the ZIP SHA-256, candidate commit, annotated-tag
-object SHA, platform, workflow run ID, signed-artifact ID/name/producer attempt,
-and smoke attempt. A third job downloads the signed ZIP and smoke report by their
+The resulting smoke report binds the ZIP SHA-256, canonical application
+version/channel/tag, candidate commit, asset fingerprint, compatibility
+coordinates, annotated-tag object SHA, platform/architecture/install type,
+workflow run ID, signed-artifact ID/name/producer attempt, and smoke attempt. A
+third job downloads the signed ZIP and smoke report by their
 immutable artifact IDs, independently recalculates and validates that binding,
 revalidates the current remote tag object, stages uniquely named immutable
 evidence, revalidates the tag again immediately after staging, and only then
@@ -94,7 +96,8 @@ SHA.
 
 Before a protected signing step can read credentials, the workflow requires a
 safe annotated package-version tag whose canonical value is the package's PEP
-440 version with a `v` prefix (`0.2.1a1` maps to `v0.2.1a1`), whose tag object
+440 version with a `v` prefix (`<package-version>` maps to
+`v<package-version>`), whose tag object
 directly targets the recorded commit, and whose commit is reachable from
 protected `main`.
 
@@ -169,7 +172,8 @@ production release.
 
 `production` is permitted only after the manual desktop-artifact workflow has
 checked out an exact annotated safe package-version tag matching the package
-version (for example `0.2.1a1` requires `v0.2.1a1`) and reachable from
+version (the canonical application version requires the matching `v`-prefixed
+tag) and reachable from
 protected `main`,
 verified the expected Windows signer thumbprint or macOS Team ID, written
 post-signing checksums, completed the credential-free native artifact smoke,
