@@ -27,6 +27,7 @@ and guarantee the drift Stage 4 is meant to detect.
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -68,10 +69,12 @@ def _store(root: Path) -> Iterator[sqlite3.Connection | None]:
     try:
         yield connection
     finally:
-        try:
+        # suppress() rather than try/except/pass: same intent, and bandit
+        # rightly flags the bare form. Closing must not raise past the caller --
+        # they already have their answer, and a failed close is not their
+        # problem to handle.
+        with contextlib.suppress(Exception):  # noqa: BLE001
             connection.close()
-        except Exception:  # noqa: BLE001 - closing must not raise past the caller
-            pass
 
 
 def record_admission(
