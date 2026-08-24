@@ -19,6 +19,7 @@ import json
 import os
 import socket
 import threading
+import time
 import urllib.error
 import uuid
 import urllib.parse
@@ -28,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from .cancellation import LocalRunCancelled
+from .command_runner import redact
 from .local_models import classify_endpoint
 
 
@@ -577,6 +579,10 @@ _STOP_MESSAGES = {
     ),
     "repeated_failure": "Stopped: the same action kept failing and could not be recovered.",
     "controller_timeout": "Stopped: the task ran too long without reaching a milestone.",
+    "task_deadline": (
+        "Stopped: the task reached its deadline. Work completed so far was "
+        "retained, but final verification did not finish."
+    ),
     "external_ceiling": "Stopped: reached the configured external tool-call ceiling.",
     "invalid_decision": "Stopped: the provider did not return a valid completion decision.",
     "provider_error": "Stopped: the provider was temporarily unavailable.",
@@ -767,6 +773,8 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         tool_loop_policy: Any = None,
         repository_handle: Any = None,
         provider_id: str | None = None,
+        deadline_budget: Any = None,
+        deadline_clock: Any = None,
     ) -> dict[str, Any]:
         """Run a continuous, checkpointed repository tool loop.
 
@@ -791,6 +799,10 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         caller's existing aggregate ``record_model_call`` — usage.py still reads
         only the legacy aggregate event, so the aggregate call site is not (yet)
         retired; removing it is Task 8's usage.py v2 migration, not this one.
+
+        ``deadline_budget`` caps every provider turn by the task time remaining;
+        ``deadline_clock`` is injectable only to make that hard-clock behavior
+        deterministic under test.
         """
 
         from .completion import CompletionState
@@ -802,9 +814,12 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             ToolLoopController,
             ToolLoopPolicy,
             ToolLoopProviderError,
+            ToolLoopTaskDeadlineExceeded,
         )
         from .usage_report import ProviderTurnUsage
 
+        deadline_clock = deadline_clock or time.monotonic
+        task_started_at = deadline_clock()
         run_id = uuid.uuid4().hex[:16]
         resolved_provider_id = provider_id or (
             urllib.parse.urlsplit(self.base_url).hostname or self.name
@@ -830,6 +845,20 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             turn_counter["n"] += 1
             turn_index = turn_counter["n"]
             call_id = f"{run_id}:{turn_index}"
+            turn_timeout = timeout
+            task_limited = False
+            if deadline_budget is not None:
+                elapsed = deadline_clock() - task_started_at
+                remaining = deadline_budget.task_deadline_seconds - elapsed
+                if remaining <= 0:
+                    raise ToolLoopTaskDeadlineExceeded(
+                        elapsed_seconds=elapsed,
+                        provider_responsive=True if turn_index > 1 else None,
+                        phase="before_provider_turn",
+                        teardown_state="not_required",
+                    )
+                task_limited = remaining <= timeout
+                turn_timeout = min(timeout, remaining)
             with contextlib.suppress(Exception):  # ledger never blocks a turn
                 record_model_call_started(
                     project_root,
@@ -845,12 +874,24 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                 )
             try:
                 result = self._chat(
-                    messages, tools=tools, timeout=timeout, cancel=cancel
+                    messages, tools=tools, timeout=turn_timeout, cancel=cancel
                 )
             except LocalRunCancelled:
                 raise
+            except ToolLoopTaskDeadlineExceeded:
+                raise
+            except TimeoutError as exc:
+                if task_limited:
+                    elapsed = deadline_clock() - task_started_at
+                    raise ToolLoopTaskDeadlineExceeded(
+                        elapsed_seconds=elapsed,
+                        provider_responsive=True if turn_index > 1 else None,
+                        phase="provider_turn",
+                        teardown_state="transport_closed",
+                    ) from exc
+                raise ToolLoopProviderError(redact(str(exc))) from exc
             except Exception as exc:  # transport failure -> retryable state
-                raise ToolLoopProviderError(str(exc)) from exc
+                raise ToolLoopProviderError(redact(str(exc))) from exc
             message = (result.get("choices") or [{}])[0].get("message") or {}
             calls = message.get("tool_calls")
             calls = calls if isinstance(calls, list) else []
@@ -882,6 +923,15 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                         provider_quota=usage.get("quota_snapshot"),
                     ),
                 )
+            if deadline_budget is not None:
+                elapsed = deadline_clock() - task_started_at
+                if elapsed > deadline_budget.task_deadline_seconds:
+                    raise ToolLoopTaskDeadlineExceeded(
+                        elapsed_seconds=elapsed,
+                        provider_responsive=True,
+                        phase="provider_turn_complete",
+                        teardown_state="not_required",
+                    )
             return ChatTurn(
                 content=str(message.get("content") or ""),
                 tool_calls=tuple(call for call in calls if isinstance(call, dict)),
@@ -913,6 +963,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             tool_calling_enabled=tool_calling_enabled,
             guard=guard,
             cancel=cancel,
+            deadline_budget=deadline_budget,
         )
 
         if outcome.completion_state is CompletionState.CANCELLED:
@@ -932,6 +983,11 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         text = outcome.answer
         if not text and not completed:
             text = _STOP_MESSAGES.get(outcome.stopped_reason, "")
+        timeout_info = outcome.timeout_event
+        if timeout_info is not None:
+            from .deadlines import enrich_timeout_event
+
+            timeout_info = enrich_timeout_event(timeout_info, run_id=run_id)
         return {
             "text": text,
             "tool_trace": [dict(item) for item in outcome.tool_trace],
@@ -944,6 +1000,8 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             "completion_state": outcome.completion_state.value,
             "user_question": outcome.user_question,
             "blocked_reason": outcome.blocked_reason,
+            "timed_out": timeout_info is not None,
+            "timeout_event": timeout_info,
             # #569: a stop must be explainable. The envelope names the cause and
             # carries the evidence behind it, so surfaces can say what actually
             # happened instead of "provider failed". Built only for a run that

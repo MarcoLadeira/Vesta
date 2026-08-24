@@ -73,7 +73,6 @@ SNAPSHOT: dict[str, int] = {
     "opaihub/cli.py": 2,
     "opaihub/desktop_artifacts.py": 1,
     "opaihub/gui_pipeline.py": 3,
-    "opaihub/local_runner.py": 1,
     "opaihub/repository_safety.py": 2,
     "opaihub/tool_health.py": 1,
     "opaihub/tool_loop.py": 2,
