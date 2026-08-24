@@ -658,7 +658,8 @@ class ToolLoopController:
             cost_state: str = "unknown",
         ) -> ToolLoopResult:
             nonlocal terminal_timeout_event
-            assert deadline_budget is not None
+            if deadline_budget is None:
+                raise RuntimeError("task deadline stop requires a deadline budget")
             terminal_timeout_event = build_timeout_event(
                 origin=TASK_DEADLINE,
                 owner="tool_loop_controller",

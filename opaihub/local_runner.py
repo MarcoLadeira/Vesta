@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from .cancellation import LocalRunCancelled
+from .command_runner import redact
 from .local_models import classify_endpoint
 
 
@@ -888,9 +889,9 @@ class FreeAPIRunner(OpenAICompatibleRunner):
                         phase="provider_turn",
                         teardown_state="transport_closed",
                     ) from exc
-                raise ToolLoopProviderError(str(exc)) from exc
+                raise ToolLoopProviderError(redact(str(exc))) from exc
             except Exception as exc:  # transport failure -> retryable state
-                raise ToolLoopProviderError(str(exc)) from exc
+                raise ToolLoopProviderError(redact(str(exc))) from exc
             message = (result.get("choices") or [{}])[0].get("message") or {}
             calls = message.get("tool_calls")
             calls = calls if isinstance(calls, list) else []
