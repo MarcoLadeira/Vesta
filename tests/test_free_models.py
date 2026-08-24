@@ -404,6 +404,217 @@ class FreeAPIRunnerTests(unittest.TestCase):
         ]
         self.assertNotIn("apply_patch", names)
 
+    def test_tool_loop_timeout_keeps_typed_evidence_and_run_identity(self):
+        from opaihub.completion import CompletionState
+        from opaihub.deadlines import DeadlineBudget, TASK_DEADLINE, timeout_event
+        from opaihub.local_runner import FreeAPIRunner
+        from opaihub.tool_loop import ToolLoopResult
+
+        budget = DeadlineBudget(
+            task_deadline_seconds=3600,
+            provider_idle_timeout_seconds=300,
+            lane="stable",
+        )
+        event = timeout_event(
+            origin=TASK_DEADLINE,
+            owner="tool_loop_controller",
+            configured_seconds=budget.task_deadline_seconds,
+            elapsed_seconds=3601,
+            provider_responsive=True,
+            budget=budget,
+            progress_observed=True,
+        )
+        outcome = ToolLoopResult(
+            completion_state=CompletionState.TIMEOUT,
+            stopped_reason=TASK_DEADLINE,
+            timeout_event=event,
+        )
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("opaihub.tool_loop.ToolLoopController") as controller,
+        ):
+            controller.return_value.run.return_value = outcome
+            result = runner.complete_with_tools(
+                "Long task",
+                project_root=Path(tmp),
+                allow_edits=True,
+                deadline_budget=budget,
+            )
+
+        self.assertIs(
+            controller.return_value.run.call_args.kwargs["deadline_budget"], budget
+        )
+        self.assertTrue(result["timed_out"])
+        self.assertEqual(result["completion_state"], "timeout")
+        self.assertEqual(result["stopped_reason"], TASK_DEADLINE)
+        self.assertEqual(result["timeout_event"]["timeout_origin"], TASK_DEADLINE)
+        self.assertEqual(
+            result["timeout_event"]["deadline_budget_id"], budget.budget_id
+        )
+        self.assertTrue(result["timeout_event"]["run_id"])
+
+    def test_task_limited_transport_timeout_is_not_retried_as_provider_failure(self):
+        from opaihub.deadlines import DeadlineBudget, TASK_DEADLINE
+        from opaihub.local_runner import FreeAPIRunner
+        from opaihub.tool_loop import ToolLoopPolicy
+
+        budget = DeadlineBudget(
+            task_deadline_seconds=10,
+            provider_idle_timeout_seconds=3,
+            lane="stable",
+        )
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "read-1",
+                                "function": {
+                                    "name": "read_file",
+                                    "arguments": '{"path":"app.py"}',
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+        calls: list[float] = []
+
+        def fake_http(*args, timeout, **kwargs):
+            calls.append(timeout)
+            if len(calls) == 1:
+                return response
+            raise TimeoutError("task-limited read timed out")
+
+        clock = iter([0.0, 1.0, 2.0, 3.0, 10.5])
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch(
+                "opaihub.local_runner._http_json_cancellable", side_effect=fake_http
+            ),
+        ):
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            result = runner.complete_with_tools(
+                "Inspect app.py",
+                project_root=root,
+                allow_edits=False,
+                deadline_budget=budget,
+                tool_loop_policy=ToolLoopPolicy(
+                    max_provider_retries=2,
+                    provider_retry_delay_seconds=0,
+                ),
+                deadline_clock=lambda: next(clock),
+            )
+
+        self.assertEqual(len(calls), 2)
+        self.assertLessEqual(calls[-1], 7.0)
+        self.assertTrue(result["timed_out"])
+        self.assertEqual(result["stopped_reason"], TASK_DEADLINE)
+        self.assertEqual(result["timeout_event"]["timeout_origin"], TASK_DEADLINE)
+        self.assertEqual(result["timeout_event"]["provider_condition"], "responsive")
+        self.assertTrue(result["timeout_event"]["progress_observed"])
+
+    def test_shorter_provider_turn_timeout_remains_a_provider_failure(self):
+        from opaihub.deadlines import DeadlineBudget
+        from opaihub.local_runner import FreeAPIRunner
+        from opaihub.tool_loop import ToolLoopPolicy
+
+        budget = DeadlineBudget(
+            task_deadline_seconds=3600,
+            provider_idle_timeout_seconds=300,
+            lane="stable",
+        )
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+        calls: list[float] = []
+
+        def fake_http(*args, timeout, **kwargs):
+            calls.append(timeout)
+            raise TimeoutError("provider turn timed out")
+
+        clock = iter([0.0, 1.0, 2.0, 3.0])
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch(
+                "opaihub.local_runner._http_json_cancellable", side_effect=fake_http
+            ),
+        ):
+            result = runner.complete_with_tools(
+                "Inspect app.py",
+                project_root=Path(tmp),
+                allow_edits=False,
+                deadline_budget=budget,
+                tool_loop_policy=ToolLoopPolicy(
+                    max_provider_retries=2,
+                    provider_retry_delay_seconds=0,
+                ),
+                deadline_clock=lambda: next(clock),
+            )
+
+        self.assertEqual(calls, [60.0, 60.0, 60.0])
+        self.assertFalse(result["timed_out"])
+        self.assertEqual(result["stopped_reason"], "provider_error")
+        self.assertEqual(result["completion_state"], "retryable_provider_error")
+        self.assertIsNone(result["timeout_event"])
+
+    def test_provider_response_after_task_deadline_cannot_execute_tools(self):
+        from opaihub.deadlines import DeadlineBudget, TASK_DEADLINE
+        from opaihub.local_runner import FreeAPIRunner
+
+        budget = DeadlineBudget(
+            task_deadline_seconds=10,
+            provider_idle_timeout_seconds=3,
+            lane="stable",
+        )
+        runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "patch-1",
+                                "function": {
+                                    "name": "apply_patch",
+                                    "arguments": '{"patch":'
+                                    + json.dumps(PATCH_ONE_TO_TWO)
+                                    + "}",
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+        clock = iter([0.0, 1.0, 10.5])
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch(
+                "opaihub.local_runner._http_json_cancellable", return_value=response
+            ) as http,
+        ):
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            result = runner.complete_with_tools(
+                "Set value to two",
+                project_root=root,
+                allow_edits=True,
+                deadline_budget=budget,
+                deadline_clock=lambda: next(clock),
+            )
+
+            self.assertEqual((root / "app.py").read_text(), "value = 1\n")
+
+        self.assertLessEqual(http.call_args.kwargs["timeout"], 9.0)
+        self.assertEqual(result["tool_trace"], [])
+        self.assertEqual(result["stopped_reason"], TASK_DEADLINE)
+        self.assertEqual(result["timeout_event"]["provider_condition"], "responsive")
+        self.assertEqual(result["timeout_event"]["phase"], "provider_turn_complete")
+
     def test_explicit_external_ceiling_stops_recoverably_without_slicing(self):
         # Task 5: 12 is no longer a terminal budget. An explicit, deprecated
         # external ceiling is honoured only when set (the GUI never sets it), and
@@ -1106,6 +1317,41 @@ class AskFreeModelTests(unittest.TestCase):
 
         self.assertTrue(run_explicit.call_args.kwargs["allow_cloud"])
 
+    def test_ask_free_forwards_the_deadline_budget(self):
+        from pathlib import Path
+
+        from opai.app_state import ask
+        from opaihub.deadlines import DeadlineBudget
+
+        budget = DeadlineBudget(
+            task_deadline_seconds=3600,
+            provider_idle_timeout_seconds=300,
+            lane="stable",
+        )
+        fake_result = {
+            "status": "answered_locally",
+            "answer": "4",
+            "source": "local_model",
+        }
+        with (
+            mock.patch(
+                "opaihub.ask.run_explicit_model", return_value=fake_result
+            ) as run_explicit,
+            mock.patch.dict(
+                os.environ,
+                {"GOOGLE_API_KEY": "sk-test"},  # pragma: allowlist secret
+            ),
+        ):
+            ask(
+                Path("/tmp"),
+                "What is 2+2?",
+                model_choice="free:gemini:gemini-3.1-flash-lite",
+                allow_cloud=True,
+                deadline_budget=budget,
+            )
+
+        self.assertIs(run_explicit.call_args.kwargs["deadline_budget"], budget)
+
     def test_editable_explicit_free_model_bypasses_auto_route_and_cache(self):
         from opai.app_state import ask
 
@@ -1289,6 +1535,49 @@ class FreeToolCallingTests(unittest.TestCase):
         self.assertFalse(runner.calls[0]["allow_edits"])
         self.assertEqual(result["tool_trace"][0]["tool"], "read_file")
         self.assertEqual(result["completion_state"], "completed")
+
+    def test_free_tool_loop_receives_the_deadline_budget(self):
+        from opaihub.ask import run_explicit_model
+        from opaihub.deadlines import DeadlineBudget
+
+        class RecordingLoopRunner:
+            name = "free-api"
+            model = "gemini-3.1-flash-lite"
+            last_usage = {}
+
+            def __init__(self):
+                self.calls: list[dict] = []
+
+            def available(self):
+                return True
+
+            def complete_with_tools(self, prompt, **kwargs):
+                self.calls.append(kwargs)
+                return {
+                    "text": "done",
+                    "tool_trace": [],
+                    "completion_state": "completed",
+                }
+
+        budget = DeadlineBudget(
+            task_deadline_seconds=3600,
+            provider_idle_timeout_seconds=300,
+            lane="stable",
+        )
+        runner = RecordingLoopRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            run_explicit_model(
+                root,
+                "Inspect app.py",
+                runner=runner,
+                selected_model_id="free:gemini:gemini-3.1-flash-lite",
+                tool_calling_enabled=True,
+                record=False,
+                deadline_budget=budget,
+            )
+
+        self.assertIs(runner.calls[0]["deadline_budget"], budget)
 
     def test_free_tool_loop_keeps_write_tools_gated_on_allow_edits(self):
         """allow_edits=False must reach the loop unchanged — write tools are

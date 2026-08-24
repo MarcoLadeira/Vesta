@@ -95,6 +95,38 @@ class ResultCacheTests(unittest.TestCase):
 
 
 class AskExecutionTests(unittest.TestCase):
+    def test_local_runner_receives_the_shared_deadline_budget(self):
+        from opaihub.deadlines import DeadlineBudget
+
+        class DeadlineAwareRunner(_FakeRunner):
+            def __init__(self):
+                super().__init__()
+                self.deadline_budget = None
+
+            def complete(
+                self, prompt, *, system=None, timeout=60.0, deadline_budget=None
+            ):
+                self.deadline_budget = deadline_budget
+                return super().complete(prompt, system=system, timeout=timeout)
+
+        budget = DeadlineBudget(
+            task_deadline_seconds=3600,
+            provider_idle_timeout_seconds=300,
+            lane="stable",
+        )
+        runner = DeadlineAwareRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ask(
+                Path(tmp),
+                "summarize the diff",
+                runner=runner,
+                record=False,
+                store_answer=False,
+                deadline_budget=budget,
+            )
+
+        self.assertIs(runner.deadline_budget, budget)
+
     def test_answers_locally_and_records_real_savings(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

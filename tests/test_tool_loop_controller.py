@@ -14,12 +14,14 @@ import threading
 import unittest
 
 from opaihub.completion import CompletionState
+from opaihub.deadlines import DeadlineBudget, TASK_DEADLINE
 from opaihub.tool_loop import (
     ChatTurn,
     InvalidCompletionDecision,
     ToolLoopController,
     ToolLoopPolicy,
     ToolLoopProviderError,
+    ToolLoopTaskDeadlineExceeded,
     parse_completion_decision,
 )
 
@@ -298,6 +300,41 @@ class ControllerRecoverableStateTests(unittest.TestCase):
         self.assertIs(result.completion_state, CompletionState.RETRYABLE_PROVIDER_ERROR)
         self.assertIn("503", result.last_error)
 
+    def test_inflight_task_deadline_is_terminal_and_never_retried(self):
+        attempts = 0
+
+        def chat(messages, *, tools):
+            nonlocal attempts
+            attempts += 1
+            raise ToolLoopTaskDeadlineExceeded(
+                elapsed_seconds=10.5,
+                provider_responsive=True,
+                phase="provider_turn",
+                teardown_state="transport_closed",
+            )
+
+        budget = DeadlineBudget(
+            task_deadline_seconds=10,
+            provider_idle_timeout_seconds=3,
+            lane="stable",
+        )
+        result = self._controller(max_provider_retries=2).run(
+            chat=chat,
+            executor=FakeExecutor(),
+            base_messages=self._base(),
+            deadline_budget=budget,
+        )
+
+        self.assertEqual(attempts, 1)
+        self.assertIs(result.completion_state, CompletionState.TIMEOUT)
+        self.assertEqual(result.stopped_reason, TASK_DEADLINE)
+        self.assertIsNotNone(result.timeout_event)
+        assert result.timeout_event is not None
+        self.assertEqual(result.timeout_event["timeout_origin"], TASK_DEADLINE)
+        self.assertEqual(result.timeout_event["provider_condition"], "responsive")
+        self.assertEqual(result.timeout_event["phase"], "provider_turn")
+        self.assertEqual(result.timeout_event["retry_safety"], "reconcile_before_retry")
+
     def test_a_blip_resumes_the_run_instead_of_discarding_its_progress(self):
         # A failed round-trip changes nothing about the loop's state, so the
         # turn can be re-issued. Losing an entire long run to a momentary 503
@@ -483,6 +520,46 @@ class ControllerRecoverableStateTests(unittest.TestCase):
         )
 
         self.assertIs(result.completion_state, CompletionState.STUCK_NO_PROGRESS)
+
+    def test_task_deadline_does_not_reset_when_active_work_makes_progress(self):
+        """The hard task clock is independent from the no-progress backstop."""
+
+        elapsed = iter([0.0, 5.0, 11.0])
+
+        def clock():
+            try:
+                return next(elapsed)
+            except StopIteration:  # pragma: no cover - terminal before exhaustion
+                return 11.0
+
+        budget = DeadlineBudget(
+            task_deadline_seconds=10.0,
+            provider_idle_timeout_seconds=3.0,
+            lane="long_horizon",
+        )
+        controller = ToolLoopController(
+            ToolLoopPolicy(max_active_seconds=1000.0), clock=clock
+        )
+        result = controller.run(
+            chat=scripted_chat(
+                [
+                    tool_turn("c1", "read_file", '{"path": "new-evidence.py"}'),
+                    tool_turn("c2", "apply_patch", '{"path": "changed.py"}'),
+                ]
+            ),
+            executor=FakeExecutor(),
+            base_messages=self._base(),
+            deadline_budget=budget,
+        )
+
+        self.assertIs(result.completion_state, CompletionState.TIMEOUT)
+        self.assertEqual(result.stopped_reason, TASK_DEADLINE)
+        self.assertIsNotNone(result.timeout_event)
+        assert result.timeout_event is not None
+        self.assertEqual(result.timeout_event["timeout_origin"], TASK_DEADLINE)
+        self.assertEqual(result.timeout_event["deadline_budget_id"], budget.budget_id)
+        self.assertEqual(result.timeout_event["provider_condition"], "responsive")
+        self.assertTrue(result.timeout_event["progress_observed"])
 
 
 class ControllerTraceTests(unittest.TestCase):

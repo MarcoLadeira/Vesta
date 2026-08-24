@@ -751,6 +751,156 @@ def record_cost(
         return int(cursor.lastrowid)
 
 
+# --------------------------------------------------------------------------
+# Projections
+#
+# #613: "Rebuild every projection deterministically from the same immutable
+# snapshot" and "Projection deletion and rebuild produces the same canonical
+# serialized state." Both are about *bytes*, not about a dict that happens to
+# compare equal, so everything here goes through one canonical encoder.
+# --------------------------------------------------------------------------
+
+
+def canonical_bytes(payload: Any) -> bytes:
+    """The one serialisation a projection is compared by.
+
+    Sorted keys and fixed separators, so two rebuilds of the same history are
+    byte-identical rather than merely equal-as-dicts. ``ensure_ascii`` keeps
+    the bytes stable regardless of the reader's locale or console encoding.
+    """
+
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+
+
+@dataclass(frozen=True)
+class ProjectionResult:
+    """A rebuilt projection and how much of the history it could trust."""
+
+    projection_type: str
+    projection_version: int
+    payload: Any
+    source_sequence: int
+    integrity: str
+    first_invalid_sequence: int | None = None
+
+    @property
+    def complete(self) -> bool:
+        return self.integrity == INTEGRITY_COMPLETE
+
+    def to_bytes(self) -> bytes:
+        return canonical_bytes(self.payload)
+
+
+def rebuild_projection(
+    connection: sqlite3.Connection,
+    *,
+    projection_type: str,
+    projection_version: int,
+    reduce: Any,
+    empty: Any,
+    now: str,
+    run_id: str | None = None,
+    persist: bool = True,
+) -> ProjectionResult:
+    """Fold the event history into a projection, deterministically.
+
+    Stops at the first unreadable event rather than folding past it. That is
+    the difference between a projection that is *short* and one that is
+    *wrong*: skipping a corrupt event would produce a state that looks
+    complete and describes a history that never happened. The result carries
+    ``degraded`` and the offending sequence so a caller can refuse to treat it
+    as authoritative -- requirement 8, at the projection layer rather than
+    only at the raw read.
+    """
+
+    projection = empty() if callable(empty) else empty
+    source_sequence = 0
+    integrity = INTEGRITY_COMPLETE
+    first_invalid: int | None = None
+
+    for record in read_events(connection, run_id=run_id):
+        if not record["readable"]:
+            integrity = INTEGRITY_DEGRADED
+            first_invalid = int(record["sequence"])
+            break
+        projection = reduce(projection, record)
+        source_sequence = int(record["sequence"])
+
+    result = ProjectionResult(
+        projection_type=projection_type,
+        projection_version=int(projection_version),
+        payload=projection,
+        source_sequence=source_sequence,
+        integrity=integrity,
+        first_invalid_sequence=first_invalid,
+    )
+    if persist:
+        _persist_projection(connection, result, now=now)
+    return result
+
+
+def _persist_projection(
+    connection: sqlite3.Connection, result: ProjectionResult, *, now: str
+) -> None:
+    with _transaction(connection):
+        connection.execute(
+            "INSERT INTO projections(projection_type, projection_version,"
+            " source_sequence, payload, rebuilt_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(projection_type, projection_version) DO UPDATE SET"
+            " source_sequence = excluded.source_sequence,"
+            " payload = excluded.payload,"
+            " rebuilt_at = excluded.rebuilt_at",
+            (
+                result.projection_type,
+                result.projection_version,
+                result.source_sequence,
+                canonical_bytes(result.payload).decode("utf-8"),
+                now,
+            ),
+        )
+
+
+def load_projection(
+    connection: sqlite3.Connection, *, projection_type: str, projection_version: int
+) -> dict[str, Any] | None:
+    """The stored projection, or ``None`` when it has never been built."""
+
+    row = connection.execute(
+        "SELECT * FROM projections WHERE projection_type = ?"
+        " AND projection_version = ?",
+        (projection_type, int(projection_version)),
+    ).fetchone()
+    if row is None:
+        return None
+    record = dict(row)
+    try:
+        record["payload"] = json.loads(row["payload"])
+        record["readable"] = True
+    except (TypeError, ValueError):
+        # A projection is disposable, so an unreadable one is a rebuild
+        # trigger rather than a crisis -- but it is still never returned as
+        # empty-and-fine.
+        record["payload"] = None
+        record["readable"] = False
+    return record
+
+
+def drop_projection(
+    connection: sqlite3.Connection, *, projection_type: str, projection_version: int
+) -> bool:
+    """Delete a projection. Deliberately easy: they are disposable by design."""
+
+    with _transaction(connection):
+        cursor = connection.execute(
+            "DELETE FROM projections WHERE projection_type = ?"
+            " AND projection_version = ?",
+            (projection_type, int(projection_version)),
+        )
+        return cursor.rowcount > 0
+
+
 def store_health(project_root: Path) -> dict[str, Any]:
     """Doctor/preflight summary: does the journal exist, and is it trustworthy?"""
 
@@ -795,16 +945,21 @@ __all__: Sequence[str] = (
     "INTEGRITY_INCOMPATIBLE",
     "INTEGRITY_CORRUPT",
     "IntegrityReport",
+    "ProjectionResult",
     "IncompatibleSchemaError",
     "JournalStoreError",
     "StaleWriterError",
     "acquire_lease",
     "append_event",
+    "canonical_bytes",
     "check_integrity",
+    "drop_projection",
     "journal_path",
+    "load_projection",
     "migrate",
     "open_store",
     "read_events",
+    "rebuild_projection",
     "record_cost",
     "record_operation",
     "release_lease",
