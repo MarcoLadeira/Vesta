@@ -943,6 +943,34 @@ def handle_gui_message(
     save_active_repo(root, repo_context)
     previous_workflow = load_workflow_state(root)
     runtime = AgentRuntime(root, task=message)
+    # #613 Stage 3: mirror this run's admission into the transactional journal.
+    #
+    # Placed here rather than beside the #295 admission gate above because that
+    # gate runs before AgentRuntime exists, and #379 owns task identity -- a
+    # journal row minted before `runtime.task_id` would either invent a second
+    # identity or record a run with no task, and both are the contradiction
+    # this issue exists to remove.
+    #
+    # Best-effort by the same rule the admission gate states for itself: a turn
+    # is never blocked by its own bookkeeping. `record_admission` returns None
+    # instead of raising, and `_journal_fence` staying None simply means later
+    # lifecycle events are unfenced no-ops. Nothing reads from the journal yet
+    # (Stage 5 is the cutover), so a missing mirror costs evidence, not
+    # correctness.
+    _journal_fence: int | None = None
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
+        from .journal_runtime import record_admission
+
+        _journal_fence = record_admission(
+            root,
+            task_id=runtime.task_id,
+            run_id=turn_id,
+            task=message,
+            now=_iso_now(),
+            surface="gui",
+            mode=mode,
+            model=model_id,
+        )
     task_repository_handle: Any = None
     repository_safety_error = ""
     effective_policy: VerificationPolicy | None = None

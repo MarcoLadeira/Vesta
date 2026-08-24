@@ -49,6 +49,12 @@ DURABLE_WRITE_CALLS = frozenset(
         "write_text",
         "write_bytes",
         "interprocess_transaction",
+        # A module that opens the journal is a durable writer even though it
+        # never touches sqlite3 itself. The sqlite3.connect signal added with
+        # journal_store.py only sees the *primitive*, so an adapter one layer
+        # up stayed invisible -- journal_runtime.py was not flagged until this
+        # was added. Same blind spot as before, one level higher.
+        "open_store",
     }
 )
 
@@ -60,6 +66,11 @@ JOURNAL_OWNED = {
     # transactional history the other entries are migrating *into*, so it is
     # machinery in the same sense run_journal and shadow_journal are.
     "opaihub/journal_store.py": "events — the SQLite WAL journal every other entry migrates into",
+    # Stage 3's adapter. Originates canonical events into the journal from the
+    # live run path; like shadow_journal it is a writer with no legacy record
+    # of its own to disagree with, so it is machinery rather than a migration
+    # target.
+    "opaihub/journal_runtime.py": "runs — Stage 3 journal-backed run lifecycle",
     # runs / events / leases
     "opaihub/run_journal.py": "events — append-only journal this issue generalises",
     # Not a durable writer in its own right: it mirrors a record another
@@ -402,6 +413,7 @@ class AdoptedJournalTests(unittest.TestCase):
         """
 
         machinery = {
+            "opaihub/journal_runtime.py",
             "opaihub/journal_store.py",
             "opaihub/run_journal.py",
             "opaihub/shadow_journal.py",
@@ -431,6 +443,7 @@ class AdoptedJournalTests(unittest.TestCase):
         """
 
         machinery = {
+            "opaihub/journal_runtime.py",
             "opaihub/journal_store.py",
             "opaihub/run_journal.py",
             "opaihub/shadow_journal.py",
