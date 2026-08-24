@@ -416,9 +416,7 @@ class GitHubAdapter:
         if prior["state"] == DONE:
             return str(prior["result"].get("output") or "")
         if prior["state"] == IN_FLIGHT:
-            reconciled, decided = self._reconcile_update_pr(
-                key, number, title, body
-            )
+            reconciled, decided = self._reconcile_update_pr(key, number, title, body)
             if reconciled is not None:
                 return reconciled
             if not decided:
@@ -441,9 +439,7 @@ class GitHubAdapter:
             abandon(self.repo_root, key)
             raise
         except (RuntimeError, ValueError):
-            reconciled, decided = self._reconcile_update_pr(
-                key, number, title, body
-            )
+            reconciled, decided = self._reconcile_update_pr(key, number, title, body)
             if reconciled is not None:
                 return reconciled
             if not decided:
@@ -469,9 +465,7 @@ class GitHubAdapter:
         from .idempotency import OperationPersistenceError, abandon, complete
 
         try:
-            raw = self._run(
-                ["pr", "view", str(number), "--json", "title,body"]
-            )
+            raw = self._run(["pr", "view", str(number), "--json", "title,body"])
             observed = json.loads(raw)
         except (OSError, RuntimeError, ValueError, AttributeError):
             return None, False
@@ -1294,9 +1288,7 @@ class GitHubAdapter:
         complete(self.repo_root, key, {"output": output})
         return output
 
-    def _reconcile_merge_pr(
-        self, key: str, number: int
-    ) -> tuple[str | None, bool]:
+    def _reconcile_merge_pr(self, key: str, number: int) -> tuple[str | None, bool]:
         """Settle an uncertain merge by observing the PR's state on GitHub.
 
         A merge is atomic server-side: ``MERGED`` proves it landed (recorded

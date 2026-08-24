@@ -790,9 +790,7 @@ class GitHubWorkflowTests(unittest.TestCase):
         # merge_pr persists its operation intent before dispatch (#616), so it
         # needs a real repository root — the claim store lives under it.
         with tempfile.TemporaryDirectory() as tmp:
-            workflow = CodingWorkflow(
-                GitHubAdapter(make_repo(Path(tmp)), run=fake_run)
-            )
+            workflow = CodingWorkflow(GitHubAdapter(make_repo(Path(tmp)), run=fake_run))
             blocked = ShipChecks()
             self.assertFalse(workflow.merge_if_safe(5, blocked)["merged"])
             self.assertEqual(calls, [])

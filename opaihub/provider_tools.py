@@ -1918,9 +1918,7 @@ class RepositoryToolExecutor:
             # Started and never confirmed: the notification may have gone
             # out. Reconcile against GitHub's requested-reviewers list before
             # deciding whether any retry is safe (#616).
-            reconciled, decided = self._reconcile_review_request(
-                key, number, reviewers
-            )
+            reconciled, decided = self._reconcile_review_request(key, number, reviewers)
             if reconciled is not None:
                 return reconciled
             if not decided:

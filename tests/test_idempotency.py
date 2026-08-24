@@ -599,9 +599,7 @@ class MergePrTests(unittest.TestCase):
             raise AssertionError("must not dispatch while uncertain")
 
         adapter = self._adapter(run)
-        key = operation_key(
-            "merge_pr", root=str(self.root), pr=9, method="squash"
-        )
+        key = operation_key("merge_pr", root=str(self.root), pr=9, method="squash")
         self.assertEqual(begin(self.root, key)["state"], "fresh")
         self.assertEqual(status(self.root, key)["state"], "in_flight")
         with self.assertRaises(RuntimeError) as caught:
@@ -663,7 +661,9 @@ class GithubRequestReviewToolTests(unittest.TestCase):
         with mock.patch(
             "opaihub.github_connector.request_reviewers", side_effect=fake_request
         ):
-            executor._github_request_review({"number": 7, "reviewers": ["alice", "bob"]})
+            executor._github_request_review(
+                {"number": 7, "reviewers": ["alice", "bob"]}
+            )
         second = executor._github_request_review(
             {"number": 7, "reviewers": ["bob", "alice"]}
         )
@@ -740,9 +740,7 @@ class GitPushToolTests(unittest.TestCase):
 
         # allow_edits=True so the repository-safety handle is established;
         # the mutation gate fails closed without it.
-        return RepositoryToolExecutor(
-            self.root, allow_edits=True, allow_git_ops=True
-        )
+        return RepositoryToolExecutor(self.root, allow_edits=True, allow_git_ops=True)
 
     def _grant(self, executor, branch="feat/x"):
         executor.grant_command_once(f"git push -u origin {branch}")
@@ -1025,9 +1023,7 @@ class WriteFileToolTests(unittest.TestCase):
         from opaihub.idempotency import operation_key
 
         sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        return operation_key(
-            "write_file", root=str(self.root), path=path, sha=sha
-        )
+        return operation_key("write_file", root=str(self.root), path=path, sha=sha)
 
     def test_an_identical_rewrite_resolves_to_the_record(self) -> None:
         executor = self._executor()
@@ -1164,8 +1160,7 @@ class ApplyPatchToolTests(unittest.TestCase):
         from opaihub.idempotency import begin
 
         # Hand-edited to match neither the unpatched nor the patched state.
-        (self.root / "a.txt").write_text("something\nelse entirely\n",
-                                         encoding="utf-8")
+        (self.root / "a.txt").write_text("something\nelse entirely\n", encoding="utf-8")
         self.assertEqual(begin(self.root, self._key())["state"], "fresh")
         result = self._executor()._apply_patch({"patch": self.PATCH})
         self.assertEqual(result["error_code"], "PATCH_STATE_UNCERTAIN")
@@ -1261,9 +1256,7 @@ class GithubAdapterReconcileTests(unittest.TestCase):
             return "posted"
 
         adapter = self._adapter(run)
-        key = operation_key(
-            "comment_pr", root=str(self.root), pr=4, body="LGTM"
-        )
+        key = operation_key("comment_pr", root=str(self.root), pr=4, body="LGTM")
         self.assertEqual(begin(self.root, key)["state"], "fresh")
         self.assertEqual(adapter.comment_pr(4, "LGTM"), "posted")
         self.assertEqual(len(dispatches), 1)
@@ -1327,7 +1320,12 @@ class GithubToolReconcileTests(unittest.TestCase):
             return {"ok": False, "uncertain": True, "error": "response lost"}
 
         def fake_find(root, *, head, base="main", **kwargs):
-            return {"ok": True, "found": True, "url": "https://example/pr/9", "number": 9}
+            return {
+                "ok": True,
+                "found": True,
+                "url": "https://example/pr/9",
+                "number": 9,
+            }
 
         executor = self._executor()
         with mock.patch(
@@ -1383,9 +1381,7 @@ class GithubToolReconcileTests(unittest.TestCase):
         with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
             first = executor._github_comment({"number": 5, "body": "hi"})
         self.assertEqual(first["error_code"], "COMMENT_STATE_UNCERTAIN")
-        with mock.patch(
-            "opaihub.github_connector.find_comment", side_effect=fake_find
-        ):
+        with mock.patch("opaihub.github_connector.find_comment", side_effect=fake_find):
             second = executor._github_comment({"number": 5, "body": "hi"})
         self.assertTrue(second["ok"], second)
         self.assertIn("confirmed", second["message"])

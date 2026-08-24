@@ -125,13 +125,18 @@ class FaultMatrixTests(unittest.TestCase):
             "git_create_branch", {"name": "feat/matrix"}
         )
         self.assertEqual(result["error_code"], "BRANCH_STATE_UNCERTAIN")
-        branches = subprocess.run(
-            ["git", "branch", "--list", "feat/matrix"],
-            cwd=self.root,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip().lstrip("* ").strip()
+        branches = (
+            subprocess.run(
+                ["git", "branch", "--list", "feat/matrix"],
+                cwd=self.root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            .stdout.strip()
+            .lstrip("* ")
+            .strip()
+        )
         self.assertEqual(branches, "feat/matrix")
 
     def test_git_push_crash_after_success_reconciles_via_remote(self) -> None:
@@ -206,9 +211,7 @@ class FaultMatrixTests(unittest.TestCase):
             with _CrashAfterSuccess():
                 with self.assertRaises(idempotency.OperationPersistenceError):
                     first._github_comment({"number": 5, "body": "ship it"})
-        with mock.patch(
-            "opaihub.github_connector.find_comment", side_effect=fake_find
-        ):
+        with mock.patch("opaihub.github_connector.find_comment", side_effect=fake_find):
             result = _executor(self.root)._github_comment(
                 {"number": 5, "body": "ship it"}
             )
@@ -233,9 +236,7 @@ class FaultMatrixTests(unittest.TestCase):
         ):
             with _CrashAfterSuccess():
                 with self.assertRaises(idempotency.OperationPersistenceError):
-                    first._github_request_review(
-                        {"number": 7, "reviewers": ["alice"]}
-                    )
+                    first._github_request_review({"number": 7, "reviewers": ["alice"]})
         with mock.patch(
             "opaihub.github_connector.find_requested_reviewers", side_effect=fake_find
         ):
@@ -309,9 +310,7 @@ class FaultMatrixTests(unittest.TestCase):
         )
         self.assertTrue(result["ok"], result)
         self.assertIn("confirmed on disk", result["message"])
-        self.assertEqual(
-            (self.root / "m.txt").read_text(encoding="utf-8"), "matrix"
-        )
+        self.assertEqual((self.root / "m.txt").read_text(encoding="utf-8"), "matrix")
 
     def test_apply_patch_crash_after_success_reconciles_via_reverse_check(
         self,
@@ -326,12 +325,16 @@ class FaultMatrixTests(unittest.TestCase):
         )
         (self.root / "a.txt").write_text("seed\n", encoding="utf-8")
         subprocess.run(
-            ["git", "add", "--", "a.txt"], cwd=self.root, check=True,
+            ["git", "add", "--", "a.txt"],
+            cwd=self.root,
+            check=True,
             capture_output=True,
         )
         subprocess.run(
-            ["git", "commit", "-q", "-m", "seed a.txt"], cwd=self.root,
-            check=True, capture_output=True,
+            ["git", "commit", "-q", "-m", "seed a.txt"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
         )
         with _CrashAfterSuccess():
             with self.assertRaises(idempotency.OperationPersistenceError):
@@ -339,9 +342,7 @@ class FaultMatrixTests(unittest.TestCase):
         result = _executor(self.root).invoke("apply_patch", {"patch": patch})
         self.assertTrue(result["ok"], result)
         self.assertIn("confirmed on disk", result["message"])
-        self.assertEqual(
-            (self.root / "a.txt").read_text(encoding="utf-8"), "hello\n"
-        )
+        self.assertEqual((self.root / "a.txt").read_text(encoding="utf-8"), "hello\n")
 
 
 class DuplicateRaceTests(unittest.TestCase):
@@ -409,15 +410,11 @@ class DuplicateRaceTests(unittest.TestCase):
         for thread in threads:
             thread.join()
         self.assertEqual(len(dispatches), 1)
-        self.assertEqual(
-            sum(1 for r in results if r.get("ok")), 16, results
-        )
+        self.assertEqual(sum(1 for r in results if r.get("ok")), 16, results)
         self.assertEqual(
             status(
                 self.root,
-                operation_key(
-                    "granted_command", root=str(self.root), argv=command
-                ),
+                operation_key("granted_command", root=str(self.root), argv=command),
             )["state"],
             DONE,
         )
