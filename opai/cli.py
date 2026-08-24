@@ -681,9 +681,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     summary = clients["summary"]
     stale = status["stale_paths"]
     validation = validate_all(root)
+    journal = _journal_doctor(root)
     readiness = (
         "ready"
-        if not summary["broken"] and not summary["missing"] and stale["ok"]
+        if (
+            not summary["broken"]
+            and not summary["missing"]
+            and stale["ok"]
+            and not _journal_needs_attention(journal)
+        )
         else "attention"
     )
     payload = {
@@ -706,6 +712,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "model_check": _doctor_model_check(root, validate_model),
         "local_models": discover_local_models(root),
         "updater": _update_doctor(root),
+        # #613 AC10: database health, migration status and degraded
+        # integrity are visible here rather than only to the store.
+        "runtime_journal": journal,
         "next_steps": [
             "Run opai activate --repair to fix broken or missing client integrations.",
             "Restart AI clients after global skill changes.",
@@ -714,6 +723,53 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     }
     print_json(payload)
     return 0
+
+
+def _journal_doctor(root: Path) -> dict[str, object]:
+    """Runtime-journal health for doctor (#613 AC10, functional requirement 12).
+
+    Absence is deliberately *not* a problem. Nothing reads from the journal
+    yet, so a project that has never opened one is healthy rather than broken.
+    Reporting "attention" for every project that simply has not started using
+    it would train people to ignore this field long before it means anything --
+    and the one time it does mean something is exactly when that habit costs.
+
+    Only a store that exists *and* cannot be trusted is escalated. Like
+    :func:`_update_doctor`, this never raises: doctor's job is to report a
+    problem, not to become one.
+    """
+
+    try:
+        from opaihub.journal_store import SCHEMA_VERSION, store_health
+
+        health = store_health(root)
+        return {
+            "schema_version": 1,
+            "available": True,
+            "expected_store_version": SCHEMA_VERSION,
+            **health,
+        }
+    except Exception:  # noqa: BLE001 - doctor reports a stable safe category
+        return {
+            "schema_version": 1,
+            "available": False,
+            "error_category": "journal_unavailable",
+        }
+
+
+def _journal_needs_attention(journal: dict[str, object]) -> bool:
+    """True only when a journal that *exists* is not trustworthy.
+
+    Split from :func:`_journal_doctor` so the readiness rule is testable on
+    its own and cannot drift from the payload it is derived from.
+    """
+
+    if not journal.get("available") or not journal.get("present"):
+        return False
+    integrity = journal.get("integrity")
+    if not isinstance(integrity, dict):
+        return True
+    return integrity.get("state") not in {"complete", "degraded"}
 
 
 def _update_doctor(root: Path) -> dict[str, object]:
