@@ -409,8 +409,28 @@ class DuplicateRaceTests(unittest.TestCase):
             thread.start()
         for thread in threads:
             thread.join()
+        # The exact-once contract is about the side effect: one dispatch,
+        # however the threads interleave.
         self.assertEqual(len(dispatches), 1)
-        self.assertEqual(sum(1 for r in results if r.get("ok")), 16, results)
+        # The winner sees the direct dispatch; losers either observe DONE and
+        # replay the recorded success, or observe IN_FLIGHT and fail closed
+        # with the typed uncertain marker — both are the designed protocol,
+        # and which one a loser gets is scheduler timing, not correctness.
+        # What must never appear is a second dispatch or an untyped failure.
+        self.assertEqual(
+            sum(1 for r in results if r.get("ok") and not r["data"].get("replayed")),
+            1,
+            results,
+        )
+        for result in results:
+            if result.get("ok"):
+                self.assertEqual(result["data"]["returncode"], 0)
+            else:
+                self.assertEqual(
+                    result["error_code"],
+                    "COMMAND_STATE_UNCERTAIN",
+                    results,
+                )
         self.assertEqual(
             status(
                 self.root,
@@ -418,6 +438,13 @@ class DuplicateRaceTests(unittest.TestCase):
             )["state"],
             DONE,
         )
+        # Once settled, a later identical call replays the recorded success.
+        settled = _executor(self.root, git_run=fake_run)
+        settled.grant_command_once(command)
+        replay = settled.invoke("run_command", {"command": command})
+        self.assertTrue(replay["ok"], replay)
+        self.assertTrue(replay["data"]["replayed"], replay)
+        self.assertEqual(len(dispatches), 1)
 
 
 if __name__ == "__main__":  # pragma: no cover
