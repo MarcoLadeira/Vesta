@@ -28,6 +28,11 @@ import time
 from typing import Any, Callable, Mapping, Sequence
 
 from .completion import CompletionState
+from .deadlines import (
+    DeadlineBudget,
+    TASK_DEADLINE,
+    timeout_event as build_timeout_event,
+)
 from .progress_evidence import ProgressLedger
 
 DECISION_SCHEMA_VERSION = 1
@@ -62,6 +67,26 @@ _DECISION_STATES = {
 
 class ToolLoopProviderError(Exception):
     """Raised by an injected ``chat`` to signal a retryable transport failure."""
+
+
+class ToolLoopTaskDeadlineExceeded(TimeoutError):
+    """An active provider turn exhausted the task clock, not a retry clock."""
+
+    def __init__(
+        self,
+        *,
+        elapsed_seconds: float,
+        provider_responsive: bool | None,
+        phase: str,
+        teardown_state: str,
+        cost_state: str = "unknown",
+    ) -> None:
+        super().__init__("task deadline expired during the provider turn")
+        self.elapsed_seconds = elapsed_seconds
+        self.provider_responsive = provider_responsive
+        self.phase = phase
+        self.teardown_state = teardown_state
+        self.cost_state = cost_state
 
 
 class ReasoningContinuityError(RuntimeError):
@@ -472,6 +497,7 @@ class ToolLoopResult:
     # (F17): {"command": <exact string>, "reason": <why>}. The pipeline turns
     # this into an approval card and threads the granted string back down.
     consent_payload: Mapping[str, Any] | None = None
+    timeout_event: Mapping[str, Any] | None = None
 
 
 ChatCallable = Callable[..., ChatTurn]
@@ -553,6 +579,7 @@ class ToolLoopController:
         tool_calling_enabled: bool = True,
         guard: Callable[[int], Any] | None = None,
         cancel: Any = None,
+        deadline_budget: DeadlineBudget | None = None,
     ) -> ToolLoopResult:
         policy = self.policy
         state = ToolLoopState(
@@ -568,13 +595,12 @@ class ToolLoopController:
         invalid_decisions = 0
         provider_retries = 0
         started = self._clock()
-        # The task deadline measures time *without progress*, not total elapsed
-        # (#648 fixed the same defect in the account route's no-progress clock).
-        # Measured from the start, a ten-minute budget stopped a run for *taking*
-        # ten minutes even while it was still producing new evidence every step —
-        # the user asked a real question, OPai worked steadily on it, and was
-        # killed mid-verification for making progress too slowly. Real coding
-        # tasks legitimately run for hours.
+        terminal_timeout_event: Mapping[str, Any] | None = None
+        # ``max_active_seconds`` is a no-progress backstop, not the immutable
+        # task deadline carried by ``deadline_budget``. Measured from the start,
+        # the backstop used to kill a run even while it produced new evidence;
+        # it therefore resets on progress, while the distinct task clock below
+        # never does.
         #
         # This clock is not the loop's protection against spinning: the evidence
         # ledger below (`is_stagnant`) is, and it fires within a few steps of a
@@ -611,6 +637,7 @@ class ToolLoopController:
                 blocked_reason=blocked_reason,
                 progress=state.progress.summary(),
                 consent_payload=consent,
+                timeout_event=terminal_timeout_event,
             )
 
         def _continuity_stop(exc: ReasoningContinuityError) -> ToolLoopResult:
@@ -622,6 +649,32 @@ class ToolLoopController:
             last_error = str(exc)
             return _result(CompletionState.FAILED, stopped="reasoning_continuity_error")
 
+        def _task_deadline_stop(
+            *,
+            elapsed_seconds: float,
+            provider_responsive: bool | None,
+            phase: str,
+            teardown_state: str,
+            cost_state: str = "unknown",
+        ) -> ToolLoopResult:
+            nonlocal terminal_timeout_event
+            assert deadline_budget is not None
+            terminal_timeout_event = build_timeout_event(
+                origin=TASK_DEADLINE,
+                owner="tool_loop_controller",
+                configured_seconds=deadline_budget.task_deadline_seconds,
+                elapsed_seconds=elapsed_seconds,
+                provider_responsive=provider_responsive,
+                phase=phase,
+                budget=deadline_budget,
+                progress_observed=state.progress.best_score > 0,
+                external_effect_possible=allow_mutations,
+                teardown_state=teardown_state,
+                cost_state=cost_state,
+                verification_state="incomplete",
+            )
+            return _result(CompletionState.TIMEOUT, stopped=TASK_DEADLINE)
+
         while True:
             if _cancelled(cancel):
                 return _result(CompletionState.CANCELLED, stopped="cancelled")
@@ -629,6 +682,17 @@ class ToolLoopController:
             # and the comparison let time advance between them, so a run that
             # had just made progress could still be judged over its deadline.
             now = self._clock()
+            elapsed = now - started
+            if (
+                deadline_budget is not None
+                and elapsed > deadline_budget.task_deadline_seconds
+            ):
+                return _task_deadline_stop(
+                    elapsed_seconds=elapsed,
+                    provider_responsive=True if model_calls else None,
+                    phase="between_provider_turns",
+                    teardown_state="not_required",
+                )
             if state.progress.best_score > best_progress_seen:
                 # New evidence since the last check: the run is working, so the
                 # deadline starts again from here.
@@ -687,6 +751,16 @@ class ToolLoopController:
                 turn = chat(state.request_messages(), tools=tools)
             except ReasoningContinuityError as exc:
                 return _continuity_stop(exc)
+            except ToolLoopTaskDeadlineExceeded as exc:
+                if deadline_budget is None:
+                    raise
+                return _task_deadline_stop(
+                    elapsed_seconds=exc.elapsed_seconds,
+                    provider_responsive=exc.provider_responsive,
+                    phase=exc.phase,
+                    teardown_state=exc.teardown_state,
+                    cost_state=exc.cost_state,
+                )
             except ToolLoopProviderError as exc:
                 last_error = str(exc)
                 # The round-trip failed, so it changed nothing: the request

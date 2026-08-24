@@ -121,7 +121,13 @@ def _supports_kwarg(func: Any, name: str) -> bool:
 
 
 def _complete_streaming(
-    runner: Any, text: str, *, cancel: Any, on_text: Any, system: str = SYSTEM_PROMPT
+    runner: Any,
+    text: str,
+    *,
+    cancel: Any,
+    on_text: Any,
+    system: str = SYSTEM_PROMPT,
+    deadline_budget: Any = None,
 ) -> tuple[str, bool]:
     """Call ``runner.complete`` exactly once, streaming via ``on_text`` when
     the runner supports it (#154). Returns ``(answer, streamed)``; ``streamed``
@@ -142,6 +148,11 @@ def _complete_streaming(
         required={"system": system},
         optional={
             "cancel": cancel,
+            **(
+                {"deadline_budget": deadline_budget}
+                if deadline_budget is not None
+                else {}
+            ),
             **({"on_text": on_text} if streaming else {}),
         },
     )
@@ -160,6 +171,7 @@ def run_ask(
     selected_model_id: str | None = None,
     cancel: Any = None,
     on_text: Any = None,
+    deadline_budget: Any = None,
 ) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     recommendation = recommend_model(root, task)
@@ -237,6 +249,7 @@ def run_ask(
                 # the repository's rules or ignored them purely by which model
                 # picked it up.
                 system=build_system_prompt(SYSTEM_PROMPT, root),
+                deadline_budget=deadline_budget,
             )
         except LocalRunCancelled:
             return {**base, "status": "cancelled", "answer": ""}
@@ -344,6 +357,7 @@ def _call_tool_loop(
     tool_loop_policy: Any = None,
     repository_handle: Any = None,
     provider_id: str | None = None,
+    deadline_budget: Any = None,
 ) -> dict[str, Any]:
     """Invoke the runner's tool loop, threading a one-shot command grant.
 
@@ -374,6 +388,7 @@ def _call_tool_loop(
         "tool_loop_policy": tool_loop_policy,
         "repository_handle": repository_handle,
         "provider_id": provider_id,
+        "deadline_budget": deadline_budget,
     }
     compiled = plan.keyword_arguments(
         required=kwargs,
@@ -400,6 +415,7 @@ def run_explicit_model(
     tool_loop_policy: Any = None,
     repository_handle: Any = None,
     provider_id: str | None = None,
+    deadline_budget: Any = None,
 ) -> dict[str, Any]:
     """Run an explicitly selected model without Auto routing or prose caching.
 
@@ -463,6 +479,7 @@ def run_explicit_model(
                 tool_loop_policy=tool_loop_policy,
                 repository_handle=repository_handle,
                 provider_id=provider_id,
+                deadline_budget=deadline_budget,
             )
             # A runner accepting provider_id is one that self-records per-turn
             # ledger entries (opaihub/local_runner.py); a runner without it
@@ -476,6 +493,7 @@ def run_explicit_model(
             last_error = str(completed.get("last_error") or "")
             approval = _extract_command_approval(completed)
             completion_state = str(completed.get("completion_state") or "")
+            timeout_info = completed.get("timeout_event")
             if not completion_state:
                 # Derive completion from what actually happened (F8): an
                 # approval request is a consent stop; a real answer completes;
@@ -498,13 +516,18 @@ def run_explicit_model(
             }
         else:
             answer, streamed = _complete_streaming(
-                runner, task, cancel=cancel, on_text=on_text
+                runner,
+                task,
+                cancel=cancel,
+                on_text=on_text,
+                deadline_budget=deadline_budget,
             )
             tool_trace = []
             stopped_reason = ""
             last_error = ""
             # F8: a single-shot free run that produced nothing is not "done".
             completion_state = "completed" if answer.strip() else "failed"
+            timeout_info = None
     except ProviderInvocationCompatibilityError as exc:
         return {
             **base,
@@ -555,6 +578,9 @@ def run_explicit_model(
     }
     if approval is not None:
         result["command_approval"] = approval
+    if isinstance(timeout_info, Mapping):
+        result["timed_out"] = True
+        result["timeout_event"] = dict(timeout_info)
     return result
 
 
