@@ -158,6 +158,19 @@ class JsonlTailReadTests(unittest.TestCase):
 
         self.assertEqual([event["sequence"] for event in events], [1, 2])
 
+    def test_cost_limit_counts_cost_events_not_interleaved_workflow_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = WorkflowLedger(root, task_id="task-1")
+            workflow.append("cost_telemetry", sequence=1)
+            workflow.append("cost_telemetry", sequence=2)
+            for sequence in range(20):
+                workflow.append("step", sequence=sequence)
+
+            events = cost_telemetry.read_cost_events(root, limit=2)
+
+        self.assertEqual([event["sequence"] for event in events], [1, 2])
+
     def _write_event_rows(
         self,
         path: Path,
