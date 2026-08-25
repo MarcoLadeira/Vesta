@@ -42,6 +42,7 @@ contain anything the user wrote.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import time
@@ -244,6 +245,36 @@ def status(project_root: Path, key: str, *, now: float | None = None) -> dict[st
         return _blocked(str(key), exc)
 
 
+def _mirror_operation(project_root: Path, action: str, key: str, **extra) -> None:
+    """#613 Stage 6: mirror this external effect into the transactional journal.
+
+    Hooked here rather than at each caller because every exact-once effect in
+    OPai already funnels through this module -- provider calls, tool runs, Git
+    and GitHub actions, approvals. One hook covers all of them, and covers the
+    ones nobody has written yet.
+
+    Best-effort and silent by contract: the idempotency file is still
+    authoritative until Stage 7 retires it, so a failed mirror costs evidence,
+    never the effect it describes. The import is local so this module keeps no
+    load-time dependency on the journal.
+    """
+
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never fail an effect
+        from datetime import datetime, timezone
+
+        from . import journal_operations
+
+        stamp = datetime.now(timezone.utc).isoformat()
+        if action == "claim":
+            journal_operations.record_claim(project_root, key, now=stamp, **extra)
+        elif action == "confirm":
+            journal_operations.record_confirmation(
+                project_root, key, now=stamp, **extra
+            )
+        elif action == "release":
+            journal_operations.record_release(project_root, key, now=stamp)
+
+
 def begin(project_root: Path, key: str, *, now: float | None = None) -> dict[str, Any]:
     """Claim ``key`` before performing its side effect.
 
@@ -263,7 +294,8 @@ def begin(project_root: Path, key: str, *, now: float | None = None) -> dict[str
             stamp = time.time() if now is None else float(now)
             store[str(key)] = {"state": IN_FLIGHT, "at": stamp, "result": {}}
             _save(project_root, store)
-            return current
+        _mirror_operation(project_root, "claim", str(key))
+        return current
     except (OSError, ValueError) as exc:
         return _blocked(str(key), exc)
 
@@ -285,6 +317,12 @@ def complete(
             "result": _clean_result(result),
         }
         _save(project_root, store)
+    _mirror_operation(
+        project_root,
+        "confirm",
+        str(key),
+        external_ref=str((result or {}).get("id") or (result or {}).get("url") or ""),
+    )
 
 
 def abandon(project_root: Path, key: str) -> None:
@@ -300,6 +338,7 @@ def abandon(project_root: Path, key: str) -> None:
         if str(key) in store:
             store.pop(str(key), None)
             _save(project_root, store)
+    _mirror_operation(project_root, "release", str(key))
 
 
 def _clean_result(result: dict[str, Any] | None) -> dict[str, Any]:
