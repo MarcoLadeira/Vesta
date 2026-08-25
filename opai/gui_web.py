@@ -302,12 +302,19 @@ def _state_fingerprint(root: Path) -> tuple:
     Cheap: three stat() calls, no directory walk. A missing file contributes a
     stable sentinel so its later creation still changes the fingerprint.
     """
-    from opaihub.audit import audit_path
-    from opaihub.budget import budget_path
-    from opaihub.ledger import ledger_path
+    from opaihub.state import state_dir
 
+    # Each public path helper validates and resolves ``.opaihub`` independently.
+    # That is appropriate at write boundaries, but this hot path owns all three
+    # fixed children and can perform the same safety check once. On Windows,
+    # avoiding six repeated ``_getfinalpathname`` calls is materially faster.
+    state = state_dir(root)
     parts: list[tuple] = []
-    for path in (ledger_path(root), audit_path(root), budget_path(root)):
+    for path in (
+        state / "ledger" / "usage.jsonl",
+        state / "audit" / "audit.jsonl",
+        state / "budget.json",
+    ):
         try:
             stat = path.stat()
             parts.append((str(path), int(stat.st_size), int(stat.st_mtime_ns)))
