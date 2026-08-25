@@ -364,29 +364,81 @@ def recover_audit_checkpoint(project_root: Path) -> dict[str, Any]:
         return {**result, "recovered": stale}
 
 
-_AUDIT_SUMMARY_CACHE: dict[str, tuple[int, int, str | None, dict[str, Any]]] = {}
+_AUDIT_SUMMARY_CACHE: dict[
+    str, tuple[tuple[int, int, int], dict[str, Any]]
+] = {}
 _AUDIT_SUMMARY_CACHE_LOCK = threading.RLock()
 
 
-def _audit_signature(path: Path) -> tuple[int, int]:
+def _windows_file_usn(path: Path) -> int | None:
+    """Return NTFS's monotonic per-file change generation when available."""
+
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        kernel32.DeviceIoControl.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            wintypes.LPVOID,
+        ]
+        kernel32.DeviceIoControl.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.CreateFileW(str(path), 0x80, 0x7, None, 3, 0, None)
+        if handle == wintypes.HANDLE(-1).value:
+            return None
+        try:
+            output = ctypes.create_string_buffer(1024)
+            returned = wintypes.DWORD()
+            ok = kernel32.DeviceIoControl(
+                handle,
+                0x000900EB,
+                None,
+                0,
+                output,
+                len(output),
+                ctypes.byref(returned),
+                None,
+            )
+            if not ok or returned.value < 32:
+                return None
+            return int.from_bytes(output.raw[24:32], "little", signed=True)
+        finally:
+            kernel32.CloseHandle(handle)
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _audit_signature(path: Path) -> tuple[int, int, int] | None:
     try:
         stat = path.stat()
-    except OSError:
-        return (0, 0)
-    return (int(stat.st_size), int(stat.st_mtime_ns))
-
-
-def _audit_digest(path: Path) -> str | None:
-    """Hash raw log bytes so restored metadata cannot hide content changes."""
-
-    digest = hashlib.sha256()
-    try:
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(128 * 1024), b""):
-                digest.update(chunk)
+    except FileNotFoundError:
+        return (0, 0, 0)
     except OSError:
         return None
-    return digest.hexdigest()
+    change = _windows_file_usn(path) if os.name == "nt" else int(stat.st_ctime_ns)
+    if change is None:
+        return None
+    return (int(stat.st_size), int(stat.st_mtime_ns), change)
 
 
 def clear_audit_summary_cache() -> None:
@@ -401,12 +453,8 @@ def summarize_audit(project_root: Path) -> dict[str, Any]:
     key = str(root)
     with _AUDIT_SUMMARY_CACHE_LOCK:
         cached = _AUDIT_SUMMARY_CACHE.get(key)
-    if (
-        cached is not None
-        and cached[:2] == signature
-        and cached[2] == _audit_digest(path)
-    ):
-        return copy.deepcopy(cached[3])
+    if signature is not None and cached is not None and cached[0] == signature:
+        return copy.deepcopy(cached[1])
 
     events, skipped = _read_audit(root)
     by_type: dict[str, int] = {}
@@ -424,15 +472,9 @@ def summarize_audit(project_root: Path) -> dict[str, Any]:
         "skipped_events": skipped,
         "chain": verify_chain(root),
     }
-    content_digest = _audit_digest(path)
-    if _audit_signature(path) == signature:
+    if signature is not None and _audit_signature(path) == signature:
         with _AUDIT_SUMMARY_CACHE_LOCK:
-            _AUDIT_SUMMARY_CACHE[key] = (
-                signature[0],
-                signature[1],
-                content_digest,
-                copy.deepcopy(summary),
-            )
+            _AUDIT_SUMMARY_CACHE[key] = (signature, copy.deepcopy(summary))
     return summary
 
 

@@ -147,6 +147,21 @@ class AuditPerformanceTests(unittest.TestCase):
 
             self.assertNotIn("forged", second["by_type"])
 
+    def test_cached_summary_does_not_reopen_the_audit_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audit.record_audit_event(root, "policy_allow")
+            first = audit.summarize_audit(root)
+
+            with mock.patch.object(
+                Path,
+                "open",
+                side_effect=AssertionError("cache hit reopened the audit log"),
+            ):
+                second = audit.summarize_audit(root)
+
+            self.assertEqual(second, first)
+
 
 if __name__ == "__main__":
     unittest.main()
