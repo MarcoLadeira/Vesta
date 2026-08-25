@@ -318,20 +318,24 @@ def _abandoned_calls(
     return abandoned
 
 
-def budget_status(project_root: Path) -> dict[str, Any]:
+def budget_status(
+    project_root: Path,
+    *,
+    events: Iterable[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     caps = load_budget(root)
-    events = read_events(root)
-    spent_day = _spent(root, period="day", events=events)
-    spent_month = _spent(root, period="month", events=events)
-    unpriced_day = _unpriced_calls(root, period="day", events=events)
-    unpriced_month = _unpriced_calls(root, period="month", events=events)
-    abandoned_day = _abandoned_calls(root, period="day", events=events)
-    abandoned_month = _abandoned_calls(root, period="month", events=events)
+    ledger_events = read_events(root) if events is None else list(events)
+    spent_day = _spent(root, period="day", events=ledger_events)
+    spent_month = _spent(root, period="month", events=ledger_events)
+    unpriced_day = _unpriced_calls(root, period="day", events=ledger_events)
+    unpriced_month = _unpriced_calls(root, period="month", events=ledger_events)
+    abandoned_day = _abandoned_calls(root, period="day", events=ledger_events)
+    abandoned_month = _abandoned_calls(root, period="month", events=ledger_events)
     # Status is a report, so it stays read-only and does not sweep. A call
     # retirable but not yet retired is counted here as unaccounted rather than
     # being written away behind a status read (#685).
-    reconciliation = cost_reconciliation(root, events=events)
+    reconciliation = cost_reconciliation(root, events=ledger_events)
 
     def remaining(limit: Any, spent: float) -> Any:
         return round(float(limit) - spent, 6) if limit is not None else None

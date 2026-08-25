@@ -394,14 +394,18 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
     }
 
 
-def cost_firewall(project_root: Path) -> dict[str, Any]:
+def cost_firewall(
+    project_root: Path,
+    *,
+    events: Any = None,
+) -> dict[str, Any]:
     """Budget caps, panic, policy profile, and recently blocked paid calls."""
     from opaihub.audit import GUARD_DENY, POLICY_DENY, read_recent_audit
     from opaihub.budget import budget_status
     from opaihub.policy import list_profiles, resolve_policy
 
     root = project_root.expanduser().resolve()
-    budget = budget_status(root)
+    budget = budget_status(root, events=events)
     resolved = resolve_policy(root)
     blocked = [
         {

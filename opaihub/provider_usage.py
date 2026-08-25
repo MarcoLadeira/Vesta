@@ -647,6 +647,7 @@ def usage_overview(
     project_root: Path,
     providers: list[dict[str, Any]],
     *,
+    events: list[dict[str, Any]] | None = None,
     probe: bool = False,
     force: bool = False,
     now: float | None = None,
@@ -657,7 +658,7 @@ def usage_overview(
     refreshes live sources (header probes) for configured providers that
     support one — used by the Settings surface on its worker thread."""
 
-    events = _model_call_events(project_root)
+    events = _model_call_events(project_root) if events is None else events
     ts = time.time() if now is None else float(now)
     seen: set[str] = set()
     overview: list[dict[str, Any]] = []

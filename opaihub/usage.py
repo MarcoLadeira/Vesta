@@ -72,8 +72,9 @@ def build_usage_snapshots(
     models: list[dict[str, Any]],
     *,
     limits: dict[str, dict[str, Any]] | None = None,
+    events: Any = None,
 ) -> list[dict[str, Any]]:
-    all_events = read_events(project_root)
+    all_events = read_events(project_root) if events is None else list(events)
     events = [
         event for event in all_events if event.get("event_type") == EVENT_MODEL_CALL
     ]
