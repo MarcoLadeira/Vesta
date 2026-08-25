@@ -9,6 +9,7 @@ per-client ignore files (.cursorignore, .claudeignore, .copilotignore,
 
 from __future__ import annotations
 
+import os
 import stat
 import tempfile
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Any
 
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
-from .cost_model import estimate_tokens, load_cost_model, tier_cost
+from .cost_model import estimate_tokens_for_chars, load_cost_model, tier_cost
 from .state import state_dir
 
 # Whole directories that are almost always context waste.
@@ -168,45 +169,55 @@ def profile_context(
         by_category[category] = by_category.get(category, 0) + size
         sources.append({"path": rel, "bytes": size, "category": category})
 
-    for path in sorted(root.rglob("*")):
-        if counted >= max_files:
-            break
-        parts = path.relative_to(root).parts
-        # Whole waste directory: account once at the directory level.
-        top_waste = next(
-            (
-                (i, _classify_dir(part))
-                for i, part in enumerate(parts)
-                if _classify_dir(part)
-            ),
-            None,
-        )
-        if top_waste is not None:
-            # Only count the directory once (when we hit the dir node itself).
-            i, category = top_waste
-            if len(parts) == i + 1 and path.is_dir():
+    if max_files > 0:
+        for current_dir, dir_names, file_names in os.walk(root, followlinks=False):
+            if counted >= max_files:
+                break
+            current = Path(current_dir)
+            dir_names.sort()
+            file_names.sort()
+
+            # Account known-waste subtrees once, then prune them from the main
+            # walk. The previous rglob implementation enumerated every member
+            # to build and sort a global list before scanning the same subtree
+            # again for its byte total.
+            retained_dirs: list[str] = []
+            for name in dir_names:
+                category = _classify_dir(name)
+                if category is None:
+                    retained_dirs.append(name)
+                    continue
+                path = current / name
                 size = _dir_size(path)
                 total_bytes += size
-                add_source("/".join(parts[: i + 1]) + "/", size, category)
-            continue
-        if not path.is_file():
-            continue
-        counted += 1
-        total_files += 1
-        try:
-            size = path.stat().st_size
-        except OSError:
-            continue
-        total_bytes += size
-        category = _classify_file(path, size)
-        if category:
-            add_source("/".join(parts), size, category)
+                relative = path.relative_to(root).as_posix() + "/"
+                add_source(relative, size, category)
+            dir_names[:] = retained_dirs
+
+            for name in file_names:
+                if counted >= max_files:
+                    break
+                path = current / name
+                if not path.is_file():
+                    continue
+                counted += 1
+                total_files += 1
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+                total_bytes += size
+                category = _classify_file(path, size)
+                if category:
+                    add_source(path.relative_to(root).as_posix(), size, category)
 
     sources.sort(key=lambda item: item["bytes"], reverse=True)
     for source in sources:
-        source["estimated_tokens"] = estimate_tokens("x" * source["bytes"], cost_model)
+        source["estimated_tokens"] = estimate_tokens_for_chars(
+            source["bytes"], cost_model
+        )
 
-    waste_tokens = estimate_tokens("x" * waste_bytes, cost_model)
+    waste_tokens = estimate_tokens_for_chars(waste_bytes, cost_model)
     baseline_tier = str(cost_model.get("baseline_tier", "L3"))
     return {
         "report": "opai-context-profile",
@@ -230,15 +241,15 @@ def profile_context(
 
 def _dir_size(path: Path) -> int:
     total = 0
-    try:
-        for child in path.rglob("*"):
+    for current_dir, _dir_names, file_names in os.walk(path, followlinks=False):
+        current = Path(current_dir)
+        for name in file_names:
+            child = current / name
             if child.is_file():
                 try:
                     total += child.stat().st_size
                 except OSError:
                     continue
-    except OSError:
-        pass
     return total
 
 
@@ -247,8 +258,8 @@ def _before_after(
 ) -> dict[str, Any]:
     after_bytes = max(0, total_bytes - waste_bytes)
     baseline_tier = str(cost_model.get("baseline_tier", "L3"))
-    before_tokens = estimate_tokens("x" * total_bytes, cost_model)
-    after_tokens = estimate_tokens("x" * after_bytes, cost_model)
+    before_tokens = estimate_tokens_for_chars(total_bytes, cost_model)
+    after_tokens = estimate_tokens_for_chars(after_bytes, cost_model)
     return {
         "before": {
             "bytes": total_bytes,

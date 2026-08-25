@@ -72,18 +72,18 @@ def build_usage_snapshots(
     models: list[dict[str, Any]],
     *,
     limits: dict[str, dict[str, Any]] | None = None,
+    events: Any = None,
 ) -> list[dict[str, Any]]:
+    all_events = read_events(project_root) if events is None else list(events)
     events = [
-        event
-        for event in read_events(project_root)
-        if event.get("event_type") == EVENT_MODEL_CALL
+        event for event in all_events if event.get("event_type") == EVENT_MODEL_CALL
     ]
     configured_limits = limits or {}
     now = datetime.now(timezone.utc)
     # #619: a dispatched call whose result never landed is incurred cost of
     # unknown size. Reporting it as "no data" would present a lower bound as a
     # complete figure, so every row carries whether spend is fully reconciled.
-    reconciliation = cost_reconciliation(project_root)
+    reconciliation = cost_reconciliation(project_root, events=all_events)
     unresolved_by_model: dict[str, int] = {}
     # Both halves (#685). A call retired as abandoned is still spend of unknown
     # size against that model; counting only the in-flight half would show a
@@ -93,11 +93,16 @@ def build_usage_snapshots(
         unresolved_by_model[record["model_id"]] = (
             unresolved_by_model.get(record["model_id"], 0) + 1
         )
+    events_by_model: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        event_model_id = event.get("model_id")
+        if isinstance(event_model_id, str):
+            events_by_model.setdefault(event_model_id, []).append(event)
     snapshots: list[dict[str, Any]] = []
     for model in models:
         model_id = str(model.get("id") or "")
         provider = str(model.get("provider") or model.get("kind") or "opai")
-        matched = [event for event in events if event.get("model_id") == model_id]
+        matched = events_by_model.get(model_id, [])
         soft = configured_limits.get(model_id) or {}
         soft_window = str(soft.get("window") or "month")
         window_events = [

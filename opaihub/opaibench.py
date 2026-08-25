@@ -32,6 +32,7 @@ from html import escape
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from .atomic_io import read_utf8_tail_lines
 from .proc import no_window_kwargs
 from .state import state_dir
 
@@ -288,9 +289,11 @@ def read_opaibench_history(
     path = opaibench_history_path(project_root)
     if not path.exists():
         return []
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if limit is not None:
-        lines = lines[-limit:]
+    lines = (
+        path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if limit is None
+        else read_utf8_tail_lines(path, limit)
+    )
     runs = []
     for line in lines:
         try:
@@ -375,7 +378,7 @@ def run_opaibench(
         }
     total = len(results)
     total_passed = sum(1 for item in results if item["passed"])
-    history = read_opaibench_history(root)
+    history = read_opaibench_history(root, limit=1)
     report = {
         "kind": "opaibench",
         "run_id": uuid.uuid4().hex[:12],

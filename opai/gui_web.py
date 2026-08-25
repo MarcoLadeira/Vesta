@@ -1068,15 +1068,17 @@ def settings_payload(root: Path) -> dict[str, Any]:
 
     from opaihub.autonomy import MODE_LABELS
     from opaihub.gui_preferences import MODES, load_gui_preferences
+    from opaihub.ledger import EVENT_MODEL_CALL, read_events
 
     prefs = load_gui_preferences(root)
     mode_labels = MODE_LABELS
+    ledger_events = read_events(root)
     try:
-        firewall = A.cost_firewall(root)
+        firewall = A.cost_firewall(root, events=ledger_events)
     except Exception:  # noqa: BLE001
         firewall = {}
     try:
-        overview = A.overview(root)
+        overview = cached_overview(root)
     except Exception:  # noqa: BLE001
         overview = {}
     models = _models(root, discover_local=False)
@@ -1134,7 +1136,10 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "connections": models["connections"],
         "models": models["models"],
         "usage": build_usage_snapshots(
-            root, models["models"], limits=prefs.get("usage_limits") or {}
+            root,
+            models["models"],
+            limits=prefs.get("usage_limits") or {},
+            events=ledger_events,
         ),
         "credentials": credentials,
         "connectionDoctor": provider_connection_doctor(
@@ -1155,7 +1160,16 @@ def settings_payload(root: Path) -> dict[str, Any]:
         # Usage page. Cache only — reads the local ledger's observed quota, no
         # network in the payload build; the page triggers a live (TTL-guarded)
         # header probe through the refreshUsage slot after render.
-        "providerUsage": provider_usage_payload(root, models, probe=False),
+        "providerUsage": provider_usage_payload(
+            root,
+            models,
+            events=[
+                event
+                for event in ledger_events
+                if event.get("event_type") == EVENT_MODEL_CALL
+            ],
+            probe=False,
+        ),
         # GitHub connection + push readiness for the Settings connect flow (#300).
         "github": github_status(),
         "about": {
@@ -1300,6 +1314,7 @@ def provider_usage_payload(
     root: Path,
     models: dict[str, Any] | None = None,
     *,
+    events: list[dict[str, Any]] | None = None,
     probe: bool = False,
     force: bool = False,
 ) -> list[dict[str, Any]]:
@@ -1307,7 +1322,11 @@ def provider_usage_payload(
     from opaihub.provider_usage import usage_overview
 
     return usage_overview(
-        root, _usage_providers(root, models), probe=probe, force=force
+        root,
+        _usage_providers(root, models),
+        events=events,
+        probe=probe,
+        force=force,
     )
 
 

@@ -69,6 +69,17 @@ class ProfileTests(unittest.TestCase):
             profile = profile_context(root)
         self.assertEqual(profile["by_category"].get("dependency"), 60_000)
 
+    def test_profile_streams_without_materializing_a_recursive_path_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make(root, "node_modules/package/lib.js", 100)
+            with mock.patch.object(
+                Path,
+                "rglob",
+                side_effect=AssertionError("profile must stream its directory walk"),
+            ):
+                profile_context(root)
+
 
 class IgnoreGenerationTests(unittest.TestCase):
     def test_creates_all_four_client_ignores(self):

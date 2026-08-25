@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import math
 from datetime import datetime, timezone
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -231,11 +231,16 @@ def set_budget(
         return {"status": "updated", **caps, "path": str(path)}
 
 
-def _spent(project_root: Path, *, period: str) -> float:
+def _spent(
+    project_root: Path,
+    *,
+    period: str,
+    events: Iterable[dict[str, Any]] | None = None,
+) -> float:
     today = datetime.now(timezone.utc).date().isoformat()
     month = today[:7]
     total = 0.0
-    for event in read_events(project_root):
+    for event in read_events(project_root) if events is None else events:
         if event.get("event_type") != EVENT_MODEL_CALL:
             continue
         created = str(event.get("created_at", ""))
@@ -249,7 +254,12 @@ def _spent(project_root: Path, *, period: str) -> float:
     return round(total, 6)
 
 
-def _unpriced_calls(project_root: Path, *, period: str) -> int:
+def _unpriced_calls(
+    project_root: Path,
+    *,
+    period: str,
+    events: Iterable[dict[str, Any]] | None = None,
+) -> int:
     """In-window model calls whose cost could not be priced (#619 AC5/AC8).
 
     These contribute ``$0.00`` to :func:`_spent` — not because they were
@@ -262,7 +272,7 @@ def _unpriced_calls(project_root: Path, *, period: str) -> int:
     today = datetime.now(timezone.utc).date().isoformat()
     month = today[:7]
     unpriced = 0
-    for event in read_events(project_root):
+    for event in read_events(project_root) if events is None else events:
         if event.get("event_type") != EVENT_MODEL_CALL:
             continue
         created = str(event.get("created_at", ""))
@@ -277,7 +287,12 @@ def _unpriced_calls(project_root: Path, *, period: str) -> int:
     return unpriced
 
 
-def _abandoned_calls(project_root: Path, *, period: str) -> int:
+def _abandoned_calls(
+    project_root: Path,
+    *,
+    period: str,
+    events: Iterable[dict[str, Any]] | None = None,
+) -> int:
     """In-window calls dispatched whose outcome never arrived (#685).
 
     Counted by when the call was *retired*, not when it was dispatched: the
@@ -289,7 +304,7 @@ def _abandoned_calls(project_root: Path, *, period: str) -> int:
     today = datetime.now(timezone.utc).date().isoformat()
     month = today[:7]
     abandoned = 0
-    for event in read_events(project_root):
+    for event in read_events(project_root) if events is None else events:
         if event.get("event_type") != EVENT_MODEL_CALL_ABANDONED:
             continue
         if event.get("is_local_route"):
@@ -303,19 +318,24 @@ def _abandoned_calls(project_root: Path, *, period: str) -> int:
     return abandoned
 
 
-def budget_status(project_root: Path) -> dict[str, Any]:
+def budget_status(
+    project_root: Path,
+    *,
+    events: Iterable[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     caps = load_budget(root)
-    spent_day = _spent(root, period="day")
-    spent_month = _spent(root, period="month")
-    unpriced_day = _unpriced_calls(root, period="day")
-    unpriced_month = _unpriced_calls(root, period="month")
-    abandoned_day = _abandoned_calls(root, period="day")
-    abandoned_month = _abandoned_calls(root, period="month")
+    ledger_events = read_events(root) if events is None else list(events)
+    spent_day = _spent(root, period="day", events=ledger_events)
+    spent_month = _spent(root, period="month", events=ledger_events)
+    unpriced_day = _unpriced_calls(root, period="day", events=ledger_events)
+    unpriced_month = _unpriced_calls(root, period="month", events=ledger_events)
+    abandoned_day = _abandoned_calls(root, period="day", events=ledger_events)
+    abandoned_month = _abandoned_calls(root, period="month", events=ledger_events)
     # Status is a report, so it stays read-only and does not sweep. A call
     # retirable but not yet retired is counted here as unaccounted rather than
     # being written away behind a status read (#685).
-    reconciliation = cost_reconciliation(root)
+    reconciliation = cost_reconciliation(root, events=ledger_events)
 
     def remaining(limit: Any, spent: float) -> Any:
         return round(float(limit) - spent, 6) if limit is not None else None

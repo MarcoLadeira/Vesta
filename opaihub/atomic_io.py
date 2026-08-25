@@ -20,10 +20,36 @@ _PATH_LOCKS: dict[str, threading.RLock] = {}
 _PATH_LOCKS_GUARD = threading.Lock()
 _PATH_LOCKS_PROCESS_ID = os.getpid()
 _HELD_PATHS = threading.local()
+_TAIL_READ_CHUNK_BYTES = 64 * 1024
 
 
 class InterprocessLockTimeout(TimeoutError):
     """Raised when a state transaction cannot acquire its lock in time."""
+
+
+def read_utf8_tail_lines(path: Path, limit: int) -> list[str]:
+    """Return at most ``limit`` physical UTF-8 lines without reading the prefix.
+
+    JSONL callers frequently need only a small support-bundle or GUI tail.  A
+    normal ``Path.read_text().splitlines()[-limit:]`` materializes the complete
+    append-only log, and ``limit == 0`` accidentally means the complete list
+    because ``-0`` is zero.  Read backward in bounded chunks until one extra
+    line proves the requested tail is complete.
+    """
+
+    if limit <= 0:
+        return []
+    with Path(path).open("rb") as handle:
+        cursor = handle.seek(0, os.SEEK_END)
+        data = b""
+        while cursor > 0:
+            chunk_size = min(_TAIL_READ_CHUNK_BYTES, cursor)
+            cursor -= chunk_size
+            handle.seek(cursor)
+            data = handle.read(chunk_size) + data
+            if len(data.splitlines()) > limit:
+                break
+    return data.decode("utf-8", errors="replace").splitlines()[-limit:]
 
 
 def _path_key(target: Path) -> str:

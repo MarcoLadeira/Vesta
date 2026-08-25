@@ -11,7 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
-from .atomic_io import atomic_write_text, interprocess_transaction
+from .atomic_io import (
+    atomic_write_text,
+    interprocess_transaction,
+    read_utf8_tail_lines,
+)
 from .call_reconciliation import (
     ABANDON_REASONS,
     call_age_seconds,
@@ -21,7 +25,7 @@ from .call_reconciliation import (
 from .command_runner import redact
 from .cost_model import (
     estimate_route_savings,
-    estimate_tokens,
+    estimate_tokens_for_chars,
     is_local_tier,
     load_cost_model,
     tier_cost,
@@ -1053,7 +1057,7 @@ def record_route_decision(
     context_tokens_saved = 0
     if full_context_chars and compact_context_chars:
         delta = max(0, full_context_chars - compact_context_chars)
-        context_tokens_saved = estimate_tokens("x" * delta, cost_model)
+        context_tokens_saved = estimate_tokens_for_chars(delta, cost_model)
     extra: dict[str, Any] = {"source": source}
     if agent:
         extra["agent"] = agent
@@ -1874,9 +1878,11 @@ def read_events(project_root: Path, limit: int | None = None) -> list[dict[str, 
     path = ledger_path(project_root.expanduser().resolve())
     if not path.exists():
         return []
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if limit is not None:
-        lines = lines[-limit:]
+    lines = (
+        path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if limit is None
+        else read_utf8_tail_lines(path, limit)
+    )
     events: list[dict[str, Any]] = []
     for line in lines:
         if not line.strip():
@@ -1929,7 +1935,13 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
     with _SUMMARY_CACHE_LOCK:
         cached = _SUMMARY_CACHE.get(key)
         if cached is not None and cached[:2] == signature:
-            return copy.deepcopy(cached[2])
+            cached_reconciliation = cached[2].get("reconciliation") or {}
+            # File metadata alone does not own liveness. An open call can age
+            # out or its owner can exit without another ledger append, so that
+            # classification must be refreshed. Verified and already-pending
+            # summaries are stable until the next durable event.
+            if not cached_reconciliation.get("unresolved_calls"):
+                return copy.deepcopy(cached[2])
     events = read_events(root)
     all_routes = [event for event in events if event.get("event_type") == EVENT_ROUTE]
     # Savings truth (#76): only routes with a known tier have a verifiable

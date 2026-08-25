@@ -26,7 +26,7 @@ class WorkspaceSummaryCacheTests(unittest.TestCase):
         if clear is not None:
             clear()
 
-    def test_unchanged_repo_runs_each_git_probe_once(self) -> None:
+    def test_unchanged_repo_runs_one_git_inventory_probe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             with mock.patch.object(
@@ -38,7 +38,7 @@ class WorkspaceSummaryCacheTests(unittest.TestCase):
                 second = app_state.workspace_summary(root)
                 third = app_state.workspace_summary(root)
 
-            self.assertEqual(git_text.call_count, 2)
+            self.assertEqual(git_text.call_count, 1)
             self.assertEqual(first, second)
             self.assertEqual(second, third)
 
@@ -52,7 +52,7 @@ class WorkspaceSummaryCacheTests(unittest.TestCase):
 
             self.assertNotEqual(second["file_count"], 999)
 
-    def test_concurrent_misses_share_one_git_probe_pair(self) -> None:
+    def test_concurrent_misses_share_one_git_inventory_probe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             callers = threading.Barrier(3)
@@ -79,7 +79,7 @@ class WorkspaceSummaryCacheTests(unittest.TestCase):
                     release_probe.set()
                     summaries = [future.result(timeout=3) for future in futures]
 
-            self.assertEqual(git_text.call_count, 2)
+            self.assertEqual(git_text.call_count, 1)
             self.assertEqual(summaries, [summaries[0]] * 3)
 
     def test_staged_file_invalidates_the_cached_file_count(self) -> None:
@@ -138,7 +138,21 @@ class WorkspaceSummaryCacheTests(unittest.TestCase):
             self.assertTrue((linked / ".git").is_file())
             self.assertEqual(first, second)
             self.assertEqual(first["branch"], "linked-cache")
-            self.assertEqual(git_text.call_count, 2)
+            self.assertEqual(git_text.call_count, 1)
+
+    def test_detached_head_keeps_the_branch_badge_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            subprocess.run(
+                ["git", "checkout", "-q", "--detach", "HEAD"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+
+            summary = app_state.workspace_summary(root)
+
+            self.assertEqual(summary["branch"], "")
 
     def test_badge_refresh_uses_one_git_probe_and_sees_live_dirty_paths(self) -> None:
         from opai.gui_web import _workspace, _workspace_refresh

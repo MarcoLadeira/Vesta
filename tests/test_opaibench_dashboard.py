@@ -6,6 +6,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+from opaihub import opaibench
 
 from opaihub.opaibench import (
     DIMENSIONS,
@@ -70,6 +73,16 @@ class RunnerTests(unittest.TestCase):
             run_opaibench(root)
             newest = run_opaibench(root)
             self.assertEqual(latest_opaibench_report(root)["run_id"], newest["run_id"])
+
+    def test_run_reads_only_the_previous_history_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(
+                opaibench, "read_opaibench_history", return_value=[]
+            ) as history:
+                run_opaibench(root, write=False, scenarios=())
+
+        history.assert_called_once_with(root, limit=1)
 
 
 class RegressionTests(unittest.TestCase):
