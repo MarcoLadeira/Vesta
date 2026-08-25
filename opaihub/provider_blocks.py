@@ -194,16 +194,22 @@ def active_block(
     entry = _load(project_root).get(provider)
     if not isinstance(entry, dict):
         return None
+    ts = time.time() if now is None else float(now)
+    return _active_block_from_entry(provider, entry, ts)
+
+
+def _active_block_from_entry(
+    provider: str, entry: dict[str, Any], now: float
+) -> dict[str, Any] | None:
     reason = str(entry.get("reason") or "")
     spec = BLOCK_REASONS.get(reason)
     if not spec:
         return None
-    ts = time.time() if now is None else float(now)
     try:
         at = float(entry.get("at") or 0.0)
     except (TypeError, ValueError):
         at = 0.0
-    if (ts - at) > float(spec["ttl_seconds"]):
+    if (now - at) > float(spec["ttl_seconds"]):
         return None
     remedy = str(spec["remedy"])
     update_hint = _CLI_UPDATE_HINTS.get(provider)
@@ -258,9 +264,14 @@ def blocked_providers(
     project_root: Path, *, needs_edit: bool = False, now: float | None = None
 ) -> dict[str, dict[str, Any]]:
     """Every live block, keyed by provider — for routing and diagnostics."""
+    ts = time.time() if now is None else float(now)
+    store = _load(project_root)
     out: dict[str, dict[str, Any]] = {}
-    for provider in list(_load(project_root)):
-        block = active_block(project_root, str(provider), now=now)
+    for provider, entry in store.items():
+        if not isinstance(entry, dict):
+            continue
+        provider = _clean_provider(str(provider))
+        block = _active_block_from_entry(provider, entry, ts)
         if not block:
             continue
         if block["scope"] == "edit" and not needs_edit:

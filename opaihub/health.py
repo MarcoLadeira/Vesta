@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .atomic_io import read_utf8_tail_json_objects
 from .command_runner import run_policy_command, split_command
 from .loader import registry_items
 from .state import state_dir
@@ -98,14 +99,4 @@ def health_history(project_root: Path, limit: int = 10) -> list[dict[str, Any]]:
     path = state_dir(project_root) / "health" / "history.jsonl"
     if not path.exists():
         return []
-    events: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines()[
-        -limit:
-    ]:
-        if not line.strip():
-            continue
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            pass
-    return events
+    return read_utf8_tail_json_objects(path, limit)

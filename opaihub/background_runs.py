@@ -25,7 +25,11 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from . import shadow_journal
-from .atomic_io import atomic_write_text, interprocess_transaction
+from .atomic_io import (
+    atomic_write_text,
+    interprocess_transaction,
+    read_utf8_tail_json_objects,
+)
 from .command_runner import redact
 from .generated_lifecycle import (
     BACKGROUND_FALLBACK_STATUS,
@@ -433,13 +437,7 @@ def read_notifications(project_root: Path, *, limit: int = 20) -> list[dict[str,
     path = _notifications_path(project_root)
     if not path.exists():
         return []
-    entries = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        try:
-            entries.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return entries[-max(1, int(limit)) :]
+    return read_utf8_tail_json_objects(path, limit)
 
 
 def _update_run(

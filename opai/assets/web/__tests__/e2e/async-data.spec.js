@@ -59,3 +59,65 @@ test("status refresh after a turn uses the async request/ready path", async ({ p
   expect(requests[requests.length - 1]).toContain("status-");
   await expect(page.locator("#statusLine")).not.toBeEmpty();
 });
+
+test("workspace refresh after a turn uses the async request/ready path", async ({ page }) => {
+  await openApp(page);
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, { status: "answered_by_account", answer: "done" });
+
+  await expect
+    .poll(() => page.evaluate(() => window.__mock.workspaceRequests.length))
+    .toBeGreaterThan(0);
+  const requests = await page.evaluate(() => window.__mock.workspaceRequests);
+  expect(requests[requests.length - 1]).toContain("workspace-");
+  expect(await page.evaluate(() => window.__mock.workspaceStateCalls)).toBe(0);
+});
+
+test("a partial badge refresh preserves the boot workspace metadata", async ({ page }) => {
+  await openApp(page, {
+    workspaceResponsePartial: true,
+    workspaceAfterRun: {
+      root: "/workspace",
+      branch: "feature/fast-refresh",
+      dirty: false,
+      dirty_paths: [],
+    },
+  });
+  const label = await page.locator("#wsLabel").textContent();
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, { status: "answered_by_account", answer: "done" });
+
+  await expect(page.locator("#wsContext")).toHaveText("feature/fast-refresh");
+  await expect(page.locator("#wsLabel")).toHaveText(label);
+});
+
+test("a workspace switch drops a slow refresh from the previous root", async ({ page }) => {
+  await openApp(page, {
+    workspaceDelayMs: 300,
+    workspaceAfterRun: { root: "/repo/old", label: "Old refresh" },
+    workspaceSwitch: {
+      boot: { workspace: { root: "/repo/new", label: "New workspace" } },
+    },
+  });
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, { status: "answered_by_account", answer: "done" });
+  await expect
+    .poll(() => page.evaluate(() => window.__mock.workspaceRequests.length))
+    .toBeGreaterThan(0);
+
+  await page.evaluate(() => window.__mock.switchWorkspace("/repo/new"));
+  await expect(page.locator("#wsLabel")).toHaveText("New workspace");
+  await page.waitForTimeout(400);
+
+  await expect(page.locator("#wsLabel")).toHaveText("New workspace");
+});
+
+test("visible inspector loads through the async request/ready path", async ({ page }) => {
+  await openApp(page);
+
+  await expect
+    .poll(() => page.evaluate(() => window.__mock.inspectorRequests.length))
+    .toBeGreaterThan(0);
+  const requests = await page.evaluate(() => window.__mock.inspectorRequests);
+  expect(requests[requests.length - 1]).toContain("inspector-");
+});

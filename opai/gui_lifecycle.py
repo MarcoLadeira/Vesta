@@ -20,6 +20,18 @@ from typing import Any, Iterable, Mapping
 SHUTDOWN_BUDGET_MS = 3000
 
 
+def start_tracked_worker(workers: list[Any], worker: Any) -> None:
+    """Start a Qt-like worker and release its owner reference on completion."""
+
+    def release() -> None:
+        if worker in workers:
+            workers.remove(worker)
+
+    worker.finished.connect(release)
+    workers.append(worker)
+    worker.start()
+
+
 def signal_cancels(cancels: Mapping[str, threading.Event]) -> int:
     """Set every pending cancel event; returns how many were newly signalled."""
     signalled = 0

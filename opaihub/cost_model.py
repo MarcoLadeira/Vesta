@@ -99,9 +99,17 @@ def chars_per_token(model: dict[str, Any] | None = None) -> int:
 
 
 def estimate_tokens(text: str, model: dict[str, Any] | None = None) -> int:
-    if not text:
+    return estimate_tokens_for_chars(len(text), model)
+
+
+def estimate_tokens_for_chars(
+    char_count: int, model: dict[str, Any] | None = None
+) -> int:
+    """Estimate tokens from a known character count without allocating text."""
+    count = max(0, int(char_count))
+    if not count:
         return 0
-    return max(1, len(text) // chars_per_token(model))
+    return max(1, count // chars_per_token(model))
 
 
 def tier_price_known(tier: str, model: dict[str, Any] | None = None) -> bool:

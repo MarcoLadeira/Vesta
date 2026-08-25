@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Callable
 
@@ -87,6 +88,15 @@ _ALLOWED_KEYS = {
 }
 
 
+def _normalized_usage_limit(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number <= 0 or not number.is_integer():
+        return None
+    return int(number)
+
+
 def preference_path(project_root: Path) -> Path:
     return state_dir(project_root.expanduser().resolve()) / "gui" / "preferences.json"
 
@@ -121,16 +131,15 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
                 continue
             metric = str(value.get("metric") or "tokens")
             window = str(value.get("window") or "month")
-            limit = value.get("limit")
+            limit = _normalized_usage_limit(value.get("limit"))
             if (
                 metric in {"tokens", "requests"}
                 and window in {"minute", "day", "month"}
-                and isinstance(limit, (int, float))
-                and limit > 0
+                and limit is not None
             ):
                 clean_limits[redact(model_id)] = {
                     "metric": metric,
-                    "limit": int(limit),
+                    "limit": limit,
                     "window": window,
                 }
     clean["usage_limits"] = clean_limits
@@ -156,7 +165,7 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
     # acknowledgement timestamp; a persisted full-auto default that is not
     # pinned is reset to Safe Auto so a fresh session never reopens with
     # broader authority than the user explicitly kept.
-    clean["full_auto_pinned"] = bool(clean.get("full_auto_pinned"))
+    clean["full_auto_pinned"] = clean.get("full_auto_pinned") is True
     ack = clean.get("full_auto_acknowledged_at")
     clean["full_auto_acknowledged_at"] = str(ack) if isinstance(ack, str) else ""
     pinned = clean["full_auto_pinned"] and bool(
@@ -260,14 +269,15 @@ def save_usage_limit(
         raise ValueError("Usage metric must be tokens or requests")
     if window not in {"minute", "day", "month"}:
         raise ValueError("Usage window must be minute, day, or month")
-    if int(limit) <= 0:
-        raise ValueError("Usage limit must be greater than zero")
+    normalized_limit = _normalized_usage_limit(limit)
+    if normalized_limit is None:
+        raise ValueError("Usage limit must be a finite positive integer")
 
     def add_limit(current: dict[str, Any]) -> dict[str, Any]:
         limits = dict(current.get("usage_limits") or {})
         limits[str(model_id)] = {
             "metric": metric,
-            "limit": int(limit),
+            "limit": normalized_limit,
             "window": window,
         }
         return {"usage_limits": limits}

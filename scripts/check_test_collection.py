@@ -75,7 +75,7 @@ LIFECYCLE_CRITICAL = (
 )
 
 
-def _unittest_counts() -> dict[str, int]:
+def _unittest_counts(tests: Path | None = None) -> dict[str, int]:
     """Tests per file that ``unittest discover`` can collect, read statically.
 
     Deliberately AST, not ``TestLoader.discover``. The first version of this
@@ -93,8 +93,9 @@ def _unittest_counts() -> dict[str, int]:
     and runs in milliseconds.
     """
 
+    directory = TESTS if tests is None else Path(tests)
     counts: dict[str, int] = {}
-    for path in sorted(TESTS.glob("test_*.py")):
+    for path in sorted(directory.glob("test_*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.name)
         except SyntaxError:

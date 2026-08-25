@@ -388,6 +388,36 @@ def _git_bytes(root: Path, args: list[str], *, git_run: GitRun) -> bytes:
     )
 
 
+def capture_workspace_status(
+    path: str | Path,
+    *,
+    git_run: GitRun = subprocess.run,
+) -> tuple[str, DirtyState]:
+    """Read live branch and dirty paths with one read-only Git process.
+
+    A passive GUI badge does not need the content fingerprints and remote
+    identity that mutation safety deliberately captures. Reusing the canonical
+    porcelain parser keeps its path handling exact while avoiding the full
+    repository-handle probe after every completed turn.
+    """
+
+    root = Path(path).expanduser().resolve(strict=False)
+    raw = _git_bytes(
+        root,
+        [
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ],
+        git_run=git_run,
+    )
+    branch, _head_sha = _status_identity(raw)
+    return branch, parse_porcelain_v2(raw)
+
+
 def _filesystem_id(path: Path) -> tuple[int, int] | None:
     try:
         metadata = path.stat()
@@ -401,6 +431,88 @@ def _resolve_git_path(root: Path, value: str) -> Path:
     if not candidate.is_absolute():
         candidate = root / candidate
     return candidate.resolve(strict=False)
+
+
+def _status_identity(raw: bytes) -> tuple[str, str]:
+    """Return branch and commit identity from porcelain-v2 branch headers."""
+    branch = ""
+    head_sha = ""
+    for record in raw.split(b"\0"):
+        if record.startswith(b"# branch.head "):
+            value = record[len(b"# branch.head ") :].decode("utf-8", "surrogateescape")
+            branch = "" if value == "(detached)" else value
+        elif record.startswith(b"# branch.oid "):
+            value = record[len(b"# branch.oid ") :].decode("utf-8", "surrogateescape")
+            head_sha = "" if value.startswith("(") else value
+    return branch, head_sha
+
+
+def _filesystem_git_layout(root: Path) -> tuple[Path, Path] | None:
+    """Resolve standard and linked-worktree Git directories without a process."""
+    marker = root / ".git"
+    try:
+        if marker.is_dir():
+            git_dir = marker.resolve(strict=True)
+        elif marker.is_file():
+            prefix, separator, value = (
+                marker.read_text(encoding="utf-8", errors="replace")
+                .strip()
+                .partition(":")
+            )
+            if not separator or prefix.strip().casefold() != "gitdir":
+                return None
+            git_dir = _resolve_git_path(root, value.strip())
+            if not git_dir.is_dir():
+                return None
+        else:
+            return None
+        common_marker = git_dir / "commondir"
+        if common_marker.is_file():
+            common_git_dir = _resolve_git_path(
+                git_dir,
+                common_marker.read_text(encoding="utf-8", errors="replace").strip(),
+            )
+            if not common_git_dir.is_dir():
+                return None
+        else:
+            common_git_dir = git_dir
+    except OSError:
+        return None
+    return git_dir, common_git_dir
+
+
+def _repository_layout(start: Path, *, git_run: GitRun) -> tuple[Path, Path, Path]:
+    for candidate in (start, *start.parents):
+        layout = _filesystem_git_layout(candidate)
+        if layout is None:
+            continue
+        root = candidate.resolve(strict=True)
+        return root, layout[0], layout[1]
+
+    top = _git_text(
+        start, ["rev-parse", "--show-toplevel"], git_run=git_run, required=False
+    )
+    if not top:
+        raise RepositoryProbeError("probe_unavailable", "Path is not a Git worktree")
+    root = Path(top).resolve(strict=True)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        git_dir_future = pool.submit(
+            _git_text,
+            root,
+            ["rev-parse", "--git-dir"],
+            git_run=git_run,
+            required=True,
+        )
+        common_git_dir_future = pool.submit(
+            _git_text,
+            root,
+            ["rev-parse", "--git-common-dir"],
+            git_run=git_run,
+            required=True,
+        )
+        git_dir = _resolve_git_path(root, git_dir_future.result())
+        common_git_dir = _resolve_git_path(root, common_git_dir_future.result())
+    return root, git_dir, common_git_dir
 
 
 def _status_fingerprint(state: DirtyState) -> str:
@@ -564,54 +676,13 @@ def _probe_repository(
         raise RepositoryProbeError(
             "repository_missing", f"Repository path is missing: {start}"
         )
-    top = _git_text(
-        start, ["rev-parse", "--show-toplevel"], git_run=git_run, required=False
-    )
-    if not top:
-        raise RepositoryProbeError("probe_unavailable", "Path is not a Git worktree")
-    root = Path(top).resolve(strict=True)
+    root, git_dir, common_git_dir = _repository_layout(start, git_run=git_run)
 
     # None of the calls below depend on each other's output, only on `root` —
     # each spawns a `git.exe` process, and on Windows that spawn latency (tens
     # of ms) dominates a capture once it is paid a dozen times over in series.
     # Running them concurrently overlaps that latency instead of stacking it.
     with ThreadPoolExecutor(max_workers=8) as pool:
-        git_dir_future = pool.submit(
-            _git_text,
-            root,
-            ["rev-parse", "--git-dir"],
-            git_run=git_run,
-            required=True,
-        )
-        common_git_dir_future = pool.submit(
-            _git_text,
-            root,
-            ["rev-parse", "--git-common-dir"],
-            git_run=git_run,
-            required=True,
-        )
-        # An *unborn* HEAD — a repository created by `git init` with no commit
-        # yet — is a legitimate, safe worktree, not a probe failure. Requiring
-        # HEAD to resolve conflated "has history" with "is a Git repository"
-        # and blocked every edit-capable run in a brand-new project, which is
-        # one of the most common places to start ("build me an app"). The
-        # user saw only "OPai could not establish and persist a fresh
-        # repository identity", which is both wrong and unactionable.
-        #
-        # The empty string is the honest identity for "no commit yet", and it
-        # stays correct downstream: the `head_changed` comparison sees ""
-        # -> <sha> when the first commit lands, which is exactly the change
-        # it exists to detect.
-        head_sha_future = pool.submit(
-            _git_text, root, ["rev-parse", "HEAD"], git_run=git_run, required=False
-        )
-        branch_future = pool.submit(
-            _git_text,
-            root,
-            ["symbolic-ref", "--quiet", "--short", "HEAD"],
-            git_run=git_run,
-            required=False,
-        )
         status_future = pool.submit(
             _git_bytes,
             root,
@@ -647,12 +718,13 @@ def _probe_repository(
             ["diff", "--binary", "--no-ext-diff", "--"],
             git_run=git_run,
         )
+        index_fingerprint_future = pool.submit(
+            _index_fingerprint, root, git_dir, git_run=git_run
+        )
 
-        git_dir = _resolve_git_path(root, git_dir_future.result())
-        common_git_dir = _resolve_git_path(root, common_git_dir_future.result())
-        head_sha = head_sha_future.result()
-        branch = branch_future.result()
-        dirty_state = parse_porcelain_v2(status_future.result())
+        raw_status = status_future.result()
+        branch, head_sha = _status_identity(raw_status)
+        dirty_state = parse_porcelain_v2(raw_status)
 
         remote_names = sorted(
             value.strip()
@@ -685,6 +757,7 @@ def _probe_repository(
         untracked_hashes = _hash_objects(root, sorted_untracked, git_run=git_run)
         staged_diff = staged_diff_future.result()
         unstaged_diff = unstaged_diff_future.result()
+        index_fingerprint = index_fingerprint_future.result()
 
     filesystem_id = _filesystem_id(root)
     identity = RepositoryIdentity(
@@ -698,7 +771,7 @@ def _probe_repository(
         detached=not bool(branch),
         head_sha=head_sha,
         status_fingerprint=_status_fingerprint(dirty_state),
-        index_fingerprint=_index_fingerprint(root, git_dir, git_run=git_run),
+        index_fingerprint=index_fingerprint,
         working_tree_fingerprint=_working_tree_fingerprint(
             staged_diff, unstaged_diff, sorted_untracked, untracked_hashes
         ),

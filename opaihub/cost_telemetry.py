@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from .atomic_io import read_utf8_tail_lines
 from .command_runner import redact
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger
@@ -244,25 +245,42 @@ def _read_cost_events(
     path = state_dir(project_root.expanduser().resolve()) / "agent" / "events.jsonl"
     if not path.exists():
         return [], 0
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if limit is not None:
-        lines = lines[-limit:]
-    events: list[dict[str, Any]] = []
-    skipped = 0
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            skipped += 1
-            continue
-        if not isinstance(value, dict):
-            skipped += 1
-            continue
-        if value.get("event_type") == "cost_telemetry":
-            events.append(value)
-    return events, skipped
+
+    def matching(lines: list[str]) -> tuple[list[dict[str, Any]], int]:
+        events: list[dict[str, Any]] = []
+        skipped = 0
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                skipped += 1
+                continue
+            if not isinstance(value, dict):
+                skipped += 1
+                continue
+            if value.get("event_type") == "cost_telemetry":
+                events.append(value)
+        return events, skipped
+
+    if limit is None:
+        return matching(path.read_text(encoding="utf-8", errors="replace").splitlines())
+    target = max(0, int(limit))
+    if target == 0:
+        return [], 0
+    window = max(64, target * 2)
+    previous_line_count = -1
+    while True:
+        lines = read_utf8_tail_lines(path, window)
+        events, skipped = matching(lines)
+        if len(events) >= target:
+            return events[-target:], skipped
+        line_count = len(lines)
+        if line_count < window or line_count == previous_line_count:
+            return events, skipped
+        previous_line_count = line_count
+        window *= 2
 
 
 def read_cost_events(

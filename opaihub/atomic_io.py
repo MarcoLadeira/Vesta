@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO, Iterator
+from typing import Any, BinaryIO, Iterator
 
 
 _LOCK_RETRY_SECONDS = 0.01
@@ -20,10 +21,63 @@ _PATH_LOCKS: dict[str, threading.RLock] = {}
 _PATH_LOCKS_GUARD = threading.Lock()
 _PATH_LOCKS_PROCESS_ID = os.getpid()
 _HELD_PATHS = threading.local()
+_TAIL_READ_CHUNK_BYTES = 64 * 1024
 
 
 class InterprocessLockTimeout(TimeoutError):
     """Raised when a state transaction cannot acquire its lock in time."""
+
+
+def read_utf8_tail_lines(path: Path, limit: int) -> list[str]:
+    """Return at most ``limit`` physical UTF-8 lines without reading the prefix.
+
+    JSONL callers frequently need only a small support-bundle or GUI tail.  A
+    normal ``Path.read_text().splitlines()[-limit:]`` materializes the complete
+    append-only log, and ``limit == 0`` accidentally means the complete list
+    because ``-0`` is zero.  Read backward in bounded chunks until one extra
+    line proves the requested tail is complete.
+    """
+
+    if limit <= 0:
+        return []
+    with Path(path).open("rb") as handle:
+        cursor = handle.seek(0, os.SEEK_END)
+        data = b""
+        while cursor > 0:
+            chunk_size = min(_TAIL_READ_CHUNK_BYTES, cursor)
+            cursor -= chunk_size
+            handle.seek(cursor)
+            data = handle.read(chunk_size) + data
+            if len(data.splitlines()) > limit:
+                break
+    return data.decode("utf-8", errors="replace").splitlines()[-limit:]
+
+
+def read_utf8_tail_json_objects(path: Path, limit: int) -> list[dict[str, Any]]:
+    """Return the latest JSON objects, skipping torn and non-object rows."""
+
+    target = max(0, int(limit))
+    if target == 0:
+        return []
+    window = max(64, target * 2)
+    previous_line_count = -1
+    while True:
+        lines = read_utf8_tail_lines(path, window)
+        objects: list[dict[str, Any]] = []
+        for line in lines:
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                objects.append(value)
+        if len(objects) >= target:
+            return objects[-target:]
+        line_count = len(lines)
+        if line_count < window or line_count == previous_line_count:
+            return objects
+        previous_line_count = line_count
+        window *= 2
 
 
 def _path_key(target: Path) -> str:
