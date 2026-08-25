@@ -103,6 +103,7 @@
   var bridge = {
     replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), cancelReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(), updateReady: Sig(),
     dashboardReady: Sig(), settingsReady: Sig(), toolApplied: Sig(), statusReady: Sig(),
+    workspaceReady: Sig(), inspectorReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     // Round 2: the header's "N uncommitted" badge came from the boot payload
     // and was never recomputed, so it stayed stale after a run committed. The
@@ -115,6 +116,20 @@
       cb(JSON.stringify(boot.workspace));
     },
     inspector: function (s, cb) { cb(JSON.stringify(boot.inspector)); },
+    requestWorkspace: function (requestId) {
+      window.__mock.workspaceRequests.push(requestId);
+      var after = scenario.workspaceAfterRun;
+      if (after) boot.workspace = merge(boot.workspace || {}, after);
+      setTimeout(function () {
+        bridge.workspaceReady.emit(JSON.stringify({ requestId: requestId, data: boot.workspace }));
+      }, scenario.workspaceDelayMs || 0);
+    },
+    requestInspector: function (s, requestId) {
+      window.__mock.inspectorRequests.push(requestId);
+      setTimeout(function () {
+        bridge.inspectorReady.emit(JSON.stringify({ requestId: requestId, data: boot.inspector }));
+      }, scenario.inspectorDelayMs || 0);
+    },
     statusLine: function (s, cb) { cb(JSON.stringify(boot.status)); },
     requestStatus: function (sel, requestId) {
       window.__mock.statusRequests.push(requestId);
@@ -510,6 +525,7 @@
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
     dashboardRequests: [], settingsRequests: [], statusRequests: [],
+    workspaceRequests: [], inspectorRequests: [],
     updateChecks: [], updateActions: [], updatePolicies: [], interactiveMarks: 0, usageRefreshes: 0,
     workspaceStateCalls: 0,
     emitDiscoveredModels: function () {

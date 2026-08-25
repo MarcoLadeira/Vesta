@@ -1370,6 +1370,8 @@ def _run_gui(
         settingsReady = QtCore.Signal(str)
         toolApplied = QtCore.Signal(str)
         statusReady = QtCore.Signal(str)
+        workspaceReady = QtCore.Signal(str)
+        inspectorReady = QtCore.Signal(str)
         updateReady = QtCore.Signal(str)
 
         def __init__(self, window) -> None:
@@ -1533,6 +1535,24 @@ def _run_gui(
                 self.dashboardReady,
                 request_id,
                 extra={"sectionId": section},
+            )
+
+        @QtCore.Slot(str)
+        def requestWorkspace(self, request_id: str) -> None:
+            root = self.root
+            self._spawn_data_worker(
+                lambda: _workspace(root), self.workspaceReady, request_id
+            )
+
+        @QtCore.Slot(str, str)
+        def requestInspector(self, sel_json: str, request_id: str) -> None:
+            try:
+                sel = json.loads(sel_json)
+            except ValueError:
+                sel = {}
+            root = self.root
+            self._spawn_data_worker(
+                lambda: _inspector(root, sel), self.inspectorReady, request_id
             )
 
         @QtCore.Slot(str, str)

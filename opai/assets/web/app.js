@@ -263,6 +263,8 @@ function boot() {
   if (bridge.dashboardReady) bridge.dashboardReady.connect(onDashboardReady);
   if (bridge.settingsReady) bridge.settingsReady.connect(onSettingsReady);
   if (bridge.statusReady) bridge.statusReady.connect(onStatusReady);
+  if (bridge.workspaceReady) bridge.workspaceReady.connect(onWorkspaceReady);
+  if (bridge.inspectorReady) bridge.inspectorReady.connect(onInspectorReady);
   if (bridge.updateReady) bridge.updateReady.connect((raw) => {
     let update = {};
     try { update = JSON.parse(raw || "{}"); } catch (_e) { return; }
@@ -1045,7 +1047,19 @@ function selPayload() {
     focus: state.focus, format: state.format, accounts: state.accounts,
   };
 }
-function refreshInspector() { bridge.inspector(JSON.stringify(selPayload()), (json) => renderInspector(JSON.parse(json))); }
+function refreshInspector() {
+  if (bridge.requestInspector && bridge.inspectorReady) {
+    state.inspectorRequest = `inspector-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    bridge.requestInspector(JSON.stringify(selPayload()), state.inspectorRequest);
+  } else {
+    bridge.inspector(JSON.stringify(selPayload()), (json) => renderInspector(JSON.parse(json)));
+  }
+}
+function onInspectorReady(json) {
+  let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (d.requestId !== state.inspectorRequest) return;
+  renderInspector(d.data || {});
+}
 function refreshStatus() {
   // #146: prefer the async path — the (cached) overview read runs on a worker
   // thread so the one post-turn recompute never stalls the window. Only the
@@ -3164,14 +3178,27 @@ function onReply(json) {
 // older host without the slot, or a malformed reply, leaves the badge as-is
 // rather than blanking a branch name we can no longer verify.
 function refreshWorkspaceBadge() {
-  if (!bridge || !bridge.workspaceState) return;
-  bridge.workspaceState((json) => {
-    let ws = null;
-    try { ws = JSON.parse(json); } catch (_e) { return; }
-    if (!ws || typeof ws !== "object" || typeof ws.root !== "string") return;
-    state.boot.workspace = ws;
-    renderWorkspace();
-  });
+  if (!bridge || (!bridge.workspaceState && !bridge.requestWorkspace)) return;
+  if (bridge.requestWorkspace && bridge.workspaceReady) {
+    state.workspaceRequest = `workspace-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    bridge.requestWorkspace(state.workspaceRequest);
+  } else {
+    bridge.workspaceState((json) => {
+      let ws = null;
+      try { ws = JSON.parse(json); } catch (_e) { return; }
+      applyWorkspaceRefresh(ws);
+    });
+  }
+}
+function applyWorkspaceRefresh(ws) {
+  if (!ws || typeof ws !== "object" || typeof ws.root !== "string") return;
+  state.boot.workspace = ws;
+  renderWorkspace();
+}
+function onWorkspaceReady(json) {
+  let d = {}; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (d.requestId !== state.workspaceRequest) return;
+  applyWorkspaceRefresh(d.data);
 }
 
 function setBusy(on) {

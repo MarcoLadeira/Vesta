@@ -59,3 +59,26 @@ test("status refresh after a turn uses the async request/ready path", async ({ p
   expect(requests[requests.length - 1]).toContain("status-");
   await expect(page.locator("#statusLine")).not.toBeEmpty();
 });
+
+test("workspace refresh after a turn uses the async request/ready path", async ({ page }) => {
+  await openApp(page);
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, { status: "answered_by_account", answer: "done" });
+
+  await expect
+    .poll(() => page.evaluate(() => window.__mock.workspaceRequests.length))
+    .toBeGreaterThan(0);
+  const requests = await page.evaluate(() => window.__mock.workspaceRequests);
+  expect(requests[requests.length - 1]).toContain("workspace-");
+  expect(await page.evaluate(() => window.__mock.workspaceStateCalls)).toBe(0);
+});
+
+test("visible inspector loads through the async request/ready path", async ({ page }) => {
+  await openApp(page);
+
+  await expect
+    .poll(() => page.evaluate(() => window.__mock.inspectorRequests.length))
+    .toBeGreaterThan(0);
+  const requests = await page.evaluate(() => window.__mock.inspectorRequests);
+  expect(requests[requests.length - 1]).toContain("inspector-");
+});
