@@ -1888,9 +1888,11 @@ def read_events(project_root: Path, limit: int | None = None) -> list[dict[str, 
         if not line.strip():
             continue
         try:
-            events.append(json.loads(line))
+            value = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(value, dict):
+            events.append(value)
     return events
 
 
