@@ -659,6 +659,11 @@ def usage_overview(
     support one — used by the Settings surface on its worker thread."""
 
     events = _model_call_events(project_root) if events is None else events
+    events_by_provider: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        event_provider = _provider_of(event)
+        if event_provider:
+            events_by_provider.setdefault(event_provider, []).append(event)
     ts = time.time() if now is None else float(now)
     seen: set[str] = set()
     overview: list[dict[str, Any]] = []
@@ -672,7 +677,7 @@ def usage_overview(
                 project_root,
                 provider,
                 configured=bool(item.get("configured", True)),
-                events=events,
+                events=events_by_provider.get(provider, []),
                 probe=probe,
                 force=force,
                 now=ts,

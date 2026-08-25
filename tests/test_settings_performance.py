@@ -47,6 +47,29 @@ class SettingsPerformanceTests(unittest.TestCase):
             1,
         )
 
+    def test_provider_usage_indexes_events_once_for_many_providers(self) -> None:
+        class CountingEvent(dict[str, object]):
+            provider_reads = 0
+
+            def get(self, key: str, default: object = None) -> object:
+                if key in {"provider_id", "provider_type"}:
+                    type(self).provider_reads += 1
+                return super().get(key, default)
+
+        events = [
+            CountingEvent(event_type=ledger.EVENT_MODEL_CALL, provider_id="claude")
+            for _ in range(100)
+        ]
+        providers = [
+            {"provider": provider, "configured": True}
+            for provider in provider_usage.USAGE_MODELS
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            provider_usage.usage_overview(Path(tmp), providers, events=events)
+
+        self.assertLessEqual(CountingEvent.provider_reads, len(events) * 3)
+
 
 if __name__ == "__main__":
     unittest.main()
