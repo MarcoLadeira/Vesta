@@ -68,17 +68,34 @@ class WorkflowLedger:
     def read(self, *, limit: int | None = None) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
-        lines = (
-            self.path.read_text(encoding="utf-8", errors="replace").splitlines()
-            if limit is None
-            else read_utf8_tail_lines(self.path, limit)
-        )
-        events = []
-        for line in lines:
-            try:
-                value = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if value.get("task_id") == self.task_id:
-                events.append(value)
-        return events
+
+        def matching(lines: list[str]) -> list[dict[str, Any]]:
+            events = []
+            for line in lines:
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if value.get("task_id") == self.task_id:
+                    events.append(value)
+            return events
+
+        if limit is None:
+            return matching(
+                self.path.read_text(encoding="utf-8", errors="replace").splitlines()
+            )
+        target = max(0, int(limit))
+        if target == 0:
+            return []
+        window = max(64, target * 2)
+        previous_line_count = -1
+        while True:
+            lines = read_utf8_tail_lines(self.path, window)
+            events = matching(lines)
+            if len(events) >= target:
+                return events[-target:]
+            line_count = len(lines)
+            if line_count < window or line_count == previous_line_count:
+                return events
+            previous_line_count = line_count
+            window *= 2

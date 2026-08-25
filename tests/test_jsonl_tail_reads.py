@@ -145,6 +145,19 @@ class JsonlTailReadTests(unittest.TestCase):
             for _path, reader in paths_and_readers:
                 self.assertEqual(reader(), [])
 
+    def test_workflow_limit_counts_matching_task_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = WorkflowLedger(root, task_id="task-1")
+            workflow.append("step", sequence=1)
+            workflow.append("step", sequence=2)
+            for sequence in range(20):
+                WorkflowLedger(root, task_id="task-2").append("step", sequence=sequence)
+
+            events = workflow.read(limit=2)
+
+        self.assertEqual([event["sequence"] for event in events], [1, 2])
+
     def _write_event_rows(
         self,
         path: Path,
