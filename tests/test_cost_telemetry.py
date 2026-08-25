@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -137,6 +138,11 @@ class NormalizationTests(unittest.TestCase):
         self.assertIsNone(telemetry.cost_usd)
         self.assertEqual(telemetry.cost_measurement, "estimated")
 
+    def test_nonfinite_cost_is_not_mistaken_for_a_real_spend(self):
+        telemetry = normalize_account_result("claude", {"cost_usd": float("nan")})
+        self.assertIsNone(telemetry.cost_usd)
+        self.assertEqual(telemetry.cost_measurement, "estimated")
+
     def test_provider_usage_bodies_yield_provider_tokens_and_quota(self):
         telemetry = normalize_api_usage(
             "groq",
@@ -241,6 +247,33 @@ class LedgerTests(unittest.TestCase):
             summary = summarize_cost_telemetry(Path(tmp))
         self.assertFalse(summary["has_data"])
         self.assertEqual(summary["actual_usd"], 0.0)
+
+    def test_nonfinite_persisted_telemetry_is_degraded_not_summed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".opaihub" / "agent" / "events.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "event_type": "cost_telemetry",
+                        "metadata": {
+                            "provider": "claude",
+                            "cost_measurement": "actual",
+                            "cost_usd": float("nan"),
+                            "total_tokens": float("nan"),
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            summary = summarize_cost_telemetry(root)
+
+        self.assertEqual(summary["actual_usd"], 0.0)
+        self.assertEqual(summary["total_tokens"], 0)
+        self.assertTrue(summary["degraded"])
+        self.assertEqual(summary["skipped_events"], 1)
 
 
 class PipelineTelemetryTests(unittest.TestCase):
