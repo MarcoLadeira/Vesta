@@ -644,6 +644,47 @@ class RepositoryToolExecutor:
         safe_paths = self._safe_paths(list(paths))
         if safe_paths is None:
             return _error("PATH_OUTSIDE_REPO", "Patch target is outside the repository")
+        # #616: a patch is a filesystem mutation; persist the operation before
+        # dispatch, keyed on the patch digest. The store is consulted BEFORE
+        # the dirty guard and the forward validation below: files our own
+        # crashed attempt left behind look like pre-existing user changes, and
+        # a patch that "no longer applies" may have already been applied by
+        # that attempt — both must reconcile, not misreport.
+        import hashlib
+
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key, status
+
+        patch_sha = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+        key = operation_key("apply_patch", root=str(self.repo_root), sha=patch_sha)
+        known = status(self.repo_root, key)
+        if known["state"] == DONE:
+            for path in safe_paths:
+                if path not in self.written_paths:
+                    self.written_paths.append(path)
+            return Observation(
+                "patch_apply",
+                True,
+                {"paths": list(safe_paths)},
+                message="Patch already applied",
+            ).to_dict()
+        if known["state"] == IN_FLIGHT:
+            # git apply is all-or-nothing, so a lost response is reconcilable:
+            # if the patch still applies cleanly it never landed, and if the
+            # reverse applies cleanly it fully did. Anything else (partial
+            # hand-edits, conflicts) fails closed.
+            reconciled, decided = self._reconcile_patch(key, patch, safe_paths)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "PATCH_STATE_UNCERTAIN",
+                    "An earlier attempt to apply this patch did not confirm, "
+                    "and the files no longer match either the unpatched or "
+                    "patched state. Check them before retrying.",
+                )
+            # Provably never applied (key released): fall through to the
+            # normal guards and a fresh claim below.
         dirty = classify_dirty_paths(self.initial_dirty_paths, safe_paths)
         if not dirty.can_proceed:
             return _error(
@@ -664,13 +705,36 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("apply_patch", safe_paths)
         if blocked is not None:
             return blocked
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            for path in safe_paths:
+                if path not in self.written_paths:
+                    self.written_paths.append(path)
+            return Observation(
+                "patch_apply",
+                True,
+                {"paths": list(safe_paths)},
+                message="Patch already applied",
+            ).to_dict()
+        if prior["state"] != FRESH:
+            # Raced with another claimant between status() and begin().
+            return _error(
+                "PATCH_STATE_UNCERTAIN",
+                "Patch operation state changed during reconciliation; "
+                "check the files before retrying.",
+            )
         applied = self.aci.apply_patch(patch)
         if applied.ok:
+            complete(self.repo_root, key, {"paths": ",".join(sorted(safe_paths))})
             for path in safe_paths:
                 if path not in self.written_paths:
                     self.written_paths.append(path)
             if not self._refresh_repository_handle():
                 return self._repository_safety_blocked("apply_patch")
+        else:
+            # git apply is atomic: a failed apply changed nothing, so the key
+            # is released and a corrected retry is free.
+            abandon(self.repo_root, key)
         return Observation(
             "patch_apply",
             applied.ok,
@@ -679,6 +743,42 @@ class RepositoryToolExecutor:
             applied.message,
             applied.duration_ms,
         ).to_dict()
+
+    def _reconcile_patch(
+        self, key: str, patch: str, safe_paths: tuple[str, ...]
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Resolve an uncertain patch application using git apply's atomicity.
+
+        A forward ``--check`` passing proves the patch never landed (key
+        released, retry free); a reverse ``--check`` passing proves it fully
+        landed (recorded as done). Neither passing means the files are in a
+        state this patch alone cannot explain — genuinely uncertain.
+        """
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        forward = self.aci.apply_patch(patch, check_only=True)
+        if forward.ok:
+            try:
+                abandon(self.repo_root, key)
+            except OperationPersistenceError:
+                return None, False
+            return None, True
+        reverse = self.aci.apply_patch(patch, check_only=True, reverse=True)
+        if reverse.ok:
+            try:
+                complete(self.repo_root, key, {"paths": ",".join(sorted(safe_paths))})
+            except OperationPersistenceError:
+                return None, False
+            for path in safe_paths:
+                if path not in self.written_paths:
+                    self.written_paths.append(path)
+            return Observation(
+                "patch_apply",
+                True,
+                {"paths": list(safe_paths)},
+                message="Patch application confirmed on disk",
+            ).to_dict(), True
+        return None, False
 
     def _write_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Create or fully replace one repository file (never delete).
@@ -705,6 +805,47 @@ class RepositoryToolExecutor:
             lowered
         ):
             return _error("PATH_BLOCKED", f"Writing to {relative} is not allowed")
+        # #616: consult the operation store BEFORE the dirty-path guard. A
+        # file our own crashed attempt left behind looks like a pre-existing
+        # user change to a fresh executor; only the operation record can tell
+        # "ours, mid-flight" apart from "the user's, do not touch".
+        import hashlib
+
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key, status
+
+        content_sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        key = operation_key(
+            "write_file", root=str(self.repo_root), path=relative, sha=content_sha
+        )
+        known = status(self.repo_root, key)
+        if known["state"] == DONE:
+            recorded = known["result"]
+            if relative not in self.written_paths:
+                self.written_paths.append(relative)
+            return Observation(
+                "file_write",
+                True,
+                {
+                    "path": relative,
+                    "created": bool(recorded.get("created")),
+                    "bytes": len(content.encode("utf-8")),
+                },
+                message=f"Already wrote {relative}",
+            ).to_dict()
+        if known["state"] == IN_FLIGHT:
+            reconciled, decided = self._reconcile_write(key, relative, content_sha)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "WRITE_STATE_UNCERTAIN",
+                    f"An earlier attempt to write {relative} did not confirm, "
+                    "and the file now holds different content. Check the file "
+                    "before retrying.",
+                )
+            # Provably never written (key released): fall through to the
+            # normal guards and a fresh claim below.
         dirty = classify_dirty_paths(self.initial_dirty_paths, (relative,))
         if not dirty.can_proceed and relative not in self.written_paths:
             return _error(
@@ -714,13 +855,43 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("write_file", (relative,))
         if blocked is not None:
             return blocked
+        # The claim happens here, immediately before dispatch: a replayed
+        # turn resolves to the recorded write while genuinely new content is
+        # a new operation, and a crash between write and record is reconciled
+        # against the bytes on disk on the next attempt.
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            recorded = prior["result"]
+            if relative not in self.written_paths:
+                self.written_paths.append(relative)
+            return Observation(
+                "file_write",
+                True,
+                {
+                    "path": relative,
+                    "created": bool(recorded.get("created")),
+                    "bytes": len(content.encode("utf-8")),
+                },
+                message=f"Already wrote {relative}",
+            ).to_dict()
+        if prior["state"] != FRESH:
+            return _error(
+                "WRITE_STATE_UNCERTAIN",
+                "Write operation state changed during reconciliation; "
+                f"check {relative} before retrying.",
+            )
         target = self.repo_root / relative
         created = not target.exists()
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8", newline="\n")
         except OSError as exc:
+            # An observed local write failure: a partial file is possible but
+            # the next attempt reconciles against the bytes on disk, so the
+            # key is released rather than left to misreport a live write.
+            abandon(self.repo_root, key)
             return _error("WRITE_FAILED", f"Could not write {relative}: {exc}")
+        complete(self.repo_root, key, {"path": relative, "created": created})
         if relative not in self.written_paths:
             self.written_paths.append(relative)
         if not self._refresh_repository_handle():
@@ -735,6 +906,47 @@ class RepositoryToolExecutor:
             },
             message=f"{'Created' if created else 'Replaced'} {relative}",
         ).to_dict()
+
+    def _reconcile_write(
+        self, key: str, relative: str, content_sha: str
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Resolve an uncertain file write by hashing what is on disk (#616).
+
+        ``(result, True)`` settles the operation: the file carrying exactly
+        the intended bytes proves the write landed (recorded as done); the
+        file being absent proves it never did (key released, retry free).
+        ``(None, False)`` keeps it uncertain — different content may be a
+        partial write or a user's edit, and neither may be overwritten blind.
+        """
+        import hashlib
+
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        target = self.repo_root / relative
+        try:
+            if not target.is_file():
+                try:
+                    abandon(self.repo_root, key)
+                except OperationPersistenceError:
+                    return None, False
+                return None, True
+            on_disk = hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            return None, False
+        if on_disk == content_sha:
+            try:
+                complete(self.repo_root, key, {"path": relative, "created": False})
+            except OperationPersistenceError:
+                return None, False
+            if relative not in self.written_paths:
+                self.written_paths.append(relative)
+            return Observation(
+                "file_write",
+                True,
+                {"path": relative, "created": False},
+                message=f"Write of {relative} confirmed on disk",
+            ).to_dict(), True
+        return None, False
 
     def _git(
         self, argv: list[str], *, timeout: float = 60.0, cancel: Any = None
@@ -777,15 +989,53 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("git_create_branch", tuple(self.written_paths))
         if blocked is not None:
             return blocked
+        # #616: branch creation is a Git mutation; persist the operation
+        # before dispatch so a replayed turn resolves to the recorded branch
+        # instead of erroring on "already exists" or, worse, racing a second
+        # creation. A lost response fails closed as uncertain: the branch may
+        # already exist.
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        key = operation_key("git_create_branch", root=str(self.repo_root), name=name)
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return Observation(
+                "git_branch",
+                True,
+                {"branch": name},
+                message=f"Branch {name} already created",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            return _error(
+                "BRANCH_STATE_UNCERTAIN",
+                "An earlier attempt to create this branch did not confirm. "
+                "It may already exist — check `git branch` before retrying.",
+            )
         result = self._git(["checkout", "-b", name], cancel=cancel)
-        if result["ok"] and not self._refresh_repository_handle():
+        if result.get("cancelled"):
+            # _git checks cancel before spawning, so nothing was dispatched.
+            abandon(self.repo_root, key)
+            return _cancelled_error()
+        if not result["ok"]:
+            # checkout -b failed before creating the ref (invalid start
+            # point, existing branch): provably no effect, key released.
+            abandon(self.repo_root, key)
+            return Observation(
+                "git_branch",
+                False,
+                {"branch": name},
+                "GIT_BRANCH_FAILED",
+                result["output"],
+            ).to_dict()
+        complete(self.repo_root, key, {"branch": name})
+        if not self._refresh_repository_handle():
             return self._repository_safety_blocked("git_create_branch")
         return Observation(
             "git_branch",
-            result["ok"],
+            True,
             {"branch": name},
-            "" if result["ok"] else "GIT_BRANCH_FAILED",
-            result["output"] if not result["ok"] else f"Created branch {name}",
+            message=f"Created branch {name}",
         ).to_dict()
 
     def _git_commit(
@@ -901,6 +1151,13 @@ class RepositoryToolExecutor:
         name = _valid_branch(branch) if branch else self._current_branch()
         if not name:
             return _error("INVALID_BRANCH_NAME", "No valid branch to push")
+        if cancel is not None and cancel.is_set():
+            return _cancelled_error()
+        # Approval deliberately comes before any git invocation: a refused
+        # push must not touch the repository at all. The idempotency claim
+        # below therefore happens after the grant — a replayed turn may be
+        # re-asked, but once granted it resolves to the recorded operation
+        # instead of dispatching a second push (#616).
         approval = self._needs_approval(
             f"git push -u origin {name}",
             "Pushing sends this branch to the remote.",
@@ -910,18 +1167,131 @@ class RepositoryToolExecutor:
         blocked = self._mutation_gate("git_push", tuple(self.written_paths))
         if blocked is not None:
             return blocked
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        # The key identifies the *content being published* — branch at a
+        # resolved head — so pushing new commits is a new operation while
+        # replaying the same push resolves to the existing one. rev-parse is
+        # also the pre-dispatch validation that the branch exists locally;
+        # its failure proves nothing left the machine, so no key is claimed.
+        head = self._git(["rev-parse", name], cancel=cancel)
+        if head.get("cancelled"):
+            return _cancelled_error()
+        if not head["ok"]:
+            return _error("GIT_PUSH_FAILED", head["output"])
+        head_sha = head["output"].strip()
+        key = operation_key(
+            "git_push", root=str(self.repo_root), branch=name, head=head_sha
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return Observation(
+                "git_push",
+                True,
+                {"branch": name},
+                message=f"Already pushed {name} to origin",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            # Started and never confirmed. Push is reconcilable: a ref update
+            # is atomic, so observing the remote answers whether it landed.
+            reconciled, decided = self._reconcile_push(
+                key, name, head_sha, cancel=cancel
+            )
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "PUSH_STATE_UNCERTAIN",
+                    "An earlier attempt to push this branch at this head did "
+                    "not confirm, and the remote could not be checked. Run "
+                    f"`git ls-remote origin {name}` before retrying.",
+                )
+            # The remote provably does not carry this head: claim fresh and
+            # continue with the dispatch below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "PUSH_STATE_UNCERTAIN",
+                    "Push operation state changed during reconciliation; "
+                    "check the remote before retrying.",
+                )
         result = self._git(["push", "-u", "origin", name], timeout=120.0, cancel=cancel)
         if result.get("cancelled"):
+            # _git checks cancel before spawning, so nothing was dispatched.
+            abandon(self.repo_root, key)
             return _cancelled_error()
-        if result["ok"] and not self._refresh_repository_handle():
-            return self._repository_safety_blocked("git_push")
-        return Observation(
-            "git_push",
-            result["ok"],
-            {"branch": name},
-            "" if result["ok"] else "GIT_PUSH_FAILED",
-            result["output"] if not result["ok"] else f"Pushed {name} to origin",
-        ).to_dict()
+        if result["ok"]:
+            # The push landed — record it before anything else can fail.
+            complete(self.repo_root, key, {"branch": name})
+            if not self._refresh_repository_handle():
+                return self._repository_safety_blocked("git_push")
+            return Observation(
+                "git_push",
+                True,
+                {"branch": name},
+                message=f"Pushed {name} to origin",
+            ).to_dict()
+        # Failure is not proof of non-delivery: a timeout or dropped
+        # connection can follow a successful ref update. Observe the remote
+        # before deciding what a retry may do.
+        reconciled, decided = self._reconcile_push(key, name, head_sha, cancel=cancel)
+        if reconciled is not None:
+            return reconciled
+        if decided:
+            # Remote reachable, this head absent: the push provably did not
+            # land, the key is released, and a corrected retry is free.
+            return _error("GIT_PUSH_FAILED", result["output"])
+        return _error(
+            "PUSH_STATE_UNCERTAIN",
+            "The push did not confirm and the remote could not be checked. "
+            f"It may have landed — run `git ls-remote origin {name}` before "
+            "retrying.",
+        )
+
+    def _reconcile_push(
+        self, key: str, name: str, head_sha: str, *, cancel: Any = None
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Resolve an uncertain push by observing the remote ref (#616).
+
+        Git ref updates are atomic, so ``ls-remote`` settles the question:
+        the remote carrying our exact head proves the push landed; a
+        reachable remote without it proves the ref was never updated.
+
+        Returns ``(result, decided)``. When decided, ``result`` is the
+        user-facing confirmation for a landed push, or ``None`` for a push
+        proven absent (its key is released, freeing a corrected retry).
+        ``(None, False)`` means the remote could not be observed and the
+        operation must stay uncertain.
+        """
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        if not head_sha:
+            return None, False
+        remote = self._git(["ls-remote", "origin", name], timeout=30.0, cancel=cancel)
+        if remote.get("cancelled") or not remote.get("ok"):
+            return None, False
+        shas = {
+            line.split(None, 1)[0]
+            for line in remote["output"].splitlines()
+            if line.strip()
+        }
+        if head_sha in shas:
+            try:
+                complete(self.repo_root, key, {"branch": name})
+            except OperationPersistenceError:
+                return None, False
+            return Observation(
+                "git_push",
+                True,
+                {"branch": name},
+                message=f"Push of {name} confirmed on origin",
+            ).to_dict(), True
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
+        return None, True
 
     def _open_pr(
         self, arguments: dict[str, Any], *, cancel: Any = None
@@ -952,7 +1322,7 @@ class RepositoryToolExecutor:
         # #295 gate 4: a retried, resumed or reconnected turn must not open a
         # second pull request. The key is the request's identity — repo, branch
         # pair, title — never an attempt counter, or every retry would look new.
-        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
         from .idempotency import operation_key
 
         body = str(arguments.get("body") or "")
@@ -969,14 +1339,28 @@ class RepositoryToolExecutor:
                 message=f"PR already open: {recorded.get('url', '')}",
             ).to_dict()
         if prior["state"] == IN_FLIGHT:
-            # Started and never confirmed: the PR may exist. Opening another is
-            # the duplicate this gate forbids, and claiming success would be a
-            # lie — so report the uncertainty and let a human settle it.
-            return _error(
-                "PR_STATE_UNCERTAIN",
-                "An earlier attempt to open this pull request did not confirm. "
-                "It may already exist — check the repository before retrying.",
-            )
+            # Started and never confirmed: the PR may exist. Reconcile against
+            # GitHub — the head/base pair is the PR's observable identity —
+            # before deciding whether any retry is safe (#616).
+            reconciled, decided = self._reconcile_open_pr(key, head, base)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "PR_STATE_UNCERTAIN",
+                    "An earlier attempt to open this pull request did not "
+                    "confirm, and GitHub could not be checked. It may already "
+                    "exist — check the repository before retrying.",
+                )
+            # GitHub answered and no such PR exists: the earlier attempt
+            # provably never landed. Claim fresh and continue below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "PR_STATE_UNCERTAIN",
+                    "PR operation state changed during reconciliation; "
+                    "check the repository before retrying.",
+                )
         result = create_pull_request(
             self.repo_root,
             title=title,
@@ -985,8 +1369,17 @@ class RepositoryToolExecutor:
             base=base,
         )
         if not result.get("ok"):
-            # A refused or invalid request never reached GitHub, so the key is
-            # released and a corrected retry is free to proceed.
+            if result.get("uncertain"):
+                # The request left the machine but no response came back —
+                # the PR may exist. Keep the claim; the next attempt
+                # reconciles instead of duplicating.
+                return _error(
+                    "PR_STATE_UNCERTAIN",
+                    "The PR creation response was lost. The PR may already "
+                    "exist — it will be reconciled before any retry.",
+                )
+            # A refused or invalid request provably never created anything,
+            # so the key is released and a corrected retry is free to proceed.
             abandon(self.repo_root, key)
             return _error("GIT_PR_FAILED", str(result.get("error") or "PR failed"))
         complete(
@@ -1000,6 +1393,42 @@ class RepositoryToolExecutor:
             {"url": result.get("url", ""), "number": result.get("number")},
             message=f"Opened PR {result.get('url', '')}",
         ).to_dict()
+
+    def _reconcile_open_pr(
+        self, key: str, head: str, base: str
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Settle an uncertain open_pr by querying GitHub for the head/base pair.
+
+        ``(result, True)`` records and confirms a found PR; ``(None, True)``
+        proves no such PR exists and releases the key; ``(None, False)``
+        means GitHub could not be observed — the operation stays uncertain.
+        """
+        from .github_connector import find_pull_request
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        found = find_pull_request(self.repo_root, head=head, base=base)
+        if not found.get("ok"):
+            return None, False
+        if found.get("found"):
+            try:
+                complete(
+                    self.repo_root,
+                    key,
+                    {"url": found.get("url", ""), "number": found.get("number")},
+                )
+            except OperationPersistenceError:
+                return None, False
+            return Observation(
+                "open_pr",
+                True,
+                {"url": found.get("url", ""), "number": found.get("number")},
+                message=f"PR confirmed on GitHub: {found.get('url', '')}",
+            ).to_dict(), True
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
+        return None, True
 
     def _github_read(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Read-only GitHub context (PR/CI status or an issue) via the connector."""
@@ -1252,6 +1681,46 @@ class RepositoryToolExecutor:
                 "CANCELLED",
                 "Command was cancelled",
             ).to_dict()
+        # #616: a granted command is an arbitrary confirm-class side effect —
+        # it can write files, push, call gh. Persist the operation before
+        # dispatch so a retried or resumed turn resolves to one identity, and
+        # a lost process status (timeout kill) fails closed as uncertain
+        # instead of inviting a blind rerun while effects may exist.
+        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        key = operation_key(
+            "granted_command",
+            root=str(self.repo_root),
+            argv=" ".join(argv),
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            recorded = prior["result"]
+            return Observation(
+                "command",
+                True,
+                {
+                    "command": [redact(item) for item in argv],
+                    "purpose": purpose,
+                    "returncode": int(recorded.get("returncode") or 0),
+                    "stdout": "",
+                    "stderr": "",
+                    "approved": True,
+                    "replayed": True,
+                },
+                message="Command already ran for this operation; not repeated",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            return Observation(
+                "command",
+                False,
+                {"command": [redact(item) for item in argv], "purpose": purpose},
+                "COMMAND_STATE_UNCERTAIN",
+                "An earlier attempt to run this command did not confirm its "
+                "exit status. Its effects may already exist — check before "
+                "running it again.",
+            ).to_dict()
         started = time.monotonic()
         try:
             completed = self._git_run(
@@ -1266,24 +1735,39 @@ class RepositoryToolExecutor:
                 **no_window_kwargs(),
             )
         except subprocess.TimeoutExpired:
+            # The runner killed the process, but any effects it produced
+            # before the kill are real. The key stays in_flight: a retry must
+            # reconcile, not rerun blind.
             return Observation(
                 "command",
                 False,
-                {"command": argv, "purpose": purpose},
+                {"command": [redact(item) for item in argv], "purpose": purpose},
                 "TIMEOUT",
-                "Command timed out",
+                "Command timed out; its effects may already exist — check "
+                "before running it again",
             ).to_dict()
         except OSError as exc:
+            # Spawn failed: the command provably never started.
+            abandon(self.repo_root, key)
             return Observation(
                 "command",
                 False,
-                {"command": argv, "purpose": purpose},
+                {"command": [redact(item) for item in argv], "purpose": purpose},
                 "SPAWN_FAILED",
                 redact(str(exc)),
             ).to_dict()
         max_chars = self.aci.max_output_chars
         stdout = redact(str(completed.stdout or ""))[:max_chars]
         stderr = redact(str(completed.stderr or ""))[:max_chars]
+        if completed.returncode == 0:
+            # Observed success: the operation is terminal and a replayed turn
+            # resolves to this record instead of running again.
+            complete(self.repo_root, key, {"returncode": 0})
+        else:
+            # Observed failure with a known exit status: continuity is not in
+            # doubt, so the key is released. Running the command again takes a
+            # fresh explicit grant — that grant IS the deliberate new attempt.
+            abandon(self.repo_root, key)
         return Observation(
             "command",
             completed.returncode == 0,
@@ -1314,7 +1798,7 @@ class RepositoryToolExecutor:
         body = str(arguments.get("body") or "").strip()
         if not body:
             return _error("INVALID_TOOL_ARGUMENTS", "A comment body is required")
-        from .idempotency import DONE, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
         from .idempotency import operation_key
 
         # #295 gate 4 / #541: a retried, resumed or reconnected turn must not
@@ -1335,11 +1819,28 @@ class RepositoryToolExecutor:
                 message=f"Already commented on #{number}",
             ).to_dict()
         if prior["state"] == IN_FLIGHT:
-            return _error(
-                "COMMENT_STATE_UNCERTAIN",
-                "An earlier attempt to post this comment did not confirm. "
-                "It may already be on GitHub — check before retrying.",
-            )
+            # Started and never confirmed: the comment may exist. Reconcile
+            # against GitHub — the exact body on this issue/PR is observable —
+            # before deciding whether any retry is safe (#616).
+            reconciled, decided = self._reconcile_comment(key, number, body)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "COMMENT_STATE_UNCERTAIN",
+                    "An earlier attempt to post this comment did not confirm, "
+                    "and GitHub could not be checked. It may already be on "
+                    "GitHub — check before retrying.",
+                )
+            # GitHub answered and the comment is not there: the earlier
+            # attempt provably never landed. Claim fresh and continue below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "COMMENT_STATE_UNCERTAIN",
+                    "Comment operation state changed during reconciliation; "
+                    "check GitHub before retrying.",
+                )
         # The approval card shows this reason verbatim, so it carries a preview of
         # the actual text: the Round 5 report's headline was a *fabricated* claim
         # of having posted a comment, and seeing the words before they go out is
@@ -1360,6 +1861,15 @@ class RepositoryToolExecutor:
 
         result = add_comment(self.repo_root, number, body)
         if not result.get("ok"):
+            if result.get("uncertain"):
+                # The request left the machine but no response came back —
+                # the comment may exist. Keep the claim; the next attempt
+                # reconciles instead of duplicating.
+                return _error(
+                    "COMMENT_STATE_UNCERTAIN",
+                    "The comment response was lost. It may already be on "
+                    "GitHub — it will be reconciled before any retry.",
+                )
             abandon(self.repo_root, key)
             return _error("GITHUB_WRITE_FAILED", str(result.get("error") or "failed"))
         complete(self.repo_root, key, {"url": result.get("url", "")})
@@ -1379,23 +1889,157 @@ class RepositoryToolExecutor:
         reviewers = [item for item in reviewers if item]
         if not reviewers:
             return _error("INVALID_TOOL_ARGUMENTS", "At least one reviewer is required")
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        # #616 / #295 gate 4: a review request notifies real people under the
+        # user's account — outward and not undoable by OPai. A retried,
+        # resumed or reconnected turn must not notify them again. The key is
+        # the request's identity (repo, PR number, sorted reviewer set), never
+        # an attempt counter. Checked before approval so a completed or
+        # in-flight retry is answered directly instead of re-prompting to
+        # approve a request that already went out (or might have).
+        key = operation_key(
+            "github_request_review",
+            root=str(self.repo_root),
+            number=number,
+            reviewers=",".join(sorted(reviewers)),
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            recorded = prior["result"]
+            return Observation(
+                "github_request_review",
+                True,
+                {"requested": recorded.get("requested", [])},
+                message=f"Already requested review on #{number}",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            # Started and never confirmed: the notification may have gone
+            # out. Reconcile against GitHub's requested-reviewers list before
+            # deciding whether any retry is safe (#616).
+            reconciled, decided = self._reconcile_review_request(key, number, reviewers)
+            if reconciled is not None:
+                return reconciled
+            if not decided:
+                return _error(
+                    "REVIEW_REQUEST_UNCERTAIN",
+                    "An earlier attempt to request this review did not "
+                    "confirm, and GitHub could not be checked. The reviewers "
+                    "may already be notified — check the pull request before "
+                    "retrying.",
+                )
+            # GitHub answered and the reviewers are not requested: the
+            # earlier attempt provably never landed. Claim fresh below.
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "REVIEW_REQUEST_UNCERTAIN",
+                    "Review-request operation state changed during "
+                    "reconciliation; check the pull request before retrying.",
+                )
         approval = self._needs_approval(
             f"gh pr edit {number} --add-reviewer " + ",".join(sorted(reviewers)),
             "Requesting a review notifies those people on GitHub.",
         )
         if approval is not None:
+            # No request reached GitHub, so the key must not linger as
+            # in_flight — that would misreport an unapproved request as
+            # uncertain and block a corrected or newly-approved retry.
+            abandon(self.repo_root, key)
             return approval
         from .github_connector import request_reviewers
 
         result = request_reviewers(self.repo_root, number, reviewers)
         if not result.get("ok"):
+            if result.get("uncertain"):
+                # The request left the machine but no response came back —
+                # the notification may have gone out. Keep the claim; the
+                # next attempt reconciles instead of re-notifying.
+                return _error(
+                    "REVIEW_REQUEST_UNCERTAIN",
+                    "The review-request response was lost. The reviewers may "
+                    "already be notified — it will be reconciled before any "
+                    "retry.",
+                )
+            abandon(self.repo_root, key)
             return _error("GITHUB_WRITE_FAILED", str(result.get("error") or "failed"))
+        complete(self.repo_root, key, {"requested": result.get("requested", [])})
         return Observation(
             "github_request_review",
             True,
             {"requested": result.get("requested", [])},
             message=f"Requested review on #{number}",
         ).to_dict()
+
+    def _reconcile_comment(
+        self, key: str, number: int, body: str
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Settle an uncertain comment by searching the thread for its body.
+
+        ``(result, True)`` records and confirms a found comment;
+        ``(None, True)`` proves it absent and releases the key;
+        ``(None, False)`` keeps the operation uncertain.
+        """
+        from .github_connector import find_comment
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        found = find_comment(self.repo_root, number, body=body)
+        if not found.get("ok"):
+            return None, False
+        if found.get("found"):
+            try:
+                complete(self.repo_root, key, {"url": found.get("url", "")})
+            except OperationPersistenceError:
+                return None, False
+            return Observation(
+                "github_comment",
+                True,
+                {"url": found.get("url", "")},
+                message=f"Comment confirmed on #{number}",
+            ).to_dict(), True
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
+        return None, True
+
+    def _reconcile_review_request(
+        self, key: str, number: int, reviewers: list[str]
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Settle an uncertain review request via GitHub's requested_reviewers.
+
+        Requesting an already-requested reviewer is a GitHub-side no-op, so
+        finding every reviewer already requested confirms the operation;
+        finding any missing proves the request never landed and releases the
+        key. An unreachable GitHub keeps the operation uncertain.
+        """
+        from .github_connector import find_requested_reviewers
+        from .idempotency import OperationPersistenceError, abandon, complete
+
+        found = find_requested_reviewers(self.repo_root, number, reviewers)
+        if not found.get("ok"):
+            return None, False
+        if found.get("found"):
+            try:
+                complete(
+                    self.repo_root,
+                    key,
+                    {"requested": ",".join(sorted(reviewers))},
+                )
+            except OperationPersistenceError:
+                return None, False
+            return Observation(
+                "github_request_review",
+                True,
+                {"requested": sorted(reviewers)},
+                message=f"Review request on #{number} confirmed on GitHub",
+            ).to_dict(), True
+        try:
+            abandon(self.repo_root, key)
+        except OperationPersistenceError:
+            return None, False
+        return None, True
 
     def invoke(
         self,
