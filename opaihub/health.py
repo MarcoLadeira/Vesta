@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .atomic_io import read_utf8_tail_lines
 from .command_runner import run_policy_command, split_command
 from .loader import registry_items
 from .state import state_dir
@@ -99,9 +100,7 @@ def health_history(project_root: Path, limit: int = 10) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     events: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines()[
-        -limit:
-    ]:
+    for line in read_utf8_tail_lines(path, limit):
         if not line.strip():
             continue
         try:

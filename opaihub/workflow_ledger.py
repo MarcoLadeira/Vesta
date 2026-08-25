@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .atomic_io import read_utf8_tail_lines
 from .command_runner import redact
 from .ledger import task_fingerprint
 from .state import state_dir
@@ -67,9 +68,11 @@ class WorkflowLedger:
     def read(self, *, limit: int | None = None) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
-        lines = self.path.read_text(encoding="utf-8", errors="replace").splitlines()
-        if limit is not None:
-            lines = lines[-limit:]
+        lines = (
+            self.path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if limit is None
+            else read_utf8_tail_lines(self.path, limit)
+        )
         events = []
         for line in lines:
             try:

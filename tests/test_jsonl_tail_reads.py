@@ -8,7 +8,18 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import audit, ledger
+from opaihub import (
+    audit,
+    background_runs,
+    benchmark,
+    cost_telemetry,
+    health,
+    ledger,
+    opaibench,
+    runs,
+)
+from opaihub.state import state_dir
+from opaihub.workflow_ledger import WorkflowLedger
 
 
 class JsonlTailReadTests(unittest.TestCase):
@@ -62,6 +73,91 @@ class JsonlTailReadTests(unittest.TestCase):
 
             self.assertEqual(ledger.read_events(root, limit=3), [{"row": 2}])
             self.assertEqual(audit.read_audit(root, limit=3), [{"row": 2}])
+
+    def test_other_limited_history_readers_do_not_load_complete_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = WorkflowLedger(root, task_id="task-1")
+            cases = (
+                (
+                    background_runs._notifications_path(root),
+                    lambda: background_runs.read_notifications(root, limit=2),
+                ),
+                (
+                    benchmark.benchmark_history_path(root),
+                    lambda: benchmark.read_benchmark_history(root, limit=2),
+                ),
+                (
+                    state_dir(root) / "agent" / "events.jsonl",
+                    lambda: cost_telemetry.read_cost_events(root, limit=2),
+                ),
+                (
+                    state_dir(root) / "health" / "history.jsonl",
+                    lambda: health.health_history(root, limit=2),
+                ),
+                (
+                    opaibench.opaibench_history_path(root),
+                    lambda: opaibench.read_opaibench_history(root, limit=2),
+                ),
+                (runs.runs_path(root), lambda: runs.recent_runs(root, limit=2)),
+                (workflow.path, lambda: workflow.read(limit=2)),
+            )
+            for path, _reader in cases:
+                event_type = "cost_telemetry" if path == workflow.path else "history"
+                self._write_event_rows(path, event_type=event_type)
+
+            with mock.patch.object(
+                Path,
+                "read_text",
+                side_effect=AssertionError("bounded read loaded the complete log"),
+            ):
+                for _path, reader in cases:
+                    self.assertEqual(len(reader()), 2)
+
+    def test_zero_limit_is_empty_for_other_history_readers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = WorkflowLedger(root, task_id="task-1")
+            paths_and_readers = (
+                (
+                    benchmark.benchmark_history_path(root),
+                    lambda: benchmark.read_benchmark_history(root, limit=0),
+                ),
+                (
+                    state_dir(root) / "agent" / "events.jsonl",
+                    lambda: cost_telemetry.read_cost_events(root, limit=0),
+                ),
+                (
+                    state_dir(root) / "health" / "history.jsonl",
+                    lambda: health.health_history(root, limit=0),
+                ),
+                (
+                    opaibench.opaibench_history_path(root),
+                    lambda: opaibench.read_opaibench_history(root, limit=0),
+                ),
+                (runs.runs_path(root), lambda: runs.recent_runs(root, limit=0)),
+                (workflow.path, lambda: workflow.read(limit=0)),
+            )
+            for path, _reader in paths_and_readers:
+                event_type = "cost_telemetry" if path == workflow.path else "history"
+                self._write_event_rows(path, count=3, event_type=event_type)
+
+            for _path, reader in paths_and_readers:
+                self.assertEqual(reader(), [])
+
+    def _write_event_rows(
+        self,
+        path: Path,
+        *,
+        count: int = 2_000,
+        event_type: str,
+    ) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rows = [
+            json.dumps({"row": index, "event_type": event_type, "task_id": "task-1"})
+            for index in range(count)
+        ]
+        path.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

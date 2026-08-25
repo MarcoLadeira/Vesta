@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from .atomic_io import read_utf8_tail_lines
 from .command_runner import redact
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger
@@ -244,9 +245,11 @@ def _read_cost_events(
     path = state_dir(project_root.expanduser().resolve()) / "agent" / "events.jsonl"
     if not path.exists():
         return [], 0
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if limit is not None:
-        lines = lines[-limit:]
+    lines = (
+        path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if limit is None
+        else read_utf8_tail_lines(path, limit)
+    )
     events: list[dict[str, Any]] = []
     skipped = 0
     for line in lines:
