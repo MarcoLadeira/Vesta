@@ -139,9 +139,7 @@ def _git_text(root: Path, args: list[str], *, timeout: float = 12.0) -> str:
 
 
 _WORKSPACE_SUMMARY_CACHE: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
-_WORKSPACE_SUMMARY_INFLIGHT: dict[
-    tuple[str, tuple[Any, ...]], threading.Event
-] = {}
+_WORKSPACE_SUMMARY_INFLIGHT: dict[tuple[str, tuple[Any, ...]], threading.Event] = {}
 _WORKSPACE_SUMMARY_CACHE_LOCK = threading.RLock()
 
 

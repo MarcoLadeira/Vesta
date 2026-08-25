@@ -461,11 +461,7 @@ def _workspace_refresh(root: Path) -> dict[str, Any]:
         "branch": branch,
         "dirty": bool(dirty_state.changed_paths),
         "dirty_paths": list(dirty_state.changed_paths),
-        **(
-            {"file_count": summary["file_count"]}
-            if "file_count" in summary
-            else {}
-        ),
+        **({"file_count": summary["file_count"]} if "file_count" in summary else {}),
     }
 
 

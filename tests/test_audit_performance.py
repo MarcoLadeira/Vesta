@@ -76,9 +76,8 @@ class AuditPerformanceTests(unittest.TestCase):
             checkpoint_file = audit.checkpoint_path(root)
             checkpoint = json.loads(checkpoint_file.read_text(encoding="utf-8"))
             checkpoint["head_hash"] = (
-                ("1" if checkpoint["head_hash"][0] != "1" else "2")
-                + checkpoint["head_hash"][1:]
-            )
+                "1" if checkpoint["head_hash"][0] != "1" else "2"
+            ) + checkpoint["head_hash"][1:]
             checkpoint_file.write_text(json.dumps(checkpoint), encoding="utf-8")
 
             second = audit.record_audit_event(root, "policy_allow", note="second")

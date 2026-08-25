@@ -364,9 +364,7 @@ def recover_audit_checkpoint(project_root: Path) -> dict[str, Any]:
         return {**result, "recovered": stale}
 
 
-_AUDIT_SUMMARY_CACHE: dict[
-    str, tuple[tuple[int, int, int], dict[str, Any]]
-] = {}
+_AUDIT_SUMMARY_CACHE: dict[str, tuple[tuple[int, int, int], dict[str, Any]]] = {}
 _AUDIT_SUMMARY_CACHE_LOCK = threading.RLock()
 
 
