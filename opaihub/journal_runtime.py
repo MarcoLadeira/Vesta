@@ -53,6 +53,10 @@ EVENT_VERIFIED = "run.verified"
 EVENT_COSTED = "run.cost_recorded"
 
 
+class _TerminalRunReadmitted(Exception):
+    """Internal: a finished run was admitted again. Rolls the transaction back."""
+
+
 @contextmanager
 def _store(root: Path) -> Iterator[sqlite3.Connection | None]:
     """Open the journal, yielding ``None`` when it cannot be opened.
@@ -108,6 +112,23 @@ def record_admission(
             return None
         try:
             with journal_store._transaction(store):
+                # A run that already ended must not be re-opened. Found by an
+                # adversarial audit: re-admission took a fresh lease but left
+                # terminal_verdict in place, so a run that was running again
+                # still read as "completed" -- a settled run reporting a
+                # verdict it had not yet reached this time round.
+                #
+                # Refusing rather than clearing the verdict is deliberate.
+                # #613 forbids terminal regression outright, and a genuine
+                # retry already has a first-class representation: a new run id,
+                # which becomes the next attempt of the same task. Silently
+                # clearing would make the two indistinguishable in replay.
+                settled = store.execute(
+                    "SELECT terminal_verdict FROM runs WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                if settled is not None and settled["terminal_verdict"]:
+                    raise _TerminalRunReadmitted(run_id)
                 store.execute(
                     "INSERT INTO tasks(task_id, origin_surface, origin_session,"
                     " created_at, requested_outcome, schema_version, updated_at)"
@@ -153,6 +174,12 @@ def record_admission(
                 expected_fence=fence,
             )
             return fence
+        except _TerminalRunReadmitted:
+            # Not an error the caller can act on: the run is already finished,
+            # and the correct next step -- a new run id -- is the caller's to
+            # choose. Returning None means later lifecycle events are unfenced
+            # no-ops, which is exactly right for a run that has ended.
+            return None
         except (sqlite3.DatabaseError, JournalStoreError, ValueError):
             return None
 

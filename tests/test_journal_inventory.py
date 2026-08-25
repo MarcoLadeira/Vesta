@@ -128,6 +128,11 @@ PROJECTION_OR_EXPORT = {
     # working -- it cannot tell a reader from a writer, and triaging one
     # module is cheaper than a scan that misses the next real writer.
     "opaihub/journal_qualification.py",
+    # Stage 5's read path. Opens the journal to serve run state and writes
+    # nothing; the open_store signal cannot tell a reader from a writer, which
+    # is the correct trade -- triaging a reader is cheaper than a scan that
+    # misses the next real writer.
+    "opaihub/journal_reader.py",
     # Build-only generated identity written into wheel/sdist staging trees.
     "opai/build_metadata.py",
     "opaihub/dashboard.py",
