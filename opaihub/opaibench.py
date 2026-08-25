@@ -378,7 +378,7 @@ def run_opaibench(
         }
     total = len(results)
     total_passed = sum(1 for item in results if item["passed"])
-    history = read_opaibench_history(root)
+    history = read_opaibench_history(root, limit=1)
     report = {
         "kind": "opaibench",
         "run_id": uuid.uuid4().hex[:12],
