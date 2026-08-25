@@ -227,6 +227,13 @@ async function expectSheetOnScreen(page) {
   expect(geometry.sidebarScrollLeft).toBe(0);
 }
 
+test("manual-update state surfaces the backend diagnostic in the sheet", async ({ page }) => {
+  const diagnostic = "This source checkout is 3 commits behind origin/main; update with the explicit developer update command.";
+  await openWithUpdate(page, updateState("unsupported_install", { safe_diagnostic: diagnostic }));
+  await page.locator("#updateBanner").click();
+  await expect(page.locator("#updateSheetDescription")).toContainText("3 commits behind origin/main", seen);
+});
+
 test("update details stay fully on screen without shifting the sidebar", async ({ page }) => {
   await openWithUpdate(page, updateState("available", { candidate }));
   await page.locator("#updateBanner").click();
