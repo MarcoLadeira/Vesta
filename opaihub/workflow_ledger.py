@@ -76,7 +76,7 @@ class WorkflowLedger:
                     value = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if value.get("task_id") == self.task_id:
+                if isinstance(value, dict) and value.get("task_id") == self.task_id:
                     events.append(value)
             return events
 

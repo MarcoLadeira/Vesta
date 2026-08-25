@@ -175,6 +175,20 @@ class JsonlTailReadTests(unittest.TestCase):
 
         self.assertEqual([event["sequence"] for event in events], [1, 2])
 
+    def test_workflow_reader_skips_valid_json_that_is_not_an_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = WorkflowLedger(root, task_id="task-1")
+            workflow.append("step", sequence=1)
+            with workflow.path.open("a", encoding="utf-8") as handle:
+                handle.write("null\n")
+                handle.write('"not an event"\n')
+                handle.write("[]\n")
+
+            events = workflow.read(limit=1)
+
+        self.assertEqual([event["sequence"] for event in events], [1])
+
     def _write_event_rows(
         self,
         path: Path,
