@@ -43,7 +43,7 @@ from opai.gui_controls import (
     model_badge,
     session_inspector,
 )
-from opai.gui_lifecycle import drain_workers, signal_cancels
+from opai.gui_lifecycle import drain_workers, signal_cancels, start_tracked_worker
 from opai.gui_modes import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_TASK_MODE,
@@ -1523,8 +1523,7 @@ def _run_gui(
 
             worker = Worker(compute)
             worker.done.connect(signal.emit)
-            self._workers.append(worker)
-            worker.start()
+            start_tracked_worker(self._workers, worker)
 
         @QtCore.Slot(str, str)
         def requestDashboard(self, section_id: str, request_id: str) -> None:

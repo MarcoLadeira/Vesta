@@ -16,7 +16,28 @@ from unittest import mock
 from _helpers import make_repo
 
 from opai.gui_desktop import build_chat_job
-from opai.gui_lifecycle import drain_workers, signal_cancels
+from opai.gui_lifecycle import drain_workers, signal_cancels, start_tracked_worker
+
+
+class FakeSignal:
+    def __init__(self) -> None:
+        self.callbacks = []
+
+    def connect(self, callback) -> None:
+        self.callbacks.append(callback)
+
+    def emit(self) -> None:
+        for callback in list(self.callbacks):
+            callback()
+
+
+class TrackedWorker:
+    def __init__(self) -> None:
+        self.finished = FakeSignal()
+        self.started = False
+
+    def start(self) -> None:
+        self.started = True
 
 
 class FakeWorker:
@@ -93,6 +114,29 @@ class DrainWorkersTests(unittest.TestCase):
 
     def test_destroyed_thread_objects_are_tolerated(self):
         self.assertEqual(drain_workers([BrokenWorker(), FakeWorker()]), [])
+
+
+class TrackWorkerTests(unittest.TestCase):
+    def test_completed_worker_is_released_from_the_owner_list(self):
+        workers = []
+        worker = TrackedWorker()
+
+        start_tracked_worker(workers, worker)
+
+        self.assertTrue(worker.started)
+        self.assertEqual(workers, [worker])
+        worker.finished.emit()
+        self.assertEqual(workers, [])
+
+    def test_duplicate_finished_signal_is_idempotent(self):
+        workers = []
+        worker = TrackedWorker()
+        start_tracked_worker(workers, worker)
+
+        worker.finished.emit()
+        worker.finished.emit()
+
+        self.assertEqual(workers, [])
 
 
 class BuildChatJobTests(unittest.TestCase):
