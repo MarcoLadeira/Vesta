@@ -75,9 +75,7 @@ def build_usage_snapshots(
 ) -> list[dict[str, Any]]:
     all_events = read_events(project_root)
     events = [
-        event
-        for event in all_events
-        if event.get("event_type") == EVENT_MODEL_CALL
+        event for event in all_events if event.get("event_type") == EVENT_MODEL_CALL
     ]
     configured_limits = limits or {}
     now = datetime.now(timezone.utc)
