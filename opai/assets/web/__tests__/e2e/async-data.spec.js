@@ -73,6 +73,24 @@ test("workspace refresh after a turn uses the async request/ready path", async (
   expect(await page.evaluate(() => window.__mock.workspaceStateCalls)).toBe(0);
 });
 
+test("a partial badge refresh preserves the boot workspace metadata", async ({ page }) => {
+  await openApp(page, {
+    workspaceResponsePartial: true,
+    workspaceAfterRun: {
+      root: "/workspace",
+      branch: "feature/fast-refresh",
+      dirty: false,
+      dirty_paths: [],
+    },
+  });
+  const label = await page.locator("#wsLabel").textContent();
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, { status: "answered_by_account", answer: "done" });
+
+  await expect(page.locator("#wsContext")).toHaveText("feature/fast-refresh");
+  await expect(page.locator("#wsLabel")).toHaveText(label);
+});
+
 test("a workspace switch drops a slow refresh from the previous root", async ({ page }) => {
   await openApp(page, {
     workspaceDelayMs: 300,

@@ -420,6 +420,48 @@ def _workspace(root: Path) -> dict[str, Any]:
     }
 
 
+def _workspace_refresh(root: Path) -> dict[str, Any]:
+    """Refresh only live badge facts after a turn, using one Git status probe.
+
+    The full boot payload retains the canonical repository-safety snapshot.
+    Post-turn refreshes are passive display updates, so rebuilding content
+    fingerprints, remotes, and receipts here only duplicated mutation-safety
+    work across roughly a dozen Git subprocesses.
+    """
+
+    from opaihub.repo_context import load_active_repo
+    from opaihub.repository_safety import (
+        RepositoryProbeError,
+        capture_workspace_status,
+    )
+
+    selected = root.expanduser().resolve()
+    context = load_active_repo(selected)
+    if context is None or not context.is_git:
+        return _workspace(selected)
+    try:
+        branch, dirty_state = capture_workspace_status(context.path)
+    except RepositoryProbeError:
+        return _workspace(selected)
+    try:
+        summary = A.workspace_summary(context.path)
+    except Exception:  # noqa: BLE001 - preserve the last rendered metadata
+        summary = {}
+    return {
+        "root": str(selected),
+        "repo_root": str(context.path),
+        "name": summary.get("name", context.path.name),
+        "branch": branch,
+        "dirty": bool(dirty_state.changed_paths),
+        "dirty_paths": list(dirty_state.changed_paths),
+        **(
+            {"file_count": summary["file_count"]}
+            if "file_count" in summary
+            else {}
+        ),
+    }
+
+
 def _github_row_value(readiness: dict[str, Any]) -> str:
     """A concise, honest push-readiness line for the inspector (#300)."""
     if readiness.get("ready"):
@@ -1541,7 +1583,7 @@ def _run_gui(
         def requestWorkspace(self, request_id: str) -> None:
             root = self.root
             self._spawn_data_worker(
-                lambda: _workspace(root), self.workspaceReady, request_id
+                lambda: _workspace_refresh(root), self.workspaceReady, request_id
             )
 
         @QtCore.Slot(str, str)

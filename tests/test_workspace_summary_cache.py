@@ -140,6 +140,29 @@ class WorkspaceSummaryCacheTests(unittest.TestCase):
             self.assertEqual(first["branch"], "linked-cache")
             self.assertEqual(git_text.call_count, 2)
 
+    def test_badge_refresh_uses_one_git_probe_and_sees_live_dirty_paths(self) -> None:
+        from opai.gui_web import _workspace, _workspace_refresh
+        from opaihub import repository_safety
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(
+                Path(tmp), files={"src/app.py": "value = 1\n"}, commit=True
+            )
+            boot_workspace = _workspace(root)
+            (root / "src" / "app.py").write_text("value = 2\n", encoding="utf-8")
+
+            with mock.patch.object(
+                repository_safety,
+                "_run_git",
+                wraps=repository_safety._run_git,
+            ) as run_git:
+                refreshed = _workspace_refresh(root)
+
+            self.assertEqual(run_git.call_count, 1)
+            self.assertEqual(refreshed["root"], str(root.resolve()))
+            self.assertEqual(refreshed["branch"], boot_workspace["branch"])
+            self.assertIn("src/app.py", refreshed["dirty_paths"])
+
 
 if __name__ == "__main__":
     unittest.main()

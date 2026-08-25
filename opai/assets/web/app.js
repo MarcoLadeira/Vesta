@@ -3199,7 +3199,7 @@ function refreshWorkspaceBadge() {
 }
 function applyWorkspaceRefresh(ws) {
   if (!ws || typeof ws !== "object" || typeof ws.root !== "string") return;
-  state.boot.workspace = ws;
+  state.boot.workspace = { ...(state.boot.workspace || {}), ...ws };
   renderWorkspace();
 }
 function onWorkspaceReady(json) {

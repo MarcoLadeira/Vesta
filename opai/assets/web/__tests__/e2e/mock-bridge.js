@@ -120,7 +120,9 @@
       window.__mock.workspaceRequests.push(requestId);
       var after = scenario.workspaceAfterRun;
       if (after) boot.workspace = merge(boot.workspace || {}, after);
-      var response = merge({}, boot.workspace || {});
+      var response = scenario.workspaceResponsePartial && after
+        ? merge({}, after)
+        : merge({}, boot.workspace || {});
       setTimeout(function () {
         bridge.workspaceReady.emit(JSON.stringify({ requestId: requestId, data: response }));
       }, scenario.workspaceDelayMs || 0);
