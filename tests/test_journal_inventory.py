@@ -158,6 +158,9 @@ PROJECTION_OR_EXPORT = {
     # is the correct trade -- triaging a reader is cheaper than a scan that
     # misses the next real writer.
     "opaihub/journal_reader.py",
+    # Stage 7's retirement gate. Reads telemetry to answer one question --
+    # may the legacy writes go? -- and writes nothing itself.
+    "opaihub/journal_retirement.py",
     # Build-only generated identity written into wheel/sdist staging trees.
     "opai/build_metadata.py",
     "opaihub/dashboard.py",
