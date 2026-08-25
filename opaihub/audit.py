@@ -14,9 +14,11 @@ after the complete hash chain has been verified. It never repairs a damaged log.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -78,11 +80,16 @@ def _last_entry(project_root: Path) -> dict[str, Any] | None:
 
 def _write_checkpoint(project_root: Path, entry: dict[str, Any]) -> Path:
     path = checkpoint_path(project_root)
+    try:
+        log_size = audit_path(project_root).stat().st_size
+    except OSError:
+        log_size = 0
     checkpoint = {
-        "schema_version": 1,
+        "schema_version": 2,
         "updated_at": _now_iso(),
         "length": int(entry.get("seq", 0)),
         "head_hash": entry.get("entry_hash", GENESIS),
+        "log_size": int(log_size),
     }
     atomic_write_text(path, json.dumps(checkpoint, indent=2, sort_keys=True) + "\n")
     return path
@@ -97,6 +104,41 @@ def _read_checkpoint(project_root: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return {"invalid": True}
     return data if isinstance(data, dict) else {"invalid": True}
+
+
+def _checkpoint_last_entry(project_root: Path) -> dict[str, Any] | None:
+    """Return the persisted audit head only when it matches the durable log.
+
+    Normal appends update the JSONL file and checkpoint under the same
+    interprocess transaction. Matching the checkpoint's recorded byte size to
+    the current file makes the next append O(1). A legacy/stale checkpoint or
+    interrupted write falls back to the log scan in :func:`_last_entry`.
+    """
+
+    checkpoint = _read_checkpoint(project_root)
+    if not isinstance(checkpoint, dict) or checkpoint.get("invalid"):
+        return None
+    length = checkpoint.get("length")
+    head_hash = checkpoint.get("head_hash")
+    log_size = checkpoint.get("log_size")
+    if (
+        isinstance(length, bool)
+        or not isinstance(length, int)
+        or length < 0
+        or not isinstance(head_hash, str)
+        or len(head_hash) != 64
+        or isinstance(log_size, bool)
+        or not isinstance(log_size, int)
+        or log_size < 0
+    ):
+        return None
+    try:
+        current_size = audit_path(project_root).stat().st_size
+    except OSError:
+        current_size = 0
+    if current_size != log_size:
+        return None
+    return {"seq": length, "entry_hash": head_hash}
 
 
 def _append_entry(path: Path, entry: dict[str, Any]) -> None:
@@ -120,7 +162,7 @@ def record_audit_event(
     root = project_root.expanduser().resolve()
     path = audit_path(root)
     with interprocess_transaction(path):
-        last = _last_entry(root)
+        last = _checkpoint_last_entry(root) or _last_entry(root)
         prev_hash = last.get("entry_hash", GENESIS) if last else GENESIS
         seq = (last.get("seq", 0) + 1) if last else 1
 
@@ -287,13 +329,39 @@ def recover_audit_checkpoint(project_root: Path) -> dict[str, Any]:
         return {**result, "recovered": stale}
 
 
+_AUDIT_SUMMARY_CACHE: dict[str, tuple[int, int, dict[str, Any]]] = {}
+_AUDIT_SUMMARY_CACHE_LOCK = threading.RLock()
+
+
+def _audit_signature(path: Path) -> tuple[int, int]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (0, 0)
+    return (int(stat.st_size), int(stat.st_mtime_ns))
+
+
+def clear_audit_summary_cache() -> None:
+    with _AUDIT_SUMMARY_CACHE_LOCK:
+        _AUDIT_SUMMARY_CACHE.clear()
+
+
 def summarize_audit(project_root: Path) -> dict[str, Any]:
-    events, skipped = _read_audit(project_root)
+    root = project_root.expanduser().resolve()
+    path = audit_path(root)
+    signature = _audit_signature(path)
+    key = str(root)
+    with _AUDIT_SUMMARY_CACHE_LOCK:
+        cached = _AUDIT_SUMMARY_CACHE.get(key)
+        if cached is not None and cached[:2] == signature:
+            return copy.deepcopy(cached[2])
+
+    events, skipped = _read_audit(root)
     by_type: dict[str, int] = {}
     for event in events:
         event_type = str(event.get("event_type") or "unknown")
         by_type[event_type] = by_type.get(event_type, 0) + 1
-    return {
+    summary = {
         "event_count": len(events),
         "by_type": dict(sorted(by_type.items())),
         "denied_actions": by_type.get(GUARD_DENY, 0) + by_type.get(POLICY_DENY, 0),
@@ -302,8 +370,16 @@ def summarize_audit(project_root: Path) -> dict[str, Any]:
         "complete": skipped == 0,
         "degraded": skipped > 0,
         "skipped_events": skipped,
-        "chain": verify_chain(project_root),
+        "chain": verify_chain(root),
     }
+    if _audit_signature(path) == signature:
+        with _AUDIT_SUMMARY_CACHE_LOCK:
+            _AUDIT_SUMMARY_CACHE[key] = (
+                signature[0],
+                signature[1],
+                copy.deepcopy(summary),
+            )
+    return summary
 
 
 def export_audit(project_root: Path, sign: bool = True) -> dict[str, Any]:
