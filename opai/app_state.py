@@ -151,16 +151,7 @@ def _path_signature(path: Path) -> tuple[str, int, int]:
     return (str(path), int(stat.st_size), int(stat.st_mtime_ns))
 
 
-def _workspace_git_signature(root: Path) -> tuple[Any, ...] | None:
-    """Metadata that exactly owns tracked-file count and branch name.
-
-    ``git ls-files`` is determined by the worktree index and the displayed
-    branch by its HEAD file. Reading their stat metadata is substantially
-    cheaper than spawning two Git processes on every GUI status refresh. Both
-    ordinary repositories and linked worktrees (whose ``.git`` is a pointer
-    file) are supported.
-    """
-
+def _workspace_git_dir(root: Path) -> tuple[tuple[str, int, int], Path] | None:
     marker = root / ".git"
     marker_signature = _path_signature(marker)
     if marker.is_dir():
@@ -182,11 +173,46 @@ def _workspace_git_signature(root: Path) -> tuple[Any, ...] | None:
             return None
     else:
         return None
+    return marker_signature, git_dir
+
+
+def _workspace_git_signature(root: Path) -> tuple[Any, ...] | None:
+    """Metadata that exactly owns tracked-file count and branch name.
+
+    ``git ls-files`` is determined by the worktree index and the displayed
+    branch by its HEAD file. Reading their stat metadata is substantially
+    cheaper than spawning two Git processes on every GUI status refresh. Both
+    ordinary repositories and linked worktrees (whose ``.git`` is a pointer
+    file) are supported.
+    """
+
+    metadata = _workspace_git_dir(root)
+    if metadata is None:
+        return None
+    marker_signature, git_dir = metadata
     return (
         marker_signature,
         _path_signature(git_dir / "index"),
         _path_signature(git_dir / "HEAD"),
     )
+
+
+def _workspace_branch(root: Path) -> str:
+    metadata = _workspace_git_dir(root)
+    if metadata is not None:
+        _marker_signature, git_dir = metadata
+        try:
+            head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+        else:
+            prefix = "ref: refs/heads/"
+            if head.startswith(prefix):
+                return head[len(prefix) :]
+            if not head.startswith("ref:"):
+                return ""
+    branch = _git_text(root, ["rev-parse", "--abbrev-ref", "HEAD"]) or ""
+    return branch if branch != "HEAD" else ""
 
 
 def clear_workspace_summary_cache() -> None:
@@ -217,12 +243,12 @@ def workspace_summary(project_root: Path) -> dict[str, Any]:
 
     try:
         files = _git_text(root, ["ls-files"])
-        branch = _git_text(root, ["rev-parse", "--abbrev-ref", "HEAD"]) or ""
+        branch = _workspace_branch(root)
         summary = {
             "root": str(root),
             "name": root.name,
             "file_count": sum(1 for line in files.splitlines() if line.strip()),
-            "branch": branch if branch and branch != "HEAD" else "",
+            "branch": branch,
         }
         if signature is not None and _workspace_git_signature(root) == signature:
             with _WORKSPACE_SUMMARY_CACHE_LOCK:
