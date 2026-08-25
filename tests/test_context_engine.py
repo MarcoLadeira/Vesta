@@ -69,26 +69,16 @@ class ProfileTests(unittest.TestCase):
             profile = profile_context(root)
         self.assertEqual(profile["by_category"].get("dependency"), 60_000)
 
-    def test_waste_directory_is_not_traversed_twice(self):
+    def test_profile_streams_without_materializing_a_recursive_path_list(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            waste = root / "node_modules"
-            waste_path = waste.resolve()
             _make(root, "node_modules/package/lib.js", 100)
-            real_scandir = os.scandir
-            scanned: list[Path] = []
-
-            def track_scandir(path: os.PathLike[str] | str):
-                scanned.append(Path(path).resolve())
-                return real_scandir(path)
-
-            with (
-                mock.patch("os.scandir", side_effect=track_scandir),
-                mock.patch.object(Path._globber, "scandir", side_effect=track_scandir),
+            with mock.patch.object(
+                Path,
+                "rglob",
+                side_effect=AssertionError("profile must stream its directory walk"),
             ):
                 profile_context(root)
-
-        self.assertEqual(scanned.count(waste_path), 1)
 
 
 class IgnoreGenerationTests(unittest.TestCase):
