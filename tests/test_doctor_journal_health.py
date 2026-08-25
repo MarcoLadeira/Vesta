@@ -42,6 +42,49 @@ class _DoctorFixture(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.root = _repo(Path(self._tmp.name))
 
+    def _doctor_payload(self, *, clean_integrations: bool = False) -> dict:
+        """Run the real command and parse its real output.
+
+        ``clean_integrations`` exists because of a mistake worth recording: the
+        first version of the readiness test asserted ``attention`` on a bare
+        temp repo, where ``missing`` already lists every client integration --
+        so readiness was ``attention`` no matter what the journal said, and
+        deleting the journal rule from ``cmd_doctor`` broke nothing. The test
+        passed for a reason that had nothing to do with the change.
+
+        Clearing only ``broken`` and ``missing`` leaves every other input real
+        and makes the journal the single variable, so the assertion now depends
+        on the wiring it claims to test.
+        """
+
+        import argparse
+        import io
+        from contextlib import redirect_stdout
+
+        real_status = cli.project_status
+
+        def patched(root, *args, **kwargs):
+            status = real_status(root, *args, **kwargs)
+            summary = dict(status["client_integrations"]["summary"])
+            summary["broken"] = []
+            summary["missing"] = []
+            integrations = {**status["client_integrations"], "summary": summary}
+            return {**status, "client_integrations": integrations}
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            if clean_integrations:
+                with mock.patch.object(cli, "project_status", patched):
+                    code = cli.cmd_doctor(
+                        argparse.Namespace(project=str(self.root), json=True)
+                    )
+            else:
+                code = cli.cmd_doctor(
+                    argparse.Namespace(project=str(self.root), json=True)
+                )
+        self.assertEqual(code, 0)
+        return json.loads(buffer.getvalue())
+
 
 class JournalDoctorPayloadTests(_DoctorFixture):
     def test_a_project_with_no_journal_reports_absent_and_available(self):
@@ -172,49 +215,6 @@ class TheHelpersAreActuallyWiredIntoDoctorTests(_DoctorFixture):
     the change. These run the real command and read its real output.
     """
 
-    def _doctor_payload(self, *, clean_integrations: bool = False) -> dict:
-        """Run the real command and parse its real output.
-
-        ``clean_integrations`` exists because of a mistake worth recording: the
-        first version of the readiness test asserted ``attention`` on a bare
-        temp repo, where ``missing`` already lists every client integration --
-        so readiness was ``attention`` no matter what the journal said, and
-        deleting the journal rule from ``cmd_doctor`` broke nothing. The test
-        passed for a reason that had nothing to do with the change.
-
-        Clearing only ``broken`` and ``missing`` leaves every other input real
-        and makes the journal the single variable, so the assertion now depends
-        on the wiring it claims to test.
-        """
-
-        import argparse
-        import io
-        from contextlib import redirect_stdout
-
-        real_status = cli.project_status
-
-        def patched(root, *args, **kwargs):
-            status = real_status(root, *args, **kwargs)
-            summary = dict(status["client_integrations"]["summary"])
-            summary["broken"] = []
-            summary["missing"] = []
-            integrations = {**status["client_integrations"], "summary": summary}
-            return {**status, "client_integrations": integrations}
-
-        buffer = io.StringIO()
-        with redirect_stdout(buffer):
-            if clean_integrations:
-                with mock.patch.object(cli, "project_status", patched):
-                    code = cli.cmd_doctor(
-                        argparse.Namespace(project=str(self.root), json=True)
-                    )
-            else:
-                code = cli.cmd_doctor(
-                    argparse.Namespace(project=str(self.root), json=True)
-                )
-        self.assertEqual(code, 0)
-        return json.loads(buffer.getvalue())
-
     def test_the_doctor_payload_carries_the_journal_block(self):
         open_store(self.root).close()
 
@@ -260,3 +260,78 @@ class TheHelpersAreActuallyWiredIntoDoctorTests(_DoctorFixture):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class MigrationVisibilityTests(_DoctorFixture):
+    """#613 Stages 6-7 made observable, because a migration nobody can see the
+    state of is one nobody can finish.
+
+    The interesting assertion is the one about *not* answering. A full
+    retirement verdict needs the legacy record to compare against, which doctor
+    does not assemble -- so it stops at the facts rather than guessing. Saying
+    "needs_legacy_comparison" is the honest answer to a question that has not
+    been asked properly, and it is more useful than a confident wrong verdict.
+    """
+
+    def test_a_project_that_never_started_says_so(self):
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["retirement"], "not_started")
+        self.assertEqual(facts["runs_recorded"], 0)
+
+    def test_an_opened_journal_reports_it_cannot_judge_retirement_alone(self):
+        open_store(self.root).close()
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["retirement"], "needs_legacy_comparison")
+
+    def test_recorded_runs_are_counted(self):
+        from opaihub.journal_runtime import record_admission
+
+        for index in range(3):
+            record_admission(
+                self.root,
+                task_id="task-a",
+                run_id=f"run-{index}",
+                task="t",
+                now="2026-08-25T12:00:00+00:00",
+            )
+
+        self.assertEqual(cli._journal_migration(self.root)["runs_recorded"], 3)
+
+    def test_an_unreconciled_operation_blocks_and_is_counted(self):
+        """The one state doctor *can* judge on its own: work still unanswered."""
+
+        from opaihub import idempotency
+
+        open_store(self.root).close()
+        idempotency.begin(
+            self.root, idempotency.operation_key("github.pr", head="feat/x")
+        )
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["unreconciled_operations"], 1)
+        self.assertEqual(facts["retirement"], "blocked")
+
+    def test_the_block_appears_in_the_full_doctor_payload(self):
+        open_store(self.root).close()
+
+        payload = self._doctor_payload()
+
+        self.assertIn("migration", payload["runtime_journal"])
+        self.assertEqual(
+            payload["runtime_journal"]["migration"]["retirement"],
+            "needs_legacy_comparison",
+        )
+
+    def test_migration_facts_never_raise(self):
+        """Doctor reports a problem; it must not become one."""
+
+        with mock.patch(
+            "opaihub.journal_store.open_store", side_effect=OSError("gone")
+        ):
+            facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["retirement"], "not_started")
