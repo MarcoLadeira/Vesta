@@ -364,7 +364,7 @@ def recover_audit_checkpoint(project_root: Path) -> dict[str, Any]:
         return {**result, "recovered": stale}
 
 
-_AUDIT_SUMMARY_CACHE: dict[str, tuple[int, int, dict[str, Any]]] = {}
+_AUDIT_SUMMARY_CACHE: dict[str, tuple[int, int, str | None, dict[str, Any]]] = {}
 _AUDIT_SUMMARY_CACHE_LOCK = threading.RLock()
 
 
@@ -374,6 +374,19 @@ def _audit_signature(path: Path) -> tuple[int, int]:
     except OSError:
         return (0, 0)
     return (int(stat.st_size), int(stat.st_mtime_ns))
+
+
+def _audit_digest(path: Path) -> str | None:
+    """Hash raw log bytes so restored metadata cannot hide content changes."""
+
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(128 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
 
 
 def clear_audit_summary_cache() -> None:
@@ -388,8 +401,12 @@ def summarize_audit(project_root: Path) -> dict[str, Any]:
     key = str(root)
     with _AUDIT_SUMMARY_CACHE_LOCK:
         cached = _AUDIT_SUMMARY_CACHE.get(key)
-        if cached is not None and cached[:2] == signature:
-            return copy.deepcopy(cached[2])
+    if (
+        cached is not None
+        and cached[:2] == signature
+        and cached[2] == _audit_digest(path)
+    ):
+        return copy.deepcopy(cached[3])
 
     events, skipped = _read_audit(root)
     by_type: dict[str, int] = {}
@@ -407,11 +424,13 @@ def summarize_audit(project_root: Path) -> dict[str, Any]:
         "skipped_events": skipped,
         "chain": verify_chain(root),
     }
+    content_digest = _audit_digest(path)
     if _audit_signature(path) == signature:
         with _AUDIT_SUMMARY_CACHE_LOCK:
             _AUDIT_SUMMARY_CACHE[key] = (
                 signature[0],
                 signature[1],
+                content_digest,
                 copy.deepcopy(summary),
             )
     return summary

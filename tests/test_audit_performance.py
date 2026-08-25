@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -116,6 +117,24 @@ class AuditPerformanceTests(unittest.TestCase):
             audit.record_audit_event(root, "policy_deny")
 
             self.assertEqual(audit.summarize_audit(root)["event_count"], 2)
+
+    def test_summary_cache_detects_same_metadata_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audit.record_audit_event(root, "policy_deny")
+            self.assertTrue(audit.summarize_audit(root)["chain"]["ok"])
+            path = audit.audit_path(root)
+            before = path.stat()
+            damaged = path.read_text(encoding="utf-8").replace(
+                "policy_deny", "policy_xeny"
+            )
+            path.write_text(damaged, encoding="utf-8")
+            os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+            summary = audit.summarize_audit(root)
+
+            self.assertFalse(summary["chain"]["ok"])
+            self.assertEqual(summary["by_type"], {"policy_xeny": 1})
 
     def test_cached_summary_is_a_defensive_copy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
