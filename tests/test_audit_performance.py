@@ -161,6 +161,25 @@ class AuditPerformanceTests(unittest.TestCase):
 
             self.assertEqual(second, first)
 
+    def test_recent_matching_events_reads_a_bounded_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for index in range(100):
+                audit.record_audit_event(root, "policy_allow", index=index)
+            for index in range(12):
+                audit.record_audit_event(root, "policy_deny", index=index)
+
+            with mock.patch.object(
+                Path,
+                "read_text",
+                side_effect=AssertionError("recent audit lookup read the full log"),
+            ):
+                events = audit.read_recent_audit(
+                    root, event_types={"policy_deny"}, limit=10
+                )
+
+        self.assertEqual([event["index"] for event in events], list(range(2, 12)))
+
 
 if __name__ == "__main__":
     unittest.main()

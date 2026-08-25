@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import threading
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -259,6 +260,44 @@ def _read_audit(
 
 def read_audit(project_root: Path, limit: int | None = None) -> list[dict[str, Any]]:
     return _read_audit(project_root, limit)[0]
+
+
+def read_recent_audit(
+    project_root: Path,
+    *,
+    event_types: Iterable[str],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Return recent matching events without materializing an unrelated prefix."""
+    wanted = {str(value) for value in event_types}
+    target = max(0, int(limit))
+    if not wanted or target == 0:
+        return []
+    path = audit_path(project_root.expanduser().resolve())
+    if not path.exists():
+        return []
+
+    window = max(64, target * 4)
+    previous_line_count = -1
+    while True:
+        lines = read_utf8_tail_lines(path, window)
+        matches: list[dict[str, Any]] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict) and value.get("event_type") in wanted:
+                matches.append(value)
+        if len(matches) >= target:
+            return matches[-target:]
+        line_count = len(lines)
+        if line_count < window or line_count == previous_line_count:
+            return matches
+        previous_line_count = line_count
+        window *= 2
 
 
 def _verify_audit_log(

@@ -396,7 +396,7 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
 
 def cost_firewall(project_root: Path) -> dict[str, Any]:
     """Budget caps, panic, policy profile, and recently blocked paid calls."""
-    from opaihub.audit import GUARD_DENY, POLICY_DENY, read_audit
+    from opaihub.audit import GUARD_DENY, POLICY_DENY, read_recent_audit
     from opaihub.budget import budget_status
     from opaihub.policy import list_profiles, resolve_policy
 
@@ -409,9 +409,10 @@ def cost_firewall(project_root: Path) -> dict[str, Any]:
             "event_type": event.get("event_type"),
             "action": event.get("action") or event.get("decision"),
         }
-        for event in read_audit(root)
-        if event.get("event_type") in {GUARD_DENY, POLICY_DENY}
-    ][-10:]
+        for event in read_recent_audit(
+            root, event_types={GUARD_DENY, POLICY_DENY}, limit=10
+        )
+    ]
     settings = resolved["settings"]
     return {
         "profile": resolved["profile"],
