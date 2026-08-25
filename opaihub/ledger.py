@@ -11,7 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
-from .atomic_io import atomic_write_text, interprocess_transaction
+from .atomic_io import (
+    atomic_write_text,
+    interprocess_transaction,
+    read_utf8_tail_lines,
+)
 from .call_reconciliation import (
     ABANDON_REASONS,
     call_age_seconds,
@@ -1874,9 +1878,11 @@ def read_events(project_root: Path, limit: int | None = None) -> list[dict[str, 
     path = ledger_path(project_root.expanduser().resolve())
     if not path.exists():
         return []
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if limit is not None:
-        lines = lines[-limit:]
+    lines = (
+        path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if limit is None
+        else read_utf8_tail_lines(path, limit)
+    )
     events: list[dict[str, Any]] = []
     for line in lines:
         if not line.strip():

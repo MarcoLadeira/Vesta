@@ -23,7 +23,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .atomic_io import atomic_write_text, interprocess_transaction
+from .atomic_io import (
+    atomic_write_text,
+    interprocess_transaction,
+    read_utf8_tail_lines,
+)
 from .command_runner import redact
 from .state import state_dir
 
@@ -231,9 +235,11 @@ def _read_audit(
     path = audit_path(project_root.expanduser().resolve())
     if not path.exists():
         return [], 0
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if limit is not None:
-        lines = lines[-limit:]
+    lines = (
+        path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if limit is None
+        else read_utf8_tail_lines(path, limit)
+    )
     events: list[dict[str, Any]] = []
     skipped = 0
     for line in lines:
