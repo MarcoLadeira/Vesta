@@ -249,7 +249,7 @@ def _spent(
         if period == "month" and not created.startswith(month):
             continue
         value = event.get("estimated_actual_usd")
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             total += value
     return round(total, 6)
 

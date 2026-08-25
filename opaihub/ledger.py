@@ -1900,7 +1900,7 @@ def _sum(events: Iterable[dict[str, Any]], key: str) -> float:
     total = 0.0
     for event in events:
         value = event.get(key)
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             total += value
     return round(total, 6)
 
