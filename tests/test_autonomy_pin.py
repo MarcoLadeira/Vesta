@@ -43,6 +43,14 @@ class EffectiveModeTests(unittest.TestCase):
         self.assertFalse(is_full_auto_pinned(prefs))
         self.assertEqual(effective_mode("full-auto", prefs).effective_mode, "safe-auto")
 
+    def test_string_pin_flag_never_grants_full_auto_authority(self):
+        prefs = {
+            "full_auto_pinned": "false",
+            "full_auto_acknowledged_at": "2026-07-06T00:00:00+00:00",
+        }
+        self.assertFalse(is_full_auto_pinned(prefs))
+        self.assertEqual(effective_mode("full-auto", prefs).effective_mode, "safe-auto")
+
     def test_other_modes_pass_through(self):
         for mode in ("ask", "plan", "safe-auto", "approve-edits"):
             self.assertEqual(effective_mode(mode, {}).effective_mode, mode)
@@ -99,6 +107,18 @@ class PreferenceMigrationTests(unittest.TestCase):
                 "default_mode": "full-auto",
                 "full_auto_pinned": True,
                 "full_auto_acknowledged_at": "",
+            }
+        )
+        prefs = load_gui_preferences(self.root)
+        self.assertEqual(prefs["default_mode"], "safe-auto")
+        self.assertFalse(prefs["full_auto_pinned"])
+
+    def test_string_pin_flag_with_timestamp_is_not_trusted(self):
+        self._write_raw(
+            {
+                "default_mode": "full-auto",
+                "full_auto_pinned": "false",
+                "full_auto_acknowledged_at": "2026-07-06T00:00:00+00:00",
             }
         )
         prefs = load_gui_preferences(self.root)

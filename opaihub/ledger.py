@@ -1888,9 +1888,11 @@ def read_events(project_root: Path, limit: int | None = None) -> list[dict[str, 
         if not line.strip():
             continue
         try:
-            events.append(json.loads(line))
+            value = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(value, dict):
+            events.append(value)
     return events
 
 
@@ -1898,7 +1900,7 @@ def _sum(events: Iterable[dict[str, Any]], key: str) -> float:
     total = 0.0
     for event in events:
         value = event.get(key)
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             total += value
     return round(total, 6)
 

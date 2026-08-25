@@ -16,7 +16,12 @@ from opaihub.budget import (
     load_budget,
     set_budget,
 )
-from opaihub.ledger import record_model_call, record_route_decision, rollup_ledger
+from opaihub.ledger import (
+    ledger_path,
+    record_model_call,
+    record_route_decision,
+    rollup_ledger,
+)
 
 
 def _set_budget_in_child(
@@ -208,6 +213,25 @@ class BudgetCapValidationTests(unittest.TestCase):
 
         self.assertEqual(before_call["spent"]["today_usd"], 0.0)
         self.assertGreater(after_call["spent"]["today_usd"], 0.0)
+
+    def test_boolean_cost_is_not_counted_against_the_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            event = record_model_call(
+                root,
+                "call",
+                model_tier="L3",
+                provider_type="cloud",
+                tokens=1000,
+                confirmed=True,
+            )
+            event["estimated_actual_usd"] = True
+            ledger_path(root).write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+            status = budget_status(root)
+
+        self.assertEqual(status["spent"]["today_usd"], 0.0)
+        self.assertEqual(status["spent"]["month_usd"], 0.0)
 
 
 class BudgetGateTests(unittest.TestCase):

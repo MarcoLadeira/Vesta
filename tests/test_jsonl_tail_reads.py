@@ -120,6 +120,10 @@ class JsonlTailReadTests(unittest.TestCase):
             workflow = WorkflowLedger(root, task_id="task-1")
             paths_and_readers = (
                 (
+                    background_runs._notifications_path(root),
+                    lambda: background_runs.read_notifications(root, limit=0),
+                ),
+                (
                     benchmark.benchmark_history_path(root),
                     lambda: benchmark.read_benchmark_history(root, limit=0),
                 ),
@@ -157,6 +161,64 @@ class JsonlTailReadTests(unittest.TestCase):
             events = workflow.read(limit=2)
 
         self.assertEqual([event["sequence"] for event in events], [1, 2])
+
+    def test_cost_limit_counts_cost_events_not_interleaved_workflow_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = WorkflowLedger(root, task_id="task-1")
+            workflow.append("cost_telemetry", sequence=1)
+            workflow.append("cost_telemetry", sequence=2)
+            for sequence in range(20):
+                workflow.append("step", sequence=sequence)
+
+            events = cost_telemetry.read_cost_events(root, limit=2)
+
+        self.assertEqual([event["sequence"] for event in events], [1, 2])
+
+    def test_workflow_reader_skips_valid_json_that_is_not_an_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = WorkflowLedger(root, task_id="task-1")
+            workflow.append("step", sequence=1)
+            with workflow.path.open("a", encoding="utf-8") as handle:
+                handle.write("null\n")
+                handle.write('"not an event"\n')
+                handle.write("[]\n")
+
+            events = workflow.read(limit=1)
+
+        self.assertEqual([event["sequence"] for event in events], [1])
+
+    def test_history_readers_recover_valid_objects_before_a_corrupt_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cases = (
+                (
+                    background_runs._notifications_path(root),
+                    lambda: background_runs.read_notifications(root, limit=2),
+                ),
+                (
+                    benchmark.benchmark_history_path(root),
+                    lambda: benchmark.read_benchmark_history(root, limit=2),
+                ),
+                (
+                    state_dir(root) / "health" / "history.jsonl",
+                    lambda: health.health_history(root, limit=2),
+                ),
+                (
+                    opaibench.opaibench_history_path(root),
+                    lambda: opaibench.read_opaibench_history(root, limit=2),
+                ),
+                (runs.runs_path(root), lambda: runs.recent_runs(root, limit=2)),
+            )
+            for path, _reader in cases:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                lines = [json.dumps({"row": 1}), json.dumps({"row": 2})]
+                lines.extend("null" if index % 2 else "not-json" for index in range(20))
+                path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            for _path, reader in cases:
+                self.assertEqual([item["row"] for item in reader()], [1, 2])
 
     def _write_event_rows(
         self,
