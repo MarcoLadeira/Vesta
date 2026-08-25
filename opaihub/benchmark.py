@@ -20,7 +20,12 @@ from uuid import uuid4
 
 from .atomic_io import read_utf8_tail_lines
 from .audit import BENCHMARK_RUN, record_audit_event
-from .cost_model import estimate_tokens, is_local_tier, load_cost_model, tier_cost
+from .cost_model import (
+    estimate_tokens_for_chars,
+    is_local_tier,
+    load_cost_model,
+    tier_cost,
+)
 from .ledger import task_fingerprint
 from .router import route_context_sizes, route_task
 from .state import state_dir
@@ -341,7 +346,7 @@ def _selected_modes(mode: str) -> list[str]:
 
 
 def _bytes_to_tokens(byte_count: int, cost_model: dict[str, Any]) -> int:
-    return estimate_tokens("x" * max(0, int(byte_count)), cost_model)
+    return estimate_tokens_for_chars(byte_count, cost_model)
 
 
 def _ratio(baseline: float, actual: float) -> float:

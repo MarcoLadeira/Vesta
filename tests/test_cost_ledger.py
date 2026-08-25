@@ -7,7 +7,12 @@ from pathlib import Path
 
 from opai.cli import main as opai_main
 from opaihub.analytics import build_analytics_summary
-from opaihub.cost_model import estimate_route_savings, estimate_tokens, load_cost_model
+from opaihub.cost_model import (
+    estimate_route_savings,
+    estimate_tokens,
+    estimate_tokens_for_chars,
+    load_cost_model,
+)
 from opaihub.ledger import (
     MODEL_CALL_SCHEMA_VERSION,
     ledger_path,
@@ -43,6 +48,11 @@ class CostModelTests(unittest.TestCase):
     def test_token_estimate_uses_chars_per_token(self):
         self.assertEqual(estimate_tokens("x" * 400), 100)
         self.assertEqual(estimate_tokens(""), 0)
+
+    def test_token_estimate_accepts_a_count_without_allocating_text(self):
+        model = {"chars_per_token": 5}
+        self.assertEqual(estimate_tokens_for_chars(10_000_000, model), 2_000_000)
+        self.assertEqual(estimate_tokens_for_chars(0, model), 0)
 
 
 class LedgerTests(unittest.TestCase):

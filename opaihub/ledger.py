@@ -25,7 +25,7 @@ from .call_reconciliation import (
 from .command_runner import redact
 from .cost_model import (
     estimate_route_savings,
-    estimate_tokens,
+    estimate_tokens_for_chars,
     is_local_tier,
     load_cost_model,
     tier_cost,
@@ -1057,7 +1057,7 @@ def record_route_decision(
     context_tokens_saved = 0
     if full_context_chars and compact_context_chars:
         delta = max(0, full_context_chars - compact_context_chars)
-        context_tokens_saved = estimate_tokens("x" * delta, cost_model)
+        context_tokens_saved = estimate_tokens_for_chars(delta, cost_model)
     extra: dict[str, Any] = {"source": source}
     if agent:
         extra["agent"] = agent

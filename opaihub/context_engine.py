@@ -17,7 +17,7 @@ from typing import Any
 
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
-from .cost_model import estimate_tokens, load_cost_model, tier_cost
+from .cost_model import estimate_tokens_for_chars, load_cost_model, tier_cost
 from .state import state_dir
 
 # Whole directories that are almost always context waste.
@@ -213,9 +213,11 @@ def profile_context(
 
     sources.sort(key=lambda item: item["bytes"], reverse=True)
     for source in sources:
-        source["estimated_tokens"] = estimate_tokens("x" * source["bytes"], cost_model)
+        source["estimated_tokens"] = estimate_tokens_for_chars(
+            source["bytes"], cost_model
+        )
 
-    waste_tokens = estimate_tokens("x" * waste_bytes, cost_model)
+    waste_tokens = estimate_tokens_for_chars(waste_bytes, cost_model)
     baseline_tier = str(cost_model.get("baseline_tier", "L3"))
     return {
         "report": "opai-context-profile",
@@ -256,8 +258,8 @@ def _before_after(
 ) -> dict[str, Any]:
     after_bytes = max(0, total_bytes - waste_bytes)
     baseline_tier = str(cost_model.get("baseline_tier", "L3"))
-    before_tokens = estimate_tokens("x" * total_bytes, cost_model)
-    after_tokens = estimate_tokens("x" * after_bytes, cost_model)
+    before_tokens = estimate_tokens_for_chars(total_bytes, cost_model)
+    after_tokens = estimate_tokens_for_chars(after_bytes, cost_model)
     return {
         "before": {
             "bytes": total_bytes,
