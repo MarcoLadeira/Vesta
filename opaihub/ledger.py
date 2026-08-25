@@ -2059,11 +2059,7 @@ def _distribution(values: Iterable[Any]) -> dict[str, Any]:
     """Min/median/max over the *known* numeric values, plus how many outcomes
     left the field UNKNOWN. Unknowns are counted, never imputed."""
     known = [v for v in values if _is_finite_number(v)]
-    unknown = sum(
-        1
-        for v in values
-        if not _is_finite_number(v)
-    )
+    unknown = sum(1 for v in values if not _is_finite_number(v))
     if not known:
         return {
             "known": 0,

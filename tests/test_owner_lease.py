@@ -79,7 +79,9 @@ class LivenessTests(unittest.TestCase):
         }
 
         self.assertTrue(lease.is_stale(corrupt, now=1000.0))
-        self.assertEqual(lease.describe(corrupt, now=1000.0)["reason"], "no_owner_recorded")
+        self.assertEqual(
+            lease.describe(corrupt, now=1000.0)["reason"], "no_owner_recorded"
+        )
 
     def test_nonfinite_clock_values_are_rejected_before_writing_a_lease(self) -> None:
         with self.assertRaises(ValueError):
