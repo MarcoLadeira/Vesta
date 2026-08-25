@@ -93,11 +93,16 @@ def build_usage_snapshots(
         unresolved_by_model[record["model_id"]] = (
             unresolved_by_model.get(record["model_id"], 0) + 1
         )
+    events_by_model: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        event_model_id = event.get("model_id")
+        if isinstance(event_model_id, str):
+            events_by_model.setdefault(event_model_id, []).append(event)
     snapshots: list[dict[str, Any]] = []
     for model in models:
         model_id = str(model.get("id") or "")
         provider = str(model.get("provider") or model.get("kind") or "opai")
-        matched = [event for event in events if event.get("model_id") == model_id]
+        matched = events_by_model.get(model_id, [])
         soft = configured_limits.get(model_id) or {}
         soft_window = str(soft.get("window") or "month")
         window_events = [
