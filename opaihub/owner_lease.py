@@ -36,6 +36,7 @@ still alive? — and the decision about what to do belongs to the caller.
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 import uuid
@@ -149,13 +150,21 @@ def _heartbeat_at(lease: Any) -> float | None:
     value = lease.get("heartbeat_at")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    try:
+        heartbeat = float(value)
+    except OverflowError:
+        return None
+    return heartbeat if math.isfinite(heartbeat) else None
 
 
 def _as_int(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return int(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return int(number) if math.isfinite(number) else None
 
 
 # --- Durable, fenced leases (#517) -----------------------------------------
@@ -234,8 +243,7 @@ def _valid_lease_record(record: Mapping[str, Any]) -> bool:
 
     return (
         _as_int(record.get("fence")) is not None
-        and isinstance(record.get("heartbeat_at"), (int, float))
-        and not isinstance(record.get("heartbeat_at"), bool)
+        and _heartbeat_at(record) is not None
         and isinstance(record.get("boot"), str)
         and bool(record.get("boot"))
     )
