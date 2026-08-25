@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO, Iterator
+from typing import Any, BinaryIO, Iterator
 
 
 _LOCK_RETRY_SECONDS = 0.01
@@ -50,6 +51,33 @@ def read_utf8_tail_lines(path: Path, limit: int) -> list[str]:
             if len(data.splitlines()) > limit:
                 break
     return data.decode("utf-8", errors="replace").splitlines()[-limit:]
+
+
+def read_utf8_tail_json_objects(path: Path, limit: int) -> list[dict[str, Any]]:
+    """Return the latest JSON objects, skipping torn and non-object rows."""
+
+    target = max(0, int(limit))
+    if target == 0:
+        return []
+    window = max(64, target * 2)
+    previous_line_count = -1
+    while True:
+        lines = read_utf8_tail_lines(path, window)
+        objects: list[dict[str, Any]] = []
+        for line in lines:
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                objects.append(value)
+        if len(objects) >= target:
+            return objects[-target:]
+        line_count = len(lines)
+        if line_count < window or line_count == previous_line_count:
+            return objects
+        previous_line_count = line_count
+        window *= 2
 
 
 def _path_key(target: Path) -> str:

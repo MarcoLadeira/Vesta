@@ -28,7 +28,7 @@ from . import shadow_journal
 from .atomic_io import (
     atomic_write_text,
     interprocess_transaction,
-    read_utf8_tail_lines,
+    read_utf8_tail_json_objects,
 )
 from .command_runner import redact
 from .generated_lifecycle import (
@@ -437,21 +437,7 @@ def read_notifications(project_root: Path, *, limit: int = 20) -> list[dict[str,
     path = _notifications_path(project_root)
     if not path.exists():
         return []
-    target = max(0, int(limit))
-    if target == 0:
-        return []
-    physical_limit = target
-    while True:
-        lines = read_utf8_tail_lines(path, physical_limit)
-        entries = []
-        for line in lines:
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        if len(entries) >= target or len(lines) < physical_limit:
-            return entries[-target:]
-        physical_limit *= 2
+    return read_utf8_tail_json_objects(path, limit)
 
 
 def _update_run(

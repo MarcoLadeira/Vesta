@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .atomic_io import read_utf8_tail_lines
+from .atomic_io import read_utf8_tail_json_objects
 from .audit import BENCHMARK_RUN, record_audit_event
 from .cost_model import (
     estimate_tokens_for_chars,
@@ -673,11 +673,9 @@ def read_benchmark_history(
     path = benchmark_history_path(project_root.expanduser().resolve())
     if not path.exists():
         return []
-    lines = (
-        path.read_text(encoding="utf-8", errors="replace").splitlines()
-        if limit is None
-        else read_utf8_tail_lines(path, limit)
-    )
+    if limit is not None:
+        return read_utf8_tail_json_objects(path, limit)
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     records: list[dict[str, Any]] = []
     for line in lines:
         if not line.strip():
