@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import os
 import sqlite3
 import threading
@@ -938,14 +939,20 @@ def record_capture_session(
         )
 
 
+def _is_finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
 def _outcome_metric(value: Any, *, cast=int) -> Any:
     """Coerce an outcome metric to a number, or pass through the UNKNOWN
     sentinel unchanged. Anything unrecognised becomes UNKNOWN so the summary
     never mistakes a stray value for a measurement."""
-    if isinstance(value, bool):
-        # bool is an int subclass, but a flag is never a measurement.
-        return UNKNOWN
-    if isinstance(value, (int, float)):
+    if _is_finite_number(value):
         return cast(value)
     # None, the "unknown" sentinel, or any other string: not a measurement.
     return UNKNOWN
@@ -1900,8 +1907,10 @@ def _sum(events: Iterable[dict[str, Any]], key: str) -> float:
     total = 0.0
     for event in events:
         value = event.get(key)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            total += value
+        if _is_finite_number(value):
+            candidate = total + float(value)
+            if math.isfinite(candidate):
+                total = candidate
     return round(total, 6)
 
 
@@ -2049,13 +2058,11 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
 def _distribution(values: Iterable[Any]) -> dict[str, Any]:
     """Min/median/max over the *known* numeric values, plus how many outcomes
     left the field UNKNOWN. Unknowns are counted, never imputed."""
-    known = [
-        v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)
-    ]
+    known = [v for v in values if _is_finite_number(v)]
     unknown = sum(
         1
         for v in values
-        if not (isinstance(v, (int, float)) and not isinstance(v, bool))
+        if not _is_finite_number(v)
     )
     if not known:
         return {
@@ -2172,10 +2179,10 @@ def _bucket(
         )
         slot["routes"] += 1
         value = route.get("estimated_savings_usd")
-        if isinstance(value, (int, float)):
-            slot["estimated_savings_usd"] = round(
-                slot["estimated_savings_usd"] + value, 6
-            )
+        if _is_finite_number(value):
+            candidate = slot["estimated_savings_usd"] + float(value)
+            if math.isfinite(candidate):
+                slot["estimated_savings_usd"] = round(candidate, 6)
         if route.get("cloud_call_avoided"):
             slot["cloud_calls_avoided"] += 1
     return dict(sorted(buckets.items()))
