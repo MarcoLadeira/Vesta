@@ -170,7 +170,11 @@ def reliability_penalty(
     if not isinstance(entry, dict):
         return 0.0
     ts = time.time() if now is None else float(now)
-    recent = _recent_events(entry, ts)
+    return _reliability_penalty_from_entry(entry, ts)
+
+
+def _reliability_penalty_from_entry(entry: dict[str, Any], now: float) -> float:
+    recent = _recent_events(entry, now)
     if not recent:
         return 0.0
     failures = sum(1 for e in recent if not e.get("ok"))
@@ -190,14 +194,18 @@ def in_cooldown(project_root: Path, provider: str, *, now: float | None = None) 
     entry = _load(project_root).get(provider)
     if not isinstance(entry, dict):
         return False
+    ts = time.time() if now is None else float(now)
+    return _in_cooldown_from_entry(entry, ts)
+
+
+def _in_cooldown_from_entry(entry: dict[str, Any], now: float) -> bool:
     events = [e for e in entry.get("events", []) if isinstance(e, dict)]
     if not events:
         return False
     last = events[-1]
     if last.get("ok"):
         return False
-    ts = time.time() if now is None else float(now)
-    return (ts - float(last.get("at", 0.0))) <= COOLDOWN_SECONDS
+    return (now - float(last.get("at", 0.0))) <= COOLDOWN_SECONDS
 
 
 def last_used(project_root: Path, provider: str) -> float:
@@ -245,8 +253,8 @@ def reliability_snapshot(
             continue
         recent = _recent_events(entry, ts)
         out[provider] = {
-            "penalty": reliability_penalty(project_root, provider, now=ts),
-            "cooldown": in_cooldown(project_root, provider, now=ts),
+            "penalty": _reliability_penalty_from_entry(entry, ts),
+            "cooldown": _in_cooldown_from_entry(entry, ts),
             "recent_calls": len(recent),
             "recent_failures": sum(1 for e in recent if not e.get("ok")),
             "last_ok": bool(entry.get("last_ok", True)),

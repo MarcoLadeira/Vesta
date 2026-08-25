@@ -18,6 +18,7 @@ import hashlib
 import os
 import subprocess  # nosec B404 - process calls below use fixed argv/no shell
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -801,8 +802,19 @@ def available_models(
     from opaihub import provider_blocks as _blocks
     from opaihub import provider_reliability as _rel
 
+    health_now = time.time()
+    remote_providers = {
+        str(option.get("provider") or "").strip().lower()
+        for option in options
+        if option.get("kind") not in {"auto", "local"}
+        and str(option.get("provider") or "").strip()
+    }
+    reliability = _rel.reliability_snapshot(project_root, now=health_now)
+    balances = _bal.balance_snapshots(project_root, remote_providers, now=health_now)
+    blocks = _blocks.blocked_providers(project_root, needs_edit=True, now=health_now)
+
     for option in options:
-        provider = str(option.get("provider") or "")
+        provider = str(option.get("provider") or "").strip().lower()
         if not provider or option.get("kind") in {"auto", "local"}:
             # The Auto card and on-device local models have no remote provider
             # reliability to consult; treat them as healthy.
@@ -813,8 +825,9 @@ def available_models(
             option["blocked_reason"] = None
             option["edit_blocked_reason"] = None
             continue
-        cooldown = _rel.in_cooldown(project_root, provider)
-        penalty = _rel.reliability_penalty(project_root, provider)
+        provider_reliability = reliability.get(provider, {})
+        cooldown = bool(provider_reliability.get("cooldown", False))
+        penalty = float(provider_reliability.get("penalty", 0.0))
         healthy = not cooldown and penalty < 0.5
         option["healthy"] = healthy
         option["health_reason"] = (
@@ -826,7 +839,7 @@ def available_models(
         # enumeration): the exact remaining amount when known, and a hard
         # "out of credit" verdict that removes the model from selection with
         # an explanation instead of leaving a dead entry the user can click.
-        balance = _bal.balance_snapshot(project_root, provider)
+        balance = balances[provider]
         option["balance"] = balance
         out_of_credit = balance["status"] == "out"
         option["out_of_credit"] = out_of_credit
@@ -844,7 +857,7 @@ def available_models(
         # click looks fine and the run always fails. Two separate fields so an
         # edit-incapable provider stays a legitimate Ask/Plan choice — the
         # picker grays it only when the current mode will write files.
-        block = _blocks.active_block(project_root, provider)
+        block = blocks.get(provider)
         option["blocked_reason"] = None
         option["edit_blocked_reason"] = None
         # Known before the first run, not discovered by failing one: a CLI that
