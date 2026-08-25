@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -48,6 +51,36 @@ class WorkspaceSummaryCacheTests(unittest.TestCase):
             second = app_state.workspace_summary(root)
 
             self.assertNotEqual(second["file_count"], 999)
+
+    def test_concurrent_misses_share_one_git_probe_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            callers = threading.Barrier(3)
+            first_probe = threading.Event()
+            release_probe = threading.Event()
+            original = app_state._git_text
+
+            def delayed_git_text(*args, **kwargs):
+                first_probe.set()
+                release_probe.wait(timeout=2)
+                return original(*args, **kwargs)
+
+            def summarize():
+                callers.wait(timeout=2)
+                return app_state.workspace_summary(root)
+
+            with mock.patch.object(
+                app_state, "_git_text", side_effect=delayed_git_text
+            ) as git_text:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                    futures = [pool.submit(summarize) for _ in range(3)]
+                    self.assertTrue(first_probe.wait(timeout=2))
+                    time.sleep(0.1)
+                    release_probe.set()
+                    summaries = [future.result(timeout=3) for future in futures]
+
+            self.assertEqual(git_text.call_count, 2)
+            self.assertEqual(summaries, [summaries[0]] * 3)
 
     def test_staged_file_invalidates_the_cached_file_count(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

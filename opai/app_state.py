@@ -139,6 +139,9 @@ def _git_text(root: Path, args: list[str], *, timeout: float = 12.0) -> str:
 
 
 _WORKSPACE_SUMMARY_CACHE: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+_WORKSPACE_SUMMARY_INFLIGHT: dict[
+    tuple[str, tuple[Any, ...]], threading.Event
+] = {}
 _WORKSPACE_SUMMARY_CACHE_LOCK = threading.RLock()
 
 
@@ -198,24 +201,41 @@ def workspace_summary(project_root: Path) -> dict[str, Any]:
     root = project_root.expanduser().resolve()
     signature = _workspace_git_signature(root)
     key = str(root)
-    if signature is not None:
+    flight_key: tuple[str, tuple[Any, ...]] | None = None
+    while signature is not None:
         with _WORKSPACE_SUMMARY_CACHE_LOCK:
             cached = _WORKSPACE_SUMMARY_CACHE.get(key)
             if cached is not None and cached[0] == signature:
                 return dict(cached[1])
+            candidate = (key, signature)
+            pending = _WORKSPACE_SUMMARY_INFLIGHT.get(candidate)
+            if pending is None:
+                pending = threading.Event()
+                _WORKSPACE_SUMMARY_INFLIGHT[candidate] = pending
+                flight_key = candidate
+                break
+        pending.wait()
+        signature = _workspace_git_signature(root)
 
-    files = _git_text(root, ["ls-files"])
-    branch = _git_text(root, ["rev-parse", "--abbrev-ref", "HEAD"]) or ""
-    summary = {
-        "root": str(root),
-        "name": root.name,
-        "file_count": sum(1 for line in files.splitlines() if line.strip()),
-        "branch": branch if branch and branch != "HEAD" else "",
-    }
-    if signature is not None and _workspace_git_signature(root) == signature:
-        with _WORKSPACE_SUMMARY_CACHE_LOCK:
-            _WORKSPACE_SUMMARY_CACHE[key] = (signature, dict(summary))
-    return summary
+    try:
+        files = _git_text(root, ["ls-files"])
+        branch = _git_text(root, ["rev-parse", "--abbrev-ref", "HEAD"]) or ""
+        summary = {
+            "root": str(root),
+            "name": root.name,
+            "file_count": sum(1 for line in files.splitlines() if line.strip()),
+            "branch": branch if branch and branch != "HEAD" else "",
+        }
+        if signature is not None and _workspace_git_signature(root) == signature:
+            with _WORKSPACE_SUMMARY_CACHE_LOCK:
+                _WORKSPACE_SUMMARY_CACHE[key] = (signature, dict(summary))
+        return summary
+    finally:
+        if flight_key is not None:
+            with _WORKSPACE_SUMMARY_CACHE_LOCK:
+                completed = _WORKSPACE_SUMMARY_INFLIGHT.pop(flight_key, None)
+                if completed is not None:
+                    completed.set()
 
 
 def workspace_diff(project_root: Path, *, max_chars: int = 6000) -> str:
