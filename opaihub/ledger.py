@@ -1935,7 +1935,13 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
     with _SUMMARY_CACHE_LOCK:
         cached = _SUMMARY_CACHE.get(key)
         if cached is not None and cached[:2] == signature:
-            return copy.deepcopy(cached[2])
+            cached_reconciliation = cached[2].get("reconciliation") or {}
+            # File metadata alone does not own liveness. An open call can age
+            # out or its owner can exit without another ledger append, so that
+            # classification must be refreshed. Verified and already-pending
+            # summaries are stable until the next durable event.
+            if not cached_reconciliation.get("unresolved_calls"):
+                return copy.deepcopy(cached[2])
     events = read_events(root)
     all_routes = [event for event in events if event.get("event_type") == EVENT_ROUTE]
     # Savings truth (#76): only routes with a known tier have a verifiable
