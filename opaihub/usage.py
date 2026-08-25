@@ -73,9 +73,10 @@ def build_usage_snapshots(
     *,
     limits: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    all_events = read_events(project_root)
     events = [
         event
-        for event in read_events(project_root)
+        for event in all_events
         if event.get("event_type") == EVENT_MODEL_CALL
     ]
     configured_limits = limits or {}
@@ -83,7 +84,7 @@ def build_usage_snapshots(
     # #619: a dispatched call whose result never landed is incurred cost of
     # unknown size. Reporting it as "no data" would present a lower bound as a
     # complete figure, so every row carries whether spend is fully reconciled.
-    reconciliation = cost_reconciliation(project_root)
+    reconciliation = cost_reconciliation(project_root, events=all_events)
     unresolved_by_model: dict[str, int] = {}
     # Both halves (#685). A call retired as abandoned is still spend of unknown
     # size against that model; counting only the in-flight half would show a
