@@ -102,6 +102,22 @@ class RepositoryCaptureTests(unittest.TestCase):
         self.assertNotIn("secret-token", repr(handle))
         self.assertEqual(handle.dirty_state.changed_paths, ())
 
+    def test_capture_batches_standard_worktree_metadata(self) -> None:
+        commands: list[tuple[str, ...]] = []
+
+        def counting_run(command: list[str], **kwargs: object):
+            commands.append(tuple(command))
+            return subprocess.run(command, **kwargs)
+
+        capture_repository_handle(
+            self.repo,
+            task_id="task-1",
+            run_id="run-1",
+            git_run=counting_run,
+        )
+
+        self.assertLessEqual(len(commands), 6)
+
     def test_porcelain_v2_parser_keeps_spaces_unicode_and_categories(self) -> None:
         dirty = parse_porcelain_v2(
             b"1 M. N... 100644 100644 100644 abc abc file with space.py\0"

@@ -78,5 +78,6 @@ test("the uncommitted badge refreshes when a run commits", async ({ page }) => {
 
   await expect(page.locator("#wsContext")).toContainText("feature/pricing");
   await expect(page.locator("#wsContext")).not.toContainText("uncommitted");
-  expect(await page.evaluate(() => window.__mock.workspaceStateCalls)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__mock.workspaceRequests.length)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__mock.workspaceStateCalls)).toBe(0);
 });

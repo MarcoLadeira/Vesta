@@ -50,6 +50,11 @@ EVENT_STARTED = "run.started"
 EVENT_CANCELLED = "run.cancelled"
 EVENT_FINISHED = "run.finished"
 EVENT_VERIFIED = "run.verified"
+EVENT_COSTED = "run.cost_recorded"
+
+
+class _TerminalRunReadmitted(Exception):
+    """Internal: a finished run was admitted again. Rolls the transaction back."""
 
 
 @contextmanager
@@ -89,7 +94,7 @@ def record_admission(
     mode: str = "",
     model: str = "",
     route: str = "",
-    attempt: int = 1,
+    attempt: int | None = None,
 ) -> int | None:
     """Record task, run and the admitted event in one transaction.
 
@@ -107,6 +112,23 @@ def record_admission(
             return None
         try:
             with journal_store._transaction(store):
+                # A run that already ended must not be re-opened. Found by an
+                # adversarial audit: re-admission took a fresh lease but left
+                # terminal_verdict in place, so a run that was running again
+                # still read as "completed" -- a settled run reporting a
+                # verdict it had not yet reached this time round.
+                #
+                # Refusing rather than clearing the verdict is deliberate.
+                # #613 forbids terminal regression outright, and a genuine
+                # retry already has a first-class representation: a new run id,
+                # which becomes the next attempt of the same task. Silently
+                # clearing would make the two indistinguishable in replay.
+                settled = store.execute(
+                    "SELECT terminal_verdict FROM runs WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                if settled is not None and settled["terminal_verdict"]:
+                    raise _TerminalRunReadmitted(run_id)
                 store.execute(
                     "INSERT INTO tasks(task_id, origin_surface, origin_session,"
                     " created_at, requested_outcome, schema_version, updated_at)"
@@ -114,12 +136,31 @@ def record_admission(
                     " ON CONFLICT(task_id) DO UPDATE SET updated_at = excluded.updated_at",
                     (task_id, surface, session, now, _summary(task), 1, now),
                 )
+                # The attempt number is derived, not defaulted. `runs` has a
+                # UNIQUE (task_id, attempt), so a hardcoded 1 meant the second
+                # run of a task violated it -- and because admission is
+                # best-effort, that violation was swallowed and the run went
+                # unjournalled in silence. Exactly the gap this issue exists to
+                # close, found by a test that expected two runs and saw one.
+                #
+                # A caller may still pass an explicit attempt when it knows the
+                # lineage; otherwise the next free number is correct, because a
+                # second run of one task *is* a second attempt.
+                if attempt is None:
+                    row = store.execute(
+                        "SELECT COALESCE(MAX(attempt), 0) + 1 FROM runs"
+                        " WHERE task_id = ?",
+                        (task_id,),
+                    ).fetchone()
+                    resolved_attempt = int(row[0]) if row else 1
+                else:
+                    resolved_attempt = int(attempt)
                 store.execute(
                     "INSERT INTO runs(run_id, task_id, attempt, desired_state,"
                     " observed_state, route, model, created_at, updated_at)"
                     " VALUES (?, ?, ?, 'running', 'queued', ?, ?, ?, ?)"
                     " ON CONFLICT(run_id) DO NOTHING",
-                    (run_id, task_id, int(attempt), route, model, now, now),
+                    (run_id, task_id, resolved_attempt, route, model, now, now),
                 )
             fence = acquire_lease(store, run_id=run_id, owner=surface, now=now)
             append_event(
@@ -133,6 +174,12 @@ def record_admission(
                 expected_fence=fence,
             )
             return fence
+        except _TerminalRunReadmitted:
+            # Not an error the caller can act on: the run is already finished,
+            # and the correct next step -- a new run id -- is the caller's to
+            # choose. Returning None means later lifecycle events are unfenced
+            # no-ops, which is exactly right for a run that has ended.
+            return None
         except (sqlite3.DatabaseError, JournalStoreError, ValueError):
             return None
 
@@ -230,6 +277,132 @@ def record_terminal(
             return False
 
 
+def record_run_cost(
+    root: Path,
+    *,
+    run_id: str,
+    operation_key: str,
+    amount_usd: float,
+    measurement_kind: str,
+    now: str,
+    fence: int | None = None,
+    model: str = "",
+    tokens: int = 0,
+    producer: str = "gui",
+) -> bool:
+    """Attribute one cost to one operation, exactly once.
+
+    The operation row is claimed first so the cost has something to hang from,
+    then the cost is written. Both are separate transactions on purpose: the
+    operation is the idempotency key, so claiming it twice is a no-op, while
+    a second *cost* for the same key is a real accounting error the store
+    refuses outright.
+
+    A refused duplicate returns ``False`` rather than raising. #613 requires
+    that no cost is attributed more than once; a retry that quietly does
+    nothing is the correct behaviour, and a raised exception at this point in a
+    finished turn would be a worse outcome than a duplicate we already blocked.
+    """
+
+    with _store(root) as store:
+        if store is None:
+            return False
+        try:
+            journal_store.record_operation(
+                store,
+                operation_key=operation_key,
+                kind="model.call",
+                target_digest=model or "",
+                state="observed",
+                now=now,
+                run_id=run_id,
+            )
+            journal_store.record_cost(
+                store,
+                operation_key=operation_key,
+                amount=float(amount_usd),
+                measurement_kind=measurement_kind,
+                now=now,
+                quantity=float(tokens),
+                price_snapshot=model or "",
+            )
+        except JournalStoreError:
+            # Already attributed. Not an error: the guard did its job.
+            return False
+        except (sqlite3.DatabaseError, ValueError):
+            return False
+        record_event(
+            root,
+            run_id=run_id,
+            event_type=EVENT_COSTED,
+            now=now,
+            fence=fence,
+            payload={
+                "operation_key": operation_key,
+                "amount_usd": float(amount_usd),
+                "measurement_kind": measurement_kind,
+                "model": model,
+            },
+            producer=producer,
+        )
+        return True
+
+
+def record_verification(
+    root: Path,
+    *,
+    run_id: str,
+    verdict: str,
+    policy_digest: str,
+    manifest_digest: str,
+    now: str,
+    fence: int | None = None,
+    producer: str = "gui",
+) -> bool:
+    """Record which policy a run was verified under, and what it produced.
+
+    Both digests travel together deliberately. A verdict without the policy
+    that produced it cannot be audited later -- "this passed" means nothing
+    without "against what" -- and #613's artifacts table exists precisely to
+    keep that pairing.
+    """
+
+    with _store(root) as store:
+        if store is None:
+            return False
+        try:
+            with journal_store._transaction(store):
+                if fence is not None:
+                    journal_store._assert_fence(store, run_id, fence)
+                store.execute(
+                    "INSERT INTO artifacts(content_hash, operation_key, kind,"
+                    " identity, privacy_class, created_at)"
+                    " VALUES (?, NULL, 'verification_manifest', ?, 'internal', ?)"
+                    " ON CONFLICT(content_hash, identity) DO NOTHING",
+                    (manifest_digest or "unknown", run_id, now),
+                )
+        except StaleWriterError:
+            return False
+        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+            return False
+    return (
+        record_event(
+            root,
+            run_id=run_id,
+            event_type=EVENT_VERIFIED,
+            now=now,
+            fence=fence,
+            payload={
+                "verdict": verdict,
+                "policy_digest": policy_digest,
+                "manifest_digest": manifest_digest,
+            },
+            producer=producer,
+        )
+        is not None
+    )
+
+
 def _summary(task: str, *, limit: int = 200) -> str:
     """A bounded, single-line description of what was asked for.
 
@@ -244,11 +417,14 @@ def _summary(task: str, *, limit: int = 200) -> str:
 
 __all__ = (
     "EVENT_ADMITTED",
+    "EVENT_COSTED",
     "EVENT_CANCELLED",
     "EVENT_FINISHED",
     "EVENT_STARTED",
     "EVENT_VERIFIED",
     "record_admission",
+    "record_run_cost",
+    "record_verification",
     "record_event",
     "record_terminal",
 )

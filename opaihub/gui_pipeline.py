@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from contextvars import ContextVar
 import json
 import time
 import uuid
@@ -20,6 +21,7 @@ from .agent_policy import (
     is_smalltalk_request,
     resolve_agent_policy,
 )
+from . import journal_runtime
 from .agent_runtime import AgentRuntime, RuntimePhase
 from .autonomy import MODE_LABELS, effective_mode
 from .checkpoints import create_run_checkpoint, finalize_run_checkpoint
@@ -709,7 +711,113 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def handle_gui_message(
+#: The journal identity of the turn running on this thread, or ``None``.
+#:
+#: Set by :func:`_handle_gui_message` once admission has been mirrored, read by
+#: the public wrapper to close the run out. A ContextVar rather than a module
+#: global because concurrent turns must not see each other's run.
+_JOURNAL_RUN: ContextVar[dict[str, Any] | None] = ContextVar(
+    "_opai_journal_run", default=None
+)
+
+#: How a turn's reported status maps onto a terminal journal event.
+#:
+#: Anything not listed here is treated as a completion, because a turn that
+#: returned *something* did finish. Guessing "failed" for an unrecognised
+#: status would invent a verdict the run never reached, which is worse than a
+#: coarse one -- Stage 4 compares these against the legacy record, and a
+#: fabricated failure would look exactly like a real contradiction.
+_TERMINAL_EVENTS: dict[str, tuple[str, str]] = {
+    "cancelled": (journal_runtime.EVENT_CANCELLED, "cancelled"),
+    "duplicate_request": (journal_runtime.EVENT_FINISHED, "duplicate"),
+    "failed": (journal_runtime.EVENT_FINISHED, "failed"),
+    "error": (journal_runtime.EVENT_FINISHED, "failed"),
+    "blocked": (journal_runtime.EVENT_FINISHED, "blocked"),
+}
+
+
+def _journal_cost(root: Path, telemetry: Any, *, operation_key: str) -> None:
+    """Mirror one priced call into the journal, exactly once.
+
+    The operation key is the idempotency boundary: a retry that recomputes the
+    same call must not charge twice, and #613 makes that a schema constraint
+    rather than a convention. ``record_run_cost`` returns False on a duplicate
+    rather than raising, so a repeat is a no-op here by design.
+
+    Best-effort like the rest of Stage 3 -- the ledger is still authoritative
+    for spend, so a missing mirror costs evidence, not money.
+    """
+
+    identity = _JOURNAL_RUN.get()
+    if not identity or telemetry is None:
+        return
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
+        journal_runtime.record_run_cost(
+            root,
+            run_id=str(identity["run_id"]),
+            operation_key=operation_key,
+            amount_usd=float(getattr(telemetry, "cost_usd", 0.0) or 0.0),
+            measurement_kind="estimated",
+            now=_iso_now(),
+            fence=identity.get("fence"),
+            model=str(getattr(telemetry, "model", "") or ""),
+            tokens=int(getattr(telemetry, "tokens", 0) or 0),
+        )
+
+
+def _journal_verification(root: Path, manifest_payload: Mapping[str, Any]) -> None:
+    """Record which policy a run was verified under, and what it produced.
+
+    A verdict without its policy cannot be audited later -- "this passed" means
+    nothing without "against what" -- so both digests travel together or the
+    record is not written at all.
+    """
+
+    identity = _JOURNAL_RUN.get()
+    if not identity or not manifest_payload:
+        return
+    artifact = manifest_payload.get("artifact") or {}
+    policy = manifest_payload.get("policy") or {}
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
+        journal_runtime.record_verification(
+            root,
+            run_id=str(identity["run_id"]),
+            verdict=str(manifest_payload.get("verdict") or "recorded"),
+            policy_digest=str(policy.get("digest") or ""),
+            manifest_digest=str(artifact.get("digest") or ""),
+            now=_iso_now(),
+            fence=identity.get("fence"),
+        )
+
+
+def _record_turn_ending(root: Path, status: str, reason: str) -> None:
+    """Close out the journalled run for this turn, if there is one.
+
+    Best-effort like everything else in Stage 3: a turn that already produced
+    its answer must not fail because its bookkeeping did. A run with no
+    journal identity -- admission was not mirrored -- simply has nothing to
+    close.
+    """
+
+    identity = _JOURNAL_RUN.get()
+    if not identity:
+        return
+    event, verdict = _TERMINAL_EVENTS.get(
+        status, (journal_runtime.EVENT_FINISHED, "completed")
+    )
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a finished turn
+        journal_runtime.record_terminal(
+            root,
+            run_id=str(identity["run_id"]),
+            event_type=event,
+            verdict=verdict,
+            reason=reason or status,
+            now=_iso_now(),
+            fence=identity.get("fence"),
+        )
+
+
+def _handle_gui_message(
     project_root: Path,
     message: str,
     *,
@@ -971,6 +1079,13 @@ def handle_gui_message(
             mode=mode,
             model=model_id,
         )
+        if _journal_fence is not None:
+            # Published rather than returned: this function has many exits and
+            # the wrapper below needs the identity on every one of them,
+            # including the ones that raise. A ContextVar is the right carrier
+            # -- it is per-thread and per-task, so two concurrent turns cannot
+            # read each other's run.
+            _JOURNAL_RUN.set({"run_id": turn_id, "fence": _journal_fence})
     task_repository_handle: Any = None
     repository_safety_error = ""
     effective_policy: VerificationPolicy | None = None
@@ -1262,6 +1377,7 @@ def handle_gui_message(
                 **payload,
                 "verification_manifest": verification_manifest_payload,
             }
+            _journal_verification(root, verification_manifest_payload)
         current_repo = resolve_repo_context(root)
         save_active_repo(root, current_repo)
         changed_files = tuple(str(item) for item in payload.get("changed_files") or [])
@@ -2518,6 +2634,11 @@ def handle_gui_message(
                 record_workflow_cost(
                     root, runtime.task_id, free_telemetry, task=message
                 )
+                _journal_cost(
+                    root,
+                    free_telemetry,
+                    operation_key=f"{turn_id}:free",
+                )
             if not answer:
                 # Name the provider and the concrete next check instead of a
                 # generic "did not return an answer" (QA pass-2): an empty free
@@ -2840,6 +2961,11 @@ def handle_gui_message(
                 provider, result, model=selected_model
             )
             record_workflow_cost(root, runtime.task_id, account_telemetry, task=message)
+            _journal_cost(
+                root,
+                account_telemetry,
+                operation_key=f"{turn_id}:account",
+            )
             status = (
                 "answered"
                 if result.get("status") == "answered_by_account"
@@ -3079,3 +3205,33 @@ def handle_gui_message(
                 "plan": _plan_payload(selected_mode, final_status, answer),
             }
         )
+
+
+def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Run one turn, and record how it ended exactly once.
+
+    #613 Stage 3 needs a terminal event on *every* exit. The implementation
+    has more than a dozen returns spread through deeply nested closures, and
+    hooking each one would mean a missed path silently loses a run's ending --
+    the precise failure this issue exists to remove. A wrapper has one exit by
+    construction, and it also catches the case no return-site hook could: a
+    turn that raises.
+
+    The identity comes from a ContextVar the implementation publishes, and the
+    token is always reset, so a turn cannot leak its run into whatever runs
+    next on this thread.
+    """
+
+    token = _JOURNAL_RUN.set(None)
+    root = Path(args[0] if args else kwargs["project_root"])
+    try:
+        result = _handle_gui_message(*args, **kwargs)
+    except BaseException as exc:  # noqa: BLE001 - re-raised immediately below
+        _record_turn_ending(root, "failed", type(exc).__name__)
+        raise
+    else:
+        status = str((result or {}).get("status") or "completed")
+        _record_turn_ending(root, status, str((result or {}).get("reason") or ""))
+        return result
+    finally:
+        _JOURNAL_RUN.reset(token)

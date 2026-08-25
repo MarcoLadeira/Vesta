@@ -7,7 +7,12 @@ from pathlib import Path
 
 from opai.cli import main as opai_main
 from opaihub.analytics import build_analytics_summary
-from opaihub.cost_model import estimate_route_savings, estimate_tokens, load_cost_model
+from opaihub.cost_model import (
+    estimate_route_savings,
+    estimate_tokens,
+    estimate_tokens_for_chars,
+    load_cost_model,
+)
 from opaihub.ledger import (
     MODEL_CALL_SCHEMA_VERSION,
     ledger_path,
@@ -43,6 +48,11 @@ class CostModelTests(unittest.TestCase):
     def test_token_estimate_uses_chars_per_token(self):
         self.assertEqual(estimate_tokens("x" * 400), 100)
         self.assertEqual(estimate_tokens(""), 0)
+
+    def test_token_estimate_accepts_a_count_without_allocating_text(self):
+        model = {"chars_per_token": 5}
+        self.assertEqual(estimate_tokens_for_chars(10_000_000, model), 2_000_000)
+        self.assertEqual(estimate_tokens_for_chars(0, model), 0)
 
 
 class LedgerTests(unittest.TestCase):
@@ -170,6 +180,38 @@ class LedgerTests(unittest.TestCase):
             summary = summarize_ledger(Path(tmp))
         self.assertEqual(summary["event_count"], 0)
         self.assertEqual(summary["estimated_savings_usd"], 0.0)
+
+    def test_summary_ignores_valid_json_rows_that_are_not_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_route_decision(root, "show git status", model_tier="L0")
+            with ledger_path(root).open("a", encoding="utf-8") as handle:
+                handle.write("null\n")
+                handle.write('"not an event"\n')
+                handle.write("[]\n")
+
+            summary = summarize_ledger(root)
+
+        self.assertEqual(summary["event_count"], 1)
+        self.assertEqual(summary["route_count"], 1)
+
+    def test_boolean_cost_is_not_counted_as_one_dollar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            event = record_model_call(
+                root,
+                "call",
+                model_tier="L3",
+                provider_type="cloud",
+                tokens=1000,
+                confirmed=True,
+            )
+            event["estimated_actual_usd"] = True
+            ledger_path(root).write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+            summary = summarize_ledger(root)
+
+        self.assertEqual(summary["estimated_actual_spend_usd"], 0.0)
 
 
 class RouteReadOnlyTests(unittest.TestCase):

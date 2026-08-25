@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .atomic_io import read_utf8_tail_json_objects
 from .cost_model import load_cost_model, tier_cost
 from .ledger import task_fingerprint
 from .router import route_task
@@ -59,17 +60,7 @@ def recent_runs(project_root: Path, limit: int = 10) -> list[dict[str, Any]]:
     path = runs_path(project_root.expanduser().resolve())
     if not path.exists():
         return []
-    runs: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines()[
-        -limit:
-    ]:
-        if not line.strip():
-            continue
-        try:
-            runs.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return runs
+    return read_utf8_tail_json_objects(path, limit)
 
 
 def explain_route(project_root: Path, task: str) -> dict[str, Any]:

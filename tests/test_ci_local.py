@@ -191,6 +191,15 @@ class LocalCiEvidenceTests(unittest.TestCase):
         assert step.argv == [sys.executable, "scripts/check_release_identity.py"]
         assert step.failure_class == "policy"
 
+    def test_python_profile_runs_only_pytest_only_files_in_second_runner(self):
+        ci = _load_ci_local_module()
+        steps = {step.name: step for step in ci.PYTHON_STEPS}
+
+        self.assertEqual(
+            steps["python-pytest"].argv,
+            [sys.executable, "scripts/run_pytest_only.py"],
+        )
+
     def test_native_wheel_qualification_receives_the_validated_candidate_sha(self):
         ci = _load_ci_local_module()
         candidate_sha = "a" * 40

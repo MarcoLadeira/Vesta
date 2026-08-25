@@ -399,6 +399,33 @@ class CrashAndRestartTests(unittest.TestCase):
 
 
 class ReportingConsistencyTests(unittest.TestCase):
+    def test_cached_summary_refreshes_when_an_open_call_ages_out(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _orphan(root)
+            expired_at = _later(ABANDON_AFTER_SECONDS + 1)
+
+            class ExpiredDateTime(datetime):
+                @classmethod
+                def now(cls, tz=None):
+                    return (
+                        expired_at
+                        if tz is not None
+                        else expired_at.replace(tzinfo=None)
+                    )
+
+            with mock.patch(
+                "opaihub.call_reconciliation.pid_is_running", side_effect=_alive
+            ):
+                fresh = summarize_ledger(root)
+                with mock.patch("opaihub.ledger.datetime", ExpiredDateTime):
+                    expired = summarize_ledger(root)
+
+            self.assertEqual(fresh["reconciliation"]["unresolved_calls"], 1)
+            self.assertEqual(fresh["reconciliation"]["pending_abandonment"], 0)
+            self.assertEqual(expired["reconciliation"]["unresolved_calls"], 0)
+            self.assertEqual(expired["reconciliation"]["pending_abandonment"], 1)
+
     def test_nothing_falls_between_the_lists(self) -> None:
         """A retirable-but-unswept call must not vanish from the totals.
 

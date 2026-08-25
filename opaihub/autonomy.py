@@ -45,8 +45,9 @@ def mode_label(mode: str) -> str:
 def is_full_auto_pinned(prefs: Mapping[str, Any]) -> bool:
     """Full Auto is pinned only with the flag *and* a recorded acknowledgement."""
 
-    return bool(prefs.get("full_auto_pinned")) and bool(
-        str(prefs.get("full_auto_acknowledged_at") or "").strip()
+    acknowledgement = prefs.get("full_auto_acknowledged_at")
+    return prefs.get("full_auto_pinned") is True and bool(
+        acknowledgement.strip() if isinstance(acknowledgement, str) else ""
     )
 
 

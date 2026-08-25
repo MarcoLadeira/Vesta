@@ -523,6 +523,39 @@ class PreferenceLimitTests(unittest.TestCase):
         self.assertEqual(loaded["usage_limits"]["account:claude:haiku"]["limit"], 5000)
         self.assertEqual(loaded["default_model"], "auto")
 
+    def test_usage_limits_reject_boolean_non_finite_and_fractional_counts(self) -> None:
+        from opaihub.gui_preferences import (
+            load_gui_preferences,
+            preference_path,
+            save_usage_limit,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = preference_path(root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                '{"usage_limits": {'
+                '"boolean": {"metric": "tokens", "limit": true, "window": "month"},'
+                '"infinite": {"metric": "tokens", "limit": Infinity, "window": "month"},'
+                '"fractional": {"metric": "tokens", "limit": 0.5, "window": "month"}'
+                "}}",
+                encoding="utf-8",
+            )
+
+            loaded = load_gui_preferences(root)
+
+            self.assertEqual(loaded["usage_limits"], {})
+            for invalid in (True, float("inf"), 0.5):
+                with self.subTest(limit=invalid), self.assertRaises(ValueError):
+                    save_usage_limit(
+                        root,
+                        "account:claude:haiku",
+                        metric="tokens",
+                        limit=invalid,
+                        window="month",
+                    )
+
 
 class AutoFallbackTests(unittest.TestCase):
     @staticmethod

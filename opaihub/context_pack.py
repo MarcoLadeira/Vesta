@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .command_runner import redact
-from .cost_model import estimate_tokens, load_cost_model
+from .cost_model import estimate_tokens_for_chars, load_cost_model
 from .evidence import MARKERS
 from .state import state_dir
 from .test_select import _git_changed_files, likely_tests_for
@@ -128,7 +128,7 @@ def build_context_pack(
         "adjacent_tests": adjacent_tests,
         "char_budget": char_budget,
         "used_chars": used_chars,
-        "estimated_tokens": estimate_tokens("x" * used_chars, cost_model),
+        "estimated_tokens": estimate_tokens_for_chars(used_chars, cost_model),
         "truncated": truncated,
         "notes": [
             "Deterministic pack; no model was used to build it.",

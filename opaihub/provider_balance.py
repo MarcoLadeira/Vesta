@@ -30,6 +30,7 @@ import json
 import os
 import tempfile
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Callable
 
@@ -367,25 +368,26 @@ def is_exhausted(
     if not provider:
         return False
     entry = _entry(_load(project_root), provider)
+    ts = time.time() if now is None else float(now)
+    return _is_exhausted_entry(entry, ts)
+
+
+def _is_exhausted_entry(entry: dict[str, Any], now: float) -> bool:
     if not entry.get("exhausted"):
         return False
-    ts = time.time() if now is None else float(now)
     at = _amount(entry.get("exhausted_at")) or 0.0
-    return (ts - at) <= EXHAUSTED_TTL_SECONDS
+    return (now - at) <= EXHAUSTED_TTL_SECONDS
 
 
-def balance_snapshot(
-    project_root: Path, provider: str, *, now: float | None = None
+def _balance_snapshot_from_entry(
+    provider: str, entry: dict[str, Any], now: float
 ) -> dict[str, Any]:
-    """The UI-ready balance truth for one provider. Secret-free by shape."""
-    provider = _clean_provider(provider)
-    ts = time.time() if now is None else float(now)
-    entry = _entry(_load(project_root), provider)
+    """Build one balance snapshot from an already-loaded store entry."""
     amount = _amount(entry.get("amount"))
     currency = _currency(entry.get("currency")) if entry.get("currency") else "USD"
     source = entry.get("source") if entry.get("source") in _SOURCES else "none"
     reference = _amount(entry.get("reference"))
-    out = is_exhausted(project_root, provider, now=ts)
+    out = _is_exhausted_entry(entry, now)
     percent: float | None = None
     if amount is not None and reference and reference > 0:
         percent = round(max(0.0, min(100.0, 100.0 * amount / reference)), 1)
@@ -425,6 +427,36 @@ def balance_snapshot(
     }
 
 
+def balance_snapshot(
+    project_root: Path, provider: str, *, now: float | None = None
+) -> dict[str, Any]:
+    """The UI-ready balance truth for one provider. Secret-free by shape."""
+    provider = _clean_provider(provider)
+    ts = time.time() if now is None else float(now)
+    entry = _entry(_load(project_root), provider)
+    return _balance_snapshot_from_entry(provider, entry, ts)
+
+
+def balance_snapshots(
+    project_root: Path,
+    providers: Iterable[str],
+    *,
+    now: float | None = None,
+) -> dict[str, dict[str, Any]]:
+    """UI-ready snapshots for many providers with one store read."""
+    ts = time.time() if now is None else float(now)
+    store = _load(project_root)
+    snapshots: dict[str, dict[str, Any]] = {}
+    for raw_provider in providers:
+        provider = _clean_provider(raw_provider)
+        if not provider or provider in snapshots:
+            continue
+        snapshots[provider] = _balance_snapshot_from_entry(
+            provider, _entry(store, provider), ts
+        )
+    return snapshots
+
+
 def balance_overview(
     project_root: Path,
     providers: list[dict[str, Any]],
@@ -440,6 +472,12 @@ def balance_overview(
     Settings surface, which runs on a worker thread and can afford one short
     HTTP call.
     """
+    ts = time.time() if now is None else float(now)
+    cached = balance_snapshots(
+        project_root,
+        (str(item.get("provider") or "") for item in providers),
+        now=ts,
+    )
     seen: set[str] = set()
     overview: list[dict[str, Any]] = []
     for item in providers:
@@ -449,9 +487,9 @@ def balance_overview(
         seen.add(provider)
         configured = bool(item.get("configured", True))
         if probe and configured and supports_live_balance(provider):
-            snapshot = probe_balance(project_root, provider, force=force, now=now)
+            snapshot = probe_balance(project_root, provider, force=force, now=ts)
         else:
-            snapshot = balance_snapshot(project_root, provider, now=now)
+            snapshot = dict(cached[provider])
         snapshot["kind"] = str(item.get("kind") or "api")
         snapshot["configured"] = configured
         if not configured and snapshot["source"] == "none":

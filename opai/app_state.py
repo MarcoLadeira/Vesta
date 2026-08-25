@@ -17,6 +17,8 @@ import contextlib
 import hashlib
 import os
 import subprocess  # nosec B404 - process calls below use fixed argv/no shell
+import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -137,17 +139,128 @@ def _git_text(root: Path, args: list[str], *, timeout: float = 12.0) -> str:
     return ""
 
 
+_WORKSPACE_SUMMARY_CACHE: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+_WORKSPACE_SUMMARY_INFLIGHT: dict[tuple[str, tuple[Any, ...]], threading.Event] = {}
+_WORKSPACE_SUMMARY_CACHE_LOCK = threading.RLock()
+
+
+def _path_signature(path: Path) -> tuple[str, int, int]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (str(path), -1, -1)
+    return (str(path), int(stat.st_size), int(stat.st_mtime_ns))
+
+
+def _workspace_git_dir(root: Path) -> tuple[tuple[str, int, int], Path] | None:
+    marker = root / ".git"
+    marker_signature = _path_signature(marker)
+    if marker.is_dir():
+        git_dir = marker
+    elif marker.is_file():
+        try:
+            line = marker.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            return None
+        prefix, separator, raw_path = line.partition(":")
+        if not separator or prefix.strip().casefold() != "gitdir":
+            return None
+        git_dir = Path(raw_path.strip()).expanduser()
+        if not git_dir.is_absolute():
+            git_dir = marker.parent / git_dir
+        try:
+            git_dir = git_dir.resolve()
+        except OSError:
+            return None
+    else:
+        return None
+    return marker_signature, git_dir
+
+
+def _workspace_git_signature(root: Path) -> tuple[Any, ...] | None:
+    """Metadata that exactly owns tracked-file count and branch name.
+
+    ``git ls-files`` is determined by the worktree index and the displayed
+    branch by its HEAD file. Reading their stat metadata is substantially
+    cheaper than spawning two Git processes on every GUI status refresh. Both
+    ordinary repositories and linked worktrees (whose ``.git`` is a pointer
+    file) are supported.
+    """
+
+    metadata = _workspace_git_dir(root)
+    if metadata is None:
+        return None
+    marker_signature, git_dir = metadata
+    return (
+        marker_signature,
+        _path_signature(git_dir / "index"),
+        _path_signature(git_dir / "HEAD"),
+    )
+
+
+def _workspace_branch(root: Path) -> str:
+    metadata = _workspace_git_dir(root)
+    if metadata is not None:
+        _marker_signature, git_dir = metadata
+        try:
+            head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+        else:
+            prefix = "ref: refs/heads/"
+            if head.startswith(prefix):
+                return head[len(prefix) :]
+            if not head.startswith("ref:"):
+                return ""
+    branch = _git_text(root, ["rev-parse", "--abbrev-ref", "HEAD"]) or ""
+    return branch if branch != "HEAD" else ""
+
+
+def clear_workspace_summary_cache() -> None:
+    with _WORKSPACE_SUMMARY_CACHE_LOCK:
+        _WORKSPACE_SUMMARY_CACHE.clear()
+
+
 def workspace_summary(project_root: Path) -> dict[str, Any]:
     """Tracked-file count + branch - the 'indexed workspace' the agent can see."""
     root = project_root.expanduser().resolve()
-    files = [ln for ln in _git_text(root, ["ls-files"]).splitlines() if ln.strip()]
-    branch = _git_text(root, ["rev-parse", "--abbrev-ref", "HEAD"]) or ""
-    return {
-        "root": str(root),
-        "name": root.name,
-        "file_count": len(files),
-        "branch": branch if branch and branch != "HEAD" else "",
-    }
+    signature = _workspace_git_signature(root)
+    key = str(root)
+    flight_key: tuple[str, tuple[Any, ...]] | None = None
+    while signature is not None:
+        with _WORKSPACE_SUMMARY_CACHE_LOCK:
+            cached = _WORKSPACE_SUMMARY_CACHE.get(key)
+            if cached is not None and cached[0] == signature:
+                return dict(cached[1])
+            candidate = (key, signature)
+            pending = _WORKSPACE_SUMMARY_INFLIGHT.get(candidate)
+            if pending is None:
+                pending = threading.Event()
+                _WORKSPACE_SUMMARY_INFLIGHT[candidate] = pending
+                flight_key = candidate
+                break
+        pending.wait()
+        signature = _workspace_git_signature(root)
+
+    try:
+        files = _git_text(root, ["ls-files"])
+        branch = _workspace_branch(root)
+        summary = {
+            "root": str(root),
+            "name": root.name,
+            "file_count": sum(1 for line in files.splitlines() if line.strip()),
+            "branch": branch,
+        }
+        if signature is not None and _workspace_git_signature(root) == signature:
+            with _WORKSPACE_SUMMARY_CACHE_LOCK:
+                _WORKSPACE_SUMMARY_CACHE[key] = (signature, dict(summary))
+        return summary
+    finally:
+        if flight_key is not None:
+            with _WORKSPACE_SUMMARY_CACHE_LOCK:
+                completed = _WORKSPACE_SUMMARY_INFLIGHT.pop(flight_key, None)
+                if completed is not None:
+                    completed.set()
 
 
 def workspace_diff(project_root: Path, *, max_chars: int = 6000) -> str:
@@ -281,14 +394,18 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
     }
 
 
-def cost_firewall(project_root: Path) -> dict[str, Any]:
+def cost_firewall(
+    project_root: Path,
+    *,
+    events: Any = None,
+) -> dict[str, Any]:
     """Budget caps, panic, policy profile, and recently blocked paid calls."""
-    from opaihub.audit import GUARD_DENY, POLICY_DENY, read_audit
+    from opaihub.audit import GUARD_DENY, POLICY_DENY, read_recent_audit
     from opaihub.budget import budget_status
     from opaihub.policy import list_profiles, resolve_policy
 
     root = project_root.expanduser().resolve()
-    budget = budget_status(root)
+    budget = budget_status(root, events=events)
     resolved = resolve_policy(root)
     blocked = [
         {
@@ -296,9 +413,10 @@ def cost_firewall(project_root: Path) -> dict[str, Any]:
             "event_type": event.get("event_type"),
             "action": event.get("action") or event.get("decision"),
         }
-        for event in read_audit(root)
-        if event.get("event_type") in {GUARD_DENY, POLICY_DENY}
-    ][-10:]
+        for event in read_recent_audit(
+            root, event_types={GUARD_DENY, POLICY_DENY}, limit=10
+        )
+    ]
     settings = resolved["settings"]
     return {
         "profile": resolved["profile"],
@@ -689,8 +807,19 @@ def available_models(
     from opaihub import provider_blocks as _blocks
     from opaihub import provider_reliability as _rel
 
+    health_now = time.time()
+    remote_providers = {
+        str(option.get("provider") or "").strip().lower()
+        for option in options
+        if option.get("kind") not in {"auto", "local"}
+        and str(option.get("provider") or "").strip()
+    }
+    reliability = _rel.reliability_snapshot(project_root, now=health_now)
+    balances = _bal.balance_snapshots(project_root, remote_providers, now=health_now)
+    blocks = _blocks.blocked_providers(project_root, needs_edit=True, now=health_now)
+
     for option in options:
-        provider = str(option.get("provider") or "")
+        provider = str(option.get("provider") or "").strip().lower()
         if not provider or option.get("kind") in {"auto", "local"}:
             # The Auto card and on-device local models have no remote provider
             # reliability to consult; treat them as healthy.
@@ -701,8 +830,9 @@ def available_models(
             option["blocked_reason"] = None
             option["edit_blocked_reason"] = None
             continue
-        cooldown = _rel.in_cooldown(project_root, provider)
-        penalty = _rel.reliability_penalty(project_root, provider)
+        provider_reliability = reliability.get(provider, {})
+        cooldown = bool(provider_reliability.get("cooldown", False))
+        penalty = float(provider_reliability.get("penalty", 0.0))
         healthy = not cooldown and penalty < 0.5
         option["healthy"] = healthy
         option["health_reason"] = (
@@ -714,7 +844,7 @@ def available_models(
         # enumeration): the exact remaining amount when known, and a hard
         # "out of credit" verdict that removes the model from selection with
         # an explanation instead of leaving a dead entry the user can click.
-        balance = _bal.balance_snapshot(project_root, provider)
+        balance = balances[provider]
         option["balance"] = balance
         out_of_credit = balance["status"] == "out"
         option["out_of_credit"] = out_of_credit
@@ -732,7 +862,7 @@ def available_models(
         # click looks fine and the run always fails. Two separate fields so an
         # edit-incapable provider stays a legitimate Ask/Plan choice — the
         # picker grays it only when the current mode will write files.
-        block = _blocks.active_block(project_root, provider)
+        block = blocks.get(provider)
         option["blocked_reason"] = None
         option["edit_blocked_reason"] = None
         # Known before the first run, not discovered by failing one: a CLI that
