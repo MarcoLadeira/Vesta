@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import math
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,9 @@ from .ledger import EVENT_MODEL_CALL, cost_reconciliation, read_events
 
 
 def _number(value: Any) -> float:
-    return float(value) if isinstance(value, (int, float)) else 0.0
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return float(value) if math.isfinite(value) and value >= 0 else 0.0
 
 
 def _created_at(event: dict[str, Any]) -> datetime | None:
