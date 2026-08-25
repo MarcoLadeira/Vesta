@@ -18,6 +18,7 @@ return, raise, and return odd shapes on demand in a way a real turn cannot.
 
 from __future__ import annotations
 
+import contextlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,6 +29,7 @@ from opaihub.journal_runtime import EVENT_ADMITTED, EVENT_CANCELLED, EVENT_FINIS
 from opaihub.journal_store import open_store, read_events
 
 NOW = "2026-08-25T12:00:00+00:00"
+_UNSET = object()
 
 
 class _TerminalFixture(unittest.TestCase):
@@ -191,3 +193,111 @@ class BookkeepingNeverFailsAFinishedTurnTests(_TerminalFixture):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class CostAndVerificationWiringTests(_TerminalFixture):
+    """Stage 3's last two surfaces, checked through the pipeline's own helpers.
+
+    The helpers are exercised directly rather than through a real turn: a turn
+    that reaches the paid route needs a provider, and the question here is not
+    "does the pipeline call a provider" but "when a cost or a verdict exists,
+    does it reach the journal exactly once".
+    """
+
+    class _Telemetry:
+        def __init__(self, cost_usd: float, model: str, tokens: int) -> None:
+            self.cost_usd = cost_usd
+            self.model = model
+            self.tokens = tokens
+
+    @contextlib.contextmanager
+    def _with_identity(self, identity=_UNSET):
+        """Set the run identity the way the pipeline itself does.
+
+        A ContextVar's ``get`` is read-only and cannot be patched -- but a
+        ContextVar is built to be set, so using it directly is both simpler and
+        closer to what the real code does.
+        """
+
+        value = (
+            {"run_id": "run-a", "fence": self.fence} if identity is _UNSET else identity
+        )
+        token = gui_pipeline._JOURNAL_RUN.set(value)
+        try:
+            yield
+        finally:
+            gui_pipeline._JOURNAL_RUN.reset(token)
+
+    def test_a_priced_call_is_journalled_once(self):
+        with self._with_identity():
+            gui_pipeline._journal_cost(
+                self.root,
+                self._Telemetry(0.25, "sonnet", 1200),
+                operation_key="turn-1:account",
+            )
+            gui_pipeline._journal_cost(
+                self.root,
+                self._Telemetry(0.25, "sonnet", 1200),
+                operation_key="turn-1:account",
+            )
+
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        rows = store.execute("SELECT COUNT(*), SUM(amount) FROM cost_events").fetchone()
+        self.assertEqual(rows[0], 1, "a repeat must not charge twice")
+        self.assertEqual(float(rows[1]), 0.25)
+
+    def test_a_turn_with_no_journal_identity_records_no_cost(self):
+        with self._with_identity(None):
+            gui_pipeline._journal_cost(
+                self.root, self._Telemetry(1.0, "m", 1), operation_key="x"
+            )
+
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        self.assertEqual(
+            store.execute("SELECT COUNT(*) FROM cost_events").fetchone()[0], 0
+        )
+
+    def test_a_broken_cost_mirror_never_raises(self):
+        with self._with_identity():
+            with mock.patch.object(
+                journal_runtime, "record_run_cost", side_effect=OSError("disk full")
+            ):
+                gui_pipeline._journal_cost(
+                    self.root, self._Telemetry(1.0, "m", 1), operation_key="x"
+                )
+
+    def test_a_verification_records_its_policy_digest(self):
+        with self._with_identity():
+            gui_pipeline._journal_verification(
+                self.root,
+                {
+                    "verdict": "passed",
+                    "policy": {"digest": "a" * 64},
+                    "artifact": {"digest": "b" * 64},
+                },
+            )
+
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        verified = [
+            row
+            for row in read_events(store)
+            if row["event_type"] == journal_runtime.EVENT_VERIFIED
+        ]
+        self.assertEqual(len(verified), 1)
+        self.assertEqual(verified[0]["payload"]["policy_digest"], "a" * 64)
+
+    def test_an_empty_manifest_records_nothing(self):
+        with self._with_identity():
+            gui_pipeline._journal_verification(self.root, {})
+
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        verified = [
+            row
+            for row in read_events(store)
+            if row["event_type"] == journal_runtime.EVENT_VERIFIED
+        ]
+        self.assertEqual(verified, [])

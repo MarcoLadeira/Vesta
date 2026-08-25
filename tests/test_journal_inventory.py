@@ -123,6 +123,11 @@ ALREADY_APPEND_ONLY = {
 
 #: Derived views and support output. Rebuildable, never sole authority.
 PROJECTION_OR_EXPORT = {
+    # Stage 4's qualification comparator. Opens the journal to *read* it and
+    # writes nothing; flagged by the open_store signal, which is the scan
+    # working -- it cannot tell a reader from a writer, and triaging one
+    # module is cheaper than a scan that misses the next real writer.
+    "opaihub/journal_qualification.py",
     # Build-only generated identity written into wheel/sdist staging trees.
     "opai/build_metadata.py",
     "opaihub/dashboard.py",

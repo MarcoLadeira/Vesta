@@ -736,6 +736,60 @@ _TERMINAL_EVENTS: dict[str, tuple[str, str]] = {
 }
 
 
+def _journal_cost(root: Path, telemetry: Any, *, operation_key: str) -> None:
+    """Mirror one priced call into the journal, exactly once.
+
+    The operation key is the idempotency boundary: a retry that recomputes the
+    same call must not charge twice, and #613 makes that a schema constraint
+    rather than a convention. ``record_run_cost`` returns False on a duplicate
+    rather than raising, so a repeat is a no-op here by design.
+
+    Best-effort like the rest of Stage 3 -- the ledger is still authoritative
+    for spend, so a missing mirror costs evidence, not money.
+    """
+
+    identity = _JOURNAL_RUN.get()
+    if not identity or telemetry is None:
+        return
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
+        journal_runtime.record_run_cost(
+            root,
+            run_id=str(identity["run_id"]),
+            operation_key=operation_key,
+            amount_usd=float(getattr(telemetry, "cost_usd", 0.0) or 0.0),
+            measurement_kind="estimated",
+            now=_iso_now(),
+            fence=identity.get("fence"),
+            model=str(getattr(telemetry, "model", "") or ""),
+            tokens=int(getattr(telemetry, "tokens", 0) or 0),
+        )
+
+
+def _journal_verification(root: Path, manifest_payload: Mapping[str, Any]) -> None:
+    """Record which policy a run was verified under, and what it produced.
+
+    A verdict without its policy cannot be audited later -- "this passed" means
+    nothing without "against what" -- so both digests travel together or the
+    record is not written at all.
+    """
+
+    identity = _JOURNAL_RUN.get()
+    if not identity or not manifest_payload:
+        return
+    artifact = manifest_payload.get("artifact") or {}
+    policy = manifest_payload.get("policy") or {}
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
+        journal_runtime.record_verification(
+            root,
+            run_id=str(identity["run_id"]),
+            verdict=str(manifest_payload.get("verdict") or "recorded"),
+            policy_digest=str(policy.get("digest") or ""),
+            manifest_digest=str(artifact.get("digest") or ""),
+            now=_iso_now(),
+            fence=identity.get("fence"),
+        )
+
+
 def _record_turn_ending(root: Path, status: str, reason: str) -> None:
     """Close out the journalled run for this turn, if there is one.
 
@@ -1323,6 +1377,7 @@ def _handle_gui_message(
                 **payload,
                 "verification_manifest": verification_manifest_payload,
             }
+            _journal_verification(root, verification_manifest_payload)
         current_repo = resolve_repo_context(root)
         save_active_repo(root, current_repo)
         changed_files = tuple(str(item) for item in payload.get("changed_files") or [])
@@ -2579,6 +2634,11 @@ def _handle_gui_message(
                 record_workflow_cost(
                     root, runtime.task_id, free_telemetry, task=message
                 )
+                _journal_cost(
+                    root,
+                    free_telemetry,
+                    operation_key=f"{turn_id}:free",
+                )
             if not answer:
                 # Name the provider and the concrete next check instead of a
                 # generic "did not return an answer" (QA pass-2): an empty free
@@ -2901,6 +2961,11 @@ def _handle_gui_message(
                 provider, result, model=selected_model
             )
             record_workflow_cost(root, runtime.task_id, account_telemetry, task=message)
+            _journal_cost(
+                root,
+                account_telemetry,
+                operation_key=f"{turn_id}:account",
+            )
             status = (
                 "answered"
                 if result.get("status") == "answered_by_account"
