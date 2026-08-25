@@ -120,6 +120,10 @@ class JsonlTailReadTests(unittest.TestCase):
             workflow = WorkflowLedger(root, task_id="task-1")
             paths_and_readers = (
                 (
+                    background_runs._notifications_path(root),
+                    lambda: background_runs.read_notifications(root, limit=0),
+                ),
+                (
                     benchmark.benchmark_history_path(root),
                     lambda: benchmark.read_benchmark_history(root, limit=0),
                 ),

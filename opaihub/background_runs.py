@@ -437,7 +437,9 @@ def read_notifications(project_root: Path, *, limit: int = 20) -> list[dict[str,
     path = _notifications_path(project_root)
     if not path.exists():
         return []
-    target = max(1, int(limit))
+    target = max(0, int(limit))
+    if target == 0:
+        return []
     physical_limit = target
     while True:
         lines = read_utf8_tail_lines(path, physical_limit)
