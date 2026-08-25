@@ -1,6 +1,6 @@
 # One transactional runtime journal (SQLite WAL)
 
-- **Status:** proposed — the store exists, nothing reads from it as authority yet
+- **Status:** proposed — the store is written from the live run path; nothing reads from it as authority yet
 - **Issue:** #613 (child of #611; canonical parent #517)
 - **Date:** 2026-08-23
 
@@ -82,16 +82,39 @@ Each of these is enforced by a test that fails if the choice is reverted.
 |---|---|
 | 1 — inventory + enforced classification | done |
 | 2 — shadow write + dual read, every entry | done (`2b0379d`) |
-| store: schema, typed API, fencing, integrity | in review |
-| projections: deterministic rebuild + property tests | in review |
-| 3 — vertical slice | not started |
-| 4 — dual-read qualification | not started |
+| store: schema, typed API, fencing, integrity | done |
+| projections: deterministic rebuild + property tests | done |
+| 3 — vertical slice | admission, terminal, cost and verification written from the live path |
+| 4 — dual-read qualification | comparator built; no real-traffic corpus qualified yet |
 | 5 — canonical reads | not started |
 | 6 — operation migration | not started |
 | 7 — legacy retirement | not started |
 
-Also not started: the crash matrix, multiprocess integration tests, fault
-injection, and performance numbers. #613 requires all four as evidence.
+Required tests:
+
+| Category | State |
+|---|---|
+| unit | done |
+| crash matrix | done |
+| property-based | done |
+| fault injection | done, minus the backup case (no backup path exists) |
+| multiprocess integration | done |
+| performance | done |
+
+Measured on a developer machine, recorded here because #613 asks for the
+numbers as evidence rather than as thresholds:
+
+```
+append    p50 1.02ms   p95 1.19ms   (n=300)
+rebuild   2.06ms @500  4.86ms @1000  ratio 2.36 (linear)
+startup   2.41ms @50   2.05ms @1000  (flat in history)
+storage   451 B/event  (checkpointed)
+```
+
+The budgets in the test are far above these on purpose. They catch a regression
+*in kind* — an accidental O(n²) rebuild, a per-append fsync storm, a dropped
+index — not a slow afternoon on a shared runner. They are not a claim that the
+store is fast.
 
 ## Open questions
 
@@ -103,4 +126,10 @@ injection, and performance numbers. #613 requires all four as evidence.
 3. **Privacy enforcement.** The schema carries `privacy_class` on events and
    artifacts, but nothing yet enforces #527's minimisation rules against it.
 4. **Backup and recovery.** Requirement 12 asks for these in doctor/preflight;
-   `store_health` reports integrity but there is no backup path yet.
+   `store_health` reports integrity and appears in `opai doctor`, but there is
+   no backup path yet. The fault-injection suite records this as a skip with a
+   reason rather than omitting it, so the gap is visible next to the code.
+5. **Stage 4 needs a real corpus.** `journal_qualification.qualify()` exists and
+   is deliberately hard to please — an empty journal is `insufficient_evidence`,
+   never `qualified` — but nothing has yet been qualified against captured
+   production traffic, which is what Stage 4 actually asks for.
