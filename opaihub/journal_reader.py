@@ -97,6 +97,10 @@ class ReaderPolicy:
 
     require_qualification: bool = True
     minimum_runs: int = 1
+    #: Legacy field naming when the run started, used to tell a run that
+    #: predates the journal from one the journal lost. Without this every
+    #: pre-migration run reads as missing and blocks the cutover forever.
+    legacy_timestamp_key: str = "created_at"
     accepted_kinds: tuple[str, ...] = field(
         default_factory=lambda: tuple(journal_qualification.DEFAULT_ACCEPTED)
     )
@@ -129,6 +133,7 @@ class JournalReader:
         self._integrity = journal_store.INTEGRITY_COMPLETE
         self._first_invalid: int | None = None
         self._blocked_reason = ""
+        self._boundary = ""
         self._load()
 
     # -- setup ------------------------------------------------------------
@@ -146,6 +151,10 @@ class JournalReader:
                 self._blocked_reason = FALLBACK_UNUSABLE
                 return
             self._journal = journal_qualification.journal_runs(connection)
+            # Everything the legacy record holds from before the journal's
+            # first event was written by a build that had no journal. Treating
+            # those as "missing" would block a real installation forever.
+            self._boundary = journal_qualification.journal_started_at(connection)
         except (sqlite3.DatabaseError, JournalStoreError):
             self._blocked_reason = FALLBACK_UNUSABLE
             return
@@ -159,6 +168,11 @@ class JournalReader:
             self.legacy_runs,
             accepted_kinds=self.policy.accepted_kinds,
             verdict_equivalent=self.policy.verdict_equivalent,
+            pre_migration_ids=journal_qualification.pre_migration_ids_from(
+                self.legacy_runs,
+                self._boundary,
+                timestamp_key=self.policy.legacy_timestamp_key,
+            ),
             minimum_runs=self.policy.minimum_runs,
         )
         if not self._report.qualified:
