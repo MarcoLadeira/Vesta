@@ -205,3 +205,47 @@ for (const [state, label] of visibleStates) {
     await expect(page.locator("#updateBannerText")).toHaveText(label);
   });
 }
+
+/* Regression: the sheet is position:fixed precisely so the sidebar's overflow
+   clip cannot crop it; focusing the close control must never scroll the
+   sidebar sideways (scrollLeft used to jump to 131 and carry the whole rail
+   off-screen). */
+async function expectSheetOnScreen(page) {
+  const sheet = page.locator("#updateSheet");
+  await expect(sheet).toBeVisible();
+  const geometry = await page.evaluate(() => {
+    const rect = document.getElementById("updateSheet").getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      vw: window.innerWidth,
+      sidebarScrollLeft: document.querySelector(".sidebar").scrollLeft,
+    };
+  });
+  expect(geometry.left).toBeGreaterThanOrEqual(0);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.vw);
+  expect(geometry.sidebarScrollLeft).toBe(0);
+}
+
+test("update details stay fully on screen without shifting the sidebar", async ({ page }) => {
+  await openWithUpdate(page, updateState("available", { candidate }));
+  await page.locator("#updateBanner").click();
+  await expectSheetOnScreen(page);
+  await expect(page.locator("#updateSheetClose")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download update" })).toBeVisible();
+});
+
+test("update details stay on screen in the narrow drawer layout", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await openWithUpdate(page, updateState("unavailable", { safe_diagnostic: "The update feed could not be read." }));
+  await page.locator("#sidebarToggle").click();
+  await page.locator("#updateBanner").click();
+  await expectSheetOnScreen(page);
+  // the rail content itself must not be pushed off the left edge either
+  const rail = await page.evaluate(() => {
+    const rect = document.querySelector(".side-foot").getBoundingClientRect();
+    return { left: rect.left, right: rect.right };
+  });
+  expect(rail.left).toBeGreaterThanOrEqual(0);
+  expect(rail.right).toBeLessThanOrEqual(320);
+});

@@ -446,6 +446,41 @@ def test_unsupported_install_discovers_without_fake_install_button(
     assert operation.error_category == "manual_update_required"
 
 
+@pytest.mark.parametrize(
+    "install_type",
+    [InstallType.PORTABLE, InstallType.SOURCE_CHECKOUT, InstallType.UNKNOWN],
+)
+def test_feedless_unsupported_install_reports_manual_update_not_feed_error(
+    tmp_path: Path, install_type: InstallType
+):
+    """Non-packaged installs ship no signed feed (the trust store only exists
+    beside a packaged executable), so a check must not fabricate a "feed could
+    not be read" network failure — the deterministic truth is manual update."""
+    store = UpdateStore(UpdaterPaths.for_home(tmp_path))
+    store.save_policy(UpdatePolicy(rollout_cohort=42))
+    fetcher = Fetcher(b"{}")
+    service = UpdateService(
+        store=store,
+        installed=_installed(install_type=install_type, publisher_identity=""),
+        trust={},
+        manifest_fetcher=fetcher,
+        downloader=Downloader(),
+        adapter=Adapter(),
+        runtime_probe=lambda: ActiveWorkStatus(True),
+        now=lambda: NOW,
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert operation.error_category == "manual_update_required"
+    assert "feed" not in operation.safe_diagnostic.casefold()
+    assert fetcher.calls == []
+    assert operation.last_successful_check_at
+    assert operation.retry_count == 0
+    assert operation.next_retry_at == ""
+
+
 def test_automatic_policy_downloads_and_verifies_in_background(tmp_path: Path):
     policy = UpdatePolicy(
         automatic_downloads=True,
