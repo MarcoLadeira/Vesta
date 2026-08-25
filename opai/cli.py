@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 from hashlib import sha256
 import json
 import os
@@ -725,6 +726,42 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _journal_migration(root: Path) -> dict[str, object]:
+    """How far this installation has moved onto the journal.
+
+    Reports only what the journal itself can answer. A full retirement
+    assessment needs the legacy record to compare against, which doctor does
+    not assemble -- so this stops at the facts rather than guessing at a
+    verdict it cannot support. Saying "unknown" is the honest answer to a
+    question that has not been asked properly.
+    """
+
+    facts: dict[str, object] = {
+        "runs_recorded": 0,
+        "unreconciled_operations": 0,
+        "retirement": "unknown",
+    }
+    with contextlib.suppress(Exception):  # noqa: BLE001 - doctor never raises
+        from opaihub import journal_operations, journal_store
+
+        if not journal_store.journal_path(root).exists():
+            facts["retirement"] = "not_started"
+            return facts
+        connection = journal_store.open_store(root)
+        try:
+            facts["runs_recorded"] = int(
+                connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+            )
+        finally:
+            connection.close()
+        summary = journal_operations.operation_summary(root)
+        facts["unreconciled_operations"] = int(summary.get("unreconciled", 0))
+        facts["retirement"] = (
+            "blocked" if facts["unreconciled_operations"] else "needs_legacy_comparison"
+        )
+    return facts
+
+
 def _journal_doctor(root: Path) -> dict[str, object]:
     """Runtime-journal health for doctor (#613 AC10, functional requirement 12).
 
@@ -747,6 +784,10 @@ def _journal_doctor(root: Path) -> dict[str, object]:
             "schema_version": 1,
             "available": True,
             "expected_store_version": SCHEMA_VERSION,
+            # #613 Stages 6-7: how far this installation has actually got.
+            # Without it the migration is only observable by writing code, and
+            # a migration nobody can see the state of is one nobody can finish.
+            "migration": _journal_migration(root),
             **health,
         }
     except Exception:  # noqa: BLE001 - doctor reports a stable safe category
