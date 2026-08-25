@@ -1850,10 +1850,20 @@ function tlRowInner(e) {
   return `<span class="tl-ic">${uiIcon(ICON[e.status] || "pending")}</span>` +
     `<span class="tl-t">${esc(e.title)}</span>${e.detail ? `<span class="tl-d">${esc(e.detail)}</span>` : ""}${ts}`;
 }
+function truncationRowInner(count) {
+  return `<span class="tl-ic">${uiIcon("more")}</span>` +
+    `<span class="tl-t">${count.toLocaleString()} earlier steps hidden</span>` +
+    `<span class="tl-d">dropped to stay fast</span>`;
+}
 function timelineRows() {
   // Flat archive: every raw event, all detail visible. Used by the frozen
-  // post-completion block so nothing is ever hidden after the fact.
-  return state.store.list().map((e) => `<div class="tl-row ${e.status}">${tlRowInner(e)}</div>`).join("");
+  // post-completion block. Keep the cap marker when the live view freezes so
+  // dropped rows never become silent after a request completes.
+  const truncated = state.store.truncatedCount ? state.store.truncatedCount() : 0;
+  const marker = truncated > 0
+    ? `<div class="tl-row tl-truncation">${truncationRowInner(truncated)}</div>`
+    : "";
+  return marker + state.store.list().map((e) => `<div class="tl-row ${e.status}">${tlRowInner(e)}</div>`).join("");
 }
 // A group is auto-expanded when any child errored (surface the failure), else
 // it honors the user's toggle.
@@ -1944,9 +1954,7 @@ function renderTimeline() {
     if (truncated > 0) {
       const key = "truncation";
       seen.add(key);
-      const inner = `<span class="tl-ic">${uiIcon("more")}</span>` +
-        `<span class="tl-t">${truncated.toLocaleString()} earlier steps hidden</span>` +
-        `<span class="tl-d">dropped to stay fast</span>`;
+      const inner = truncationRowInner(truncated);
       let entry = rows.get(key);
       if (!entry || entry.type !== "single") {
         const node = document.createElement("div");
