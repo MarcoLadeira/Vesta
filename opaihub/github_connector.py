@@ -491,20 +491,29 @@ def create_pull_request(
     clean_title = redact(str(title or "").strip())[:256]
     if not clean_title:
         return {"ok": False, "error": "A PR title is required"}
-    status_code, response = http(
-        "POST",
-        f"{API_ROOT}/repos/{slug}/pulls",
-        token,
-        {
-            "title": clean_title,
-            # #contributor: say plainly that OPai opened this. A reviewer
-            # should not have to read `git log` to learn whether a human or an
-            # assistant wrote what they are reviewing.
-            "body": redact(with_pr_attribution(str(body or "")))[:20_000],
-            "head": str(head or "").strip(),
-            "base": str(base or "main").strip(),
-        },
-    )
+    try:
+        status_code, response = http(
+            "POST",
+            f"{API_ROOT}/repos/{slug}/pulls",
+            token,
+            {
+                "title": clean_title,
+                # #contributor: say plainly that OPai opened this. A reviewer
+                # should not have to read `git log` to learn whether a human or an
+                # assistant wrote what they are reviewing.
+                "body": redact(with_pr_attribution(str(body or "")))[:20_000],
+                "head": str(head or "").strip(),
+                "base": str(base or "main").strip(),
+            },
+        )
+    except OSError as exc:
+        # #616: no response arrived, so the server may have created the PR.
+        # This is NOT a failure the caller may retry blind — it must reconcile.
+        return {
+            "ok": False,
+            "uncertain": True,
+            "error": redact(f"PR creation response was lost: {exc}"),
+        }
     if status_code in (200, 201) and isinstance(response, dict):
         return {
             "ok": True,
@@ -803,12 +812,21 @@ def add_comment(
     clean = redact(str(body or "").strip())[:60_000]
     if not clean:
         return {"ok": False, "error": "A comment body is required"}
-    code, response = http(
-        "POST",
-        f"{API_ROOT}/repos/{slug}/issues/{int(number)}/comments",
-        token,
-        {"body": clean},
-    )
+    try:
+        code, response = http(
+            "POST",
+            f"{API_ROOT}/repos/{slug}/issues/{int(number)}/comments",
+            token,
+            {"body": clean},
+        )
+    except OSError as exc:
+        # #616: no response arrived, so the comment may exist. Reconcile
+        # before any retry rather than risking a visible duplicate.
+        return {
+            "ok": False,
+            "uncertain": True,
+            "error": redact(f"Comment response was lost: {exc}"),
+        }
     if code in (200, 201) and isinstance(response, dict):
         return {
             "ok": True,
@@ -840,12 +858,20 @@ def request_reviewers(
     names = [str(name).strip() for name in (reviewers or []) if str(name).strip()][:15]
     if not names:
         return {"ok": False, "error": "At least one reviewer login is required"}
-    code, response = http(
-        "POST",
-        f"{API_ROOT}/repos/{slug}/pulls/{int(number)}/requested_reviewers",
-        token,
-        {"reviewers": names},
-    )
+    try:
+        code, response = http(
+            "POST",
+            f"{API_ROOT}/repos/{slug}/pulls/{int(number)}/requested_reviewers",
+            token,
+            {"reviewers": names},
+        )
+    except OSError as exc:
+        # #616: no response arrived, so the notification may have gone out.
+        return {
+            "ok": False,
+            "uncertain": True,
+            "error": redact(f"Review request response was lost: {exc}"),
+        }
     if code in (200, 201):
         return {"ok": True, "requested": names}
     message = ""
@@ -855,3 +881,132 @@ def request_reviewers(
         "ok": False,
         "error": redact(f"Requesting reviewers failed (HTTP {code}) {message}".strip()),
     }
+
+
+# ---------------------------------------------------------------------------
+# #616 reconciliation reads
+#
+# A lost POST response is not proof the mutation never happened. Each write
+# above has a read twin here that settles an in-flight operation by observing
+# GitHub's own state. All three return {"ok": True, "found": bool, ...};
+# "ok": False means GitHub could not be observed and the operation must stay
+# uncertain — never guess.
+# ---------------------------------------------------------------------------
+
+
+def _reconcile_gate(project_root: Path) -> tuple[str, str] | dict[str, Any]:
+    """Shared preconditions for reconciliation reads: (token, slug) or error."""
+    readiness = github_readiness()
+    if not readiness["ready"]:
+        return {"ok": False, "error": readiness["next_step"]}
+    token, _source = stored_github_token()
+    slug = repo_slug(project_root)
+    if not slug:
+        return {"ok": False, "error": "The origin remote is not a GitHub repository"}
+    return token, slug
+
+
+def find_pull_request(
+    project_root: Path,
+    *,
+    head: str,
+    base: str = "main",
+    http: HttpFn = _default_http,
+) -> dict[str, Any]:
+    """Locate an existing PR by head/base pair — the open_pr reconciler."""
+    gate = _reconcile_gate(project_root)
+    if not isinstance(gate, tuple):
+        return gate
+    token, slug = gate
+    owner = slug.split("/", 1)[0]
+    try:
+        code, response = http(
+            "GET",
+            f"{API_ROOT}/repos/{slug}/pulls?head={owner}:{head}"
+            f"&base={base}&state=all&per_page=5",
+            token,
+            None,
+        )
+    except OSError as exc:
+        return {"ok": False, "error": redact(f"GitHub unreachable: {exc}")}
+    if code == 200 and isinstance(response, list):
+        if response:
+            first = response[0]
+            if isinstance(first, dict):
+                return {
+                    "ok": True,
+                    "found": True,
+                    "url": str(first.get("html_url") or ""),
+                    "number": first.get("number"),
+                }
+        return {"ok": True, "found": False}
+    return {"ok": False, "error": redact(f"PR lookup failed (HTTP {code})")}
+
+
+def find_comment(
+    project_root: Path,
+    number: int,
+    *,
+    body: str,
+    http: HttpFn = _default_http,
+) -> dict[str, Any]:
+    """Locate a comment by exact body on an issue/PR — the comment reconciler."""
+    gate = _reconcile_gate(project_root)
+    if not isinstance(gate, tuple):
+        return gate
+    token, slug = gate
+    clean = redact(str(body or "").strip())
+    try:
+        code, response = http(
+            "GET",
+            f"{API_ROOT}/repos/{slug}/issues/{int(number)}/comments?per_page=100",
+            token,
+            None,
+        )
+    except OSError as exc:
+        return {"ok": False, "error": redact(f"GitHub unreachable: {exc}")}
+    if code == 200 and isinstance(response, list):
+        for comment in response:
+            if not isinstance(comment, dict):
+                continue
+            if str(comment.get("body") or "").strip() == clean:
+                return {
+                    "ok": True,
+                    "found": True,
+                    "url": str(comment.get("html_url") or ""),
+                }
+        return {"ok": True, "found": False}
+    return {"ok": False, "error": redact(f"Comment lookup failed (HTTP {code})")}
+
+
+def find_requested_reviewers(
+    project_root: Path,
+    number: int,
+    reviewers: list[str],
+    *,
+    http: HttpFn = _default_http,
+) -> dict[str, Any]:
+    """Check every reviewer is already requested — the review-request reconciler."""
+    gate = _reconcile_gate(project_root)
+    if not isinstance(gate, tuple):
+        return gate
+    token, slug = gate
+    wanted = {str(name).strip() for name in (reviewers or []) if str(name).strip()}
+    try:
+        code, response = http(
+            "GET",
+            f"{API_ROOT}/repos/{slug}/pulls/{int(number)}/requested_reviewers",
+            token,
+            None,
+        )
+    except OSError as exc:
+        return {"ok": False, "error": redact(f"GitHub unreachable: {exc}")}
+    if code == 200 and isinstance(response, dict):
+        users = response.get("users")
+        present = {
+            str(user.get("login") or "")
+            for user in (users if isinstance(users, list) else [])
+            if isinstance(user, dict)
+        }
+        return {"ok": True, "found": bool(wanted) and wanted <= present}
+    return {"ok": False, "error": redact(f"Reviewer lookup failed (HTTP {code})")}

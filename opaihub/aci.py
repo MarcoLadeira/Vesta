@@ -291,18 +291,18 @@ class AgentComputerInterface:
             "EMPTY_PATCH" if not patch.strip() else "",
         )
 
-    def apply_patch(self, patch: str, *, check_only: bool = False) -> Observation:
-        command = [
-            "git",
-            "apply",
-            "--check" if check_only else "--whitespace=nowarn",
-            "-",
-        ]
-        return self.run_command(
-            command,
-            purpose="validate patch" if check_only else "apply patch",
-            input_text=patch,
-        )
+    def apply_patch(
+        self, patch: str, *, check_only: bool = False, reverse: bool = False
+    ) -> Observation:
+        command = ["git", "apply"]
+        if reverse:
+            command.append("--reverse")
+        command.append("--check" if check_only else "--whitespace=nowarn")
+        command.append("-")
+        purpose = "validate patch" if check_only else "apply patch"
+        if reverse:
+            purpose = "reverse-check patch" if check_only else "reverse patch"
+        return self.run_command(command, purpose=purpose, input_text=patch)
 
     def git_status(self) -> Observation:
         result = self.run_command(
