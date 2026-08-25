@@ -68,6 +68,23 @@ class AuditPerformanceTests(unittest.TestCase):
                 upgraded["log_size"], audit.audit_path(root).stat().st_size
             )
 
+    def test_corrupted_checkpoint_hash_falls_back_to_durable_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = audit.record_audit_event(root, "policy_allow", note="first")
+            checkpoint_file = audit.checkpoint_path(root)
+            checkpoint = json.loads(checkpoint_file.read_text(encoding="utf-8"))
+            checkpoint["head_hash"] = (
+                ("1" if checkpoint["head_hash"][0] != "1" else "2")
+                + checkpoint["head_hash"][1:]
+            )
+            checkpoint_file.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+            second = audit.record_audit_event(root, "policy_allow", note="second")
+
+            self.assertEqual(second["prev_hash"], first["entry_hash"])
+            self.assertTrue(audit.verify_chain(root)["ok"])
+
     def test_repeated_summaries_parse_and_verify_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

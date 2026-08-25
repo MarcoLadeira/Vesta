@@ -78,6 +78,29 @@ def _last_entry(project_root: Path) -> dict[str, Any] | None:
     return last
 
 
+def _tail_entry(project_root: Path) -> dict[str, Any] | None:
+    """Read only the final JSONL record, growing to that record's size."""
+
+    path = audit_path(project_root)
+    try:
+        with path.open("rb") as handle:
+            cursor = handle.seek(0, os.SEEK_END)
+            data = b""
+            while cursor > 0:
+                chunk_size = min(8192, cursor)
+                cursor -= chunk_size
+                handle.seek(cursor)
+                data = handle.read(chunk_size) + data
+                stripped = data.rstrip(b"\r\n")
+                if b"\n" in stripped or cursor == 0:
+                    raw = stripped.rsplit(b"\n", 1)[-1].rstrip(b"\r")
+                    value = json.loads(raw.decode("utf-8"))
+                    return value if isinstance(value, dict) else None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return None
+
+
 def _write_checkpoint(project_root: Path, entry: dict[str, Any]) -> Path:
     path = checkpoint_path(project_root)
     try:
@@ -110,9 +133,10 @@ def _checkpoint_last_entry(project_root: Path) -> dict[str, Any] | None:
     """Return the persisted audit head only when it matches the durable log.
 
     Normal appends update the JSONL file and checkpoint under the same
-    interprocess transaction. Matching the checkpoint's recorded byte size to
-    the current file makes the next append O(1). A legacy/stale checkpoint or
-    interrupted write falls back to the log scan in :func:`_last_entry`.
+    interprocess transaction. Matching the checkpoint's recorded byte size and
+    head to the durable final record makes the next append proportional only to
+    that record's size. A legacy/stale checkpoint or interrupted write falls
+    back to the log scan in :func:`_last_entry`.
     """
 
     checkpoint = _read_checkpoint(project_root)
@@ -137,6 +161,17 @@ def _checkpoint_last_entry(project_root: Path) -> dict[str, Any] | None:
     except OSError:
         current_size = 0
     if current_size != log_size:
+        return None
+    if current_size == 0:
+        if length == 0 and head_hash == GENESIS:
+            return {"seq": 0, "entry_hash": GENESIS}
+        return None
+    durable_head = _tail_entry(project_root)
+    if (
+        durable_head is None
+        or durable_head.get("seq") != length
+        or durable_head.get("entry_hash") != head_hash
+    ):
         return None
     return {"seq": length, "entry_hash": head_hash}
 
