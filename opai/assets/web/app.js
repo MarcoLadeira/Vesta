@@ -326,7 +326,7 @@ function renderUpdateBanner(update) {
     failed_retriable: ["Update paused", operation.safe_diagnostic || "The update can be retried.", "warning"],
     failed_terminal: ["Update blocked", operation.safe_diagnostic || "The update failed a security check.", "danger"],
     policy_blocked: [policy.owner && policy.owner !== "opai" ? "Managed by administrator" : "Updates disabled by policy", "OPai will not race another update owner.", "neutral"],
-    unsupported_install: ["Manual update required", "This installation cannot update transactionally.", "neutral"],
+    unsupported_install: ["Manual update required", operation.safe_diagnostic || "This installation cannot update transactionally.", "neutral"],
     rollback_pending: ["Recovery required", "The new build did not pass startup health checks.", "danger"],
     needs_attention: ["Update needs attention", operation.safe_diagnostic || "Automatic recovery could not complete.", "danger"],
     rolled_back: ["Update rolled back", "OPai restored the last-known-good build.", "warning"],

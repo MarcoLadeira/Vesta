@@ -12,7 +12,11 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from opai.update.adapters import AdapterInstallResult, AdapterVerification
+from opai.update.adapters import (
+    AdapterInstallResult,
+    AdapterVerification,
+    DeveloperGitUpdateAdapter,
+)
 from opai.update.errors import UpdateError
 from opai.update.models import (
     InstallType,
@@ -478,6 +482,129 @@ def test_feedless_unsupported_install_reports_manual_update_not_feed_error(
     assert fetcher.calls == []
     assert operation.last_successful_check_at
     assert operation.retry_count == 0
+    assert operation.next_retry_at == ""
+
+
+def _developer_service(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    git_result: dict[str, object],
+) -> tuple[UpdateService, Fetcher, list[bool]]:
+    """A source-checkout service whose git check is stubbed at the boundary."""
+    import opai.updater as legacy_updater
+
+    forces: list[bool] = []
+    monkeypatch.setattr(
+        legacy_updater,
+        "check_for_update",
+        lambda root, branch="main", force=False: (
+            forces.append(bool(force)) or dict(git_result)
+        ),
+    )
+    store = UpdateStore(UpdaterPaths.for_home(tmp_path))
+    store.save_policy(UpdatePolicy(rollout_cohort=42))
+    fetcher = Fetcher(b"{}")
+    service = UpdateService(
+        store=store,
+        installed=_installed(
+            install_type=InstallType.SOURCE_CHECKOUT,
+            platform="linux",
+            publisher_identity="",
+        ),
+        trust={},
+        manifest_fetcher=fetcher,
+        downloader=Downloader(),
+        adapter=DeveloperGitUpdateAdapter(tmp_path),
+        runtime_probe=lambda: ActiveWorkStatus(True),
+        now=lambda: NOW,
+    )
+    return service, fetcher, forces
+
+
+def test_source_checkout_behind_remote_reports_commit_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, fetcher, forces = _developer_service(
+        tmp_path,
+        monkeypatch,
+        {"checked": True, "up_to_date": False, "commits_behind": 3, "reason": None},
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert operation.error_category == "manual_update_required"
+    assert "3 commits behind origin/main" in operation.safe_diagnostic
+    assert fetcher.calls == []
+    assert forces == [True]
+    assert operation.last_successful_check_at
+    assert operation.next_retry_at == ""
+
+
+def test_source_checkout_one_commit_behind_uses_singular(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, _ = _developer_service(
+        tmp_path,
+        monkeypatch,
+        {"checked": True, "up_to_date": False, "commits_behind": 1, "reason": None},
+    )
+
+    operation = service.check(force=True)
+
+    assert "1 commit behind origin/main" in operation.safe_diagnostic
+
+
+def test_source_checkout_current_with_remote_is_up_to_date(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, _ = _developer_service(
+        tmp_path,
+        monkeypatch,
+        {"checked": True, "up_to_date": True, "commits_behind": 0, "reason": None},
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UP_TO_DATE
+    assert operation.error_category == ""
+    assert operation.last_successful_check_at
+
+
+def test_source_checkout_offline_git_check_is_retried_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, _ = _developer_service(
+        tmp_path,
+        monkeypatch,
+        {"checked": False, "reason": "Update check timed out — you may be offline."},
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UNAVAILABLE
+    assert operation.error_category == "offline"
+    assert operation.next_retry_at
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "No 'origin' remote is configured.",
+        "OPai isn't running from a git checkout, so it can't check for updates itself.",
+    ],
+)
+def test_source_checkout_without_remote_is_manual_not_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reason: str
+):
+    service, _, _ = _developer_service(
+        tmp_path, monkeypatch, {"checked": False, "reason": reason}
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert operation.error_category == "manual_update_required"
     assert operation.next_retry_at == ""
 
 
