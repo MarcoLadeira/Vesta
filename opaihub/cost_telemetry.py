@@ -382,9 +382,9 @@ def summarize_cost_telemetry(
         "total_tokens": tokens,
         **totals,
         "by_provider": by_provider,
-        # #475: a summary built over corrupted/torn events is partial, not
-        # authoritative — surface that so receipts/UI never present an
-        # under-counted total as the complete truth.
+        # #475: a summary built over corrupted/torn events or invalid numeric
+        # fields is partial, not authoritative — surface that so receipts/UI
+        # never present an under-counted total as the complete truth.
         "complete": skipped + invalid_events == 0,
         "degraded": skipped + invalid_events > 0,
         "skipped_events": skipped + invalid_events,
