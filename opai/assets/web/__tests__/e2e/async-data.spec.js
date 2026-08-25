@@ -73,6 +73,27 @@ test("workspace refresh after a turn uses the async request/ready path", async (
   expect(await page.evaluate(() => window.__mock.workspaceStateCalls)).toBe(0);
 });
 
+test("a workspace switch drops a slow refresh from the previous root", async ({ page }) => {
+  await openApp(page, {
+    workspaceDelayMs: 300,
+    workspaceAfterRun: { root: "/repo/old", label: "Old refresh" },
+    workspaceSwitch: {
+      boot: { workspace: { root: "/repo/new", label: "New workspace" } },
+    },
+  });
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, { status: "answered_by_account", answer: "done" });
+  await expect
+    .poll(() => page.evaluate(() => window.__mock.workspaceRequests.length))
+    .toBeGreaterThan(0);
+
+  await page.evaluate(() => window.__mock.switchWorkspace("/repo/new"));
+  await expect(page.locator("#wsLabel")).toHaveText("New workspace");
+  await page.waitForTimeout(400);
+
+  await expect(page.locator("#wsLabel")).toHaveText("New workspace");
+});
+
 test("visible inspector loads through the async request/ready path", async ({ page }) => {
   await openApp(page);
 

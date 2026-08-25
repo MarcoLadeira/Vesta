@@ -440,6 +440,13 @@ function wireUpdateSheet() {
 }
 
 function rebootFromState() {
+  state.dashRequest = null;
+  state.settingsRequest = null;
+  state.statusRequest = null;
+  state.workspaceRequest = null;
+  state.inspectorRequest = null;
+  state.dashPaint = null;
+  state.settingsPaint = null;
   const b = state.boot;
   state.accounts = b.accounts || [];
   // F16/F4: re-apply the fresh payload's selection — without this the composer
