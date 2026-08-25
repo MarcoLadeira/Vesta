@@ -165,7 +165,7 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
     # acknowledgement timestamp; a persisted full-auto default that is not
     # pinned is reset to Safe Auto so a fresh session never reopens with
     # broader authority than the user explicitly kept.
-    clean["full_auto_pinned"] = bool(clean.get("full_auto_pinned"))
+    clean["full_auto_pinned"] = clean.get("full_auto_pinned") is True
     ack = clean.get("full_auto_acknowledged_at")
     clean["full_auto_acknowledged_at"] = str(ack) if isinstance(ack, str) else ""
     pinned = clean["full_auto_pinned"] and bool(
