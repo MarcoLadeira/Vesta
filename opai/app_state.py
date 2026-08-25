@@ -17,6 +17,7 @@ import contextlib
 import hashlib
 import os
 import subprocess  # nosec B404 - process calls below use fixed argv/no shell
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -137,17 +138,102 @@ def _git_text(root: Path, args: list[str], *, timeout: float = 12.0) -> str:
     return ""
 
 
+_WORKSPACE_SUMMARY_CACHE: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
+_WORKSPACE_SUMMARY_INFLIGHT: dict[tuple[str, tuple[Any, ...]], threading.Event] = {}
+_WORKSPACE_SUMMARY_CACHE_LOCK = threading.RLock()
+
+
+def _path_signature(path: Path) -> tuple[str, int, int]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (str(path), -1, -1)
+    return (str(path), int(stat.st_size), int(stat.st_mtime_ns))
+
+
+def _workspace_git_signature(root: Path) -> tuple[Any, ...] | None:
+    """Metadata that exactly owns tracked-file count and branch name.
+
+    ``git ls-files`` is determined by the worktree index and the displayed
+    branch by its HEAD file. Reading their stat metadata is substantially
+    cheaper than spawning two Git processes on every GUI status refresh. Both
+    ordinary repositories and linked worktrees (whose ``.git`` is a pointer
+    file) are supported.
+    """
+
+    marker = root / ".git"
+    marker_signature = _path_signature(marker)
+    if marker.is_dir():
+        git_dir = marker
+    elif marker.is_file():
+        try:
+            line = marker.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            return None
+        prefix, separator, raw_path = line.partition(":")
+        if not separator or prefix.strip().casefold() != "gitdir":
+            return None
+        git_dir = Path(raw_path.strip()).expanduser()
+        if not git_dir.is_absolute():
+            git_dir = marker.parent / git_dir
+        try:
+            git_dir = git_dir.resolve()
+        except OSError:
+            return None
+    else:
+        return None
+    return (
+        marker_signature,
+        _path_signature(git_dir / "index"),
+        _path_signature(git_dir / "HEAD"),
+    )
+
+
+def clear_workspace_summary_cache() -> None:
+    with _WORKSPACE_SUMMARY_CACHE_LOCK:
+        _WORKSPACE_SUMMARY_CACHE.clear()
+
+
 def workspace_summary(project_root: Path) -> dict[str, Any]:
     """Tracked-file count + branch - the 'indexed workspace' the agent can see."""
     root = project_root.expanduser().resolve()
-    files = [ln for ln in _git_text(root, ["ls-files"]).splitlines() if ln.strip()]
-    branch = _git_text(root, ["rev-parse", "--abbrev-ref", "HEAD"]) or ""
-    return {
-        "root": str(root),
-        "name": root.name,
-        "file_count": len(files),
-        "branch": branch if branch and branch != "HEAD" else "",
-    }
+    signature = _workspace_git_signature(root)
+    key = str(root)
+    flight_key: tuple[str, tuple[Any, ...]] | None = None
+    while signature is not None:
+        with _WORKSPACE_SUMMARY_CACHE_LOCK:
+            cached = _WORKSPACE_SUMMARY_CACHE.get(key)
+            if cached is not None and cached[0] == signature:
+                return dict(cached[1])
+            candidate = (key, signature)
+            pending = _WORKSPACE_SUMMARY_INFLIGHT.get(candidate)
+            if pending is None:
+                pending = threading.Event()
+                _WORKSPACE_SUMMARY_INFLIGHT[candidate] = pending
+                flight_key = candidate
+                break
+        pending.wait()
+        signature = _workspace_git_signature(root)
+
+    try:
+        files = _git_text(root, ["ls-files"])
+        branch = _git_text(root, ["rev-parse", "--abbrev-ref", "HEAD"]) or ""
+        summary = {
+            "root": str(root),
+            "name": root.name,
+            "file_count": sum(1 for line in files.splitlines() if line.strip()),
+            "branch": branch if branch and branch != "HEAD" else "",
+        }
+        if signature is not None and _workspace_git_signature(root) == signature:
+            with _WORKSPACE_SUMMARY_CACHE_LOCK:
+                _WORKSPACE_SUMMARY_CACHE[key] = (signature, dict(summary))
+        return summary
+    finally:
+        if flight_key is not None:
+            with _WORKSPACE_SUMMARY_CACHE_LOCK:
+                completed = _WORKSPACE_SUMMARY_INFLIGHT.pop(flight_key, None)
+                if completed is not None:
+                    completed.set()
 
 
 def workspace_diff(project_root: Path, *, max_chars: int = 6000) -> str:

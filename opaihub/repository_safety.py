@@ -388,6 +388,43 @@ def _git_bytes(root: Path, args: list[str], *, git_run: GitRun) -> bytes:
     )
 
 
+def capture_workspace_status(
+    path: str | Path,
+    *,
+    git_run: GitRun = subprocess.run,
+) -> tuple[str, DirtyState]:
+    """Read live branch and dirty paths with one read-only Git process.
+
+    A passive GUI badge does not need the content fingerprints and remote
+    identity that mutation safety deliberately captures. Reusing the canonical
+    porcelain parser keeps its path handling exact while avoiding the full
+    repository-handle probe after every completed turn.
+    """
+
+    root = Path(path).expanduser().resolve(strict=False)
+    raw = _git_bytes(
+        root,
+        [
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ],
+        git_run=git_run,
+    )
+    branch = ""
+    prefix = b"# branch.head "
+    for record in raw.split(b"\0"):
+        if not record.startswith(prefix):
+            continue
+        value = record[len(prefix) :].decode("utf-8", "surrogateescape")
+        branch = "" if value == "(detached)" else value
+        break
+    return branch, parse_porcelain_v2(raw)
+
+
 def _filesystem_id(path: Path) -> tuple[int, int] | None:
     try:
         metadata = path.stat()

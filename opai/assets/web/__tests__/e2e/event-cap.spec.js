@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
 
 
 test.beforeEach(async ({ page }) => openApp(page));
@@ -48,4 +48,29 @@ test("a normal-length turn shows no truncation marker", async ({ page }) => {
   }, id);
   await page.locator(".gen-toggle").click();
   await expect(page.locator(".timeline .tl-truncation")).toHaveCount(0);
+});
+
+test("a completed capped turn keeps its honest truncation marker", async ({ page }) => {
+  await page.evaluate(() => { window.__OPAI_EVENT_CAP__ = 20; });
+  const id = await sendPrompt(page);
+  const total = 400;
+  await page.evaluate(async ({ id, total }) => {
+    for (let i = 0; i < total; i++) {
+      window.__mock.emitActivity(id, {
+        id: "archived-" + i, type: "tool_call", status: "success", title: "Step " + i,
+      });
+    }
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }, { id, total });
+  const truncated = await page.evaluate(() => window.__opai.state.store.truncatedCount());
+
+  await finishRequest(page, id);
+  const completed = page.locator(".msg.bot").last();
+  await completed.locator(".gen-toggle.done").click();
+
+  const marker = completed.locator(".timeline.done .tl-truncation");
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toContainText(truncated.toLocaleString());
+  await expect(marker).toContainText("earlier steps hidden");
+  await expect(marker).toContainText("dropped to stay fast");
 });

@@ -43,7 +43,7 @@ from opai.gui_controls import (
     model_badge,
     session_inspector,
 )
-from opai.gui_lifecycle import drain_workers, signal_cancels
+from opai.gui_lifecycle import drain_workers, signal_cancels, start_tracked_worker
 from opai.gui_modes import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_TASK_MODE,
@@ -302,12 +302,19 @@ def _state_fingerprint(root: Path) -> tuple:
     Cheap: three stat() calls, no directory walk. A missing file contributes a
     stable sentinel so its later creation still changes the fingerprint.
     """
-    from opaihub.audit import audit_path
-    from opaihub.budget import budget_path
-    from opaihub.ledger import ledger_path
+    from opaihub.state import state_dir
 
+    # Each public path helper validates and resolves ``.opaihub`` independently.
+    # That is appropriate at write boundaries, but this hot path owns all three
+    # fixed children and can perform the same safety check once. On Windows,
+    # avoiding six repeated ``_getfinalpathname`` calls is materially faster.
+    state = state_dir(root)
     parts: list[tuple] = []
-    for path in (ledger_path(root), audit_path(root), budget_path(root)):
+    for path in (
+        state / "ledger" / "usage.jsonl",
+        state / "audit" / "audit.jsonl",
+        state / "budget.json",
+    ):
         try:
             stat = path.stat()
             parts.append((str(path), int(stat.st_size), int(stat.st_mtime_ns)))
@@ -417,6 +424,44 @@ def _workspace(root: Path) -> dict[str, Any]:
             for p in load_recent_workspaces()
             if p != str(root)
         ],
+    }
+
+
+def _workspace_refresh(root: Path) -> dict[str, Any]:
+    """Refresh only live badge facts after a turn, using one Git status probe.
+
+    The full boot payload retains the canonical repository-safety snapshot.
+    Post-turn refreshes are passive display updates, so rebuilding content
+    fingerprints, remotes, and receipts here only duplicated mutation-safety
+    work across roughly a dozen Git subprocesses.
+    """
+
+    from opaihub.repo_context import load_active_repo
+    from opaihub.repository_safety import (
+        RepositoryProbeError,
+        capture_workspace_status,
+    )
+
+    selected = root.expanduser().resolve()
+    context = load_active_repo(selected)
+    if context is None or not context.is_git:
+        return _workspace(selected)
+    try:
+        branch, dirty_state = capture_workspace_status(context.path)
+    except RepositoryProbeError:
+        return _workspace(selected)
+    try:
+        summary = A.workspace_summary(context.path)
+    except Exception:  # noqa: BLE001 - preserve the last rendered metadata
+        summary = {}
+    return {
+        "root": str(selected),
+        "repo_root": str(context.path),
+        "name": summary.get("name", context.path.name),
+        "branch": branch,
+        "dirty": bool(dirty_state.changed_paths),
+        "dirty_paths": list(dirty_state.changed_paths),
+        **({"file_count": summary["file_count"]} if "file_count" in summary else {}),
     }
 
 
@@ -1370,6 +1415,8 @@ def _run_gui(
         settingsReady = QtCore.Signal(str)
         toolApplied = QtCore.Signal(str)
         statusReady = QtCore.Signal(str)
+        workspaceReady = QtCore.Signal(str)
+        inspectorReady = QtCore.Signal(str)
         updateReady = QtCore.Signal(str)
 
         def __init__(self, window) -> None:
@@ -1523,8 +1570,7 @@ def _run_gui(
 
             worker = Worker(compute)
             worker.done.connect(signal.emit)
-            self._workers.append(worker)
-            worker.start()
+            start_tracked_worker(self._workers, worker)
 
         @QtCore.Slot(str, str)
         def requestDashboard(self, section_id: str, request_id: str) -> None:
@@ -1534,6 +1580,24 @@ def _run_gui(
                 self.dashboardReady,
                 request_id,
                 extra={"sectionId": section},
+            )
+
+        @QtCore.Slot(str)
+        def requestWorkspace(self, request_id: str) -> None:
+            root = self.root
+            self._spawn_data_worker(
+                lambda: _workspace_refresh(root), self.workspaceReady, request_id
+            )
+
+        @QtCore.Slot(str, str)
+        def requestInspector(self, sel_json: str, request_id: str) -> None:
+            try:
+                sel = json.loads(sel_json)
+            except ValueError:
+                sel = {}
+            root = self.root
+            self._spawn_data_worker(
+                lambda: _inspector(root, sel), self.inspectorReady, request_id
             )
 
         @QtCore.Slot(str, str)
