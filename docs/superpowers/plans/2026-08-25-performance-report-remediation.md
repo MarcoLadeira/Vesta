@@ -94,19 +94,18 @@ Commit: `fix(activity): preserve truncation marker after completion`
 - Modify only modules with a reproduced blocking or repeated-work path.
 - Test alongside each affected module.
 
-- [ ] **Step 1: Run focused static and timing audits**
+- [x] **Step 1: Run focused static and timing audits**
 
 Inspect GUI bridge slots, async entry points, JSON hot paths, local-provider transport, and CI definitions. Compare current code with the report and existing performance acceptance tests.
 
-- [ ] **Step 2: Add a failing regression for each measured gap**
+- [x] **Step 2: Add a failing regression for each measured gap**
 
 Each regression must reproduce blocking, unbounded growth, or repeated work and must fail before production changes.
 
-- [ ] **Step 3: Apply one root-cause fix per commit**
+- [x] **Step 3: Apply one root-cause fix per commit**
 
 Do not add speculative serializers, network dependencies, or CI complexity when local evidence does not demonstrate a benefit.
 
-- [ ] **Step 4: Run final focused verification**
+- [x] **Step 4: Run final focused verification**
 
 Run the changed Python tests, Vitest activity tests, Playwright performance/event-cap tests, `ruff check` on changed Python files, `git diff --check`, and the repository secret scanner before marking the draft PR ready.
-
