@@ -54,6 +54,20 @@ def _diagnostic(category: str) -> str:
     )
 
 
+_UNSUPPORTED_INSTALL_DIAGNOSTIC = (
+    "This installation is not transactionally replaceable; use a "
+    "verified package or the explicit developer update command."
+)
+
+_FEEDLESS_INSTALL_TYPES = frozenset(
+    {
+        InstallType.PORTABLE,
+        InstallType.SOURCE_CHECKOUT,
+        InstallType.UNKNOWN,
+    }
+)
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -292,7 +306,24 @@ class UpdateService:
                 checking = self._save(self._begin_check(current))
                 if not policy.discovery_allowed:
                     return self._save(checking.transition(UpdateState.POLICY_BLOCKED))
+                unsupported = self.installed.install_type in _FEEDLESS_INSTALL_TYPES
                 feed_url = str(self.trust.get("feed_url") or "")
+                if unsupported and not feed_url:
+                    # No signed feed is configured for this installation, and a
+                    # feed lookup could never yield a transactionally
+                    # installable candidate for it. Report the deterministic
+                    # manual-update state instead of a misleading feed error.
+                    return self._save(
+                        checking.transition(
+                            UpdateState.UNSUPPORTED_INSTALL,
+                            candidate={},
+                            error_category="manual_update_required",
+                            safe_diagnostic=_UNSUPPORTED_INSTALL_DIAGNOSTIC,
+                            last_successful_check_at=self._now().isoformat(),
+                            retry_count=0,
+                            next_retry_at="",
+                        )
+                    )
                 try:
                     payload = self.manifest_fetcher(feed_url)
                 except (OSError, TimeoutError):
@@ -314,11 +345,6 @@ class UpdateService:
                         )
                     )
                 try:
-                    unsupported = self.installed.install_type in {
-                        InstallType.PORTABLE,
-                        InstallType.SOURCE_CHECKOUT,
-                        InstallType.UNKNOWN,
-                    }
                     verified = verify_manifest(
                         payload,
                         trust=self.trust,
@@ -355,10 +381,7 @@ class UpdateService:
                             UpdateState.UNSUPPORTED_INSTALL,
                             candidate={},
                             error_category="manual_update_required",
-                            safe_diagnostic=(
-                                "This installation is not transactionally replaceable; use a "
-                                "verified package or the explicit developer update command."
-                            ),
+                            safe_diagnostic=_UNSUPPORTED_INSTALL_DIAGNOSTIC,
                             **changes,
                         )
                     )
