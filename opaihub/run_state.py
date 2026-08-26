@@ -275,6 +275,28 @@ _RUNTIME_PHASE_TO_CANONICAL: dict[str, RunState] = {
 }
 
 
+_CANCEL_PHASE_TO_CANONICAL: dict[str, RunState] = {
+    # These phases all describe a stop that is still in progress. They refine
+    # CANCEL_REQUESTED and must never make a surface claim the run is over.
+    "requested": RunState.CANCEL_REQUESTED,
+    "acknowledged": RunState.CANCEL_REQUESTED,
+    "draining": RunState.CANCEL_REQUESTED,
+    "force_terminating": RunState.CANCEL_REQUESTED,
+    # Only an observed end is allowed to project to the terminal state.
+    "terminated": RunState.CANCELLED,
+}
+
+
+def canonical_for_cancel_phase(phase: Any) -> RunState:
+    """The canonical run state a cancellation lifecycle phase refines."""
+
+    key = str(getattr(phase, "value", phase) or "").strip().lower()
+    mapped = _CANCEL_PHASE_TO_CANONICAL.get(key)
+    if mapped is None:
+        raise ValueError(f"cancel phase {key!r} has no canonical run state")
+    return mapped
+
+
 def canonical_for_runtime_phase(phase: Any) -> RunState:
     """The canonical run state a ``RuntimePhase`` refines.
 

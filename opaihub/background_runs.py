@@ -39,7 +39,13 @@ from .generated_lifecycle import (
     BACKGROUND_STATUSES,
     BACKGROUND_TERMINAL_STATUSES,
 )
-from .run_state import TERMINAL_STATES, RunState, can_transition, transition
+from .run_state import (
+    TERMINAL_STATES,
+    RunState,
+    can_transition,
+    canonical_for_cancel_phase,
+    transition,
+)
 from .run_result import RunResult
 from .state import state_dir
 from .workflow_ledger import WorkflowLedger, redact_structure
@@ -138,6 +144,7 @@ class AutomationRun:
     started_at: str = ""
     finished_at: str = ""
     result: dict[str, Any] = field(default_factory=dict)
+    cancellation: dict[str, Any] = field(default_factory=dict)
     state_history: tuple[dict[str, str], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -263,6 +270,24 @@ def _confirmed_background_cancellation(tracker: Any) -> dict[str, Any]:
     tracker.acknowledge(reason_code="background_worker_observed")
     tracker.mark_terminated(reason_code="background_worker_stopped")
     return tracker.evidence()
+
+
+def _live_background_cancellation(
+    project_root: Path,
+    run_id: str,
+    *,
+    fallback: Any = None,
+) -> dict[str, Any]:
+    """Return the newest durable cancellation evidence for a run."""
+
+    stored = _cancellation_evidence(fallback)
+    try:
+        live = _cancellation_evidence(
+            _background_cancellation_tracker(project_root, run_id).evidence()
+        )
+    except Exception:  # noqa: BLE001 - persisted evidence remains authoritative
+        return stored
+    return live if live.get("phase") else stored
 
 
 def _notifications_path(project_root: Path) -> Path:
@@ -401,6 +426,17 @@ def load_run(project_root: Path, run_id: str) -> AutomationRun:
         fallback=_DEFAULT_REASON_FOR_LEGACY_STATUS.get(status, "legacy_unknown_status"),
     )
     created_at = str(data.get("created_at") or "")
+    cancel_requested = bool(data.get("cancel_requested", False))
+    stored_cancellation = _cancellation_evidence(data.get("cancellation"))
+    cancellation = (
+        _live_background_cancellation(
+            project_root,
+            str(data["run_id"]),
+            fallback=stored_cancellation,
+        )
+        if cancel_requested or stored_cancellation
+        else {}
+    )
     return AutomationRun(
         run_id=str(data["run_id"]),
         workflow_id=str(data.get("workflow_id") or ""),
@@ -411,12 +447,13 @@ def load_run(project_root: Path, run_id: str) -> AutomationRun:
         owner=str(data.get("owner") or "user"),
         schedule_id=str(data.get("schedule_id") or ""),
         allow_cloud=bool(data.get("allow_cloud", False)),
-        cancel_requested=bool(data.get("cancel_requested", False)),
+        cancel_requested=cancel_requested,
         message=str(data.get("message") or ""),
         created_at=created_at,
         started_at=str(data.get("started_at") or ""),
         finished_at=str(data.get("finished_at") or ""),
         result=dict(data.get("result") or {}),
+        cancellation=cancellation,
         state_history=_load_state_history(
             data.get("state_history"),
             state=state,
@@ -594,11 +631,12 @@ def request_cancel(project_root: Path, run_id: str) -> AutomationRun:
         run = _transition_run(
             project_root,
             run.run_id,
-            target=RunState.CANCELLED,
+            target=canonical_for_cancel_phase(cancellation["phase"]),
             reason_code="cancelled_before_start",
             message="Cancelled before it started",
             finished_at=_now_iso(),
             cancel_requested=True,
+            cancellation=_cancellation_evidence(cancellation),
             result=_bounded_result(
                 {"status": "cancelled", "cancellation": cancellation},
                 run_state=RunState.CANCELLED,
@@ -607,12 +645,14 @@ def request_cancel(project_root: Path, run_id: str) -> AutomationRun:
         )
         _notify(project_root, run, "Cancelled before it started")
         return run
+    cancellation = _cancellation_evidence(tracker.evidence())
     run = _transition_run(
         project_root,
         run.run_id,
-        target=RunState.CANCEL_REQUESTED,
+        target=canonical_for_cancel_phase(cancellation["phase"]),
         reason_code="cancellation_requested",
         cancel_requested=True,
+        cancellation=cancellation,
     )
     with _ACTIVE_LOCK:
         event = _ACTIVE_CANCEL_EVENTS.get(

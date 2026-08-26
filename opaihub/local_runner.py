@@ -964,6 +964,10 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             guard=guard,
             cancel=cancel,
             deadline_budget=deadline_budget,
+            provider_id=resolved_provider_id,
+            model_id=self.model,
+            operation_id=run_id,
+            operation_kind="model_call_free",
         )
 
         if outcome.completion_state is CompletionState.CANCELLED:
@@ -1002,6 +1006,9 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             "blocked_reason": outcome.blocked_reason,
             "timed_out": timeout_info is not None,
             "timeout_event": timeout_info,
+            "boundary_error": (
+                dict(outcome.boundary_error) if outcome.boundary_error else None
+            ),
             # #569: a stop must be explainable. The envelope names the cause and
             # carries the evidence behind it, so surfaces can say what actually
             # happened instead of "provider failed". Built only for a run that

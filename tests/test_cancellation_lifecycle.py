@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 from opaihub.cancellation_lifecycle import CancelPhase, CancellationTracker, is_terminal
+from opaihub.run_state import RunState, canonical_for_cancel_phase
 
 
 class _Temp(unittest.TestCase):
@@ -34,6 +35,25 @@ class FreshTrackerTests(_Temp):
         tracker = self.tracker()
         self.assertIsNone(tracker.phase())
         self.assertEqual(tracker.history(), ())
+
+
+class CanonicalProjectionTests(unittest.TestCase):
+    def test_every_cancel_phase_declares_the_state_it_refines(self) -> None:
+        for phase in CancelPhase:
+            self.assertIsInstance(canonical_for_cancel_phase(phase), RunState)
+
+    def test_only_confirmed_termination_projects_to_cancelled(self) -> None:
+        for phase in CancelPhase:
+            expected = (
+                RunState.CANCELLED
+                if phase is CancelPhase.TERMINATED
+                else RunState.CANCEL_REQUESTED
+            )
+            self.assertIs(canonical_for_cancel_phase(phase), expected)
+
+    def test_an_unknown_cancel_phase_is_rejected_not_guessed(self) -> None:
+        with self.assertRaises(ValueError):
+            canonical_for_cancel_phase("some_invented_phase")
 
 
 class SingleStepTests(_Temp):

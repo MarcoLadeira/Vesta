@@ -16,7 +16,7 @@ from _helpers import FakeStreamingRunner, make_repo
 
 from opaihub import accounts
 from opaihub.accounts import AccountRunner
-from opaihub.deadlines import DeadlineBudget
+from opaihub.deadlines import TASK_DEADLINE, DeadlineBudget
 from opaihub.gui_pipeline import handle_gui_message
 
 
@@ -187,6 +187,8 @@ class RunnerCancellationTests(unittest.TestCase):
 
         evidence = result.get("cancellation") or {}
         self.assertTrue(result.get("cancelled"))
+        self.assertEqual(result.get("status"), "cancelled")
+        self.assertEqual(result.get("completion_state"), "cancelled")
         self.assertEqual(evidence.get("phase"), "terminated")
         self.assertEqual(
             [item["phase"] for item in evidence.get("history", [])],
@@ -231,7 +233,10 @@ class RunnerCancellationTests(unittest.TestCase):
             thread.join(timeout=3)
 
         self.assertFalse(thread.is_alive())
-        self.assertTrue(result.get("cancelled"))
+        self.assertFalse(result.get("cancelled"))
+        self.assertEqual(result.get("status"), "needs_attention")
+        self.assertEqual(result.get("completion_state"), "needs_attention")
+        self.assertEqual(result.get("stopped_reason"), "cancellation_unconfirmed")
         self.assertEqual(result["cancellation"]["phase"], "force_terminating")
         self.assertIsNone(result["cancellation"]["metrics"]["terminated_at"])
 
@@ -241,6 +246,34 @@ class RunnerCancellationTests(unittest.TestCase):
             result = self._runner().stream("x", timeout=0.2)
         self.assertTrue(result.get("timed_out"))
         self.assertTrue(proc.terminated)
+
+    def test_task_deadline_with_unproven_teardown_needs_attention(self):
+        proc = StubbornProc([], hang=True)
+        budget = DeadlineBudget(
+            task_deadline_seconds=0.2,
+            provider_idle_timeout_seconds=10.0,
+            lane="long_horizon",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            with mock.patch.object(accounts, "_popen", return_value=proc):
+                result = self._runner().stream(
+                    "x",
+                    project_root=root,
+                    timeout=0.2,
+                    provider_idle_timeout=10.0,
+                    cancellation_scope_id="stubborn-timeout",
+                    deadline_budget=budget,
+                )
+
+        self.assertTrue(result.get("timed_out"))
+        self.assertEqual(result.get("status"), "needs_attention")
+        self.assertEqual(result.get("completion_state"), "needs_attention")
+        self.assertEqual(result.get("stopped_reason"), "timeout_teardown_unconfirmed")
+        self.assertEqual(result["timeout_event"]["timeout_origin"], TASK_DEADLINE)
+        self.assertEqual(result["timeout_event"]["teardown_state"], "force_terminating")
+        self.assertEqual(result["cancellation"]["phase"], "force_terminating")
 
     def test_active_stream_timeout_is_task_deadline_not_provider_idle(self):
         proc = FakeProc(
