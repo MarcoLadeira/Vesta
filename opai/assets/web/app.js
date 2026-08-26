@@ -315,6 +315,10 @@ function renderUpdateBanner(update) {
   const status = String(operation.state || "idle");
   if (!shell || !control) return;
   state.update = update || {};
+  // One-shot outcome of a developer apply action rides along with the status;
+  // it is emitted once by the bridge and never persisted, so toast it here.
+  const applyReply = state.update.developer_apply;
+  if (applyReply && applyReply.message) toast(String(applyReply.message));
   const states = {
     available: ["Update available", "A signed OPai update is ready to download.", "accent"],
     downloading: ["Downloading update", "You can keep working while OPai downloads.", "accent"],
@@ -334,6 +338,11 @@ function renderUpdateBanner(update) {
   };
   const visible = Object.prototype.hasOwnProperty.call(states, status);
   shell.hidden = !visible;
+  // The update-state event fans out to Settings and other listeners, so it
+  // must fire for every state — including hidden ones (up_to_date, idle,
+  // checking); otherwise a "Checking…" settings card would never refresh
+  // when a check finishes on a hidden state.
+  try { window.dispatchEvent(new CustomEvent("opai-update-state", { detail: update })); } catch (_e) { /* old web engine */ }
   if (!visible) {
     $("#updateSheet").hidden = true;
     control.setAttribute("aria-expanded", "false");
@@ -377,7 +386,6 @@ function renderUpdateBanner(update) {
   notes.textContent = candidate.release_notes || "";
   notes.hidden = !candidate.release_notes;
   renderUpdateActions(status, operation);
-  try { window.dispatchEvent(new CustomEvent("opai-update-state", { detail: update })); } catch (_e) { /* old web engine */ }
 }
 
 function formatUpdateBytes(value) {
@@ -413,7 +421,21 @@ function renderUpdateActions(status, operation) {
     failed_terminal: [["Check for another release", "check", false]],
     rolled_back: [["Check for updates", "check", false]],
   };
-  (actions[status] || []).forEach((item) => host.appendChild(updateActionButton(item[0], item[1], item[2])));
+  const list = [...(actions[status] || [])];
+  // A source checkout updates by fast-forwarding from origin/main, not by
+  // downloading a package: offer the deliberate developer apply instead.
+  if (status === "unsupported_install"
+    && state.update && state.update.installed
+    && state.update.installed.install_type === "source_checkout") {
+    list.push(["Update now", "developer_apply", true], ["Check again", "check", false]);
+    const apply = state.update.developer_apply;
+    if (apply && apply.dirty) {
+      // The plain apply refused on uncommitted changes; the explicit second
+      // step stashes them and restores them after the fast-forward.
+      list.splice(1, 0, ["Update anyway (stash & restore)", "developer_apply_force", false]);
+    }
+  }
+  list.forEach((item) => host.appendChild(updateActionButton(item[0], item[1], item[2])));
 }
 
 function runUpdateAction(action, button) {

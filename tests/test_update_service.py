@@ -608,6 +608,118 @@ def test_source_checkout_without_remote_is_manual_not_offline(
     assert operation.next_retry_at == ""
 
 
+def _developer_apply_service(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    apply_result: dict[str, object],
+    check_result: dict[str, object],
+) -> tuple[UpdateService, list[bool]]:
+    """A source-checkout service with the legacy git apply/check stubbed."""
+    import opai.updater as legacy_updater
+
+    apply_forces: list[bool] = []
+    monkeypatch.setattr(
+        legacy_updater,
+        "apply_update",
+        lambda root, branch="main", force=False, **_: (
+            apply_forces.append(bool(force)) or dict(apply_result)
+        ),
+    )
+    monkeypatch.setattr(
+        legacy_updater,
+        "check_for_update",
+        lambda root, branch="main", force=False: dict(check_result),
+    )
+    store = UpdateStore(UpdaterPaths.for_home(tmp_path))
+    store.save_policy(UpdatePolicy(rollout_cohort=42))
+    service = UpdateService(
+        store=store,
+        installed=_installed(
+            install_type=InstallType.SOURCE_CHECKOUT,
+            platform="linux",
+            publisher_identity="",
+        ),
+        trust={},
+        manifest_fetcher=Fetcher(b"{}"),
+        downloader=Downloader(),
+        adapter=DeveloperGitUpdateAdapter(tmp_path),
+        runtime_probe=lambda: ActiveWorkStatus(True),
+        now=lambda: NOW,
+    )
+    return service, apply_forces
+
+
+def test_developer_apply_requires_a_source_checkout(tmp_path: Path):
+    service, _, _, _ = _service(tmp_path)
+
+    with pytest.raises(UpdateError):
+        service.apply_developer_source()
+
+
+def test_developer_apply_success_reports_restart_and_refreshes_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _ = _developer_apply_service(
+        tmp_path,
+        monkeypatch,
+        {"ok": True, "restart_required": True, "installed_version": "0.2.1a2"},
+        {"checked": True, "up_to_date": True, "commits_behind": 0, "reason": None},
+    )
+
+    result = service.apply_developer_source()
+
+    assert result["ok"] is True
+    assert result["message"] == "Updated to 0.2.1a2 — restart OPai to use it."
+    operation = service.store.load_operation()
+    assert operation.state is UpdateState.UP_TO_DATE
+
+
+def test_developer_apply_with_restored_changes_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, forces = _developer_apply_service(
+        tmp_path,
+        monkeypatch,
+        {
+            "ok": True,
+            "restart_required": True,
+            "installed_version": "0.2.1a2",
+            "local_changes_restored": True,
+        },
+        {"checked": True, "up_to_date": True, "commits_behind": 0, "reason": None},
+    )
+
+    result = service.apply_developer_source(force=True)
+
+    assert forces == [True]
+    assert "Local changes were stashed and restored." in result["message"]
+
+
+def test_developer_apply_dirty_tree_refuses_and_stays_manual(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, forces = _developer_apply_service(
+        tmp_path,
+        monkeypatch,
+        {
+            "ok": False,
+            "dirty": True,
+            "error": "There are uncommitted local changes — commit, stash, or discard them before updating.",
+        },
+        {"checked": True, "up_to_date": False, "commits_behind": 3, "reason": None},
+    )
+
+    result = service.apply_developer_source()
+
+    assert result["ok"] is False
+    assert result["dirty"] is True
+    assert "uncommitted local changes" in result["message"]
+    assert forces == [False]  # the plain action never stashes
+    operation = service.store.load_operation()
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert "3 commits behind origin/main" in operation.safe_diagnostic
+
+
 def test_automatic_policy_downloads_and_verifies_in_background(tmp_path: Path):
     policy = UpdatePolicy(
         automatic_downloads=True,
