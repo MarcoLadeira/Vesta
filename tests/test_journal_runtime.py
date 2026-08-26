@@ -395,3 +395,72 @@ class AFinishedRunIsNeverReopenedTests(_RuntimeFixture):
         self._admit()
 
         self.assertEqual(self._admit(), 2)
+
+
+class ABlankIdentifierIsRefusedTests(_RuntimeFixture):
+    """An identifier that is not unique is not an identifier.
+
+    Found by an adversarial audit. Two unrelated runs admitted with ``run_id``
+    of ``""`` collapsed into a single row: the second inherited the first's
+    task, a later terminal verdict landed on the merged record, and one run
+    vanished entirely with no error anywhere. Silent loss of a run is the exact
+    failure #613 exists to prevent, so it is refused at the boundary rather
+    than stored and puzzled over during a replay months later.
+
+    Refusal returns ``None`` -- the same answer every other failure in this
+    module gives -- because the mirror must never be the reason a real turn
+    fails, however wrong its inputs are.
+    """
+
+    def _run_count(self) -> int:
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        return store.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+
+    def test_a_blank_run_id_is_not_admitted(self):
+        self.assertIsNone(
+            record_admission(
+                self.root, task_id="task-a", run_id="", task="a task", now=NOW
+            )
+        )
+
+    def test_a_blank_task_id_is_not_admitted(self):
+        self.assertIsNone(
+            record_admission(
+                self.root, task_id="", run_id="run-a", task="a task", now=NOW
+            )
+        )
+
+    def test_whitespace_is_not_an_identifier_either(self):
+        self.assertIsNone(
+            record_admission(
+                self.root, task_id="task-a", run_id="   ", task="a task", now=NOW
+            )
+        )
+
+    def test_two_blank_runs_do_not_collapse_into_one_row(self):
+        """The actual defect: the second run silently became the first."""
+
+        record_admission(self.root, task_id="task-a", run_id="", task="first", now=NOW)
+        record_admission(self.root, task_id="task-b", run_id="", task="second", now=NOW)
+
+        # Neither was admitted, so neither can have overwritten the other.
+        self.assertEqual(self._run_count(), 0)
+
+    def test_a_refused_admission_does_not_raise(self):
+        """The mirror never becomes the reason a real turn fails."""
+
+        try:
+            record_admission(self.root, task_id="", run_id="", task="x", now=NOW)
+        except Exception as exc:  # pragma: no cover - the assertion is the point
+            self.fail(f"a blank identifier raised instead of being refused: {exc!r}")
+
+    def test_a_real_identifier_is_still_admitted(self):
+        """Teeth the other way: the guard must not reject ordinary runs."""
+
+        fence = record_admission(
+            self.root, task_id="task-a", run_id="run-a", task="a task", now=NOW
+        )
+
+        self.assertIsNotNone(fence)
+        self.assertEqual(self._run_count(), 1)

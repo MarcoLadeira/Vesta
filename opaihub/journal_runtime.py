@@ -107,6 +107,15 @@ def record_admission(
     every retry unjournalled.
     """
 
+    # A blank identifier is not an identifier. Found by an adversarial audit:
+    # two unrelated runs admitted with run_id "" collapsed into a single row,
+    # the second silently inheriting the first's task, and a terminal verdict
+    # then landed on the merged record while one run vanished entirely. That is
+    # precisely the silent loss #613 exists to prevent, so it is refused at the
+    # boundary rather than stored and puzzled over later.
+    if not str(run_id).strip() or not str(task_id).strip():
+        return None
+
     with _store(root) as store:
         if store is None:
             return None
