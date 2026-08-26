@@ -901,6 +901,17 @@ def _journal_backup_health(root: Path) -> dict[str, object]:
         return {"available": False, "error_category": "journal_backup_unavailable"}
 
 
+def _journal_permissions(root: Path) -> dict[str, object]:
+    """Whether the journal file is readable only by its owner (#613 security)."""
+
+    try:
+        from opaihub import journal_store
+
+        return journal_store.permissions_health(journal_store.journal_path(root))
+    except Exception:  # noqa: BLE001 - doctor never raises
+        return {"checked": False, "restricted": False, "detail": ""}
+
+
 def _journal_doctor(root: Path) -> dict[str, object]:
     """Runtime-journal health for doctor (#613 AC10, functional requirement 12).
 
@@ -932,6 +943,11 @@ def _journal_doctor(root: Path) -> dict[str, object]:
             # and it answers the only question that matters after a corrupt
             # store: is there anything to recover from.
             "backup": _journal_backup_health(root),
+            # #613 security requirement: least-privilege database permissions.
+            # Checked rather than re-applied, because the case that matters is
+            # a database restored, copied or synced in from elsewhere carrying
+            # whatever permissions it had there.
+            "permissions": _journal_permissions(root),
             **health,
         }
     except Exception:  # noqa: BLE001 - doctor reports a stable safe category

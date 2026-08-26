@@ -42,9 +42,11 @@ wants recovery -- and collapsing them would send the user down the wrong path.
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import sqlite3
+import subprocess  # nosec B404 - fixed argv ACL calls only
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -304,18 +306,118 @@ def _connect(path: Path) -> sqlite3.Connection:
     return connection
 
 
-def _restrict_permissions(path: Path) -> None:
-    """Least-privilege on supported OSes; best-effort where chmod is a no-op.
+#: Characters that would let a user name be misread as extra icacls
+#: arguments or as a second access-control entry.
+SEPARATORS = (":", '"', "/", "\\")
 
-    Windows ignores POSIX mode bits, so this is not a security guarantee
-    there -- said plainly rather than implied, because a caller reading only
-    the call site would assume otherwise.
+
+def _restrict_permissions(path: Path) -> None:
+    """Least-privilege on every supported OS, including Windows.
+
+    #613 asks for least-privilege database permissions. ``chmod`` delivers that
+    on POSIX and does nothing at all on Windows, where the file inherits the
+    parent directory's ACL -- which on a default install grants read to every
+    local user. The journal holds task text, model routes, cost records and
+    approval fingerprints, so "every local user can read it" is not a detail.
+
+    Called once, when the database file is first created, so the cost of
+    shelling out to ``icacls`` is paid per project rather than per open.
     """
 
     try:
         os.chmod(path, 0o600)
     except OSError:
         pass
+    if os.name == "nt":
+        _restrict_permissions_windows(path)
+
+
+def _restrict_permissions_windows(path: Path) -> tuple[bool, str]:
+    """Break ACL inheritance and grant the owning user alone full control.
+
+    ``/inheritance:r`` removes the inherited entries rather than merely adding
+    one, and that is the part that matters: granting the current user full
+    control while leaving the inherited local-users entry in place would look
+    like a restriction and be none.
+
+    Returns whether it succeeded and why not, so the doctor check can say so.
+    Silently failing to secure a file is worse than not trying, because nobody
+    looks again. It never raises: a journal that cannot be locked down is still
+    a journal, and refusing to open it would trade a confidentiality problem
+    for an availability one.
+    """
+
+    user = os.environ.get("USERNAME") or getpass.getuser()
+    if not user or any(ch in user for ch in SEPARATORS):
+        # A name that could be read as a second access-control entry. icacls is
+        # given a fixed argv here and never a shell, so this is belt and braces
+        # rather than the only defence -- but a user name that cannot be
+        # expressed safely is not one to hand to an ACL editor.
+        return False, "the current user name cannot be used in an ACL entry"
+    try:
+        completed = subprocess.run(  # nosec B603 B607 - fixed argv, no shell
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(F)"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, redact(str(exc))[:200]
+    if completed.returncode != 0:
+        return False, redact(completed.stderr.strip() or completed.stdout.strip())[:200]
+    return True, ""
+
+
+#: Principals whose presence in an ACL means somebody other than the owner can
+#: read the journal. Matched by name rather than parsed generally, because an
+#: ACL parser that is subtly wrong would report "restricted" for a file that is
+#: not, which is the one error this check must never make.
+SHARED_PRINCIPALS = ("BUILTIN\\Users", "Everyone", "Authenticated Users")
+
+
+def permissions_health(path: Path) -> dict[str, Any]:
+    """Whether the journal file is readable only by its owner.
+
+    Reported rather than re-applied on every open. Forcing the ACL each time
+    would fight a user who widened it deliberately, and checking is what
+    surfaces the case that actually matters: a database restored, copied or
+    synced from somewhere else, arriving with whatever permissions it had
+    there.
+    """
+
+    facts: dict[str, Any] = {"checked": False, "restricted": False, "detail": ""}
+    if not path.exists():
+        return facts
+    if os.name != "nt":
+        try:
+            mode = path.stat().st_mode & 0o777
+        except OSError as exc:
+            facts["detail"] = redact(str(exc))[:200]
+            return facts
+        facts["checked"] = True
+        facts["restricted"] = not (mode & 0o077)
+        facts["detail"] = f"mode {mode:04o}"
+        return facts
+    try:
+        completed = subprocess.run(  # nosec B603 B607 - fixed argv, no shell
+            ["icacls", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        facts["detail"] = redact(str(exc))[:200]
+        return facts
+    if completed.returncode != 0:
+        facts["detail"] = redact(completed.stderr.strip())[:200]
+        return facts
+    facts["checked"] = True
+    shared = [name for name in SHARED_PRINCIPALS if name in completed.stdout]
+    facts["restricted"] = not shared
+    facts["detail"] = ("readable by " + ", ".join(shared)) if shared else "owner only"
+    return facts
 
 
 @contextmanager
