@@ -124,69 +124,19 @@ def record_admission(
         if store is None:
             return None
         try:
-            with journal_store._transaction(store):
-                # A run that already ended must not be re-opened. Found by an
-                # adversarial audit: re-admission took a fresh lease but left
-                # terminal_verdict in place, so a run that was running again
-                # still read as "completed" -- a settled run reporting a
-                # verdict it had not yet reached this time round.
-                #
-                # Refusing rather than clearing the verdict is deliberate.
-                # #613 forbids terminal regression outright, and a genuine
-                # retry already has a first-class representation: a new run id,
-                # which becomes the next attempt of the same task. Silently
-                # clearing would make the two indistinguishable in replay.
-                settled = store.execute(
-                    "SELECT terminal_verdict FROM runs WHERE run_id = ?",
-                    (run_id,),
-                ).fetchone()
-                if settled is not None and settled["terminal_verdict"]:
-                    raise _TerminalRunReadmitted(run_id)
-                store.execute(
-                    "INSERT INTO tasks(task_id, origin_surface, origin_session,"
-                    " created_at, requested_outcome, schema_version, updated_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?)"
-                    " ON CONFLICT(task_id) DO UPDATE SET updated_at = excluded.updated_at",
-                    (task_id, surface, session, now, _summary(task), 1, now),
-                )
-                # The attempt number is derived, not defaulted. `runs` has a
-                # UNIQUE (task_id, attempt), so a hardcoded 1 meant the second
-                # run of a task violated it -- and because admission is
-                # best-effort, that violation was swallowed and the run went
-                # unjournalled in silence. Exactly the gap this issue exists to
-                # close, found by a test that expected two runs and saw one.
-                #
-                # A caller may still pass an explicit attempt when it knows the
-                # lineage; otherwise the next free number is correct, because a
-                # second run of one task *is* a second attempt.
-                if attempt is None:
-                    row = store.execute(
-                        "SELECT COALESCE(MAX(attempt), 0) + 1 FROM runs"
-                        " WHERE task_id = ?",
-                        (task_id,),
-                    ).fetchone()
-                    resolved_attempt = int(row[0]) if row else 1
-                else:
-                    resolved_attempt = int(attempt)
-                store.execute(
-                    "INSERT INTO runs(run_id, task_id, attempt, desired_state,"
-                    " observed_state, route, model, created_at, updated_at)"
-                    " VALUES (?, ?, ?, 'running', 'queued', ?, ?, ?, ?)"
-                    " ON CONFLICT(run_id) DO NOTHING",
-                    (run_id, task_id, resolved_attempt, route, model, now, now),
-                )
-            fence = acquire_lease(store, run_id=run_id, owner=surface, now=now)
-            append_event(
+            return _admit_on(
                 store,
-                event_type=EVENT_ADMITTED,
-                payload={"mode": mode, "model": model, "route": route},
-                occurred_at=now,
-                recorded_at=now,
-                producer=surface,
                 run_id=run_id,
-                expected_fence=fence,
+                task_id=task_id,
+                task=task,
+                now=now,
+                surface=surface,
+                session=session,
+                mode=mode,
+                model=model,
+                route=route,
+                attempt=attempt,
             )
-            return fence
         except _TerminalRunReadmitted:
             # Not an error the caller can act on: the run is already finished,
             # and the correct next step -- a new run id -- is the caller's to
@@ -195,6 +145,91 @@ def record_admission(
             return None
         except (sqlite3.DatabaseError, JournalStoreError, ValueError):
             return None
+
+
+def _admit_on(
+    store: sqlite3.Connection,
+    *,
+    run_id: str,
+    task_id: str,
+    task: str,
+    now: str,
+    surface: str,
+    session: str = "",
+    mode: str = "",
+    model: str = "",
+    route: str = "",
+    attempt: int | None = None,
+) -> int:
+    """Admission on an already-open connection.
+
+    Split out so that a caller doing several journal writes for one save can do
+    them on one connection. Opening the store per call was measured at more
+    than double the time inside ``_save_run``'s interprocess lock.
+    """
+
+    with journal_store._transaction(store):
+        # A run that already ended must not be re-opened. Found by an
+        # adversarial audit: re-admission took a fresh lease but left
+        # terminal_verdict in place, so a run that was running again
+        # still read as "completed" -- a settled run reporting a
+        # verdict it had not yet reached this time round.
+        #
+        # Refusing rather than clearing the verdict is deliberate.
+        # #613 forbids terminal regression outright, and a genuine
+        # retry already has a first-class representation: a new run id,
+        # which becomes the next attempt of the same task. Silently
+        # clearing would make the two indistinguishable in replay.
+        settled = store.execute(
+            "SELECT terminal_verdict FROM runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if settled is not None and settled["terminal_verdict"]:
+            raise _TerminalRunReadmitted(run_id)
+        store.execute(
+            "INSERT INTO tasks(task_id, origin_surface, origin_session,"
+            " created_at, requested_outcome, schema_version, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(task_id) DO UPDATE SET updated_at = excluded.updated_at",
+            (task_id, surface, session, now, _summary(task), 1, now),
+        )
+        # The attempt number is derived, not defaulted. `runs` has a
+        # UNIQUE (task_id, attempt), so a hardcoded 1 meant the second
+        # run of a task violated it -- and because admission is
+        # best-effort, that violation was swallowed and the run went
+        # unjournalled in silence. Exactly the gap this issue exists to
+        # close, found by a test that expected two runs and saw one.
+        #
+        # A caller may still pass an explicit attempt when it knows the
+        # lineage; otherwise the next free number is correct, because a
+        # second run of one task *is* a second attempt.
+        if attempt is None:
+            row = store.execute(
+                "SELECT COALESCE(MAX(attempt), 0) + 1 FROM runs WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            resolved_attempt = int(row[0]) if row else 1
+        else:
+            resolved_attempt = int(attempt)
+        store.execute(
+            "INSERT INTO runs(run_id, task_id, attempt, desired_state,"
+            " observed_state, route, model, created_at, updated_at)"
+            " VALUES (?, ?, ?, 'running', 'queued', ?, ?, ?, ?)"
+            " ON CONFLICT(run_id) DO NOTHING",
+            (run_id, task_id, resolved_attempt, route, model, now, now),
+        )
+    fence = acquire_lease(store, run_id=run_id, owner=surface, now=now)
+    append_event(
+        store,
+        event_type=EVENT_ADMITTED,
+        payload={"mode": mode, "model": model, "route": route},
+        occurred_at=now,
+        recorded_at=now,
+        producer=surface,
+        run_id=run_id,
+        expected_fence=fence,
+    )
+    return fence
 
 
 def record_event(
@@ -257,32 +292,16 @@ def record_terminal(
         if store is None:
             return False
         try:
-            with journal_store._transaction(store):
-                # The fence is checked *before* the update, inside the same
-                # transaction. An earlier draft updated first and relied on the
-                # append below to refuse a stale writer -- which let a fenced-out
-                # process overwrite a finished run's verdict and only then get
-                # refused, producing exactly the terminal regression the crash
-                # matrix forbids. Found by its own test; the ordering is the fix.
-                if fence is not None:
-                    journal_store._assert_fence(store, run_id, fence)
-                store.execute(
-                    "UPDATE runs SET observed_state = ?, terminal_verdict = ?,"
-                    " terminal_reason = ?, updated_at = ? WHERE run_id = ?",
-                    (verdict, verdict, reason, now, run_id),
-                )
-            append_event(
+            _terminal_on(
                 store,
-                event_type=event_type,
-                payload={"verdict": verdict, "reason": reason},
-                occurred_at=now,
-                recorded_at=now,
-                producer=producer,
                 run_id=run_id,
-                expected_fence=fence,
+                event_type=event_type,
+                verdict=verdict,
+                reason=reason,
+                now=now,
+                fence=fence,
+                producer=producer,
             )
-            if fence is not None:
-                journal_store.release_lease(store, run_id=run_id, fence=fence, now=now)
             return True
         except StaleWriterError:
             return False
@@ -290,25 +309,70 @@ def record_terminal(
             return False
 
 
+def _terminal_on(
+    store: sqlite3.Connection,
+    *,
+    run_id: str,
+    event_type: str,
+    verdict: str,
+    reason: str,
+    now: str,
+    fence: int | None = None,
+    producer: str = "gui",
+) -> None:
+    """The terminal write on an already-open connection. See :func:`_admit_on`."""
+
+    with journal_store._transaction(store):
+        # The fence is checked *before* the update, inside the same
+        # transaction. An earlier draft updated first and relied on the
+        # append below to refuse a stale writer -- which let a fenced-out
+        # process overwrite a finished run's verdict and only then get
+        # refused, producing exactly the terminal regression the crash
+        # matrix forbids. Found by its own test; the ordering is the fix.
+        if fence is not None:
+            journal_store._assert_fence(store, run_id, fence)
+        store.execute(
+            "UPDATE runs SET observed_state = ?, terminal_verdict = ?,"
+            " terminal_reason = ?, updated_at = ? WHERE run_id = ?",
+            (verdict, verdict, reason, now, run_id),
+        )
+    append_event(
+        store,
+        event_type=event_type,
+        payload={"verdict": verdict, "reason": reason},
+        occurred_at=now,
+        recorded_at=now,
+        producer=producer,
+        run_id=run_id,
+        expected_fence=fence,
+    )
+    if fence is not None:
+        journal_store.release_lease(store, run_id=run_id, fence=fence, now=now)
+
+
 def live_fence(root: Path, run_id: str) -> int | None:
     """The fence of the lease currently held on ``run_id``, if any.
 
-    ``None`` covers three different situations a caller must not distinguish:
-    the run was never admitted, the run finished and ``record_terminal``
-    released its lease, or the store could not be opened. All three mean the
-    same thing to a mirror -- there is no live lease to write under.
+    ``None`` covers three situations a caller must not distinguish: the run was
+    never admitted, the run finished and ``record_terminal`` released its
+    lease, or the store could not be opened. All three mean the same thing to a
+    mirror -- there is no live lease to write under.
     """
 
     with _store(root) as store:
         if store is None:
             return None
-        with contextlib.suppress(Exception):
-            row = store.execute(
-                "SELECT fence, released_at FROM leases WHERE run_id = ?",
-                (run_id,),
-            ).fetchone()
-            if row is not None and row["released_at"] is None:
-                return int(row["fence"])
+        return _live_fence_on(store, run_id)
+
+
+def _live_fence_on(store: sqlite3.Connection, run_id: str) -> int | None:
+    with contextlib.suppress(Exception):
+        row = store.execute(
+            "SELECT fence, released_at FROM leases WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is not None and row["released_at"] is None:
+            return int(row["fence"])
     return None
 
 
@@ -334,9 +398,16 @@ def record_run_snapshot(
     That shape is why this exists instead of calling ``record_admission`` from
     the save path. Admission is idempotent about the run *row*, but not about
     the rest: each call takes a fresh lease and appends another ``admitted``
-    event, so a run that transitioned six times would read as six admissions
-    of one run. A run is admitted once; everything after that is a transition,
-    and the journal should say so.
+    event, so a run that transitioned six times would read as six admissions of
+    one run. A run is admitted once; everything after that is a transition.
+
+    Everything happens on **one** connection. That is a performance
+    requirement, not tidiness: this runs inside ``_save_run``'s interprocess
+    lock, and an earlier version that called ``live_fence``, ``record_event``
+    and ``record_terminal`` in turn opened the store three times per save and
+    more than doubled the time the lock was held. Requirement 4 asks that
+    high-frequency writes not block critical state commits, and a mirror that
+    slows the thing it mirrors is a mirror that gets removed.
 
     Returns whether anything was recorded. Like the rest of Stage 3 it never
     raises -- a legacy write must not fail because its mirror did.
@@ -345,42 +416,67 @@ def record_run_snapshot(
     if not str(run_id).strip() or not str(task_id).strip():
         return False
 
-    fence = live_fence(root, run_id)
-    if fence is None:
-        fence = record_admission(
-            root,
-            task_id=task_id,
-            run_id=run_id,
-            task=task,
-            now=now,
-            surface=surface,
-        )
-        if fence is None:
-            # Either the store is unavailable or the run already reached a
-            # terminal state, whose verdict is immutable. Neither is an error
-            # here, and neither leaves anything further to record.
+    with _store(root) as store:
+        if store is None:
             return False
-    else:
-        record_event(
-            root,
-            run_id=run_id,
-            event_type=EVENT_TRANSITIONED,
-            payload={"state": state, **details},
-            now=now,
-            fence=fence,
-        )
+        try:
+            fence = _live_fence_on(store, run_id)
+            if fence is None:
+                if _is_settled(store, run_id):
+                    # The run already ended. Its verdict is immutable and a
+                    # retry belongs to a new run id, so there is nothing here
+                    # to record.
+                    return False
+                fence = _admit_on(
+                    store,
+                    run_id=run_id,
+                    task_id=task_id,
+                    task=task,
+                    now=now,
+                    surface=surface,
+                    mode="",
+                    model="",
+                    route="",
+                    session="",
+                    attempt=None,
+                )
+            else:
+                append_event(
+                    store,
+                    event_type=EVENT_TRANSITIONED,
+                    payload={"state": state, **details},
+                    occurred_at=now,
+                    recorded_at=now,
+                    producer=surface,
+                    run_id=run_id,
+                    expected_fence=fence,
+                )
 
-    if verdict:
-        record_terminal(
-            root,
-            run_id=run_id,
-            event_type=EVENT_FINISHED,
-            verdict=verdict,
-            reason=state,
-            now=now,
-            fence=fence,
-        )
-    return True
+            if verdict:
+                _terminal_on(
+                    store,
+                    run_id=run_id,
+                    event_type=EVENT_FINISHED,
+                    verdict=verdict,
+                    reason=state,
+                    now=now,
+                    fence=fence,
+                    producer=surface,
+                )
+            return True
+        except _TerminalRunReadmitted:
+            return False
+        except StaleWriterError:
+            return False
+        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+            return False
+
+
+def _is_settled(store: sqlite3.Connection, run_id: str) -> bool:
+    row = store.execute(
+        "SELECT terminal_verdict FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    return bool(row is not None and row["terminal_verdict"])
 
 
 def record_run_cost(

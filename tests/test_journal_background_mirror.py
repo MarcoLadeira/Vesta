@@ -281,3 +281,62 @@ class TheLoopActuallyClosesTests(_BackgroundFixture):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class TheMirrorOpensTheStoreOnceTests(_BackgroundFixture):
+    """A structural ratchet standing in for a performance test.
+
+    The mirror runs inside ``_save_run``'s interprocess lock, so its cost is
+    time nothing else in the process can write. The first version called
+    ``live_fence``, ``record_event`` and ``record_terminal`` in turn, opened the
+    store three times per save, and more than doubled the time the lock was
+    held -- measured at +570 ms on a slow volume and +40% on an ordinary one.
+
+    Asserting the open count rather than a duration is deliberate: a timing
+    threshold that passes on a developer SSD and fails on a CI runner teaches
+    people to ignore it, while "how many times did this open the database" is
+    the same number everywhere and is the thing that actually regressed.
+    """
+
+    def _opens_during(self, action) -> int:
+        from opaihub import journal_store
+
+        calls = 0
+        real = journal_store.open_store
+
+        def counting(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return real(*args, **kwargs)
+
+        with mock.patch.object(journal_runtime, "open_store", counting):
+            action()
+        return calls
+
+    def test_a_transition_opens_the_store_once(self):
+        run = self._enqueue()
+
+        opens = self._opens_during(
+            lambda: self._advance(run, run_state="running", status="running")
+        )
+
+        self.assertEqual(opens, 1)
+
+    def test_a_terminal_save_opens_the_store_once(self):
+        run = self._enqueue()
+        run = self._advance(run, run_state="running", status="running")
+
+        opens = self._opens_during(
+            lambda: self._advance(run, run_state="completed", status="done")
+        )
+
+        self.assertEqual(opens, 1)
+
+    def test_the_first_save_of_a_run_opens_the_store_once(self):
+        run = self._enqueue()
+        # A fresh run id that the journal has never seen: the admission path.
+        fresh = dataclasses.replace(run, run_id="never-seen-before")
+
+        opens = self._opens_during(lambda: background_runs._save_run(self.root, fresh))
+
+        self.assertEqual(opens, 1)
