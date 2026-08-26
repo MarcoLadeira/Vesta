@@ -279,12 +279,22 @@ class MigrationVisibilityTests(_DoctorFixture):
         self.assertEqual(facts["retirement"], "not_started")
         self.assertEqual(facts["runs_recorded"], 0)
 
-    def test_an_opened_journal_reports_it_cannot_judge_retirement_alone(self):
+    def test_an_empty_project_is_blocked_with_named_reasons(self):
+        """Doctor now assembles the legacy corpus, so it gives a real verdict.
+
+        This used to answer "needs_legacy_comparison" -- honest, but useless:
+        it named a missing input without saying who was supposed to supply it.
+        Now that ``journal_background.legacy_runs`` supplies one, the answer is
+        a verdict with named blockers a person can actually act on.
+        """
+
         open_store(self.root).close()
 
         facts = cli._journal_migration(self.root)
 
-        self.assertEqual(facts["retirement"], "needs_legacy_comparison")
+        self.assertEqual(facts["retirement"], "blocked")
+        self.assertIn("nothing_compared", facts["blockers"])
+        self.assertEqual(facts["legacy_runs"], 0)
 
     def test_recorded_runs_are_counted(self):
         from opaihub.journal_runtime import record_admission
@@ -323,7 +333,7 @@ class MigrationVisibilityTests(_DoctorFixture):
         self.assertIn("migration", payload["runtime_journal"])
         self.assertEqual(
             payload["runtime_journal"]["migration"]["retirement"],
-            "needs_legacy_comparison",
+            "blocked",
         )
 
     def test_migration_facts_never_raise(self):
@@ -335,3 +345,129 @@ class MigrationVisibilityTests(_DoctorFixture):
             facts = cli._journal_migration(self.root)
 
         self.assertEqual(facts["retirement"], "not_started")
+
+
+class TheMigrationVerdictIsRealTests(_DoctorFixture):
+    """Doctor's verdict must move when the migration actually moves.
+
+    The blocked tests above would all still pass if ``_journal_migration``
+    returned a hardcoded "blocked" -- which would be a wall, not a gate, and
+    would mean this migration could never be reported finished. These drive a
+    real corpus of background runs through the real save path and check the
+    verdict follows.
+    """
+
+    def _finished_runs(self, count: int) -> None:
+        import dataclasses
+
+        from opaihub import background_runs
+
+        for index in range(count):
+            run = background_runs.enqueue_automation(
+                self.root, workflow_id="bug_fix", task=f"task {index}"
+            )
+            background_runs._save_run(
+                self.root,
+                dataclasses.replace(
+                    run,
+                    run_state="completed",
+                    status="done",
+                    finished_at="2026-08-26T11:00:00+00:00",
+                ),
+            )
+
+    def test_background_runs_appear_as_the_legacy_corpus(self):
+        self._finished_runs(3)
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["legacy_runs"], 3)
+        self.assertEqual(facts["compared_runs"], 3)
+
+    def test_a_small_corpus_is_still_blocked_on_sample_size(self):
+        """Three agreeing runs is a connection, not evidence."""
+
+        self._finished_runs(3)
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["retirement"], "blocked")
+        self.assertIn("insufficient_sample", facts["blockers"])
+
+    def test_a_fully_migrated_project_reports_ready(self):
+        """The gate opens. Without this the blocked tests prove nothing."""
+
+        self._finished_runs(25)
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["retirement"], "ready", facts["detail"])
+        self.assertEqual(facts["blockers"], [])
+        self.assertEqual(facts["compared_runs"], 25)
+        self.assertEqual(facts["legacy_reads"], 0)
+
+    def test_an_unreconciled_operation_reopens_the_gate(self):
+        """A finished migration is not permanently finished."""
+
+        from opaihub import idempotency
+
+        self._finished_runs(25)
+        self.assertEqual(cli._journal_migration(self.root)["retirement"], "ready")
+
+        idempotency.begin(
+            self.root, idempotency.operation_key("github.pr", head="feat/x")
+        )
+
+        facts = cli._journal_migration(self.root)
+        self.assertEqual(facts["retirement"], "blocked")
+        self.assertIn("operations_unreconciled", facts["blockers"])
+
+
+class BackupVisibilityTests(_DoctorFixture):
+    """#613 requirement 12's other half: backup checks in doctor.
+
+    The restraint rule applies here more than anywhere. A project that has
+    never taken a backup is not broken, and the one time this field matters is
+    after a corrupt store -- which is exactly when a field people have learned
+    to ignore is worth nothing.
+    """
+
+    def test_a_project_with_no_backups_reports_none_without_complaining(self):
+        payload = cli._journal_backup_health(self.root)
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["backups"], 0)
+
+    def test_a_taken_backup_is_visible(self):
+        from opaihub import journal_backup
+
+        open_store(self.root).close()
+        journal_backup.create_backup(self.root, now="2026-08-26T12:00:00+00:00")
+
+        payload = cli._journal_backup_health(self.root)
+
+        self.assertEqual(payload["backups"], 1)
+        self.assertEqual(payload["latest"], "2026-08-26T12:00:00+00:00")
+
+    def test_the_block_appears_in_the_full_doctor_payload(self):
+        open_store(self.root).close()
+
+        payload = self._doctor_payload()
+
+        self.assertIn("backup", payload["runtime_journal"])
+
+    def test_backup_health_never_raises(self):
+        with mock.patch(
+            "opaihub.journal_backup.backup_health", side_effect=OSError("gone")
+        ):
+            payload = cli._journal_backup_health(self.root)
+
+        self.assertFalse(payload["available"])
+
+    def test_a_missing_backup_does_not_push_the_report_to_attention(self):
+        """Never having backed up is normal, not a fault."""
+
+        payload = self._doctor_payload(clean_integrations=True)
+
+        self.assertEqual(payload["runtime_journal"]["backup"]["backups"], 0)
+        self.assertEqual(payload["readiness"], "ready")

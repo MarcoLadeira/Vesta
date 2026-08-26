@@ -40,6 +40,7 @@ from pathlib import Path
 from unittest import mock
 
 from opaihub import journal_store
+from opaihub.journal_runtime import record_admission
 from opaihub.journal_store import (
     INTEGRITY_COMPLETE,
     INTEGRITY_CORRUPT,
@@ -55,6 +56,9 @@ from opaihub.journal_store import (
 )
 
 NOW = "2026-08-25T12:00:00+00:00"
+
+
+NOW_ISO = "2026-08-26T12:00:00+00:00"
 
 
 class _FailingConnection:
@@ -492,21 +496,54 @@ class ProtectionSurvivesFailureTests(_FaultFixture):
         self.assertIsNotNone(report.first_invalid_sequence)
 
 
-class TheBackupCaseIsNotCoveredTests(unittest.TestCase):
-    """#613 lists "unavailable backup"; there is no backup path yet.
+class TheBackupCaseIsNowCoveredTests(unittest.TestCase):
+    """#613 lists "unavailable backup". This used to be a skip.
 
-    Recorded as a skip rather than omitted, so the gap is visible in test
-    output instead of only in a document nobody reads next to the code. A
-    passing test here would be worse than none: it would report coverage of a
-    feature that does not exist.
+    It was recorded as a skip rather than omitted, so the gap stayed visible in
+    test output instead of only in a document beside the code -- a passing test
+    would have reported coverage of a feature that did not exist.
+
+    ``opaihub.journal_backup`` now implements requirement 12, so the skip is
+    replaced by the fault it was standing in for: recovery attempted when the
+    backup is not there.
     """
 
-    def test_backup_recovery_is_not_implemented(self):
-        self.assertFalse(
-            hasattr(journal_store, "backup_store"),
-            "if a backup path lands, this file owes it a fault test",
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def test_recovery_with_no_backup_available_is_refused_by_name(self):
+        from opaihub import journal_backup
+
+        record_admission(self.root, task_id="t", run_id="r", task="x", now=NOW_ISO)
+        journal_path(self.root).write_bytes(b"not a database")
+
+        self.assertIsNone(journal_backup.latest_backup(self.root))
+        report = journal_backup.restore_backup(
+            self.root, journal_backup.backup_dir(self.root) / "absent.sqlite3"
         )
-        self.skipTest("no backup/recovery path in the store yet -- see the ADR")
+        self.assertEqual(report.reason, journal_backup.REFUSE_MISSING)
+
+    def test_a_backup_taken_before_the_damage_recovers_the_runs(self):
+        """The case the whole requirement exists for."""
+
+        from opaihub import journal_backup
+
+        record_admission(
+            self.root, task_id="t", run_id="survivor", task="x", now=NOW_ISO
+        )
+        record = journal_backup.create_backup(self.root)
+        journal_path(self.root).write_bytes(b"not a database")
+
+        self.assertTrue(journal_backup.restore_backup(self.root, record.path).ok)
+
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        self.assertEqual(
+            {row[0] for row in store.execute("SELECT run_id FROM runs")},
+            {"survivor"},
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience

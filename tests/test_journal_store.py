@@ -576,3 +576,84 @@ class HealthReportingTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class CostAmountsMustBeRealSpendTests(_StoreFixture):
+    """A spend record that is negative or non-finite is not a spend record.
+
+    NaN is the dangerous one. It round-trips through JSON, and every
+    ``spent + cost > limit`` comparison against it is false -- so a single NaN
+    would silently disable the budget ceiling it was meant to count against,
+    which is the exact failure `budget.py` already guards its own caps from.
+    """
+
+    def _operation(self, key: str = "op-1") -> str:
+        self._task()
+        self._run()
+        record_operation(
+            self.store,
+            operation_key=key,
+            kind="model.call",
+            target_digest="d",
+            state="observed",
+            now=NOW,
+            run_id="run-a",
+        )
+        return key
+
+    def test_a_negative_cost_is_refused(self):
+        key = self._operation()
+
+        with self.assertRaises(ValueError):
+            record_cost(
+                self.store,
+                operation_key=key,
+                amount=-5.0,
+                measurement_kind="actual",
+                now=NOW,
+            )
+
+        total = self.store.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM cost_events"
+        ).fetchone()[0]
+        self.assertEqual(float(total), 0.0)
+
+    def test_a_nan_cost_is_refused(self):
+        key = self._operation()
+
+        with self.assertRaises(ValueError):
+            record_cost(
+                self.store,
+                operation_key=key,
+                amount=float("nan"),
+                measurement_kind="actual",
+                now=NOW,
+            )
+
+    def test_an_infinite_cost_is_refused(self):
+        key = self._operation()
+
+        with self.assertRaises(ValueError):
+            record_cost(
+                self.store,
+                operation_key=key,
+                amount=float("inf"),
+                measurement_kind="actual",
+                now=NOW,
+            )
+
+    def test_zero_is_a_legitimate_cost(self):
+        """Teeth the other way: a free local route really does cost nothing."""
+
+        key = self._operation()
+
+        record_cost(
+            self.store,
+            operation_key=key,
+            amount=0.0,
+            measurement_kind="actual",
+            now=NOW,
+        )
+
+        total = self.store.execute("SELECT SUM(amount) FROM cost_events").fetchone()[0]
+        self.assertEqual(float(total), 0.0)

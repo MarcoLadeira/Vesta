@@ -27,6 +27,7 @@ from opaihub import idempotency, journal_retirement
 from opaihub.journal_retirement import (
     BLOCK_INTEGRITY,
     BLOCK_LEGACY_READS,
+    BLOCK_NO_COMPARISON,
     BLOCK_NO_JOURNAL,
     BLOCK_SAMPLE,
     BLOCK_UNQUALIFIED,
@@ -277,3 +278,59 @@ class LegacyWritesRequiredTests(_RetirementFixture):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class AComparisonMustActuallyHaveHappenedTests(_RetirementFixture):
+    """The blocker an adversarial audit found missing, and the worst one to miss.
+
+    Every other signal in ``assess`` goes quiet when the legacy record is
+    empty. Zero legacy reads -- because there was nothing to read. Qualified --
+    because comparing nothing to nothing finds no differences. Enough runs --
+    because the journal filled up on its own. So a caller whose legacy loader
+    failed and returned ``{}`` instead of raising would be told to delete the
+    fallback, at the exact moment the fallback is the only thing that could
+    still explain what happened.
+
+    This is the same false-pass ``qualify()`` already refuses with
+    ``insufficient_evidence``; retirement now refuses it too.
+    """
+
+    def test_an_empty_legacy_record_cannot_authorise_retirement(self):
+        self._migrated(25)  # a healthy journal, and nothing to check it against
+
+        report = assess(self.root, {}, minimum_runs=20)
+
+        self.assertEqual(report.status, STATUS_BLOCKED)
+        self.assertIn(BLOCK_NO_COMPARISON, report.blockers)
+        self.assertEqual(report.compared_runs, 0)
+
+    def test_a_journal_that_only_overlaps_a_little_cannot_retire(self):
+        """25 journal runs and 2 in common is not 25 runs of evidence."""
+
+        legacy = self._migrated(25)
+        thin = {
+            run_id: legacy[run_id] for run_id in sorted(legacy)[:2]
+        }  # the loader returned a truncated page
+
+        report = assess(self.root, thin, minimum_runs=20)
+
+        self.assertEqual(report.status, STATUS_BLOCKED)
+        self.assertIn(BLOCK_NO_COMPARISON, report.blockers)
+        self.assertEqual(report.compared_runs, 2)
+
+    def test_writes_stay_required_when_nothing_was_compared(self):
+        """The consequence that matters: the write site keeps writing."""
+
+        self._migrated(25)
+
+        self.assertTrue(legacy_writes_required(self.root, {}, minimum_runs=20))
+
+    def test_a_real_comparison_still_opens_the_gate(self):
+        """Teeth the other way, or this blocker is just a wall."""
+
+        legacy = self._migrated(25)
+
+        report = assess(self.root, legacy, minimum_runs=20)
+
+        self.assertEqual(report.status, STATUS_READY, report.detail)
+        self.assertEqual(report.compared_runs, 25)

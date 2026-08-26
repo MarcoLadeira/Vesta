@@ -415,3 +415,50 @@ class Stage3CostAndVerificationTests(_QualifyFixture):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class MalformedLegacyRecordsAreReportedNotRaisedTests(unittest.TestCase):
+    """One bad row must not take the whole comparison down with it.
+
+    A legacy store is a directory of JSON files written by many versions of
+    OPai over months. Something in there will eventually not be a mapping --
+    a truncated write, a list where a dict was expected, a null. Raising
+    ``AttributeError`` out of ``compare()`` would hide every other finding in
+    the report behind the first malformed file, which is exactly backwards:
+    the malformed file is itself a difference worth seeing.
+    """
+
+    def _journal_of(self, run_id: str = "run-a") -> dict[str, dict[str, str]]:
+        return {run_id: {"terminal_verdict": "completed", "attempt": 1}}
+
+    def test_a_string_where_a_mapping_belongs_is_a_difference(self):
+        differences = compare(self._journal_of(), {"run-a": "completed"})
+
+        self.assertEqual([d.kind for d in differences], [KIND_VERDICT])
+
+    def test_the_difference_says_what_was_wrong(self):
+        differences = compare(self._journal_of(), {"run-a": ["completed"]})
+
+        self.assertIn("not a mapping", differences[0].detail)
+
+    def test_none_is_handled_the_same_way(self):
+        differences = compare(self._journal_of(), {"run-a": None})
+
+        self.assertEqual(differences[0].run_id, "run-a")
+        self.assertEqual(differences[0].kind, KIND_VERDICT)
+
+    def test_one_bad_record_does_not_hide_the_others(self):
+        """The actual point: the report must still be complete."""
+
+        journal = {
+            "run-a": {"terminal_verdict": "completed", "attempt": 1},
+            "run-b": {"terminal_verdict": "completed", "attempt": 1},
+        }
+        legacy = {
+            "run-a": "not-a-mapping",
+            "run-b": {"terminal_verdict": "cancelled"},  # a real disagreement
+        }
+
+        differences = compare(journal, legacy)
+
+        self.assertEqual({d.run_id for d in differences}, {"run-a", "run-b"})

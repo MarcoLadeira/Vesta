@@ -254,6 +254,21 @@ def compare(
     for run_id in sorted(set(journal) & set(legacy)):
         entry = journal[run_id]
         other = legacy[run_id]
+        if not isinstance(other, Mapping):
+            # A legacy record that is not a mapping cannot be compared. It is a
+            # difference in its own right -- something upstream produced a shape
+            # nobody expects -- and crashing the whole comparison over one bad
+            # row would hide every other finding in the report.
+            differences.append(
+                Difference(
+                    kind=KIND_VERDICT,
+                    run_id=run_id,
+                    journal=dict(entry),
+                    legacy=repr(other)[:200],
+                    detail="the legacy record is not a mapping and cannot be compared",
+                )
+            )
+            continue
         journal_verdict = str(entry.get("terminal_verdict") or "")
         legacy_verdict = str(other.get("terminal_verdict") or "")
         if not journal_verdict:
