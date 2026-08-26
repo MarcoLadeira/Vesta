@@ -72,6 +72,11 @@ REFUSE_MISSING = "backup_missing"
 REFUSE_DIGEST = "digest_mismatch"
 REFUSE_UNREADABLE = "backup_unreadable"
 REFUSE_INCOMPATIBLE = "backup_incompatible"
+#: The journal being replaced is open in another process. Distinct from
+#: REFUSE_UNREADABLE on purpose: the backup is fine, and telling someone
+#: their backup is unreadable when the real problem is that OPai is running
+#: is how a good backup gets thrown away.
+REFUSE_IN_USE = "journal_in_use"
 
 
 @dataclass(frozen=True)
@@ -428,6 +433,26 @@ def restore_backup(
         incoming = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
         live = sqlite3.connect(str(destination))
         incoming.backup(live)
+    except OSError as exc:
+        # On Windows an open handle blocks the unlink, so a journal another
+        # process still holds cannot be replaced. The refusal is the safe
+        # outcome -- nothing was overwritten -- but it must not be reported as
+        # a problem with the backup, which is intact and still the only copy
+        # worth keeping.
+        in_use = getattr(exc, "winerror", None) == 32 or isinstance(
+            exc, PermissionError
+        )
+        return RestoreReport(
+            status=RESTORE_REFUSED,
+            reason=REFUSE_IN_USE if in_use else REFUSE_UNREADABLE,
+            detail=(
+                "the runtime journal is open in another process; close OPai and "
+                "try again (the backup is intact)"
+                if in_use
+                else redact(str(exc))[:200]
+            ),
+            replaced_backup=str(replaced.path) if replaced else "",
+        )
     except Exception as exc:  # noqa: BLE001
         return RestoreReport(
             status=RESTORE_REFUSED,
@@ -535,6 +560,7 @@ __all__: Sequence[str] = (
     "DEFAULT_KEEP",
     "REFUSE_DIGEST",
     "REFUSE_INCOMPATIBLE",
+    "REFUSE_IN_USE",
     "REFUSE_MISSING",
     "REFUSE_UNREADABLE",
     "RESTORE_OK",

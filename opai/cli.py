@@ -669,6 +669,115 @@ def _doctor_model_check(root: Path, validate: Any) -> dict[str, Any]:
     return {"checked": True, "model": selected, "valid": True, "reason": ""}
 
 
+def cmd_journal(args: argparse.Namespace) -> int:
+    """Inspect, back up and recover the #613 runtime journal.
+
+    Requirement 12 asks for backup and recovery. Doctor answers "is there
+    anything to recover from"; this is how a person actually does it. Building
+    the recovery path and leaving it reachable only from Python would repeat
+    the mistake this migration already made once, where a correct and fully
+    tested reader was never wired into anything that runs.
+
+    ``restore`` is the one destructive command here, so it names what it is
+    about to replace and requires ``--yes``. It also takes its own backup of
+    the journal it overwrites, which is the difference between a recovery and
+    a second incident.
+    """
+
+    from opaihub import journal_backup, journal_store
+
+    root = _project(getattr(args, "project", None))
+    action = getattr(args, "journal_command", "status")
+    as_json = bool(getattr(args, "json", False))
+
+    if action == "status":
+        payload = {
+            "project": str(root),
+            "journal": _journal_doctor(root),
+        }
+        if as_json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        journal = payload["journal"]
+        if not journal.get("present"):
+            print("runtime journal: not started (no journal for this project yet)")
+            return 0
+        integrity = journal.get("integrity", {})
+        migration = journal.get("migration", {})
+        backup = journal.get("backup", {})
+        print(f"runtime journal: {integrity.get('state', 'unknown')}")
+        print(f"  runs recorded:  {migration.get('runs_recorded', 0)}")
+        print(f"  legacy runs:    {migration.get('legacy_runs', 0)}")
+        print(f"  compared:       {migration.get('compared_runs', 0)}")
+        print(f"  retirement:     {migration.get('retirement', 'unknown')}")
+        for blocker in migration.get("blockers", []) or []:
+            print(f"    - {blocker}")
+        print(f"  backups:        {backup.get('backups', 0)}", end="")
+        print(f" (latest {backup['latest']})" if backup.get("latest") else "")
+        return 0
+
+    if action == "backup":
+        if not journal_store.journal_path(root).exists():
+            print("no runtime journal for this project yet; nothing to back up")
+            return 1
+        record = journal_backup.create_backup(root)
+        if record is None:
+            print("could not take a verified backup (see doctor for journal health)")
+            return 1
+        removed = journal_backup.prune_backups(
+            root, keep=int(getattr(args, "keep", journal_backup.DEFAULT_KEEP))
+        )
+        if as_json:
+            print(json.dumps({**record.to_dict(), "pruned": len(removed)}, indent=2))
+            return 0
+        print(f"backed up to {record.path}")
+        print(
+            f"  runs: {record.row_counts.get('runs', 0)}  digest: {record.digest[:12]}"
+        )
+        if removed:
+            print(f"  pruned {len(removed)} older backup(s)")
+        return 0
+
+    if action == "backups":
+        records = journal_backup.list_backups(root)
+        if as_json:
+            print(json.dumps([record.to_dict() for record in records], indent=2))
+            return 0
+        if not records:
+            print("no backups for this project")
+            return 0
+        for record in records:
+            runs = record.row_counts.get("runs", 0)
+            print(f"{record.created_at}  runs={runs:<6} {record.path}")
+        return 0
+
+    if action == "restore":
+        source = Path(str(getattr(args, "backup", "") or "")).expanduser()
+        if not getattr(args, "yes", False):
+            print(
+                f"this replaces the runtime journal at {journal_store.journal_path(root)}"
+            )
+            print(f"with {source}")
+            print(
+                "re-run with --yes to proceed (the replaced journal is backed up first)"
+            )
+            return 2
+        report = journal_backup.restore_backup(root, source)
+        if as_json:
+            print(json.dumps(report.to_dict(), indent=2))
+            return 0 if report.ok else 1
+        if not report.ok:
+            print(f"refused: {report.reason} -- {report.detail}")
+            return 1
+        print(report.detail)
+        if report.replaced_backup:
+            print(f"  the replaced journal was kept at {report.replaced_backup}")
+        return 0
+
+    print(f"unknown journal command: {action}")
+    return 2
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     from opai.model_registry import catalog as model_catalog
     from opai.model_registry import validate as validate_model
@@ -2892,6 +3001,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     vr.add_argument("--json", action="store_true", help="Render manifest JSON")
     vr.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser(
+        "journal",
+        help="Inspect, back up and recover the transactional runtime journal",
+    )
+    journal_sub = p.add_subparsers(dest="journal_command", required=True)
+    js = journal_sub.add_parser("status", help="Journal health and migration progress")
+    js.add_argument("--project", default=None, help="Project root")
+    js.add_argument("--json", action="store_true")
+    js.set_defaults(func=cmd_journal)
+    jb = journal_sub.add_parser("backup", help="Take a verified backup of the journal")
+    jb.add_argument("--project", default=None, help="Project root")
+    jb.add_argument(
+        "--keep",
+        type=int,
+        default=5,
+        help="How many backups to retain (older ones are pruned)",
+    )
+    jb.add_argument("--json", action="store_true")
+    jb.set_defaults(func=cmd_journal)
+    jl = journal_sub.add_parser("backups", help="List verified backups, newest first")
+    jl.add_argument("--project", default=None, help="Project root")
+    jl.add_argument("--json", action="store_true")
+    jl.set_defaults(func=cmd_journal)
+    jr = journal_sub.add_parser(
+        "restore", help="Replace the journal with a backup (requires --yes)"
+    )
+    jr.add_argument("backup", help="Path to the backup to restore")
+    jr.add_argument("--project", default=None, help="Project root")
+    jr.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm replacing the current journal; it is backed up first",
+    )
+    jr.add_argument("--json", action="store_true")
+    jr.set_defaults(func=cmd_journal)
 
     p = sub.add_parser("cockpit", help="Obvious ON/OFF control panel for OPai")
     p.add_argument("--project", default=None, help="Project root")
