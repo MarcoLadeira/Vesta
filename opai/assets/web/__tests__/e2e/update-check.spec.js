@@ -234,6 +234,69 @@ test("manual-update state surfaces the backend diagnostic in the sheet", async (
   await expect(page.locator("#updateSheetDescription")).toContainText("3 commits behind origin/main", seen);
 });
 
+/* Developer source checkouts update by fast-forwarding origin/main, so the
+   sheet offers the deliberate apply action instead of a fake download. */
+function sourceCheckout(state, operation = {}) {
+  const update = updateState(state, operation);
+  update.installed.install_type = "source_checkout";
+  return update;
+}
+
+test("source checkouts get Update now, and a successful apply reports the restart", async ({ page }) => {
+  const start = sourceCheckout("unsupported_install", { safe_diagnostic: "This source checkout is 3 commits behind origin/main; update with the explicit developer update command." });
+  const done = sourceCheckout("up_to_date");
+  done.developer_apply = { ok: true, restart_required: true, message: "Updated to 0.2.1a2 — restart OPai to use it." };
+  await openApp(page, {
+    boot: { update: start },
+    settings: { about: { update: start } },
+    updateActionResponses: { developer_apply: done },
+  });
+  await page.locator("#updateBanner").click();
+  await page.getByRole("button", { name: "Update now" }).click();
+  await expect.poll(() => page.evaluate(() => window.__mock.updateActions)).toEqual(["developer_apply"]);
+  await expect(page.locator("#toast")).toContainText("restart OPai", seen);
+  // the refreshed state is up_to_date, so the persistent control hides
+  await expect(page.locator("#updateShell")).toBeHidden();
+});
+
+test("a dirty checkout escalates to the explicit stash-and-restore step", async ({ page }) => {
+  const start = sourceCheckout("unsupported_install", { safe_diagnostic: "This source checkout is 3 commits behind origin/main; update with the explicit developer update command." });
+  const dirty = sourceCheckout("unsupported_install", { safe_diagnostic: start.operation.safe_diagnostic });
+  dirty.developer_apply = { ok: false, dirty: true, message: "There are uncommitted local changes — commit, stash, or discard them before updating." };
+  await openApp(page, {
+    boot: { update: start },
+    settings: { about: { update: start } },
+    updateActionResponses: { developer_apply: dirty },
+  });
+  await page.locator("#updateBanner").click();
+  await page.getByRole("button", { name: "Update now" }).click();
+  await expect(page.locator("#toast")).toContainText("uncommitted local changes", seen);
+  await expect(page.getByRole("button", { name: "Update anyway (stash & restore)" })).toBeVisible();
+});
+
+test("non-source manual installs never get a developer apply button", async ({ page }) => {
+  await openWithUpdate(page, updateState("unsupported_install", { safe_diagnostic: "Manual update required." }));
+  await page.locator("#updateBanner").click();
+  await expect(page.getByRole("button", { name: "Update now" })).toHaveCount(0);
+});
+
+test("hidden states still notify settings listeners so cards refresh", async ({ page }) => {
+  const start = sourceCheckout("unsupported_install", { safe_diagnostic: "This source checkout is 3 commits behind origin/main; update with the explicit developer update command." });
+  const done = sourceCheckout("up_to_date");
+  done.developer_apply = { ok: true, restart_required: true, message: "Updated — restart OPai to use it." };
+  await openApp(page, {
+    boot: { update: start },
+    settings: { about: { update: start } },
+    updateActionResponses: { developer_apply: done },
+  });
+  await openSettings(page, "about");
+  await expect(page.locator('[data-update-status="unsupported_install"]')).toBeVisible();
+  await page.locator("#settingsApplyUpdate").click();
+  // up_to_date is not a visible banner state; the card must still refresh
+  await expect(page.locator('[data-update-status="up_to_date"]')).toBeVisible();
+  await expect(page.locator("#settingsCheckUpdate")).toBeEnabled();
+});
+
 test("update details stay fully on screen without shifting the sidebar", async ({ page }) => {
   await openWithUpdate(page, updateState("available", { candidate }));
   await page.locator("#updateBanner").click();

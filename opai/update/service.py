@@ -474,6 +474,37 @@ class UpdateService:
             return self.download(result.operation_id)
         return result
 
+    def apply_developer_source(self, *, force: bool = False) -> dict[str, object]:
+        """Deliberate fast-forward of a developer source checkout to origin/main.
+
+        Explicit user action only — the update policy gates discovery, never a
+        direct command. ``force`` stashes local changes and restores them after
+        the fast-forward (the CLI's ``--force``); without it a dirty tree
+        refuses. The canonical state is re-checked either way, so every surface
+        reflects the outcome. The returned payload carries a pre-composed,
+        safe-to-render ``message`` for toasts.
+        """
+        if not isinstance(self.adapter, DeveloperGitUpdateAdapter):
+            raise UpdateError("developer_update_requires_source_checkout")
+        result = dict(self.adapter.apply_source(force=force))
+        try:
+            self.check(force=True)
+        except UpdateError:
+            pass
+        if bool(result.get("ok")):
+            version = str(result.get("installed_version") or "").strip()
+            message = (
+                f"Updated to {version} — restart OPai to use it."
+                if version
+                else "Updated — restart OPai to use it."
+            )
+            if result.get("local_changes_restored"):
+                message += " Local changes were stashed and restored."
+        else:
+            message = str(result.get("error") or "The update could not be applied.")
+        result["message"] = message
+        return result
+
     def download(self, operation_id: str) -> UpdateOperation:
         try:
             with self.store.operation_guard():

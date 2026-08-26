@@ -1399,13 +1399,18 @@
       unavailable: "Update status unavailable",
     };
     var description = operation.safe_diagnostic || (candidate.version ? "Target OPai " + candidate.version + "." : "");
+    var devCheckout = (u.installed || {}).install_type === "source_checkout";
     return (
       '<div class="update-card ' + (state === "available" || state === "ready_to_install" ? "available" : "unknown") + '" data-update-status="' + esc(state) + '">' +
       '<div class="update-head"><span class="update-dot"></span><span class="update-title">' +
       esc(labels[state] || "Update status") +
       "</span></div>" +
       '<div class="update-desc">' + esc(description || "Signed packaged updates are checked after launch and every four hours.") + "</div>" +
-      '<div class="actions"><button class="btn ghost" id="settingsCheckUpdate">Check now</button></div>' +
+      '<div class="actions"><button class="btn ghost" id="settingsCheckUpdate">Check now</button>' +
+      (state === "unsupported_install" && devCheckout
+        ? ' <button class="btn ghost" id="settingsApplyUpdate">Update now</button>'
+        : "") +
+      "</div>" +
       "</div>"
     );
   }
@@ -2250,6 +2255,13 @@
           checkBtn.textContent = "Checking…";
           bridge.checkForUpdates(true);
         };
+      var applyBtn = q("#settingsApplyUpdate");
+      if (applyBtn)
+        applyBtn.onclick = function () {
+          applyBtn.disabled = true;
+          applyBtn.textContent = "Updating…";
+          bridge.updateAction("developer_apply");
+        };
     }
     wireUpdateButtons();
     if (global.__opaiSettingsUpdateListener) {
@@ -2259,6 +2271,7 @@
       var result = event.detail || {};
       if (updateCard) updateCard.innerHTML = updateStatusHtml(esc, result);
       wireUpdateButtons();
+      if (result.developer_apply) return; // app.js already toasted the precise outcome
       var operation = result.operation || {};
       if (operation.state === "available") toast("Update available");
       else if (operation.state === "up_to_date") toast("You're on the latest version");

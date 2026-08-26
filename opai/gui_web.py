@@ -1768,6 +1768,7 @@ def _run_gui(
             def apply_action() -> dict[str, object]:
                 service = self._update_service
                 current = service.store.load_operation()
+                reply: dict[str, object] | None = None
                 try:
                     if action in {"download", "retry"}:
                         service.download(current.operation_id)
@@ -1783,11 +1784,20 @@ def _run_gui(
                         service.resume(current.operation_id)
                     elif action == "rollback":
                         service.rollback(current.operation_id)
+                    elif action == "developer_apply":
+                        reply = service.apply_developer_source()
+                    elif action == "developer_apply_force":
+                        reply = service.apply_developer_source(force=True)
                     elif action == "check":
                         service.check(force=True, allow_automatic_download=True)
                 except Exception:  # noqa: BLE001 - never leak raw updater errors
                     _LOG.debug("Updater action failed: %s", action, exc_info=True)
-                return service.status()
+                status = service.status()
+                if reply is not None:
+                    # Transient, per-action outcome (e.g. a developer apply):
+                    # emitted once with the status, never persisted by the service.
+                    status["developer_apply"] = reply
+                return status
 
             self._start_update_worker(apply_action)
 
