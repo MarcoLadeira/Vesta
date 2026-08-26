@@ -288,11 +288,17 @@ class UpdateService:
         the same durable states so every surface renders it unchanged.
         """
         adapter = self.adapter
-        assert isinstance(adapter, DeveloperGitUpdateAdapter)  # caller guarantees
-        try:
-            result = adapter.check_source(force=force)
-        except Exception:  # noqa: BLE001 - raw git errors normalize to safe state
-            result = {"checked": False, "reason": "offline"}
+        if not isinstance(adapter, DeveloperGitUpdateAdapter):
+            # An assert here was stripped under -O, so the "caller guarantees"
+            # went unenforced in exactly the builds that ship. A wrong adapter
+            # now lands in the same retried offline state a git failure
+            # produces, instead of calling a method it may not have.
+            result: dict[str, object] = {"checked": False, "reason": "offline"}
+        else:
+            try:
+                result = adapter.check_source(force=force)
+            except Exception:  # noqa: BLE001 - raw git errors normalize to safe state
+                result = {"checked": False, "reason": "offline"}
         if bool(result.get("checked")):
             behind = result.get("commits_behind")
             behind = behind if isinstance(behind, int) and behind >= 0 else 0
