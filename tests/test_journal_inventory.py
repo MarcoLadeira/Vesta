@@ -71,6 +71,13 @@ JOURNAL_OWNED = {
     # of its own to disagree with, so it is machinery rather than a migration
     # target.
     "opaihub/journal_runtime.py": "runs — Stage 3 journal-backed run lifecycle",
+    # Stage 6's bridge. Mirrors every exact-once external effect into the
+    # operations table by hooking idempotency, the choke point they all share.
+    "opaihub/journal_operations.py": "operations — Stage 6 external-effect transactions",
+    # Writes admission, lifecycle, cost and verification from the live turn
+    # path. Not a migration target itself -- it originates records rather than
+    # owning a legacy file -- so it is machinery, like the other writers.
+    "opaihub/gui_pipeline.py": "runs — the live turn path that originates journal records",
     # runs / events / leases
     "opaihub/run_journal.py": "events — append-only journal this issue generalises",
     # Not a durable writer in its own right: it mirrors a record another
@@ -104,6 +111,24 @@ JOURNAL_OWNED = {
     "opai/gui_recents.py": "events — conversation/thread history",
 }
 
+#: Modules that *are* the journal rather than records migrating into it. They
+#: have no legacy counterpart to disagree with, so the dual-read ratchet does
+#: not apply to them.
+#:
+#: One constant rather than a literal in each test: the two copies had already
+#: drifted, which is how a module ended up exempt in one check and flagged in
+#: the other.
+JOURNAL_MACHINERY = frozenset(
+    {
+        "opaihub/gui_pipeline.py",
+        "opaihub/journal_operations.py",
+        "opaihub/journal_runtime.py",
+        "opaihub/journal_store.py",
+        "opaihub/run_journal.py",
+        "opaihub/shadow_journal.py",
+    }
+)
+
 #: JOURNAL_OWNED modules that need no Stage 2 shadow mirror, because the record
 #: they own is *already* an append-only sequenced log with replay -- the thing
 #: Stage 2's mirror exists to create. Layering a second journal on top would
@@ -128,6 +153,14 @@ PROJECTION_OR_EXPORT = {
     # working -- it cannot tell a reader from a writer, and triaging one
     # module is cheaper than a scan that misses the next real writer.
     "opaihub/journal_qualification.py",
+    # Stage 5's read path. Opens the journal to serve run state and writes
+    # nothing; the open_store signal cannot tell a reader from a writer, which
+    # is the correct trade -- triaging a reader is cheaper than a scan that
+    # misses the next real writer.
+    "opaihub/journal_reader.py",
+    # Stage 7's retirement gate. Reads telemetry to answer one question --
+    # may the legacy writes go? -- and writes nothing itself.
+    "opaihub/journal_retirement.py",
     # Build-only generated identity written into wheel/sdist staging trees.
     "opai/build_metadata.py",
     "opaihub/dashboard.py",
@@ -218,6 +251,43 @@ def _opens_a_database(tree: ast.AST) -> bool:
     return False
 
 
+def _imports_the_journal(tree: ast.AST) -> bool:
+    """True when a module imports any part of the #613 journal.
+
+    Chasing *primitives* has failed four times running. The scan learned about
+    ``atomic_write_text``, then ``sqlite3.connect`` when journal_store.py went
+    unflagged, then ``open_store`` when journal_runtime.py did -- and
+    journal_operations.py still slipped through, because it writes via
+    ``record_operation`` and touches neither.
+
+    Each fix was correct and each was one layer too low. A module that imports
+    the journal at all is a writer, a reader or machinery, and every one of
+    those needs triage. Detecting the *dependency* rather than the call ends
+    the recurrence instead of deferring it.
+    """
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module.endswith(("journal_store", "journal_runtime")):
+                return True
+            if module in {".", ""} or module.startswith("opaihub"):
+                for alias in node.names:
+                    if alias.name in {
+                        "journal_store",
+                        "journal_runtime",
+                        "journal_operations",
+                        "journal_reader",
+                        "journal_qualification",
+                    }:
+                        return True
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.endswith(("journal_store", "journal_runtime")):
+                    return True
+    return False
+
+
 def _durable_writers() -> dict[str, set[str]]:
     """Every module that calls a durable-write primitive, with which ones."""
 
@@ -252,6 +322,8 @@ def _durable_writers() -> dict[str, set[str]]:
             # persist nothing.
             if _opens_a_database(tree):
                 hits = hits | {"sqlite3.connect"}
+            if _imports_the_journal(tree):
+                hits = hits | {"journal-dependency"}
             if hits:
                 found[relative] = hits
     return found
@@ -417,12 +489,7 @@ class AdoptedJournalTests(unittest.TestCase):
         - the journal machinery itself, which has no record of its own.
         """
 
-        machinery = {
-            "opaihub/journal_runtime.py",
-            "opaihub/journal_store.py",
-            "opaihub/run_journal.py",
-            "opaihub/shadow_journal.py",
-        }
+        machinery = JOURNAL_MACHINERY
         missing = []
         for module in sorted(JOURNAL_OWNED):
             if module in machinery or module in ALREADY_APPEND_ONLY:
@@ -447,12 +514,7 @@ class AdoptedJournalTests(unittest.TestCase):
         #517 directly.
         """
 
-        machinery = {
-            "opaihub/journal_runtime.py",
-            "opaihub/journal_store.py",
-            "opaihub/run_journal.py",
-            "opaihub/shadow_journal.py",
-        }
+        machinery = JOURNAL_MACHINERY
         unmirrored = []
         for module in sorted(JOURNAL_OWNED):
             if module in machinery or module in ALREADY_APPEND_ONLY:

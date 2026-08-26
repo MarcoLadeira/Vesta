@@ -326,7 +326,7 @@ function renderUpdateBanner(update) {
     failed_retriable: ["Update paused", operation.safe_diagnostic || "The update can be retried.", "warning"],
     failed_terminal: ["Update blocked", operation.safe_diagnostic || "The update failed a security check.", "danger"],
     policy_blocked: [policy.owner && policy.owner !== "opai" ? "Managed by administrator" : "Updates disabled by policy", "OPai will not race another update owner.", "neutral"],
-    unsupported_install: ["Manual update required", "This installation cannot update transactionally.", "neutral"],
+    unsupported_install: ["Manual update required", operation.safe_diagnostic || "This installation cannot update transactionally.", "neutral"],
     rollback_pending: ["Recovery required", "The new build did not pass startup health checks.", "danger"],
     needs_attention: ["Update needs attention", operation.safe_diagnostic || "Automatic recovery could not complete.", "danger"],
     rolled_back: ["Update rolled back", "OPai restored the last-known-good build.", "warning"],
@@ -429,14 +429,29 @@ function wireUpdateSheet() {
   const close = $("#updateSheetClose");
   if (!control || control.dataset.wired) return;
   control.dataset.wired = "1";
-  const hide = () => { sheet.hidden = true; control.setAttribute("aria-expanded", "false"); control.focus(); };
+  // The sheet is position:fixed so the sidebar's overflow clip cannot crop it;
+  // anchor it just above the persistent control and keep it on-screen.
+  const place = () => {
+    const rect = control.getBoundingClientRect();
+    const width = Math.min(360, window.innerWidth - 28);
+    const left = Math.max(14, Math.min(rect.left, window.innerWidth - width - 14));
+    sheet.style.left = `${Math.round(left)}px`;
+    sheet.style.bottom = `${Math.round(window.innerHeight - rect.top + 8)}px`;
+  };
+  const hide = () => { sheet.hidden = true; control.setAttribute("aria-expanded", "false"); control.focus({ preventScroll: true }); };
   control.onclick = () => {
     sheet.hidden = !sheet.hidden;
     control.setAttribute("aria-expanded", String(!sheet.hidden));
-    if (!sheet.hidden) close.focus();
+    if (!sheet.hidden) {
+      place();
+      // preventScroll: focusing inside the (previously clipped) sheet used to
+      // scroll the sidebar sideways and carry the whole rail off-screen.
+      close.focus({ preventScroll: true });
+    }
   };
   close.onclick = hide;
   sheet.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); hide(); } });
+  window.addEventListener("resize", () => { if (!sheet.hidden) place(); });
 }
 
 function rebootFromState() {

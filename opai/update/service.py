@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from opaihub.atomic_io import InterprocessLockTimeout
 from packaging.version import InvalidVersion, Version
 
-from .adapters import UpdateAdapter
+from .adapters import DeveloperGitUpdateAdapter, UpdateAdapter
 from .download import DownloadError, SecureDownloader
 from .errors import UpdateError
 from .manifest import ManifestError, verify_manifest
@@ -52,6 +52,20 @@ def _diagnostic(category: str) -> str:
     return _SAFE_DIAGNOSTICS.get(
         category, "The update operation could not be completed safely."
     )
+
+
+_UNSUPPORTED_INSTALL_DIAGNOSTIC = (
+    "This installation is not transactionally replaceable; use a "
+    "verified package or the explicit developer update command."
+)
+
+_FEEDLESS_INSTALL_TYPES = frozenset(
+    {
+        InstallType.PORTABLE,
+        InstallType.SOURCE_CHECKOUT,
+        InstallType.UNKNOWN,
+    }
+)
 
 
 def _sha256(path: Path) -> str:
@@ -264,6 +278,63 @@ class UpdateService:
             "next_retry_at": (self._now() + timedelta(seconds=delay)).isoformat(),
         }
 
+    def _check_developer_source(
+        self, checking: UpdateOperation, *, force: bool
+    ) -> UpdateOperation:
+        """Check a source checkout against its own git remote.
+
+        The signed feed only governs packaged builds; a developer checkout's
+        source of truth is ``origin``'s main branch. The git result maps onto
+        the same durable states so every surface renders it unchanged.
+        """
+        adapter = self.adapter
+        assert isinstance(adapter, DeveloperGitUpdateAdapter)  # caller guarantees
+        try:
+            result = adapter.check_source(force=force)
+        except Exception:  # noqa: BLE001 - raw git errors normalize to safe state
+            result = {"checked": False, "reason": "offline"}
+        if bool(result.get("checked")):
+            behind = result.get("commits_behind")
+            behind = behind if isinstance(behind, int) and behind >= 0 else 0
+            changes = {
+                "candidate": {},
+                "last_successful_check_at": self._now().isoformat(),
+                "retry_count": 0,
+                "next_retry_at": "",
+            }
+            if behind == 0:
+                return checking.transition(UpdateState.UP_TO_DATE, **changes)
+            plural = "" if behind == 1 else "s"
+            return checking.transition(
+                UpdateState.UNSUPPORTED_INSTALL,
+                error_category="manual_update_required",
+                safe_diagnostic=(
+                    f"This source checkout is {behind} commit{plural} behind "
+                    "origin/main; update with the explicit developer update command."
+                ),
+                **changes,
+            )
+        reason = str(result.get("reason") or "").casefold()
+        if "origin" in reason or "git checkout" in reason:
+            # No remote to compare against: genuinely manual, not an outage.
+            # (Reachability failures — timeouts, "could not reach" — fall
+            # through to the retried offline state below.)
+            return checking.transition(
+                UpdateState.UNSUPPORTED_INSTALL,
+                candidate={},
+                error_category="manual_update_required",
+                safe_diagnostic=_UNSUPPORTED_INSTALL_DIAGNOSTIC,
+                last_successful_check_at=self._now().isoformat(),
+                retry_count=0,
+                next_retry_at="",
+            )
+        return checking.transition(
+            UpdateState.UNAVAILABLE,
+            error_category="offline",
+            safe_diagnostic=_diagnostic("offline"),
+            **self._retry_changes(checking),
+        )
+
     def check(
         self, *, force: bool = False, allow_automatic_download: bool = False
     ) -> UpdateOperation:
@@ -292,7 +363,29 @@ class UpdateService:
                 checking = self._save(self._begin_check(current))
                 if not policy.discovery_allowed:
                     return self._save(checking.transition(UpdateState.POLICY_BLOCKED))
+                unsupported = self.installed.install_type in _FEEDLESS_INSTALL_TYPES
                 feed_url = str(self.trust.get("feed_url") or "")
+                if unsupported and not feed_url:
+                    # No signed feed is configured for this installation, and a
+                    # feed lookup could never yield a transactionally
+                    # installable candidate for it. A source checkout still has
+                    # a real source of truth — its own git remote — so check
+                    # that instead of reporting a misleading feed error.
+                    if isinstance(self.adapter, DeveloperGitUpdateAdapter):
+                        return self._save(
+                            self._check_developer_source(checking, force=force)
+                        )
+                    return self._save(
+                        checking.transition(
+                            UpdateState.UNSUPPORTED_INSTALL,
+                            candidate={},
+                            error_category="manual_update_required",
+                            safe_diagnostic=_UNSUPPORTED_INSTALL_DIAGNOSTIC,
+                            last_successful_check_at=self._now().isoformat(),
+                            retry_count=0,
+                            next_retry_at="",
+                        )
+                    )
                 try:
                     payload = self.manifest_fetcher(feed_url)
                 except (OSError, TimeoutError):
@@ -314,11 +407,6 @@ class UpdateService:
                         )
                     )
                 try:
-                    unsupported = self.installed.install_type in {
-                        InstallType.PORTABLE,
-                        InstallType.SOURCE_CHECKOUT,
-                        InstallType.UNKNOWN,
-                    }
                     verified = verify_manifest(
                         payload,
                         trust=self.trust,
@@ -355,10 +443,7 @@ class UpdateService:
                             UpdateState.UNSUPPORTED_INSTALL,
                             candidate={},
                             error_category="manual_update_required",
-                            safe_diagnostic=(
-                                "This installation is not transactionally replaceable; use a "
-                                "verified package or the explicit developer update command."
-                            ),
+                            safe_diagnostic=_UNSUPPORTED_INSTALL_DIAGNOSTIC,
                             **changes,
                         )
                     )

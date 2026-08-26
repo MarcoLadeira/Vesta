@@ -61,6 +61,16 @@ KIND_VERDICT = "verdict_mismatch"
 #: an unterminated run reads as still-running forever after a cutover.
 KIND_UNTERMINATED = "unterminated_in_journal"
 
+#: A run the legacy record has that *predates the journal*. Informational, and
+#: the difference between a migration that can finish and one that cannot.
+#:
+#: Without this, every run recorded before the journal existed reads as
+#: KIND_MISSING and blocks forever -- a real installation with months of
+#: history could never qualify, so Stage 5 could never begin. Found by an
+#: upgrade-path test rather than by inspection: the fresh-install tests all
+#: passed because they had no history to predate anything.
+KIND_PRE_MIGRATION = "predates_journal"
+
 #: No journal evidence at all. Never qualifies.
 KIND_NO_EVIDENCE = "no_evidence"
 
@@ -72,7 +82,7 @@ STATUS_INSUFFICIENT = "insufficient_evidence"
 #: a small set, and deliberately *not* configurable from outside: the point of
 #: Stage 4 is that somebody decided each of these is acceptable and wrote down
 #: why, not that a caller can widen the tolerance until the report goes green.
-DEFAULT_ACCEPTED = (KIND_EXTRA,)
+DEFAULT_ACCEPTED = (KIND_EXTRA, KIND_PRE_MIGRATION)
 
 
 @dataclass(frozen=True)
@@ -153,11 +163,49 @@ def journal_runs(connection: sqlite3.Connection) -> dict[str, dict[str, Any]]:
     return {str(row["run_id"]): dict(row) for row in rows}
 
 
+def pre_migration_ids_from(
+    legacy: Mapping[str, Mapping[str, Any]],
+    boundary: str,
+    *,
+    timestamp_key: str = "created_at",
+) -> frozenset[str]:
+    """Legacy runs that started before the journal did.
+
+    Timestamps are compared as strings, which is correct for ISO-8601 in a
+    fixed offset and is what every writer in this codebase emits. A record
+    with no usable timestamp is deliberately *excluded* -- it cannot be proven
+    to predate the journal, and guessing in the permissive direction would let
+    a genuinely lost run pass as "old", which is the one mistake this whole
+    classification exists to prevent.
+    """
+
+    if not boundary:
+        return frozenset()
+    found = set()
+    for run_id, record in legacy.items():
+        stamp = record.get(timestamp_key)
+        if isinstance(stamp, str) and stamp and stamp < boundary:
+            found.add(str(run_id))
+    return frozenset(found)
+
+
+def journal_started_at(connection: sqlite3.Connection) -> str:
+    """When this journal first recorded anything, or "" if it never has.
+
+    The natural migration boundary: everything the legacy record holds from
+    before this instant was written by a build that had no journal to write to.
+    """
+
+    row = connection.execute("SELECT MIN(recorded_at) FROM events").fetchone()
+    return str(row[0]) if row and row[0] else ""
+
+
 def compare(
     journal: Mapping[str, Mapping[str, Any]],
     legacy: Mapping[str, Mapping[str, Any]],
     *,
     verdict_equivalent: Mapping[str, str] | None = None,
+    pre_migration_ids: Iterable[str] | None = None,
 ) -> list[Difference]:
     """Classify every disagreement between two views of the same runs.
 
@@ -170,9 +218,20 @@ def compare(
     """
 
     equivalents = dict(verdict_equivalent or {})
+    predates = frozenset(pre_migration_ids or ())
     differences: list[Difference] = []
 
     for run_id in sorted(set(legacy) - set(journal)):
+        if run_id in predates:
+            differences.append(
+                Difference(
+                    kind=KIND_PRE_MIGRATION,
+                    run_id=run_id,
+                    legacy=dict(legacy[run_id]),
+                    detail="this run predates the journal, so its absence is expected",
+                )
+            )
+            continue
         differences.append(
             Difference(
                 kind=KIND_MISSING,
@@ -228,6 +287,7 @@ def qualify(
     *,
     accepted_kinds: Iterable[str] = DEFAULT_ACCEPTED,
     verdict_equivalent: Mapping[str, str] | None = None,
+    pre_migration_ids: Iterable[str] | None = None,
     minimum_runs: int = 1,
 ) -> QualificationReport:
     """Decide whether the journal is ready to be read from.
@@ -265,7 +325,12 @@ def qualify(
         connection.close()
 
     differences = tuple(
-        compare(entries, legacy_runs, verdict_equivalent=verdict_equivalent)
+        compare(
+            entries,
+            legacy_runs,
+            verdict_equivalent=verdict_equivalent,
+            pre_migration_ids=pre_migration_ids,
+        )
     )
     compared = len(set(entries) & set(legacy_runs))
 
@@ -306,6 +371,7 @@ __all__: Sequence[str] = (
     "KIND_EXTRA",
     "KIND_MISSING",
     "KIND_NO_EVIDENCE",
+    "KIND_PRE_MIGRATION",
     "KIND_UNTERMINATED",
     "KIND_VERDICT",
     "QualificationReport",
@@ -314,5 +380,7 @@ __all__: Sequence[str] = (
     "STATUS_QUALIFIED",
     "compare",
     "journal_runs",
+    "journal_started_at",
+    "pre_migration_ids_from",
     "qualify",
 )

@@ -311,3 +311,87 @@ class AJournalFailureNeverFailsATurnTests(_RuntimeFixture):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class AFinishedRunIsNeverReopenedTests(_RuntimeFixture):
+    """Found by an adversarial audit, not by a test that was already here.
+
+    Re-admission used to take a fresh lease while leaving ``terminal_verdict``
+    in place, so a run that was running again still read as ``completed`` --
+    a settled run reporting a verdict it had not reached this time round. #613
+    forbids terminal regression outright, and this was it in reverse.
+
+    Refusing is deliberate rather than clearing the verdict: a genuine retry
+    already has a first-class representation -- a new run id, which becomes the
+    next attempt of the same task -- and silently clearing would make the two
+    indistinguishable in replay.
+    """
+
+    def _finish(self, fence: int) -> None:
+        record_terminal(
+            self.root,
+            run_id="run-a",
+            event_type=EVENT_FINISHED,
+            verdict="completed",
+            reason="ok",
+            now=NOW,
+            fence=fence,
+        )
+
+    def test_readmitting_a_finished_run_is_refused(self):
+        self._finish(self._admit())
+
+        self.assertIsNone(self._admit(), "a settled run must not be re-opened")
+
+    def test_the_refusal_leaves_the_lease_released(self):
+        self._finish(self._admit())
+        self._admit()
+
+        row = (
+            self._store()
+            .execute("SELECT fence, released_at FROM leases WHERE run_id = 'run-a'")
+            .fetchone()
+        )
+
+        self.assertEqual(row["fence"], 1, "no new fence was handed out")
+        self.assertIsNotNone(row["released_at"], "the release still stands")
+
+    def test_the_refusal_leaves_the_verdict_intact(self):
+        self._finish(self._admit())
+        self._admit()
+
+        verdict = (
+            self._store()
+            .execute("SELECT terminal_verdict FROM runs WHERE run_id = 'run-a'")
+            .fetchone()[0]
+        )
+
+        self.assertEqual(verdict, "completed")
+
+    def test_the_refusal_writes_no_admission_event(self):
+        """A rolled-back admission must leave no trace of having happened."""
+
+        self._finish(self._admit())
+        before = len(read_events(self._store()))
+
+        self._admit()
+
+        self.assertEqual(len(read_events(self._store())), before)
+
+    def test_a_retry_under_a_new_run_id_still_works(self):
+        """The refusal must not block the legitimate way to retry."""
+
+        self._finish(self._admit())
+
+        fence = self._admit(run_id="run-b")
+
+        self.assertIsNotNone(fence)
+        count = self._store().execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        self.assertEqual(count, 2)
+
+    def test_an_unfinished_run_can_still_be_taken_over(self):
+        """Teeth the other way: takeover of a *live* run must keep working."""
+
+        self._admit()
+
+        self.assertEqual(self._admit(), 2)
