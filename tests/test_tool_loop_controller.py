@@ -300,6 +300,48 @@ class ControllerRecoverableStateTests(unittest.TestCase):
         self.assertIs(result.completion_state, CompletionState.RETRYABLE_PROVIDER_ERROR)
         self.assertIn("503", result.last_error)
 
+    def test_provider_exception_canary_is_redacted_at_the_tool_loop_boundary(self):
+        secret = "sk-live-abc123SECRETKEYxyz789"  # pragma: allowlist secret
+
+        def chat(messages, *, tools):
+            raise ToolLoopProviderError(f"401 invalid key {secret}")
+
+        result = self._controller(max_provider_retries=0).run(
+            chat=chat,
+            executor=FakeExecutor(),
+            base_messages=self._base(),
+            provider_id="gemini",
+            operation_id="run-canary",
+            operation_kind="model_call_free",
+        )
+
+        self.assertNotIn(secret, result.last_error)
+        self.assertIsNotNone(result.boundary_error)
+        payload = dict(result.boundary_error or {})
+        self.assertEqual(payload["code"], "AUTH_INVALID")
+        self.assertEqual(payload["operation_id"], "run-canary")
+        self.assertEqual(payload["effect_continuity"], "not_dispatched")
+        self.assertNotIn(secret, json.dumps(payload))
+
+    def test_invalid_provider_decision_is_typed_and_redacted(self):
+        secret = "sk-live-abc123SECRETKEYxyz789"  # pragma: allowlist secret
+        invalid = decision_turn(state=secret)
+
+        result = self._controller().run(
+            chat=scripted_chat([invalid, invalid]),
+            executor=FakeExecutor(),
+            base_messages=self._base(),
+            provider_id="gemini",
+            operation_id="decision-canary",
+        )
+
+        self.assertIs(result.completion_state, CompletionState.STUCK_NO_PROGRESS)
+        self.assertNotIn(secret, result.last_error)
+        payload = dict(result.boundary_error or {})
+        self.assertEqual(payload["category"], "provider_malformed_output")
+        self.assertEqual(payload["code"], "INVALID_COMPLETION_DECISION")
+        self.assertNotIn(secret, json.dumps(payload))
+
     def test_inflight_task_deadline_is_terminal_and_never_retried(self):
         attempts = 0
 

@@ -498,6 +498,7 @@ class ToolLoopResult:
     # this into an approval card and threads the granted string back down.
     consent_payload: Mapping[str, Any] | None = None
     timeout_event: Mapping[str, Any] | None = None
+    boundary_error: Mapping[str, Any] | None = None
 
 
 ChatCallable = Callable[..., ChatTurn]
@@ -580,7 +581,13 @@ class ToolLoopController:
         guard: Callable[[int], Any] | None = None,
         cancel: Any = None,
         deadline_budget: DeadlineBudget | None = None,
+        provider_id: str = "unknown",
+        model_id: str = "",
+        operation_id: str = "",
+        operation_kind: str = "model_call_free",
     ) -> ToolLoopResult:
+        from .boundary_errors import BoundaryError
+
         policy = self.policy
         state = ToolLoopState(
             base_messages=[dict(message) for message in base_messages]
@@ -596,6 +603,7 @@ class ToolLoopController:
         provider_retries = 0
         started = self._clock()
         terminal_timeout_event: Mapping[str, Any] | None = None
+        last_boundary_error: Mapping[str, Any] | None = None
         # ``max_active_seconds`` is a no-progress backstop, not the immutable
         # task deadline carried by ``deadline_budget``. Measured from the start,
         # the backstop used to kill a run even while it produced new evidence;
@@ -638,15 +646,34 @@ class ToolLoopController:
                 progress=state.progress.summary(),
                 consent_payload=consent,
                 timeout_event=terminal_timeout_event,
+                boundary_error=last_boundary_error,
             )
+
+        def _record_boundary(error: BoundaryError) -> None:
+            nonlocal last_boundary_error, last_error
+            last_boundary_error = error.to_dict()
+            last_error = error.technical_message
 
         def _continuity_stop(exc: ReasoningContinuityError) -> ToolLoopResult:
             # #674: terminal, never retried. A missing reasoning_content is a
             # permanently lost field, not a transient transport blip — the
             # ToolLoopProviderError retry path would just resend the same
             # broken request and fail identically every time.
-            nonlocal last_error
-            last_error = str(exc)
+            _record_boundary(
+                BoundaryError.create(
+                    category="adapter_incompatible",
+                    code="REASONING_CONTINUITY_ERROR",
+                    source="provider_turn_replay",
+                    detail=exc,
+                    user_message=(
+                        "The provider response lost required continuation data."
+                    ),
+                    operation_id=operation_id,
+                    operation_kind=operation_kind,
+                    retryable=False,
+                    recovery_actions=("review",),
+                )
+            )
             return _result(CompletionState.FAILED, stopped="reasoning_continuity_error")
 
         def _task_deadline_stop(
@@ -763,15 +790,26 @@ class ToolLoopController:
                     cost_state=exc.cost_state,
                 )
             except ToolLoopProviderError as exc:
-                last_error = str(exc)
+                _record_boundary(
+                    BoundaryError.from_provider_exception(
+                        exc,
+                        source="provider_turn",
+                        provider=provider_id,
+                        model=model_id,
+                        operation_id=operation_id,
+                        operation_kind=operation_kind,
+                    )
+                )
                 # The round-trip failed, so it changed nothing: the request
                 # messages, the tool trace, and every milestone are exactly as
                 # they were. Re-issue the same turn instead of discarding the
                 # whole run's progress over a blip. The budget is per-run, so a
                 # provider that keeps failing still stops honestly — and the
                 # retry is not counted as a model call, because none happened.
-                if provider_retries < policy.max_provider_retries and not _cancelled(
-                    cancel
+                if (
+                    bool((last_boundary_error or {}).get("automatic_retry_safe"))
+                    and provider_retries < policy.max_provider_retries
+                    and not _cancelled(cancel)
                 ):
                     provider_retries += 1
                     self._sleep(policy.provider_retry_delay_seconds)
@@ -794,7 +832,21 @@ class ToolLoopController:
                     decision = parse_completion_decision(turn.content or "")
                 except InvalidCompletionDecision as exc:
                     invalid_decisions += 1
-                    last_error = str(exc)
+                    _record_boundary(
+                        BoundaryError.create(
+                            category="provider_malformed_output",
+                            code="INVALID_COMPLETION_DECISION",
+                            source="provider_completion_decision",
+                            detail=exc,
+                            user_message=(
+                                "The provider returned an invalid completion decision."
+                            ),
+                            operation_id=operation_id,
+                            operation_kind=operation_kind,
+                            retryable=True,
+                            recovery_actions=("retry", "show_details"),
+                        )
+                    )
                     if invalid_decisions >= 2:
                         return _result(
                             CompletionState.STUCK_NO_PROGRESS,

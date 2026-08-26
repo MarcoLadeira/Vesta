@@ -151,6 +151,10 @@ class CancellationTests(unittest.TestCase):
                 cancelled.result["cancellation"]["scope_id"],
                 f"background-{run.run_id}",
             )
+            self.assertEqual(cancelled.cancellation["phase"], "terminated")
+            self.assertEqual(
+                load_run(root, run.run_id).cancellation["phase"], "terminated"
+            )
 
             runner = BackgroundRunner(root, executor=_completed_executor)
             with self.assertRaises(ValueError):
@@ -161,16 +165,24 @@ class CancellationTests(unittest.TestCase):
             root = Path(tmp)
             run = enqueue_automation(root, "bug_fix", "task")
             started = threading.Event()
+            release = threading.Event()
 
             def waiting_executor(project_root, current, cancel_event):
                 started.set()
                 cancel_event.wait(timeout=10)
+                release.wait(timeout=10)
                 return {"status": "cancelled"}
 
             runner = BackgroundRunner(root, executor=waiting_executor)
             thread = runner.start(run.run_id)
             self.assertTrue(started.wait(timeout=10))
-            request_cancel(root, run.run_id)
+            requested = request_cancel(root, run.run_id)
+            self.assertEqual(requested.run_state, RunState.CANCEL_REQUESTED.value)
+            self.assertEqual(requested.cancellation["phase"], "requested")
+            self.assertEqual(
+                load_run(root, run.run_id).cancellation["phase"], "requested"
+            )
+            release.set()
             thread.join(timeout=10)
             self.assertFalse(thread.is_alive())
 

@@ -20,12 +20,57 @@ assumed from the issue text:
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from opai.provider_contract import redact_secrets
 from opaihub.ask import render_ask, run_ask
+from opaihub.boundary_errors import BoundaryError
+
+
+class BoundaryErrorContractTests(unittest.TestCase):
+    SECRET = "sk-live-abc123SECRETKEYxyz789"  # pragma: allowlist secret
+
+    def test_provider_exception_is_typed_redacted_and_correlated(self):
+        error = BoundaryError.from_provider_exception(
+            RuntimeError(f"401 invalid key {self.SECRET}"),
+            source="provider_turn",
+            provider="gemini",
+            operation_id="operation-123",
+            operation_kind="model_call_free",
+        )
+        payload = error.to_dict()
+
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["category"], "provider_authentication")
+        self.assertEqual(payload["code"], "AUTH_INVALID")
+        self.assertEqual(payload["source"], "provider_turn")
+        self.assertEqual(payload["operation_id"], "operation-123")
+        self.assertEqual(payload["effect_continuity"], "not_dispatched")
+        self.assertFalse(payload["retryable"])
+        self.assertFalse(payload["automatic_retry_safe"])
+        self.assertNotIn(self.SECRET, json.dumps(payload))
+
+    def test_redactor_failure_fails_closed_with_a_safe_meta_error(self):
+        with mock.patch(
+            "opaihub.boundary_errors.redact",
+            side_effect=RuntimeError("redactor unavailable"),
+        ):
+            error = BoundaryError.create(
+                category="unknown_internal",
+                code="UNKNOWN",
+                source="tool_loop",
+                detail=f"do not persist {self.SECRET}",
+                user_message="OPai could not safely prepare the diagnostic.",
+            )
+
+        payload = error.to_dict()
+        self.assertEqual(payload["redaction_status"], "failed_closed")
+        self.assertEqual(payload["technical_message"], "[REDACTION_FAILED]")
+        self.assertNotIn(self.SECRET, json.dumps(payload))
 
 
 class ProviderContractDelegationTests(unittest.TestCase):

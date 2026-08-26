@@ -2758,6 +2758,10 @@ class AccountRunner:
                 Path(out_path).unlink(missing_ok=True)
             partial = "".join(text_parts).strip()
             cancellation_evidence = _cancellation_evidence(cancellation_tracker)
+            teardown_proven = teardown_confirmed and (
+                cancellation_tracker is None
+                or (cancellation_evidence or {}).get("phase") == "terminated"
+            )
             if stopped in {TASK_DEADLINE, PROVIDER_IDLE_TIMEOUT}:
                 ended = time.monotonic()
                 last_age = (
@@ -2765,7 +2769,7 @@ class AccountRunner:
                     if last_provider_activity is None
                     else ended - last_provider_activity
                 )
-                return {
+                result = {
                     "text": partial,
                     "cost": cost,
                     "timed_out": True,
@@ -2809,6 +2813,15 @@ class AccountRunner:
                     "cancellation": cancellation_evidence,
                     **unfinished_work,
                 }
+                if not teardown_proven:
+                    result.update(
+                        {
+                            "status": "needs_attention",
+                            "completion_state": "needs_attention",
+                            "stopped_reason": "timeout_teardown_unconfirmed",
+                        }
+                    )
+                return result
             if stopped == "no_progress":
                 # F27: checkpoint, honestly. The paid spend so far is real and
                 # is recorded by the caller; the result can never render green.
@@ -2827,10 +2840,22 @@ class AccountRunner:
                     "cancellation": cancellation_evidence,
                     **unfinished_work,
                 }
+            if teardown_proven:
+                return {
+                    "text": partial,
+                    "cost": cost,
+                    "status": "cancelled",
+                    "completion_state": "cancelled",
+                    "stopped_reason": "cancelled",
+                    "cancelled": True,
+                    "cancellation": cancellation_evidence,
+                }
             return {
                 "text": partial,
                 "cost": cost,
-                "cancelled": True,
+                "status": "needs_attention",
+                "completion_state": "needs_attention",
+                "stopped_reason": "cancellation_unconfirmed",
                 "cancellation": cancellation_evidence,
             }
 

@@ -560,6 +560,11 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertEqual(result["stopped_reason"], "provider_error")
         self.assertEqual(result["completion_state"], "retryable_provider_error")
         self.assertIsNone(result["timeout_event"])
+        boundary_error = result["boundary_error"]
+        self.assertEqual(boundary_error["category"], "provider_transport")
+        self.assertEqual(boundary_error["code"], "PROVIDER_TIMEOUT")
+        self.assertEqual(boundary_error["source"], "provider_turn")
+        self.assertTrue(boundary_error["operation_id"])
 
     def test_provider_response_after_task_deadline_cannot_execute_tools(self):
         from opaihub.deadlines import DeadlineBudget, TASK_DEADLINE

@@ -151,6 +151,52 @@ class AccountStatusContractTests(_Base):
         self.assertNotIn("did not receive a response", res["answer"].lower())
         self.assertNotIn("smaller", res["answer"].lower())
 
+    def test_unproven_task_deadline_teardown_never_projects_to_timeout(self):
+        class UnconfirmedDeadlineRunner(FakeAccountRunner):
+            def complete(self, prompt, **kwargs):
+                self.calls.append({"prompt": prompt, **kwargs})
+                return {
+                    "text": "partial work",
+                    "cost": 0.04,
+                    "timed_out": True,
+                    "status": "needs_attention",
+                    "completion_state": "needs_attention",
+                    "stopped_reason": "timeout_teardown_unconfirmed",
+                    "timeout_event": timeout_event(
+                        origin=TASK_DEADLINE,
+                        owner="account_runner",
+                        configured_seconds=1200.0,
+                        elapsed_seconds=1200.0,
+                        provider_responsive=True,
+                        phase="stream",
+                        budget=kwargs.get("deadline_budget"),
+                        operation_id=kwargs.get("operation_id"),
+                        progress_observed=True,
+                        external_effect_possible=True,
+                        teardown_state="force_terminating",
+                        cost_state="observed",
+                        verification_state="incomplete",
+                    ),
+                    "cancellation": {"phase": "force_terminating"},
+                }
+
+        res = handle_gui_message(
+            self.root,
+            "implement a multi-file feature and run tests",
+            model_id="account:claude:opus",
+            mode="full-auto",
+            account_runner=UnconfirmedDeadlineRunner(),
+        )
+
+        self.assertEqual(res["status"], "needs_attention")
+        self.assertEqual(res["run_result"]["lifecycle"]["state"], "needs_attention")
+        self.assertEqual(
+            res["raw_result"]["stopped_reason"], "timeout_teardown_unconfirmed"
+        )
+        self.assertEqual(res["timeout_event"]["timeout_origin"], TASK_DEADLINE)
+        self.assertNotIn("did not receive a response", res["answer"].lower())
+        self.assertNotIn("smaller", res["answer"].lower())
+
     def test_account_dispatch_uses_policy_deadline_and_records_operation_intent(self):
         contract = SimpleNamespace(
             lane="long_horizon",

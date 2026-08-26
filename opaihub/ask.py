@@ -491,6 +491,10 @@ def run_explicit_model(
             tool_trace = list(completed.get("tool_trace") or [])
             stopped_reason = str(completed.get("stopped_reason") or "")
             last_error = str(completed.get("last_error") or "")
+            boundary_error = completed.get("boundary_error")
+            boundary_error = (
+                dict(boundary_error) if isinstance(boundary_error, Mapping) else None
+            )
             approval = _extract_command_approval(completed)
             completion_state = str(completed.get("completion_state") or "")
             timeout_info = completed.get("timeout_event")
@@ -525,6 +529,7 @@ def run_explicit_model(
             tool_trace = []
             stopped_reason = ""
             last_error = ""
+            boundary_error = None
             # F8: a single-shot free run that produced nothing is not "done".
             completion_state = "completed" if answer.strip() else "failed"
             timeout_info = None
@@ -567,6 +572,7 @@ def run_explicit_model(
         # can detect a non-success run without a new status to special-case.
         "stopped_reason": stopped_reason,
         "last_error": last_error,
+        "boundary_error": boundary_error,
         # Canonical completion truth (Task 6): only "completed" is success; a
         # guard-blocked turn also carries the ProviderBlockedReason.
         "completion_state": completion_state,

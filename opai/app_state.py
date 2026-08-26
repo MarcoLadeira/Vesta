@@ -1830,30 +1830,72 @@ def _ask_account(
         _note_provider_balance(root, account_id, {"error": error})
         return _fail(error)
 
-    # User stopped it mid-flight: return the partial cleanly (not an error).
-    if isinstance(result, dict) and result.get("cancelled"):
+    # User stopped it mid-flight. An account runner can now report an
+    # unconfirmed teardown directly; retain the legacy cancelled+evidence
+    # check so older provider adapters also fail closed.
+    if isinstance(result, dict):
         cancellation = result.get("cancellation")
         cancellation = cancellation if isinstance(cancellation, dict) else {}
-        if cancellation.get("phase") != "terminated":
-            return {
-                "status": "needs_attention",
-                "provider": account_id,
-                "model": getattr(run, "model", "") or account_id,
-                "answer": (
+        unconfirmed_reason = str(result.get("stopped_reason") or "")
+        cancellation_unconfirmed = unconfirmed_reason in {
+            "cancellation_unconfirmed",
+            "timeout_teardown_unconfirmed",
+        } or (result.get("cancelled") and cancellation.get("phase") != "terminated")
+        if cancellation_unconfirmed:
+            if not unconfirmed_reason:
+                unconfirmed_reason = "cancellation_unconfirmed"
+            timeout_info = result.get("timeout_event")
+            timeout_info = timeout_info if isinstance(timeout_info, dict) else {}
+            timeout_teardown = unconfirmed_reason == "timeout_teardown_unconfirmed"
+            partial_answer = str(result.get("text") or "").strip()
+            answer = (
+                "OPai reached the task time limit, but could not prove that all "
+                "provider work terminated. Inspect the retained changes and "
+                "timeout evidence before continuing."
+                if timeout_teardown
+                else (
                     "OPai received the stop request, but could not prove that "
                     "all provider work terminated. Inspect the cancellation "
                     "evidence before retrying."
-                ),
+                )
+            )
+            response = {
+                "status": "needs_attention",
+                "provider": account_id,
+                "model": getattr(run, "model", "") or account_id,
+                "answer": answer,
                 "completion_state": "needs_attention",
-                "stopped_reason": "cancellation_unconfirmed",
+                "stopped_reason": unconfirmed_reason,
                 "cost_usd": result.get("cost"),
                 "operation_id": operation_id,
                 "ledger_dispatch_recorded": dispatch_recorded,
                 "ledger_call_id": call_id if dispatch_recorded else None,
                 "cancellation": cancellation,
+                "partial_answer": partial_answer,
+                "changed_files": (
+                    _changed_since(root, before, before_identities)
+                    if allow_edits
+                    else []
+                ),
                 "provider_invocation": invocation_info,
                 **_unresolved_paid_account_cost(),
             }
+            if timeout_teardown:
+                response.update(
+                    {
+                        "timed_out": True,
+                        "timeout_event": timeout_info,
+                        "timeout_origin": str(
+                            timeout_info.get("timeout_origin") or "unknown_timeout"
+                        ),
+                        "provider_condition": timeout_info.get("provider_condition"),
+                    }
+                )
+            return response
+    # Confirmed cancellation returns the partial cleanly (not an error).
+    if isinstance(result, dict) and result.get("cancelled"):
+        cancellation = result.get("cancellation")
+        cancellation = cancellation if isinstance(cancellation, dict) else {}
         return {
             "status": "cancelled",
             "provider": account_id,
