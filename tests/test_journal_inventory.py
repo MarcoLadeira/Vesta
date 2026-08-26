@@ -74,6 +74,9 @@ JOURNAL_OWNED = {
     # Stage 6's bridge. Mirrors every exact-once external effect into the
     # operations table by hooking idempotency, the choke point they all share.
     "opaihub/journal_operations.py": "operations — Stage 6 external-effect transactions",
+    "opaihub/journal_backup.py": (
+        "events — requirement 12 backup/recovery: verified copies of the journal"
+    ),
     # Writes admission, lifecycle, cost and verification from the live turn
     # path. Not a migration target itself -- it originates records rather than
     # owning a legacy file -- so it is machinery, like the other writers.
@@ -121,6 +124,11 @@ JOURNAL_OWNED = {
 JOURNAL_MACHINERY = frozenset(
     {
         "opaihub/gui_pipeline.py",
+        # Writes backups *of* the journal. Its durable output is a copy of the
+        # record itself, so there is no legacy counterpart it could disagree
+        # with -- comparing a backup against a legacy projection would be
+        # comparing the journal to itself.
+        "opaihub/journal_backup.py",
         "opaihub/journal_operations.py",
         "opaihub/journal_runtime.py",
         "opaihub/journal_store.py",
