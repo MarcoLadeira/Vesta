@@ -85,10 +85,24 @@ Each of these is enforced by a test that fails if the choice is reverted.
 | store: schema, typed API, fencing, integrity | done |
 | projections: deterministic rebuild + property tests | done |
 | 3 — vertical slice | admission, terminal, cost and verification written from the live path |
-| 4 — dual-read qualification | comparator built; no real-traffic corpus qualified yet |
-| 5 — canonical reads | not started |
-| 6 — operation migration | not started |
-| 7 — legacy retirement | not started |
+| 4 — dual-read qualification | comparator built; corpus supplied by `journal_background` |
+| 5 — canonical reads | `JournalReader` serves migrated runs, falls back otherwise |
+| 6 — operation migration | mirrored at the `idempotency` choke point |
+| 7 — legacy retirement | gate implemented and reachable; opens on real evidence |
+
+Stages 4-7 were correct and unreachable for a while, which is worth recording
+because it is the failure mode this kind of migration invites. The reader and
+the retirement gate were fully built and fully tested, and nothing in the
+application called either: `journal_retirement` had no importers at all. Worse,
+the population being journalled had no legacy counterpart -- `gui_pipeline`
+journals a GUI turn keyed by `turn_id`, which is minted per call and persisted
+nowhere -- so no amount of correctness in the comparator could have produced a
+comparison.
+
+`background_runs` is the record that closes it: durable, enumerable, keyed by
+run id. `journal_background.legacy_runs` assembles it, `_save_run` mirrors it,
+and doctor reports the resulting verdict. A migration is only observable once
+both halves describe the same population.
 
 Required tests:
 
@@ -97,7 +111,7 @@ Required tests:
 | unit | done |
 | crash matrix | done |
 | property-based | done |
-| fault injection | done, minus the backup case (no backup path exists) |
+| fault injection | done, including the backup case |
 | multiprocess integration | done |
 | performance | done |
 
@@ -116,6 +130,24 @@ The budgets in the test are far above these on purpose. They catch a regression
 index — not a slow afternoon on a shared runner. They are not a claim that the
 store is fast.
 
+## Backup and recovery (requirement 12)
+
+`journal_backup` uses SQLite's online backup API rather than copying files. In
+WAL mode the recent commits live in the `-wal`, so copying `journal.sqlite3`
+alone produces a backup missing exactly the work most worth keeping — and one
+that looks entirely valid. Every backup is reopened, integrity-checked and
+hashed before it is declared; one that fails verification is deleted rather
+than left to be found and trusted when there is nothing else left.
+
+Restoring a backup taken against a different project drops its approvals. The
+issue requires that a database copied from another user or device not
+automatically grant authority, and an approval is exactly granted authority: a
+person said yes, once, to a specific thing, here. Runs and costs survive the
+restore — only authority is refused. Restore also backs up what it replaces,
+so recovery is never the step that destroys the last copy.
+
+Reachable as `opai journal status | backup | backups | restore`.
+
 ## Open questions
 
 1. **Windows least-privilege.** The database file needs ACLs; `chmod` does
@@ -125,11 +157,13 @@ store is fast.
    implemented.
 3. **Privacy enforcement.** The schema carries `privacy_class` on events and
    artifacts, but nothing yet enforces #527's minimisation rules against it.
-4. **Backup and recovery.** Requirement 12 asks for these in doctor/preflight;
-   `store_health` reports integrity and appears in `opai doctor`, but there is
-   no backup path yet. The fault-injection suite records this as a skip with a
-   reason rather than omitting it, so the gap is visible next to the code.
-5. **Stage 4 needs a real corpus.** `journal_qualification.qualify()` exists and
-   is deliberately hard to please — an empty journal is `insufficient_evidence`,
-   never `qualified` — but nothing has yet been qualified against captured
-   production traffic, which is what Stage 4 actually asks for.
+4. **Stage 4 wants captured production traffic.** `journal_background` supplies
+   a real corpus and a fully migrated project now qualifies against it with no
+   differences, which is what made Stages 5-7 reachable. Stage 4 asks for
+   *captured* traffic as well, and that still has not happened — synthetic
+   agreement is evidence that the comparison works, not that the migration
+   survives real histories.
+5. **Restore cannot replace a journal another process holds open.** On Windows
+   an open handle blocks the replace. The refusal is the safe outcome and it
+   names the real cause (`journal_in_use`) rather than blaming the backup, but
+   a restore still means closing OPai first.
