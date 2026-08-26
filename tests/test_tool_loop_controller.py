@@ -301,7 +301,7 @@ class ControllerRecoverableStateTests(unittest.TestCase):
         self.assertIn("503", result.last_error)
 
     def test_provider_exception_canary_is_redacted_at_the_tool_loop_boundary(self):
-        secret = "sk-live-abc123SECRETKEYxyz789"
+        secret = "sk-live-abc123SECRETKEYxyz789"  # pragma: allowlist secret
 
         def chat(messages, *, tools):
             raise ToolLoopProviderError(f"401 invalid key {secret}")
@@ -324,7 +324,7 @@ class ControllerRecoverableStateTests(unittest.TestCase):
         self.assertNotIn(secret, json.dumps(payload))
 
     def test_invalid_provider_decision_is_typed_and_redacted(self):
-        secret = "sk-live-abc123SECRETKEYxyz789"
+        secret = "sk-live-abc123SECRETKEYxyz789"  # pragma: allowlist secret
         invalid = decision_turn(state=secret)
 
         result = self._controller().run(

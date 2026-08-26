@@ -32,7 +32,7 @@ from opaihub.boundary_errors import BoundaryError
 
 
 class BoundaryErrorContractTests(unittest.TestCase):
-    SECRET = "sk-live-abc123SECRETKEYxyz789"
+    SECRET = "sk-live-abc123SECRETKEYxyz789"  # pragma: allowlist secret
 
     def test_provider_exception_is_typed_redacted_and_correlated(self):
         error = BoundaryError.from_provider_exception(
