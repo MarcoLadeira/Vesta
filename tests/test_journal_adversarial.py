@@ -362,3 +362,181 @@ class IdentityIsNeverAmbiguousTests(_StackFixture):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class CompactionLeavesTheStoreIntactTests(_StackFixture):
+    """Retention deletes rows from a live database. These are the seams.
+
+    Each of these crosses two modules that have their own suites and no reason
+    to test each other: retention against integrity, against sequence
+    stability, against backup. A defect here would look like a bug in whichever
+    module was blamed second.
+    """
+
+    def _with_history(self, runs: int, transitions: int, *, old: bool = True) -> None:
+        from opaihub.journal_runtime import EVENT_TRANSITIONED
+
+        stamp = "2024-01-01T00:00:00+00:00" if old else NOW
+        for index in range(runs):
+            run_id = f"run-{index}"
+            fence = record_admission(
+                self.root, task_id="t", run_id=run_id, task="x", now=NOW
+            )
+            store = open_store(self.root)
+            try:
+                for step in range(transitions):
+                    append_event(
+                        store,
+                        event_type=EVENT_TRANSITIONED,
+                        payload={"state": f"s{step}"},
+                        occurred_at=stamp,
+                        recorded_at=stamp,
+                        producer="test",
+                        run_id=run_id,
+                        expected_fence=fence,
+                    )
+            finally:
+                store.close()
+            record_terminal(
+                self.root,
+                run_id=run_id,
+                event_type=EVENT_FINISHED,
+                verdict="completed",
+                reason="",
+                now=NOW,
+                fence=fence,
+            )
+
+    def _compact(self, **kwargs):
+        from opaihub import journal_retention
+
+        return journal_retention.compact(self.root, now=NOW, floor_per_run=0, **kwargs)
+
+    def test_integrity_stays_complete_after_compaction(self):
+        self._with_history(5, 12)
+
+        self._compact()
+
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        from opaihub import journal_store
+
+        self.assertEqual(
+            journal_store.check_integrity(store).state,
+            journal_store.INTEGRITY_COMPLETE,
+        )
+
+    def test_a_surviving_events_sequence_never_moves(self):
+        """Sequences are identity. Renumbering would break every parent link."""
+
+        self._with_history(1, 10)
+        store = open_store(self.root)
+        before = [
+            row[0]
+            for row in store.execute(
+                "SELECT sequence FROM events WHERE event_type = ?", (EVENT_FINISHED,)
+            )
+        ]
+        store.close()
+
+        self._compact()
+
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        after = [
+            row[0]
+            for row in store.execute(
+                "SELECT sequence FROM events WHERE event_type = ?", (EVENT_FINISHED,)
+            )
+        ]
+        self.assertEqual(before, after)
+
+    def test_compacting_twice_removes_nothing_the_second_time(self):
+        self._with_history(2, 10)
+
+        first = self._compact()
+        second = self._compact()
+
+        self.assertGreater(first.removed_events, 0)
+        self.assertEqual(second.removed_events, 0)
+
+    def test_a_compacted_journal_can_still_be_backed_up_and_restored(self):
+        """The two housekeeping paths meeting, which neither suite covers."""
+
+        from opaihub import journal_backup
+
+        self._with_history(3, 10)
+        self._compact()
+
+        record = journal_backup.create_backup(self.root)
+        self.assertIsNotNone(record)
+        journal_path(self.root).write_bytes(b"not a database")
+
+        self.assertTrue(journal_backup.restore_backup(self.root, record.path).ok)
+
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        self.assertEqual(
+            store.execute(
+                "SELECT COUNT(*) FROM events WHERE event_type = ?", (EVENT_FINISHED,)
+            ).fetchone()[0],
+            3,
+        )
+
+    def test_an_event_belonging_to_no_run_is_never_pruned(self):
+        """Orphans belong to no settled run, so nothing has settled about them."""
+
+        from opaihub.journal_runtime import EVENT_TRANSITIONED
+
+        store = open_store(self.root)
+        try:
+            append_event(
+                store,
+                event_type=EVENT_TRANSITIONED,
+                payload={"x": 1},
+                occurred_at="2024-01-01T00:00:00+00:00",
+                recorded_at="2024-01-01T00:00:00+00:00",
+                producer="test",
+                run_id=None,
+            )
+        finally:
+            store.close()
+
+        self._compact()
+
+        store = open_store(self.root)
+        self.addCleanup(store.close)
+        self.assertEqual(store.execute("SELECT COUNT(*) FROM events").fetchone()[0], 1)
+
+    def test_compaction_and_concurrent_writers_do_not_collide(self):
+        import threading
+
+        self._with_history(4, 10)
+        errors: list[BaseException] = []
+
+        def write(index: int) -> None:
+            try:
+                record_admission(
+                    self.root,
+                    task_id="t",
+                    run_id=f"new-{index}",
+                    task="x",
+                    now=NOW,
+                )
+            except BaseException as exc:  # noqa: BLE001 - recorded, then asserted
+                errors.append(exc)
+
+        def prune() -> None:
+            try:
+                self._compact()
+            except BaseException as exc:  # noqa: BLE001 - recorded, then asserted
+                errors.append(exc)
+
+        threads = [threading.Thread(target=write, args=(i,)) for i in range(4)]
+        threads.append(threading.Thread(target=prune))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(errors, [])
