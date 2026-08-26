@@ -74,6 +74,9 @@ JOURNAL_OWNED = {
     # Stage 6's bridge. Mirrors every exact-once external effect into the
     # operations table by hooking idempotency, the choke point they all share.
     "opaihub/journal_operations.py": "operations — Stage 6 external-effect transactions",
+    "opaihub/journal_retention.py": (
+        "events — requirement 5 retention: deletes presentation events only"
+    ),
     "opaihub/journal_backup.py": (
         "events — requirement 12 backup/recovery: verified copies of the journal"
     ),
@@ -124,6 +127,11 @@ JOURNAL_OWNED = {
 JOURNAL_MACHINERY = frozenset(
     {
         "opaihub/gui_pipeline.py",
+        # Deletes *from* the journal rather than writing a record that
+        # migrates into it. There is no legacy counterpart to disagree with,
+        # and what it may delete is itself constrained by a default-deny list
+        # with its own suite.
+        "opaihub/journal_retention.py",
         # Writes backups *of* the journal. Its durable output is a copy of the
         # record itself, so there is no legacy counterpart it could disagree
         # with -- comparing a backup against a legacy projection would be

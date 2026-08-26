@@ -669,6 +669,12 @@ def _doctor_model_check(root: Path, validate: Any) -> dict[str, Any]:
     return {"checked": True, "model": selected, "valid": True, "reason": ""}
 
 
+def _iso_now_for_journal() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 def cmd_journal(args: argparse.Namespace) -> int:
     """Inspect, back up and recover the #613 runtime journal.
 
@@ -736,6 +742,30 @@ def cmd_journal(args: argparse.Namespace) -> int:
         )
         if removed:
             print(f"  pruned {len(removed)} older backup(s)")
+        return 0
+
+    if action == "compact":
+        from opaihub import journal_retention
+
+        report = journal_retention.compact(
+            root,
+            now=_iso_now_for_journal(),
+            presentation_days=int(
+                getattr(args, "days", journal_retention.DEFAULT_PRESENTATION_DAYS)
+            ),
+            reclaim=not bool(getattr(args, "no_reclaim", False)),
+        )
+        if as_json:
+            print(json.dumps(report.to_dict(), indent=2))
+            return 0
+        print(report.detail)
+        if report.removed_events:
+            print(
+                f"  removed {report.removed_events} presentation event(s) "
+                f"across {report.runs_touched} run(s)"
+            )
+            print(f"  reclaimed {report.reclaimed_bytes} byte(s)")
+        print(f"  kept {report.kept_audit_critical} audit-critical event(s)")
         return 0
 
     if action == "backups":
@@ -912,6 +942,17 @@ def _journal_permissions(root: Path) -> dict[str, object]:
         return {"checked": False, "restricted": False, "detail": ""}
 
 
+def _journal_retention(root: Path) -> dict[str, object]:
+    """What retention would remove, without removing it (#613 requirement 5)."""
+
+    try:
+        from opaihub import journal_retention
+
+        return journal_retention.retention_health(root)
+    except Exception:  # noqa: BLE001 - doctor never raises
+        return {"available": False}
+
+
 def _journal_doctor(root: Path) -> dict[str, object]:
     """Runtime-journal health for doctor (#613 AC10, functional requirement 12).
 
@@ -948,6 +989,10 @@ def _journal_doctor(root: Path) -> dict[str, object]:
             # a database restored, copied or synced in from elsewhere carrying
             # whatever permissions it had there.
             "permissions": _journal_permissions(root),
+            # #613 functional requirement 5. A dry run, never a prune: deciding
+            # when to delete a user's history is not a diagnostic command's
+            # business, but telling them it is accumulating is.
+            "retention": _journal_retention(root),
             **health,
         }
     except Exception:  # noqa: BLE001 - doctor reports a stable safe category
@@ -3037,6 +3082,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     jb.add_argument("--json", action="store_true")
     jb.set_defaults(func=cmd_journal)
+    jc = journal_sub.add_parser(
+        "compact",
+        help="Apply retention to high-volume presentation events and reclaim space",
+    )
+    jc.add_argument("--project", default=None, help="Project root")
+    jc.add_argument(
+        "--days",
+        type=int,
+        default=30,
+        help="Keep presentation events younger than this many days",
+    )
+    jc.add_argument(
+        "--no-reclaim",
+        action="store_true",
+        help="Skip VACUUM (it rewrites the database and wants a quiet moment)",
+    )
+    jc.add_argument("--json", action="store_true")
+    jc.set_defaults(func=cmd_journal)
     jl = journal_sub.add_parser("backups", help="List verified backups, newest first")
     jl.add_argument("--project", default=None, help="Project root")
     jl.add_argument("--json", action="store_true")
@@ -3897,6 +3960,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Branded readiness check: client integrations, stale paths, registries",
     )
     p.add_argument("--project", default=None, help="Project root")
+    p.add_argument(
+        "--json",
+        action="store_true",
+        # cmd_doctor has always rendered a JSON payload when asked; the flag to
+        # ask for it was simply never registered, so the whole machine-readable
+        # report was unreachable from the command line.
+        help="Render the full readiness report as JSON",
+    )
     p.set_defaults(func=cmd_doctor)
 
     p = sub.add_parser(

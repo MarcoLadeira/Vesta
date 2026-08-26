@@ -308,3 +308,59 @@ class AJournalInUseIsNotABadBackupTests(_JournalCommandFixture):
         self.assertEqual(
             {row[0] for row in held.execute("SELECT run_id FROM runs")}, before
         )
+
+
+class CompactTests(_JournalCommandFixture):
+    """#613 requirement 5, reachable rather than library-only."""
+
+    def _run_with_transitions(self, count: int) -> None:
+        run = background_runs.enqueue_automation(
+            self.root, workflow_id="bug_fix", task="a task"
+        )
+        for index in range(count):
+            background_runs._save_run(
+                self.root, dataclasses.replace(run, message=f"m{index}")
+            )
+        background_runs._save_run(
+            self.root, dataclasses.replace(run, run_state="completed", status="done")
+        )
+
+    def test_compacting_a_project_with_no_journal_is_not_an_error(self):
+        code, output = self._run("compact", days=30, no_reclaim=False)
+
+        self.assertEqual(code, 0)
+        self.assertIn("no journal", output)
+
+    def test_compacting_reports_what_it_kept(self):
+        self._run_with_transitions(3)
+
+        code, output = self._run("compact", days=30, no_reclaim=False)
+
+        self.assertEqual(code, 0)
+        self.assertIn("audit-critical", output)
+
+    def test_recent_history_is_not_removed_by_default(self):
+        """A day-old run must survive an ordinary compaction."""
+
+        self._run_with_transitions(10)
+
+        code, output = self._run("compact", days=30, no_reclaim=False)
+
+        self.assertEqual(code, 0)
+        self.assertIn("0 presentation event(s)", output)
+
+    def test_compact_json_is_parseable(self):
+        self._run_with_transitions(2)
+
+        code, output = self._run("compact", days=30, no_reclaim=True, as_json=True)
+
+        self.assertEqual(code, 0)
+        payload = json.loads(output)
+        self.assertEqual(payload["report"], "opai-journal-retention")
+
+    def test_compact_is_reachable_from_argv(self):
+        args = cli.build_parser().parse_args(["journal", "compact", "--days", "7"])
+
+        self.assertIs(args.func, cli.cmd_journal)
+        self.assertEqual(args.days, 7)
+        self.assertFalse(args.no_reclaim)

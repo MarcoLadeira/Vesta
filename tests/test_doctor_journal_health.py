@@ -471,3 +471,81 @@ class BackupVisibilityTests(_DoctorFixture):
 
         self.assertEqual(payload["runtime_journal"]["backup"]["backups"], 0)
         self.assertEqual(payload["readiness"], "ready")
+
+
+class RetentionAndPermissionVisibilityTests(_DoctorFixture):
+    """#613 requirement 5 and the least-privilege security requirement.
+
+    Both are reported, neither escalates readiness. A journal that has grown
+    is not broken, and a permissions field that shouts on every install is one
+    nobody reads on the day it matters.
+    """
+
+    def test_retention_reports_what_would_be_pruned(self):
+        open_store(self.root).close()
+
+        payload = cli._journal_retention(self.root)
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["prunable_now"], 0)
+
+    def test_retention_of_a_project_with_no_journal_is_unavailable(self):
+        payload = cli._journal_retention(self.root)
+
+        self.assertFalse(payload["available"])
+
+    def test_retention_never_raises(self):
+        open_store(self.root).close()
+
+        with mock.patch(
+            "opaihub.journal_retention.retention_health", side_effect=OSError("gone")
+        ):
+            self.assertFalse(cli._journal_retention(self.root)["available"])
+
+    def test_permissions_report_owner_only_for_a_fresh_journal(self):
+        open_store(self.root).close()
+
+        payload = cli._journal_permissions(self.root)
+
+        self.assertTrue(payload["checked"])
+        self.assertTrue(payload["restricted"], payload["detail"])
+
+    def test_permissions_never_raise(self):
+        with mock.patch(
+            "opaihub.journal_store.permissions_health", side_effect=OSError("gone")
+        ):
+            self.assertFalse(cli._journal_permissions(self.root)["checked"])
+
+    def test_both_blocks_appear_in_the_full_payload(self):
+        open_store(self.root).close()
+
+        payload = self._doctor_payload()
+
+        self.assertIn("retention", payload["runtime_journal"])
+        self.assertIn("permissions", payload["runtime_journal"])
+
+    def test_neither_pushes_an_otherwise_clean_project_to_attention(self):
+        open_store(self.root).close()
+
+        payload = self._doctor_payload(clean_integrations=True)
+
+        self.assertEqual(payload["readiness"], "ready")
+
+
+class DoctorJsonIsReachableFromArgvTests(unittest.TestCase):
+    """cmd_doctor always rendered JSON; nothing ever registered the flag.
+
+    The whole machine-readable readiness report -- every journal block in this
+    file included -- was unreachable from the command line.
+    """
+
+    def test_doctor_accepts_json(self):
+        args = cli.build_parser().parse_args(["doctor", "--json"])
+
+        self.assertIs(args.func, cli.cmd_doctor)
+        self.assertTrue(args.json)
+
+    def test_doctor_still_defaults_to_the_human_report(self):
+        args = cli.build_parser().parse_args(["doctor"])
+
+        self.assertFalse(args.json)
