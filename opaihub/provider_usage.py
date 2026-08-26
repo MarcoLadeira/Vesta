@@ -34,6 +34,7 @@ best-effort and degrades to ``unknown``/``unavailable`` instead of raising.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import tempfile
@@ -176,10 +177,13 @@ _DURATION_RE = re.compile(
 
 
 def _to_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     try:
-        return float(str(value).strip())
+        number = float(str(value).strip())
     except (TypeError, ValueError):
         return None
+    return number if math.isfinite(number) else None
 
 
 def parse_reset(value: Any, *, observed_at: float) -> float | None:
@@ -478,11 +482,11 @@ def _opai_tracked(
             continue
         tasks += 1
         raw_calls = event.get("model_calls")
-        calls += (
-            int(raw_calls) if isinstance(raw_calls, (int, float)) and raw_calls else 1
-        )
+        model_calls = _to_float(raw_calls)
+        calls += int(model_calls) if model_calls and model_calls > 0 else 1
         raw_tokens = event.get("tokens")
-        tokens += int(raw_tokens) if isinstance(raw_tokens, (int, float)) else 0
+        token_count = _to_float(raw_tokens)
+        tokens += int(token_count) if token_count is not None and token_count > 0 else 0
     labels = {
         "rolling": "All time via OPai",
         "daily": "Today",

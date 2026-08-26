@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
-from opaihub.ledger import record_model_call
+from opaihub.ledger import EVENT_MODEL_CALL, record_model_call
 from opaihub.usage import build_usage_snapshots
 
 MODELS = [{"id": "free:groq:m", "provider": "groq"}]
@@ -99,6 +100,19 @@ class TrackedUsageConfidenceTests(unittest.TestCase):
             snapshot = build_usage_snapshots(root, MODELS)[0]
             self.assertEqual(snapshot["used"], 500)
             self.assertEqual(snapshot["confidence"], "mixed")
+
+    def test_invalid_token_values_do_not_inflate_or_crash_the_snapshot(self) -> None:
+        """A hand-edited/corrupt JSONL row must not break Settings → Model Usage."""
+        event = {
+            "event_type": EVENT_MODEL_CALL,
+            "model_id": "free:groq:m",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "tokens": float("nan"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot = build_usage_snapshots(Path(tmp), MODELS, events=[event])[0]
+
+        self.assertEqual(snapshot["used"], 0)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ usage-limit gates run before any call, unchanged.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -52,6 +53,24 @@ _QUOTA_FIELD_NAMES = {
 }
 
 
+def _is_finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
+def _token_count(value: Any) -> int | None:
+    if not _is_finite_number(value):
+        return None
+    number = float(value)
+    if number < 0 or not number.is_integer():
+        return None
+    return int(number)
+
+
 @dataclass(frozen=True)
 class CostTelemetry:
     provider: str
@@ -70,6 +89,8 @@ class CostTelemetry:
             raise ValueError(f"Unknown cost measurement: {self.cost_measurement!r}")
         if self.tokens_measurement not in TOKEN_MEASUREMENTS:
             raise ValueError(f"Unknown tokens measurement: {self.tokens_measurement!r}")
+        if self.cost_usd is not None and not _is_finite_number(self.cost_usd):
+            raise ValueError("cost_usd must be a finite number or None")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -113,7 +134,7 @@ def normalize_account_result(
 
     payload = dict(result or {})
     cost = payload.get("cost_usd", payload.get("cost"))
-    actual = isinstance(cost, (int, float)) and not isinstance(cost, bool)
+    actual = _is_finite_number(cost)
     return CostTelemetry(
         provider=str(provider_id or "").strip().lower(),
         model=str(model or payload.get("model") or ""),
@@ -146,7 +167,7 @@ def normalize_api_usage(
     total = int(usage["tokens"])
     cost_usd = None
     cost_measurement = "estimated"
-    if usd_per_1k_tokens is not None and provider_tokens:
+    if _is_finite_number(usd_per_1k_tokens) and provider_tokens:
         cost_usd = round(total / 1000.0 * float(usd_per_1k_tokens), 6)
         cost_measurement = "derived"
     return CostTelemetry(
@@ -176,7 +197,7 @@ def estimated_telemetry(
         provider=str(provider_id or "").strip().lower(),
         model=str(model or ""),
         total_tokens=max(0, int(tokens)),
-        cost_usd=float(cost_usd) if cost_usd is not None else None,
+        cost_usd=float(cost_usd) if _is_finite_number(cost_usd) else None,
         cost_measurement="estimated",
         tokens_measurement="estimated",
         source="estimate",
@@ -309,8 +330,13 @@ def summarize_cost_telemetry(
     tokens = 0
     by_provider: dict[str, dict[str, Any]] = {}
     events, skipped = _read_cost_events(project_root, limit=limit)
+    invalid_events = 0
     for event in events:
-        data = event.get("metadata") or {}
+        data = event.get("metadata")
+        if not isinstance(data, dict):
+            invalid_events += 1
+            continue
+        invalid = False
         provider = str(data.get("provider") or "unknown")
         measurement = str(data.get("cost_measurement") or "estimated")
         cost = data.get("cost_usd")
@@ -327,28 +353,40 @@ def summarize_cost_telemetry(
             },
         )
         entry["calls"] += 1
-        call_tokens = int(data.get("total_tokens") or 0)
+        call_tokens = _token_count(data.get("total_tokens"))
+        if call_tokens is None:
+            invalid = data.get("total_tokens") not in (None, 0)
+            call_tokens = 0
         entry["tokens"] += call_tokens
         tokens += call_tokens
-        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+        if _is_finite_number(cost):
             key = f"{measurement}_usd" if measurement in COST_MEASUREMENTS else None
             if key and key in totals:
-                totals[key] = round(totals[key] + float(cost), 6)
-                entry[key] = round(entry[key] + float(cost), 6)
+                total = totals[key] + float(cost)
+                provider_total = entry[key] + float(cost)
+                if math.isfinite(total) and math.isfinite(provider_total):
+                    totals[key] = round(total, 6)
+                    entry[key] = round(provider_total, 6)
+                else:
+                    invalid = True
+        elif cost is not None:
+            invalid = True
         quota = data.get("quota")
         if isinstance(quota, dict) and quota:
             entry["last_quota"] = {str(key): str(value) for key, value in quota.items()}
+        if invalid:
+            invalid_events += 1
     return {
         "has_data": bool(events),
         "calls": len(events),
         "total_tokens": tokens,
         **totals,
         "by_provider": by_provider,
-        # #475: a summary built over corrupted/torn events is partial, not
-        # authoritative — surface that so receipts/UI never present an
-        # under-counted total as the complete truth.
-        "complete": skipped == 0,
-        "degraded": skipped > 0,
-        "skipped_events": skipped,
+        # #475: a summary built over corrupted/torn events or invalid numeric
+        # fields is partial, not authoritative — surface that so receipts/UI
+        # never present an under-counted total as the complete truth.
+        "complete": skipped + invalid_events == 0,
+        "degraded": skipped + invalid_events > 0,
+        "skipped_events": skipped + invalid_events,
         "privacy": "Telemetry is local and redacted; no raw prompts are stored.",
     }

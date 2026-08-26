@@ -52,6 +52,19 @@ class RecordTaskOutcomeTests(unittest.TestCase):
         self.assertIn("task_hash", event)
         self.assertNotIn("some task", json.dumps(event))
 
+    def test_nonfinite_outcome_metrics_are_recorded_as_unknown(self):
+        event = record_task_outcome(
+            self.root,
+            "some task",
+            outcome_id="turn-nonfinite",
+            category="completed",
+            total_tokens=float("nan"),
+            attributed_cost_usd=float("inf"),
+        )
+
+        self.assertEqual(event["total_tokens"], UNKNOWN)
+        self.assertEqual(event["attributed_cost_usd"], UNKNOWN)
+
     def test_at_most_one_terminal_outcome_per_id(self):
         first = record_task_outcome(
             self.root, "t", outcome_id="turn-x", category="completed"

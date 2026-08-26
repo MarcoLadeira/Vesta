@@ -71,6 +71,22 @@ class LivenessTests(unittest.TestCase):
                 self.assertTrue(lease.is_stale(empty))
                 self.assertEqual(lease.describe(empty)["reason"], "no_owner_recorded")
 
+    def test_nonfinite_heartbeat_is_stale_not_alive_forever(self) -> None:
+        corrupt = {
+            "pid": 999999,
+            "boot": "someotherprocess",
+            "heartbeat_at": float("nan"),
+        }
+
+        self.assertTrue(lease.is_stale(corrupt, now=1000.0))
+        self.assertEqual(
+            lease.describe(corrupt, now=1000.0)["reason"], "no_owner_recorded"
+        )
+
+    def test_nonfinite_clock_values_are_rejected_before_writing_a_lease(self) -> None:
+        with self.assertRaises(ValueError):
+            lease.new_lease(now=float("nan"))
+
     def test_silence_is_reported_in_seconds_not_just_a_boolean(self) -> None:
         described = lease.describe(self.mine, now=1000.0 + 42)
         self.assertAlmostEqual(described["silentForSeconds"], 42.0)

@@ -219,6 +219,19 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(tracked["tokens"], 150)
         self.assertEqual(tracked["windowLabel"], "Today")
 
+    def test_opai_tracked_ignores_invalid_token_values(self):
+        """Malformed ledger values must not inflate or crash the usage page."""
+        now = 1_784_800_000.0
+        events = [
+            _model_call("gemini", created_at=_iso(now - 60), tokens=True),
+            _model_call("gemini", created_at=_iso(now - 60), tokens=float("nan")),
+            _model_call("gemini", created_at=_iso(now - 60), tokens=-500),
+        ]
+        with _Root() as root:
+            snap = pu.usage_snapshot(root, "gemini", events=events, now=now)
+
+        self.assertEqual(snap["opaiTracked"]["tokens"], 0)
+
     def test_account_provider_tracked_count_is_all_time_not_window_bound(self):
         # Regression: Claude's rolling 5-hour window almost never has any
         # OPai-routed activity in it (most usage goes through the bare CLI,

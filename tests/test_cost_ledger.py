@@ -213,6 +213,24 @@ class LedgerTests(unittest.TestCase):
 
         self.assertEqual(summary["estimated_actual_spend_usd"], 0.0)
 
+    def test_nonfinite_cost_is_ignored_instead_of_poisoning_the_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            event = record_model_call(
+                root,
+                "call",
+                model_tier="L3",
+                provider_type="cloud",
+                tokens=1000,
+                confirmed=True,
+            )
+            event["estimated_actual_usd"] = float("nan")
+            ledger_path(root).write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+            summary = summarize_ledger(root)
+
+        self.assertEqual(summary["estimated_actual_spend_usd"], 0.0)
+
 
 class RouteReadOnlyTests(unittest.TestCase):
     """Issue #12: route is read-only unless --record is passed."""

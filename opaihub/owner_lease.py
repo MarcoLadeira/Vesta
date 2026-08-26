@@ -36,6 +36,7 @@ still alive? — and the decision about what to do belongs to the caller.
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 import uuid
@@ -64,9 +65,21 @@ def boot_id() -> str:
     return _BOOT_ID
 
 
+def _timestamp(now: float | None) -> float:
+    if isinstance(now, bool):
+        raise ValueError("now must be a finite timestamp")
+    try:
+        stamp = time.time() if now is None else float(now)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("now must be a finite timestamp") from exc
+    if not math.isfinite(stamp):
+        raise ValueError("now must be a finite timestamp")
+    return stamp
+
+
 def new_lease(*, now: float | None = None) -> dict[str, Any]:
     """A fresh lease owned by this process."""
-    stamp = time.time() if now is None else float(now)
+    stamp = _timestamp(now)
     return {
         "pid": int(os.getpid()),
         "boot": _BOOT_ID,
@@ -85,7 +98,7 @@ def touch(lease: Any, *, now: float | None = None) -> dict[str, Any]:
     if not owned_by_this_process(lease):
         return dict(lease) if isinstance(lease, dict) else {}
     updated = dict(lease)
-    updated["heartbeat_at"] = time.time() if now is None else float(now)
+    updated["heartbeat_at"] = _timestamp(now)
     return updated
 
 
@@ -108,7 +121,7 @@ def is_stale(lease: Any, *, now: float | None = None) -> bool:
     heartbeat = _heartbeat_at(lease)
     if heartbeat is None:
         return True
-    stamp = time.time() if now is None else float(now)
+    stamp = _timestamp(now)
     return (stamp - heartbeat) > STALE_AFTER_SECONDS
 
 
@@ -118,7 +131,7 @@ def describe(lease: Any, *, now: float | None = None) -> dict[str, Any]:
     ``reason`` is a closed vocabulary so a surface can branch on it, and
     ``ownerIsThisProcess`` lets a caller avoid offering to recover its own work.
     """
-    stamp = time.time() if now is None else float(now)
+    stamp = _timestamp(now)
     heartbeat = _heartbeat_at(lease)
     mine = owned_by_this_process(lease)
     # Staleness is decided before ownership, deliberately. Checking "is it mine?"
@@ -149,13 +162,21 @@ def _heartbeat_at(lease: Any) -> float | None:
     value = lease.get("heartbeat_at")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    try:
+        heartbeat = float(value)
+    except OverflowError:
+        return None
+    return heartbeat if math.isfinite(heartbeat) else None
 
 
 def _as_int(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return int(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return int(number) if math.isfinite(number) else None
 
 
 # --- Durable, fenced leases (#517) -----------------------------------------
@@ -234,8 +255,7 @@ def _valid_lease_record(record: Mapping[str, Any]) -> bool:
 
     return (
         _as_int(record.get("fence")) is not None
-        and isinstance(record.get("heartbeat_at"), (int, float))
-        and not isinstance(record.get("heartbeat_at"), bool)
+        and _heartbeat_at(record) is not None
         and isinstance(record.get("boot"), str)
         and bool(record.get("boot"))
     )
