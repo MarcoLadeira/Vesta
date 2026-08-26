@@ -51,6 +51,10 @@ EVENT_CANCELLED = "run.cancelled"
 EVENT_FINISHED = "run.finished"
 EVENT_VERIFIED = "run.verified"
 EVENT_COSTED = "run.cost_recorded"
+#: A durable snapshot showed the run in a new state. Distinct from
+#: EVENT_STARTED so that a replay can tell "this run began" from "this run
+#: moved", which matters when the legacy record only ever showed states.
+EVENT_TRANSITIONED = "run.transitioned"
 
 
 class _TerminalRunReadmitted(Exception):
@@ -284,6 +288,99 @@ def record_terminal(
             return False
         except (sqlite3.DatabaseError, JournalStoreError, ValueError):
             return False
+
+
+def live_fence(root: Path, run_id: str) -> int | None:
+    """The fence of the lease currently held on ``run_id``, if any.
+
+    ``None`` covers three different situations a caller must not distinguish:
+    the run was never admitted, the run finished and ``record_terminal``
+    released its lease, or the store could not be opened. All three mean the
+    same thing to a mirror -- there is no live lease to write under.
+    """
+
+    with _store(root) as store:
+        if store is None:
+            return None
+        with contextlib.suppress(Exception):
+            row = store.execute(
+                "SELECT fence, released_at FROM leases WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is not None and row["released_at"] is None:
+                return int(row["fence"])
+    return None
+
+
+def record_run_snapshot(
+    root: Path,
+    *,
+    run_id: str,
+    task_id: str,
+    task: str,
+    state: str,
+    verdict: str = "",
+    now: str,
+    surface: str = "background",
+    **details: Any,
+) -> bool:
+    """Mirror one durable run snapshot, admitting the run the first time only.
+
+    Written for callers whose legacy record is a *file rewritten in place*
+    rather than a stream of events -- ``background_runs`` saves a whole run
+    document on every transition, so the mirror is handed a state, not a
+    change.
+
+    That shape is why this exists instead of calling ``record_admission`` from
+    the save path. Admission is idempotent about the run *row*, but not about
+    the rest: each call takes a fresh lease and appends another ``admitted``
+    event, so a run that transitioned six times would read as six admissions
+    of one run. A run is admitted once; everything after that is a transition,
+    and the journal should say so.
+
+    Returns whether anything was recorded. Like the rest of Stage 3 it never
+    raises -- a legacy write must not fail because its mirror did.
+    """
+
+    if not str(run_id).strip() or not str(task_id).strip():
+        return False
+
+    fence = live_fence(root, run_id)
+    if fence is None:
+        fence = record_admission(
+            root,
+            task_id=task_id,
+            run_id=run_id,
+            task=task,
+            now=now,
+            surface=surface,
+        )
+        if fence is None:
+            # Either the store is unavailable or the run already reached a
+            # terminal state, whose verdict is immutable. Neither is an error
+            # here, and neither leaves anything further to record.
+            return False
+    else:
+        record_event(
+            root,
+            run_id=run_id,
+            event_type=EVENT_TRANSITIONED,
+            payload={"state": state, **details},
+            now=now,
+            fence=fence,
+        )
+
+    if verdict:
+        record_terminal(
+            root,
+            run_id=run_id,
+            event_type=EVENT_FINISHED,
+            verdict=verdict,
+            reason=state,
+            now=now,
+            fence=fence,
+        )
+    return True
 
 
 def record_run_cost(

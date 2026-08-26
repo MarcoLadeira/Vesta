@@ -341,7 +341,47 @@ def _save_run(project_root: Path, run: AutomationRun) -> Path:
         shadow_journal.record_snapshot(
             path, run.to_dict(), is_valid_record=_valid_run_record
         )
+        # #613 Stage 3: mirror the same snapshot into the transactional
+        # journal, inside the same lock for the same reason -- the journal
+        # should see the states the file actually took, in the order it took
+        # them.
+        #
+        # A snapshot rather than an event, because that is what this call site
+        # has: `_save_run` is handed a whole run document, not a transition.
+        # `record_run_snapshot` admits the run the first time it is seen and
+        # treats every later save as a transition, so a run that changes state
+        # six times reads as one admission and five transitions rather than
+        # six admissions of the same run.
+        _mirror_run(project_root, run)
     return path
+
+
+def _mirror_run(project_root: Path, run: "AutomationRun") -> None:
+    """Best-effort #613 mirror of one durable run snapshot.
+
+    The legacy file is authoritative until Stage 7 retires it, so this must
+    never be the reason a run fails to persist. Every failure is swallowed:
+    the cost of a missing mirror is evidence, and the cost of a raised one is
+    a lost run.
+    """
+
+    try:
+        from . import journal_runtime
+
+        state = _coerce_run_state(run.run_state)
+        journal_runtime.record_run_snapshot(
+            project_root,
+            run_id=run.run_id,
+            task_id=run.workflow_id or run.run_id,
+            task=run.task,
+            state=state.value,
+            verdict=state.value if state in TERMINAL_STATES else "",
+            now=_now_iso(),
+            surface="background",
+            reason_code=run.reason_code,
+        )
+    except Exception:  # noqa: BLE001 - a mirror never fails a real write
+        return
 
 
 def load_run(project_root: Path, run_id: str) -> AutomationRun:

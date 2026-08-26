@@ -279,12 +279,22 @@ class MigrationVisibilityTests(_DoctorFixture):
         self.assertEqual(facts["retirement"], "not_started")
         self.assertEqual(facts["runs_recorded"], 0)
 
-    def test_an_opened_journal_reports_it_cannot_judge_retirement_alone(self):
+    def test_an_empty_project_is_blocked_with_named_reasons(self):
+        """Doctor now assembles the legacy corpus, so it gives a real verdict.
+
+        This used to answer "needs_legacy_comparison" -- honest, but useless:
+        it named a missing input without saying who was supposed to supply it.
+        Now that ``journal_background.legacy_runs`` supplies one, the answer is
+        a verdict with named blockers a person can actually act on.
+        """
+
         open_store(self.root).close()
 
         facts = cli._journal_migration(self.root)
 
-        self.assertEqual(facts["retirement"], "needs_legacy_comparison")
+        self.assertEqual(facts["retirement"], "blocked")
+        self.assertIn("nothing_compared", facts["blockers"])
+        self.assertEqual(facts["legacy_runs"], 0)
 
     def test_recorded_runs_are_counted(self):
         from opaihub.journal_runtime import record_admission
@@ -323,7 +333,7 @@ class MigrationVisibilityTests(_DoctorFixture):
         self.assertIn("migration", payload["runtime_journal"])
         self.assertEqual(
             payload["runtime_journal"]["migration"]["retirement"],
-            "needs_legacy_comparison",
+            "blocked",
         )
 
     def test_migration_facts_never_raise(self):
@@ -335,3 +345,79 @@ class MigrationVisibilityTests(_DoctorFixture):
             facts = cli._journal_migration(self.root)
 
         self.assertEqual(facts["retirement"], "not_started")
+
+
+class TheMigrationVerdictIsRealTests(_DoctorFixture):
+    """Doctor's verdict must move when the migration actually moves.
+
+    The blocked tests above would all still pass if ``_journal_migration``
+    returned a hardcoded "blocked" -- which would be a wall, not a gate, and
+    would mean this migration could never be reported finished. These drive a
+    real corpus of background runs through the real save path and check the
+    verdict follows.
+    """
+
+    def _finished_runs(self, count: int) -> None:
+        import dataclasses
+
+        from opaihub import background_runs
+
+        for index in range(count):
+            run = background_runs.enqueue_automation(
+                self.root, workflow_id="bug_fix", task=f"task {index}"
+            )
+            background_runs._save_run(
+                self.root,
+                dataclasses.replace(
+                    run,
+                    run_state="completed",
+                    status="done",
+                    finished_at="2026-08-26T11:00:00+00:00",
+                ),
+            )
+
+    def test_background_runs_appear_as_the_legacy_corpus(self):
+        self._finished_runs(3)
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["legacy_runs"], 3)
+        self.assertEqual(facts["compared_runs"], 3)
+
+    def test_a_small_corpus_is_still_blocked_on_sample_size(self):
+        """Three agreeing runs is a connection, not evidence."""
+
+        self._finished_runs(3)
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["retirement"], "blocked")
+        self.assertIn("insufficient_sample", facts["blockers"])
+
+    def test_a_fully_migrated_project_reports_ready(self):
+        """The gate opens. Without this the blocked tests prove nothing."""
+
+        self._finished_runs(25)
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["retirement"], "ready", facts["detail"])
+        self.assertEqual(facts["blockers"], [])
+        self.assertEqual(facts["compared_runs"], 25)
+        self.assertEqual(facts["legacy_reads"], 0)
+
+    def test_an_unreconciled_operation_reopens_the_gate(self):
+        """A finished migration is not permanently finished."""
+
+        from opaihub import idempotency
+
+        self._finished_runs(25)
+        self.assertEqual(cli._journal_migration(self.root)["retirement"], "ready")
+
+        idempotency.begin(
+            self.root, idempotency.operation_key("github.pr", head="feat/x")
+        )
+
+        facts = cli._journal_migration(self.root)
+        self.assertEqual(facts["retirement"], "blocked")
+        self.assertIn("operations_unreconciled", facts["blockers"])

@@ -729,11 +729,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def _journal_migration(root: Path) -> dict[str, object]:
     """How far this installation has moved onto the journal.
 
-    Reports only what the journal itself can answer. A full retirement
-    assessment needs the legacy record to compare against, which doctor does
-    not assemble -- so this stops at the facts rather than guessing at a
-    verdict it cannot support. Saying "unknown" is the honest answer to a
-    question that has not been asked properly.
+    This used to stop at "needs_legacy_comparison", because a retirement
+    verdict needs the legacy record to compare against and nothing assembled
+    one. ``journal_background.legacy_runs`` now does, so the question can
+    finally be asked properly and the answer is a real verdict with real
+    blockers rather than a shrug.
+
+    Everything is still best-effort. Doctor runs when things are already
+    broken, so a corpus that cannot be read degrades to "no comparison
+    possible" -- which ``journal_retirement`` treats as a blocker, not as
+    permission.
     """
 
     facts: dict[str, object] = {
@@ -756,9 +761,18 @@ def _journal_migration(root: Path) -> dict[str, object]:
             connection.close()
         summary = journal_operations.operation_summary(root)
         facts["unreconciled_operations"] = int(summary.get("unreconciled", 0))
-        facts["retirement"] = (
-            "blocked" if facts["unreconciled_operations"] else "needs_legacy_comparison"
-        )
+
+        from opaihub import journal_background, journal_retirement
+
+        corpus = journal_background.legacy_runs(root)
+        report = journal_retirement.assess(root, corpus)
+        facts["retirement"] = report.status
+        facts["blockers"] = list(report.blockers)
+        facts["legacy_runs"] = len(corpus)
+        facts["compared_runs"] = report.compared_runs
+        facts["journal_reads"] = report.journal_reads
+        facts["legacy_reads"] = report.legacy_reads
+        facts["detail"] = report.detail
     return facts
 
 
