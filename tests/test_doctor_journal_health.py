@@ -421,3 +421,53 @@ class TheMigrationVerdictIsRealTests(_DoctorFixture):
         facts = cli._journal_migration(self.root)
         self.assertEqual(facts["retirement"], "blocked")
         self.assertIn("operations_unreconciled", facts["blockers"])
+
+
+class BackupVisibilityTests(_DoctorFixture):
+    """#613 requirement 12's other half: backup checks in doctor.
+
+    The restraint rule applies here more than anywhere. A project that has
+    never taken a backup is not broken, and the one time this field matters is
+    after a corrupt store -- which is exactly when a field people have learned
+    to ignore is worth nothing.
+    """
+
+    def test_a_project_with_no_backups_reports_none_without_complaining(self):
+        payload = cli._journal_backup_health(self.root)
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["backups"], 0)
+
+    def test_a_taken_backup_is_visible(self):
+        from opaihub import journal_backup
+
+        open_store(self.root).close()
+        journal_backup.create_backup(self.root, now="2026-08-26T12:00:00+00:00")
+
+        payload = cli._journal_backup_health(self.root)
+
+        self.assertEqual(payload["backups"], 1)
+        self.assertEqual(payload["latest"], "2026-08-26T12:00:00+00:00")
+
+    def test_the_block_appears_in_the_full_doctor_payload(self):
+        open_store(self.root).close()
+
+        payload = self._doctor_payload()
+
+        self.assertIn("backup", payload["runtime_journal"])
+
+    def test_backup_health_never_raises(self):
+        with mock.patch(
+            "opaihub.journal_backup.backup_health", side_effect=OSError("gone")
+        ):
+            payload = cli._journal_backup_health(self.root)
+
+        self.assertFalse(payload["available"])
+
+    def test_a_missing_backup_does_not_push_the_report_to_attention(self):
+        """Never having backed up is normal, not a fault."""
+
+        payload = self._doctor_payload(clean_integrations=True)
+
+        self.assertEqual(payload["runtime_journal"]["backup"]["backups"], 0)
+        self.assertEqual(payload["readiness"], "ready")

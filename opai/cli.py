@@ -776,6 +776,22 @@ def _journal_migration(root: Path) -> dict[str, object]:
     return facts
 
 
+def _journal_backup_health(root: Path) -> dict[str, object]:
+    """Whether this project has anything to recover from (#613 requirement 12).
+
+    Absence is reported, never escalated. A project that has never taken a
+    backup is not broken, and a field that shouts on every fresh install is one
+    nobody reads by the time it means something.
+    """
+
+    try:
+        from opaihub import journal_backup
+
+        return journal_backup.backup_health(root)
+    except Exception:  # noqa: BLE001 - doctor never raises
+        return {"available": False, "error_category": "journal_backup_unavailable"}
+
+
 def _journal_doctor(root: Path) -> dict[str, object]:
     """Runtime-journal health for doctor (#613 AC10, functional requirement 12).
 
@@ -802,6 +818,11 @@ def _journal_doctor(root: Path) -> dict[str, object]:
             # Without it the migration is only observable by writing code, and
             # a migration nobody can see the state of is one nobody can finish.
             "migration": _journal_migration(root),
+            # #613 functional requirement 12 asks for backup *and* health
+            # checks in doctor. Health shipped first; this is the other half,
+            # and it answers the only question that matters after a corrupt
+            # store: is there anything to recover from.
+            "backup": _journal_backup_health(root),
             **health,
         }
     except Exception:  # noqa: BLE001 - doctor reports a stable safe category
