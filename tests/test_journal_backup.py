@@ -498,3 +498,45 @@ class TheUnavailableBackupFaultTests(_BackupFixture):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class TheContractHoldsUnderHostilePathsTests(_BackupFixture):
+    """``create_backup`` promises None, never an exception.
+
+    That promise is load-bearing: a caller who could not rely on it would wrap
+    every call in a bare ``except``, and would then swallow the real failures
+    along with the silly ones. Found by an adversarial pass -- ``exist_ok=True``
+    covers "already a directory" but not "already a file", so a backup
+    directory occupied by a file raised ``FileExistsError`` straight through.
+    """
+
+    def _occupy(self) -> None:
+        directory = journal_backup.backup_dir(self.root)
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        directory.write_bytes(b"not a directory")
+
+    def test_a_backup_directory_occupied_by_a_file_returns_none(self):
+        self._runs(1)
+        self._occupy()
+
+        self.assertIsNone(create_backup(self.root))
+
+    def test_listing_survives_a_backup_directory_that_is_a_file(self):
+        self._occupy()
+
+        self.assertEqual(list_backups(self.root), [])
+
+    def test_health_survives_a_backup_directory_that_is_a_file(self):
+        self._occupy()
+
+        facts = backup_health(self.root)
+
+        self.assertEqual(facts["backups"], 0)
+
+    def test_restoring_from_a_directory_is_refused_not_raised(self):
+        self._runs(1)
+        create_backup(self.root)
+
+        report = restore_backup(self.root, journal_backup.backup_dir(self.root))
+
+        self.assertFalse(report.ok)

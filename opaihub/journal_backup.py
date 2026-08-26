@@ -189,7 +189,15 @@ def create_backup(
 
     stamp = now or _now()
     directory = Path(destination) if destination else backup_dir(project_root)
-    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # exist_ok covers "already a directory" and not "already a file", so a
+        # path occupied by a file still raises. This function promises None
+        # rather than an exception, and a caller that wrapped it in a bare
+        # except to survive that promise being broken would swallow every other
+        # failure with it.
+        return None
     safe_stamp = "".join(ch if ch.isalnum() else "-" for ch in stamp)
     target = directory / f"journal-{safe_stamp}.sqlite3"
     index = 1
