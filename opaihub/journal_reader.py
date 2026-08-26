@@ -216,6 +216,16 @@ class JournalReader:
             fallback_reason=reason,
         )
 
+    def compared_runs(self) -> int:
+        """How many runs exist in *both* records.
+
+        Stage 7's evidence measure, and distinct from ``source_counts`` -- a
+        run served from the journal that the legacy record never held was never
+        actually checked against anything. Only the overlap was.
+        """
+
+        return len(set(self.legacy_runs) & set(self._journal or {}))
+
     def read_all(self) -> dict[str, RunView]:
         """Every run either side knows about, so a listing loses nothing.
 

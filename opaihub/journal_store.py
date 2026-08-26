@@ -727,6 +727,17 @@ def record_cost(
 
     if measurement_kind not in _COST_KINDS:
         raise ValueError(f"unknown measurement kind: {measurement_kind!r}")
+    # A spend record cannot be negative or non-finite. NaN is the dangerous one:
+    # it round-trips through JSON, compares false against every budget ceiling,
+    # and would silently disable the cap it was meant to count against.
+    amount_value = float(amount)
+    if amount_value != amount_value or amount_value in (
+        float("inf"),
+        float("-inf"),
+    ):
+        raise ValueError("cost amount must be a finite number")
+    if amount_value < 0:
+        raise ValueError("cost amount must not be negative")
     with _transaction(connection):
         try:
             cursor = connection.execute(
@@ -735,7 +746,7 @@ def record_cost(
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     operation_key,
-                    float(amount),
+                    amount_value,
                     currency,
                     float(quantity),
                     price_snapshot,

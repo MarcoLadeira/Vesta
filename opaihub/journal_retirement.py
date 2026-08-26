@@ -46,6 +46,9 @@ BLOCK_UNQUALIFIED = "not_qualified"
 BLOCK_SAMPLE = "insufficient_sample"
 BLOCK_LEGACY_READS = "legacy_still_read"
 BLOCK_UNRECONCILED = "operations_unreconciled"
+#: The legacy record supplied nothing to compare against, so "no legacy
+#: reads" is vacuously true rather than evidence.
+BLOCK_NO_COMPARISON = "nothing_compared"
 
 STATUS_READY = "ready"
 STATUS_BLOCKED = "blocked"
@@ -66,6 +69,7 @@ class RetirementReport:
     journal_reads: int = 0
     legacy_reads: int = 0
     unreconciled: int = 0
+    compared_runs: int = 0
     integrity: str = ""
     detail: str = ""
 
@@ -82,6 +86,7 @@ class RetirementReport:
             "journal_reads": self.journal_reads,
             "legacy_reads": self.legacy_reads,
             "unreconciled": self.unreconciled,
+            "compared_runs": self.compared_runs,
             "integrity": self.integrity,
             "detail": self.detail,
         }
@@ -141,6 +146,16 @@ def assess(
     if journal_reads < max(1, int(minimum_runs)):
         blockers.append(BLOCK_SAMPLE)
 
+    # An empty legacy record makes every other signal vacuously true: zero
+    # legacy reads because there was nothing to read, and a qualification that
+    # compared nothing to nothing. Retiring on that is the unevidenced cutover
+    # Stage 4 exists to forbid -- and the likeliest way to reach it is a legacy
+    # loader that failed and returned {} instead of raising, which is precisely
+    # when deleting the fallback is most destructive.
+    compared = reader.compared_runs()
+    if compared < max(1, int(minimum_runs)):
+        blockers.append(BLOCK_NO_COMPARISON)
+
     if legacy_reads:
         blockers.append(BLOCK_LEGACY_READS)
 
@@ -156,6 +171,7 @@ def assess(
             journal_reads=journal_reads,
             legacy_reads=legacy_reads,
             unreconciled=unreconciled,
+            compared_runs=compared,
             integrity=integrity,
             detail="; ".join(_explain(name) for name in dict.fromkeys(blockers)),
         )
@@ -164,6 +180,7 @@ def assess(
         journal_reads=journal_reads,
         legacy_reads=legacy_reads,
         unreconciled=unreconciled,
+        compared_runs=compared,
         integrity=integrity,
         detail=(
             f"{journal_reads} run(s) served from the journal, no legacy reads, "
@@ -180,6 +197,9 @@ def _explain(blocker: str) -> str:
         BLOCK_SAMPLE: "too few runs have been served from the journal to be evidence",
         BLOCK_LEGACY_READS: "something is still reading the legacy record",
         BLOCK_UNRECONCILED: "external operations are still unreconciled",
+        BLOCK_NO_COMPARISON: (
+            "too few runs exist in both records, so the comparison proved nothing"
+        ),
     }.get(blocker, blocker)
 
 
@@ -210,6 +230,7 @@ def legacy_writes_required(
 __all__: Sequence[str] = (
     "BLOCK_INTEGRITY",
     "BLOCK_LEGACY_READS",
+    "BLOCK_NO_COMPARISON",
     "BLOCK_NO_JOURNAL",
     "BLOCK_SAMPLE",
     "BLOCK_UNQUALIFIED",
