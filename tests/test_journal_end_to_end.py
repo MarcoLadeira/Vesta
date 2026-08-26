@@ -521,3 +521,108 @@ class ExistingInstallationsMigrateWithoutLossTests(_EndToEndFixture):
         old = reader.read_run("old-1")
         self.assertEqual(old.state["cost_usd"], 1.25)
         self.assertEqual(old.state["approval_ref"], "approval-7")
+
+
+class AllSevenStagesTogetherTests(_EndToEndFixture):
+    """The whole of #613 in one test, because the stages only matter together.
+
+    Each stage has its own suite and each passes in isolation. That is not the
+    same as the migration working: Stage 4 gates Stage 5, Stage 5's telemetry
+    feeds Stage 7, and a break in any link leaves a chain that is individually
+    correct and collectively useless.
+
+    This drives a realistic sample through all seven and asserts the thing the
+    issue is actually for -- that at the end, the legacy record is genuinely no
+    longer needed. It is the only test here that can fail because two stages
+    disagree rather than because one is wrong.
+    """
+
+    SAMPLE = 25
+
+    def _migrated_installation(self) -> dict[str, dict[str, str]]:
+        legacy: dict[str, dict[str, str]] = {}
+        for index in range(self.SAMPLE):
+            run_id = f"run-{index}"
+            self._full_run(run_id=run_id, verdict="completed")
+            legacy[run_id] = {
+                "terminal_verdict": "completed",
+                "created_at": "2099-01-01T00:00:00+00:00",
+            }
+        return legacy
+
+    def test_the_full_migration_reaches_a_state_where_legacy_is_not_needed(self):
+        from opaihub import idempotency, journal_operations, journal_retirement
+
+        legacy = self._migrated_installation()
+
+        # Stage 6: an external effect through the choke point every one uses.
+        key = idempotency.operation_key("github.pr", head="feat/x", base="main")
+        idempotency.begin(self.root, key)
+        idempotency.complete(self.root, key, {"id": 4242})
+
+        # Stage 4: the journal agrees with the legacy record.
+        report = journal_qualification.qualify(self.root, legacy, minimum_runs=20)
+        self.assertTrue(report.qualified, report.detail)
+
+        # Stage 5: reads come from the journal, and nothing falls back.
+        reader = journal_reader.JournalReader(self.root, legacy)
+        counts = reader.source_counts()
+        self.assertTrue(reader.serving_from_journal)
+        self.assertEqual(counts[journal_reader.SOURCE_JOURNAL], self.SAMPLE)
+        self.assertEqual(counts[journal_reader.SOURCE_LEGACY], 0)
+
+        # Stage 6: nothing is left unanswered.
+        self.assertEqual(
+            journal_operations.operation_summary(self.root)["unreconciled"], 0
+        )
+
+        # Stage 7: and only now may the legacy writes go.
+        retirement = journal_retirement.assess(self.root, legacy, minimum_runs=20)
+        self.assertTrue(retirement.ready, retirement.detail)
+        self.assertFalse(
+            journal_retirement.legacy_writes_required(
+                self.root, legacy, minimum_runs=20
+            )
+        )
+
+    def test_one_regression_anywhere_closes_the_gate_again(self):
+        """The chain is only as strong as its weakest link, and must act like it.
+
+        A single unreconciled operation -- one PR whose outcome nobody
+        confirmed -- takes a fully migrated installation back to requiring
+        legacy writes. That is the correct behaviour and the reason the gate is
+        recomputed rather than remembered.
+        """
+
+        from opaihub import idempotency, journal_retirement
+
+        legacy = self._migrated_installation()
+        self.assertFalse(
+            journal_retirement.legacy_writes_required(
+                self.root, legacy, minimum_runs=20
+            )
+        )
+
+        idempotency.begin(
+            self.root, idempotency.operation_key("github.pr", head="unanswered")
+        )
+
+        self.assertTrue(
+            journal_retirement.legacy_writes_required(
+                self.root, legacy, minimum_runs=20
+            ),
+            "one unanswered effect must re-close the gate",
+        )
+
+    def test_the_integrity_of_the_whole_history_survives_the_full_run(self):
+        self._migrated_installation()
+
+        from opaihub.journal_store import INTEGRITY_COMPLETE, check_integrity
+
+        store = self._store()
+        report = check_integrity(store)
+        events = read_events(store)
+
+        self.assertEqual(report.state, INTEGRITY_COMPLETE)
+        self.assertEqual(len(events), self.SAMPLE * 5, "five events per run")
+        self.assertTrue(all(row["readable"] for row in events))
