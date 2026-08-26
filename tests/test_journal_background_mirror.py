@@ -340,3 +340,78 @@ class TheMirrorOpensTheStoreOnceTests(_BackgroundFixture):
         opens = self._opens_during(lambda: background_runs._save_run(self.root, fresh))
 
         self.assertEqual(opens, 1)
+
+
+class TheCorpusDoesNotLockEveryRunTests(_BackgroundFixture):
+    """Doctor reads this on every invocation, so its cost is a user's wait.
+
+    ``background_runs.load_run`` takes an interprocess lock per file, which is
+    right for a caller about to act on that run and wrong for a census. The
+    first version of ``legacy_runs`` went through it and cost ~4 s on a
+    300-run project inside ``opai doctor``; the comparison it fed took 40 ms.
+
+    Counting locks rather than milliseconds for the same reason as the
+    store-open ratchet: a duration threshold that passes on a developer SSD and
+    fails on a CI runner gets ignored, while "did this take a lock per run" is
+    the same answer everywhere and is the thing that regressed.
+
+    Reading unlocked is safe here specifically because run documents are
+    written atomically -- a concurrent write is a rename, so a reader sees a
+    whole document either way.
+    """
+
+    def _locks_during(self, action) -> int:
+        taken = 0
+        real = background_runs.interprocess_transaction
+
+        def counting(path, *args, **kwargs):
+            nonlocal taken
+            taken += 1
+            return real(path, *args, **kwargs)
+
+        with mock.patch.object(background_runs, "interprocess_transaction", counting):
+            action()
+        return taken
+
+    def test_assembling_the_corpus_takes_no_per_run_locks(self):
+        for index in range(5):
+            self._advance(
+                self._enqueue(f"task {index}"),
+                run_state="completed",
+                status="done",
+            )
+
+        locks = self._locks_during(lambda: journal_background.legacy_runs(self.root))
+
+        self.assertEqual(locks, 0)
+
+    def test_the_corpus_is_still_complete_and_correct(self):
+        """Teeth the other way: cheap must not mean wrong."""
+
+        expected = {}
+        for index in range(5):
+            run = self._enqueue(f"task {index}")
+            state = "completed" if index % 2 else "failed"
+            self._advance(run, run_state=state)
+            expected[run.run_id] = state
+
+        corpus = journal_background.legacy_runs(self.root)
+
+        self.assertEqual(
+            {run_id: entry["terminal_verdict"] for run_id, entry in corpus.items()},
+            expected,
+        )
+
+    def test_a_torn_or_unreadable_run_document_is_skipped_not_fatal(self):
+        run = self._enqueue()
+        self._advance(run, run_state="completed", status="done")
+        good = self._enqueue("second")
+        self._advance(good, run_state="completed", status="done")
+        background_runs._run_path(self.root, run.run_id).write_text(
+            "{not json", encoding="utf-8"
+        )
+
+        corpus = journal_background.legacy_runs(self.root)
+
+        self.assertNotIn(run.run_id, corpus)
+        self.assertIn(good.run_id, corpus)

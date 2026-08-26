@@ -24,8 +24,9 @@ the one thing a qualification corpus must never do.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from . import background_runs
 from .run_state import TERMINAL_STATES, RunState
@@ -58,21 +59,61 @@ def legacy_runs(project_root: Path) -> dict[str, dict[str, Any]]:
     """
 
     try:
-        runs = background_runs.list_runs(project_root)
+        directory = background_runs._run_path(project_root, "probe").parent
+        paths = sorted(directory.glob("*.json")) if directory.is_dir() else []
     except Exception:  # noqa: BLE001 - an unreadable corpus is an empty one
         return {}
 
     corpus: dict[str, dict[str, Any]] = {}
-    for run in runs:
-        run_id = str(getattr(run, "run_id", "") or "").strip()
+    for path in paths:
+        record = _read_run_document(path)
+        if record is None:
+            continue
+        run_id = str(record.get("run_id") or "").strip()
         if not run_id:
             continue
         corpus[run_id] = {
-            "terminal_verdict": _terminal_verdict(run),
-            "created_at": str(getattr(run, "created_at", "") or ""),
-            "task_id": str(getattr(run, "workflow_id", "") or ""),
+            "terminal_verdict": _verdict_of(record),
+            "created_at": str(record.get("created_at") or ""),
+            "task_id": str(record.get("workflow_id") or ""),
         }
     return corpus
+
+
+def _read_run_document(path: Path) -> dict[str, Any] | None:
+    """One run document, read without taking its interprocess lock.
+
+    ``background_runs.load_run`` locks each file it reads, which is right for a
+    caller about to act on that run and wrong for a census: assembling a corpus
+    of 300 runs took 300 lock acquisitions and about four seconds, inside
+    ``opai doctor``. The comparison itself took forty milliseconds.
+
+    Reading unlocked is safe *here* specifically because run documents are
+    written with ``atomic_write_text``. A concurrent write is a rename, so a
+    reader sees either the whole previous document or the whole next one, never
+    a torn mix. The worst case is that one run in the corpus is one state
+    behind, which changes a comparison nobody has committed to acting on -- and
+    the retirement gate is re-evaluated on every call precisely so that a
+    momentarily stale answer cannot outlive the moment.
+    """
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _verdict_of(record: Mapping[str, Any]) -> str:
+    """The canonical terminal state of a run document, or ``""``."""
+
+    raw = record.get("run_state")
+    if raw is None:
+        return ""
+    try:
+        state = RunState(str(raw))
+    except ValueError:
+        return ""
+    return state.value if state in TERMINAL_STATES else ""
 
 
 __all__: Sequence[str] = ("legacy_runs",)
