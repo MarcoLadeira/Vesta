@@ -15,6 +15,13 @@ here returns ``None`` on failure rather than raising, and the caller carries on.
 Losing a run because its *bookkeeping* broke would be a worse bug than the one
 #613 is fixing.
 
+That is why these handlers catch ``TypeError`` as well as the database errors.
+``append_event`` deliberately refuses a payload it cannot encode, raising
+before it takes a write lock -- the store will not store what it cannot
+represent. But a caller bug in a payload must not take down the turn being
+observed, so the refusal stops here rather than propagating. Strict store,
+forgiving mirror.
+
 **One transaction per lifecycle moment.** Admission inserts the task, the run
 and the queued event together, or inserts none of them. A run row without its
 queued event would be exactly the "individually plausible but mutually
@@ -55,6 +62,38 @@ EVENT_COSTED = "run.cost_recorded"
 #: EVENT_STARTED so that a replay can tell "this run began" from "this run
 #: moved", which matters when the legacy record only ever showed states.
 EVENT_TRANSITIONED = "run.transitioned"
+
+#: Requirement 9: what each event class may carry, so ``privacy_class`` means
+#: something instead of defaulting to "internal" for everything.
+#:
+#: ``internal`` is for payloads made entirely of machine-chosen values -- a
+#: mode, a model id, a route, a state name. ``sensitive`` is for anything that
+#: can carry text originating from a person or a provider, which in practice
+#: means any free-form reason string.
+#:
+#: The default is ``sensitive``, not ``internal``. An event type nobody
+#: classified gets the cautious label, so forgetting this table over-protects
+#: rather than under-protects. Over-protecting shows up as a support bundle
+#: missing something useful; under-protecting shows up as a leak nobody
+#: notices.
+PRIVACY_INTERNAL = "internal"
+PRIVACY_SENSITIVE = "sensitive"
+EVENT_PRIVACY = {
+    EVENT_ADMITTED: PRIVACY_INTERNAL,
+    EVENT_STARTED: PRIVACY_INTERNAL,
+    EVENT_TRANSITIONED: PRIVACY_INTERNAL,
+    EVENT_COSTED: PRIVACY_INTERNAL,
+    # These three carry a reason or a detail, which is free-form by design.
+    EVENT_FINISHED: PRIVACY_SENSITIVE,
+    EVENT_CANCELLED: PRIVACY_SENSITIVE,
+    EVENT_VERIFIED: PRIVACY_SENSITIVE,
+}
+
+
+def privacy_class_for(event_type: str) -> str:
+    """The privacy class of an event, defaulting to the cautious one."""
+
+    return EVENT_PRIVACY.get(str(event_type), PRIVACY_SENSITIVE)
 
 
 class _TerminalRunReadmitted(Exception):
@@ -143,7 +182,7 @@ def record_admission(
             # choose. Returning None means later lifecycle events are unfenced
             # no-ops, which is exactly right for a run that has ended.
             return None
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return None
 
 
@@ -223,6 +262,7 @@ def _admit_on(
         store,
         event_type=EVENT_ADMITTED,
         payload={"mode": mode, "model": model, "route": route},
+        privacy_class=privacy_class_for(EVENT_ADMITTED),
         occurred_at=now,
         recorded_at=now,
         producer=surface,
@@ -257,6 +297,7 @@ def record_event(
                 store,
                 event_type=event_type,
                 payload=dict(payload or {}),
+                privacy_class=privacy_class_for(event_type),
                 occurred_at=now,
                 recorded_at=now,
                 producer=producer,
@@ -265,7 +306,7 @@ def record_event(
             )
         except StaleWriterError:
             return None
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return None
 
 
@@ -305,7 +346,7 @@ def record_terminal(
             return True
         except StaleWriterError:
             return False
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
 
 
@@ -331,15 +372,22 @@ def _terminal_on(
         # matrix forbids. Found by its own test; the ordering is the fix.
         if fence is not None:
             journal_store._assert_fence(store, run_id, fence)
+        # Redacted here as well as in the event payload. `minimise()` guards
+        # the events table, and this is a direct UPDATE into `runs`, so it
+        # bypasses that entirely -- found by a test that read the raw database
+        # file and found a key the event path had already scrubbed. A reason
+        # quotes provider errors, and provider errors quote the request that
+        # failed, which is where a credential turns up.
         store.execute(
             "UPDATE runs SET observed_state = ?, terminal_verdict = ?,"
             " terminal_reason = ?, updated_at = ? WHERE run_id = ?",
-            (verdict, verdict, reason, now, run_id),
+            (verdict, verdict, journal_store.redact(str(reason))[:500], now, run_id),
         )
     append_event(
         store,
         event_type=event_type,
         payload={"verdict": verdict, "reason": reason},
+        privacy_class=privacy_class_for(event_type),
         occurred_at=now,
         recorded_at=now,
         producer=producer,
@@ -445,6 +493,7 @@ def record_run_snapshot(
                     store,
                     event_type=EVENT_TRANSITIONED,
                     payload={"state": state, **details},
+                    privacy_class=privacy_class_for(EVENT_TRANSITIONED),
                     occurred_at=now,
                     recorded_at=now,
                     producer=surface,
@@ -468,7 +517,7 @@ def record_run_snapshot(
             return False
         except StaleWriterError:
             return False
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
 
 
@@ -585,7 +634,7 @@ def record_verification(
                 )
         except StaleWriterError:
             return False
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
     return (
         record_event(
@@ -606,24 +655,33 @@ def record_verification(
 
 
 def _summary(task: str, *, limit: int = 200) -> str:
-    """A bounded, single-line description of what was asked for.
+    """A bounded, redacted, single-line description of what was asked for.
 
     Truncated because ``tasks.requested_outcome`` is an identity field, not a
     transcript -- #613's non-goals rule out storing raw prompts to make replay
     possible, and an unbounded prompt here would quietly become one.
+
+    Redacted because truncation alone was not enough, which was demonstrated
+    rather than argued: a task reading ``fix my auth, the key is sk-ant-...``
+    put that key verbatim into ``journal.sqlite3``, found by reading the raw
+    file back and searching its bytes. A prompt is the one field here that
+    carries whatever the user happened to type, which makes it the one most
+    likely to carry something they never meant to persist.
     """
 
     text = " ".join(str(task or "").split())
-    return text[:limit]
+    return journal_store.redact(text)[:limit]
 
 
 __all__ = (
     "EVENT_ADMITTED",
+    "EVENT_PRIVACY",
     "EVENT_COSTED",
     "EVENT_CANCELLED",
     "EVENT_FINISHED",
     "EVENT_STARTED",
     "EVENT_VERIFIED",
+    "privacy_class_for",
     "record_admission",
     "record_run_cost",
     "record_verification",

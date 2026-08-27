@@ -99,7 +99,7 @@ def record_claim(
                 process_ref=process_ref,
             )
             return True
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
 
 
@@ -135,7 +135,7 @@ def record_confirmation(
                 external_ref=str(external_ref or "")[:256],
             )
             return True
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
 
 
@@ -160,7 +160,7 @@ def record_release(project_root: Path, key: str, *, now: str) -> bool:
                     "DELETE FROM operations WHERE operation_key = ?", (str(key),)
                 )
             return True
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
 
 
@@ -187,7 +187,7 @@ def unreconciled_operations(
                 (STATE_CLAIMED, int(limit)),
             ).fetchall()
             return [dict(row) for row in rows]
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return []
 
 
@@ -216,7 +216,7 @@ def operation_summary(project_root: Path) -> dict[str, Any]:
                 "states": states,
                 "unreconciled": states.get(STATE_CLAIMED, 0),
             }
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return {"available": False, "states": {}}
 
 
