@@ -654,6 +654,75 @@ def record_verification(
     )
 
 
+def unterminated_runs(root: Path, *, limit: int = 100) -> list[dict[str, Any]]:
+    """Runs this installation admitted and never recorded an ending for.
+
+    #613 opens by describing this exact state:
+
+        A run may appear active with no worker or disappear after restart.
+        ...
+        Recovery logic cannot know whether to resume, reconcile, block or
+        request attention.
+
+    ``journal_operations.unreconciled_operations`` answers that question for
+    external effects. This answers it for runs, which is the half that was
+    missing -- and it is the first question worth asking after a crash.
+
+    **It reports rather than concludes.** An unterminated run with a lease
+    still held is either running right now or was abandoned by a process that
+    died before releasing it, and nothing in this database can tell those
+    apart: a lease is released by ``record_terminal``, not by a process
+    exiting. So each row carries the owner and the heartbeat and lets the
+    caller decide, because the caller can look at whether that process still
+    exists and this module cannot.
+
+    Inventing the distinction here is precisely the failure this issue exists
+    to remove -- a plausible answer with nothing behind it.
+    """
+
+    if not journal_store.journal_path(root).exists():
+        return []
+    with _store(root) as store:
+        if store is None:
+            return []
+        try:
+            rows = store.execute(
+                "SELECT r.run_id, r.task_id, r.attempt, r.observed_state,"
+                " r.created_at, r.updated_at,"
+                " l.owner AS lease_owner, l.heartbeat_at AS lease_heartbeat_at,"
+                " l.released_at AS lease_released_at"
+                " FROM runs r LEFT JOIN leases l ON l.run_id = r.run_id"
+                " WHERE r.terminal_verdict IS NULL OR r.terminal_verdict = ''"
+                " ORDER BY r.created_at LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
+            return []
+    pending = []
+    for row in rows:
+        entry = dict(row)
+        # Named for what it is: somebody still holds the lease. Whether that
+        # somebody is alive is a question for a caller with a process table.
+        entry["lease_held"] = bool(
+            entry.get("lease_owner") and not entry.get("lease_released_at")
+        )
+        pending.append(entry)
+    return pending
+
+
+def unterminated_summary(root: Path) -> dict[str, Any]:
+    """Counts for doctor, without a verdict attached to them."""
+
+    facts: dict[str, Any] = {"available": False, "unterminated": 0, "lease_held": 0}
+    if not journal_store.journal_path(root).exists():
+        return facts
+    pending = unterminated_runs(root, limit=10_000)
+    facts["available"] = True
+    facts["unterminated"] = len(pending)
+    facts["lease_held"] = sum(1 for entry in pending if entry["lease_held"])
+    return facts
+
+
 def _summary(task: str, *, limit: int = 200) -> str:
     """A bounded, redacted, single-line description of what was asked for.
 
@@ -683,6 +752,8 @@ __all__ = (
     "EVENT_VERIFIED",
     "privacy_class_for",
     "record_admission",
+    "unterminated_runs",
+    "unterminated_summary",
     "record_run_cost",
     "record_verification",
     "record_event",
