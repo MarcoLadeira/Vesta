@@ -620,7 +620,16 @@ def append_event(
 
     if privacy_class not in _PRIVACY_CLASSES:
         raise ValueError(f"unknown privacy class: {privacy_class!r}")
-    encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":"))
+    # Requirement 9: minimise sensitive payload content. Redaction happens
+    # here, at the one place every event passes through, rather than at the
+    # dozen call sites that build payloads -- one call site that forgot would
+    # write a secret to disk and nothing would ever say so.
+    #
+    # Before hashing, deliberately: ``payload_hash`` has to describe what is
+    # actually stored, or a self-verifying record verifies a payload that does
+    # not exist anywhere.
+    safe_payload = minimise(payload)
+    encoded = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"))
     with _transaction(connection):
         if expected_fence is not None:
             _assert_fence(connection, run_id, expected_fence)
@@ -638,11 +647,68 @@ def append_event(
                 producer,
                 parent_sequence,
                 encoded,
-                _payload_hash(payload),
+                _payload_hash(safe_payload),
                 privacy_class,
             ),
         )
         return int(cursor.lastrowid)
+
+
+#: Longest string kept verbatim in an event payload. Payloads describe what
+#: happened -- a state name, a verdict, a model id, a reason -- and nothing that
+#: shape runs to a kilobyte. Anything that does is a transcript arriving where a
+#: description belongs, and #613's non-goals rule out storing transcripts to
+#: make replay possible.
+MAX_PAYLOAD_STRING = 1024
+
+
+def minimise(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Strip secrets and bound the size of everything in an event payload.
+
+    Requirement 9 asks that sensitive payload content be minimised and that raw
+    prompts not be required for runtime recovery. This is the first half, and
+    it is applied at the store boundary so that no call site can forget it.
+
+    Two things happen to every string, however deeply nested:
+
+    *It goes through the sanctioned redactor.* Before this, a prompt like
+    ``fix my auth, the key is sk-ant-...`` was written verbatim into
+    ``journal.sqlite3`` -- demonstrated by reading the raw file back and
+    finding the key in it. The database is owner-only now, which bounds who can
+    read it, but a secret at rest is still a secret at rest and it propagates
+    into every backup taken from then on.
+
+    *And it is truncated.* Redaction only catches shapes it recognises, so a
+    long paste that happens to contain something private survives it. Bounding
+    the length does not make that safe, but it does stop the journal quietly
+    becoming the transcript store this issue's non-goals exclude.
+
+    Keys are redacted too. A payload built by interpolating user input into a
+    key name is unusual, and "unusual" is exactly where this kind of thing
+    hides.
+    """
+
+    return {
+        _minimise_text(str(key)): _minimise_value(value)
+        for key, value in dict(payload).items()
+    }
+
+
+def _minimise_text(text: str) -> str:
+    return redact(text)[:MAX_PAYLOAD_STRING]
+
+
+def _minimise_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return _minimise_text(value)
+    if isinstance(value, Mapping):
+        return {
+            _minimise_text(str(key)): _minimise_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_minimise_value(item) for item in value]
+    return value
 
 
 def _assert_fence(
@@ -764,6 +830,13 @@ def record_operation(
     rather than a second external effect -- which is the whole point of the
     table.
     """
+
+    # An external reference is usually a plain PR or run URL, which the
+    # redactor leaves alone. It is occasionally a signed URL, where the
+    # signature *is* the credential -- and a signed URL in a durable record
+    # outlives the request it was minted for. Ordinary URLs are unchanged by
+    # this, so it costs nothing to be sure.
+    external_ref = redact(str(external_ref or ""))[:2048]
 
     if state not in _OPERATION_STATES:
         raise ValueError(f"unknown operation state: {state!r}")
