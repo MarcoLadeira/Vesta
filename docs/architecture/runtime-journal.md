@@ -148,6 +148,24 @@ so recovery is never the step that destroys the last copy.
 
 Reachable as `opai journal status | backup | backups | restore`.
 
+## What did not finish
+
+The issue opens by describing a run that "may appear active with no worker",
+and says recovery "cannot know whether to resume, reconcile, block or request
+attention". `unreconciled_operations` answered that for external effects from
+Stage 6; `unterminated_runs` answers it for runs.
+
+Both are deliberately *reports*. An unterminated run holding a lease is either
+running now or was abandoned by a process that died, and this database cannot
+tell those apart — a lease is released by `record_terminal`, not by a process
+exiting. The row carries the owner and the heartbeat and stops; the caller can
+check whether that process exists, and this store cannot. Two tests pin the
+refusal: a live run and one killed with `os._exit` must look identical, and no
+field may be named "orphaned", "dead" or "crashed".
+
+Reachable as `opai journal pending`, counted in `opai journal status` and
+doctor.
+
 ## Minimisation (requirement 9)
 
 `privacy_class` existed on events from Stage 1 and meant nothing: no caller set
