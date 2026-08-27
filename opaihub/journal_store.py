@@ -661,6 +661,23 @@ def append_event(
 #: make replay possible.
 MAX_PAYLOAD_STRING = 1024
 
+#: How far into a nested payload minimisation will walk.
+#:
+#: This exists because of what the recursion does when it runs out: an
+#: adversarial pass fed ``minimise`` a payload holding a reference to itself and
+#: got ``RecursionError``. That mattered more than it looks. ``json.dumps``
+#: refuses a cycle with ``ValueError``, which ``record_event`` catches, so a
+#: cyclic payload used to be a swallowed mirror failure; raising
+#: ``RecursionError`` ahead of it turned that into an exception escaping into a
+#: real turn. A bound restores the contract, and it covers honest deep nesting
+#: at the same time.
+#:
+#: A payload twenty levels deep is already past describing what happened.
+MAX_PAYLOAD_DEPTH = 20
+
+#: What replaces a value too deep, or one that refers back to itself.
+TRUNCATED_DEPTH = "[TRUNCATED_DEPTH]"
+
 
 def minimise(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Strip secrets and bound the size of everything in an event payload.
@@ -689,7 +706,7 @@ def minimise(payload: Mapping[str, Any]) -> dict[str, Any]:
     """
 
     return {
-        _minimise_text(str(key)): _minimise_value(value)
+        _minimise_text(str(key)): _minimise_value(value, 0)
         for key, value in dict(payload).items()
     }
 
@@ -698,17 +715,45 @@ def _minimise_text(text: str) -> str:
     return redact(text)[:MAX_PAYLOAD_STRING]
 
 
-def _minimise_value(value: Any) -> Any:
+def _minimise_value(value: Any, depth: int) -> Any:
+    """One payload value, made safe to store and safe to serialise.
+
+    Total by construction: every branch returns something ``json.dumps`` can
+    encode. That is the point rather than a nicety -- ``append_event``'s callers
+    catch a specific set of exceptions, so a payload shape that raises anything
+    else escapes the mirror and fails the turn it was only supposed to observe.
+    A ``set`` did exactly that before this, with ``TypeError`` from json.
+    """
+
+    if depth > MAX_PAYLOAD_DEPTH:
+        return TRUNCATED_DEPTH
     if isinstance(value, str):
         return _minimise_text(value)
+    if isinstance(value, bool) or value is None:
+        # Before the numeric check: bool is a subclass of int, and letting it
+        # fall through would store True as 1.
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        # NaN and the infinities are not JSON. json.dumps emits them anyway as
+        # bare NaN/Infinity, which no strict parser will read back -- so a
+        # projection rebuilt elsewhere would fail on a row written here.
+        return value if value == value and value not in (_INF, -_INF) else str(value)
     if isinstance(value, Mapping):
         return {
-            _minimise_text(str(key)): _minimise_value(item)
+            _minimise_text(str(key)): _minimise_value(item, depth + 1)
             for key, item in value.items()
         }
-    if isinstance(value, (list, tuple)):
-        return [_minimise_value(item) for item in value]
-    return value
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_minimise_value(item, depth + 1) for item in value]
+    # Anything else -- a dataclass, a Path, an exception, an arbitrary object --
+    # becomes its repr rather than reaching json and raising. Redacted and
+    # bounded like any other string, since a repr can carry as much as a prompt.
+    return _minimise_text(repr(value))
+
+
+_INF = float("inf")
 
 
 def _assert_fence(

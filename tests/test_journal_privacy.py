@@ -426,3 +426,118 @@ class EveryEventDeclaresItsPrivacyClassTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class MinimisationIsTotalTests(unittest.TestCase):
+    """Every payload shape must come out storable, never raise.
+
+    This is a contract about exceptions, not tidiness. ``append_event``'s
+    callers catch a specific set -- ``sqlite3.DatabaseError``,
+    ``JournalStoreError``, ``ValueError`` -- so anything else escapes the mirror
+    and fails the turn it was only supposed to observe.
+
+    An adversarial pass found two shapes that did exactly that, one of them
+    introduced by minimisation itself:
+
+    * a payload holding a reference to itself raised ``RecursionError``. Before
+      minimisation existed, ``json.dumps`` refused the same payload with
+      ``ValueError``, which *is* caught -- so adding a recursive walk quietly
+      converted a swallowed mirror failure into an exception reaching a real
+      turn.
+    * a ``set`` in a payload reached ``json.dumps`` and raised ``TypeError``,
+      which was never caught either.
+    """
+
+    def _stored(self, payload) -> str:
+        import json
+
+        from opaihub.journal_store import minimise as _minimise
+
+        # json.dumps is the real gate: minimise's output goes straight into it.
+        return json.dumps(_minimise(payload))
+
+    def test_a_payload_that_refers_to_itself_is_bounded(self):
+        inner: dict = {}
+        inner["self"] = inner
+
+        encoded = self._stored({"loop": inner})
+
+        self.assertIn("TRUNCATED_DEPTH", encoded)
+
+    def test_a_deeply_nested_payload_is_bounded(self):
+        node: dict = {"leaf": "x"}
+        for _ in range(2000):
+            node = {"n": node}
+
+        self._stored(node)
+
+    def test_a_set_becomes_a_list_rather_than_an_error(self):
+        encoded = self._stored({"kinds": {"a", "b"}})
+
+        self.assertIn("a", encoded)
+        self.assertIn("b", encoded)
+
+    def test_an_arbitrary_object_becomes_its_repr(self):
+        class Thing:
+            def __repr__(self) -> str:
+                return "<Thing key=sk-ant-api03-FAKEFAKEFAKEFAKEFAKE1234>"  # pragma: allowlist secret
+
+        encoded = self._stored({"thing": Thing()})
+
+        self.assertIn("Thing", encoded)
+        self.assertNotIn(
+            "sk-ant-api03-FAKEFAKEFAKEFAKEFAKE1234", encoded
+        )  # pragma: allowlist secret
+
+    def test_non_finite_floats_do_not_produce_unparseable_json(self):
+        """json.dumps emits bare NaN/Infinity, which strict parsers reject."""
+
+        import json
+
+        encoded = self._stored({"a": float("nan"), "b": float("inf")})
+
+        json.loads(encoded)  # a strict parse, which bare NaN would fail
+
+    def test_booleans_stay_booleans(self):
+        """bool subclasses int; a careless numeric branch stores True as 1."""
+
+        from opaihub.journal_store import minimise as _minimise
+
+        self.assertIs(_minimise({"ok": True})["ok"], True)
+
+    def test_minimise_does_not_mutate_the_callers_payload(self):
+        from opaihub.journal_store import minimise as _minimise
+
+        original = {"a": SECRETS["anthropic"], "n": [1, 2]}
+        _minimise(original)
+
+        self.assertEqual(original["a"], SECRETS["anthropic"])
+        self.assertEqual(original["n"], [1, 2])
+
+    def test_a_hostile_payload_still_leaves_the_run_recorded(self):
+        """The contract in its consequence: the turn survives."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fence = record_admission(
+                root, task_id="t", run_id="run-a", task="a task", now=NOW
+            )
+            loop: dict = {}
+            loop["self"] = loop
+
+            record_event(
+                root,
+                run_id="run-a",
+                event_type=EVENT_STARTED,
+                payload={"loop": loop, "kinds": {1, 2}},
+                now=NOW,
+                fence=fence,
+            )
+
+            store = open_store(root)
+            try:
+                runs = store.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+            finally:
+                store.close()
+
+        self.assertEqual(runs, 1)
