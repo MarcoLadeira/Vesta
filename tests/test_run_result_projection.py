@@ -153,6 +153,70 @@ class NonCompletedTerminalTests(unittest.TestCase):
             {"kind": "cancellation_journal", "id": "run-7"},
         )
 
+    def test_proven_teardown_reports_the_recorded_latencies(self) -> None:
+        # #666: acknowledgement and hard-stop latency are reported from the
+        # journal's recorded timestamps, on the canonical envelope every
+        # surface reads — not re-derived downstream.
+        result = project_run_result(
+            verdict=_verdict(
+                CompletionVerdict.CANCELLED, reason_code="cancelled_by_user"
+            ),
+            final_transition_at="2026-08-03T10:00:00+00:00",
+            mutating=True,
+            cancellation={
+                "scope_id": "run-9",
+                "phase": "terminated",
+                "metrics": {
+                    "forced": True,
+                    "acknowledgement_latency_seconds": 0.42,
+                    "hard_stop_latency_seconds": 2.9,
+                },
+            },
+        )
+        self.assertEqual(result.lifecycle["state"], "cancelled")
+        cancellation = result.authority["cancellation"]
+        self.assertTrue(cancellation["forced"])
+        self.assertEqual(cancellation["acknowledgement_latency_seconds"], 0.42)
+        self.assertEqual(cancellation["hard_stop_latency_seconds"], 2.9)
+
+    def test_unhygienic_latency_numbers_never_reach_the_envelope(self) -> None:
+        for dirty in (True, float("nan"), float("inf"), -1.5, "fast"):
+            result = project_run_result(
+                verdict=_verdict(
+                    CompletionVerdict.CANCELLED, reason_code="cancelled_by_user"
+                ),
+                final_transition_at="2026-08-03T10:00:00+00:00",
+                mutating=True,
+                cancellation={
+                    "scope_id": "run-10",
+                    "phase": "terminated",
+                    "metrics": {
+                        "forced": False,
+                        "acknowledgement_latency_seconds": dirty,
+                        "hard_stop_latency_seconds": dirty,
+                    },
+                },
+            )
+            self.assertEqual(result.lifecycle["state"], "cancelled")
+            cancellation = result.authority["cancellation"]
+            self.assertIsNone(cancellation["acknowledgement_latency_seconds"])
+            self.assertIsNone(cancellation["hard_stop_latency_seconds"])
+
+    def test_an_in_flight_teardown_phase_degrades_to_needs_attention(self) -> None:
+        # A phase that is still reconciling refines cancel_requested, never
+        # cancelled — the mapping, not a local string compare, decides.
+        for phase in ("requested", "acknowledged", "draining", "force_terminating"):
+            result = project_run_result(
+                verdict=_verdict(
+                    CompletionVerdict.CANCELLED, reason_code="cancelled_by_user"
+                ),
+                final_transition_at="2026-08-03T10:00:00+00:00",
+                mutating=True,
+                cancellation={"scope_id": "run-11", "phase": phase},
+            )
+            self.assertEqual(result.lifecycle["state"], "needs_attention", phase)
+            self.assertEqual(result.recovery["reason"], "manual_review", phase)
+
     def test_failed_never_requires_delivery_or_economics_evidence(self) -> None:
         result = project_run_result(
             verdict=_verdict(CompletionVerdict.FAILED, reason_code="provider_error"),

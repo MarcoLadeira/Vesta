@@ -193,7 +193,12 @@ class CancellationTests(unittest.TestCase):
                 final.result["background_cancellation"]["phase"], "terminated"
             )
 
-    def test_executor_exception_after_cancel_resolves_as_confirmed_cancellation(self):
+    def test_executor_exception_after_cancel_needs_attention_not_claimed_cancel(self):
+        # #666: an executor that *raises* while a stop is in flight proves
+        # nothing about the in-flight process tree. The run must end in
+        # needs_attention with the evidence, and the journal must stop at the
+        # acknowledgement the worker actually observed — never a fabricated
+        # "terminated".
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run = enqueue_automation(root, "bug_fix", "task")
@@ -213,9 +218,107 @@ class CancellationTests(unittest.TestCase):
             final = load_run(root, run.run_id)
 
         self.assertFalse(thread.is_alive())
+        self.assertEqual(final.run_state, RunState.NEEDS_ATTENTION.value)
+        self.assertEqual(final.reason_code, "cancellation_unconfirmed")
+        evidence = final.result["background_cancellation"]
+        self.assertEqual(evidence["phase"], "acknowledged")
+        phases = [entry["phase"] for entry in evidence["history"]]
+        self.assertEqual(phases, ["requested", "acknowledged"])
+        self.assertIsNone(evidence["metrics"]["terminated_at"])
+
+    def test_confirmed_cancel_records_each_phase_as_it_actually_happens(self):
+        # #666: the phases must correspond to real events — the request is
+        # durably written when the user asks, the acknowledgement when the
+        # worker observes it, and termination only after the executor has
+        # returned (controllable work proven stopped).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+            started = threading.Event()
+            release = threading.Event()
+
+            def waiting_executor(_root, _run, cancel_event):
+                started.set()
+                cancel_event.wait(timeout=10)
+                return {"status": "cancelled"}
+
+            runner = BackgroundRunner(root, executor=waiting_executor)
+            thread = runner.start(run.run_id)
+            self.assertTrue(started.wait(timeout=10))
+            request_cancel(root, run.run_id)
+            requested_at = load_run(root, run.run_id).cancellation["metrics"][
+                "requested_at"
+            ]
+            release.set()
+            thread.join(timeout=10)
+
+            final = load_run(root, run.run_id)
+
         self.assertEqual(final.run_state, RunState.CANCELLED.value)
-        self.assertEqual(final.reason_code, "cancelled_during_executor_error")
-        self.assertEqual(final.result["background_cancellation"]["phase"], "terminated")
+        evidence = final.result["background_cancellation"]
+        self.assertEqual(evidence["phase"], "terminated")
+        self.assertEqual(
+            [entry["phase"] for entry in evidence["history"]],
+            ["requested", "acknowledged", "terminated"],
+        )
+        metrics = evidence["metrics"]
+        self.assertEqual(metrics["requested_at"], requested_at)
+        self.assertIsNotNone(metrics["acknowledgement_latency_seconds"])
+        self.assertIsNotNone(metrics["hard_stop_latency_seconds"])
+        # The persisted run record carries the terminal evidence too, so it
+        # stays self-describing if the journal is later unreadable.
+        self.assertEqual(final.cancellation["phase"], "terminated")
+
+    def test_unproven_provider_teardown_keeps_the_background_journal_honest(self):
+        # #666: when the provider's own journal stops short of "terminated",
+        # the background journal must not claim what it cannot show — the run
+        # ends in needs_attention with both evidences intact.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+            started = threading.Event()
+
+            def stubborn_executor(_root, _run, cancel_event):
+                started.set()
+                cancel_event.wait(timeout=10)
+                return {
+                    "status": "cancelled",
+                    "cancellation": {
+                        "scope_id": "account-stubborn",
+                        "phase": "force_terminating",
+                        "history": [
+                            {"phase": "requested", "at": "t0", "reason_code": "user"},
+                            {
+                                "phase": "acknowledged",
+                                "at": "t1",
+                                "reason_code": "loop",
+                            },
+                            {
+                                "phase": "force_terminating",
+                                "at": "t2",
+                                "reason_code": "kill",
+                            },
+                        ],
+                        "metrics": {"terminated_at": None},
+                    },
+                }
+
+            runner = BackgroundRunner(root, executor=stubborn_executor)
+            thread = runner.start(run.run_id)
+            self.assertTrue(started.wait(timeout=10))
+            request_cancel(root, run.run_id)
+            thread.join(timeout=10)
+
+            final = load_run(root, run.run_id)
+
+        self.assertEqual(final.run_state, RunState.NEEDS_ATTENTION.value)
+        self.assertEqual(final.reason_code, "cancellation_unconfirmed")
+        evidence = final.result["background_cancellation"]
+        # The background journal mirrors the provider's real depth — including
+        # the force kill — but never claims a termination nobody observed.
+        self.assertEqual(evidence["phase"], "force_terminating")
+        phases = [entry["phase"] for entry in evidence["history"]]
+        self.assertNotIn("terminated", phases)
 
     def test_cancelling_a_finished_run_is_a_noop(self):
         with tempfile.TemporaryDirectory() as tmp:
