@@ -364,3 +364,84 @@ class CompactTests(_JournalCommandFixture):
         self.assertIs(args.func, cli.cmd_journal)
         self.assertEqual(args.days, 7)
         self.assertFalse(args.no_reclaim)
+
+
+class PendingTests(_JournalCommandFixture):
+    """`opai journal pending` -- the first question after a crash.
+
+    #613 opens by describing a run that "may appear active with no worker".
+    Answering that from Python only would repeat the mistake this migration
+    already made once, where a correct reader was never wired into anything a
+    person could run.
+    """
+
+    def _unfinished_run(self) -> str:
+        run = background_runs.enqueue_automation(
+            self.root, workflow_id="bug_fix", task="a long task"
+        )
+        return run.run_id
+
+    def test_a_settled_project_says_so(self):
+        from opaihub.journal_store import open_store as _open
+
+        _open(self.root).close()
+
+        code, output = self._run("pending")
+
+        self.assertEqual(code, 0)
+        self.assertIn("nothing unfinished", output)
+
+    def test_an_unfinished_run_is_listed(self):
+        run_id = self._unfinished_run()
+
+        code, output = self._run("pending")
+
+        self.assertEqual(code, 0)
+        self.assertIn(run_id, output)
+        self.assertIn("lease held", output)
+
+    def test_an_unreconciled_operation_is_listed(self):
+        from opaihub import idempotency
+
+        self._unfinished_run()
+        idempotency.begin(
+            self.root, idempotency.operation_key("github.pr", head="feat/x")
+        )
+
+        code, output = self._run("pending")
+
+        self.assertEqual(code, 0)
+        self.assertIn("github.pr", output)
+
+    def test_the_output_refuses_to_call_a_run_dead(self):
+        """The honesty the underlying report is built on, carried to the surface."""
+
+        self._unfinished_run()
+
+        _, output = self._run("pending")
+
+        self.assertIn("cannot tell those apart", output)
+
+    def test_pending_json_is_parseable(self):
+        self._unfinished_run()
+
+        code, output = self._run("pending", as_json=True)
+
+        self.assertEqual(code, 0)
+        payload = json.loads(output)
+        self.assertIn("runs", payload)
+        self.assertIn("operations", payload)
+
+    def test_status_reports_the_unfinished_count(self):
+        self._unfinished_run()
+
+        code, output = self._run("status")
+
+        self.assertEqual(code, 0)
+        self.assertIn("unfinished:     1", output)
+
+    def test_pending_is_reachable_from_argv(self):
+        args = cli.build_parser().parse_args(["journal", "pending"])
+
+        self.assertIs(args.func, cli.cmd_journal)
+        self.assertEqual(args.journal_command, "pending")

@@ -718,6 +718,10 @@ def cmd_journal(args: argparse.Namespace) -> int:
         print(f"  retirement:     {migration.get('retirement', 'unknown')}")
         for blocker in migration.get("blockers", []) or []:
             print(f"    - {blocker}")
+        unterminated = migration.get("unterminated_runs", 0)
+        print(f"  unfinished:     {unterminated}", end="")
+        held = migration.get("unterminated_runs_holding_a_lease", 0)
+        print(f" ({held} still holding a lease)" if unterminated else "")
         print(f"  backups:        {backup.get('backups', 0)}", end="")
         print(f" (latest {backup['latest']})" if backup.get("latest") else "")
         return 0
@@ -742,6 +746,37 @@ def cmd_journal(args: argparse.Namespace) -> int:
         )
         if removed:
             print(f"  pruned {len(removed)} older backup(s)")
+        return 0
+
+    if action == "pending":
+        from opaihub import journal_operations, journal_runtime
+
+        runs = journal_runtime.unterminated_runs(root)
+        operations = journal_operations.unreconciled_operations(root)
+        if as_json:
+            print(json.dumps({"runs": runs, "operations": operations}, indent=2))
+            return 0
+        if not runs and not operations:
+            print("nothing unfinished: every run ended and every operation reconciled")
+            return 0
+        for entry in runs:
+            held = "lease held" if entry["lease_held"] else "no lease"
+            print(
+                f"run {entry['run_id']}  attempt {entry['attempt']}  "
+                f"{entry['observed_state']}  {held}  since {entry['created_at']}"
+            )
+        for entry in operations:
+            print(
+                f"operation {entry['operation_key']}  {entry['kind']}  "
+                f"since {entry['created_at']}"
+            )
+        # Reported, never concluded: a lease is released by a terminal record,
+        # not by a process exiting, so a held lease means "running now" and
+        # "died without saying so" equally. Only the caller can tell.
+        print(
+            "\nA held lease means the run is either still going or was abandoned "
+            "by a process that died; this record cannot tell those apart."
+        )
         return 0
 
     if action == "compact":
@@ -900,6 +935,15 @@ def _journal_migration(root: Path) -> dict[str, object]:
             connection.close()
         summary = journal_operations.operation_summary(root)
         facts["unreconciled_operations"] = int(summary.get("unreconciled", 0))
+
+        # The other half of "what did not finish". #613 opens by describing a
+        # run that "may appear active with no worker"; operations had an answer
+        # for that and runs did not.
+        from opaihub import journal_runtime
+
+        pending = journal_runtime.unterminated_summary(root)
+        facts["unterminated_runs"] = int(pending.get("unterminated", 0))
+        facts["unterminated_runs_holding_a_lease"] = int(pending.get("lease_held", 0))
 
         from opaihub import journal_background, journal_retirement
 
@@ -3082,6 +3126,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     jb.add_argument("--json", action="store_true")
     jb.set_defaults(func=cmd_journal)
+    jp = journal_sub.add_parser(
+        "pending",
+        help="Runs that never ended and operations never reconciled",
+    )
+    jp.add_argument("--project", default=None, help="Project root")
+    jp.add_argument("--json", action="store_true")
+    jp.set_defaults(func=cmd_journal)
     jc = journal_sub.add_parser(
         "compact",
         help="Apply retention to high-volume presentation events and reclaim space",
