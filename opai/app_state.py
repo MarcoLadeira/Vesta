@@ -318,6 +318,7 @@ def overview(project_root: Path) -> dict[str, Any]:
     audit = summarize_audit(root)
     ledger = summarize_ledger(root)
     savings = cockpit["savings"]
+    telemetry = cockpit["cost_telemetry"]
     return {
         "on": cockpit["status"] == "on",
         "status_label": "ON" if cockpit["status"] == "on" else "ATTENTION",
@@ -338,6 +339,18 @@ def overview(project_root: Path) -> dict[str, Any]:
         },
         "capture": ledger["capture"],
         "budget": cockpit["budget"],
+        # #475: surface the degraded/partial flag so the GUI never presents
+        # lower-bound totals as authoritative.
+        "cost_telemetry": {
+            "has_data": telemetry["has_data"],
+            "calls": telemetry["calls"],
+            "actual_usd": telemetry["actual_usd"],
+            "derived_usd": telemetry["derived_usd"],
+            "estimated_usd": telemetry["estimated_usd"],
+            "complete": telemetry["complete"],
+            "degraded": telemetry["degraded"],
+            "skipped_events": telemetry["skipped_events"],
+        },
         "benchmark_claim": BENCHMARK_CLAIM,
         "benchmark_caveat": BENCHMARK_CAVEAT,
         "risk_blocks": audit["denied_actions"],

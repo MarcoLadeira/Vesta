@@ -187,6 +187,23 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         if capture_rate == 100
         else "warning"
     )
+    # #475: distinguish partial totals from complete totals on Home.
+    telemetry = overview.get("cost_telemetry") or {}
+    telemetry_degraded = bool(telemetry.get("degraded"))
+    telemetry_kpi = {
+        "label": "Spend telemetry",
+        "value": (
+            f"Partial — {_num(telemetry.get('skipped_events'))} event(s) unreadable"
+            if telemetry_degraded
+            else "Complete"
+        ),
+        "severity": "warning" if telemetry_degraded else "success",
+        "description": (
+            "Totals are a lower bound; some cost events could not be read."
+            if telemetry_degraded
+            else "All recorded provider cost events parsed cleanly."
+        ),
+    }
     benchmark = state["benchmark_proof"]
     benchmark_value = (
         f"{_num(benchmark.get('effectiveness_index'))} index"
@@ -280,6 +297,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
                 "value": capture_value,
                 "severity": capture_severity,
             },
+            telemetry_kpi,
         ],
         "cards": [
             {

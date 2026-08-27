@@ -421,6 +421,47 @@ class DegradedTelemetryTests(unittest.TestCase):
         self.assertTrue(cockpit["cost_telemetry"]["degraded"])
         self.assertGreaterEqual(cockpit["cost_telemetry"]["skipped_events"], 1)
 
+    def test_cockpit_render_marks_degraded_totals_as_partial(self):
+        from opai.cockpit import build_cockpit, render_cockpit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_workflow_cost(
+                root, "t1", normalize_account_result("claude", {"cost_usd": 0.5})
+            )
+            with self._events_path(root).open("a", encoding="utf-8") as handle:
+                handle.write("{ torn line without a close\n")
+            text = render_cockpit(build_cockpit(root))
+        # The readable event still renders, but the line admits it is partial.
+        self.assertIn("$0.5000 actual", text)
+        self.assertIn("partial — 1 event(s) unreadable", text)
+        self.assertIn("lower bound", text)
+
+    def test_cockpit_render_says_unreadable_when_no_event_survives(self):
+        from opai.cockpit import build_cockpit, render_cockpit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            events = self._events_path(root)
+            events.parent.mkdir(parents=True, exist_ok=True)
+            events.write_text("not json at all\n", encoding="utf-8")
+            text = render_cockpit(build_cockpit(root))
+        self.assertIn("1 provider event(s) unreadable", text)
+        self.assertNotIn("no provider calls recorded yet", text)
+
+    def test_cockpit_render_of_clean_totals_has_no_partial_marker(self):
+        from opai.cockpit import build_cockpit, render_cockpit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record_workflow_cost(
+                root, "t1", normalize_account_result("claude", {"cost_usd": 0.5})
+            )
+            text = render_cockpit(build_cockpit(root))
+        self.assertIn("$0.5000 actual", text)
+        self.assertNotIn("partial", text)
+        self.assertNotIn("unreadable", text)
+
 
 if __name__ == "__main__":
     unittest.main()

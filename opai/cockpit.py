@@ -162,6 +162,28 @@ def compact_statusline(payload: dict[str, Any]) -> str:
     return f"OPai {status} | {clients['active']}/{clients['total']} clients | ${saved:.2f} saved | {budget}"
 
 
+def _provider_telemetry_line(telemetry: dict[str, Any]) -> str:
+    # #475: when events were torn/unreadable the totals are a lower bound,
+    # not the complete truth — say so instead of looking authoritative.
+    skipped = int(telemetry.get("skipped_events") or 0)
+    degraded = bool(telemetry.get("degraded"))
+    if telemetry["has_data"]:
+        line = (
+            f"${telemetry['actual_usd']:.4f} actual"
+            f" / ${telemetry['derived_usd']:.4f} derived"
+            f" / ${telemetry['estimated_usd']:.4f} estimated"
+            f" across {telemetry['calls']} call(s)"
+        )
+        if degraded:
+            line += (
+                f" (partial — {skipped} event(s) unreadable; totals are a lower bound)"
+            )
+        return line
+    if degraded:
+        return f"{skipped} provider event(s) unreadable; no readable calls recorded"
+    return "no provider calls recorded yet"
+
+
 def render_cockpit(payload: dict[str, Any]) -> str:
     state = "ON" if payload["status"] == "on" else "NEEDS ATTENTION"
     clients = payload["clients"]
@@ -192,15 +214,7 @@ def render_cockpit(payload: dict[str, Any]) -> str:
         f"- Spent today: ${budget['spent']['today_usd']:.4f}",
         f"- Spent this month: ${budget['spent']['month_usd']:.4f}",
         "",
-        "Provider telemetry: "
-        + (
-            f"${telemetry['actual_usd']:.4f} actual"
-            f" / ${telemetry['derived_usd']:.4f} derived"
-            f" / ${telemetry['estimated_usd']:.4f} estimated"
-            f" across {telemetry['calls']} call(s)"
-            if telemetry["has_data"]
-            else "no provider calls recorded yet"
-        ),
+        f"Provider telemetry: {_provider_telemetry_line(telemetry)}",
         "",
         f"Benchmark: {benchmark['claim']}",
         f"Local model / ask: {'available' if local['available'] else 'not running'}",
