@@ -193,6 +193,112 @@ class InjectedFastPathTests(_Temp):
         self.assertEqual(observation.error_code, "CANCELLED")
 
 
+class _DrainingFakePopen(_FakePopen):
+    """A fake that exits on its own after N ``poll()`` calls — the drain window."""
+
+    def __init__(self, polls_before_exit: int = 3, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._polls_left = polls_before_exit
+
+    def poll(self):
+        if self.returncode is not None:
+            return self.returncode
+        if self._polls_left > 0:
+            self._polls_left -= 1
+            return None
+        self.returncode = self._final[0]
+        return self.returncode
+
+
+class TeardownEvidenceTests(_Temp):
+    """#666: a stopped command records the teardown lifecycle it actually went
+    through — each phase written at the moment it really happened, tied to the
+    real ``terminate_tree`` call, with latencies computed from the journal."""
+
+    def _run_with_cancel(self, fake, *, drain_seconds=0.2):
+        aci = AgentComputerInterface(self.repo, popen=mock.Mock(return_value=fake))
+        cancel = threading.Event()
+
+        def flip_soon() -> None:
+            time.sleep(0.1)
+            cancel.set()
+
+        threading.Thread(target=flip_soon).start()
+        return aci.run_command(
+            ["sleep-forever"],
+            purpose="test",
+            cancel=cancel,
+            drain_seconds=drain_seconds,
+        )
+
+    def test_forced_teardown_records_every_phase_as_it_happens(self) -> None:
+        fake = _FakePopen(timeouts_before_result=1_000_000)
+        with mock.patch(
+            "opaihub.aci.terminate_tree",
+            side_effect=lambda proc: proc.terminate(),
+        ) as terminate_tree:
+            observation = self._run_with_cancel(fake)
+        self.assertEqual(observation.error_code, "CANCELLED")
+        terminate_tree.assert_called_once_with(fake)
+        evidence = observation.data.get("cancellation") or {}
+        self.assertTrue(evidence.get("scope_id", "").startswith("aci-"))
+        self.assertEqual(evidence.get("phase"), "terminated")
+        self.assertEqual(
+            [entry["phase"] for entry in evidence.get("history", [])],
+            [
+                "requested",
+                "acknowledged",
+                "draining",
+                "force_terminating",
+                "terminated",
+            ],
+        )
+        metrics = evidence.get("metrics", {})
+        self.assertTrue(metrics.get("forced"))
+        self.assertIsNotNone(metrics.get("acknowledgement_latency_seconds"))
+        self.assertIsNotNone(metrics.get("hard_stop_latency_seconds"))
+        # The journal is durable, not just a return value.
+        journals = list(Path(self.repo).rglob("cancellation/aci-*.journal.jsonl"))
+        self.assertTrue(journals, "no cancellation journal was persisted")
+
+    def test_a_process_that_drains_is_never_marked_forced(self) -> None:
+        fake = _DrainingFakePopen(timeouts_before_result=1_000_000)
+        with mock.patch("opaihub.aci.terminate_tree") as terminate_tree:
+            observation = self._run_with_cancel(fake, drain_seconds=5.0)
+        self.assertEqual(observation.error_code, "CANCELLED")
+        terminate_tree.assert_not_called()
+        evidence = observation.data.get("cancellation") or {}
+        self.assertEqual(
+            [entry["phase"] for entry in evidence.get("history", [])],
+            ["requested", "acknowledged", "draining", "terminated"],
+        )
+        self.assertFalse(evidence.get("metrics", {}).get("forced"))
+
+    def test_a_stubborn_process_never_claims_terminated(self) -> None:
+        fake = _FakePopen(timeouts_before_result=1_000_000)
+        with mock.patch("opaihub.aci.terminate_tree"):  # kill achieves nothing
+            observation = self._run_with_cancel(fake)
+        self.assertEqual(observation.error_code, "CANCELLED")
+        evidence = observation.data.get("cancellation") or {}
+        self.assertEqual(evidence.get("phase"), "force_terminating")
+        self.assertIsNone(evidence.get("metrics", {}).get("terminated_at"))
+
+    def test_a_preflight_cancel_records_nothing_in_flight(self) -> None:
+        aci = AgentComputerInterface(
+            self.repo, popen=mock.Mock(side_effect=AssertionError)
+        )
+        cancel = threading.Event()
+        cancel.set()
+        observation = aci.run_command(["true"], purpose="test", cancel=cancel)
+        self.assertEqual(observation.error_code, "CANCELLED")
+        evidence = observation.data.get("cancellation") or {}
+        self.assertEqual(evidence.get("phase"), "terminated")
+        self.assertEqual(
+            [entry["phase"] for entry in evidence.get("history", [])],
+            ["requested", "acknowledged", "terminated"],
+        )
+
+
 _WORKER = """
 import subprocess, sys, time
 

@@ -555,6 +555,64 @@ class PremiumGuiContractTests(unittest.TestCase):
         self.assertNotIn("SECRET", blob)
         self.assertNotIn("sk-abcdef1234567890abcd", blob)
 
+    def test_overview_passes_through_cost_telemetry_state(self):
+        # #475: the GUI home surface needs the degraded/partial flag; the
+        # app-state overview must not drop it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            overview = A.overview(root)
+        telemetry = overview["cost_telemetry"]
+        for key in (
+            "has_data",
+            "calls",
+            "actual_usd",
+            "derived_usd",
+            "estimated_usd",
+            "complete",
+            "degraded",
+            "skipped_events",
+        ):
+            self.assertIn(key, telemetry)
+        self.assertTrue(telemetry["complete"])
+        self.assertFalse(telemetry["degraded"])
+
+    def _home_spend_telemetry_kpi(self, root: Path) -> dict:
+        from opai.gui_view_model import build_view_model
+
+        vm = build_view_model(root)
+        home = next(section for section in vm["sections"] if section["id"] == "home")
+        return next(kpi for kpi in home["kpis"] if kpi["label"] == "Spend telemetry")
+
+    def test_home_kpi_marks_complete_spend_telemetry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            kpi = self._home_spend_telemetry_kpi(root)
+        self.assertEqual(kpi["value"], "Complete")
+        self.assertEqual(kpi["severity"], "success")
+
+    def test_home_kpi_flags_partial_spend_telemetry(self):
+        from opaihub.cost_telemetry import (
+            normalize_account_result,
+            record_workflow_cost,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            record_workflow_cost(
+                root, "t1", normalize_account_result("claude", {"cost_usd": 0.5})
+            )
+            events = root / ".opaihub" / "agent" / "events.jsonl"
+            with events.open("a", encoding="utf-8") as handle:
+                handle.write("{ torn line without a close\n")
+            kpi = self._home_spend_telemetry_kpi(root)
+        self.assertEqual(kpi["severity"], "warning")
+        self.assertIn("Partial", kpi["value"])
+        self.assertIn("1 event(s) unreadable", kpi["value"])
+        self.assertIn("lower bound", kpi["description"])
+
     def test_cli_parse_error_mentions_screenshot_when_misused(self):
         parser = build_parser()
         stderr = StringIO()

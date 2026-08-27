@@ -17,25 +17,51 @@ result for one turn, never a crash or a silently invented completion.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping
 
 from .completion import CompletionVerdictResult
 from .run_result import RunResult
+from .run_state import RunState, canonical_for_cancel_phase
 
 
 def _record_ref(kind: str, identifier: str) -> dict[str, str]:
     return {"kind": kind[:64], "id": identifier[:500]}
 
 
+def _latency_seconds(value: Any) -> float | None:
+    """A recorded latency, or None — never a bool, NaN, infinity, or negative."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    return float(value)
+
+
 def _cancellation_projection(
     cancellation: Mapping[str, Any] | None,
-) -> tuple[str, dict[str, str] | None]:
+) -> tuple[str, dict[str, str] | None, dict[str, Any]]:
     if not isinstance(cancellation, Mapping):
-        return "", None
+        return "", None, {}
     phase = str(cancellation.get("phase") or "").strip().lower()
     scope_id = str(cancellation.get("scope_id") or "").strip()
     reference = _record_ref("cancellation_journal", scope_id) if scope_id else None
-    return phase, reference
+    raw_metrics = cancellation.get("metrics")
+    raw_metrics = raw_metrics if isinstance(raw_metrics, Mapping) else {}
+    # #666: the latencies #380 names, computed from the journal's recorded
+    # timestamps by `CancelMetrics`, are part of the canonical account of a
+    # proven stop — support reads them here instead of re-deriving them.
+    metrics = {
+        "forced": raw_metrics.get("forced") is True,
+        "acknowledgement_latency_seconds": _latency_seconds(
+            raw_metrics.get("acknowledgement_latency_seconds")
+        ),
+        "hard_stop_latency_seconds": _latency_seconds(
+            raw_metrics.get("hard_stop_latency_seconds")
+        ),
+    }
+    return phase, reference, metrics
 
 
 def _timeout_projection(
@@ -121,9 +147,17 @@ def project_run_result(
 
     authority_value = dict(authority or {})
     diagnostics_value = dict(diagnostics or {})
-    cancellation_phase, cancellation_ref = _cancellation_projection(cancellation)
+    cancellation_phase, cancellation_ref, cancellation_metrics = (
+        _cancellation_projection(cancellation)
+    )
     if state == "cancelled":
-        if cancellation_phase != "terminated" or cancellation_ref is None:
+        try:
+            teardown_proven = (
+                canonical_for_cancel_phase(cancellation_phase) is RunState.CANCELLED
+            )
+        except ValueError:
+            teardown_proven = False
+        if not teardown_proven or cancellation_ref is None:
             state = "needs_attention"
             reason_detail = (
                 "Cancellation was requested, but provider teardown was not "
@@ -135,6 +169,7 @@ def project_run_result(
             authority_value["cancellation"] = {
                 "phase": cancellation_phase,
                 "record_ref": cancellation_ref,
+                **cancellation_metrics,
             }
             refs = list(diagnostics_value.get("record_refs") or [])
             if cancellation_ref not in refs:

@@ -15,6 +15,7 @@ asks for confirmation parks the run as ``blocked`` instead of auto-approving.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import threading
@@ -255,8 +256,22 @@ def _teardown_confirmed(payload: Mapping[str, Any]) -> bool:
         if payload.get(name) is not None
     ]
     return bool(evidence) and all(
-        item.get("phase") == "terminated" for item in evidence
+        _phase_is_proven_stopped(item.get("phase")) for item in evidence
     )
+
+
+def _phase_is_proven_stopped(phase: Any) -> bool:
+    """True only when a recorded cancel phase refines ``cancelled`` (#666).
+
+    Uses the one declared CancelPhase -> RunState mapping rather than a local
+    string compare, so "proven stopped" has exactly one definition codebase-wide.
+    An absent or unknown phase is unproven, never guessed.
+    """
+
+    try:
+        return canonical_for_cancel_phase(phase) is RunState.CANCELLED
+    except ValueError:
+        return False
 
 
 def _background_cancellation_tracker(project_root: Path, run_id: str) -> Any:
@@ -266,9 +281,67 @@ def _background_cancellation_tracker(project_root: Path, run_id: str) -> Any:
 
 
 def _confirmed_background_cancellation(tracker: Any) -> dict[str, Any]:
+    """Evidence for a stop observed while *nothing was in flight* (#614's
+    queued/pre-execution case): request, acknowledge and terminate are one
+    honest step because there is nothing to drain."""
     tracker.request(reason_code="background_cancel_requested")
     tracker.acknowledge(reason_code="background_worker_observed")
     tracker.mark_terminated(reason_code="background_worker_stopped")
+    return tracker.evidence()
+
+
+def _observed_background_cancellation(
+    tracker: Any, payload: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Record the teardown the worker *actually observed* after a stop (#666).
+
+    Every phase corresponds to a real event: the worker acknowledges at the
+    moment it observes the request (the executor has unwound, so no new work
+    will start), mirrors the provider's own teardown depth when the payload
+    carries that journal's evidence, and marks ``terminated`` only when the
+    controllable work is proven stopped — either the provider journal reached
+    ``terminated``, or no provider evidence exists and the executor's clean
+    return is itself the proof. A payload whose provider evidence stops short
+    of ``terminated`` leaves this journal un-terminated too, so
+    :func:`_teardown_confirmed` ends the run in ``needs_attention`` with the
+    evidence rather than in a claimed ``cancelled``.
+    """
+
+    with contextlib.suppress(Exception):  # evidence must never crash a finish
+        tracker.acknowledge(reason_code="background_worker_observed")
+        provider = (
+            _cancellation_evidence(payload.get("cancellation"))
+            if isinstance(payload, Mapping)
+            else {}
+        )
+        provider_phases = {
+            str(entry.get("phase") or "")
+            for entry in (provider.get("history") or [])
+            if isinstance(entry, Mapping)
+        }
+        if "draining" in provider_phases:
+            tracker.begin_draining(reason_code="provider_teardown_started")
+        if "force_terminating" in provider_phases:
+            tracker.force_terminate(reason_code="provider_tree_kill")
+        if provider and str(provider.get("phase") or "") != "terminated":
+            # The provider's own journal could not prove its teardown; this
+            # journal must not claim what it cannot show.
+            return tracker.evidence()
+        tracker.mark_terminated(reason_code="background_worker_stopped")
+    return tracker.evidence()
+
+
+def _acknowledged_background_cancellation(tracker: Any) -> dict[str, Any]:
+    """Evidence for a stop whose executor *raised* mid-teardown (#666).
+
+    A clean executor return proves controllable work stopped; an exception
+    proves nothing about the in-flight process tree, so the journal records
+    the acknowledgement and stops there — the run ends in ``needs_attention``
+    with this evidence instead of a fabricated ``terminated``.
+    """
+
+    with contextlib.suppress(Exception):  # evidence must never crash a finish
+        tracker.acknowledge(reason_code="background_worker_observed")
     return tracker.evidence()
 
 
@@ -880,7 +953,9 @@ class BackgroundRunner:
                 or _coerce_run_state(latest.run_state) is RunState.CANCEL_REQUESTED
             )
             if cancellation_requested:
-                cancellation = _confirmed_background_cancellation(cancellation_tracker)
+                cancellation = _acknowledged_background_cancellation(
+                    cancellation_tracker
+                )
                 self._finish(
                     run,
                     run_state=RunState.CANCELLED,
@@ -911,8 +986,8 @@ class BackgroundRunner:
         )
         payload = dict(payload or {})
         if cancellation_requested:
-            payload["background_cancellation"] = _confirmed_background_cancellation(
-                cancellation_tracker
+            payload["background_cancellation"] = _observed_background_cancellation(
+                cancellation_tracker, payload
             )
         state, reason_code, message = _terminal_from_payload(
             payload,
@@ -959,6 +1034,15 @@ class BackgroundRunner:
             run_state = RunState.NEEDS_ATTENTION
             reason_code = "cancellation_unconfirmed"
             message = "Cancellation could not be proven complete"
+        # #666: persist the terminal teardown evidence on the run record
+        # itself, so the record stays self-describing even if the journal is
+        # later unreadable (load_run's live overlay falls back to this copy).
+        terminal_evidence = _cancellation_evidence(
+            payload.get("background_cancellation") or payload.get("cancellation")
+        )
+        evidence_change = (
+            {"cancellation": terminal_evidence} if terminal_evidence else {}
+        )
         finished = _transition_run(
             self.project_root,
             run.run_id,
@@ -969,6 +1053,7 @@ class BackgroundRunner:
             result=_bounded_result(
                 payload, run_state=run_state, reason_code=reason_code
             ),
+            **evidence_change,
         )
         if _is_terminal_run(finished):
             _notify(self.project_root, finished, message)
@@ -1005,6 +1090,7 @@ def recover_interrupted_runs(
             continue
         if _coerce_run_state(run.run_state) is RunState.CANCEL_REQUESTED:
             tracker = _background_cancellation_tracker(project_root, run.run_id)
+            recovered_evidence = _cancellation_evidence(tracker.evidence())
             updated = _transition_run(
                 project_root,
                 run.run_id,
@@ -1015,8 +1101,9 @@ def recover_interrupted_runs(
                     "session ended before teardown was observed"
                 ),
                 finished_at=_now_iso(),
+                cancellation=recovered_evidence,
                 result=_bounded_result(
-                    {"status": "needs_attention", "cancellation": tracker.evidence()},
+                    {"status": "needs_attention", "cancellation": recovered_evidence},
                     run_state=RunState.NEEDS_ATTENTION,
                     reason_code="cancellation_unconfirmed",
                 ),
