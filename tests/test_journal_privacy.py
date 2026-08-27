@@ -60,10 +60,10 @@ NOW = "2026-08-26T12:00:00+00:00"
 #: these is real; each is here because a user could plausibly paste one into a
 #: prompt while asking why it does not work.
 SECRETS = {
-    "anthropic": "sk-ant-api03-THISISAFAKESECRETVALUE1234567890",
-    "openai": "sk-proj-FAKE1234567890abcdefFAKE1234567890",
-    "github": "ghp_FAKEABCDEFGHIJKLMNOPQRSTUVWXYZ012345",
-    "aws": "AKIAIOSFODNN7EXAMPLE",
+    "anthropic": "sk-ant-api03-THISISAFAKESECRETVALUE1234567890",  # pragma: allowlist secret
+    "openai": "sk-proj-FAKE1234567890abcdefFAKE1234567890",  # pragma: allowlist secret
+    "github": "ghp_FAKEABCDEFGHIJKLMNOPQRSTUVWXYZ012345",  # pragma: allowlist secret
+    "aws": "AKIAIOSFODNN7EXAMPLE",  # pragma: allowlist secret
 }
 
 
