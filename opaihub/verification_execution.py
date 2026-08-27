@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
@@ -15,6 +16,7 @@ import subprocess  # nosec B404 - commands are validated argv and use shell=Fals
 import sys
 import time
 from typing import Any, Callable, Iterable, Mapping
+import uuid
 
 from .command_runner import redact
 from . import shadow_journal
@@ -571,23 +573,66 @@ def _output_summary(stdout: object, stderr: object, *, limit: int) -> str:
     return text[:limit]
 
 
-def _terminate(process: subprocess.Popen[str]) -> bool:
+def _termination_tracker(
+    context: VerificationExecutionContext, check: PolicyCheck, index: int
+) -> Any:
+    """A ``CancellationTracker`` for one stopped verification check (#666).
+
+    Scoped by check and attempt inside the canonical verification worktree, so
+    the durable journal sits beside the manifest it evidences. Created only
+    when a stop actually happens; ``None`` when it cannot be constructed —
+    evidence must never block the stop path itself.
+    """
+
+    with contextlib.suppress(Exception):
+        from .cancellation_lifecycle import CancellationTracker
+
+        raw = f"verification-{check.check_id}-{index}-{uuid.uuid4().hex[:8]}"
+        scope = "".join(ch if (ch.isalnum() or ch in "-_.") else "-" for ch in raw)[
+            :128
+        ]
+        return CancellationTracker(context.worktree, scope)
+    return None
+
+
+def _record_stop_observed(tracker: Any, *, reason_code: str) -> None:
+    """Request -> acknowledge -> draining at the moment each really happened."""
+    if tracker is None:
+        return
+    with contextlib.suppress(Exception):
+        tracker.request(reason_code=reason_code)
+        tracker.acknowledge(reason_code="verification_loop_observed")
+        tracker.begin_draining(reason_code="check_process_in_flight")
+
+
+def _terminate(process: subprocess.Popen[str], *, tracker: Any = None) -> bool:
     """Terminate the whole owned process tree and confirm the parent exited.
 
     Uses :func:`process_tree.terminate_tree` rather than killing the direct
     child alone: a timed-out or cancelled check can have spawned grandchildren
     (test workers, browsers, language servers) that survive a plain
     ``kill()`` on Windows and are left running as orphans (#108, #539).
+
+    ``force_terminating`` is recorded around the real kill and ``terminated``
+    only when the exit is actually observed (#666) — the phase reflects what
+    happened, never what was hoped.
     """
 
     if process.poll() is not None:
         return True
+    if tracker is not None:
+        with contextlib.suppress(Exception):
+            tracker.force_terminate(reason_code="process_tree_termination_started")
     terminate_tree(process, timeout=5)
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         return False
-    return process.poll() is not None
+    confirmed = process.poll() is not None
+    if tracker is not None and confirmed:
+        with contextlib.suppress(Exception):
+            tracker.mark_terminated(reason_code="process_exit_observed")
+    return confirmed
 
 
 def _terminal_record(check: PolicyCheck, status: CheckStatus) -> CheckRecord:
@@ -685,12 +730,16 @@ def _run_attempt(
         except subprocess.TimeoutExpired as exc:
             stdout, stderr = exc.stdout or stdout, exc.stderr or stderr
             if cancel is not None and cancel():
-                teardown_verified = _terminate(process)
+                tracker = _termination_tracker(context, check, index)
+                _record_stop_observed(tracker, reason_code="cancel_requested")
+                teardown_verified = _terminate(process, tracker=tracker)
                 status = CheckStatus.CANCELLED
                 exit_status = None
                 break
             if time.monotonic() >= deadline:
-                teardown_verified = _terminate(process)
+                tracker = _termination_tracker(context, check, index)
+                _record_stop_observed(tracker, reason_code="check_timeout")
+                teardown_verified = _terminate(process, tracker=tracker)
                 status = CheckStatus.TIMEOUT
                 exit_status = None
                 break

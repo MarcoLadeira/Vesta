@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess  # nosec B404 - argv-only injected process boundary
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
@@ -22,6 +24,43 @@ _POLL_INTERVAL_SECONDS = 0.05
 # Grace window given to a cancelled or timed-out process to exit on its own
 # (the "draining" phase, #380) before the whole tree is force-terminated.
 _DEFAULT_DRAIN_SECONDS = 5.0
+
+
+def _new_cancellation_tracker(repo_root: Path) -> Any:
+    """A ``CancellationTracker`` for one stopped command execution (#666).
+
+    Created only when a stop actually happens, so an ordinary command never
+    touches the journal. The scope id is minted per execution; the returned
+    evidence (which carries it) is what lets a support trace find the durable
+    journal again. ``None`` when the tracker cannot be constructed — evidence
+    must never block the stop path itself.
+    """
+
+    with contextlib.suppress(Exception):
+        from .cancellation_lifecycle import CancellationTracker
+
+        return CancellationTracker(repo_root, f"aci-{uuid.uuid4().hex[:16]}")
+    return None
+
+
+def _tracker_evidence(tracker: Any) -> dict[str, Any] | None:
+    if tracker is None:
+        return None
+    with contextlib.suppress(Exception):
+        return tracker.evidence()
+    return None
+
+
+def _record_nothing_in_flight(tracker: Any, *, reason_code: str) -> None:
+    """A stop observed before anything was running: request, acknowledge, and
+    terminate in one honest step — there is nothing to drain (#614's queued
+    case)."""
+    if tracker is None:
+        return
+    with contextlib.suppress(Exception):
+        tracker.request(reason_code=reason_code)
+        tracker.acknowledge(reason_code="cancel_token_already_set")
+        tracker.mark_terminated(reason_code="nothing_in_flight")
 
 
 @dataclass(frozen=True)
@@ -420,10 +459,16 @@ class AgentComputerInterface:
                 "Destructive commands require a separate explicit approval boundary",
             )
         if cancel is not None and cancel.is_set():
+            tracker = _new_cancellation_tracker(self.repo_root)
+            _record_nothing_in_flight(tracker, reason_code="cancel_token_set")
+            data: dict[str, Any] = {"command": argv, "purpose": purpose}
+            evidence = _tracker_evidence(tracker)
+            if evidence is not None:
+                data["cancellation"] = evidence
             return Observation(
                 "command",
                 False,
-                {"command": argv, "purpose": purpose},
+                data,
                 "CANCELLED",
                 "Command was cancelled before it started",
             )
@@ -565,38 +610,65 @@ class AgentComputerInterface:
                     break
 
         if outcome != "completed":
-            drain_deadline = time.monotonic() + drain_seconds
-            while proc.poll() is None and time.monotonic() < drain_deadline:
-                time.sleep(_POLL_INTERVAL_SECONDS)
+            # #666: the teardown is a recorded lifecycle, not a label. Every
+            # phase below is written at the moment the corresponding real event
+            # happens — the loop observing the token, the drain window opening,
+            # the actual ``terminate_tree`` kill, and the observed exit.
+            tracker = _new_cancellation_tracker(self.repo_root)
+            if tracker is not None:
+                with contextlib.suppress(Exception):
+                    tracker.request(reason_code=outcome)
+                    tracker.acknowledge(reason_code="command_loop_observed")
             if proc.poll() is None:
-                terminate_tree(proc)
+                if tracker is not None:
+                    with contextlib.suppress(Exception):
+                        tracker.begin_draining(reason_code="drain_window_started")
+                drain_deadline = time.monotonic() + drain_seconds
+                while proc.poll() is None and time.monotonic() < drain_deadline:
+                    time.sleep(_POLL_INTERVAL_SECONDS)
+                if proc.poll() is None:
+                    if tracker is not None:
+                        with contextlib.suppress(Exception):
+                            tracker.force_terminate(reason_code="grace_window_expired")
+                    terminate_tree(proc)
             try:
                 stdout, stderr = proc.communicate(timeout=max(2.0, drain_seconds))
             except subprocess.TimeoutExpired:
                 pass  # best effort: report whatever was captured before this
+            if tracker is not None:
+                with contextlib.suppress(Exception):
+                    if proc.poll() is not None:
+                        tracker.mark_terminated(reason_code="process_exit_observed")
+            evidence = _tracker_evidence(tracker)
             if outcome == "cancelled":
-                return Observation(
-                    "command",
-                    False,
-                    {
-                        "command": argv,
-                        "purpose": purpose,
-                        "stdout": redact(str(stdout or ""))[: self.max_output_chars],
-                        "stderr": redact(str(stderr or ""))[: self.max_output_chars],
-                    },
-                    "CANCELLED",
-                    "Command was cancelled",
-                    int((time.monotonic() - started) * 1000),
-                )
-            return Observation(
-                "command",
-                False,
-                {
+                data = {
                     "command": argv,
                     "purpose": purpose,
                     "stdout": redact(str(stdout or ""))[: self.max_output_chars],
                     "stderr": redact(str(stderr or ""))[: self.max_output_chars],
-                },
+                }
+                if evidence is not None:
+                    data["cancellation"] = evidence
+                return Observation(
+                    "command",
+                    False,
+                    data,
+                    "CANCELLED",
+                    "Command was cancelled",
+                    int((time.monotonic() - started) * 1000),
+                )
+            data = {
+                "command": argv,
+                "purpose": purpose,
+                "stdout": redact(str(stdout or ""))[: self.max_output_chars],
+                "stderr": redact(str(stderr or ""))[: self.max_output_chars],
+            }
+            if evidence is not None:
+                data["cancellation"] = evidence
+            return Observation(
+                "command",
+                False,
+                data,
                 "TIMEOUT",
                 "Command timed out",
                 int((time.monotonic() - started) * 1000),

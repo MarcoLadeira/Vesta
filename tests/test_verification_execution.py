@@ -270,6 +270,53 @@ def test_cancellation_terminates_an_already_running_check(tmp_path: Path) -> Non
     assert verification_verdict(manifest) is VerificationVerdict.CANCELLED
 
 
+def test_cancellation_records_the_teardown_lifecycle_it_went_through(
+    tmp_path: Path,
+) -> None:
+    # #666: the durable journal ties force_terminating to the real
+    # terminate_tree kill and terminated to the observed exit — evidence
+    # beside the manifest, not a label.
+    from opaihub.cancellation_lifecycle import CancellationTracker
+
+    cancellation_checks = 0
+
+    def cancel() -> bool:
+        nonlocal cancellation_checks
+        cancellation_checks += 1
+        return cancellation_checks >= 2
+
+    manifest = execute_policy(
+        _policy_for_command(
+            (sys.executable, "-c", "import time; time.sleep(10)"),
+            timeout_seconds=5,
+        ),
+        _context(tmp_path),
+        cancel=cancel,
+    )
+    attempt = manifest.checks[0].attempts[0]
+    assert attempt.status is CheckStatus.CANCELLED
+
+    journals = sorted(
+        tmp_path.rglob("cancellation/verification-*.journal.jsonl"),
+        key=lambda path: path.stat().st_mtime,
+    )
+    assert journals, "no cancellation journal was persisted for the stopped check"
+    scope = journals[-1].name[: -len(".journal.jsonl")]
+    tracker = CancellationTracker(tmp_path, scope)
+    phases = [entry["phase"] for entry in tracker.history()]
+    assert phases == [
+        "requested",
+        "acknowledged",
+        "draining",
+        "force_terminating",
+        "terminated",
+    ]
+    metrics = tracker.metrics()
+    assert metrics.forced is True
+    assert metrics.acknowledgement_latency_seconds is not None
+    assert metrics.hard_stop_latency_seconds is not None
+
+
 def test_persisted_manifest_round_trips_with_bounded_redacted_output(
     tmp_path: Path,
 ) -> None:

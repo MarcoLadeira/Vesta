@@ -1834,13 +1834,25 @@ def _ask_account(
     # unconfirmed teardown directly; retain the legacy cancelled+evidence
     # check so older provider adapters also fail closed.
     if isinstance(result, dict):
+        from opaihub.run_state import RunState as _RunState
+        from opaihub.run_state import canonical_for_cancel_phase
+
         cancellation = result.get("cancellation")
         cancellation = cancellation if isinstance(cancellation, dict) else {}
         unconfirmed_reason = str(result.get("stopped_reason") or "")
+        try:
+            # The one declared CancelPhase -> RunState mapping decides what
+            # "proven stopped" means, not a local string compare (#666).
+            teardown_proven = (
+                canonical_for_cancel_phase(cancellation.get("phase"))
+                is _RunState.CANCELLED
+            )
+        except ValueError:
+            teardown_proven = False
         cancellation_unconfirmed = unconfirmed_reason in {
             "cancellation_unconfirmed",
             "timeout_teardown_unconfirmed",
-        } or (result.get("cancelled") and cancellation.get("phase") != "terminated")
+        } or (result.get("cancelled") and not teardown_proven)
         if cancellation_unconfirmed:
             if not unconfirmed_reason:
                 unconfirmed_reason = "cancellation_unconfirmed"
