@@ -15,6 +15,13 @@ here returns ``None`` on failure rather than raising, and the caller carries on.
 Losing a run because its *bookkeeping* broke would be a worse bug than the one
 #613 is fixing.
 
+That is why these handlers catch ``TypeError`` as well as the database errors.
+``append_event`` deliberately refuses a payload it cannot encode, raising
+before it takes a write lock -- the store will not store what it cannot
+represent. But a caller bug in a payload must not take down the turn being
+observed, so the refusal stops here rather than propagating. Strict store,
+forgiving mirror.
+
 **One transaction per lifecycle moment.** Admission inserts the task, the run
 and the queued event together, or inserts none of them. A run row without its
 queued event would be exactly the "individually plausible but mutually
@@ -175,7 +182,7 @@ def record_admission(
             # choose. Returning None means later lifecycle events are unfenced
             # no-ops, which is exactly right for a run that has ended.
             return None
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return None
 
 
@@ -299,7 +306,7 @@ def record_event(
             )
         except StaleWriterError:
             return None
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return None
 
 
@@ -339,7 +346,7 @@ def record_terminal(
             return True
         except StaleWriterError:
             return False
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
 
 
@@ -510,7 +517,7 @@ def record_run_snapshot(
             return False
         except StaleWriterError:
             return False
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
 
 
@@ -627,7 +634,7 @@ def record_verification(
                 )
         except StaleWriterError:
             return False
-        except (sqlite3.DatabaseError, JournalStoreError, ValueError):
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
     return (
         record_event(

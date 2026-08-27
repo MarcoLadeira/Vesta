@@ -471,23 +471,54 @@ class MinimisationIsTotalTests(unittest.TestCase):
 
         self._stored(node)
 
-    def test_a_set_becomes_a_list_rather_than_an_error(self):
+    def test_a_set_becomes_a_list_because_it_has_a_faithful_json_form(self):
         encoded = self._stored({"kinds": {"a", "b"}})
 
         self.assertIn("a", encoded)
         self.assertIn("b", encoded)
 
-    def test_an_arbitrary_object_becomes_its_repr(self):
-        class Thing:
-            def __repr__(self) -> str:
-                return "<Thing key=sk-ant-api03-FAKEFAKEFAKEFAKEFAKE1234>"  # pragma: allowlist secret
+    def test_an_arbitrary_object_is_still_refused_by_the_store(self):
+        """The line minimisation deliberately does not cross.
 
-        encoded = self._stored({"thing": Thing()})
+        A set has a faithful JSON form and is converted. An arbitrary object
+        does not, and substituting its ``repr`` would turn a caller's bug into
+        stored garbage that reads like data. ``append_event`` encodes before
+        ``BEGIN`` precisely so this is refused without ever taking a write
+        lock, and that stays true.
 
-        self.assertIn("Thing", encoded)
-        self.assertNotIn(
-            "sk-ant-api03-FAKEFAKEFAKEFAKEFAKE1234", encoded
-        )  # pragma: allowlist secret
+        An earlier draft of this change did substitute the repr, and broke the
+        crash-matrix test that pins exactly that design.
+        """
+
+        with self.assertRaises(TypeError):
+            self._stored({"thing": object()})
+
+    def test_the_mirror_survives_what_the_store_refuses(self):
+        """Strict store, forgiving mirror -- the refusal must not reach the turn."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fence = record_admission(
+                root, task_id="t", run_id="run-a", task="a task", now=NOW
+            )
+
+            recorded = record_event(
+                root,
+                run_id="run-a",
+                event_type=EVENT_STARTED,
+                payload={"thing": object()},
+                now=NOW,
+                fence=fence,
+            )
+
+            store = open_store(root)
+            try:
+                runs = store.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+            finally:
+                store.close()
+
+        self.assertFalse(recorded, "the event should not have been stored")
+        self.assertEqual(runs, 1, "the run must survive its mirror refusing an event")
 
     def test_non_finite_floats_do_not_produce_unparseable_json(self):
         """json.dumps emits bare NaN/Infinity, which strict parsers reject."""

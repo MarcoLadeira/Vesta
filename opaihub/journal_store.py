@@ -716,13 +716,18 @@ def _minimise_text(text: str) -> str:
 
 
 def _minimise_value(value: Any, depth: int) -> Any:
-    """One payload value, made safe to store and safe to serialise.
+    """One payload value, redacted, bounded, and left encodable or not.
 
-    Total by construction: every branch returns something ``json.dumps`` can
-    encode. That is the point rather than a nicety -- ``append_event``'s callers
-    catch a specific set of exceptions, so a payload shape that raises anything
-    else escapes the mirror and fails the turn it was only supposed to observe.
-    A ``set`` did exactly that before this, with ``TypeError`` from json.
+    The line this draws is deliberate, and it was drawn after getting it wrong
+    once. Containers with a faithful JSON analogue are converted -- a ``set``
+    becomes a list, and nothing is invented in doing so. An arbitrary object is
+    *not*: there is no honest JSON form of one, and substituting ``repr`` would
+    turn a caller's bug into stored garbage that reads like data.
+
+    So an unencodable payload still raises out of ``json.dumps``, before
+    ``BEGIN``, exactly as ``append_event`` is designed to. The store refuses
+    what it cannot represent; the *mirror* is what must survive that, and it
+    does, by catching the error rather than by the store pretending.
     """
 
     if depth > MAX_PAYLOAD_DEPTH:
@@ -747,10 +752,10 @@ def _minimise_value(value: Any, depth: int) -> Any:
         }
     if isinstance(value, (list, tuple, set, frozenset)):
         return [_minimise_value(item, depth + 1) for item in value]
-    # Anything else -- a dataclass, a Path, an exception, an arbitrary object --
-    # becomes its repr rather than reaching json and raising. Redacted and
-    # bounded like any other string, since a repr can carry as much as a prompt.
-    return _minimise_text(repr(value))
+    # Anything else is returned untouched, so json.dumps raises TypeError on it
+    # as it always has. See the docstring: refusing is the store's job, and
+    # surviving the refusal is the mirror's.
+    return value
 
 
 _INF = float("inf")
