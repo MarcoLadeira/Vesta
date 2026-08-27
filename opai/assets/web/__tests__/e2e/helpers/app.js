@@ -5,7 +5,19 @@ import { fullScenario } from "./fixtures.js";
 
 export const MOCK_PATH = "opai/assets/web/__tests__/e2e/mock-bridge.js";
 export const APP_PATH = "/opai/assets/web/index.html";
-const APP_READY_TIMEOUT = process.env.CI ? 20_000 : 10_000;
+// Every spec boots the app through this helper, so this one number decides
+// whether a contended run reads as a functional failure. Two hosted runs
+// failed here at exactly 20000ms -- model-usage.spec.js in one,
+// app-shell.spec.js in the next, 487 of 488 passing both times, and both
+// stack-traced to this line rather than to anything the specs assert. A
+// different spec each time is the signature of scheduling luck on a busy
+// runner, not of a bug in whichever spec drew the short straw.
+//
+// It was also two thirds of the whole per-test budget, which left almost no
+// room for a test's actual assertions after a slow boot. Doubled, and the test
+// budget in playwright.config.js raised alongside it so boot is no longer most
+// of the test.
+const APP_READY_TIMEOUT = process.env.CI ? 40_000 : 10_000;
 
 export async function openApp(page, overrides = {}) {
   const diagnostics = { consoleErrors: [], pageErrors: [] };
