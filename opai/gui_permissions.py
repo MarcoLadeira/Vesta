@@ -130,7 +130,10 @@ def permissions_for(
         ):
             note = note + "; pushing still asks every time"
         if cap_id == "push" and state == "ask":
-            note = "Asks every time, even in Full Auto"
+            # Was "Asks every time, even in Full Auto" -- no longer true, since
+            # Full Auto maps to the bypass autonomy level and pushes without
+            # stopping. The note now describes only the mode being shown.
+            note = "Asks every time in this mode"
         rows.append({"id": cap_id, "label": label, "state": state, "note": note})
     return rows
 

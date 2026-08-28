@@ -242,7 +242,7 @@ export const SETTINGS = {
   permissions: [
     { label: "Read files", state: "allow", note: "Anywhere in the repo" },
     { label: "Edit files", state: "ask", note: "Pauses for your OK" },
-    { label: "Push to a remote", state: "allow", note: "Runs without asking" },
+    { label: "Push to a remote", state: "ask", note: "Asks every time in this mode" },
     { label: "Network / web", state: "block" },
   ],
   modePermissions: [
@@ -250,7 +250,7 @@ export const SETTINGS = {
     { id: "plan", label: "Plan", summary: "1 allowed · 0 ask · 6 blocked", active: false },
     { id: "safe-auto", label: "Safe Auto", summary: "3 allowed · 3 ask · 1 blocked", active: true },
     { id: "approve-edits", label: "Approve Edits", summary: "2 allowed · 4 ask · 1 blocked", active: false },
-    { id: "full-auto", label: "Full Auto", summary: "6 allowed · 0 ask · 1 blocked", active: false },
+    { id: "full-auto", label: "Full Auto", summary: "9 allowed · 0 ask · 0 blocked", active: false },
   ],
   privacy: {
     prompts_stored: false,
