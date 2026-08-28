@@ -817,22 +817,19 @@ def _clear_failure_payload(root: Path, *, target: str) -> dict[str, Any]:
 
 
 def clear_history_payload(root: Path) -> dict[str, Any]:
-    """Clear recents and resumable state only when every deletion succeeds."""
+    """Clear prior history without destroying the current conversation."""
 
-    from opai.gui_recents import clear_recents, clear_thread
+    from opai.gui_recents import clear_recents, load_thread
     from opaihub.build_loop import scrub_build_log_requests
-    from opaihub.workflow_state import clear_workflow_state
 
     resolved = root.expanduser().resolve()
     try:
-        # Scrub legacy raw Build prompts before deleting session pointers. If
-        # any step fails, the thread remains so the UI cannot claim success.
+        current = load_thread(resolved)
         scrub_build_log_requests(resolved)
-        # Thread deletion remains last so a partial failure still leaves an
-        # honest resume offer on the next boot.
-        clear_recents(resolved)
-        clear_workflow_state(resolved)
-        clear_thread(resolved)
+        clear_recents(
+            resolved,
+            preserve_conversation_id=str(current.get("conversation_id") or ""),
+        )
     except (OSError, RuntimeError, ValueError):
         return _clear_failure_payload(resolved, target="saved history")
     payload = boot_payload(resolved)
@@ -2469,12 +2466,7 @@ def _run_gui(
 
         @QtCore.Slot(result=str)
         def clearRecents(self) -> str:
-            result = self._session_epoch.invalidate_on_success(
-                lambda: clear_history_payload(self.root)
-            )
-            if result.get("ok"):
-                self._resume_context_active = False
-            return json.dumps(result)
+            return json.dumps(clear_history_payload(self.root))
 
         @QtCore.Slot(result=str)
         def listConversations(self) -> str:

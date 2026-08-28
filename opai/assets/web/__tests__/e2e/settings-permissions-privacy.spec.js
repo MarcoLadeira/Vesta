@@ -58,4 +58,6 @@ test("confirming the clear calls the session bridge exactly once", async ({ page
   const confirm = page.locator(".inline-confirm");
   await confirm.locator('[data-ic="ok"]').click();
   await expect.poll(() => page.evaluate(() => window.__mock.clearedRecents)).toBe(1);
+  await openNav(page, "Chat");
+  await expect(page.locator("#recents")).toContainText("No saved chats yet");
 });

@@ -1281,9 +1281,9 @@
     h +=
       '<div class="set-note">Saved chat is stored redacted on this machine, per workspace.</div>';
     h +=
-      '<div class="danger-zone"><div class="danger-body"><strong>Clear saved chat &amp; recents</strong>' +
+      '<div class="danger-zone"><div class="danger-body"><strong>Clear previous chats &amp; recents</strong>' +
       '<div class="set-note">Immediate and cannot be undone.</div></div>' +
-      '<button class="btn danger" id="settingsClearRecents">Clear saved chat</button></div>';
+      '<button class="btn danger" id="settingsClearRecents">Clear previous chats</button></div>';
     return h;
   }
 
@@ -2297,7 +2297,7 @@
       replayBtn.onclick = function () {
         ctx.replayTour();
       };
-    // Clear saved chat & recents (#239): a destructive action, gated by the
+    // Clear previous chats and recents (#239): a destructive action, gated by the
     // same styled inline confirm the rest of the app uses — never a bare click.
     var clearBtn = q("#settingsClearRecents");
     if (clearBtn)
@@ -2310,8 +2310,8 @@
         clearBtn.disabled = true;
         ctx
           .inlineConfirm(host, {
-            title: "Clear saved chat & recents?",
-            body: "This permanently removes this workspace's saved chat and recent-task list from your machine. It cannot be undone.",
+            title: "Clear previous chats & recents?",
+            body: "This permanently removes this workspace's previous saved chats and recent-task list. It cannot be undone. Your current chat will be kept.",
             confirmLabel: "Clear now",
             danger: true,
           })
@@ -2325,7 +2325,8 @@
               } catch (_e) {
                 /* keep {} */
               }
-              toast(result.ok ? "Saved chat cleared." : result.error || "Could not clear saved chat.");
+              if (result.ok && ctx.applyClearedHistory) ctx.applyClearedHistory(result);
+              toast(result.ok ? "Previous chats cleared." : result.error || "Could not clear previous chats.");
             });
           });
       };
