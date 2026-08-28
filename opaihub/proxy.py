@@ -19,6 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from .boundary_errors import safe_detail
 
 SUPPORTED_AGENTS = ("claude", "codex", "copilot", "gemini")
 _EDIT_MODES = {"safe-auto", "full-auto"}
@@ -98,7 +99,7 @@ def _fail_open(
             "captured": False,
             "paid": False,
             "answer": f"{agent} couldn't run that. Try again.",
-            "error": f"{error} / {exc}",
+            "error": f"{error} / {safe_detail(exc)}",
         }
 
 

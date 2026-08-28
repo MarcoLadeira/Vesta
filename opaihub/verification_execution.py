@@ -24,6 +24,7 @@ from .atomic_io import atomic_write_text, interprocess_transaction
 from .process_tree import adopt, isolated_group_kwargs, terminate_tree
 from .state import state_dir
 from .verification_policy import PolicyCheck, VerificationPolicy
+from .boundary_errors import safe_detail
 
 
 _SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
@@ -693,7 +694,9 @@ def _run_attempt(
             started_at=started,
             ended_at=datetime.now().astimezone(),
             exit_status=127,
-            output_summary=_output_summary("", str(exc), limit=max_output_chars),
+            output_summary=_output_summary(
+                "", safe_detail(exc), limit=max_output_chars
+            ),
             environment_digest=environment_digest,
             teardown_verified=True,
         )
@@ -707,7 +710,9 @@ def _run_attempt(
             started_at=started,
             ended_at=datetime.now().astimezone(),
             exit_status=None,
-            output_summary=_output_summary("", str(exc), limit=max_output_chars),
+            output_summary=_output_summary(
+                "", safe_detail(exc), limit=max_output_chars
+            ),
             environment_digest=environment_digest,
             teardown_verified=True,
         )
@@ -728,7 +733,7 @@ def _run_attempt(
             exit_status = process.returncode
             break
         except subprocess.TimeoutExpired as exc:
-            stdout, stderr = exc.stdout or stdout, exc.stderr or stderr
+            stdout, stderr = safe_detail(exc) or stdout, safe_detail(exc) or stderr
             if cancel is not None and cancel():
                 tracker = _termination_tracker(context, check, index)
                 _record_stop_observed(tracker, reason_code="cancel_requested")
@@ -991,7 +996,7 @@ def load_verification_manifest(path: Path) -> VerificationManifest:
             raise ValueError("manifest must be a JSON object")
         manifest = _manifest_from_dict(payload)
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise ValueError(f"invalid verification manifest: {exc}") from exc
+        raise ValueError(f"invalid verification manifest: {safe_detail(exc)}") from exc
     errors: list[str] = []
     for record in manifest.checks:
         for attempt in record.attempts:

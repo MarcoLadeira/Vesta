@@ -21,6 +21,7 @@ from .generated_lifecycle import (
 )
 from .legacy_alias_telemetry import STATUS, observe as _observe_alias
 from .run_result import RunResult
+from .boundary_errors import safe_detail
 
 
 REMOVAL_GATE = "zero authoritative legacy reads and writes for one supported release"
@@ -438,7 +439,7 @@ def legacy_status_to_result(payload: Mapping[str, Any]) -> RunResult:
             payload,
             status=status,
             compatibility="degraded",
-            detail=f"Legacy completion evidence is incomplete: {exc}",
+            detail=f"Legacy completion evidence is incomplete: {safe_detail(exc)}",
         )
 
 

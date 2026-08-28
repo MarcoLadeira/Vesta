@@ -20,6 +20,7 @@ from opaihub.loader import hub_root
 from opaihub.proc import no_window_kwargs
 from opaihub.skills import skill_items
 from opaihub.state import attach_project, state_dir
+from opaihub.boundary_errors import safe_detail
 
 
 STATUS_TEXT = "Using OPai"
@@ -311,7 +312,7 @@ def _install_superpowers_source(
             **no_window_kwargs(),  # no flashing console window on Windows
         )
     except OSError as exc:
-        return {"status": "failed", "reason": str(exc)}
+        return {"status": "failed", "reason": safe_detail(exc)}
     except subprocess.TimeoutExpired:
         return {"status": "timeout", "reason": "Superpowers install timed out."}
     return {
@@ -968,7 +969,7 @@ def update_opai_source(home: Path | None = None, timeout: int = 120) -> dict[str
             **no_window_kwargs(),  # no flashing console window on Windows
         )
     except OSError as exc:
-        return {"status": "failed", "reason": str(exc)}
+        return {"status": "failed", "reason": safe_detail(exc)}
     except subprocess.TimeoutExpired:
         return {"status": "timeout", "reason": "OPai update timed out."}
     return {

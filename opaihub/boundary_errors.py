@@ -189,3 +189,46 @@ def _provider_category(code: str) -> str:
     if value == "TASK_DEADLINE":
         return "timeout"
     return "unknown_internal"
+
+
+#: How much of an exception's own text a sink may carry. #622 asks for bounded
+#: developer diagnostics ("bound stack traces/output size"), and the sinks this
+#: serves -- a GUI payload, a CLI line, a journal field -- are places where a
+#: kilobyte of provider output is noise rather than evidence.
+MAX_SAFE_DETAIL_CHARS = 400
+
+
+def safe_detail(exc: BaseException, *, limit: int = MAX_SAFE_DETAIL_CHARS) -> str:
+    """Bounded, redacted, fail-closed text for one caught exception.
+
+    The migration adapter functional requirement 2 asks for. A full
+    :class:`BoundaryError` is the right answer where a caller can carry a
+    typed record -- category, continuity, retry semantics -- but most of the
+    sites #622 inventories are not shaped that way. They are one dictionary
+    key or one printed line, in code whose response shape other things already
+    depend on, and telling them "restructure your payload" is how a P0 stays
+    open.
+
+    So this is the smallest safe thing such a site can call instead of
+    ``str(exc)``. It answers the acceptance criterion those sites actually
+    violate -- "no external exception reaches a persisted or user-facing sink
+    as raw ``str(exc)``" -- without requiring the caller to change shape.
+
+    The class name is kept deliberately. #622 wants a *stable category*
+    reaching the user, and when a site has no richer taxonomy to offer, the
+    exception's type is the most stable thing available and is never
+    secret-bearing. ``PermissionError: [REDACTED_SECRET]`` tells a user
+    materially more than ``[REDACTED_SECRET]`` alone.
+
+    Fails closed by construction: it routes through the same ``_safe_text``
+    that :class:`BoundaryError` uses, so a redactor that raises yields
+    ``[REDACTION_FAILED]`` rather than the raw value.
+    """
+
+    text, status = _safe_text(exc, limit=max(1, int(limit)))
+    name = type(exc).__name__
+    if status == "failed_closed":
+        # The message could not be made safe. The type still can be, and it is
+        # the only part a caller can act on without seeing the content.
+        return f"{name}: [REDACTION_FAILED]"
+    return f"{name}: {text}" if text else name

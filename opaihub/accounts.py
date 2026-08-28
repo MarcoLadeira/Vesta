@@ -49,6 +49,7 @@ from .command_runner import redact
 from .proc import provider_child_env
 from .progress_evidence import ProgressLedger
 from .process_tree import adopt, isolated_group_kwargs, terminate_tree
+from .boundary_errors import safe_detail
 
 _CONNECTION_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _CONNECTION_CACHE_LOCK = threading.RLock()
@@ -1488,7 +1489,11 @@ def disconnect_account(account_id: str, *, home: Path | None = None) -> dict[str
             [cli_path, *logout_argv], cwd=None, timeout=20.0, env=logout_env
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        return {"provider": account_id, "disconnected": False, "message": str(exc)}
+        return {
+            "provider": account_id,
+            "disconnected": False,
+            "message": safe_detail(exc),
+        }
     ok = _process_returncode(proc) == 0
     invalidate_connection_cache(account_id, clear_history=ok)
     detail = (getattr(proc, "stderr", "") or getattr(proc, "stdout", "") or "").strip()

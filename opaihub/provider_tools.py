@@ -24,6 +24,7 @@ from .repository_safety import (
     require_mutation_permitted,
     save_repository_handle,
 )
+from .boundary_errors import safe_detail
 
 READ_TOOLS = ("find_files", "search_code", "read_file", "git_status")
 WRITE_TOOLS = (
@@ -890,7 +891,9 @@ class RepositoryToolExecutor:
             # the next attempt reconciles against the bytes on disk, so the
             # key is released rather than left to misreport a live write.
             abandon(self.repo_root, key)
-            return _error("WRITE_FAILED", f"Could not write {relative}: {exc}")
+            return _error(
+                "WRITE_FAILED", f"Could not write {relative}: {safe_detail(exc)}"
+            )
         complete(self.repo_root, key, {"path": relative, "created": created})
         if relative not in self.written_paths:
             self.written_paths.append(relative)
