@@ -306,6 +306,60 @@ class RunnerCancellationTests(unittest.TestCase):
         self.assertTrue(result["timeout_event"]["progress_observed"])
         self.assertTrue(proc.terminated)
 
+    def test_active_deadline_snapshot_is_emitted_before_process_teardown(self):
+        proc = FakeProc(
+            [
+                '{"type":"assistant","message":{"content":[{"type":"text","text":"part"}]}}\n'
+            ],
+            hang=True,
+        )
+        observed = {}
+
+        def persist_timeout(snapshot):
+            observed.update(snapshot)
+            observed["process_was_running"] = not proc.terminated
+            return {
+                "state": "persisted",
+                "checkpoint_id": "checkpoint-before-teardown",
+                "recorded_before_teardown": True,
+            }
+
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            result = self._runner().stream(
+                "x",
+                timeout=0.2,
+                provider_idle_timeout=10.0,
+                operation_id="operation-before-teardown",
+                on_timeout=persist_timeout,
+            )
+
+        self.assertTrue(observed["process_was_running"])
+        self.assertEqual(observed["timeout_event"]["timeout_origin"], TASK_DEADLINE)
+        self.assertEqual(observed["timeout_event"]["teardown_state"], "requested")
+        self.assertTrue(observed["partial_answer_retained"])
+        self.assertEqual(result["timeout_checkpoint"]["state"], "persisted")
+        self.assertTrue(proc.terminated)
+
+    def test_timeout_checkpoint_failure_does_not_leave_provider_running(self):
+        proc = FakeProc([], hang=True)
+
+        def fail_to_persist(_snapshot):
+            raise OSError("simulated checkpoint write failure")
+
+        with mock.patch.object(accounts, "_popen", return_value=proc):
+            result = self._runner().stream(
+                "x",
+                timeout=0.2,
+                provider_idle_timeout=10.0,
+                on_timeout=fail_to_persist,
+            )
+
+        self.assertTrue(result["timed_out"])
+        self.assertEqual(result["timeout_checkpoint"]["state"], "failed")
+        self.assertFalse(result["timeout_checkpoint"]["persisted"])
+        self.assertNotIn("simulated checkpoint write failure", str(result))
+        self.assertTrue(proc.terminated)
+
     def test_streams_text_and_tool_events(self):
         seen_events = []
         seen_text = []

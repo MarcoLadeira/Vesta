@@ -35,6 +35,7 @@ from typing import Any
 from opai.model_registry import models_for as _models_for
 from opaihub.deadlines import (
     DeadlineBudget,
+    DeadlineClocks,
     PROVIDER_IDLE_TIMEOUT,
     TASK_DEADLINE,
     timeout_event,
@@ -295,6 +296,33 @@ def _notify(listener: Callable[[Any], None] | None, payload: Any) -> None:
         return
     with contextlib.suppress(Exception):
         listener(payload)
+
+
+def _capture_timeout_checkpoint(
+    listener: Callable[[dict[str, Any]], Any] | None,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Request a durable timeout snapshot without leaking callback failures."""
+
+    if listener is None:
+        return None
+    try:
+        recorded = listener(dict(payload))
+    except Exception:  # noqa: BLE001 - teardown must continue after persistence failure
+        return {
+            "state": "failed",
+            "persisted": False,
+            "recorded_before_teardown": bool(payload.get("recorded_before_teardown")),
+        }
+    evidence = dict(recorded) if isinstance(recorded, Mapping) else {}
+    state = str(evidence.get("state") or "unknown").strip().lower() or "unknown"
+    evidence["state"] = state
+    evidence["persisted"] = state == "persisted"
+    evidence["recorded_before_teardown"] = bool(
+        evidence.get("recorded_before_teardown")
+        or payload.get("recorded_before_teardown")
+    )
+    return evidence
 
 
 def _is_login_sentinel(text: str) -> bool:
@@ -2179,6 +2207,7 @@ class AccountRunner:
         edit_grant: bool = False,
         operation_id: str | None = None,
         deadline_budget: DeadlineBudget | None = None,
+        on_timeout: Callable[[dict[str, Any]], Any] | None = None,
     ) -> dict[str, Any]:
         """Run the task; return ``{"text", "cost", "timed_out"?}``.
 
@@ -2210,27 +2239,39 @@ class AccountRunner:
                 proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
             except subprocess.TimeoutExpired:
                 Path(out_path).unlink(missing_ok=True)
+                event = timeout_event(
+                    origin=TASK_DEADLINE,
+                    owner="account_runner",
+                    configured_seconds=timeout,
+                    elapsed_seconds=timeout,
+                    provider_responsive=None,
+                    phase="complete",
+                    budget=deadline_budget,
+                    operation_id=operation_id,
+                    route_id=f"account:{self.account_id}",
+                    progress_observed=False,
+                    external_effect_possible=allow_edits,
+                    teardown_state="unknown",
+                    cost_state="unknown",
+                    verification_state="incomplete",
+                )
+                checkpoint = _capture_timeout_checkpoint(
+                    on_timeout,
+                    {
+                        "timeout_event": event,
+                        "progress_evidence": {},
+                        "verification_state": "incomplete",
+                        "partial_answer_retained": False,
+                        "recorded_before_teardown": False,
+                    },
+                )
                 return {
                     "text": "",
                     "cost": None,
                     "timed_out": True,
                     "operation_id": operation_id,
-                    "timeout_event": timeout_event(
-                        origin=TASK_DEADLINE,
-                        owner="account_runner",
-                        configured_seconds=timeout,
-                        elapsed_seconds=timeout,
-                        provider_responsive=None,
-                        phase="complete",
-                        budget=deadline_budget,
-                        operation_id=operation_id,
-                        route_id=f"account:{self.account_id}",
-                        progress_observed=False,
-                        external_effect_possible=allow_edits,
-                        teardown_state="unknown",
-                        cost_state="unknown",
-                        verification_state="incomplete",
-                    ),
+                    "timeout_event": event,
+                    **({"timeout_checkpoint": checkpoint} if checkpoint else {}),
                 }
             try:
                 answer = Path(out_path).read_text(encoding="utf-8").strip()
@@ -2292,27 +2333,39 @@ class AccountRunner:
         try:
             proc = _hidden_run(cmd, cwd=cwd, timeout=timeout, env=child_env)
         except subprocess.TimeoutExpired:
+            event = timeout_event(
+                origin=TASK_DEADLINE,
+                owner="account_runner",
+                configured_seconds=timeout,
+                elapsed_seconds=timeout,
+                provider_responsive=None,
+                phase="complete",
+                budget=deadline_budget,
+                operation_id=operation_id,
+                route_id=f"account:{self.account_id}",
+                progress_observed=False,
+                external_effect_possible=allow_edits,
+                teardown_state="unknown",
+                cost_state="unknown",
+                verification_state="incomplete",
+            )
+            checkpoint = _capture_timeout_checkpoint(
+                on_timeout,
+                {
+                    "timeout_event": event,
+                    "progress_evidence": {},
+                    "verification_state": "incomplete",
+                    "partial_answer_retained": False,
+                    "recorded_before_teardown": False,
+                },
+            )
             return {
                 "text": "",
                 "cost": None,
                 "timed_out": True,
                 "operation_id": operation_id,
-                "timeout_event": timeout_event(
-                    origin=TASK_DEADLINE,
-                    owner="account_runner",
-                    configured_seconds=timeout,
-                    elapsed_seconds=timeout,
-                    provider_responsive=None,
-                    phase="complete",
-                    budget=deadline_budget,
-                    operation_id=operation_id,
-                    route_id=f"account:{self.account_id}",
-                    progress_observed=False,
-                    external_effect_possible=allow_edits,
-                    teardown_state="unknown",
-                    cost_state="unknown",
-                    verification_state="incomplete",
-                ),
+                "timeout_event": event,
+                **({"timeout_checkpoint": checkpoint} if checkpoint else {}),
             }
         returncode = _process_returncode(proc)
         raw = (proc.stdout or "").strip()
@@ -2399,6 +2452,7 @@ class AccountRunner:
         cancellation_scope_id: str | None = None,
         operation_id: str | None = None,
         deadline_budget: DeadlineBudget | None = None,
+        on_timeout: Callable[[dict[str, Any]], Any] | None = None,
     ) -> dict[str, Any]:
         """Run the task with a killable subprocess, emitting live activity.
 
@@ -2506,7 +2560,11 @@ class AccountRunner:
         provider_errors: list[str] = []
         cost: float | None = None
         started = time.monotonic()
-        last_provider_activity: float | None = None
+        deadline_clocks = DeadlineClocks(
+            started_at=started,
+            task_deadline_seconds=timeout,
+            provider_idle_timeout_seconds=provider_idle_timeout,
+        )
         stopped: str | None = None
         terminal_provider_error: str | None = None
         streamed_any = False
@@ -2569,23 +2627,13 @@ class AccountRunner:
                 stopped = "cancelled"
                 break
             now = time.monotonic()
-            if now - started > timeout:
-                stopped = TASK_DEADLINE
-                break
-            if (
-                provider_idle_timeout is not None
-                and now - (last_provider_activity or started) > provider_idle_timeout
-                # A tool call the provider started and has not got a result for
-                # is work in progress, not silence. Without this, a run that
-                # kicked off a long command (a full test suite is the ordinary
-                # case) was killed at the idle timeout while the command was
-                # still making progress, and the turn ended on missing evidence
-                # rather than on the command's result (#486 follow-up). The
-                # task deadline above is still the absolute bound, so a
-                # genuinely hung tool cannot hold the run open forever.
-                and not session.has_work_in_flight()
-            ):
-                stopped = PROVIDER_IDLE_TIMEOUT
+            expired = deadline_clocks.expired_origin(
+                now, provider_work_in_flight=session.has_work_in_flight()
+            )
+            if expired is not None:
+                # A provider-started tool call suppresses only the inactivity
+                # clock. The hard task deadline remains the absolute bound.
+                stopped = expired
                 break
             try:
                 kind, source, payload = lines.get(timeout=0.2)
@@ -2617,7 +2665,7 @@ class AccountRunner:
                 # closed, has_work_in_flight() correctly went False, and the
                 # very next loop iteration saw a large idle gap and killed the
                 # run in the same instant its result arrived (#486 follow-up).
-                last_provider_activity = time.monotonic()
+                deadline_clocks.note_provider_activity(time.monotonic())
                 for event in part["events"]:
                     _notify(on_event, event)
                     etype = str(event.get("type") or "")
@@ -2696,7 +2744,7 @@ class AccountRunner:
             else:
                 chunk = payload or ""
                 if chunk.strip():
-                    last_provider_activity = time.monotonic()
+                    deadline_clocks.note_provider_activity(time.monotonic())
                     if not streamed_any and on_event:
                         on_event(
                             make_event("streaming", "running", "Streaming response")
@@ -2751,6 +2799,52 @@ class AccountRunner:
             }
 
         if stopped is not None:
+            partial = "".join(text_parts).strip()
+            timeout_checkpoint: dict[str, Any] | None = None
+            pre_teardown_event: dict[str, Any] | None = None
+            if stopped in {TASK_DEADLINE, PROVIDER_IDLE_TIMEOUT}:
+                observed_at = time.monotonic()
+                last_age = deadline_clocks.last_activity_age_at(observed_at)
+                pre_teardown_event = timeout_event(
+                    origin=stopped,
+                    owner="account_runner",
+                    configured_seconds=(
+                        timeout if stopped == TASK_DEADLINE else provider_idle_timeout
+                    ),
+                    elapsed_seconds=observed_at - started,
+                    provider_responsive=(
+                        stopped == TASK_DEADLINE
+                        and deadline_clocks.provider_responsive_at(observed_at)
+                    ),
+                    last_activity_seconds_ago=last_age,
+                    phase="stream",
+                    budget=deadline_budget,
+                    operation_id=operation_id,
+                    route_id=f"account:{self.account_id}",
+                    progress_observed=bool(
+                        deadline_clocks.last_provider_activity_at is not None
+                        or partial
+                        or step_ids
+                    ),
+                    external_effect_possible=allow_edits,
+                    teardown_state="requested",
+                    cost_state=(
+                        "observed"
+                        if isinstance(cost, (int, float)) and not isinstance(cost, bool)
+                        else "unknown"
+                    ),
+                    verification_state="incomplete",
+                )
+                timeout_checkpoint = _capture_timeout_checkpoint(
+                    on_timeout,
+                    {
+                        "timeout_event": pre_teardown_event,
+                        "progress_evidence": progress.summary(),
+                        "verification_state": "incomplete",
+                        "partial_answer_retained": bool(partial),
+                        "recorded_before_teardown": True,
+                    },
+                )
             if cancellation_tracker is not None:
                 with contextlib.suppress(Exception):
                     cancellation_tracker.request(reason_code=stopped)
@@ -2761,7 +2855,6 @@ class AccountRunner:
             teardown_confirmed = _terminate(proc, tracker=cancellation_tracker)
             if out_path:
                 Path(out_path).unlink(missing_ok=True)
-            partial = "".join(text_parts).strip()
             cancellation_evidence = _cancellation_evidence(cancellation_tracker)
             teardown_proven = teardown_confirmed and (
                 cancellation_tracker is None
@@ -2769,11 +2862,7 @@ class AccountRunner:
             )
             if stopped in {TASK_DEADLINE, PROVIDER_IDLE_TIMEOUT}:
                 ended = time.monotonic()
-                last_age = (
-                    None
-                    if last_provider_activity is None
-                    else ended - last_provider_activity
-                )
+                last_age = deadline_clocks.last_activity_age_at(ended)
                 result = {
                     "text": partial,
                     "cost": cost,
@@ -2788,11 +2877,7 @@ class AccountRunner:
                         elapsed_seconds=ended - started,
                         provider_responsive=(
                             stopped == TASK_DEADLINE
-                            and last_provider_activity is not None
-                            and (
-                                provider_idle_timeout is None
-                                or last_age <= provider_idle_timeout
-                            )
+                            and deadline_clocks.provider_responsive_at(ended)
                         ),
                         last_activity_seconds_ago=last_age,
                         phase="stream",
@@ -2800,7 +2885,9 @@ class AccountRunner:
                         operation_id=operation_id,
                         route_id=f"account:{self.account_id}",
                         progress_observed=bool(
-                            last_provider_activity is not None or partial or step_ids
+                            deadline_clocks.last_provider_activity_at is not None
+                            or partial
+                            or step_ids
                         ),
                         external_effect_possible=allow_edits,
                         teardown_state=str(
@@ -2816,6 +2903,11 @@ class AccountRunner:
                         verification_state="incomplete",
                     ),
                     "cancellation": cancellation_evidence,
+                    **(
+                        {"timeout_checkpoint": timeout_checkpoint}
+                        if timeout_checkpoint
+                        else {}
+                    ),
                     **unfinished_work,
                 }
                 if not teardown_proven:

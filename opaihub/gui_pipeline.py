@@ -24,7 +24,11 @@ from .agent_policy import (
 from . import journal_runtime
 from .agent_runtime import AgentRuntime, RuntimePhase
 from .autonomy import MODE_LABELS, effective_mode
-from .checkpoints import create_run_checkpoint, finalize_run_checkpoint
+from .checkpoints import (
+    create_run_checkpoint,
+    finalize_run_checkpoint,
+    record_timeout_checkpoint,
+)
 from .completion import (
     CompletionVerdict,
     CompletionState,
@@ -1278,6 +1282,51 @@ def _handle_gui_message(
     )
     workflow = replace(workflow, checkpoint_id=checkpoint.checkpoint_id)
     save_workflow_state(root, workflow)
+
+    def _persist_account_timeout(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+        """Capture account progress before process-tree teardown begins."""
+
+        event = snapshot.get("timeout_event")
+        if not isinstance(event, Mapping) or not event:
+            return {
+                "state": "failed",
+                "persisted": False,
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "recorded_before_teardown": False,
+            }
+        before_teardown = bool(snapshot.get("recorded_before_teardown", True))
+        stage = "pre_teardown" if before_teardown else "terminal"
+        try:
+            updated = record_timeout_checkpoint(
+                root,
+                checkpoint.checkpoint_id,
+                stage=stage,
+                timeout_event=event,
+                progress_evidence=(
+                    snapshot.get("progress_evidence")
+                    if isinstance(snapshot.get("progress_evidence"), Mapping)
+                    else {}
+                ),
+                verification_state=str(
+                    snapshot.get("verification_state") or "incomplete"
+                ),
+                partial_answer_retained=bool(snapshot.get("partial_answer_retained")),
+            )
+        except (OSError, TypeError, ValueError, KeyError):
+            return {
+                "state": "failed",
+                "persisted": False,
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "recorded_before_teardown": before_teardown,
+            }
+        persisted = stage in updated.timeout
+        return {
+            "state": "persisted" if persisted else "failed",
+            "persisted": persisted,
+            "checkpoint_id": checkpoint.checkpoint_id,
+            "recorded_before_teardown": before_teardown and persisted,
+        }
+
     packet_block = (
         "\n\nOPai task packet (workflow state remains owned by OPai):\n"
         + json.dumps(task_packet.to_dict(), sort_keys=True)
@@ -1412,6 +1461,52 @@ def _handle_gui_message(
             if isinstance(payload.get("raw_result"), Mapping):
                 raw_terminal = {**raw_terminal, "timeout_event": timeout_info}
                 payload["raw_result"] = raw_terminal
+            try:
+                terminal_checkpoint = record_timeout_checkpoint(
+                    root,
+                    checkpoint.checkpoint_id,
+                    stage="terminal",
+                    timeout_event=timeout_info,
+                    verification_state=str(
+                        timeout_info.get("verification_state") or "incomplete"
+                    ),
+                    partial_answer_retained=bool(
+                        payload.get("partial_answer")
+                        or raw_terminal.get("partial_answer")
+                    ),
+                )
+                if isinstance(payload.get("raw_result"), Mapping):
+                    raw_terminal = {
+                        **raw_terminal,
+                        "timeout_checkpoint": {
+                            **(
+                                raw_terminal.get("timeout_checkpoint")
+                                if isinstance(
+                                    raw_terminal.get("timeout_checkpoint"), Mapping
+                                )
+                                else {}
+                            ),
+                            "terminal_persisted": "terminal"
+                            in terminal_checkpoint.timeout,
+                        },
+                    }
+                    payload["raw_result"] = raw_terminal
+            except (OSError, TypeError, ValueError, KeyError):
+                if isinstance(payload.get("raw_result"), Mapping):
+                    raw_terminal = {
+                        **raw_terminal,
+                        "timeout_checkpoint": {
+                            **(
+                                raw_terminal.get("timeout_checkpoint")
+                                if isinstance(
+                                    raw_terminal.get("timeout_checkpoint"), Mapping
+                                )
+                                else {}
+                            ),
+                            "terminal_persisted": False,
+                        },
+                    }
+                    payload["raw_result"] = raw_terminal
         # Round 2: committing clears the dirty paths a run created, so an
         # edit-intent turn that genuinely committed ended with zero changed
         # files, zero attributed paths, and a "Partial — no changed-file or diff
@@ -2827,6 +2922,7 @@ def _handle_gui_message(
                 cancel=cancel,
                 tool_loop_policy=_contract_tool_loop_policy(),
                 deadline_budget=_contract_deadline_budget(),
+                on_timeout=_persist_account_timeout,
             )
             if result.get("status") == "cancelled":
                 _emit("cancelled", "cancelled", "Stopped by you")
