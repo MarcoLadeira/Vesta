@@ -45,7 +45,8 @@ GITHUB_PUBLIC_READ_TOOLS = ("github_search_issues",)
 GITHUB_READ_TOOLS = GITHUB_AUTHENTICATED_READ_TOOLS + GITHUB_PUBLIC_READ_TOOLS
 # Outward GitHub writes (comment, request review): need a token AND push consent,
 # like git_push/open_pr, but not local edit permission.
-GITHUB_WRITE_TOOLS = ("github_comment", "github_request_review")
+GITHUB_WRITE_TOOLS = ("github_comment", "github_request_review", "github_merge_pr")
+_MERGE_METHODS = ("squash", "merge", "rebase")
 MAX_TOOL_CALLS = 12
 MAX_PATCH_CHARS = 120_000
 MAX_WRITE_CHARS = 200_000
@@ -521,6 +522,23 @@ class RepositoryToolExecutor:
                         "reviewers": {"type": "array", "items": {"type": "string"}},
                     },
                     required=("number", "reviewers"),
+                )
+            )
+            schemas.append(
+                _schema(
+                    "github_merge_pr",
+                    "Merge a pull request by number. Use method 'squash' "
+                    "(default), 'merge', or 'rebase'.",
+                    {
+                        "number": {"type": "integer", "minimum": 1},
+                        "method": {
+                            "type": "string",
+                            "enum": list(_MERGE_METHODS),
+                        },
+                        "commit_title": {"type": "string"},
+                        "commit_message": {"type": "string"},
+                    },
+                    required=("number",),
                 )
             )
         if not self.allow_edits:
@@ -1904,6 +1922,108 @@ class RepositoryToolExecutor:
             message=f"Commented on #{number}",
         ).to_dict()
 
+    def _github_merge_pr(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Merge a pull request, honouring the run's autonomy level.
+
+        The connector could open, comment on and inspect a PR but never finish
+        one, so landing a branch always required a human to click Merge. This
+        closes that gap; ``_needs_approval`` decides whether it stops first, so
+        lower modes still confirm and bypass does not.
+
+        Merging is outward-facing and not undoable by OPai, so it carries the
+        same idempotency claim as the other write tools. It reconciles cleanly:
+        asking GitHub whether the PR is merged answers whether a lost attempt
+        landed, so a resumed turn never merges twice.
+        """
+
+        number = self._github_number(arguments)
+        if number is None:
+            return _error("INVALID_TOOL_ARGUMENTS", "A positive number is required")
+        method = str(arguments.get("method") or "squash").strip().lower()
+        if method not in _MERGE_METHODS:
+            return _error(
+                "INVALID_TOOL_ARGUMENTS",
+                f"method must be one of {', '.join(_MERGE_METHODS)}",
+            )
+
+        from .github_connector import merge_pull_request, pull_request_status
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        key = operation_key(
+            "github_merge_pr",
+            root=str(self.repo_root),
+            number=number,
+            method=method,
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return Observation(
+                "github_merge_pr",
+                True,
+                {"number": number, **dict(prior["result"] or {})},
+                message=f"Pull request #{number} was already merged",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            observed = pull_request_status(self.repo_root, number)
+            if observed.get("ok") and observed.get("merged"):
+                complete(self.repo_root, key, {"merged": True, "method": method})
+                return Observation(
+                    "github_merge_pr",
+                    True,
+                    {"number": number, "merged": True},
+                    message=f"Pull request #{number} is merged",
+                ).to_dict()
+            if not observed.get("ok"):
+                return _error(
+                    "MERGE_STATE_UNCERTAIN",
+                    f"An earlier attempt to merge #{number} did not confirm and "
+                    "GitHub could not be checked. Inspect the pull request "
+                    "before retrying.",
+                )
+            abandon(self.repo_root, key)
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "MERGE_STATE_UNCERTAIN",
+                    f"Could not establish a clean merge attempt for #{number}.",
+                )
+
+        approval = self._needs_approval(
+            f"gh pr merge {number} --{method}",
+            f"Merging pull request #{number} changes the base branch.",
+        )
+        if approval is not None:
+            abandon(self.repo_root, key)
+            return approval
+
+        result = merge_pull_request(
+            self.repo_root,
+            number,
+            method=method,
+            commit_title=str(arguments.get("commit_title") or ""),
+            commit_message=str(arguments.get("commit_message") or ""),
+        )
+        if result.get("ok"):
+            payload = {
+                "merged": True,
+                "method": method,
+                "sha": result.get("sha", ""),
+            }
+            complete(self.repo_root, key, payload)
+            return Observation(
+                "github_merge_pr",
+                True,
+                {"number": number, **payload},
+                message=str(result.get("message") or f"Merged #{number}"),
+            ).to_dict()
+        if result.get("uncertain"):
+            # Leave the claim in flight: the merge may have landed, and the
+            # reconcile path above is what decides on the next attempt.
+            return _error("MERGE_STATE_UNCERTAIN", str(result.get("error") or ""))
+        abandon(self.repo_root, key)
+        return _error("GITHUB_MERGE_FAILED", str(result.get("error") or "Merge failed"))
+
     def _github_request_review(self, arguments: dict[str, Any]) -> dict[str, Any]:
         number = self._github_number(arguments)
         if number is None:
@@ -2160,6 +2280,8 @@ class RepositoryToolExecutor:
             return self._github_read("github_get_issue", arguments)
         if name == "github_search_issues":
             return self._github_search(arguments)
+        if name == "github_merge_pr":
+            return self._github_merge_pr(arguments)
         if name == "github_comment":
             return self._github_comment(arguments)
         if name == "github_request_review":
