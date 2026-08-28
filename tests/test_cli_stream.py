@@ -64,6 +64,22 @@ class NormalizeModelTests(unittest.TestCase):
         )
 
 
+#: How long these tests wait for ``stream_ask`` to reach the account runner.
+#:
+#: Both of the threaded tests below used to bound this at exactly 5 seconds,
+#: and ``stream_ask`` measures 5.2-5.6s to get there on an ordinary Windows
+#: machine -- it resolves routing, reads project context and checks the account
+#: connection first. A threshold set just under the real cost is not a flake in
+#: the random sense; it fails almost every time on one machine and almost never
+#: on another, which is the worst kind because it reads as an environment
+#: problem rather than a test problem.
+#:
+#: What these tests assert is that the runner *starts*, not that it starts
+#: inside some stopwatch reading, so the bound only has to be generous enough
+#: to stay a bound. It exists to turn a hang into a failure, not to measure.
+_STREAM_START_TIMEOUT_S = 60
+
+
 class StreamAskTests(unittest.TestCase):
     def test_canonical_result_owns_cli_state_reason_and_label(self):
         canonical = RunResult.from_payload(
@@ -226,7 +242,11 @@ class StreamAskTests(unittest.TestCase):
         # cancelled via its cancel Event — covered by pipeline tests. Here we
         # assert the reassurance heartbeat fired while blocked.
         runner._block = False
-        t.join(timeout=5)
+        t.join(timeout=_STREAM_START_TIMEOUT_S)
+        self.assertFalse(
+            t.is_alive(),
+            f"stream_ask did not return within {_STREAM_START_TIMEOUT_S}s",
+        )
         self.assertIn(code_box.get("code"), {0, 2})
 
     def test_reassurance_heartbeat_when_slow(self):
@@ -239,16 +259,40 @@ class StreamAskTests(unittest.TestCase):
 
         runner = SlowRunner(chunks=[], block=True)
 
+        # Two things this thread must never do, both learned the hard way.
+        #
+        # It must not assert. A failed assertion here raises inside a worker
+        # thread, where unittest cannot attribute it to this test and the only
+        # trace is a stack dump on stderr.
+        #
+        # And it must always clear ``_block``. The original version asserted
+        # first and unblocked second, so a timed-out wait killed the thread with
+        # ``_block`` still set -- leaving the main thread waiting on a runner
+        # that nothing would ever release. That is not a failing test, it is a
+        # hung suite: a full local run stopped dead at 17% with no summary, and
+        # every result after it was simply never produced. One slow moment on a
+        # loaded machine cost all information about the other 83%.
+        #
+        # So: record the outcome, always release, and assert on the main thread.
+        observed = {"started": False}
+
         def unblock():
-            self.assertTrue(started.wait(timeout=5))
-            time.sleep(0.9)
-            runner._block = False
+            try:
+                observed["started"] = started.wait(timeout=_STREAM_START_TIMEOUT_S)
+                time.sleep(0.9)
+            finally:
+                runner._block = False
 
         threading.Thread(target=unblock, daemon=True).start()
         buf = io.StringIO()
         with redirect_stdout(buf):
             code, lines = self._run(runner, reassure_after_s=0.3)
         joined = "\n".join(lines)
+        self.assertTrue(
+            observed["started"],
+            "the runner never started within 5s, so the heartbeat assertions "
+            "below would be testing nothing",
+        )
         self.assertIn("elapsed", joined)  # heartbeat printed while waiting
         self.assertIn("Ctrl+C to stop", joined)
 
@@ -416,7 +460,7 @@ class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
             worker = threading.Thread(target=call, daemon=True)
             worker.start()
             try:
-                deadline = time.monotonic() + 5.0
+                deadline = time.monotonic() + _STREAM_START_TIMEOUT_S
                 running_thread: dict = {}
                 while time.monotonic() < deadline:
                     running_thread = load_thread(root)
@@ -433,7 +477,19 @@ class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
                 self.assertEqual(owner["reason"], "owned_here")
             finally:
                 runner._block = False
-                worker.join(timeout=5.0)
+                # The join must actually succeed, not merely be attempted. The
+                # worker holds an open journal connection for the length of the
+                # turn, and this temp directory is deleted the moment the
+                # `with` block exits -- so a join that times out leaves Windows
+                # trying to unlink a database another thread still has open,
+                # which fails with WinError 32 and reports as an error in
+                # whichever test happens to be running.
+                worker.join(timeout=_STREAM_START_TIMEOUT_S)
+                self.assertFalse(
+                    worker.is_alive(),
+                    "the turn did not finish; tearing down the project "
+                    "directory now would race a thread still writing to it",
+                )
 
     def test_an_unconfirmed_cancel_persists_as_needs_attention(
         self,

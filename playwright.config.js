@@ -4,7 +4,11 @@ import { defineConfig } from "@playwright/test";
 // still exercising the same UI. Keep local feedback strict, but give the
 // required hosted qualification enough time to distinguish a slow cold boot
 // from a genuine functional failure.
-const testTimeout = process.env.CI ? 30_000 : 15_000;
+// Raised alongside helpers/app.js's APP_READY_TIMEOUT: at 30s, the 20s app-boot
+// wait every spec performs was two thirds of the budget, so a slow boot left a
+// test barely any time to assert anything. Boot now gets 40s and the test keeps
+// 20s beyond it, which is headroom rather than a race.
+const testTimeout = process.env.CI ? 60_000 : 15_000;
 // expect()/action waits are a *sub*-budget of one test, not the whole test —
 // scaling only `testTimeout` left these fixed at 5000ms, so an individual
 // assertion (a locator appearing, a click landing) could still time out on a

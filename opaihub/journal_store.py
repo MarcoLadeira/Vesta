@@ -620,7 +620,16 @@ def append_event(
 
     if privacy_class not in _PRIVACY_CLASSES:
         raise ValueError(f"unknown privacy class: {privacy_class!r}")
-    encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":"))
+    # Requirement 9: minimise sensitive payload content. Redaction happens
+    # here, at the one place every event passes through, rather than at the
+    # dozen call sites that build payloads -- one call site that forgot would
+    # write a secret to disk and nothing would ever say so.
+    #
+    # Before hashing, deliberately: ``payload_hash`` has to describe what is
+    # actually stored, or a self-verifying record verifies a payload that does
+    # not exist anywhere.
+    safe_payload = minimise(payload)
+    encoded = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"))
     with _transaction(connection):
         if expected_fence is not None:
             _assert_fence(connection, run_id, expected_fence)
@@ -638,11 +647,118 @@ def append_event(
                 producer,
                 parent_sequence,
                 encoded,
-                _payload_hash(payload),
+                _payload_hash(safe_payload),
                 privacy_class,
             ),
         )
         return int(cursor.lastrowid)
+
+
+#: Longest string kept verbatim in an event payload. Payloads describe what
+#: happened -- a state name, a verdict, a model id, a reason -- and nothing that
+#: shape runs to a kilobyte. Anything that does is a transcript arriving where a
+#: description belongs, and #613's non-goals rule out storing transcripts to
+#: make replay possible.
+MAX_PAYLOAD_STRING = 1024
+
+#: How far into a nested payload minimisation will walk.
+#:
+#: This exists because of what the recursion does when it runs out: an
+#: adversarial pass fed ``minimise`` a payload holding a reference to itself and
+#: got ``RecursionError``. That mattered more than it looks. ``json.dumps``
+#: refuses a cycle with ``ValueError``, which ``record_event`` catches, so a
+#: cyclic payload used to be a swallowed mirror failure; raising
+#: ``RecursionError`` ahead of it turned that into an exception escaping into a
+#: real turn. A bound restores the contract, and it covers honest deep nesting
+#: at the same time.
+#:
+#: A payload twenty levels deep is already past describing what happened.
+MAX_PAYLOAD_DEPTH = 20
+
+#: What replaces a value too deep, or one that refers back to itself.
+TRUNCATED_DEPTH = "[TRUNCATED_DEPTH]"
+
+
+def minimise(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Strip secrets and bound the size of everything in an event payload.
+
+    Requirement 9 asks that sensitive payload content be minimised and that raw
+    prompts not be required for runtime recovery. This is the first half, and
+    it is applied at the store boundary so that no call site can forget it.
+
+    Two things happen to every string, however deeply nested:
+
+    *It goes through the sanctioned redactor.* Before this, a prompt like
+    ``fix my auth, the key is sk-ant-...`` was written verbatim into
+    ``journal.sqlite3`` -- demonstrated by reading the raw file back and
+    finding the key in it. The database is owner-only now, which bounds who can
+    read it, but a secret at rest is still a secret at rest and it propagates
+    into every backup taken from then on.
+
+    *And it is truncated.* Redaction only catches shapes it recognises, so a
+    long paste that happens to contain something private survives it. Bounding
+    the length does not make that safe, but it does stop the journal quietly
+    becoming the transcript store this issue's non-goals exclude.
+
+    Keys are redacted too. A payload built by interpolating user input into a
+    key name is unusual, and "unusual" is exactly where this kind of thing
+    hides.
+    """
+
+    return {
+        _minimise_text(str(key)): _minimise_value(value, 0)
+        for key, value in dict(payload).items()
+    }
+
+
+def _minimise_text(text: str) -> str:
+    return redact(text)[:MAX_PAYLOAD_STRING]
+
+
+def _minimise_value(value: Any, depth: int) -> Any:
+    """One payload value, redacted, bounded, and left encodable or not.
+
+    The line this draws is deliberate, and it was drawn after getting it wrong
+    once. Containers with a faithful JSON analogue are converted -- a ``set``
+    becomes a list, and nothing is invented in doing so. An arbitrary object is
+    *not*: there is no honest JSON form of one, and substituting ``repr`` would
+    turn a caller's bug into stored garbage that reads like data.
+
+    So an unencodable payload still raises out of ``json.dumps``, before
+    ``BEGIN``, exactly as ``append_event`` is designed to. The store refuses
+    what it cannot represent; the *mirror* is what must survive that, and it
+    does, by catching the error rather than by the store pretending.
+    """
+
+    if depth > MAX_PAYLOAD_DEPTH:
+        return TRUNCATED_DEPTH
+    if isinstance(value, str):
+        return _minimise_text(value)
+    if isinstance(value, bool) or value is None:
+        # Before the numeric check: bool is a subclass of int, and letting it
+        # fall through would store True as 1.
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        # NaN and the infinities are not JSON. json.dumps emits them anyway as
+        # bare NaN/Infinity, which no strict parser will read back -- so a
+        # projection rebuilt elsewhere would fail on a row written here.
+        return value if value == value and value not in (_INF, -_INF) else str(value)
+    if isinstance(value, Mapping):
+        return {
+            _minimise_text(str(key)): _minimise_value(item, depth + 1)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_minimise_value(item, depth + 1) for item in value]
+    # Anything else is returned untouched, so json.dumps raises TypeError on it
+    # as it always has. See the docstring: refusing is the store's job, and
+    # surviving the refusal is the mirror's.
+    return value
+
+
+_INF = float("inf")
 
 
 def _assert_fence(
@@ -764,6 +880,13 @@ def record_operation(
     rather than a second external effect -- which is the whole point of the
     table.
     """
+
+    # An external reference is usually a plain PR or run URL, which the
+    # redactor leaves alone. It is occasionally a signed URL, where the
+    # signature *is* the credential -- and a signed URL in a durable record
+    # outlives the request it was minted for. Ordinary URLs are unchanged by
+    # this, so it costs nothing to be sure.
+    external_ref = redact(str(external_ref or ""))[:2048]
 
     if state not in _OPERATION_STATES:
         raise ValueError(f"unknown operation state: {state!r}")

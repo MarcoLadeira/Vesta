@@ -89,6 +89,7 @@ from .verification_execution import (
     persist_verification_manifest,
 )
 from .workflow_state import WorkflowState, load_workflow_state, save_workflow_state
+from .boundary_errors import safe_detail
 
 
 _EDITING_MODES = {"safe-auto", "full-auto"}
@@ -1106,7 +1107,7 @@ def _handle_gui_message(
             repo_context = context_from_repository_handle(task_repository_handle)
             save_active_repo(root, repo_context)
         except (RepositoryProbeError, RepositorySafetyPersistenceError) as exc:
-            repository_safety_error = str(exc)[:400]
+            repository_safety_error = safe_detail(exc)[:400]
     if will_edit and not repository_safety_error:
         try:
             effective_policy = resolve_verification_policy(
@@ -1148,7 +1149,7 @@ def _handle_gui_message(
                     else "Verification policy could not be resolved safely."
                 )
         except (OSError, TypeError, ValueError) as exc:
-            verification_policy_error = str(exc)[:400]
+            verification_policy_error = safe_detail(exc)[:400]
             verification_policy_payload = {
                 "status": "blocked",
                 "findings": [
@@ -1370,7 +1371,7 @@ def _handle_gui_message(
                 verification_manifest_payload = {
                     "creation_error": (
                         "Verification evidence could not be created safely: "
-                        + str(exc)[:240]
+                        + safe_detail(exc)[:240]
                     )
                 }
             payload = {

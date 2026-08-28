@@ -24,6 +24,7 @@ from opai.release_identity import (
 )
 from .command_runner import redact
 from .proc import no_window_kwargs
+from .boundary_errors import safe_detail
 
 
 EVIDENCE_SCHEMA_VERSION = 2
@@ -409,7 +410,7 @@ def native_platform_signature_problems(
                 **no_window_kwargs(),
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            return [f"Authenticode verifier could not run: {exc}"]
+            return [f"Authenticode verifier could not run: {safe_detail(exc)}"]
         return (
             []
             if completed.returncode == 0
@@ -429,7 +430,7 @@ def native_platform_signature_problems(
     try:
         cli = _component_executable(root, "cli", "opai")
     except ArtifactReleaseError as exc:
-        return [str(exc)]
+        return [safe_detail(exc)]
     app = root / "gui" / "OPai.app"
     if not app.is_dir():
         return ["artifact is missing the GUI application bundle"]
@@ -481,7 +482,7 @@ def native_platform_signature_problems(
                 timeout=30,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            problems.append(f"{label} verifier could not run: {exc}")
+            problems.append(f"{label} verifier could not run: {safe_detail(exc)}")
             continue
         if completed.returncode != 0:
             problems.append(f"{label} failed: {_completed_detail(completed)}")
@@ -905,7 +906,9 @@ def verify_bundle(
             try:
                 signature_problems = signature_verifier(root, str(provenance_platform))
             except (ArtifactReleaseError, OSError, subprocess.SubprocessError) as exc:
-                problems.append(f"platform signature verification failed: {exc}")
+                problems.append(
+                    f"platform signature verification failed: {safe_detail(exc)}"
+                )
             else:
                 if not all(
                     isinstance(problem, str) and problem

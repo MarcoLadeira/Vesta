@@ -13,6 +13,7 @@ from .command_runner import run_policy_command
 from .loader import registry_items
 from .run_state import RunState, can_transition, is_terminal, transition
 from .state import state_dir
+from .boundary_errors import safe_detail
 
 
 SAFE_STEP_COMMANDS = {
@@ -970,7 +971,7 @@ def read_workflow_log(project_root: Path, run_id: str | None = None) -> dict[str
         except ValueError as exc:
             return {
                 "state": "degraded",
-                "reason": f"workflow snapshot canonicalization failed: {exc}",
+                "reason": f"workflow snapshot canonicalization failed: {safe_detail(exc)}",
                 "current_run_id": pointer["run_id"],
                 "current_revision": pointer["revision"],
             }

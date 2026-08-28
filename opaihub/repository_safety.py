@@ -26,6 +26,7 @@ from . import shadow_journal
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .state import state_dir
+from .boundary_errors import safe_detail
 
 
 SCHEMA_VERSION = 2
@@ -317,7 +318,7 @@ def parse_porcelain_v2(raw: bytes) -> DirtyState:
                 continue
             raise ValueError("unknown porcelain record")
         except ValueError as exc:
-            malformed.append(f"{kind.decode('ascii', 'replace')}:{exc}")
+            malformed.append(f"{kind.decode('ascii', 'replace')}:{safe_detail(exc)}")
 
     return DirtyState(
         staged=_dedupe(staged),
@@ -364,7 +365,7 @@ def _run_git(
         # assumed it already had.
         return git_run(["git", "--no-optional-locks", *args], **kwargs)
     except (OSError, subprocess.SubprocessError) as exc:
-        raise RepositoryProbeError("probe_unavailable", str(exc)) from exc
+        raise RepositoryProbeError("probe_unavailable", safe_detail(exc)) from exc
 
 
 def _git_text(root: Path, args: list[str], *, git_run: GitRun, required: bool) -> str:
@@ -555,7 +556,7 @@ def _index_fingerprint(root: Path, git_dir: Path, *, git_run: GitRun) -> str:
         # add. Treat absence as a stable observed state, not a probe failure.
         return hashlib.sha256(b"missing-index").hexdigest()
     except OSError as exc:
-        raise RepositoryProbeError("index_unavailable", str(exc)) from exc
+        raise RepositoryProbeError("index_unavailable", safe_detail(exc)) from exc
 
 
 def _nested_repository_marker(root: Path, relative: str, *, git_run: GitRun) -> str:

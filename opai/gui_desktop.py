@@ -265,6 +265,7 @@ MSG_COLORS = {
 # Run-mode labels come from the single autonomy source (#400); re-exported here
 # so existing ``gui_desktop.MODE_LABELS`` references keep working.
 from opaihub.autonomy import MODE_LABELS  # noqa: E402
+from opaihub.boundary_errors import safe_detail  # noqa: E402
 
 
 def _stylesheet() -> str:
@@ -422,7 +423,7 @@ def _run_gui(
             try:
                 result = self._fn()
             except Exception as exc:  # noqa: BLE001
-                result = {"status": "error", "answer": str(exc)}
+                result = {"status": "error", "answer": safe_detail(exc)}
             if not self._cancelled:
                 self.done.emit(result)
 
@@ -829,7 +830,9 @@ def _run_gui(
                 vm = build_view_model(self.root)
             except Exception as exc:  # noqa: BLE001
                 self.dashboard_box.addWidget(
-                    self._lbl(f"Couldn't load this view: {exc}", name="PageSub")
+                    self._lbl(
+                        f"Couldn't load this view: {safe_detail(exc)}", name="PageSub"
+                    )
                 )
                 self.dashboard_box.addStretch(1)
                 return
@@ -1882,7 +1885,12 @@ def _run_gui(
                         role_color=MUTED,
                     )
             except Exception as exc:  # noqa: BLE001
-                self._say("BotBubble", "OPai", f"Render error: {exc}", role_color=RED)
+                self._say(
+                    "BotBubble",
+                    "OPai",
+                    f"Render error: {safe_detail(exc)}",
+                    role_color=RED,
+                )
             self._refresh_status()
             self._refresh_inspector()
 

@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from . import __version__ as CURRENT_VERSION
+from opaihub.boundary_errors import safe_detail
 
 # An hour: opening Settings repeatedly (or the startup check) should not
 # re-hit the network every time. The button (`force=True`) always re-checks.
@@ -177,7 +178,9 @@ def check_for_update(
         _save_cache(cache_path, result)
         return result
     except (OSError, subprocess.SubprocessError) as exc:
-        result = _not_checked(f"Could not reach the update server: {exc}", branch)
+        result = _not_checked(
+            f"Could not reach the update server: {safe_detail(exc)}", branch
+        )
         _save_cache(cache_path, result)
         return result
     if fetched.returncode != 0:
@@ -268,7 +271,10 @@ def apply_update(
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
         if stashed:
             git(root, ["stash", "pop"])
-        return {"ok": False, "error": f"Could not reach the update server: {exc}"}
+        return {
+            "ok": False,
+            "error": f"Could not reach the update server: {safe_detail(exc)}",
+        }
     if fetch.returncode != 0:
         if stashed:
             git(root, ["stash", "pop"])
@@ -315,7 +321,7 @@ def apply_update(
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
         return {
             "ok": False,
-            "error": f"Updated the code, but reinstalling failed: {exc}. Restart OPai and try again.",
+            "error": f"Updated the code, but reinstalling failed: {safe_detail(exc)}. Restart OPai and try again.",
             "code_updated": True,
         }
     if installed.returncode != 0:

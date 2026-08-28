@@ -148,22 +148,58 @@ so recovery is never the step that destroys the last copy.
 
 Reachable as `opai journal status | backup | backups | restore`.
 
+## What did not finish
+
+The issue opens by describing a run that "may appear active with no worker",
+and says recovery "cannot know whether to resume, reconcile, block or request
+attention". `unreconciled_operations` answered that for external effects from
+Stage 6; `unterminated_runs` answers it for runs.
+
+Both are deliberately *reports*. An unterminated run holding a lease is either
+running now or was abandoned by a process that died, and this database cannot
+tell those apart — a lease is released by `record_terminal`, not by a process
+exiting. The row carries the owner and the heartbeat and stops; the caller can
+check whether that process exists, and this store cannot. Two tests pin the
+refusal: a live run and one killed with `os._exit` must look identical, and no
+field may be named "orphaned", "dead" or "crashed".
+
+Reachable as `opai journal pending`, counted in `opai journal status` and
+doctor.
+
+## Minimisation (requirement 9)
+
+`privacy_class` existed on events from Stage 1 and meant nothing: no caller set
+it, and every event was stored as `internal` whatever it held. Worse, nothing
+redacted what went in. A task reading `fix my auth, the key is sk-ant-...` put
+that key verbatim into `journal.sqlite3` — found by reading the raw file back
+and searching its bytes, not by reading the code.
+
+Minimisation now happens at the store boundary, where every event passes
+through, rather than at the call sites that build payloads: one site that
+forgot would write a secret to disk and nothing would ever say so. Strings are
+redacted and bounded however deeply nested, keys included, and before the
+payload is hashed — so `payload_hash` describes what is actually stored.
+
+Two paths bypassed that and were found by tests reading the file rather than
+the API: `runs.terminal_reason`, written by a direct UPDATE, and
+`operations.external_ref`, which is usually a plain PR URL and occasionally a
+signed one where the signature *is* the credential.
+
+`privacy_class` is now declared per event type, defaulting to `sensitive`
+rather than `internal`, so forgetting the table over-protects. The honest
+limit: redaction catches shapes it recognises, and a long private paste
+matching none of them survives it — truncation bounds that without pretending
+to solve it.
+
 ## Open questions
 
-1. **Windows least-privilege.** The database file needs ACLs; `chmod` does
-   nothing there.
-2. **Retention split.** Functional requirement 5 asks for audit-critical vs
-   high-volume presentation events to have separate retention. Specified, not
-   implemented.
-3. **Privacy enforcement.** The schema carries `privacy_class` on events and
-   artifacts, but nothing yet enforces #527's minimisation rules against it.
-4. **Stage 4 wants captured production traffic.** `journal_background` supplies
+1. **Stage 4 wants captured production traffic.** `journal_background` supplies
    a real corpus and a fully migrated project now qualifies against it with no
    differences, which is what made Stages 5-7 reachable. Stage 4 asks for
    *captured* traffic as well, and that still has not happened — synthetic
    agreement is evidence that the comparison works, not that the migration
    survives real histories.
-5. **Restore cannot replace a journal another process holds open.** On Windows
+2. **Restore cannot replace a journal another process holds open.** On Windows
    an open handle blocks the replace. The refusal is the safe outcome and it
    names the real cause (`journal_in_use`) rather than blaming the backup, but
    a restore still means closing OPai first.

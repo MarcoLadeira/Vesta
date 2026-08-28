@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .command_runner import redact
+from .boundary_errors import safe_detail
 
 
 _ACTIONS_RUN_ID = re.compile(r"/actions/runs/(\d+)(?:/|$)")
@@ -724,7 +725,9 @@ class GitHubAdapter:
         try:
             data = json.loads(output)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"{source} returned malformed JSON: {exc}") from exc
+            raise RuntimeError(
+                f"{source} returned malformed JSON: {safe_detail(exc)}"
+            ) from exc
         if not isinstance(data, dict):
             raise RuntimeError(f"{source} returned an unexpected JSON shape")
         return data

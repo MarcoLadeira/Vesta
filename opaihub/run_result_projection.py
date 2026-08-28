@@ -23,6 +23,7 @@ from typing import Any, Mapping
 from .completion import CompletionVerdictResult
 from .run_result import RunResult
 from .run_state import RunState, canonical_for_cancel_phase
+from .boundary_errors import safe_detail
 
 
 def _record_ref(kind: str, identifier: str) -> dict[str, str]:
@@ -214,7 +215,7 @@ def project_run_result(
     except (TypeError, ValueError) as exc:
         return RunResult.from_payload(
             state="needs_attention",
-            reason_detail=f"Run result evidence was incomplete: {exc}",
+            reason_detail=f"Run result evidence was incomplete: {safe_detail(exc)}",
             final_transition_at=final_transition_at,
             mutating=mutating,
             identity=identity,

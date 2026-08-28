@@ -35,6 +35,7 @@ from typing import Any, Callable, Iterator
 from .atomic_io import read_utf8_tail_json_objects
 from .proc import no_window_kwargs
 from .state import state_dir
+from .boundary_errors import safe_detail
 
 DIMENSIONS = ("intent", "context_quality", "repair_success", "safety_gates")
 PARITY_SCHEMA_VERSION = 1
@@ -355,7 +356,7 @@ def run_opaibench(
             detail = ""
         except Exception as exc:  # noqa: BLE001 - a crash is a failed scenario
             passed = False
-            detail = f"{type(exc).__name__}: {exc}"[:200]
+            detail = f"{type(exc).__name__}: {safe_detail(exc)}"[:200]
         latency_ms = round(max(0.0, (clock() - started)) * 1000.0, 3)
         results.append(
             {

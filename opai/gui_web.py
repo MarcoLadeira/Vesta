@@ -175,6 +175,7 @@ def _runtime_index_url(web_dir: Path) -> "Any":
 # process start. Off unless OPAI_STARTUP_TRACE is set, in which case boot marks
 # its stages and the front-end flushes an "interactive" mark after first paint.
 from opaihub.startup_trace import StartupTrace, trace_enabled, trace_path  # noqa: E402
+from opaihub.boundary_errors import safe_detail  # noqa: E402
 
 _STARTUP = StartupTrace(enabled=trace_enabled())
 
@@ -975,7 +976,7 @@ def scaffold_app_payload(root: Path, payload_json: str) -> dict[str, Any]:
             kind=str(payload.get("kind") or "auto"),
         )
     except (ValueError, FileExistsError, OSError) as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": safe_detail(exc)}
     return {"ok": True, **result.to_dict()}
 
 
@@ -996,7 +997,7 @@ def dashboard_section_payload(root: Path, section_id: str) -> dict[str, Any]:
         vm = build_view_model(root)
         section = next((s for s in vm["sections"] if s.get("id") == section_id), None)
     except Exception as exc:  # noqa: BLE001
-        return {"error": str(exc)}
+        return {"error": safe_detail(exc)}
     return section or {"error": "not found"}
 
 
@@ -1413,7 +1414,7 @@ def _run_gui(
             try:
                 result = self._fn()
             except Exception as exc:  # noqa: BLE001
-                result = {"status": "error", "answer": str(exc)}
+                result = {"status": "error", "answer": safe_detail(exc)}
             self.done.emit(json.dumps(result, default=str))
 
     class Bridge(QtCore.QObject):
@@ -1580,7 +1581,7 @@ def _run_gui(
                 try:
                     data = fn()
                 except Exception as exc:  # noqa: BLE001
-                    data = {"error": str(exc)}
+                    data = {"error": safe_detail(exc)}
                 return {
                     "requestId": str(request_id or ""),
                     **(extra or {}),
@@ -1849,7 +1850,11 @@ def _run_gui(
                 return json.dumps(CredentialStore().set(provider, secret))
             except (ValueError, RuntimeError) as exc:
                 return json.dumps(
-                    {"provider": provider, "configured": False, "error": str(exc)}
+                    {
+                        "provider": provider,
+                        "configured": False,
+                        "error": safe_detail(exc),
+                    }
                 )
 
         @QtCore.Slot(str, result=str)
@@ -1878,7 +1883,7 @@ def _run_gui(
                                 "GitHub connection check failed unexpectedly. "
                                 "Try again shortly."
                             ),
-                            "error": str(exc),
+                            "error": safe_detail(exc),
                         }
                     )
             from opaihub.provider_adapters import adapter_for
@@ -1887,7 +1892,11 @@ def _run_gui(
                 return json.dumps(adapter_for(provider).probe(force=True))
             except (OSError, RuntimeError, ValueError) as exc:
                 return json.dumps(
-                    {"provider": provider, "connected": False, "error": str(exc)}
+                    {
+                        "provider": provider,
+                        "connected": False,
+                        "error": safe_detail(exc),
+                    }
                 )
 
         @QtCore.Slot(result=str)
@@ -1905,7 +1914,7 @@ def _run_gui(
                 )
                 return json.dumps({"ok": True, "balance": snapshot})
             except (TypeError, ValueError) as exc:
-                return json.dumps({"ok": False, "error": str(exc)})
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(result=str)
         def refreshBalances(self) -> str:
@@ -1920,7 +1929,7 @@ def _run_gui(
                     }
                 )
             except Exception as exc:  # noqa: BLE001 - never crash the page
-                return json.dumps({"ok": False, "error": str(exc)})
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(result=str)
         def refreshUsage(self) -> str:
@@ -1936,7 +1945,7 @@ def _run_gui(
                     }
                 )
             except Exception as exc:  # noqa: BLE001 - never crash the page
-                return json.dumps({"ok": False, "error": str(exc)})
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(str, str, str, str, result=str)
         def saveUsageLimit(
@@ -1954,7 +1963,7 @@ def _run_gui(
                 )
                 return json.dumps({"ok": True})
             except (TypeError, ValueError) as exc:
-                return json.dumps({"ok": False, "error": str(exc)})
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(result=str)
         def repairCodexConfig(self) -> str:
@@ -1963,7 +1972,7 @@ def _run_gui(
             try:
                 return json.dumps(repair_codex_config())
             except (OSError, ValueError) as exc:
-                return json.dumps({"repaired": False, "error": str(exc)})
+                return json.dumps({"repaired": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(str, result=str)
         def disconnectAccount(self, provider: str) -> str:
@@ -1974,7 +1983,11 @@ def _run_gui(
                 return json.dumps(disconnect_account(provider))
             except Exception as exc:  # noqa: BLE001 - always report cleanly
                 return json.dumps(
-                    {"provider": provider, "disconnected": False, "message": str(exc)}
+                    {
+                        "provider": provider,
+                        "disconnected": False,
+                        "message": safe_detail(exc),
+                    }
                 )
 
         @QtCore.Slot(str, str)
@@ -2041,7 +2054,7 @@ def _run_gui(
                 updated = grant_free_consent(self.root, model_id)
                 return json.dumps({"ok": True, "freeConsent": updated["free_consent"]})
             except ValueError as exc:
-                return json.dumps({"ok": False, "error": str(exc)})
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(str, str)
         def savePref(self, key: str, value: str) -> None:
@@ -2476,7 +2489,7 @@ def _run_gui(
                 # History is not the product. If it cannot be listed, say so
                 # and let the user keep working rather than failing the view.
                 return json.dumps(
-                    {"ok": False, "conversations": [], "error": str(exc)[:200]}
+                    {"ok": False, "conversations": [], "error": safe_detail(exc)[:200]}
                 )
 
         @QtCore.Slot(str, result=str)
@@ -2487,7 +2500,7 @@ def _run_gui(
             try:
                 record = load_conversation(self.root, str(conversation_id or ""))
             except (OSError, ValueError) as exc:
-                return json.dumps({"ok": False, "error": str(exc)[:200]})
+                return json.dumps({"ok": False, "error": safe_detail(exc)[:200]})
             if not record:
                 return json.dumps(
                     {"ok": False, "error": "That chat is no longer available."}
@@ -2639,7 +2652,7 @@ def _run_gui(
                 smoke_outcome = {
                     "ok": False,
                     "status": "result_write_failed",
-                    "error": str(exc),
+                    "error": safe_detail(exc),
                 }
             QtCore.QTimer.singleShot(0, window.close)
 
