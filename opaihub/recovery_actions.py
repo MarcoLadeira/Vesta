@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from .completion import CompletionVerdict, FailureReason
+
 RECOVERY_SCHEMA_VERSION = 1
 
 # Canonical action ids (#656). The GUI buttons and the CLI lines render this
@@ -44,9 +46,44 @@ STATE_NEEDS_ATTENTION = "needs_attention"
 STATE_WAITING = "waiting_for_user_answer"
 STATE_UNKNOWN = "unknown"
 
-_PROVIDER_FAILURE_CODES = frozenset({"auth", "rate_limit", "network", "provider"})
+#: Failure classes that constitute provider *evidence*. Derived from the
+#: typed vocabulary rather than restated, so a new class cannot be silently
+#: excluded from -- or wrongly counted as -- provider blame.
+_PROVIDER_FAILURE_CODES = frozenset(
+    {
+        FailureReason.AUTH.value,
+        FailureReason.RATE_LIMIT.value,
+        FailureReason.NETWORK.value,
+        FailureReason.PROVIDER.value,
+    }
+)
+
+#: Every verdict that is not "completed", derived from the enum.
+#:
+#: This was a hand-written set of the same seven words, which is a second
+#: authority over the lifecycle vocabulary and is what #612's ratchet exists to
+#: catch -- it failed the build the moment this module landed on main. Deriving
+#: it is also simply better: a verdict added to CompletionVerdict tomorrow is
+#: included here without anyone remembering to come back.
 _NON_COMPLETED = frozenset(
-    {"partial", "blocked", "failed", "cancelled", "timeout", "needs_attention"}
+    verdict.value
+    for verdict in CompletionVerdict
+    if verdict is not CompletionVerdict.COMPLETED
+)
+
+#: Verdicts a checkpoint can be resumed from, and verdicts that leave useful
+#: work behind. Written as enum members rather than bare strings for the same
+#: reason as above: a set of state words spelled by hand is a second authority,
+#: and #612's ratchet counts it as one.
+_RESUMABLE_VERDICTS = frozenset(
+    {
+        CompletionVerdict.PARTIAL.value,
+        CompletionVerdict.FAILED.value,
+        CompletionVerdict.TIMEOUT.value,
+    }
+)
+_RETAINED_WORK_VERDICTS = frozenset(
+    {CompletionVerdict.PARTIAL.value, CompletionVerdict.TIMEOUT.value}
 )
 
 
@@ -153,13 +190,13 @@ def build_recovery_actions(
         state = STATE_WAITING
     elif verdict not in _NON_COMPLETED:
         state = STATE_UNKNOWN
-    elif has_checkpoint and verdict in {"partial", "failed", "timeout"}:
+    elif has_checkpoint and verdict in _RESUMABLE_VERDICTS:
         state = STATE_STOPPED_WITH_CHECKPOINT
     elif verdict == "blocked":
         state = STATE_BLOCKED
     elif reason_code in _PROVIDER_FAILURE_CODES:
         state = STATE_PROVIDER_UNAVAILABLE
-    elif verdict in {"partial", "timeout"}:
+    elif verdict in _RETAINED_WORK_VERDICTS:
         state = STATE_PARTIAL_RETAINED
     elif verdict == "needs_attention":
         state = STATE_NEEDS_ATTENTION
@@ -167,7 +204,9 @@ def build_recovery_actions(
         state = STATE_STOPPED
 
     providers = provider_count if isinstance(provider_count, int) else 0
-    waiting_reason = "This run is waiting for your answer — answer it above to continue."
+    waiting_reason = (
+        "This run is waiting for your answer — answer it above to continue."
+    )
     stop_reason = (
         "This run is waiting for your answer — decline it above to stop."
         if waiting
@@ -209,8 +248,7 @@ def build_recovery_actions(
         _action(
             TRY_PROVIDER,
             "Try another provider",
-            "Keep the checkpoint and re-run with a different configured "
-            "provider.",
+            "Keep the checkpoint and re-run with a different configured provider.",
             available=providers >= 2,
             disabled_reason="Only one provider is configured for this workspace.",
         ),
