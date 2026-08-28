@@ -3224,16 +3224,16 @@ def _recovery_projection(payload: Mapping[str, Any], root: Path) -> dict[str, An
     from .local_models import discover_local_models
     from .recovery_actions import build_recovery_actions
 
+    # suppress() rather than try/except/pass: identical intent, and bandit
+    # rightly flags the bare form (B110). Probing must not break a finished
+    # turn -- the cost of a failed probe is one action withheld, and the cost
+    # of raising here is the whole recovery card.
     providers = 0
-    try:
+    with contextlib.suppress(Exception):  # noqa: BLE001 - probing is best-effort
         providers += len(list_connected_accounts())
-    except Exception:  # noqa: BLE001 - availability probing must not break a run
-        pass
-    try:
+    with contextlib.suppress(Exception):  # noqa: BLE001 - probing is best-effort
         if discover_local_models(root).get("available"):
             providers += 1
-    except Exception:  # noqa: BLE001 - availability probing must not break a run
-        pass
     return build_recovery_actions(payload, provider_count=max(providers, 1))
 
 
