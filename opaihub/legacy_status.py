@@ -98,6 +98,9 @@ _STUCK_REASONS = _STUCK | {
     "controller_timeout",
     "exploration_limit",
     "no_progress",
+    # #656: the account convergence guard emits this reason; it must resolve to
+    # stuck_no_progress (trajectory stagnation), never a shrug or provider blame.
+    "no_progress_guard",
     "repeated_failure",
     "repeated_success",
     "tool_budget_exhausted",

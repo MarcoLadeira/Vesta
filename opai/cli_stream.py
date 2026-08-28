@@ -374,6 +374,14 @@ def stream_ask(
                 _line(f"  {evidence}")
             if next_action and verdict != "completed":
                 _line(f"  Next: {next_action}")
+            # #656: the CLI lists the same typed recovery actions the GUI card
+            # renders, with the same availability and disabled reasons.
+            recovery = result.get("recovery")
+            if verdict != "completed":
+                from opaihub.recovery_actions import render_recovery_text
+
+                for line in render_recovery_text(recovery):
+                    _line(f"  {line}")
             _line(f"  {footer}")
         elif status in ANSWERED:
             _line(f"✓ {footer}")
