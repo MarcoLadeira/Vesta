@@ -176,3 +176,32 @@ test("late sign-in completion never replaces a newer conversation request", asyn
 
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
 });
+
+
+test("an expired sign-in says so, instead of shrugging", async ({ page }) => {
+  // The defect this covers, from a real user report: the card showed
+  // "Sign-in verified locally; provider acceptance is confirmed" directly
+  // above "Status: not connected", while chat failed with a 401.
+  //
+  // The diagnostic sentence came from the payload and the Status line printed
+  // authStatus verbatim, and two other places wrote that same span using words
+  // the backend never emits -- "not connected", "needs attention". One card,
+  // two vocabularies, no way for the user to learn that their token expired.
+  await openApp(page, {
+    settings: {
+      prefs: {}, firewall: {}, permissions: [], accounts: [], credentials: [],
+      models: [], usage: [], about: {}, connectionDoctor: doctorEntries,
+    },
+  });
+  await openSettings(page, "providers");
+
+  const claude = page
+    .getByRole("region", { name: "Connection Doctor" })
+    .locator('[data-doctor-provider="claude"]');
+
+  // The actionable word. "Not verified" is a state you wait out; this is one
+  // you do something about.
+  await expect(claude).toContainText("Sign-in expired");
+  // And never the raw enum, which is what the Status line used to print.
+  await expect(claude).not.toContainText("Status: expired");
+});
