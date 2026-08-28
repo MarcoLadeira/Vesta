@@ -190,10 +190,17 @@ class RepositoryToolExecutor:
         git_run: Any = None,
         allow_command: str | None = None,
         repository_handle: RepositoryHandle | None = None,
+        autonomy: str | None = None,
     ) -> None:
+        from .command_policy import normalize_autonomy
+
         self.repo_root = repo_root.expanduser().resolve()
         self.allow_edits = bool(allow_edits)
-        self.aci = aci or AgentComputerInterface(self.repo_root)
+        # The run mode, canonicalised. Everything that decides "may this happen
+        # without asking?" reads this one value, so the permissions panel and
+        # the executor cannot disagree about what a mode means.
+        self.autonomy = normalize_autonomy(autonomy)
+        self.aci = aci or AgentComputerInterface(self.repo_root, autonomy=self.autonomy)
         self.max_patch_chars = max(1, int(max_patch_chars))
         self._git_run = git_run or subprocess.run
         self._repository_handle: RepositoryHandle | None = repository_handle
@@ -1557,7 +1564,15 @@ class RepositoryToolExecutor:
         tool exists at all; this decides whether *this* call happens now.
         """
 
+        from .command_policy import RUN, decide_command
+
         if self._consume_one_shot_grant(command):
+            return None
+        # The autonomy level is the authority on whether an outward-facing
+        # action stops here. Under bypass the user has explicitly asked for no
+        # prompts, so asking anyway would be the bug -- that unconditional ask
+        # is what made pushing impossible to automate at any level.
+        if decide_command(command, autonomy=self.autonomy).action == RUN:
             return None
         blocked = _error("COMMAND_NEEDS_APPROVAL", f"{reason} Command: {command}")
         blocked["command"] = command
@@ -1582,6 +1597,8 @@ class RepositoryToolExecutor:
             resolve_trusted_git_executable,
         )
 
+        from .command_policy import ASK, RUN, decide_command
+
         raw = str(arguments.get("command") or "").strip()
         if not raw:
             return _error("INVALID_TOOL_ARGUMENTS", "A command is required")
@@ -1589,37 +1606,41 @@ class RepositoryToolExecutor:
             argv = split_command(raw)
         except ValueError:
             return _error("INVALID_TOOL_ARGUMENTS", "Command could not be parsed")
-        normalized = normalize_autonomous_command(raw, argv)
-        if normalized is None:
-            from .sandbox import classify_command
 
-            verdict = classify_command(raw, self.repo_root)
-            reason = str(verdict.get("reason") or "")
-            if str(
-                verdict.get("decision") or ""
-            ) == "confirm" and not _SHELL_OPERATORS.search(raw):
-                if self._consume_one_shot_grant(raw):
-                    return self._run_granted_command(argv, arguments, cancel=cancel)
+        # What the command *does* decides what happens to it, at the autonomy
+        # level this run was given. The previous gate asked only whether the
+        # spelling was one of five allowlisted git reads, so `cat`, `ls`,
+        # `grep`, the project's own test runner and `git commit` were all
+        # refused as if they were dangerous.
+        decision = decide_command(raw, autonomy=self.autonomy)
+        needs_shell = bool(_SHELL_OPERATORS.search(raw))
+
+        if decision.action == ASK:
+            if not self._consume_one_shot_grant(raw):
                 blocked = _error(
-                    "COMMAND_NEEDS_APPROVAL",
-                    f"{reason} Command: {raw}",
+                    "COMMAND_NEEDS_APPROVAL", f"{decision.reason} Command: {raw}"
                 )
                 blocked["command"] = raw
-                blocked["approval_reason"] = reason
-                blocked["matched_rule"] = verdict.get("matched_rule")
+                blocked["approval_reason"] = decision.reason
+                blocked["capability"] = decision.capability.name.lower()
                 return blocked
-            # 'deny', shell-operator forms, and unrecognized commands stay
-            # hard-blocked: the allowlist remains the only autonomous path.
+        elif decision.action != RUN:
             self._record_guard_decision(
-                allowed=False,
-                operation="run_command",
-                reason=str(verdict.get("decision") or "unrecognized"),
+                allowed=False, operation="run_command", reason=decision.action
             )
             return _error(
                 "COMMAND_BLOCKED",
-                "Only bounded local Git reads are allowed. Use dedicated build, "
-                "test, and consent-aware GitHub tools for other operations.",
+                f"{decision.reason}. The current mode ({decision.autonomy}) does "
+                "not allow this; switch to a mode with more autonomy to run it.",
             )
+
+        normalized = None if needs_shell else normalize_autonomous_command(raw, argv)
+        if normalized is None:
+            self._record_guard_decision(allowed=True, operation="run_command")
+            if needs_shell:
+                purpose = str(arguments.get("purpose") or "run_command")[:200]
+                return self.aci.run_shell(raw, purpose=purpose).to_dict()
+            return self._run_granted_command(argv, arguments, cancel=cancel)
         self._record_guard_decision(allowed=True, operation="run_command")
         git_executable = resolve_trusted_git_executable(self.repo_root)
         if git_executable is None:

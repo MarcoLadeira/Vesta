@@ -775,6 +775,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
         provider_id: str | None = None,
         deadline_budget: Any = None,
         deadline_clock: Any = None,
+        autonomy: str | None = None,
     ) -> dict[str, Any]:
         """Run a continuous, checkpointed repository tool loop.
 
@@ -832,6 +833,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             allow_github_public_read=public_read_allowed(),
             allow_command=allow_command,
             repository_handle=repository_handle,
+            autonomy=autonomy,
         )
         base_messages: list[dict[str, Any]] = []
         if system:

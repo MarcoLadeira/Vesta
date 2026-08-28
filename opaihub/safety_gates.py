@@ -471,7 +471,18 @@ def normalize_autonomous_command(
 
 
 def classify_run_command(raw: str, argv: Sequence[str]) -> tuple[bool, str]:
-    """Backwards-compatible classifier for the canonical capability gate."""
+    """Legacy allowlist check. **No longer the gate for ``run_command``.**
+
+    Superseded by :mod:`opaihub.command_policy`, which classifies what a command
+    *does* and lets the autonomy level decide. This answers only "is this one of
+    the five allowlisted local Git reads?", so it reports ``False`` for ``cat``,
+    ``ls``, ``git commit`` and every test runner -- true to its own narrow
+    question, and exactly why relying on it as the gate produced a wall of
+    refusals for ordinary read-only work.
+
+    Kept because callers outside this repository may still import it. New code
+    must use ``command_policy.decide_command``.
+    """
 
     if not argv:
         return False, "No command was given."

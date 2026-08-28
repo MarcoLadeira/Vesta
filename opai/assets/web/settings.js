@@ -1254,7 +1254,7 @@
           "</span></div>";
       });
       h +=
-        '<div class="set-note">In Auto-apply, a message with no explicit read-only wording (no "explain", "review only", "do not edit", etc.) is treated as edit-capable by default, so you don\'t have to phrase every request as a command. Pushing to a remote still asks for your approval each time, and destructive actions are refused rather than run.</div>';
+        '<div class="set-note">In Auto-apply, a message with no explicit read-only wording (no "explain", "review only", "do not edit", etc.) is treated as edit-capable by default, so you don\'t have to phrase every request as a command. This mode also pushes, opens and merges pull requests without stopping to confirm; use Safe Auto or Approve Edits if you want those to ask first.</div>';
     }
     return h;
   }
