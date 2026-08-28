@@ -1600,22 +1600,25 @@ class RepositoryToolExecutor:
     def _run_command(
         self, arguments: dict[str, Any], *, cancel: Any = None
     ) -> dict[str, Any]:
-        """Run one canonical local Git read without a shell.
+        """Run one command, gated by what it does at this autonomy level.
 
-        Builds/tests have fixed tools and remote operations have consent-aware
-        tools. Normalization fails closed before the ACI sees an argv.
-        Non-allowlisted commands are classified (F17): deny stays hard-blocked;
-        confirm-class commands (git push, gh mutations, …) stop for an
-        explicit one-shot user grant instead of a dead-end refusal.
+        ``command_policy`` classifies the line (read / local write / remote
+        write / destructive) and the run's autonomy level turns that into
+        run, ask, or block. An ``ask`` is satisfied by the one-shot grant the
+        user issues from the approval card.
+
+        Execution takes the narrowest path that works: a canonical local Git
+        read still runs through the hardened, config-stripped argv, a pipeline
+        goes through the shell (it is not expressible as an argv), and anything
+        else runs as a plain argv without a shell.
         """
+        from .command_policy import ASK, RUN, decide_command
         from .command_runner import split_command
         from .safety_gates import (
             _SHELL_OPERATORS,
             normalize_autonomous_command,
             resolve_trusted_git_executable,
         )
-
-        from .command_policy import ASK, RUN, decide_command
 
         raw = str(arguments.get("command") or "").strip()
         if not raw:
