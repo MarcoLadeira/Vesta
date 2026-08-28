@@ -547,6 +547,9 @@
     emitActivityBatch: function (id, list) { bridge.activityBatch.emit(JSON.stringify({ requestId: id, events: list })); },
     emitToken: function (id, t) { bridge.token.emit(JSON.stringify({ requestId: id, text: t })); },
     emitReply: function (id, result) { bridge.replyReady.emit(JSON.stringify({ requestId: id, result: result })); },
+    // The real updater re-reports its status on every maintenance tick, changed
+    // or not; specs use this to prove an unchanged report is not treated as news.
+    emitUpdate: function (update) { bridge.updateReady.emit(JSON.stringify(update || updateState)); },
     emitProviderLogin: function (id, result) { bridge.providerLoginReady.emit(JSON.stringify({ requestId: id, provider: result.provider, result: result })); },
   };
 })();

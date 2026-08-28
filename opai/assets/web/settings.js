@@ -2247,12 +2247,23 @@
     // Manual checks bypass freshness caching. The async result reaches every
     // surface through the shared update event emitted by app.js.
     var updateCard = q("#settingsUpdateCard");
+    // The updater re-reports its status on every maintenance tick (every two
+    // seconds), not just when something changes. Toasting each report re-armed
+    // the toast's dismissal timer before it could fire, which is what pinned
+    // "You're on the latest version" to the screen forever. Only a real
+    // transition — or a check the user just asked for — is news worth a toast.
+    var lastUpdateState = (function () {
+      var node = updateCard && updateCard.querySelector("[data-update-status]");
+      return node ? String(node.getAttribute("data-update-status") || "") : "";
+    })();
+    var manualCheckPending = false;
     function wireUpdateButtons() {
       var checkBtn = q("#settingsCheckUpdate");
       if (checkBtn)
         checkBtn.onclick = function () {
           checkBtn.disabled = true;
           checkBtn.textContent = "Checking…";
+          manualCheckPending = true;
           bridge.checkForUpdates(true);
         };
       var applyBtn = q("#settingsApplyUpdate");
@@ -2271,10 +2282,15 @@
       var result = event.detail || {};
       if (updateCard) updateCard.innerHTML = updateStatusHtml(esc, result);
       wireUpdateButtons();
-      if (result.developer_apply) return; // app.js already toasted the precise outcome
       var operation = result.operation || {};
-      if (operation.state === "available") toast("Update available");
-      else if (operation.state === "up_to_date") toast("You're on the latest version");
+      var nextState = String(operation.state || "");
+      var newsworthy = nextState !== lastUpdateState || manualCheckPending;
+      lastUpdateState = nextState;
+      manualCheckPending = false;
+      if (result.developer_apply) return; // app.js already toasted the precise outcome
+      if (!newsworthy) return; // an unchanged status re-report is not an event
+      if (nextState === "available") toast("Update available");
+      else if (nextState === "up_to_date") toast("You're on the latest version");
       else if (operation.safe_diagnostic) toast(operation.safe_diagnostic);
     };
     global.addEventListener("opai-update-state", global.__opaiSettingsUpdateListener);

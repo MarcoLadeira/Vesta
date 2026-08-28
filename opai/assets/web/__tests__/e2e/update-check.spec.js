@@ -130,6 +130,43 @@ test("manual check always forces live discovery", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.__mock.updateChecks)).toEqual([true]);
 });
 
+/* Regression: the updater re-reports its status on every maintenance tick,
+   changed or not. Settings toasted each report, and each toast restarted the
+   3.2s dismissal timer, so "You're on the latest version" never left the
+   screen once Settings had been opened. */
+test("an unchanged status report is not treated as news", async ({ page }) => {
+  await openApp(page);
+  await openSettings(page, "about");
+  await expect(page.locator('[data-update-status="up_to_date"]')).toBeVisible();
+  await page.evaluate(() => {
+    for (let i = 0; i < 3; i++) window.__mock.emitUpdate();
+  });
+  await expect(page.locator("#toast")).not.toHaveClass(/show/);
+  await expect(page.locator("#toast")).not.toContainText("latest version");
+});
+
+test("the confirmation toast dismisses even while status reports keep arriving", async ({ page }) => {
+  await openApp(page);
+  await openSettings(page, "about");
+  await page.locator("#settingsCheckUpdate").click();
+  await expect(page.locator("#toast")).toContainText("latest version", seen);
+  await page.evaluate(() => {
+    window.__mockRepeat = setInterval(() => window.__mock.emitUpdate(), 200);
+  });
+  await expect(page.locator("#toast")).not.toHaveClass(/show/, { timeout: 8000 });
+  await page.evaluate(() => clearInterval(window.__mockRepeat));
+});
+
+test("a manual check confirms an unchanged result the user just asked for", async ({ page }) => {
+  await openApp(page);
+  await openSettings(page, "about");
+  await expect(page.locator("#toast")).not.toHaveClass(/show/);
+  await page.locator("#settingsCheckUpdate").click();
+  await expect(page.locator("#toast")).toHaveClass(/show/);
+  await expect(page.locator("#toast")).toContainText("latest version", seen);
+  await expect(page.locator("#settingsCheckUpdate")).toBeEnabled();
+});
+
 test("automatic downloads use app-wide updater policy instead of workspace preferences", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "about");
