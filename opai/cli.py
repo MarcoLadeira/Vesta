@@ -41,6 +41,7 @@ from opaihub.model_intelligence import recommend_model
 from opaihub.proc import AGENT_SESSION_ENV
 from opaihub.router import compact_decision, route_task
 from opaihub.skills import skill_items, skill_status
+from opaihub.boundary_errors import safe_detail
 
 
 def print_json(data: Any) -> None:
@@ -180,7 +181,7 @@ def cmd_repo(args: argparse.Namespace) -> int:
                     )
                 )
             except Exception as exc:  # noqa: BLE001 - never turn recovery into cleanup
-                payload["recovery_error"] = str(exc)[:240]
+                payload["recovery_error"] = safe_detail(exc)[:240]
         payload["leases"] = payload["worktree_leases"]
         payload["recovery"] = recovery
     if bool(getattr(args, "json", False)):
@@ -250,7 +251,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 "policy": payload,
                 "manifest": {},
                 "verdict": "blocked",
-                "error": str(exc)[:400],
+                "error": safe_detail(exc)[:400],
             }
         if args.json:
             print_json(output)
@@ -402,7 +403,11 @@ def cmd_gui(args: argparse.Namespace) -> int:
                 timeout_seconds=int(getattr(args, "smoke_timeout", 30)),
             )
         except Exception as exc:  # noqa: BLE001 - artifact smoke must surface a typed failure
-            result = {"ok": False, "status": "artifact_smoke_failed", "error": str(exc)}
+            result = {
+                "ok": False,
+                "status": "artifact_smoke_failed",
+                "error": safe_detail(exc),
+            }
         print_json(result)
         return 0 if result.get("ok") else 1
 
@@ -427,7 +432,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
             print_json(
                 {
                     "status": "gui_unavailable",
-                    "error": str(exc),
+                    "error": safe_detail(exc),
                     "hint": INSTALL_HINT,
                 }
             )
@@ -444,14 +449,14 @@ def cmd_gui(args: argparse.Namespace) -> int:
             if web_available():
                 return int(launch_web(root, task=task))
         except Exception as exc:  # noqa: BLE001 - fall back to the Qt window
-            print_json({"status": "web_gui_fallback", "error": str(exc)})
+            print_json({"status": "web_gui_fallback", "error": safe_detail(exc)})
     try:
         return int(launch(root, task=task))
     except Exception as exc:  # noqa: BLE001 - dependency/display failures degrade
         print_json(
             {
                 "status": "gui_unavailable",
-                "error": str(exc),
+                "error": safe_detail(exc),
                 "hint": INSTALL_HINT,
             }
         )
@@ -489,9 +494,9 @@ def cmd_new(args: argparse.Namespace) -> int:
         )
     except (ValueError, FileExistsError) as exc:
         if args.json:
-            print_json({"ok": False, "error": str(exc)})
+            print_json({"ok": False, "error": safe_detail(exc)})
         else:
-            print(f"✗ {exc}")
+            print(f"✗ {safe_detail(exc)}")
         return 2
 
     if args.json:
@@ -1256,7 +1261,7 @@ def cmd_launch(args: argparse.Namespace) -> int:
                 "status": "failed",
                 "tool": args.tool,
                 "command": command,
-                "error": str(exc),
+                "error": safe_detail(exc),
                 "opai_status": "Using OPai",
             }
         )
@@ -1965,7 +1970,7 @@ def cmd_release(args: argparse.Namespace) -> int:
                 Path(args.previous_manifest).read_text(encoding="utf-8")
             )
         except (OSError, ValueError) as exc:
-            print_json({"status": "error", "message": str(exc)})
+            print_json({"status": "error", "message": safe_detail(exc)})
             return 2
         version_now, _ = rp.resolve_version(rp.ReleaseContext(root=root))
         plan = rp.rollback_plan(
@@ -1992,7 +1997,7 @@ def cmd_release(args: argparse.Namespace) -> int:
                 user_state_dirs=[Path(p) for p in (args.protect or [])],
             )
         except rp.ReleaseError as exc:
-            print_json({"status": "error", "message": str(exc)})
+            print_json({"status": "error", "message": safe_detail(exc)})
             return 2
         print_json({"dry_run": False, "plan": plan, "result": result})
         return 0
@@ -2107,7 +2112,7 @@ def cmd_budget(args: argparse.Namespace) -> int:
                 per_task_usd=args.per_task,
             )
         except ValueError as exc:
-            print_json({"status": "invalid", "error": str(exc)})
+            print_json({"status": "invalid", "error": safe_detail(exc)})
             return 2
         print_json(result)
         return 0
@@ -2220,7 +2225,7 @@ def cmd_receipt(args: argparse.Namespace) -> int:
                 {
                     "status": "TAMPERED",
                     "verified": False,
-                    "problems": [f"unreadable receipt: {exc}"],
+                    "problems": [f"unreadable receipt: {safe_detail(exc)}"],
                 }
             )
             return 1
@@ -2407,7 +2412,7 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
                 task_ids=tuple(args.task or ()) or None,
             )
         except (OSError, RuntimeError, ValueError) as exc:
-            print_json({"status": "error", "message": str(exc)})
+            print_json({"status": "error", "message": safe_detail(exc)})
             return 2
         if args.format == "markdown":
             print(render_parity_markdown(report), end="")
@@ -2645,7 +2650,7 @@ def _models_overrides_command(args: argparse.Namespace) -> int:
     try:
         path = save_overrides(providers, hide=hide)
     except (OSError, ValueError) as exc:
-        print_json({"status": "write_failed", "error": str(exc)[:400]})
+        print_json({"status": "write_failed", "error": safe_detail(exc)[:400]})
         return 2
 
     from opai.model_registry import models_for

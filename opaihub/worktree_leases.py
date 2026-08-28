@@ -26,6 +26,7 @@ from .repository_safety import (
     require_mutation_permitted,
 )
 from .state import state_dir
+from .boundary_errors import safe_detail
 
 
 LEASE_SCHEMA_VERSION = 1
@@ -387,7 +388,7 @@ class WorktreeManager:
             free = int(self._disk_usage(parent).free)
         except OSError as exc:
             raise WorktreeLeaseError(
-                f"Could not inspect available disk space: {exc}"
+                f"Could not inspect available disk space: {safe_detail(exc)}"
             ) from exc
         if free < self.min_free_bytes:
             raise WorktreeLeaseError("Insufficient disk space for isolated worktree")
@@ -433,7 +434,7 @@ class WorktreeManager:
                     allow_isolation=True,
                 )
             except RepositorySafetyError as exc:
-                raise WorktreeLeaseError(str(exc)) from exc
+                raise WorktreeLeaseError(safe_detail(exc)) from exc
             if not decision.allowed:
                 raise WorktreeLeaseError("Repository safety denied worktree creation")
             current = decision.validation.current

@@ -29,6 +29,7 @@ from .state import (
 from .team import cloud_status, init_team
 from .validator import validate_all, validate_registry
 from .workflow_runner import run_workflow
+from .boundary_errors import safe_detail
 
 
 def print_json(data: Any) -> None:
@@ -388,7 +389,7 @@ def cmd_automation(args: argparse.Namespace) -> int:
         elif args.automation_command == "recover":
             print_json([run.to_dict() for run in recover_interrupted_runs(root)])
     except (ValueError, FileExistsError, FileNotFoundError, RuntimeError) as exc:
-        print_json({"status": "error", "message": str(exc)})
+        print_json({"status": "error", "message": safe_detail(exc)})
         return 2
     return 0
 
@@ -421,7 +422,7 @@ def cmd_opaibench(args: argparse.Namespace) -> int:
                 task_ids=tuple(args.task or ()) or None,
             )
         except (OSError, RuntimeError, ValueError) as exc:
-            print_json({"status": "error", "message": str(exc)})
+            print_json({"status": "error", "message": safe_detail(exc)})
             return 2
         if args.format == "markdown":
             print(render_parity_markdown(report), end="")

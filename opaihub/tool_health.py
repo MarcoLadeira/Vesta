@@ -23,6 +23,7 @@ from typing import Any, Callable
 
 from .command_runner import redact
 from .proc import no_window_kwargs
+from .boundary_errors import safe_detail
 
 Runner = Callable[[list[str], Path, int], "subprocess.CompletedProcess[str]"]
 
@@ -158,7 +159,9 @@ def check_tool_health(
         try:
             return run([spec.binary, *argv], project_root, timeout)
         except (OSError, subprocess.SubprocessError) as exc:
-            return subprocess.CompletedProcess([spec.binary, *argv], 1, "", str(exc))
+            return subprocess.CompletedProcess(
+                [spec.binary, *argv], 1, "", safe_detail(exc)
+            )
 
     version = _run(spec.version_argv)
     result["runnable"] = version.returncode == 0

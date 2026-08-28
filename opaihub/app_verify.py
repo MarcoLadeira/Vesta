@@ -24,6 +24,7 @@ import json
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+from .boundary_errors import safe_detail
 
 _PAIRS = {"{": "}", "(": ")", "[": "]"}
 _CLOSERS = {v: k for k, v in _PAIRS.items()}
@@ -216,7 +217,12 @@ def verify_app(
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             checks.append(
-                {"path": rel, "check": "readable", "ok": False, "detail": str(exc)}
+                {
+                    "path": rel,
+                    "check": "readable",
+                    "ok": False,
+                    "detail": safe_detail(exc),
+                }
             )
             continue
         if suffix == ".json":
@@ -225,7 +231,12 @@ def verify_app(
                 checks.append({"path": rel, "check": "json", "ok": True, "detail": ""})
             except ValueError as exc:
                 checks.append(
-                    {"path": rel, "check": "json", "ok": False, "detail": str(exc)}
+                    {
+                        "path": rel,
+                        "check": "json",
+                        "ok": False,
+                        "detail": safe_detail(exc),
+                    }
                 )
         elif suffix in {".js", ".mjs", ".jsx", ".ts", ".tsx"}:
             result = scan_balance(text, language="js")

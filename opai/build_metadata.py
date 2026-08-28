@@ -11,6 +11,7 @@ from typing import Mapping
 from ._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL
 from .asset_identity import AssetIntegrityError, asset_manifest
 from .compatibility import runtime_compatibility_payload
+from opaihub.boundary_errors import safe_detail
 
 
 _COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -72,7 +73,7 @@ def build_metadata_payload(
         assets = asset_manifest(root / "opai" / "assets")
     except AssetIntegrityError as exc:
         raise BuildMetadataError(
-            f"packaged asset metadata generation failed ({exc.code})"
+            f"packaged asset metadata generation failed ({safe_detail(exc)})"
         ) from exc
     return {
         "application_version": version,

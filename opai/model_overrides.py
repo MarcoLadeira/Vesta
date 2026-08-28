@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from opai.model_registry import CAPABILITIES, ModelSpec
+from opaihub.boundary_errors import safe_detail
 
 #: Bounds. This file is read on every model lookup; it is a convenience list,
 #: not a database, and an unbounded one would be a way to slow the picker down.
@@ -156,7 +157,7 @@ def load_overrides(path: Path | None = None) -> OverrideReport:
         return OverrideReport(
             models={},
             hidden={},
-            errors=(f"{target}: could not be read ({exc})",),
+            errors=(f"{target}: could not be read ({safe_detail(exc)})",),
             path=target,
         )
     if not isinstance(raw, dict):

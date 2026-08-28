@@ -32,6 +32,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from .boundary_errors import safe_detail
 
 # Registry fields every skill entry must carry. `cost_policy` is OPai-specific
 # and required rather than optional: the cost firewall is the product's core
@@ -116,11 +117,11 @@ def _load_registry(hub: Path) -> tuple[list[dict[str, Any]], list[str]]:
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
-        return [], [f"skills registry is unreadable: {exc.strerror or exc}"]
+        return [], [f"skills registry is unreadable: {safe_detail(exc)}"]
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, ValueError) as exc:
-        return [], [f"skills registry is not valid JSON: {exc}"]
+        return [], [f"skills registry is not valid JSON: {safe_detail(exc)}"]
     if not isinstance(data, dict):
         return [], ["skills registry must be an object"]
     entries = data.get("skills")
@@ -165,7 +166,7 @@ def _validate_entry(hub: Path, entry: dict[str, Any]) -> list[str]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        issues.append(f"{skill_id}: skill file is unreadable: {exc.strerror or exc}")
+        issues.append(f"{skill_id}: skill file is unreadable: {safe_detail(exc)}")
         return issues
 
     frontmatter, body = _parse_frontmatter(text)

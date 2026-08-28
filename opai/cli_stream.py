@@ -22,6 +22,7 @@ from typing import Any, Callable
 
 from opai.activity import stage_message
 from opaihub.completion import verdict_label
+from opaihub.boundary_errors import safe_detail
 
 # Activity glyphs (stdout is forced to UTF-8 by opai.cli.main).
 _GLYPH = {
@@ -274,7 +275,7 @@ def stream_ask(
                 )
             )
         except Exception as exc:  # noqa: BLE001 - degrade to a clean error result
-            result_box.update({"status": "error", "answer": str(exc)})
+            result_box.update({"status": "error", "answer": safe_detail(exc)})
         finally:
             done.set()
 
