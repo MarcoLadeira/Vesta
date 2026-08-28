@@ -818,12 +818,16 @@ def add_recent(workspace_root: str | Path, text: str) -> list[str]:
     return current
 
 
-def clear_recents(workspace_root: str | Path) -> list[str]:
-    """Delete this workspace's history (and any legacy global file)."""
+def clear_recents(
+    workspace_root: str | Path, *, preserve_conversation_id: str = ""
+) -> list[str]:
+    """Delete this workspace's history while optionally retaining one chat."""
 
     _discard_legacy_global_history()
     recents_path(workspace_root).unlink(missing_ok=True)
-    clear_conversations(workspace_root)
+    clear_conversations(
+        workspace_root, preserve_conversation_id=preserve_conversation_id
+    )
     return []
 
 
@@ -1114,10 +1118,15 @@ def _tombstone(path: Path) -> None:
         shadow_journal.record_deletion(path)
 
 
-def clear_conversations(workspace_root: str | Path) -> bool:
-    """Delete every saved conversation for this workspace."""
+def clear_conversations(
+    workspace_root: str | Path, *, preserve_conversation_id: str = ""
+) -> bool:
+    """Delete saved conversations except the explicitly preserved chat."""
 
+    preserved = _clean_id(preserve_conversation_id, limit=64)
     for path in _conversation_files(workspace_root):
+        if preserved and path.stem == preserved:
+            continue
         with _suppress_os_error():
             path.unlink(missing_ok=True)
         _tombstone(path)

@@ -676,18 +676,17 @@ function renderRecents() {
     rec.appendChild(b);
   });
   // Privacy control (#145): history is per-workspace and deletable only after
-  // an explicit confirmation. Clearing also removes durable recovery state, so
-  // an accidental sidebar click must never destroy it.
+  // an explicit confirmation.
   const clear = document.createElement("button");
   clear.className = "recent";
   clear.id = "clearRecents";
   clear.style.color = "var(--faint)";
   clear.textContent = "Clear history";
-  clear.title = "Delete this workspace's stored chat history";
+  clear.title = "Delete this workspace's previous chat history";
   clear.onclick = () => {
     inlineConfirm(rec, {
       title: "Clear saved chat history?",
-      body: "Delete all saved chats and recovery data for this workspace? This cannot be undone.",
+      body: "Delete previous saved chats for this workspace? This cannot be undone. Your current chat will be kept.",
       confirmLabel: "Clear history",
       cancelLabel: "Cancel",
       danger: true,
@@ -703,20 +702,18 @@ function renderRecents() {
           showSessionClearFailure(response);
           return;
         }
-        state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
-        // Clearing history deletes saved conversations too (the backend does
-        // it in clear_recents). Leaving them on screen would mean the user
-        // asked to delete their chats and still saw them listed.
-        state.boot.conversations = Array.isArray(response) ? [] : (response.conversations || []);
-        state.boot.resume = (!Array.isArray(response) && response.resume)
-          ? response.resume : { available: false, requires_choice: false };
-        setResumeGate(false);
-        clearChat();
-        renderRecents();
+        applyClearedHistory(response);
       });
     });
   };
   rec.appendChild(clear);
+}
+
+function applyClearedHistory(response) {
+  if (!state.boot) return;
+  state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
+  state.boot.conversations = Array.isArray(response) ? [] : (response.conversations || []);
+  renderRecents();
 }
 
 function stateCardHtml(stateCard) {
@@ -3446,7 +3443,7 @@ function settingsCtx(d) {
     refresh: renderSettings, updateDoctorCard, providerName,
     startGuidedProviderLogin, connectionHealthLabel, authStatusLabel,
     renderComposerSelects,
-    applyAppearance, applyDefaults,
+    applyAppearance, applyDefaults, applyClearedHistory,
     replayTour: () => { if (window.OPaiOnboarding) window.OPaiOnboarding.replay(onboardingCtx()); },
     startDoctorRefresh() {
       if (bridge.refreshConnectionDoctor) {
