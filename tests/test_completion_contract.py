@@ -155,11 +155,15 @@ def test_typed_provider_failure_preserves_its_actionable_user_message() -> None:
             "timeout",
         ),
         (
-            # #380: a bare failure with no typed error code defaults to the
-            # honest "provider" class (the old generic "provider_failed" cause).
+            # #656: a bare failure carries no typed error code, so it has no
+            # provider evidence and cannot be given a provider reason code.
+            # Note the payload: "provider crashed" is untyped *prose*. Reading
+            # a cause out of it is exactly what the issue forbids -- "frontend
+            # /CLI must not infer failure class from raw timeline text, exit
+            # code or stderr" -- and it is why this case now reads "unknown".
             {"status": "failed", "error": "provider crashed"},
             CompletionVerdict.FAILED,
-            "provider",
+            "unknown",
         ),
         (
             # #380: a typed provider error code drives the failure class so the
@@ -224,15 +228,66 @@ def test_failure_reason_maps_every_provider_error_code(
 
 
 def test_failure_reason_falls_back_honestly_without_a_typed_code() -> None:
-    # A codeless failure defaults to "provider" (the old generic cause), never a
-    # fabricated internal blame; a local runner error is honestly internal.
-    assert classify_failure_reason({"status": "failed"}) is FailureReason.PROVIDER
+    # The test name still fits; what counts as honest changed.
+    #
+    # A codeless failure used to default to "provider", described here as the
+    # honest option because the alternative was a fabricated internal blame.
+    # #656 opens by describing what that default actually produced: a run the
+    # no-progress guard stopped, presented to the user as "the provider
+    # failed". Blaming a component that produced no evidence of failing is not
+    # a lesser fabrication than blaming OPai itself.
+    #
+    # So an absent cause is now UNKNOWN. Evidence still classifies: a runner
+    # error is internal because the status says so.
+    assert classify_failure_reason({"status": "failed"}) is FailureReason.UNKNOWN
     assert (
         classify_failure_reason({"status": "failed", "error": "raw text"})
-        is FailureReason.PROVIDER
+        is FailureReason.UNKNOWN
     )
     assert classify_failure_reason({"status": "runner_error"}) is FailureReason.INTERNAL
-    assert classify_failure_reason(None) is FailureReason.PROVIDER
+    assert classify_failure_reason(None) is FailureReason.UNKNOWN
+
+
+def test_every_canonical_provider_error_code_is_explicitly_classified() -> None:
+    """A ratchet, added because removing the default broke five codes at once.
+
+    While ``classify_failure_reason`` ended in ``return PROVIDER``, any code
+    missing from the map still landed somewhere plausible. Removing that
+    default reclassified all five unmapped codes as UNKNOWN in one commit --
+    including PROVIDER_CLI_OUTDATED, which the parametrised test above pins to
+    PROVIDER.
+
+    With the default gone there is no safety net, so the map has to be
+    complete, and completeness has to be enforced rather than remembered: a
+    provider code added tomorrow would otherwise become UNKNOWN silently.
+    """
+
+    from opaihub.completion import _FAILURE_BY_ERROR_CODE
+    from opaihub.provider_protocol import ERROR_CODES
+
+    unmapped = sorted(set(ERROR_CODES) - set(_FAILURE_BY_ERROR_CODE))
+
+    assert unmapped == [], (
+        "these canonical provider error codes have no typed failure class and "
+        "would silently classify as UNKNOWN: " + ", ".join(unmapped)
+    )
+
+
+def test_a_stopped_run_is_never_blamed_on_the_provider() -> None:
+    """#656's motivating defect, at the classification layer.
+
+    Cancellation and a reached deadline are both known exactly. Neither is a
+    provider fault, and neither is unknown.
+    """
+
+    cancelled = classify_failure_reason({"error": {"code": "USER_CANCELLED"}})
+    deadline = classify_failure_reason({"error": {"code": "TASK_DEADLINE"}})
+
+    assert cancelled is FailureReason.CANCELLED
+    assert deadline is FailureReason.DEADLINE
+    for reason in (cancelled, deadline):
+        assert reason is not FailureReason.PROVIDER
+        assert reason is not FailureReason.UNKNOWN
 
 
 def test_typed_failure_offers_a_class_specific_next_action() -> None:

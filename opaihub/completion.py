@@ -98,6 +98,16 @@ class FailureReason(str, Enum):
     "provider failed": an auth failure sends them to re-connect, a rate-limit to
     wait or switch, an internal error to report. GUI and CLI read the same
     verdict, so they present the identical typed failure and next action.
+
+    #656/#646: when no evidence identifies the cause, the class is UNKNOWN —
+    never a default provider blame. PROVIDER requires provider evidence (a
+    typed provider error code or status).
+
+    CANCELLED and DEADLINE exist because the alternatives were both dishonest.
+    A run the user stopped, or one that reached its configured time limit, is
+    not a fault of anything — calling either PROVIDER is the defect #656 opens
+    by describing, and calling them UNKNOWN would be false in the opposite
+    direction, since the cause is known exactly.
     """
 
     AUTH = "auth"
@@ -106,6 +116,9 @@ class FailureReason(str, Enum):
     PROVIDER = "provider"
     POLICY = "policy"
     INTERNAL = "internal"
+    CANCELLED = "cancelled"
+    DEADLINE = "deadline"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -259,6 +272,23 @@ _FAILURE_BY_ERROR_CODE = {
     "CONTEXT_TOO_LARGE": FailureReason.PROVIDER,
     "CONFIG_INVALID": FailureReason.INTERNAL,
     "UNKNOWN": FailureReason.PROVIDER,
+    # These five used to reach the right answer by falling through to a
+    # PROVIDER default. Removing that default (#646/#656) silently reclassified
+    # every one of them as UNKNOWN -- including PROVIDER_CLI_OUTDATED, which an
+    # existing test pins to PROVIDER. That is the hazard in changing a
+    # fallback: it un-handles everything that was relying on it.
+    #
+    # So the provider contract's codes are now mapped explicitly, and
+    # test_completion_contract asserts the map covers every canonical code, so
+    # a newly-added one cannot quietly become UNKNOWN either.
+    "PROVIDER_CLI_OUTDATED": FailureReason.PROVIDER,
+    "PROVIDER_TIMEOUT": FailureReason.PROVIDER,
+    # A local environment fault. Nothing to do with the provider.
+    "SUBPROCESS_PERMISSION_DENIED": FailureReason.INTERNAL,
+    # Neither of these is a fault. Both are known exactly, so UNKNOWN would be
+    # as dishonest as PROVIDER.
+    "TASK_DEADLINE": FailureReason.DEADLINE,
+    "USER_CANCELLED": FailureReason.CANCELLED,
 }
 
 # Per-class user-facing reason + next safe action (#380: "next safe action
@@ -288,6 +318,18 @@ _FAILURE_COPY = {
         "OPai hit an internal error before it could verify the objective.",
         "Retry the run; if it keeps happening, report it with the run id.",
     ),
+    FailureReason.CANCELLED: (
+        "You stopped this run before OPai could verify the objective.",
+        "Continue from the retained work, or start a new run.",
+    ),
+    FailureReason.DEADLINE: (
+        "The run reached its configured time limit before the objective could be verified.",
+        "Continue from the retained work, or raise the limit and retry.",
+    ),
+    FailureReason.UNKNOWN: (
+        "OPai stopped for a reason it could not identify from the available evidence.",
+        "Inspect the run evidence, then decide whether to retry or start over.",
+    ),
 }
 
 _INTERNAL_FAILURE_STATUSES = frozenset({"runner_error", "internal_error", "opai_error"})
@@ -315,9 +357,10 @@ def classify_failure_reason(result: Mapping[str, Any] | None) -> FailureReason:
     """Map a failed run to its typed cause (#380).
 
     Prefers the normalized provider error code (``error.code``); falls back to
-    the legacy ``status`` and finally to :attr:`FailureReason.PROVIDER` — the
-    same honest default the generic "provider_failed" verdict used, never a
-    fabricated internal blame.
+    the legacy ``status`` and finally to :attr:`FailureReason.UNKNOWN`. Unknown
+    stays unknown (#646/#656): without provider evidence the cause is admitted,
+    never defaulted to provider blame. The ``UNKNOWN`` *error code* still maps
+    to PROVIDER, because the provider contract emitted it — that is evidence.
     """
 
     payload = result or {}
@@ -338,7 +381,10 @@ def classify_failure_reason(result: Mapping[str, Any] | None) -> FailureReason:
         return FailureReason.RATE_LIMIT
     if "network" in status or "connection" in status:
         return FailureReason.NETWORK
-    return FailureReason.PROVIDER
+    # #646/#656: unknown stays unknown. A bare "failed" with no typed code and
+    # no recognizable status carries no provider evidence, so it cannot be
+    # presented as a provider failure.
+    return FailureReason.UNKNOWN
 
 
 #: Policy check kinds whose *required* presence means a run must show passing
@@ -892,6 +938,22 @@ def evaluate_completion(
             objective,
             evidence,
             "Resolve the blocker and retry.",
+        )
+    if canonical is CompletionState.STUCK_NO_PROGRESS:
+        # #656: a no-progress stop is trajectory stagnation, never provider
+        # blame — the motivating defect was a run the guard stopped being
+        # presented as "the provider failed". Work observed so far is retained
+        # and the honest next step is a different approach, not a blind repeat.
+        return _verdict(
+            CompletionVerdict.PARTIAL,
+            stopped_reason or "no_progress_guard",
+            "OPai stopped because it was no longer making new progress toward "
+            "the objective. The provider is not known to have failed, and "
+            "useful findings so far are retained.",
+            objective,
+            evidence,
+            "Continue from the retained findings, re-plan with a narrower "
+            "scope, or start over.",
         )
     if canonical is not CompletionState.COMPLETED:
         failure = classify_failure_reason(result)
