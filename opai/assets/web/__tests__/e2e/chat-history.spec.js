@@ -177,3 +177,29 @@ test("clearing history removes saved chats from the sidebar too", async ({ page 
   await expect(page.locator("#recents")).toContainText("No saved chats yet");
   await expect(page.locator("#recents")).not.toContainText("How does routing work?");
 });
+
+test("clearing history keeps the current in-flight chat working", async ({ page }) => {
+  await openApp(page, {
+    clearRecentsResult: {
+      ok: true,
+      recents: [],
+      conversations: [
+        { id: "live-1", title: "Keep this work", message_count: 1, updated_at: "2026-08-28" },
+      ],
+    },
+  });
+  const id = await sendPrompt(page, "Keep this work");
+
+  await page.click("#clearRecents");
+  await page.locator("#recents .inline-confirm").locator('[data-ic="ok"]').click();
+
+  await expect(page.locator("#thread")).toContainText("Keep this work");
+  await expect(page.locator(".gen-stop")).toBeVisible();
+  await expect(page.locator("body")).toHaveClass(/ai-working/);
+  await expect(page.locator("#recents")).toContainText("Keep this work");
+  await expect(page.locator("#recents")).not.toContainText("How does routing work?");
+
+  await finishRequest(page, id, { answer: "Current work finished." });
+  await expect(page.locator("#thread")).toContainText("Current work finished.");
+  await expect(page.locator("body")).not.toHaveClass(/ai-working/);
+});

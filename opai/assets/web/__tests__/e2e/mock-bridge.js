@@ -478,7 +478,8 @@
     clearRecents: function (cb) {
       window.__mock.clearedRecents++;
       if (scenario.clearRecentsResult) {
-        if (cb) cb(JSON.stringify(scenario.clearRecentsResult));
+        boot = merge(boot, scenario.clearRecentsResult);
+        if (cb) cb(JSON.stringify(boot));
         return;
       }
       boot.recents = [];

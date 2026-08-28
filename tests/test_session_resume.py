@@ -289,6 +289,52 @@ class ThreadPersistenceTests(_ThreadAPI):
         self.assertFalse(fresh_payload["resume"]["available"])
         self.assertTrue(fresh_payload["ok"])
 
+    def test_clear_history_preserves_the_current_running_conversation(self):
+        with tempfile.TemporaryDirectory() as tmp, isolated_home():
+            root = make_repo(Path(tmp), commit=True)
+            gui_recents.begin_thread_turn(
+                root, request_id="old", text="Old conversation", mode="ask"
+            )
+            gui_recents.finish_thread_turn(
+                root,
+                request_id="old",
+                answer="Old answer",
+                status="complete",
+                task_id="old",
+            )
+            gui_recents.clear_thread(root)
+            gui_recents.add_recent(root, "Old conversation")
+            gui_recents.begin_thread_turn(
+                root,
+                request_id="current",
+                text="Keep this work",
+                mode="safe-auto",
+            )
+            gui_recents.add_recent(root, "Keep this work")
+            workflow = WorkflowState(
+                task_id="current",
+                phase="testing",
+                message="Work is still running",
+            )
+            save_workflow_state(root, workflow)
+
+            result = gui_web.clear_history_payload(root)
+
+            thread = gui_recents.load_thread(root)
+            self.assertTrue(result["ok"])
+            self.assertEqual(thread["active_request_id"], "current")
+            self.assertEqual(thread["state"], "running")
+            self.assertEqual(load_workflow_state(root), workflow)
+            self.assertEqual(gui_recents.load_recents(root), [])
+            self.assertEqual(
+                [item["title"] for item in gui_recents.list_conversations(root)],
+                ["Keep this work"],
+            )
+            self.assertEqual(
+                [item["title"] for item in result["conversations"]],
+                ["Keep this work"],
+            )
+
     def test_clear_failures_raise_and_start_fresh_reports_recoverable_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

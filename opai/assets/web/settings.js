@@ -150,6 +150,16 @@
     );
   }
 
+  // Auth-status wording comes from app.js's AUTH_STATUS_LABEL, deliberately
+  // not redefined here. Both files are classic scripts sharing one global
+  // scope, and every call below runs from a handler or a render after both
+  // have loaded.
+  //
+  // Keeping a second copy is what caused the defect this fixes: three places
+  // wrote the status element with wording of their own, so a card could read
+  // "Sign-in verified locally; provider acceptance is confirmed" directly
+  // above "Status: not connected". One map, or the contradiction comes back.
+
   // Connection Doctor items, from the rich payload when present or derived
   // from the plain accounts list otherwise. Shared by the Providers page and
   // the Overview status card so their counts can never disagree.
@@ -166,7 +176,7 @@
               : a.cli_present === false
                 ? "not_installed"
                 : "not_configured",
-            authStatus: a.connected ? "connected" : "not connected",
+            authStatus: a.connected ? "connected" : "not_configured",
             credentialSourceLabel: "Subscription sign-in",
             cliInstalled: a.cli_present !== false,
             cliVersion: "",
@@ -441,7 +451,7 @@
           ? '<div class="doctor-status">Status: <span data-account-status="' +
             esc(id) +
             '">' +
-            esc(item.authStatus || "unknown") +
+            esc(authStatusLabel(item.authStatus)) +
             "</span></div>"
           : "") +
         '<div class="doctor-actions">' +
@@ -1271,9 +1281,9 @@
     h +=
       '<div class="set-note">Saved chat is stored redacted on this machine, per workspace.</div>';
     h +=
-      '<div class="danger-zone"><div class="danger-body"><strong>Clear saved chat &amp; recents</strong>' +
+      '<div class="danger-zone"><div class="danger-body"><strong>Clear previous chats &amp; recents</strong>' +
       '<div class="set-note">Immediate and cannot be undone.</div></div>' +
-      '<button class="btn danger" id="settingsClearRecents">Clear saved chat</button></div>';
+      '<button class="btn danger" id="settingsClearRecents">Clear previous chats</button></div>';
     return h;
   }
 
@@ -1997,8 +2007,10 @@
           button.disabled = false;
           button.textContent = "Test connection";
           var live = result.authStatus === "connected";
-          if (status)
-            status.textContent = live ? "connected" : result.authStatus || "needs attention";
+          // Through the same map as the initial render. Writing the raw value
+          // here is what let a tested-and-rejected provider display a status
+          // in a vocabulary nothing else used.
+          if (status) status.textContent = authStatusLabel(result.authStatus);
           ctx.updateDoctorCard(id, result);
           if (live) {
             toast("Connection verified");
@@ -2046,7 +2058,8 @@
               if (result.disconnected) {
                 var status = q('[data-account-status="' + id + '"]');
                 var dot = q('[data-account-row="' + id + '"] .prov-dot');
-                if (status) status.textContent = "not connected";
+                if (status)
+                  status.textContent = authStatusLabel("not_configured");
                 if (dot) dot.classList.remove("on");
                 var health =
                   button.closest(".doctor-card") &&
@@ -2284,7 +2297,7 @@
       replayBtn.onclick = function () {
         ctx.replayTour();
       };
-    // Clear saved chat & recents (#239): a destructive action, gated by the
+    // Clear previous chats and recents (#239): a destructive action, gated by the
     // same styled inline confirm the rest of the app uses — never a bare click.
     var clearBtn = q("#settingsClearRecents");
     if (clearBtn)
@@ -2297,8 +2310,8 @@
         clearBtn.disabled = true;
         ctx
           .inlineConfirm(host, {
-            title: "Clear saved chat & recents?",
-            body: "This permanently removes this workspace's saved chat and recent-task list from your machine. It cannot be undone.",
+            title: "Clear previous chats & recents?",
+            body: "This permanently removes this workspace's previous saved chats and recent-task list. It cannot be undone. Your current chat will be kept.",
             confirmLabel: "Clear now",
             danger: true,
           })
@@ -2312,7 +2325,8 @@
               } catch (_e) {
                 /* keep {} */
               }
-              toast(result.ok ? "Saved chat cleared." : result.error || "Could not clear saved chat.");
+              if (result.ok && ctx.applyClearedHistory) ctx.applyClearedHistory(result);
+              toast(result.ok ? "Previous chats cleared." : result.error || "Could not clear previous chats.");
             });
           });
       };

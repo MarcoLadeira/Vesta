@@ -944,8 +944,21 @@ def evaluate_completion(
         # blame — the motivating defect was a run the guard stopped being
         # presented as "the provider failed". Work observed so far is retained
         # and the honest next step is a different approach, not a blind repeat.
+        #
+        # The verdict stays FAILED, and that is deliberate. An earlier version
+        # of this branch returned PARTIAL, on the reasoning that findings are
+        # retained. But PARTIAL means something specific here -- "work landed
+        # and is unverified", which is why the CLI renders it as "Partially
+        # completed" and gives it its own exit code. A stuck investigation that
+        # never reached an edit has landed nothing, so PARTIAL overstates it,
+        # and changing the verdict silently changed the exit code a script
+        # would see.
+        #
+        # What #656 actually asks for is that the *cause* stop being a lie.
+        # That lives in the reason code and the copy below, and in the recovery
+        # card built from them -- not in the verdict.
         return _verdict(
-            CompletionVerdict.PARTIAL,
+            CompletionVerdict.FAILED,
             stopped_reason or "no_progress_guard",
             "OPai stopped because it was no longer making new progress toward "
             "the objective. The provider is not known to have failed, and "

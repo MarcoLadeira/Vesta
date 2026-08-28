@@ -676,18 +676,17 @@ function renderRecents() {
     rec.appendChild(b);
   });
   // Privacy control (#145): history is per-workspace and deletable only after
-  // an explicit confirmation. Clearing also removes durable recovery state, so
-  // an accidental sidebar click must never destroy it.
+  // an explicit confirmation.
   const clear = document.createElement("button");
   clear.className = "recent";
   clear.id = "clearRecents";
   clear.style.color = "var(--faint)";
   clear.textContent = "Clear history";
-  clear.title = "Delete this workspace's stored chat history";
+  clear.title = "Delete this workspace's previous chat history";
   clear.onclick = () => {
     inlineConfirm(rec, {
       title: "Clear saved chat history?",
-      body: "Delete all saved chats and recovery data for this workspace? This cannot be undone.",
+      body: "Delete previous saved chats for this workspace? This cannot be undone. Your current chat will be kept.",
       confirmLabel: "Clear history",
       cancelLabel: "Cancel",
       danger: true,
@@ -703,20 +702,18 @@ function renderRecents() {
           showSessionClearFailure(response);
           return;
         }
-        state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
-        // Clearing history deletes saved conversations too (the backend does
-        // it in clear_recents). Leaving them on screen would mean the user
-        // asked to delete their chats and still saw them listed.
-        state.boot.conversations = Array.isArray(response) ? [] : (response.conversations || []);
-        state.boot.resume = (!Array.isArray(response) && response.resume)
-          ? response.resume : { available: false, requires_choice: false };
-        setResumeGate(false);
-        clearChat();
-        renderRecents();
+        applyClearedHistory(response);
       });
     });
   };
   rec.appendChild(clear);
+}
+
+function applyClearedHistory(response) {
+  if (!state.boot) return;
+  state.boot.recents = Array.isArray(response) ? response : (response.recents || []);
+  state.boot.conversations = Array.isArray(response) ? [] : (response.conversations || []);
+  renderRecents();
 }
 
 function stateCardHtml(stateCard) {
@@ -2477,6 +2474,34 @@ function connectionHealthLabel(value) {
   return ({ not_installed: "Not installed", not_configured: "Not configured", detected: "Detected", verified: "Verified", degraded: "Degraded", failed: "Failed" })[value] || String(value || "Unknown").replaceAll("_", " ");
 }
 
+// The one vocabulary for a provider's auth state, and the only place it
+// becomes words. The backend emits exactly these six values
+// (opaihub/accounts.py, connection_for_account).
+//
+// Three places used to write this element with wording of their own: a derived
+// "not connected", a fallback "needs attention", and the raw enum with its
+// underscores swapped for spaces. The diagnostic sentence comes from the
+// payload while the status line was written by whichever of those ran last, so
+// one card could read "Sign-in verified locally; provider acceptance is
+// confirmed" directly above "Status: not connected".
+//
+// `expired` is the value that matters most and was the least visible. When a
+// token expires the run fails with a 401 that normalises to AUTH_EXPIRED, and
+// the card has to say so: "Not verified" is a state you wait out, "Sign-in
+// expired" is one you act on.
+const AUTH_STATUS_LABEL = {
+  connected: "Connected",
+  unknown: "Not verified",
+  not_configured: "Not connected",
+  misconfigured: "CLI unavailable",
+  invalid: "Sign-in rejected",
+  expired: "Sign-in expired",
+};
+
+function authStatusLabel(value) {
+  return AUTH_STATUS_LABEL[String(value || "").trim()] || AUTH_STATUS_LABEL.unknown;
+}
+
 function updateDoctorCard(provider, result) {
   const card = document.querySelector(`[data-doctor-provider="${CSS.escape(String(provider || ""))}"]`);
   if (!card) return;
@@ -2485,7 +2510,7 @@ function updateDoctorCard(provider, result) {
   const status = card.querySelector(`[data-account-status="${CSS.escape(String(provider || ""))}"]`);
   const health = card.querySelector("[data-doctor-health]");
   const diagnostic = card.querySelector("[data-doctor-diagnostic]");
-  if (status) status.textContent = signedIn ? "connected" : (result.authStatus || result.status || "needs attention").replaceAll("_", " ");
+  if (status) status.textContent = authStatusLabel(signedIn ? "connected" : (result.authStatus || result.status));
   if (health) { health.textContent = connectionHealthLabel(healthValue); health.className = `doctor-health ${healthValue}`; }
   if (diagnostic) diagnostic.textContent = (result.connection && result.connection.safeDiagnostic) || result.safeDiagnostic || result.message || diagnostic.textContent;
   // Bug 4: the check just ran, so "Last checked" must reflect it in place — a
@@ -3416,8 +3441,9 @@ function settingsCtx(d) {
   return {
     d, bridge, state, esc, toast, inlineConfirm, switchView,
     refresh: renderSettings, updateDoctorCard, providerName,
-    startGuidedProviderLogin, connectionHealthLabel, renderComposerSelects,
-    applyAppearance, applyDefaults,
+    startGuidedProviderLogin, connectionHealthLabel, authStatusLabel,
+    renderComposerSelects,
+    applyAppearance, applyDefaults, applyClearedHistory,
     replayTour: () => { if (window.OPaiOnboarding) window.OPaiOnboarding.replay(onboardingCtx()); },
     startDoctorRefresh() {
       if (bridge.refreshConnectionDoctor) {

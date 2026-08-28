@@ -1,5 +1,16 @@
 import { test, expect } from "@playwright/test";
 
+// Connection status is rendered through one label map (settings.js,
+// AUTH_STATUS_LABEL) rather than by printing whichever raw value reached the
+// element. These assertions therefore read "Connected" / "Not connected" /
+// "Sign-in rejected" rather than the enum.
+//
+// That map exists because a real user report showed a card saying "Sign-in
+// verified locally; provider acceptance is confirmed" directly above
+// "Status: not connected": the sentence came from the payload while the status
+// line printed authStatus verbatim, and two other code paths wrote that same
+// element using words the backend never emits.
+
 import { DISCONNECTED_ACCOUNTS } from "./helpers/fixtures.js";
 import { expectNoUiSentinels, openApp, openSettings } from "./helpers/app.js";
 
@@ -42,17 +53,19 @@ test("test connection on a connected account reports the live truth, not the cac
   });
   await openSettings(page, "providers");
   const row = page.locator('[data-account-row="claude"]');
-  await expect(row).toContainText("connected");
+  await expect(row).toContainText("Connected");
   await page.locator('[data-test-account="claude"]').click();
   expect(await page.evaluate(() => window.__mock.providerTests)).toContain("claude");
-  await expect(page.locator('[data-account-status="claude"]')).toHaveText("invalid");
+  await expect(page.locator('[data-account-status="claude"]')).toHaveText(
+    "Sign-in rejected",
+  );
 });
 
 test("test connection on a genuinely healthy account confirms connected", async ({ page }) => {
   await openApp(page, { providerTestResponses: { claude: { authStatus: "connected" } } });
   await openSettings(page, "providers");
   await page.locator('[data-test-account="claude"]').click();
-  await expect(page.locator('[data-account-status="claude"]')).toHaveText("connected");
+  await expect(page.locator('[data-account-status="claude"]')).toHaveText("Connected");
 });
 
 test("disconnect asks with a styled inline confirm, then signs out and updates the row", async ({ page }) => {
@@ -66,7 +79,9 @@ test("disconnect asks with a styled inline confirm, then signs out and updates t
   expect(dialogs).toBe(0);
   await page.locator('.inline-confirm [data-ic="ok"]').first().click();
   expect(await page.evaluate(() => window.__mock.disconnects)).toContain("claude");
-  await expect(page.locator('[data-account-status="claude"]')).toHaveText("not connected");
+  await expect(page.locator('[data-account-status="claude"]')).toHaveText(
+    "Not connected",
+  );
   // Nothing left to disconnect or test once signed out.
   await expect(page.locator('[data-disconnect-account="claude"]')).toBeDisabled();
 });
@@ -77,7 +92,7 @@ test("cancelling the disconnect confirmation leaves the account untouched", asyn
   await page.locator('[data-disconnect-account="claude"]').click();
   await page.locator('.inline-confirm [data-ic="cancel"]').first().click();
   expect(await page.evaluate(() => window.__mock.disconnects)).toEqual([]);
-  await expect(page.locator('[data-account-status="claude"]')).toHaveText("connected");
+  await expect(page.locator('[data-account-status="claude"]')).toHaveText("Connected");
   // The button is usable again after cancelling.
   await expect(page.locator('[data-disconnect-account="claude"]')).toBeEnabled();
 });
@@ -85,7 +100,7 @@ test("cancelling the disconnect confirmation leaves the account untouched", asyn
 test("settings renders disconnected accounts without crashing", async ({ page }) => {
   await openApp(page, { settings: { accounts: DISCONNECTED_ACCOUNTS } });
   await openSettings(page, "providers");
-  await expect(page.locator("#settingsPage")).toContainText("not connected");
+  await expect(page.locator("#settingsPage")).toContainText("Not connected");
   await expectNoUiSentinels(page, page.locator("#settingsPage"));
 });
 
