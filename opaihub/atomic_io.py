@@ -56,26 +56,40 @@ def read_utf8_tail_lines(path: Path, limit: int) -> list[str]:
 def read_utf8_tail_json_objects(path: Path, limit: int) -> list[dict[str, Any]]:
     """Return the latest JSON objects, skipping torn and non-object rows."""
 
+    return read_utf8_tail_json_objects_with_skipped(path, limit)[0]
+
+
+def read_utf8_tail_json_objects_with_skipped(
+    path: Path, limit: int
+) -> tuple[list[dict[str, Any]], int]:
+    """``(objects, skipped)`` — like :func:`read_utf8_tail_json_objects`, but
+    also counts torn and non-object rows within the returned tail window
+    instead of dropping that signal (#476)."""
+
     target = max(0, int(limit))
     if target == 0:
-        return []
+        return [], 0
     window = max(64, target * 2)
     previous_line_count = -1
     while True:
         lines = read_utf8_tail_lines(path, window)
         objects: list[dict[str, Any]] = []
+        skipped = 0
         for line in lines:
             try:
                 value = json.loads(line)
             except json.JSONDecodeError:
+                skipped += 1
                 continue
             if isinstance(value, dict):
                 objects.append(value)
+            else:
+                skipped += 1
         if len(objects) >= target:
-            return objects[-target:]
+            return objects[-target:], skipped
         line_count = len(lines)
         if line_count < window or line_count == previous_line_count:
-            return objects
+            return objects, skipped
         previous_line_count = line_count
         window *= 2
 

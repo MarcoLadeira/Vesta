@@ -14,10 +14,12 @@ from opaihub.background_runs import (
     BackgroundRunner,
     RUN_STATUSES,
     _RUN_STATE_FOR_LEGACY_STATUS,
+    _notifications_path,
     enqueue_automation,
     list_automation_schedules,
     list_runs,
     load_run,
+    notifications_integrity,
     read_notifications,
     recover_interrupted_runs,
     request_cancel,
@@ -717,6 +719,73 @@ class RunListingTests(unittest.TestCase):
                 [done.run_id],
             )
             self.assertIsInstance(list_runs(root)[0], AutomationRun)
+
+
+class NotificationIntegrityTests(unittest.TestCase):
+    def test_clean_notification_log_reports_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            enqueue_automation(root, "bug_fix", "task")
+
+            report = notifications_integrity(root)
+            self.assertTrue(report["complete"])
+            self.assertFalse(report["degraded"])
+            self.assertEqual(report["skipped"], 0)
+            self.assertEqual(report["entries"], read_notifications(root))
+
+    def test_missing_notification_log_reports_complete_and_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = notifications_integrity(Path(tmp))
+            self.assertEqual(
+                report,
+                {
+                    "entries": [],
+                    "complete": True,
+                    "degraded": False,
+                    "skipped": 0,
+                },
+            )
+
+    def test_a_malformed_line_is_flagged_degraded_without_hiding_valid_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+            path = _notifications_path(root)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write("{not valid json\n")
+
+            report = notifications_integrity(root)
+            self.assertTrue(report["degraded"])
+            self.assertFalse(report["complete"])
+            self.assertEqual(report["skipped"], 1)
+            self.assertEqual(len(report["entries"]), 1)
+            self.assertEqual(report["entries"][0]["run_id"], run.run_id)
+
+    def test_concurrent_notification_appends_never_tear_a_line(self):
+        # #476: _notify used to append without a cross-process lock. Firing many
+        # appends from different threads at once is the same race a second OPai
+        # process hits, and any torn line would show up as a skipped/degraded
+        # read even though every individual write below is well-formed JSON.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = enqueue_automation(root, "bug_fix", "task")
+
+            def _append(n: int) -> None:
+                from opaihub.background_runs import _notify
+
+                _notify(root, run, f"concurrent notification {n}")
+
+            threads = [threading.Thread(target=_append, args=(n,)) for n in range(40)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            report = notifications_integrity(root, limit=1000)
+            self.assertTrue(report["complete"])
+            self.assertEqual(report["skipped"], 0)
+            # +1 for the "queued" notification enqueue_automation already wrote.
+            self.assertEqual(len(report["entries"]), 41)
 
 
 if __name__ == "__main__":

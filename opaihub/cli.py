@@ -341,8 +341,8 @@ def cmd_automation(args: argparse.Namespace) -> int:
         enqueue_automation,
         list_automation_schedules,
         list_runs,
+        notifications_integrity,
         pipeline_executor,
-        read_notifications,
         recover_interrupted_runs,
         request_cancel,
         schedule_automation,
@@ -372,7 +372,7 @@ def cmd_automation(args: argparse.Namespace) -> int:
         elif args.automation_command == "tick":
             print_json([run.to_dict() for run in tick_automations(root)])
         elif args.automation_command == "notifications":
-            print_json(read_notifications(root, limit=args.limit))
+            print_json(notifications_integrity(root, limit=args.limit))
         elif args.automation_command == "schedule":
             print_json(
                 schedule_automation(

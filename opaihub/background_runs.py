@@ -29,7 +29,7 @@ from . import shadow_journal
 from .atomic_io import (
     atomic_write_text,
     interprocess_transaction,
-    read_utf8_tail_json_objects,
+    read_utf8_tail_json_objects_with_skipped,
 )
 from .command_runner import redact
 from .generated_lifecycle import (
@@ -566,9 +566,13 @@ def _notify(project_root: Path, run: AutomationRun, message: str) -> dict[str, A
         "message": str(redact_structure(str(message))),
     }
     path = _notifications_path(project_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    # #476: an unlocked append can interleave with a concurrent writer (another
+    # OPai process finishing a different run) and tear a line, which is exactly
+    # the malformed record read_notifications would then have to skip.
+    with interprocess_transaction(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, sort_keys=True) + "\n")
     WorkflowLedger(project_root, task_id=run.run_id).append(
         "background_run",
         task=run.task,
@@ -585,10 +589,29 @@ def _notify(project_root: Path, run: AutomationRun, message: str) -> dict[str, A
 
 
 def read_notifications(project_root: Path, *, limit: int = 20) -> list[dict[str, Any]]:
+    return notifications_integrity(project_root, limit=limit)["entries"]
+
+
+def notifications_integrity(project_root: Path, *, limit: int = 20) -> dict[str, Any]:
+    """Notification tail plus its integrity state (#476).
+
+    A torn or malformed JSONL line (a write race with no cross-process lock,
+    or on-disk corruption) is unreadable, and dropping it silently could hide
+    exactly the failure/cancellation notification a user needed to see. The
+    skipped count is surfaced instead of hidden, mirroring how
+    :func:`opaihub.audit.summarize_audit` reports #474.
+    """
+
     path = _notifications_path(project_root)
     if not path.exists():
-        return []
-    return read_utf8_tail_json_objects(path, limit)
+        return {"entries": [], "complete": True, "degraded": False, "skipped": 0}
+    entries, skipped = read_utf8_tail_json_objects_with_skipped(path, limit)
+    return {
+        "entries": entries,
+        "complete": skipped == 0,
+        "degraded": skipped > 0,
+        "skipped": skipped,
+    }
 
 
 def _update_run(
