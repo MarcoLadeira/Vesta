@@ -1937,6 +1937,10 @@ def _handle_gui_message(
                 else {}
             ),
         }
+        # #656: one typed recovery surface for the terminal card and the CLI —
+        # distinct actions with evidence-gated availability, decided here by the
+        # runtime, never inferred by the renderer from prose or status strings.
+        decorated["recovery"] = _recovery_projection(decorated, root)
         # #389: the shareable, verdict-first receipt summary is rendered once
         # here, from the assembled record, so the GUI copy action and any other
         # surface export identical content (never a display-side recomputation).
@@ -3206,6 +3210,31 @@ def _handle_gui_message(
                 "plan": _plan_payload(selected_mode, final_status, answer),
             }
         )
+
+
+def _recovery_projection(payload: Mapping[str, Any], root: Path) -> dict[str, Any]:
+    """Build the #656 recovery block for one terminal payload.
+
+    Provider count gates only the ``try_provider`` action: connected provider
+    accounts plus a discovered local model each count as one eligible provider.
+    Counting never raises — a probing failure simply withholds the action.
+    """
+
+    from .accounts import list_connected_accounts
+    from .local_models import discover_local_models
+    from .recovery_actions import build_recovery_actions
+
+    # suppress() rather than try/except/pass: identical intent, and bandit
+    # rightly flags the bare form (B110). Probing must not break a finished
+    # turn -- the cost of a failed probe is one action withheld, and the cost
+    # of raising here is the whole recovery card.
+    providers = 0
+    with contextlib.suppress(Exception):  # noqa: BLE001 - probing is best-effort
+        providers += len(list_connected_accounts())
+    with contextlib.suppress(Exception):  # noqa: BLE001 - probing is best-effort
+        if discover_local_models(root).get("available"):
+            providers += 1
+    return build_recovery_actions(payload, provider_count=max(providers, 1))
 
 
 def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
