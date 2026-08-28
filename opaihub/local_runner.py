@@ -1009,6 +1009,9 @@ class FreeAPIRunner(OpenAICompatibleRunner):
             "boundary_error": (
                 dict(outcome.boundary_error) if outcome.boundary_error else None
             ),
+            # #649/#565: repetition is operational telemetry, kept distinct
+            # from provider spend and monetary savings claims.
+            "repetition": dict(outcome.repetition or {}),
             # #569: a stop must be explainable. The envelope names the cause and
             # carries the evidence behind it, so surfaces can say what actually
             # happened instead of "provider failed". Built only for a run that

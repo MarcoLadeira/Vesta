@@ -27,6 +27,13 @@ import json
 import time
 from typing import Any, Callable, Mapping, Sequence
 
+from .action_fingerprint import (
+    ActionFingerprint,
+    EquivalenceLevel,
+    SideEffectClass,
+    failure_result_digest,
+    fingerprint_action,
+)
 from .completion import CompletionState
 from .deadlines import (
     DeadlineBudget,
@@ -308,6 +315,53 @@ class ToolProtocolAtom:
 
 
 @dataclass
+class RepetitionLedger:
+    """Bounded, privacy-safe repetition accounting for #649/#565."""
+
+    warned: int = 0
+    blocked: int = 0
+    overrides: int = 0
+    failed_repeats: int = 0
+    repeated_latency_ms: int = 0
+    estimated_avoided_latency_ms: int = 0
+    durations: dict[str, list[int]] = field(default_factory=dict, repr=False)
+
+    def estimate_latency(self, action_key: str) -> int:
+        samples = self.durations.get(action_key, ())
+        if not samples:
+            return 0
+        return int(round(sum(samples) / len(samples)))
+
+    def record_execution(
+        self, action_key: str, *, duration_ms: int, repeated: bool
+    ) -> None:
+        duration = max(0, int(duration_ms))
+        if repeated:
+            self.repeated_latency_ms += duration
+        samples = self.durations.setdefault(action_key, [])
+        samples.append(duration)
+        # A pathological loop must not turn telemetry into another memory leak.
+        if len(samples) > 16:
+            del samples[:-16]
+
+    def record_block(self, action_key: str) -> int:
+        estimate = self.estimate_latency(action_key)
+        self.blocked += 1
+        self.estimated_avoided_latency_ms += estimate
+        return estimate
+
+    def summary(self) -> dict[str, int]:
+        return {
+            "warned": self.warned,
+            "blocked": self.blocked,
+            "overrides": self.overrides,
+            "failed_repeats": self.failed_repeats,
+            "repeated_latency_ms": self.repeated_latency_ms,
+            "estimated_avoided_latency_ms": self.estimated_avoided_latency_ms,
+        }
+
+
+@dataclass
 class ToolLoopState:
     """Mutable state of a run: full atom history plus bounded working context."""
 
@@ -318,6 +372,9 @@ class ToolLoopState:
     evidence: deque[str] = field(default_factory=lambda: deque(maxlen=64))
     repeated_failures: dict[str, int] = field(default_factory=dict)
     repeated_successes: dict[str, int] = field(default_factory=dict)
+    action_exact_digests: dict[str, set[str]] = field(default_factory=dict)
+    action_freshness: dict[str, str] = field(default_factory=dict)
+    failure_keys_by_action: dict[str, set[str]] = field(default_factory=dict)
     turn_index: int = 0
     tool_calls_used: int = 0
     calls_since_milestone: int = 0
@@ -325,6 +382,7 @@ class ToolLoopState:
     # #569: evidence-based progress. Unlike calls_since_milestone this can tell
     # a long productive investigation apart from a loop.
     progress: ProgressLedger = field(default_factory=ProgressLedger)
+    repetition: RepetitionLedger = field(default_factory=lambda: RepetitionLedger())
     compactions: int = 0
     cumulative_serialized_chars: int = 0
 
@@ -493,6 +551,10 @@ class ToolLoopResult:
     # explained — "stopped after 60 steps that stopped teaching us anything" —
     # instead of an unexplained halt.
     progress: Mapping[str, Any] | None = None
+    # #649: decisions and measured/estimated latency associated with repeated
+    # actions. This is separate from provider spend: avoided work is not
+    # silently reported as money saved (#565).
+    repetition: Mapping[str, Any] | None = None
     # Set on a NEEDS_CONSENT exit caused by a tool that requires user approval
     # (F17): {"command": <exact string>, "reason": <why>}. The pipeline turns
     # this into an approval card and threads the granted string back down.
@@ -515,8 +577,9 @@ _EMPTY_OUTPUT_GUIDANCE = (
     "continuing."
 )
 _DUPLICATE_SUCCESS_GUIDANCE = (
-    "[OPai notice] This exact call already succeeded; repeating it returns "
-    "the same result. Move on to the next step instead of re-running it."
+    "[OPai notice] An equivalent action already succeeded against the same "
+    "repository state. Move on, or request an explicit repeat override when "
+    "fresh evidence is genuinely required."
 )
 
 
@@ -555,6 +618,44 @@ def _observation_output_empty(observation: Mapping[str, Any]) -> bool:
     return not str(data or "").strip()
 
 
+def _action_for_call(
+    executor: Any,
+    tool: str,
+    arguments: Any,
+    *,
+    failure_class: str = "",
+) -> ActionFingerprint:
+    """Derive an action identity from executor context without widening access."""
+
+    project_root = getattr(executor, "repo_root", None)
+    repository_digest: str | None = None
+    freshness = getattr(executor, "action_freshness_boundary", None)
+    if callable(freshness):
+        try:
+            repository_digest = str(freshness() or "unknown")
+        except Exception:  # noqa: BLE001 - uncertainty must fail open for reads
+            repository_digest = "unknown"
+    return fingerprint_action(
+        tool,
+        arguments,
+        project_root=project_root,
+        repository_digest=repository_digest,
+        failure_class=failure_class,
+    )
+
+
+def _repeat_reason(decision: str) -> str:
+    return {
+        "new": "no equivalent action exists for this freshness boundary",
+        "warned": "an equivalent action already succeeded for this freshness boundary",
+        "blocked": "the configured equivalent-success bound was reached",
+        "override_allowed": "an explicit caller override allowed the bounded repeat",
+        "required_fresh": "repository freshness changed, so prior evidence is stale",
+        "exact_identity_only": "semantic suppression is disabled for side-effecting work",
+        "unknown_allowed": "equivalence or freshness is unknown, so the action was not blocked",
+    }.get(decision, "no repetition decision was available")
+
+
 class ToolLoopController:
     """Drives a bounded-but-continuous tool loop to an honest completion state."""
 
@@ -585,6 +686,7 @@ class ToolLoopController:
         model_id: str = "",
         operation_id: str = "",
         operation_kind: str = "model_call_free",
+        allow_semantic_repeats: bool = False,
     ) -> ToolLoopResult:
         from .boundary_errors import BoundaryError
 
@@ -644,6 +746,7 @@ class ToolLoopController:
                 last_error=last_error,
                 blocked_reason=blocked_reason,
                 progress=state.progress.summary(),
+                repetition=state.repetition.summary(),
                 consent_payload=consent,
                 timeout_event=terminal_timeout_event,
                 boundary_error=last_boundary_error,
@@ -875,7 +978,13 @@ class ToolLoopController:
                 )
 
             observations = self._execute(
-                calls, executor, cancel, trace, state, allow_mutations
+                calls,
+                executor,
+                cancel,
+                trace,
+                state,
+                allow_mutations,
+                allow_semantic_repeats,
             )
             if observations is _CANCELLED:
                 return _result(CompletionState.CANCELLED, stopped="cancelled")
@@ -955,6 +1064,7 @@ class ToolLoopController:
         trace: list[dict[str, Any]],
         state: ToolLoopState,
         allow_mutations: bool,
+        allow_semantic_repeats: bool,
     ) -> list[dict[str, Any]] | Any:
         observations: list[dict[str, Any]] = []
         made_milestone = False
@@ -964,13 +1074,92 @@ class ToolLoopController:
             function = call.get("function") if isinstance(call, Mapping) else {}
             name = str((function or {}).get("name") or "unknown")
             call_id = str(call.get("id") or "") if isinstance(call, Mapping) else ""
-            signature = name + "|" + str((function or {}).get("arguments") or "")
-            # F13: the Nth identical successful call is never executed — stop
-            # the loop instead of re-running work whose result cannot change.
-            if state.repeated_successes.get(signature, 0) >= max(
-                1, self.policy.max_identical_successes - 1
-            ):
-                return _RepeatedSuccessStop(tool=name)
+            raw_arguments = (function or {}).get("arguments") or ""
+            action = _action_for_call(executor, name, raw_arguments)
+            semantic_candidate = (
+                action.operation_family != "unknown"
+                and action.side_effect_class
+                in {
+                    SideEffectClass.READ_ONLY,
+                    SideEffectClass.VERIFICATION,
+                    SideEffectClass.PROVIDER_CALL,
+                }
+            )
+            semantic_guard = semantic_candidate and action.suppressible
+            # #616 remains authoritative for effects. These calls retain an
+            # exact, syntax-sensitive key; semantic similarity can never merge
+            # two writes, pushes, comments, or unknown run_command operations.
+            exact_guard = not semantic_guard and (
+                action.side_effect_class
+                in {SideEffectClass.LOCAL_MUTATION, SideEffectClass.EXTERNAL_EFFECT}
+                or name in self.policy.mutating_tools
+                or action.side_effect_class is SideEffectClass.READ_ONLY
+            )
+            if semantic_guard:
+                action_key = action.semantic_digest
+            elif exact_guard:
+                action_key = action.exact_digest
+            else:
+                action_key = ""
+
+            prior_freshness = state.action_freshness.get(action.trajectory_digest)
+            freshness_changed = bool(
+                semantic_candidate
+                and action.freshness_known
+                and prior_freshness
+                and prior_freshness != action.repository_digest
+            )
+            successes_before = state.repeated_successes.get(action_key, 0)
+            repeat_decision = (
+                "required_fresh"
+                if freshness_changed
+                else (
+                    "new"
+                    if semantic_guard
+                    else ("exact_identity_only" if exact_guard else "unknown_allowed")
+                )
+            )
+            equivalence = EquivalenceLevel.UNKNOWN
+            if successes_before:
+                if semantic_guard:
+                    exacts = state.action_exact_digests.get(action_key, set())
+                    equivalence = (
+                        EquivalenceLevel.EXACT_DUPLICATE
+                        if action.exact_digest in exacts
+                        else EquivalenceLevel.SEMANTICALLY_EQUIVALENT
+                    )
+                elif exact_guard:
+                    equivalence = EquivalenceLevel.EXACT_DUPLICATE
+            elif freshness_changed:
+                equivalence = EquivalenceLevel.RELATED_MATERIALLY_DIFFERENT
+
+            success_bound = max(1, self.policy.max_identical_successes - 1)
+            if action_key and successes_before >= success_bound:
+                if semantic_guard and allow_semantic_repeats:
+                    repeat_decision = "override_allowed"
+                    state.repetition.overrides += 1
+                else:
+                    avoided_ms = state.repetition.record_block(action_key)
+                    trace.append(
+                        {
+                            "tool": name,
+                            "call_id": call_id,
+                            "ok": False,
+                            "error_code": "REPEATED_ACTION_BLOCKED",
+                            "message": "Equivalent action suppressed by the repetition bound.",
+                            "duration_ms": 0,
+                            "action_fingerprint": action.semantic_digest,
+                            "action_fingerprint_version": action.version,
+                            "operation_family": action.operation_family,
+                            "side_effect_class": action.side_effect_class.value,
+                            "equivalence": equivalence.value,
+                            "repeat_decision": "blocked",
+                            "repeat_reason": _repeat_reason("blocked"),
+                            "freshness_boundary": action.repository_digest,
+                            "estimated_avoided_latency_ms": avoided_ms,
+                        }
+                    )
+                    return _RepeatedSuccessStop(tool=name)
             observation = dict(executor.invoke_call(call, cancel=cancel))
             ok = bool(observation.get("ok"))
             observation.setdefault("tool", name)
@@ -984,26 +1173,66 @@ class ToolLoopController:
                 "content", json.dumps(observation, sort_keys=True, default=str)
             )
             self._cap_observation(observation)
+            failure_repeat = False
             if ok:
-                state.repeated_failures.pop(signature, None)
-                successes = state.repeated_successes.get(signature, 0) + 1
-                state.repeated_successes[signature] = successes
-                if successes == 2:
-                    # Second identical success: warn the model inline so it
-                    # moves on (the third is stopped before execution above).
+                for failure_key in state.failure_keys_by_action.pop(
+                    action.trajectory_digest, set()
+                ):
+                    state.repeated_failures.pop(failure_key, None)
+                successes = successes_before + 1 if action_key else 1
+                if action_key:
+                    state.repeated_successes[action_key] = successes
+                    state.action_exact_digests.setdefault(action_key, set()).add(
+                        action.exact_digest
+                    )
+                if successes == 2 and repeat_decision != "override_allowed":
+                    # Second equivalent success warns inline; the next is
+                    # suppressed before execution unless the caller explicitly
+                    # opts into a visible, costed override.
+                    repeat_decision = "warned"
+                    state.repetition.warned += 1
                     observation["notice"] = DUPLICATE_SUCCESS_NOTICE
                     observation["content"] = (
                         str(observation.get("content") or "")
                         + "\n"
                         + _DUPLICATE_SUCCESS_GUIDANCE
                     )
+                # Preserve the policy's existing completion contract: callers
+                # decide which tool names can satisfy an edit-capable run.
+                # Semantic repetition still uses the more precise action-level
+                # effect above, so a Git read through run_command can collapse
+                # with git_status without weakening mutation identity.
                 if name in self.policy.mutating_tools:
                     made_milestone = True
             else:
-                state.repeated_failures[signature] = (
-                    state.repeated_failures.get(signature, 0) + 1
+                failure_key = failure_result_digest(
+                    action,
+                    str(
+                        observation.get("error_code")
+                        or observation.get("message")
+                        or "failed"
+                    ),
                 )
+                prior_failures = state.repeated_failures.get(failure_key, 0)
+                state.repeated_failures[failure_key] = prior_failures + 1
+                state.failure_keys_by_action.setdefault(
+                    action.trajectory_digest, set()
+                ).add(failure_key)
+                if prior_failures:
+                    state.repetition.failed_repeats += 1
+                    failure_repeat = True
             observations.append(observation)
+            if semantic_candidate and action.freshness_known:
+                state.action_freshness[action.trajectory_digest] = (
+                    action.repository_digest
+                )
+            duration_ms = int(observation.get("duration_ms") or 0)
+            metric_key = action_key or action.exact_digest
+            state.repetition.record_execution(
+                metric_key,
+                duration_ms=duration_ms,
+                repeated=successes_before > 0 or failure_repeat,
+            )
             # #569: score what this observation actually taught us. The
             # milestone counter below still drives the legacy guard; this
             # ledger is what distinguishes a long *productive* investigation
@@ -1014,6 +1243,7 @@ class ToolLoopController:
                     "arguments": str((function or {}).get("arguments") or ""),
                     "content": observation.get("content") or "",
                     "ok": ok,
+                    "action_fingerprint": action.semantic_digest,
                 }
             )
             trace.append(
@@ -1023,10 +1253,18 @@ class ToolLoopController:
                     "ok": ok,
                     "error_code": str(observation.get("error_code") or ""),
                     "message": str(observation.get("message") or ""),
-                    "duration_ms": int(observation.get("duration_ms") or 0),
+                    "duration_ms": duration_ms,
+                    "action_fingerprint": action.semantic_digest,
+                    "action_fingerprint_version": action.version,
+                    "operation_family": action.operation_family,
+                    "side_effect_class": action.side_effect_class.value,
+                    "equivalence": equivalence.value,
+                    "repeat_decision": repeat_decision,
+                    "repeat_reason": _repeat_reason(repeat_decision),
+                    "freshness_boundary": action.repository_digest,
                 }
             )
-            fingerprint = (name + "|" + call_id)[: self.policy.evidence_fingerprint_cap]
+            fingerprint = action.semantic_digest[: self.policy.evidence_fingerprint_cap]
             state.evidence.append(fingerprint)
             if not ok and str(observation.get("error_code") or "") == (
                 COMMAND_NEEDS_APPROVAL_CODE
