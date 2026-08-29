@@ -45,6 +45,7 @@ def test_complete_asset_manifest_is_deterministic_and_version_bound() -> None:
 
 def test_pinned_markdown_runtime_is_required_and_byte_exact() -> None:
     required = set(REQUIRED_WEB_ASSETS)
+    assert "chat-components.js" in required
     assert "markdown-renderer.js" in required
     assert "vendor/markdown-it-14.1.0.min.js" in required
     assert "vendor/markdown-it.LICENSE.txt" in required

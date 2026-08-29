@@ -69,6 +69,22 @@ from opai.gui_workspace import (
 _LOG = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
 
+_BRIDGE_PREFERENCE_KEYS = frozenset(
+    {
+        "default_model",
+        "default_mode",
+        "default_task_mode",
+        "default_output_format",
+        "show_control_panel",
+        "density",
+        "response_density",
+        "reduced_motion",
+        "activity_copy",
+        "onboarding_seen",
+        "composer_style",
+    }
+)
+
 # Name of the generated, cache-busted copy of index.html the GUI actually loads.
 # Kept next to index.html so every relative asset path, the CSP, and the qrc
 # web-channel script resolve identically to index.html itself.
@@ -716,6 +732,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             "showPanel": bool(prefs.get("show_control_panel", True)),
             # Appearance (#241): applied to the document root at boot.
             "density": str(prefs.get("density") or "comfortable"),
+            "responseDensity": str(prefs.get("response_density") or "balanced"),
             "reducedMotion": str(prefs.get("reduced_motion") or "system"),
             # Activity copy: lets the activity rail be drag-selected/copied for
             # debugging. On by default; applied to the document root at boot.
@@ -2055,19 +2072,7 @@ def _run_gui(
 
         @QtCore.Slot(str, str)
         def savePref(self, key: str, value: str) -> None:
-            allowed = {
-                "default_model",
-                "default_mode",
-                "default_task_mode",
-                "default_output_format",
-                "show_control_panel",
-                "density",
-                "reduced_motion",
-                "activity_copy",
-                "onboarding_seen",
-                "composer_style",
-            }
-            if key not in allowed:
+            if key not in _BRIDGE_PREFERENCE_KEYS:
                 return
             # Full Auto pin contract (#137): selecting Full Auto never persists a
             # bare full-auto default. It must go through the explicit pin slot,

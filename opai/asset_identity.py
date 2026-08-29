@@ -17,6 +17,7 @@ _RUNTIME_INDEX = ".runtime-index.html"
 REQUIRED_WEB_ASSETS = (
     "activity.js",
     "app.js",
+    "chat-components.js",
     "composer.js",
     "design-tokens-preview.html",
     "design-tokens.css",

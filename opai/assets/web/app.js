@@ -56,6 +56,7 @@ const state = {
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
   accounts: [], panel: true, message: null, lastFailedRequestId: null,
+  responseDensity: "balanced",
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   expandedGroups: new Set(), stripColor: "",
   resumePending: false,
@@ -73,8 +74,24 @@ function mdToHtml(src) {
   return window.OPaiMarkdown.render(src);
 }
 
+function userMessageHtml(text) {
+  return window.OPaiChatComponents.renderUserMessage(text);
+}
+
+function responseProseHtml(markdownHtml) {
+  return window.OPaiChatComponents.renderProseRegion(markdownHtml);
+}
+
+function responseShellHtml(headerHtml, contentHtml) {
+  return window.OPaiChatComponents.renderResponseShell({
+    density: state.responseDensity,
+    headerHtml,
+    contentHtml,
+  });
+}
+
 function renderStreamingBody(body, text) {
-  body.classList.add("streaming");
+  body.classList.add("streaming", "response-prose");
   body.innerHTML = window.OPaiMarkdown.render(text, { streaming: true });
   enhanceCodeBlocks(body);
 }
@@ -119,6 +136,19 @@ function applyAppearance(prefs) {
   const p = prefs || {};
   const root = document.documentElement;
   root.classList.toggle("density-compact", (p.density || "comfortable") === "compact");
+  const requestedResponseDensity = p.responseDensity || p.response_density;
+  const responseDensity = window.OPaiChatComponents.normalizeResponseDensity(requestedResponseDensity);
+  state.responseDensity = responseDensity;
+  root.dataset.responseDensity = responseDensity;
+  root.classList.toggle("response-density-compact", responseDensity === "compact");
+  root.classList.toggle("response-density-detailed", responseDensity === "detailed");
+  if (typeof document.querySelectorAll === "function") {
+    document.querySelectorAll(".response-shell").forEach((shell) => {
+      shell.classList.remove("response-density-compact", "response-density-balanced", "response-density-detailed");
+      shell.classList.add(`response-density-${responseDensity}`);
+      shell.dataset.responseDensity = responseDensity;
+    });
+  }
   const motion = p.reducedMotion === "on" || p.reducedMotion === "off" ? p.reducedMotion : "system";
   if (motion === "system") delete root.dataset.motion;
   else root.dataset.motion = motion;
@@ -1386,10 +1416,13 @@ function restoreSession(resume) {
   }
   messages.forEach((message, index) => {
     if (message.role === "user") {
-      appendMsg(`<div class="bubble">${esc(message.text || "")}</div>`, "user");
+      appendMsg(userMessageHtml(message.text || ""), "user");
     } else if (message.role === "assistant" && index !== pendingAssistantIndex) {
       const el = appendMsg(
-        roleHeader("OPai", "var(--accent)") + `<div class="body">${mdToHtml(message.text || "")}</div>`,
+        responseShellHtml(
+          roleHeader("OPai", "var(--accent)"),
+          responseProseHtml(mdToHtml(message.text || "")),
+        ),
         "bot",
       );
       enhanceCodeBlocks(el);
@@ -1486,12 +1519,14 @@ function renderConversation(conv) {
   messages.forEach((m) => {
     const text = String(m.text || "");
     if (m.role === "user") {
-      appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
+      appendMsg(userMessageHtml(text), "user");
       return;
     }
     const el = appendMsg(
-      roleHeader("OPai", "var(--muted)", { copy: true }) +
-      `<div class="body">${mdToHtml(text)}</div>`
+      responseShellHtml(
+        roleHeader("OPai", "var(--muted)", { copy: true }),
+        responseProseHtml(mdToHtml(text)),
+      )
     );
     wireAnswerCopy(el, text);
     enhanceCodeBlocks(el);
@@ -1603,7 +1638,7 @@ function sendBuild(value) {
   const text = String(retryOf ? retryOf.text : (value || $("#input").value)).trim();
   if (!text) return;
   setComposerDraft("");
-  if (!retryOf) appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
+  if (!retryOf) appendMsg(userMessageHtml(text), "user");
   const sel = retryOf || {
     text, model: state.model.id, modelKind: state.model.kind,
     modelLabel: state.model.label, modelProvider: state.model.provider, build: true,
@@ -1741,13 +1776,12 @@ function appendMsg(html, cls) {
   return d;
 }
 function roleHeader(label, color, opts) {
-  const av = `<span class="av" style="background:${color};color:#06160f">${esc((label[0] || "O"))}</span>`;
-  // The copy control lives in the role row so it sits at a predictable place on
-  // every answer, rather than after however much content the answer produced.
-  const copy = (opts && opts.copy)
-    ? `<button class="msg-copy" type="button" data-a="copy-answer" title="Copy this response" aria-label="Copy this response">${uiIcon("copy")}</button>`
-    : "";
-  return `<div class="role" style="color:${color}">${av}${esc(label)}${copy}</div>`;
+  return window.OPaiChatComponents.renderAssistantHeader({
+    label,
+    color,
+    copy: !!(opts && opts.copy),
+    copyIconHtml: (opts && opts.copy) ? uiIcon("copy") : "",
+  });
 }
 
 // Copy the answer the model actually wrote — the markdown source, not the
@@ -1787,7 +1821,7 @@ function send(retryOf) {
     setComposerDraft("");
     const name = text.slice(1).trim().split(/\s+/)[0].toLowerCase();
     if (name) {
-      appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
+      appendMsg(userMessageHtml(text), "user");
       bridge.runTool(name);
     }
     return;
@@ -1807,7 +1841,7 @@ function send(retryOf) {
   if (!retryOf) setComposerDraft("");
   state.lastSend = sel;
   if (!retryOf) {
-    appendMsg(`<div class="bubble">${esc(text)}</div>`, "user");
+    appendMsg(userMessageHtml(text), "user");
     if (bridge.saveRecent) bridge.saveRecent(text);
     // The prompt list feeds the composer's Up-arrow history; the sidebar lists
     // saved conversations. The backend archives the chat as the turn starts, so
@@ -1861,7 +1895,7 @@ function buildPending(sel) {
        <div class="gen-reassure" aria-live="polite"></div>
        <button class="gen-toggle" aria-expanded="false">Show activity</button>
        <div class="timeline" role="log" aria-label="AI activity" hidden></div>
-       <div class="body stream"></div>
+       <div class="body stream response-prose"></div>
      </div>`, "bot");
   state.pending = el;
   el.querySelector(".gen-stop").onclick = stop;
@@ -2816,8 +2850,9 @@ function finalize(status, r) {
     : "OPai";
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
-  let html = roleHeader(label, color, { copy: true }) + activitySummaryHtml() + completionVerdictHtml(r) +
-    unverifiedClaimHtml(r) + `<div class="body">${mdToHtml(answer)}</div>`;
+  const headerHtml = roleHeader(label, color, { copy: true });
+  let html = activitySummaryHtml() + completionVerdictHtml(r) +
+    unverifiedClaimHtml(r) + responseProseHtml(mdToHtml(answer));
   const changed = (r && r.changed_files) || [];
   // A changeset card (below, via workflowCardHtml) already shows every file in
   // flow.diff_review with real diff evidence; the flat chip list is only useful
@@ -2828,7 +2863,7 @@ function finalize(status, r) {
   const planSteps = (r && r.plan && r.plan.steps) || [];
   if (planSteps.length) html += planCardHtml(planSteps);
   html += metaFooter(r, sel, durMs);
-  el.innerHTML = html;
+  el.innerHTML = responseShellHtml(headerHtml, html);
   wireAnswerCopy(el, answer);
   wireActivitySummary(el);
   wireFilesCard(el);

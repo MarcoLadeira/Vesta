@@ -491,6 +491,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             "design-tokens.css",
             "activity.js",
             "markdown-renderer.js",
+            "chat-components.js",
             "message-state.js",
             "settings.js",
             "onboarding.js",

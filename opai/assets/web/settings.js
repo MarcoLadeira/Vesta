@@ -1290,12 +1290,21 @@
   function appearanceHtml(d, ctx) {
     var esc = ctx.esc;
     var prefs = d.prefs || {};
+    var pref = function (snake, camel) {
+      return prefs[snake] != null ? prefs[snake] : prefs[camel];
+    };
     var density = prefs.density === "compact" ? "compact" : "comfortable";
+    var rawResponseDensity = pref("response_density", "responseDensity");
+    var responseDensity =
+      rawResponseDensity === "compact" || rawResponseDensity === "detailed"
+        ? rawResponseDensity
+        : "balanced";
+    var rawMotion = pref("reduced_motion", "reducedMotion");
     var motion =
-      prefs.reduced_motion === "on" || prefs.reduced_motion === "off"
-        ? prefs.reduced_motion
+      rawMotion === "on" || rawMotion === "off"
+        ? rawMotion
         : "system";
-    var activityCopy = prefs.activity_copy === "off" ? "off" : "on";
+    var activityCopy = pref("activity_copy", "activityCopy") === "off" ? "off" : "on";
     var seg = function (key, current, options) {
       return (
         '<div class="seg" role="group" data-appearance-key="' +
@@ -1320,9 +1329,10 @@
         "</div>"
       );
     };
+    var rawComposerStyle = pref("composer_style", "composerStyle");
     var composerStyle =
-      prefs.composerStyle === "single" || prefs.composerStyle === "command"
-        ? prefs.composerStyle
+      rawComposerStyle === "single" || rawComposerStyle === "command"
+        ? rawComposerStyle
         : "toolbar";
     // A distinct key (not data-appearance-key) so it routes to the composer
     // controller instead of the document-root appearance handler.
@@ -1361,6 +1371,14 @@
         { id: "toolbar", label: "Toolbar" },
         { id: "single", label: "Single line" },
         { id: "command", label: "Command bar" },
+      ]) +
+      "</div>";
+    h +=
+      '<div class="appearance-row"><div class="appearance-label"><span class="k">Response detail</span><span class="hint">Compact prioritizes the outcome, Balanced keeps key evidence nearby, and Detailed keeps supporting sections open.</span></div>' +
+      seg("response_density", responseDensity, [
+        { id: "compact", label: "Compact" },
+        { id: "balanced", label: "Balanced" },
+        { id: "detailed", label: "Detailed" },
       ]) +
       "</div>";
     h +=
@@ -1603,7 +1621,7 @@
       id: "appearance",
       title: "Appearance",
       group: "System",
-      keywords: "theme density motion animation compact reduced dark",
+      keywords: "theme density response compact balanced detailed motion animation reduced dark",
       render: appearanceHtml,
     },
     {
@@ -2357,12 +2375,12 @@
           var current = {};
           page.querySelectorAll("[data-appearance-key]").forEach(function (other) {
             var active = other.querySelector("button.active");
-            var name =
-              other.dataset.appearanceKey === "reduced_motion"
-                ? "reducedMotion"
-                : other.dataset.appearanceKey === "activity_copy"
-                  ? "activityCopy"
-                  : other.dataset.appearanceKey;
+            var camelKeys = {
+              reduced_motion: "reducedMotion",
+              activity_copy: "activityCopy",
+              response_density: "responseDensity",
+            };
+            var name = camelKeys[other.dataset.appearanceKey] || other.dataset.appearanceKey;
             current[name] = active ? active.dataset.value : "";
           });
           ctx.applyAppearance(current);
@@ -2415,7 +2433,10 @@
             other.setAttribute("aria-pressed", other === button ? "true" : "false");
           });
           bridge.savePref(key, button.dataset.value);
-          if (ctx.d && ctx.d.prefs) ctx.d.prefs.composerStyle = button.dataset.value;
+          if (ctx.d && ctx.d.prefs) {
+            ctx.d.prefs.composer_style = button.dataset.value;
+            ctx.d.prefs.composerStyle = button.dataset.value;
+          }
           if (global.OPaiComposer) global.OPaiComposer.setStyle(button.dataset.value);
         };
       });

@@ -382,6 +382,7 @@ class WebAssetsTests(unittest.TestCase):
             "icons.js",
             "run-result.js",
             "markdown-renderer.js",
+            "chat-components.js",
             "styles.css",
             "app.js",
         ):
@@ -395,9 +396,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("icons.js", html)
         self.assertIn("vendor/markdown-it-14.1.0.min.js", html)
         self.assertIn("markdown-renderer.js", html)
+        self.assertIn("chat-components.js", html)
         self.assertIn("app.js", html)
         self.assertLess(html.index("vendor/markdown-it-14.1.0.min.js"), html.index("markdown-renderer.js"))
         self.assertLess(html.index("markdown-renderer.js"), html.index("app.js"))
+        self.assertLess(html.index("chat-components.js"), html.index("app.js"))
 
     def test_index_uses_one_unified_desktop_header(self):
         html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
@@ -756,15 +759,25 @@ class AppearancePreferenceTests(unittest.TestCase):
             root = make_repo(Path(tmp))
             saved = save_gui_preferences(
                 root,
-                {"density": "compact", "reduced_motion": "on", "activity_copy": "off"},
+                {
+                    "density": "compact",
+                    "response_density": "detailed",
+                    "reduced_motion": "on",
+                    "activity_copy": "off",
+                    "composer_style": "command",
+                },
             )
             self.assertEqual(saved["density"], "compact")
+            self.assertEqual(saved["response_density"], "detailed")
             self.assertEqual(saved["reduced_motion"], "on")
             self.assertEqual(saved["activity_copy"], "off")
+            self.assertEqual(saved["composer_style"], "command")
             prefs = boot_payload(root)["prefs"]
             self.assertEqual(prefs["density"], "compact")
+            self.assertEqual(prefs["responseDensity"], "detailed")
             self.assertEqual(prefs["reducedMotion"], "on")
             self.assertEqual(prefs["activityCopy"], "off")
+            self.assertEqual(prefs["composerStyle"], "command")
 
     def test_invalid_appearance_values_sanitize_to_defaults(self):
         from opaihub.gui_preferences import save_gui_preferences
@@ -775,25 +788,39 @@ class AppearancePreferenceTests(unittest.TestCase):
                 root,
                 {
                     "density": "microscopic",
+                    "response_density": "microscopic",
                     "reduced_motion": "sometimes",
                     "activity_copy": "sometimes",
+                    "composer_style": "floating",
                 },
             )
             self.assertEqual(saved["density"], "comfortable")
+            self.assertEqual(saved["response_density"], "balanced")
             self.assertEqual(saved["reduced_motion"], "system")
             self.assertEqual(saved["activity_copy"], "on")
+            self.assertEqual(saved["composer_style"], "toolbar")
             prefs = boot_payload(root)["prefs"]
             self.assertEqual(prefs["density"], "comfortable")
+            self.assertEqual(prefs["responseDensity"], "balanced")
             self.assertEqual(prefs["reducedMotion"], "system")
             self.assertEqual(prefs["activityCopy"], "on")
+            self.assertEqual(prefs["composerStyle"], "toolbar")
 
     def test_defaults_present_without_any_saved_preferences(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             prefs = boot_payload(root)["prefs"]
         self.assertEqual(prefs["density"], "comfortable")
+        self.assertEqual(prefs["responseDensity"], "balanced")
         self.assertEqual(prefs["reducedMotion"], "system")
         self.assertEqual(prefs["activityCopy"], "on")
+        self.assertEqual(prefs["composerStyle"], "toolbar")
+
+    def test_bridge_allows_response_and_composer_presentation_preferences(self):
+        from opai.gui_web import _BRIDGE_PREFERENCE_KEYS
+
+        self.assertIn("response_density", _BRIDGE_PREFERENCE_KEYS)
+        self.assertIn("composer_style", _BRIDGE_PREFERENCE_KEYS)
 
 
 @unittest.skipUnless(
