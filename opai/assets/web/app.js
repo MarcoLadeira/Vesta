@@ -1019,10 +1019,9 @@ function offerFullAutoPinAck() {
   state.fullAutoAckOpen = true;
   chatConfirm({
     title: "Pin Auto-apply?",
-    // Round 5 finding 1: the old copy promised confirmation for "push, deploy, and
-    // destructive actions" as one group, but only pushing actually asks — deploys
-    // and destructive commands are refused outright, not queued for approval. Say
-    // which is which, so the dialog matches what the gate does.
+    // Auto-apply maps to bypass autonomy, so remote writes and destructive
+    // actions run without confirmation. Keep that warning explicit because
+    // the pin persists until the user unpins it.
     body: "Auto-apply lets OPai edit files, run commands, commit, push, and merge pull requests without asking first. It stays on until you unpin it. Nothing is held back for confirmation in this mode — including force-push and deletes — so pin it only for work you want run unattended.",
     confirmLabel: "Pin Auto-apply",
     cancelLabel: "Keep current mode",
