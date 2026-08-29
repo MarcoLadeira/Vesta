@@ -17,6 +17,7 @@ from .adapters import DeveloperGitUpdateAdapter, UpdateAdapter
 from .download import DownloadError, SecureDownloader
 from .errors import UpdateError
 from .manifest import ManifestError, verify_manifest
+from .relaunch import relaunch_command, schedule_relaunch
 from .models import (
     InstallType,
     InstalledBuild,
@@ -135,6 +136,7 @@ class UpdateService:
         self.adapter = adapter
         self.runtime_probe = runtime_probe
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self._restart_available: bool | None = None
 
     def policy(self) -> UpdatePolicy:
         return self.store.load_policy()
@@ -278,7 +280,7 @@ class UpdateService:
             "next_retry_at": (self._now() + timedelta(seconds=delay)).isoformat(),
         }
 
-    def _auto_fast_forward(self, behind: int) -> str | None:
+    def _auto_fast_forward(self, checking: UpdateOperation, behind: int) -> str | None:
         """Fast-forward a source checkout automatically, when that is safe.
 
         A packaged install has had automatic updates for a long time:
@@ -315,6 +317,15 @@ class UpdateService:
         that is already CHECKING. The surrounding check produces the canonical
         transition, which is what that re-check was for.
 
+        Progress is published as it goes, against the operation the caller is
+        still holding. The GUI polls the persisted operation every couple of
+        seconds, so the fetch/fast-forward/reinstall stages appear while they
+        run instead of the window sitting frozen through a reinstall that
+        takes seconds and shows nothing. The stages are written with
+        ``replace`` rather than ``transition``: the operation genuinely is
+        still the same check, and inventing CHECKING -> CHECKING to say so
+        would be a lie about the state machine.
+
         Returns the message to show, or ``None`` -- and on ``None`` the caller
         reports the manual state exactly as before, so withholding this never
         removes the button that was already there.
@@ -332,8 +343,23 @@ class UpdateService:
         adapter = self.adapter
         if not isinstance(adapter, DeveloperGitUpdateAdapter):
             return None
+
+        def report(label: str, done: int, total: int) -> None:
+            # Each stage is written against `checking` itself, so the progress
+            # fields are the only thing that ever differs from the operation
+            # the caller is holding -- and whichever transition it makes next
+            # is therefore free of a half-drawn bar without having to clear it.
+            self._save(
+                replace(
+                    checking,
+                    progress_label=label,
+                    downloaded_bytes=max(0, int(done)),
+                    total_bytes=max(0, int(total)),
+                )
+            )
+
         try:
-            result = adapter.apply_source(force=False)
+            result = adapter.apply_source(force=False, progress=report)
         except Exception:  # noqa: BLE001 - raw git errors must not invent a state
             # An automatic path never surfaces a new failure: the manual
             # report the caller falls back to is accurate and still actionable.
@@ -382,7 +408,7 @@ class UpdateService:
                 return checking.transition(UpdateState.UP_TO_DATE, **changes)
             plural = "" if behind == 1 else "s"
 
-            applied = self._auto_fast_forward(behind)
+            applied = self._auto_fast_forward(checking, behind)
             if applied is not None:
                 return checking.transition(
                     UpdateState.COMPLETED, safe_diagnostic=applied, **changes
@@ -556,6 +582,53 @@ class UpdateService:
         ):
             return self.download(result.operation_id)
         return result
+
+    def restart_available(self) -> bool:
+        """Whether OPai can start itself again, decided by reading, not trying.
+
+        The surface needs this before it offers a restart: a button that
+        closes the window and does not bring it back is worse than no button.
+
+        Cached, because ``status()`` is polled every couple of seconds and the
+        answer is a property of how *this* process was started -- it cannot
+        change while the process lives.
+        """
+
+        if self._restart_available is None:
+            self._restart_available = relaunch_command() is not None
+        return self._restart_available
+
+    def restart_into_update(self) -> dict[str, object]:
+        """Finish an applied update by restarting into it.
+
+        A source update lands on disk while the old code is still loaded in
+        memory, so the restart is the last step of the install, not a courtesy.
+        Claude Code and Codex both stop one step earlier and tell you to run
+        the command again; this does it.
+
+        The supervisor is armed *before* anything closes, so a failure to arm
+        is reported while the window is still there to read it. The caller
+        quits only on ``ok``.
+        """
+
+        command = relaunch_command()
+        if command is None:
+            return {
+                "ok": False,
+                "message": (
+                    "OPai could not work out how it was started, so it will not "
+                    "close itself. Quit and open it again to finish the update."
+                ),
+            }
+        if not schedule_relaunch(command):
+            return {
+                "ok": False,
+                "message": (
+                    "OPai could not arrange its own restart. Quit and open it "
+                    "again to finish the update."
+                ),
+            }
+        return {"ok": True, "message": "Restarting OPai into the update…"}
 
     def apply_developer_source(self, *, force: bool = False) -> dict[str, object]:
         """Deliberate fast-forward of a developer source checkout to origin/main.
@@ -1251,6 +1324,7 @@ class UpdateService:
             "installed": self.installed.to_dict(),
             "policy": self.policy().to_dict(),
             "operation": self.store.load_operation().to_public_dict(),
+            "restart_available": self.restart_available(),
         }
 
     def doctor(self) -> dict[str, object]:

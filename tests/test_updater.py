@@ -172,6 +172,97 @@ class CheckForUpdateTests(unittest.TestCase):
             self.assertGreater(second["checked_at"], first["checked_at"])
 
 
+class ApplyProgressTests(unittest.TestCase):
+    """Stages are reported so an update in progress does not look frozen.
+
+    The git steps are milliseconds; the reinstall is seconds with nothing on
+    screen. Reporting *before* each stage is what lets a surface name the step
+    the user is currently waiting on rather than the one that just finished.
+    """
+
+    def _successful_git(self):
+        return _fake_git(
+            {
+                ("fetch", "--quiet", "origin", "main"): _completed(0),
+                ("checkout", "main"): _completed(0),
+                ("merge", "--ff-only", "origin/main"): _completed(0),
+            }
+        )
+
+    def _versioned(self, root: Path) -> None:
+        (root / "opai").mkdir()
+        (root / "opai" / "__init__.py").write_text(
+            '__version__ = "0.3.0"\n', encoding="utf-8"
+        )
+
+    def test_every_stage_is_reported_in_order(self):
+        with _Root() as (root, cache_path):
+            self._versioned(root)
+            seen: list[tuple[str, int, int]] = []
+
+            result = updater.apply_update(
+                root,
+                git=self._successful_git(),
+                pip_install=lambda _root: _completed(0),
+                cache_path=cache_path,
+                progress=lambda label, done, total: seen.append((label, done, total)),
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual([done for _label, done, _total in seen], [0, 1, 2, 3])
+            self.assertEqual({total for *_rest, total in seen}, {4})
+            self.assertIn("Reinstalling", seen[-1][0])
+
+    def test_a_refused_update_stops_reporting_where_it_stopped(self):
+        """No stage is announced for work that never runs."""
+        with _Root() as (root, cache_path):
+            seen: list[str] = []
+
+            result = updater.apply_update(
+                root,
+                git=_fake_git(
+                    {("status", "--porcelain"): _completed(0, "M some/file.py\n")}
+                ),
+                cache_path=cache_path,
+                progress=lambda label, *_rest: seen.append(label),
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(len(seen), 1)  # the working-tree check, and no further
+
+    def test_a_reporter_that_raises_never_fails_the_update(self):
+        """Telling someone about the work must not be able to break the work."""
+        with _Root() as (root, cache_path):
+            self._versioned(root)
+
+            def hostile(*_args: object) -> None:
+                raise RuntimeError("the surface went away mid-update")
+
+            result = updater.apply_update(
+                root,
+                git=self._successful_git(),
+                pip_install=lambda _root: _completed(0),
+                cache_path=cache_path,
+                progress=hostile,
+            )
+
+            self.assertTrue(result["ok"])
+
+    def test_no_reporter_is_the_same_update(self):
+        with _Root() as (root, cache_path):
+            self._versioned(root)
+
+            result = updater.apply_update(
+                root,
+                git=self._successful_git(),
+                pip_install=lambda _root: _completed(0),
+                cache_path=cache_path,
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["installed_version"], "0.3.0")
+
+
 class ApplyUpdateTests(unittest.TestCase):
     def test_refuses_on_dirty_working_tree(self):
         with _Root() as (root, cache_path):

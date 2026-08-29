@@ -1420,6 +1420,12 @@
       (state === "unsupported_install" && devCheckout
         ? ' <button class="btn ghost" id="settingsApplyUpdate">Update now</button>'
         : "") +
+      // An update sitting on disk is not running yet, and this card is where
+      // someone goes to check. Offered only when the app has established it
+      // can start itself again.
+      (state === "completed" && u.restart_available
+        ? ' <button class="btn ghost" id="settingsRestartUpdate">Restart now</button>'
+        : "") +
       "</div>" +
       "</div>"
     );
@@ -2283,6 +2289,13 @@
           applyBtn.disabled = true;
           applyBtn.textContent = "Updating…";
           bridge.updateAction("developer_apply");
+        };
+      var restartBtn = q("#settingsRestartUpdate");
+      if (restartBtn)
+        restartBtn.onclick = function () {
+          restartBtn.disabled = true;
+          restartBtn.textContent = "Restarting…";
+          bridge.updateAction("restart_now");
         };
     }
     wireUpdateButtons();

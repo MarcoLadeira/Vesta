@@ -1761,12 +1761,27 @@ def _run_gui(
 
             self._start_update_worker(check)
 
+        @QtCore.Slot()
+        def closeForRestart(self) -> None:
+            """Close the window so the armed relaunch supervisor can take over.
+
+            Runs on the GUI thread by construction (invoked queued from the
+            update worker), because Qt teardown belongs to the thread that
+            owns the window. The normal close path is used deliberately: it
+            already cancels in-flight runs and drains workers, and an update
+            restart has no business skipping any of that.
+            """
+
+            with contextlib.suppress(Exception):
+                self.window.close()
+
         @QtCore.Slot(str)
         def updateAction(self, action: str) -> None:
             def apply_action() -> dict[str, object]:
                 service = self._update_service
                 current = service.store.load_operation()
                 reply: dict[str, object] | None = None
+                restart: dict[str, object] | None = None
                 try:
                     if action in {"download", "retry"}:
                         service.download(current.operation_id)
@@ -1786,6 +1801,19 @@ def _run_gui(
                         reply = service.apply_developer_source()
                     elif action == "developer_apply_force":
                         reply = service.apply_developer_source(force=True)
+                    elif action == "restart_now":
+                        restart = service.restart_into_update()
+                        if restart.get("ok"):
+                            # The relaunch supervisor is armed and waiting on
+                            # this pid, so closing is what starts the new
+                            # instance. Queued onto the GUI thread: this runs
+                            # on a worker, and Qt teardown belongs to the
+                            # thread that owns the window.
+                            QtCore.QMetaObject.invokeMethod(
+                                self,
+                                "closeForRestart",
+                                QtCore.Qt.ConnectionType.QueuedConnection,
+                            )
                     elif action == "check":
                         service.check(force=True, allow_automatic_download=True)
                 except Exception:  # noqa: BLE001 - never leak raw updater errors
@@ -1795,6 +1823,11 @@ def _run_gui(
                     # Transient, per-action outcome (e.g. a developer apply):
                     # emitted once with the status, never persisted by the service.
                     status["developer_apply"] = reply
+                if restart is not None:
+                    # Kept off `developer_apply` on purpose: that payload also
+                    # carries `dirty`, which drives the stash-and-restore
+                    # button, and a restart result has no business steering it.
+                    status["restart"] = restart
                 return status
 
             self._start_update_worker(apply_action)

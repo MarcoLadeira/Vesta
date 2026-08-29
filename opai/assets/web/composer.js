@@ -28,9 +28,13 @@
     plan: "Describe the changes without touching files.",
     "safe-auto": "Review each change before it is applied.",
     "approve-edits": "Apply edits; ask before running commands.",
-    // Round 5 finding 1: "You can undo anything" is not true of a push, and this
-    // row sits next to the mode the user is choosing — so it names the exception.
-    "full-auto": "Apply changes and run commands. Pushing still asks first.",
+    // This row sits next to the mode the user is choosing, so it names the
+    // consequence rather than softening it. It said "Pushing still asks first"
+    // long after Full Auto stopped asking (gui_permissions: push -> allow,
+    // AUTONOMY_RULES[BYPASS]: WRITE_REMOTE -> run) -- a promised confirmation
+    // that never came, in the one place someone reads before opting in.
+    // tests/test_mode_copy_drift.py now holds this line to the matrix.
+    "full-auto": "Apply changes, run commands, and push without asking.",
   };
   // Dot colour: teal accent for calm modes, amber caution for the autonomous
   // ones, muted for plan-only. Never red — informative, not alarming.
