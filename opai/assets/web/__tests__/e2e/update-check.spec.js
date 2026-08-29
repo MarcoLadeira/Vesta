@@ -53,6 +53,22 @@ test("up-to-date builds keep the persistent control hidden and report current in
   await expect(page.locator("#settingsPage")).toContainText("latest version", seen);
 });
 
+test("passive up-to-date snapshots keep Settings quiet", async ({ page }) => {
+  await openApp(page);
+  await openSettings(page, "about");
+  await expect(page.locator('[data-update-status="up_to_date"]')).toBeVisible();
+
+  await page.evaluate(() => {
+    window.__mock.bridge.updateReady.emit(JSON.stringify({
+      operation: { state: "up_to_date", candidate: null, safe_diagnostic: null },
+      policy: { discovery_enabled: true },
+    }));
+  });
+
+  await expect(page.locator('[data-update-status="up_to_date"]')).toBeVisible();
+  expect(await page.locator("#toast").getAttribute("class")).not.toMatch(/\bshow\b/);
+});
+
 test("the UI marks the first interactive frame so discovery can start after launch", async ({ page }) => {
   await openApp(page);
   await expect.poll(() => page.evaluate(() => window.__mock.interactiveMarks)).toBe(1);
@@ -128,6 +144,7 @@ test("manual check always forces live discovery", async ({ page }) => {
   await openSettings(page, "about");
   await page.locator("#settingsCheckUpdate").click();
   await expect.poll(() => page.evaluate(() => window.__mock.updateChecks)).toEqual([true]);
+  await expect(page.locator("#toast")).toContainText("latest version", seen);
 });
 
 test("automatic downloads use app-wide updater policy instead of workspace preferences", async ({ page }) => {
