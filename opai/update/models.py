@@ -71,6 +71,11 @@ _TRANSITIONS: dict[UpdateState, frozenset[UpdateState]] = {
             UpdateState.UNAVAILABLE,
             UpdateState.UNSUPPORTED_INSTALL,
             UpdateState.POLICY_BLOCKED,
+            # A source checkout has no download/stage/install pipeline: the
+            # check itself fast-forwards the working tree, so discovery and
+            # completion are the same step. Packaged installs still reach
+            # COMPLETED only through INSTALLING -> RESTARTING -> health.
+            UpdateState.COMPLETED,
         }
     ),
     UpdateState.UP_TO_DATE: frozenset({UpdateState.CHECKING}),

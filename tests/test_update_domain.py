@@ -54,6 +54,9 @@ NOW = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
         ("installing", "failed_terminal"),
         ("restarting", "health_checking"),
         ("health_checking", "completed"),
+        # A source checkout has no install pipeline: its check *is* the
+        # fast-forward, so discovery and completion are one step.
+        ("checking", "completed"),
         ("health_checking", "rollback_pending"),
         ("health_checking", "needs_attention"),
         ("rollback_pending", "rolling_back"),

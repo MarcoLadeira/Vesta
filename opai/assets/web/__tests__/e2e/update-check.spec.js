@@ -259,6 +259,40 @@ function sourceCheckout(state, operation = {}) {
   return update;
 }
 
+test("the automatic-downloads switch says what it does to a git checkout", async ({ page }) => {
+  const update = sourceCheckout("up_to_date");
+  await openApp(page, { boot: { update }, settings: { about: { update } } });
+  await openSettings(page, "about");
+  const row = page.locator('[data-update-policy="automatic_downloads"]');
+  await expect(row).toContainText("fast-forwards this checkout to origin/main", seen);
+  await expect(row).not.toContainText("signed packaged updates", seen);
+});
+
+test("the automatic-downloads switch still speaks of packages on a packaged build", async ({ page }) => {
+  await openWithUpdate(page, updateState("up_to_date"));
+  await openSettings(page, "about");
+  await expect(page.locator('[data-update-policy="automatic_downloads"]')).toContainText(
+    "signed packaged updates download and verify",
+    seen,
+  );
+});
+
+test("an automatic source fast-forward says so and asks for the restart", async ({ page }) => {
+  // A silent auto-update is the bug, not the feature: the process keeps the
+  // old code in memory, so the banner has to say a restart is what's left.
+  const done = sourceCheckout("completed", {
+    safe_diagnostic: "Updated automatically: fast-forwarded 3 commits from origin/main to 0.2.1a2. Restart OPai to use it.",
+  });
+  await openWithUpdate(page, done);
+  await expect(page.locator("#updateShell")).toBeVisible();
+  await expect(page.locator("#updateBannerText")).toHaveText("Update installed");
+  await page.locator("#updateBanner").click();
+  await expect(page.locator("#updateSheetDescription")).toContainText("fast-forwarded 3 commits");
+  await expect(page.locator("#updateSheetDescription")).toContainText("Restart OPai to use it.");
+  await openSettings(page, "about");
+  await expect(page.locator('[data-update-status="completed"]')).toBeVisible();
+});
+
 test("source checkouts get Update now, and a successful apply reports the restart", async ({ page }) => {
   const start = sourceCheckout("unsupported_install", { safe_diagnostic: "This source checkout is 3 commits behind origin/main; update with the explicit developer update command." });
   const done = sourceCheckout("up_to_date");

@@ -336,6 +336,11 @@ function renderUpdateBanner(update) {
     rolled_back: ["Update rolled back", "OPai restored the last-known-good build.", "warning"],
     unavailable: ["Couldn’t check for updates", operation.safe_diagnostic || "Update status is temporarily unavailable.", "warning"],
   };
+  // COMPLETED is normally the quiet end of a packaged update: the app has
+  // already restarted into the new build, so a banner would only nag. A
+  // source checkout reaches the same state with the restart still pending
+  // and a diagnostic that says so — that one has to be seen.
+  if (operation.safe_diagnostic) states.completed = ["Update installed", operation.safe_diagnostic, "accent"];
   const visible = Object.prototype.hasOwnProperty.call(states, status);
   shell.hidden = !visible;
   // The update-state event fans out to Settings and other listeners, so it
@@ -420,6 +425,7 @@ function renderUpdateActions(status, operation) {
     unavailable: [["Check again", "check", true]],
     failed_terminal: [["Check for another release", "check", false]],
     rolled_back: [["Check for updates", "check", false]],
+    completed: [["Check again", "check", false]],
   };
   const list = [...(actions[status] || [])];
   // A source checkout updates by fast-forwarding from origin/main, not by
