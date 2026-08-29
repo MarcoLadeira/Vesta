@@ -221,7 +221,7 @@ class ActionFingerprintCorpusTests(unittest.TestCase):
 
     # Privacy, collision, and conservative safety scenarios.
     def test_public_fingerprint_contains_no_raw_path_prompt_or_secret(self):
-        secret = "sk-private-never-store-this"
+        secret = "sk-private-never-store-this"  # pragma: allowlist secret
         action = self.fingerprint(
             "provider_query",
             {
