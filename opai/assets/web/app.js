@@ -1023,7 +1023,7 @@ function offerFullAutoPinAck() {
     // destructive actions" as one group, but only pushing actually asks — deploys
     // and destructive commands are refused outright, not queued for approval. Say
     // which is which, so the dialog matches what the gate does.
-    body: "Auto-apply lets OPai edit files and run commands without asking first. It stays on until you unpin it. Pushing to a remote still asks for your approval each time, and destructive actions — force-push, deletes, deploys — are refused rather than run.",
+    body: "Auto-apply lets OPai edit files, run commands, commit, push, and merge pull requests without asking first. It stays on until you unpin it. Nothing is held back for confirmation in this mode — including force-push and deletes — so pin it only for work you want run unattended.",
     confirmLabel: "Pin Auto-apply",
     cancelLabel: "Keep current mode",
     danger: true,

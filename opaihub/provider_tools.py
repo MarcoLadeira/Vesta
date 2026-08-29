@@ -45,7 +45,8 @@ GITHUB_PUBLIC_READ_TOOLS = ("github_search_issues",)
 GITHUB_READ_TOOLS = GITHUB_AUTHENTICATED_READ_TOOLS + GITHUB_PUBLIC_READ_TOOLS
 # Outward GitHub writes (comment, request review): need a token AND push consent,
 # like git_push/open_pr, but not local edit permission.
-GITHUB_WRITE_TOOLS = ("github_comment", "github_request_review")
+GITHUB_WRITE_TOOLS = ("github_comment", "github_request_review", "github_merge_pr")
+_MERGE_METHODS = ("squash", "merge", "rebase")
 MAX_TOOL_CALLS = 12
 MAX_PATCH_CHARS = 120_000
 MAX_WRITE_CHARS = 200_000
@@ -190,10 +191,17 @@ class RepositoryToolExecutor:
         git_run: Any = None,
         allow_command: str | None = None,
         repository_handle: RepositoryHandle | None = None,
+        autonomy: str | None = None,
     ) -> None:
+        from .command_policy import normalize_autonomy
+
         self.repo_root = repo_root.expanduser().resolve()
         self.allow_edits = bool(allow_edits)
-        self.aci = aci or AgentComputerInterface(self.repo_root)
+        # The run mode, canonicalised. Everything that decides "may this happen
+        # without asking?" reads this one value, so the permissions panel and
+        # the executor cannot disagree about what a mode means.
+        self.autonomy = normalize_autonomy(autonomy)
+        self.aci = aci or AgentComputerInterface(self.repo_root, autonomy=self.autonomy)
         self.max_patch_chars = max(1, int(max_patch_chars))
         self._git_run = git_run or subprocess.run
         self._repository_handle: RepositoryHandle | None = repository_handle
@@ -514,6 +522,23 @@ class RepositoryToolExecutor:
                         "reviewers": {"type": "array", "items": {"type": "string"}},
                     },
                     required=("number", "reviewers"),
+                )
+            )
+            schemas.append(
+                _schema(
+                    "github_merge_pr",
+                    "Merge a pull request by number. Use method 'squash' "
+                    "(default), 'merge', or 'rebase'.",
+                    {
+                        "number": {"type": "integer", "minimum": 1},
+                        "method": {
+                            "type": "string",
+                            "enum": list(_MERGE_METHODS),
+                        },
+                        "commit_title": {"type": "string"},
+                        "commit_message": {"type": "string"},
+                    },
+                    required=("number",),
                 )
             )
         if not self.allow_edits:
@@ -1557,7 +1582,15 @@ class RepositoryToolExecutor:
         tool exists at all; this decides whether *this* call happens now.
         """
 
+        from .command_policy import RUN, decide_command
+
         if self._consume_one_shot_grant(command):
+            return None
+        # The autonomy level is the authority on whether an outward-facing
+        # action stops here. Under bypass the user has explicitly asked for no
+        # prompts, so asking anyway would be the bug -- that unconditional ask
+        # is what made pushing impossible to automate at any level.
+        if decide_command(command, autonomy=self.autonomy).action == RUN:
             return None
         blocked = _error("COMMAND_NEEDS_APPROVAL", f"{reason} Command: {command}")
         blocked["command"] = command
@@ -1567,14 +1600,19 @@ class RepositoryToolExecutor:
     def _run_command(
         self, arguments: dict[str, Any], *, cancel: Any = None
     ) -> dict[str, Any]:
-        """Run one canonical local Git read without a shell.
+        """Run one command, gated by what it does at this autonomy level.
 
-        Builds/tests have fixed tools and remote operations have consent-aware
-        tools. Normalization fails closed before the ACI sees an argv.
-        Non-allowlisted commands are classified (F17): deny stays hard-blocked;
-        confirm-class commands (git push, gh mutations, …) stop for an
-        explicit one-shot user grant instead of a dead-end refusal.
+        ``command_policy`` classifies the line (read / local write / remote
+        write / destructive) and the run's autonomy level turns that into
+        run, ask, or block. An ``ask`` is satisfied by the one-shot grant the
+        user issues from the approval card.
+
+        Execution takes the narrowest path that works: a canonical local Git
+        read still runs through the hardened, config-stripped argv, a pipeline
+        goes through the shell (it is not expressible as an argv), and anything
+        else runs as a plain argv without a shell.
         """
+        from .command_policy import ASK, RUN, decide_command
         from .command_runner import split_command
         from .safety_gates import (
             _SHELL_OPERATORS,
@@ -1589,37 +1627,41 @@ class RepositoryToolExecutor:
             argv = split_command(raw)
         except ValueError:
             return _error("INVALID_TOOL_ARGUMENTS", "Command could not be parsed")
-        normalized = normalize_autonomous_command(raw, argv)
-        if normalized is None:
-            from .sandbox import classify_command
 
-            verdict = classify_command(raw, self.repo_root)
-            reason = str(verdict.get("reason") or "")
-            if str(
-                verdict.get("decision") or ""
-            ) == "confirm" and not _SHELL_OPERATORS.search(raw):
-                if self._consume_one_shot_grant(raw):
-                    return self._run_granted_command(argv, arguments, cancel=cancel)
+        # What the command *does* decides what happens to it, at the autonomy
+        # level this run was given. The previous gate asked only whether the
+        # spelling was one of five allowlisted git reads, so `cat`, `ls`,
+        # `grep`, the project's own test runner and `git commit` were all
+        # refused as if they were dangerous.
+        decision = decide_command(raw, autonomy=self.autonomy)
+        needs_shell = bool(_SHELL_OPERATORS.search(raw))
+
+        if decision.action == ASK:
+            if not self._consume_one_shot_grant(raw):
                 blocked = _error(
-                    "COMMAND_NEEDS_APPROVAL",
-                    f"{reason} Command: {raw}",
+                    "COMMAND_NEEDS_APPROVAL", f"{decision.reason} Command: {raw}"
                 )
                 blocked["command"] = raw
-                blocked["approval_reason"] = reason
-                blocked["matched_rule"] = verdict.get("matched_rule")
+                blocked["approval_reason"] = decision.reason
+                blocked["capability"] = decision.capability.name.lower()
                 return blocked
-            # 'deny', shell-operator forms, and unrecognized commands stay
-            # hard-blocked: the allowlist remains the only autonomous path.
+        elif decision.action != RUN:
             self._record_guard_decision(
-                allowed=False,
-                operation="run_command",
-                reason=str(verdict.get("decision") or "unrecognized"),
+                allowed=False, operation="run_command", reason=decision.action
             )
             return _error(
                 "COMMAND_BLOCKED",
-                "Only bounded local Git reads are allowed. Use dedicated build, "
-                "test, and consent-aware GitHub tools for other operations.",
+                f"{decision.reason}. The current mode ({decision.autonomy}) does "
+                "not allow this; switch to a mode with more autonomy to run it.",
             )
+
+        normalized = None if needs_shell else normalize_autonomous_command(raw, argv)
+        if normalized is None:
+            self._record_guard_decision(allowed=True, operation="run_command")
+            if needs_shell:
+                purpose = str(arguments.get("purpose") or "run_command")[:200]
+                return self.aci.run_shell(raw, purpose=purpose).to_dict()
+            return self._run_granted_command(argv, arguments, cancel=cancel)
         self._record_guard_decision(allowed=True, operation="run_command")
         git_executable = resolve_trusted_git_executable(self.repo_root)
         if git_executable is None:
@@ -1883,6 +1925,108 @@ class RepositoryToolExecutor:
             message=f"Commented on #{number}",
         ).to_dict()
 
+    def _github_merge_pr(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Merge a pull request, honouring the run's autonomy level.
+
+        The connector could open, comment on and inspect a PR but never finish
+        one, so landing a branch always required a human to click Merge. This
+        closes that gap; ``_needs_approval`` decides whether it stops first, so
+        lower modes still confirm and bypass does not.
+
+        Merging is outward-facing and not undoable by OPai, so it carries the
+        same idempotency claim as the other write tools. It reconciles cleanly:
+        asking GitHub whether the PR is merged answers whether a lost attempt
+        landed, so a resumed turn never merges twice.
+        """
+
+        number = self._github_number(arguments)
+        if number is None:
+            return _error("INVALID_TOOL_ARGUMENTS", "A positive number is required")
+        method = str(arguments.get("method") or "squash").strip().lower()
+        if method not in _MERGE_METHODS:
+            return _error(
+                "INVALID_TOOL_ARGUMENTS",
+                f"method must be one of {', '.join(_MERGE_METHODS)}",
+            )
+
+        from .github_connector import merge_pull_request, pull_request_status
+        from .idempotency import DONE, FRESH, IN_FLIGHT, abandon, begin, complete
+        from .idempotency import operation_key
+
+        key = operation_key(
+            "github_merge_pr",
+            root=str(self.repo_root),
+            number=number,
+            method=method,
+        )
+        prior = begin(self.repo_root, key)
+        if prior["state"] == DONE:
+            return Observation(
+                "github_merge_pr",
+                True,
+                {"number": number, **dict(prior["result"] or {})},
+                message=f"Pull request #{number} was already merged",
+            ).to_dict()
+        if prior["state"] == IN_FLIGHT:
+            observed = pull_request_status(self.repo_root, number)
+            if observed.get("ok") and observed.get("merged"):
+                complete(self.repo_root, key, {"merged": True, "method": method})
+                return Observation(
+                    "github_merge_pr",
+                    True,
+                    {"number": number, "merged": True},
+                    message=f"Pull request #{number} is merged",
+                ).to_dict()
+            if not observed.get("ok"):
+                return _error(
+                    "MERGE_STATE_UNCERTAIN",
+                    f"An earlier attempt to merge #{number} did not confirm and "
+                    "GitHub could not be checked. Inspect the pull request "
+                    "before retrying.",
+                )
+            abandon(self.repo_root, key)
+            prior = begin(self.repo_root, key)
+            if prior["state"] != FRESH:
+                return _error(
+                    "MERGE_STATE_UNCERTAIN",
+                    f"Could not establish a clean merge attempt for #{number}.",
+                )
+
+        approval = self._needs_approval(
+            f"gh pr merge {number} --{method}",
+            f"Merging pull request #{number} changes the base branch.",
+        )
+        if approval is not None:
+            abandon(self.repo_root, key)
+            return approval
+
+        result = merge_pull_request(
+            self.repo_root,
+            number,
+            method=method,
+            commit_title=str(arguments.get("commit_title") or ""),
+            commit_message=str(arguments.get("commit_message") or ""),
+        )
+        if result.get("ok"):
+            payload = {
+                "merged": True,
+                "method": method,
+                "sha": result.get("sha", ""),
+            }
+            complete(self.repo_root, key, payload)
+            return Observation(
+                "github_merge_pr",
+                True,
+                {"number": number, **payload},
+                message=str(result.get("message") or f"Merged #{number}"),
+            ).to_dict()
+        if result.get("uncertain"):
+            # Leave the claim in flight: the merge may have landed, and the
+            # reconcile path above is what decides on the next attempt.
+            return _error("MERGE_STATE_UNCERTAIN", str(result.get("error") or ""))
+        abandon(self.repo_root, key)
+        return _error("GITHUB_MERGE_FAILED", str(result.get("error") or "Merge failed"))
+
     def _github_request_review(self, arguments: dict[str, Any]) -> dict[str, Any]:
         number = self._github_number(arguments)
         if number is None:
@@ -2139,6 +2283,8 @@ class RepositoryToolExecutor:
             return self._github_read("github_get_issue", arguments)
         if name == "github_search_issues":
             return self._github_search(arguments)
+        if name == "github_merge_pr":
+            return self._github_merge_pr(arguments)
         if name == "github_comment":
             return self._github_comment(arguments)
         if name == "github_request_review":
