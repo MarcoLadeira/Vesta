@@ -68,46 +68,14 @@ const state = {
 const providerLoginRequests = new Map();
 let doctorRefreshRequestId = null;
 
-/* ---------- markdown (escape-first, safe) ---------- */
+/* ---------- markdown ---------- */
 function mdToHtml(src) {
-  let s = esc(src);
-  const fences = [];
-  s = s.replace(/```([\s\S]*?)```/g, (_m, code) => {
-    fences.push(code.replace(/^\n/, ""));
-    return `FENCE${fences.length - 1}`;
-  });
-  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
-  s = s.replace(/^######\s+(.*)$/gm, "<h3>$1</h3>")
-       .replace(/^#####\s+(.*)$/gm, "<h3>$1</h3>")
-       .replace(/^####\s+(.*)$/gm, "<h3>$1</h3>")
-       .replace(/^###\s+(.*)$/gm, "<h3>$1</h3>")
-       .replace(/^##\s+(.*)$/gm, "<h2>$1</h2>")
-       .replace(/^#\s+(.*)$/gm, "<h2>$1</h2>");
-  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-       .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-    '<a href="$2" data-ext="1">$1</a>');
-  // lists
-  s = s.replace(/(?:^|\n)((?:\s*[-*]\s+.*(?:\n|$))+)/g, (block) => {
-    const items = block.trim().split(/\n/).map((l) => l.replace(/^\s*[-*]\s+/, "")).map((t) => `<li>${t}</li>`).join("");
-    return `\n<ul>${items}</ul>`;
-  });
-  s = s.replace(/(?:^|\n)((?:\s*\d+\.\s+.*(?:\n|$))+)/g, (block) => {
-    const items = block.trim().split(/\n/).map((l) => l.replace(/^\s*\d+\.\s+/, "")).map((t) => `<li>${t}</li>`).join("");
-    return `\n<ol>${items}</ol>`;
-  });
-  s = s.split(/\n{2,}/).map((p) => (/^\s*<(h\d|ul|ol|pre)/.test(p) ? p : `<p>${p.replace(/\n/g, "<br>")}</p>`)).join("");
-  s = s.replace(/FENCE(\d+)/g, (_m, i) => `<pre><code>${fences[+i]}</code></pre>`);
-  return s;
+  return window.OPaiMarkdown.render(src);
 }
 
-// Progressive, safe markdown for the streaming answer (#233). mdToHtml is
-// escape-first, so rendering partial text is XSS-safe; an unclosed fence or
-// inline marker simply shows literally until it completes, then snaps to
-// formatted — no broken HTML, no flash of injected markup.
 function renderStreamingBody(body, text) {
   body.classList.add("streaming");
-  body.innerHTML = mdToHtml(text);
+  body.innerHTML = window.OPaiMarkdown.render(text, { streaming: true });
   enhanceCodeBlocks(body);
 }
 // Every code block gets a copy button (#233). Idempotent so it survives the
@@ -118,6 +86,15 @@ function enhanceCodeBlocks(root) {
     const code = pre.querySelector("code");
     if (!code) return;
     pre.classList.add("has-copy");
+    const languageClass = Array.from(code.classList).find((name) => name.startsWith("language-"));
+    if (languageClass) {
+      const language = document.createElement("span");
+      language.className = "code-language";
+      language.textContent = languageClass.slice("language-".length, 48);
+      language.setAttribute("aria-hidden", "true");
+      pre.classList.add("has-language");
+      pre.appendChild(language);
+    }
     const btn = document.createElement("button");
     btn.className = "code-copy";
     btn.type = "button";

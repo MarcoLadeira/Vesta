@@ -381,6 +381,7 @@ class WebAssetsTests(unittest.TestCase):
             "design-tokens-preview.html",
             "icons.js",
             "run-result.js",
+            "markdown-renderer.js",
             "styles.css",
             "app.js",
         ):
@@ -392,7 +393,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("design-tokens.css", html)
         self.assertIn("styles.css", html)
         self.assertIn("icons.js", html)
+        self.assertIn("vendor/markdown-it-14.1.0.min.js", html)
+        self.assertIn("markdown-renderer.js", html)
         self.assertIn("app.js", html)
+        self.assertLess(html.index("vendor/markdown-it-14.1.0.min.js"), html.index("markdown-renderer.js"))
+        self.assertLess(html.index("markdown-renderer.js"), html.index("app.js"))
 
     def test_index_uses_one_unified_desktop_header(self):
         html = (WEB_DIR / "index.html").read_text(encoding="utf-8")

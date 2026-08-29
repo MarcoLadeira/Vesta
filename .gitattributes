@@ -16,3 +16,5 @@
 # Pinned narrowly rather than pinning all *.js, which would renormalise files
 # belonging to unrelated work.
 opai/assets/web/generated-lifecycle.js text eol=lf
+opai/assets/web/vendor/markdown-it-14.1.0.min.js -text
+opai/assets/web/vendor/markdown-it.LICENSE.txt text eol=lf

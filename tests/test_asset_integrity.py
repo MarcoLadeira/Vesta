@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -8,6 +9,7 @@ import pytest
 
 from opai.asset_identity import (
     AssetIntegrityError,
+    REQUIRED_WEB_ASSETS,
     asset_manifest,
     load_asset_binding,
     verify_asset_binding,
@@ -21,6 +23,7 @@ from opai.compatibility import (
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "opai" / "assets"
+MARKDOWN_IT_SHA256 = "38c70a1e7ca91ab40e2d9e6e60129851a717ed1c7d4acbbdd41bf9503791cf68"
 
 
 def _copy_assets(tmp_path: Path) -> Path:
@@ -38,6 +41,16 @@ def test_complete_asset_manifest_is_deterministic_and_version_bound() -> None:
     assert first["schema_version"] == 1
     assert first["asset_count"] > 20
     assert len(first["fingerprint_sha256"]) == 64
+
+
+def test_pinned_markdown_runtime_is_required_and_byte_exact() -> None:
+    required = set(REQUIRED_WEB_ASSETS)
+    assert "markdown-renderer.js" in required
+    assert "vendor/markdown-it-14.1.0.min.js" in required
+    assert "vendor/markdown-it.LICENSE.txt" in required
+
+    bundle = ASSETS / "web" / "vendor" / "markdown-it-14.1.0.min.js"
+    assert hashlib.sha256(bundle.read_bytes()).hexdigest() == MARKDOWN_IT_SHA256
 
 
 def test_modified_asset_fails_closed_with_expected_and_actual_hashes(

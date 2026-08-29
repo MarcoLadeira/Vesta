@@ -9,7 +9,7 @@ test("streamed markdown renders formatted blocks progressively", async ({ page }
   const id = await sendPrompt(page);
   await emitToken(page, id, "# Heading\n\nSome **bold** text.");
   const body = page.locator(".body.stream");
-  await expect(body.locator("h2")).toHaveText("Heading"); // # -> h2 in mdToHtml
+  await expect(body.locator("h1")).toHaveText("Heading");
   await expect(body.locator("strong")).toHaveText("bold");
   await expect(body).toHaveClass(/streaming/);
 });
@@ -21,6 +21,34 @@ test("a completed code fence renders as a code block with a copy button", async 
   await expect(pre).toBeVisible();
   await expect(pre.locator("code")).toContainText("npm test");
   await expect(pre.locator(".code-copy")).toHaveAttribute("aria-label", "Copy code");
+});
+
+test("fenced languages are preserved beside the copy action", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await emitToken(page, id, "```typescript\nconst ready: boolean = true;\n```\n");
+  const pre = page.locator(".body.stream pre");
+  await expect(pre.locator("code")).toHaveClass(/language-typescript/);
+  await expect(pre.locator(".code-language")).toHaveText("typescript");
+  await expect(pre.locator(".code-copy")).toHaveAttribute("aria-label", "Copy code");
+});
+
+test("GFM tables and nested Markdown structures remain semantic while streaming", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await emitToken(page, id, [
+    "> Verified **locally**",
+    "",
+    "- parent",
+    "  - child",
+    "",
+    "| Check | Result |",
+    "| --- | --- |",
+    "| Unit | Passed |",
+  ].join("\n"));
+  const body = page.locator(".body.stream");
+  await expect(body.locator("blockquote strong")).toHaveText("locally");
+  await expect(body.locator("ul ul li")).toHaveText("child");
+  await expect(body.locator("table thead th")).toHaveCount(2);
+  await expect(body.locator("table tbody td")).toHaveCount(2);
 });
 
 test("the code copy button copies the block's text", async ({ page }) => {
@@ -53,6 +81,23 @@ test("HTML/script in a streamed answer renders inert (escape-first)", async ({ p
   await expect(body.locator("script")).toHaveCount(0);
   await expect(body).toContainText("onerror=alert(1)"); // rendered as visible text
   await expect(body.locator("strong")).toHaveText("safe"); // markdown still works
+});
+
+test("hostile link, image, and attribute payloads never become active DOM", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await emitToken(page, id, [
+    "[js](javascript:alert(1)) [data](data:text/html,pwned) [file](file:///etc/passwd)",
+    "![pixel](https://attacker.invalid/pixel.png)",
+    '<a href="https://attacker.invalid" onclick="alert(1)">raw</a>',
+    "[safe](https://example.com)",
+  ].join("\n\n"));
+  const body = page.locator(".body.stream");
+  await expect(body.locator("img, script, [onclick]")).toHaveCount(0);
+  await expect(body.locator("a")).toHaveCount(1);
+  const safeLink = body.locator("a[data-ext='1']");
+  await expect(safeLink).toHaveAttribute("href", /^https:\/\/example\.com\/?$/);
+  await safeLink.click();
+  await expect.poll(() => page.evaluate(() => window.__mock.externalUrls)).toEqual(["https://example.com/"]);
 });
 
 test("the streaming class (and its caret) is gone once the answer finalizes", async ({ page }) => {

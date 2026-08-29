@@ -23,11 +23,14 @@ REQUIRED_WEB_ASSETS = (
     "generated-lifecycle.js",
     "icons.js",
     "index.html",
+    "markdown-renderer.js",
     "message-state.js",
     "onboarding.js",
     "run-result.js",
     "settings.js",
     "styles.css",
+    "vendor/markdown-it-14.1.0.min.js",
+    "vendor/markdown-it.LICENSE.txt",
 )
 REQUIRED_ASSETS = (
     "opai-icon.png",

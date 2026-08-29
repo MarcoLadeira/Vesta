@@ -900,6 +900,12 @@ html.activity-select-off .gen, html.activity-select-off .timeline { user-select:
   font-size: var(--type-caption); padding: var(--space-1) var(--space-2); cursor: pointer;
   opacity: 0; transition: opacity 0.15s var(--ease), color 0.15s var(--ease);
 }
+.code-language {
+  position: absolute; top: var(--space-2); left: var(--space-3);
+  color: var(--faint); font-size: var(--type-caption); line-height: 1;
+  text-transform: lowercase; pointer-events: none;
+}
+.body pre.has-language { padding-top: calc(var(--space-5) + var(--space-2)); }
 pre.has-copy:hover .code-copy, .code-copy:focus-visible { opacity: 1; }
 .code-copy:hover { color: var(--ink); border-color: var(--accent); }
 
