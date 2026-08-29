@@ -319,6 +319,10 @@ function renderUpdateBanner(update) {
   // it is emitted once by the bridge and never persisted, so toast it here.
   const applyReply = state.update.developer_apply;
   if (applyReply && applyReply.message) toast(String(applyReply.message));
+  // A restart that could not be arranged must say so while the window is
+  // still open to read it — silence would look like a button that did nothing.
+  const restartReply = state.update.restart;
+  if (restartReply && restartReply.message) toast(String(restartReply.message));
   const states = {
     available: ["Update available", "A signed OPai update is ready to download.", "accent"],
     downloading: ["Downloading update", "You can keep working while OPai downloads.", "accent"],
@@ -341,6 +345,11 @@ function renderUpdateBanner(update) {
   // source checkout reaches the same state with the restart still pending
   // and a diagnostic that says so — that one has to be seen.
   if (operation.safe_diagnostic) states.completed = ["Update installed", operation.safe_diagnostic, "accent"];
+  // CHECKING is silent right up until it starts doing something. A source
+  // fast-forward runs inside the check — fetch, merge, reinstall — and the
+  // reinstall alone takes seconds with nothing on screen. A progress label
+  // is the updater saying it is mid-stage, so show the stage and the bar.
+  if (operation.progress_label) states.checking = ["Updating OPai", operation.progress_label, "accent"];
   const visible = Object.prototype.hasOwnProperty.call(states, status);
   shell.hidden = !visible;
   // The update-state event fans out to Settings and other listeners, so it
@@ -380,7 +389,7 @@ function renderUpdateBanner(update) {
   const progress = $("#updateProgress");
   const total = Number(operation.total_bytes || 0);
   const downloaded = Number(operation.downloaded_bytes || 0);
-  progress.hidden = !["downloading", "verifying"].includes(status);
+  progress.hidden = !["downloading", "verifying"].includes(status) && !operation.progress_label;
   const percent = total > 0 ? Math.max(0, Math.min(100, Math.round(downloaded * 100 / total))) : 0;
   progress.setAttribute("aria-valuemin", "0");
   progress.setAttribute("aria-valuemax", "100");
@@ -428,6 +437,13 @@ function renderUpdateActions(status, operation) {
     completed: [["Check again", "check", false]],
   };
   const list = [...(actions[status] || [])];
+  // An update that is on disk but not running is not finished. Offer the last
+  // step, but only when the app has established it can actually start itself
+  // again — a button that closes the window and does not bring it back is
+  // worse than no button at all.
+  if (status === "completed" && state.update && state.update.restart_available) {
+    list.unshift(["Restart now", "restart_now", true]);
+  }
   // A source checkout updates by fast-forwarding from origin/main, not by
   // downloading a package: offer the deliberate developer apply instead.
   if (status === "unsupported_install"

@@ -328,8 +328,13 @@ class UpdateOperation:
     desired_state: str = ""
     installed_build: Mapping[str, Any] = field(default_factory=dict)
     candidate: Mapping[str, Any] = field(default_factory=dict)
+    # Units of work, not always bytes: a packaged download counts bytes, a
+    # source fast-forward counts named stages. Every consumer renders the
+    # fraction, never the raw numbers, and ``progress_label`` says which unit
+    # is being counted in words the user reads.
     downloaded_bytes: int = 0
     total_bytes: int = 0
+    progress_label: str = ""
     staged_artifact: str = ""
     staged_sha256: str = ""
     native_transaction: str = ""

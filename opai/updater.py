@@ -41,6 +41,19 @@ _DUNDER_VERSION = re.compile(r'(?m)^\s*__version__\s*=\s*"([^"]+)"')
 
 GitRunner = Callable[[Path, Sequence[str]], "subprocess.CompletedProcess[str]"]
 PipInstaller = Callable[[Path], "subprocess.CompletedProcess[str]"]
+# (stage label, stages finished, stages total). Reported *before* each
+# stage starts, so a caller can name the step the user is waiting on
+# rather than the one that just finished.
+UpdateProgress = Callable[[str, int, int], None]
+# The reinstall dominates the wall clock -- git is milliseconds, pip is
+# seconds -- so the stages are deliberately not equal in duration. They
+# are named, and the label is what carries the truth.
+_APPLY_STAGES = (
+    "Checking your working tree",
+    "Fetching the latest version",
+    "Fast-forwarding to it",
+    "Reinstalling OPai",
+)
 
 
 def install_root() -> Path:
@@ -228,6 +241,7 @@ def apply_update(
     git: GitRunner = _default_git,
     pip_install: PipInstaller | None = None,
     cache_path: Path | None = None,
+    progress: UpdateProgress | None = None,
 ) -> dict[str, Any]:
     """Fast-forward to ``origin/<branch>`` and refresh the editable install.
 
@@ -237,9 +251,24 @@ def apply_update(
     on a repo not tracking ``origin`` regardless of ``force``. A successful
     update requires an app restart to take effect (the running process
     already has the old code loaded in memory).
+
+    ``progress`` is called before each named stage with ``(label, done,
+    total)``. It exists because the reinstall is seconds long with nothing to
+    show for it, and an update that looks frozen is indistinguishable from one
+    that is. A callback that raises is the caller's problem, never this
+    function's: reporting must not be able to fail an update.
     """
 
+    def stage(index: int) -> None:
+        if progress is None:
+            return
+        try:
+            progress(_APPLY_STAGES[index], index, len(_APPLY_STAGES))
+        except Exception:  # noqa: BLE001 - telling someone must not break doing
+            pass
+
     root = Path(project_root)
+    stage(0)
     if not _is_git_checkout(root, git):
         return {"ok": False, "error": "OPai isn't running from a git checkout."}
     if not _has_origin(root, git):
@@ -266,6 +295,7 @@ def apply_update(
             }
         stashed = True
 
+    stage(1)
     try:
         fetch = git(root, ["fetch", "--quiet", "origin", branch])
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
@@ -283,6 +313,7 @@ def apply_update(
             "error": "Could not reach the update server — check your connection.",
         }
 
+    stage(2)
     checkout = git(root, ["checkout", branch])
     if checkout.returncode != 0:
         if stashed:
@@ -315,6 +346,7 @@ def apply_update(
                 ),
             }
 
+    stage(3)
     installer = pip_install or _default_pip_install
     try:
         installed = installer(root)

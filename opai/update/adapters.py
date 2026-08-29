@@ -83,7 +83,9 @@ class DeveloperGitUpdateAdapter(UnsupportedUpdateAdapter):
 
         return check_for_update(self.source_root, branch="main", force=force)
 
-    def apply_source(self, *, force: bool = False) -> dict[str, object]:
+    def apply_source(self, *, force: bool = False, progress=None) -> dict[str, object]:
         from opai.updater import apply_update
 
-        return apply_update(self.source_root, branch="main", force=force)
+        return apply_update(
+            self.source_root, branch="main", force=force, progress=progress
+        )

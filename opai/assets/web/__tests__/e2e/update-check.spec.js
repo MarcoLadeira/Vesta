@@ -259,6 +259,23 @@ function sourceCheckout(state, operation = {}) {
   return update;
 }
 
+test("Settings offers the same restart, and only when it is possible", async ({ page }) => {
+  const done = sourceCheckout("completed", {
+    safe_diagnostic: "Updated automatically: fast-forwarded 2 commits from origin/main. Restart OPai to use it.",
+  });
+  done.restart_available = true;
+  await openApp(page, { boot: { update: done }, settings: { about: { update: done } } });
+  await openSettings(page, "about");
+  await expect(page.locator("#settingsRestartUpdate")).toBeVisible();
+
+  const stuck = sourceCheckout("completed", { safe_diagnostic: done.operation.safe_diagnostic });
+  stuck.restart_available = false;
+  await page.evaluate((detail) => {
+    window.dispatchEvent(new CustomEvent("opai-update-state", { detail }));
+  }, stuck);
+  await expect(page.locator("#settingsRestartUpdate")).toHaveCount(0);
+});
+
 test("the automatic-downloads switch says what it does to a git checkout", async ({ page }) => {
   const update = sourceCheckout("up_to_date");
   await openApp(page, { boot: { update }, settings: { about: { update } } });
@@ -275,6 +292,73 @@ test("the automatic-downloads switch still speaks of packages on a packaged buil
     "signed packaged updates download and verify",
     seen,
   );
+});
+
+test("a source update in progress shows the stage it is on, not a frozen window", async ({ page }) => {
+  // The reinstall is seconds long with nothing to show for it. A check that
+  // is mid-apply publishes a stage label; that is the signal to stop hiding.
+  const update = sourceCheckout("checking", {
+    progress_label: "Reinstalling OPai",
+    downloaded_bytes: 3,
+    total_bytes: 4,
+  });
+  await openWithUpdate(page, update);
+  await expect(page.locator("#updateShell")).toBeVisible();
+  await expect(page.locator("#updateBannerText")).toHaveText("Updating OPai");
+  // The bar lives in the sheet, so it is only on screen once the sheet is.
+  await page.locator("#updateBanner").click();
+  await expect(page.locator("#updateSheetDescription")).toHaveText("Reinstalling OPai");
+  await expect(page.locator("#updateProgress")).toBeVisible();
+  await expect(page.locator("#updateProgress")).toHaveAttribute("aria-valuenow", "75");
+});
+
+test("an ordinary check stays out of the way", async ({ page }) => {
+  await openWithUpdate(page, sourceCheckout("checking"));
+  await expect(page.locator("#updateShell")).toBeHidden();
+});
+
+test("an applied source update offers the restart that finishes it", async ({ page }) => {
+  const update = sourceCheckout("completed", {
+    safe_diagnostic: "Updated automatically: fast-forwarded 2 commits from origin/main to 0.9.1. Restart OPai to use it.",
+  });
+  update.restart_available = true;
+  await openWithUpdate(page, update);
+  await page.locator("#updateBanner").click();
+  const restart = page.getByRole("button", { name: "Restart now" });
+  await expect(restart).toBeVisible();
+  await restart.click();
+  await expect.poll(() => page.evaluate(() => window.__mock.updateActions)).toEqual(["restart_now"]);
+});
+
+test("no restart is offered when the app cannot start itself again", async ({ page }) => {
+  // A button that closes the window and does not bring it back is worse than
+  // no button, so availability is established before it is ever shown.
+  const update = sourceCheckout("completed", {
+    safe_diagnostic: "Updated automatically: fast-forwarded 2 commits from origin/main. Restart OPai to use it.",
+  });
+  update.restart_available = false;
+  await openWithUpdate(page, update);
+  await page.locator("#updateBanner").click();
+  await expect(page.getByRole("button", { name: "Restart now" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Check again" })).toBeVisible();
+});
+
+test("a restart that could not be arranged says so instead of going quiet", async ({ page }) => {
+  const start = sourceCheckout("completed", {
+    safe_diagnostic: "Updated automatically: fast-forwarded 2 commits from origin/main. Restart OPai to use it.",
+  });
+  start.restart_available = true;
+  const refused = sourceCheckout("completed", { safe_diagnostic: start.operation.safe_diagnostic });
+  refused.restart_available = true;
+  refused.restart = { ok: false, message: "OPai could not arrange its own restart. Quit and open it again to finish the update." };
+  await openApp(page, {
+    boot: { update: start },
+    settings: { about: { update: start } },
+    updateActionResponses: { restart_now: refused },
+  });
+  await page.locator("#updateBanner").click();
+  await page.getByRole("button", { name: "Restart now" }).click();
+  await expect(page.locator("#toast")).toContainText("could not arrange its own restart", seen);
 });
 
 test("an automatic source fast-forward says so and asks for the restart", async ({ page }) => {

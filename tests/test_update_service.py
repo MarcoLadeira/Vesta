@@ -728,6 +728,7 @@ def _auto_source_service(
     checks: list[dict[str, object]],
     automatic_downloads: bool = True,
     safe_to_install: bool = True,
+    stages: tuple[str, ...] = (),
 ) -> tuple[UpdateService, list[bool], list[bool]]:
     """A source checkout whose git check *and* apply are stubbed.
 
@@ -744,8 +745,11 @@ def _auto_source_service(
         check_forces.append(bool(force))
         return dict(pending.pop(0) if len(pending) > 1 else pending[0])
 
-    def _apply(root, branch="main", force=False, **_):
+    def _apply(root, branch="main", force=False, progress=None, **_):
         apply_forces.append(bool(force))
+        if progress is not None:
+            for index, label in enumerate(stages):
+                progress(label, index, len(stages))
         if isinstance(apply_result, Exception):
             raise apply_result
         return dict(apply_result)
@@ -776,6 +780,179 @@ def _auto_source_service(
 AHEAD = {"checked": True, "up_to_date": False, "commits_behind": 3, "reason": None}
 CURRENT = {"checked": True, "up_to_date": True, "commits_behind": 0, "reason": None}
 APPLIED = {"ok": True, "restart_required": True, "installed_version": "0.2.1a2"}
+
+
+def test_status_says_whether_the_app_can_restart_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The surface must not offer a restart it cannot perform."""
+    import opai.update.service as service_module
+
+    service, _, _ = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
+    )
+    monkeypatch.setattr(service_module, "relaunch_command", lambda: None)
+
+    assert service.status()["restart_available"] is False
+
+
+def test_restart_is_refused_rather_than_closing_a_window_that_will_not_reopen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The failure that makes auto-restart worth being careful about."""
+    import opai.update.service as service_module
+
+    service, _, _ = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
+    )
+    monkeypatch.setattr(service_module, "relaunch_command", lambda: None)
+
+    result = service.restart_into_update()
+
+    assert result["ok"] is False
+    assert "Quit and open it again" in result["message"]
+
+
+def test_restart_reports_an_arming_failure_while_the_window_is_still_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import opai.update.service as service_module
+
+    service, _, _ = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
+    )
+    monkeypatch.setattr(service_module, "relaunch_command", lambda: ["opai", "gui"])
+    monkeypatch.setattr(service_module, "schedule_relaunch", lambda command: False)
+
+    result = service.restart_into_update()
+
+    assert result["ok"] is False
+    assert "could not arrange its own restart" in result["message"]
+
+
+def test_restart_arms_the_supervisor_before_anything_closes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import opai.update.service as service_module
+
+    armed: list[list[str]] = []
+    service, _, _ = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
+    )
+    monkeypatch.setattr(service_module, "relaunch_command", lambda: ["opai", "gui"])
+    monkeypatch.setattr(
+        service_module,
+        "schedule_relaunch",
+        lambda command: bool(armed.append(command)) or True,
+    )
+
+    result = service.restart_into_update()
+
+    assert result["ok"] is True
+    assert armed == [["opai", "gui"]]
+
+
+def test_restart_availability_is_probed_once_not_every_poll(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """``status()`` is polled every couple of seconds; this answer cannot change."""
+    import opai.update.service as service_module
+
+    probes: list[int] = []
+    service, _, _ = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
+    )
+    monkeypatch.setattr(
+        service_module,
+        "relaunch_command",
+        lambda: probes.append(1) or ["opai", "gui"],
+    )
+
+    service.status()
+    service.status()
+    service.status()
+
+    assert len(probes) == 1
+
+
+def test_source_checkout_publishes_progress_while_it_updates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """An update that looks frozen is indistinguishable from one that is.
+
+    The git stages are milliseconds; the reinstall is seconds with nothing on
+    screen. The GUI polls the persisted operation, so each stage has to be
+    *saved* as it starts -- not summarised once the whole thing is over.
+    """
+    seen: list[tuple[str, int, int]] = []
+    original = UpdateStore.save_operation
+
+    def record(self, operation):
+        if operation.progress_label:
+            seen.append(
+                (
+                    operation.progress_label,
+                    operation.downloaded_bytes,
+                    operation.total_bytes,
+                )
+            )
+        return original(self, operation)
+
+    monkeypatch.setattr(UpdateStore, "save_operation", record)
+    service, _, _ = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result=APPLIED,
+        checks=[AHEAD],
+        stages=("Fetching the latest version", "Reinstalling OPai"),
+    )
+
+    operation = service.check(force=True)
+
+    assert seen == [
+        ("Fetching the latest version", 0, 2),
+        ("Reinstalling OPai", 1, 2),
+    ]
+    assert operation.state is UpdateState.COMPLETED
+    # And the finished state carries no half-drawn bar.
+    assert operation.progress_label == ""
+    assert (operation.downloaded_bytes, operation.total_bytes) == (0, 0)
+
+
+def test_source_checkout_progress_is_cleared_when_the_update_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A refused update must not leave a progress bar stuck mid-stage."""
+    service, _, _ = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result={"ok": False, "dirty": True, "error": "uncommitted changes"},
+        checks=[AHEAD],
+        stages=("Fetching the latest version",),
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert operation.progress_label == ""
+    assert (operation.downloaded_bytes, operation.total_bytes) == (0, 0)
+
+
+def test_source_checkout_progress_is_cleared_when_the_update_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, _ = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result=OSError("git exploded"),
+        checks=[AHEAD],
+        stages=("Fetching the latest version",),
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert operation.progress_label == ""
 
 
 def test_source_checkout_updates_itself_when_automatic_downloads_are_on(
