@@ -71,13 +71,16 @@ _MODE_RULES: dict[str, dict[str, str]] = {
         "edit": "allow",
         "create": "allow",
         "run_any": "allow",
-        # Round 5 finding 1: pushing is the one outward-facing action Full Auto
-        # still stops for, every time — never "allow", even with Settings consent
-        # granted. The Pin Full Auto dialog makes this promise; this row is the
-        # same promise on the permissions surface.
-        "push": "ask",
-        "delete": "ask",
-        "network": "ask",
+        # Full Auto maps to the `bypass` autonomy level, which is the explicit
+        # "do not stop for anything" choice. Pushing used to be pinned to "ask"
+        # here so the panel would promise a confirmation; the promise itself was
+        # the problem -- it made the mode unable to finish a branch-and-push
+        # workflow unattended, which is the whole point of the mode. Lower modes
+        # still ask, and this row must keep matching command_policy or the panel
+        # is lying again.
+        "push": "allow",
+        "delete": "allow",
+        "network": "allow",
     },
 }
 
@@ -127,7 +130,10 @@ def permissions_for(
         ):
             note = note + "; pushing still asks every time"
         if cap_id == "push" and state == "ask":
-            note = "Asks every time, even in Full Auto"
+            # Was "Asks every time, even in Full Auto" -- no longer true, since
+            # Full Auto maps to the bypass autonomy level and pushes without
+            # stopping. The note now describes only the mode being shown.
+            note = "Asks every time in this mode"
         rows.append({"id": cap_id, "label": label, "state": state, "note": note})
     return rows
 

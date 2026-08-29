@@ -681,5 +681,73 @@ class EditIntentHonestyTests(unittest.TestCase):
         self.assertEqual(result["completion_note"], "no_changes")
 
 
+class LocalRunRepoMovementIsChangeEvidenceTests(unittest.TestCase):
+    """A landed commit must not be reported as "finished with no changes".
+
+    Pins the contract on the free/local branch: a change that reached the
+    repository through a shell leaves no ``changed_files`` and no OPai
+    ``tool_trace`` entry, so repository movement is the only evidence there is.
+
+    Note this passes both with and without the ``repo_changed`` argument added
+    to the third ``_has_change_evidence`` call site -- that branch was not
+    reachable from here, so this guards the contract rather than proving that
+    specific line. It is a regression guard, not a reproduction.
+    """
+
+    ANSWER = {
+        "status": "answered_by_free_api",
+        "answer": "Applied the fix and committed it.",
+        "source": "free_api",
+        "model_id": "free:gemini:gemini-3.1-flash-lite",
+        "completion_state": "completed",
+        "tool_trace": [],
+        "changed_files": [],
+    }
+
+    def _commit_into(self, root: Path):
+        """Move the repository the way a shell-driven change would."""
+        import subprocess
+
+        def _ask(*args, **kwargs):
+            (root / "app.py").write_text("value = 2\n", encoding="utf-8")
+            for argv in (
+                ["git", "add", "-A"],
+                [
+                    "git",
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "user.name=T",
+                    "commit",
+                    "-m",
+                    "fix",
+                ],
+            ):
+                subprocess.run(argv, cwd=root, capture_output=True, check=False)
+            return dict(self.ANSWER)
+
+        return _ask
+
+    def test_a_landed_commit_is_not_reported_as_no_changes(self):
+        from opaihub.gui_pipeline import handle_gui_message
+
+        events: list[dict] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
+            with mock.patch("opai.app_state.ask", side_effect=self._commit_into(root)):
+                result = handle_gui_message(
+                    root,
+                    "Fix the value in app.py and commit it.",
+                    model_id="free:gemini:gemini-3.1-flash-lite",
+                    mode="safe-auto",
+                    allow_cloud=True,
+                    on_event=events.append,
+                )
+
+        titles = [str(e.get("title") or "") for e in events]
+        self.assertNotIn("OPai finished with no changes", titles)
+        self.assertNotEqual(result.get("completion_note"), "no_changes")
+
+
 if __name__ == "__main__":
     unittest.main()

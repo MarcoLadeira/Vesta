@@ -88,8 +88,19 @@ class AgentComputerInterface:
         on_event: Callable[[dict[str, Any]], Any] | None = None,
         timeout: float = 120.0,
         max_output_chars: int = 120_000,
+        autonomy: str | None = None,
     ) -> None:
         self.repo_root = repo_root.expanduser().resolve()
+        # The autonomy level decides whether this layer may run an action it
+        # considers destructive. It used to refuse unconditionally, which meant
+        # a user-approved push was refused *after* the user approved it, and no
+        # autonomy level could ever reach it. The approval boundary the old
+        # message asked for is the caller's (command_policy + the one-shot
+        # grant); this layer enforces the level it was given.
+        from .command_policy import BYPASS, normalize_autonomy
+
+        self.autonomy = normalize_autonomy(autonomy)
+        self._skip_destructive_refusal = self.autonomy == BYPASS
         self._run = run
         # Separate from ``_run``: a cancel-aware call needs to poll a live
         # process rather than block inside one library call, so it is built
@@ -450,7 +461,7 @@ class AgentComputerInterface:
             return Observation(
                 "command", False, error_code="EMPTY_COMMAND", message="Command is empty"
             )
-        if is_destructive_command(argv):
+        if is_destructive_command(argv) and not self._skip_destructive_refusal:
             return Observation(
                 "command",
                 False,
@@ -489,6 +500,73 @@ class AgentComputerInterface:
             environment=child_environment,
             cancel=cancel,
             drain_seconds=drain_seconds,
+        )
+
+    def run_shell(
+        self,
+        command: str,
+        *,
+        purpose: str,
+        environment: Mapping[str, str] | None = None,
+    ) -> Observation:
+        """Run one command line through the platform shell.
+
+        Needed because a pipeline is not expressible as an argv: splitting
+        ``cat x | head -40`` yields a literal ``"|"`` argument, so the whole
+        class of read-only pipelines was unrunnable and therefore reported as
+        blocked. Callers must have classified the line and resolved its
+        autonomy decision first -- this method executes, it does not judge.
+        """
+        line = str(command or "").strip()
+        if not line:
+            return Observation(
+                "command", False, error_code="EMPTY_COMMAND", message="Command is empty"
+            )
+        started = time.monotonic()
+        child_environment: dict[str, str] | None = None
+        if environment:
+            child_environment = os.environ.copy()
+            child_environment.update(
+                {str(name): str(value) for name, value in environment.items()}
+            )
+        kwargs: dict[str, Any] = {
+            "cwd": str(self.repo_root),
+            "capture_output": True,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "timeout": self.timeout,
+            "check": False,
+            "shell": True,
+            **no_window_kwargs(),
+        }
+        if child_environment is not None:
+            kwargs["env"] = child_environment
+        try:
+            completed = self._run(line, **kwargs)
+        except subprocess.TimeoutExpired:
+            return Observation(
+                "command",
+                False,
+                {"command": redact(line), "purpose": purpose},
+                "TIMEOUT",
+                "Command timed out",
+            )
+        except OSError as exc:
+            return Observation(
+                "command",
+                False,
+                {"command": redact(line), "purpose": purpose},
+                "SPAWN_FAILED",
+                redact(str(exc)),
+            )
+        return self._observation_from_output(
+            [line],
+            purpose,
+            completed.returncode,
+            completed.stdout,
+            completed.stderr,
+            started=started,
         )
 
     def _run_blocking(

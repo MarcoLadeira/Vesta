@@ -1254,7 +1254,7 @@
           "</span></div>";
       });
       h +=
-        '<div class="set-note">In Auto-apply, a message with no explicit read-only wording (no "explain", "review only", "do not edit", etc.) is treated as edit-capable by default, so you don\'t have to phrase every request as a command. Pushing to a remote still asks for your approval each time, and destructive actions are refused rather than run.</div>';
+        '<div class="set-note">In Auto-apply, a message with no explicit read-only wording (no "explain", "review only", "do not edit", etc.) is treated as edit-capable by default, so you don\'t have to phrase every request as a command. This mode also pushes, opens and merges pull requests without stopping to confirm; use Safe Auto or Approve Edits if you want those to ask first.</div>';
     }
     return h;
   }
@@ -2260,10 +2260,12 @@
     // Manual checks bypass freshness caching. The async result reaches every
     // surface through the shared update event emitted by app.js.
     var updateCard = q("#settingsUpdateCard");
+    var manualUpdateCheckPending = false;
     function wireUpdateButtons() {
       var checkBtn = q("#settingsCheckUpdate");
       if (checkBtn)
         checkBtn.onclick = function () {
+          manualUpdateCheckPending = true;
           checkBtn.disabled = true;
           checkBtn.textContent = "Checking…";
           bridge.checkForUpdates(true);
@@ -2286,6 +2288,10 @@
       wireUpdateButtons();
       if (result.developer_apply) return; // app.js already toasted the precise outcome
       var operation = result.operation || {};
+      if (operation.state === "checking") return;
+      var requestedCheck = manualUpdateCheckPending;
+      manualUpdateCheckPending = false;
+      if (!requestedCheck) return;
       if (operation.state === "available") toast("Update available");
       else if (operation.state === "up_to_date") toast("You're on the latest version");
       else if (operation.safe_diagnostic) toast(operation.safe_diagnostic);

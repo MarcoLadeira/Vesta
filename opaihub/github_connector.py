@@ -534,6 +534,117 @@ def create_pull_request(
     }
 
 
+MERGE_METHODS = ("merge", "squash", "rebase")
+
+
+def merge_pull_request(
+    project_root: Path,
+    number: int,
+    *,
+    method: str = "squash",
+    commit_title: str = "",
+    commit_message: str = "",
+    expected_head_sha: str = "",
+    http: HttpFn = _default_http,
+) -> dict[str, Any]:
+    """Merge a pull request on the origin GitHub repository.
+
+    The connector could open a PR, comment on it and read its checks, but had
+    no way to *finish* one -- so "land this branch" always ended with a human
+    clicking Merge, however much autonomy the run had been given.
+
+    ``expected_head_sha`` is passed to GitHub as ``sha``, which refuses the
+    merge if the branch moved since it was inspected. That turns "merge PR 42"
+    into an operation on the commit that was actually reviewed rather than on
+    whatever happens to be at the head when the call lands.
+
+    Already-merged is reported as success: the desired state holds, and a
+    retried turn must not read as a failure.
+    """
+
+    readiness = github_readiness()
+    if not readiness["ready"]:
+        return {
+            "ok": False,
+            "error": readiness["next_step"],
+            "reason": readiness["reason"],
+        }
+    token, _source = stored_github_token()
+    slug = repo_slug(project_root)
+    if not slug:
+        return {"ok": False, "error": "The origin remote is not a GitHub repository"}
+    clean_method = str(method or "squash").strip().lower()
+    if clean_method not in MERGE_METHODS:
+        return {
+            "ok": False,
+            "error": f"Unknown merge method {clean_method!r}; expected one of "
+            + ", ".join(MERGE_METHODS),
+        }
+
+    payload: dict[str, Any] = {"merge_method": clean_method}
+    if commit_title.strip():
+        payload["commit_title"] = redact(commit_title.strip())[:256]
+    if commit_message.strip():
+        payload["commit_message"] = redact(commit_message.strip())[:20_000]
+    if expected_head_sha.strip():
+        payload["sha"] = expected_head_sha.strip()
+
+    try:
+        status_code, response = http(
+            "PUT",
+            f"{API_ROOT}/repos/{slug}/pulls/{int(number)}/merge",
+            token,
+            payload,
+        )
+    except OSError as exc:
+        # A merge is not safely retryable blind: the request may have landed.
+        return {
+            "ok": False,
+            "uncertain": True,
+            "error": redact(f"Merge response was lost: {exc}"),
+        }
+
+    if status_code == 200 and isinstance(response, dict):
+        return {
+            "ok": True,
+            "merged": True,
+            "number": int(number),
+            "method": clean_method,
+            "sha": str(response.get("sha") or ""),
+            "message": str(response.get("message") or "Pull request merged"),
+        }
+
+    message = ""
+    if isinstance(response, dict):
+        message = str(response.get("message") or "")
+    if status_code == 405:
+        # GitHub's "not mergeable": conflicts, required reviews, failing checks,
+        # or a protected branch. Say which, rather than a bare HTTP code.
+        return {
+            "ok": False,
+            "error": redact(f"Pull request #{number} is not mergeable: {message}"),
+            "not_mergeable": True,
+        }
+    if status_code == 409:
+        return {
+            "ok": False,
+            "error": redact(
+                f"Pull request #{number} head moved since it was inspected: {message}"
+            ),
+            "head_moved": True,
+        }
+    if status_code == 404:
+        return {
+            "ok": False,
+            "error": f"Pull request #{number} was not found, or the token cannot "
+            "write to this repository",
+        }
+    return {
+        "ok": False,
+        "error": redact(f"Merge failed (HTTP {status_code}) {message}"),
+    }
+
+
 def _read_context(
     project_root: Path,
 ) -> tuple[tuple[str, str] | None, dict[str, Any] | None]:

@@ -358,6 +358,7 @@ def _call_tool_loop(
     repository_handle: Any = None,
     provider_id: str | None = None,
     deadline_budget: Any = None,
+    autonomy: str | None = None,
 ) -> dict[str, Any]:
     """Invoke the runner's tool loop, threading a one-shot command grant.
 
@@ -389,6 +390,7 @@ def _call_tool_loop(
         "repository_handle": repository_handle,
         "provider_id": provider_id,
         "deadline_budget": deadline_budget,
+        "autonomy": autonomy,
     }
     compiled = plan.keyword_arguments(
         required=kwargs,
@@ -480,6 +482,9 @@ def run_explicit_model(
                 repository_handle=repository_handle,
                 provider_id=provider_id,
                 deadline_budget=deadline_budget,
+                # The run mode IS the autonomy level; command_policy maps the
+                # legacy spellings onto its canonical levels.
+                autonomy=mode,
             )
             # A runner accepting provider_id is one that self-records per-turn
             # ledger entries (opaihub/local_runner.py); a runner without it

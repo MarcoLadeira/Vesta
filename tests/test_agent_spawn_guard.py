@@ -1168,5 +1168,113 @@ class InstructionTextTests(unittest.TestCase):
         self.assertIn("latest explicit request", project_instruction_text(root).lower())
 
 
+@contextlib.contextmanager
+def _autonomy(level: str | None):
+    """Set (or clear) the run-mode marker the spawner publishes to the hook."""
+    previous = os.environ.get("OPAI_AUTONOMY")
+    if level is None:
+        os.environ.pop("OPAI_AUTONOMY", None)
+    else:
+        os.environ["OPAI_AUTONOMY"] = level
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("OPAI_AUTONOMY", None)
+        else:
+            os.environ["OPAI_AUTONOMY"] = previous
+
+
+class HookHonoursTheRunModeTests(unittest.TestCase):
+    """The PreToolUse gate must mean the same thing as the in-process one.
+
+    It had no mode awareness at all, so it demanded a one-shot approval for
+    every push and ``gh pr create`` even under Full Auto. Because a pull
+    request can only follow a push, an account run could never finish "push
+    and open a PR" -- it stopped at the push, every single turn.
+    """
+
+    OUTWARD = (
+        "git push -u origin feature",
+        "gh pr create --fill",
+        "gh pr merge 5 --squash",
+    )
+
+    def test_full_auto_runs_outward_actions_without_approval(self):
+        with _hermetic_hub(), _push_consent(True), _autonomy("full-auto"):
+            for command in self.OUTWARD:
+                with self.subTest(command=command):
+                    result = claude_pre_tool_decision(_hook_payload(command))
+                    self.assertEqual(_decision_of(result), "allow", command)
+
+    def test_full_auto_is_the_bypass_level_so_nothing_is_held_back(self):
+        # The user chose "no prompts" for this mode; a prompt here is the bug.
+        with _hermetic_hub(), _autonomy("full-auto"):
+            for command in ("rm -rf build", "git reset --hard HEAD~1"):
+                with self.subTest(command=command):
+                    self.assertEqual(
+                        _decision_of(claude_pre_tool_decision(_hook_payload(command))),
+                        "allow",
+                        command,
+                    )
+
+    def test_lower_modes_still_stop_before_going_outward(self):
+        for level in ("safe-auto", "approve-edits", "ask"):
+            with _hermetic_hub(), _push_consent(True), _autonomy(level):
+                for command in self.OUTWARD:
+                    with self.subTest(level=level, command=command):
+                        self.assertEqual(
+                            _decision_of(
+                                claude_pre_tool_decision(_hook_payload(command))
+                            ),
+                            "deny",
+                            command,
+                        )
+
+    def test_an_absent_marker_fails_closed(self):
+        # An older spawner that publishes no mode must not be read as bypass.
+        with _hermetic_hub(), _push_consent(True), _autonomy(None):
+            for command in self.OUTWARD:
+                with self.subTest(command=command):
+                    self.assertEqual(
+                        _decision_of(claude_pre_tool_decision(_hook_payload(command))),
+                        "deny",
+                        command,
+                    )
+
+    def test_reads_are_allowed_at_every_level(self):
+        for level in (None, "ask", "safe-auto", "full-auto"):
+            with _hermetic_hub(), _autonomy(level):
+                with self.subTest(level=level):
+                    self.assertEqual(
+                        _decision_of(
+                            claude_pre_tool_decision(_hook_payload("git status"))
+                        ),
+                        "allow",
+                    )
+
+
+class SpawnPublishesTheRunModeTests(unittest.TestCase):
+    """The child (and therefore its hook) has to be told which mode it serves."""
+
+    def test_child_env_carries_the_normalised_level(self):
+        from opaihub.proc import AUTONOMY_ENV
+
+        env, _removed = provider_child_env("claude", autonomy="full-auto")
+        self.assertEqual(env[AUTONOMY_ENV], "bypass")
+
+        env, _removed = provider_child_env("claude", autonomy="safe-auto")
+        self.assertEqual(env[AUTONOMY_ENV], "normal")
+
+    def test_omitting_the_level_strips_any_inherited_value(self):
+        # env is copied from this process, so a parent running as bypass must
+        # not hand that level to a child whose caller never asked for it.
+        from opaihub.proc import AUTONOMY_ENV
+
+        with _autonomy("bypass"):
+            env, _removed = provider_child_env("claude")
+        self.assertNotIn(AUTONOMY_ENV, env)
+
+
 if __name__ == "__main__":
     unittest.main()

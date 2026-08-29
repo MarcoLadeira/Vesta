@@ -19,13 +19,15 @@ test("Permissions page shows current-mode rules and a run-mode comparison", asyn
   // Current-mode capability rows with plain-language notes.
   await expect(settings).toContainText("Read files", seen);
   await expect(settings).toContainText("Pauses for your OK", seen);
-  await expect(settings).toContainText("Asks every time, even in Auto-apply", seen);
+  await expect(settings).toContainText("Asks every time in this mode", seen);
   await expect(settings).not.toContainText("Full Auto", seen);
   // Run-mode comparison, with the active mode marked current.
   await expect(settings).toContainText("Run modes", seen);
   await expect(page.locator(".mode-row.active")).toContainText("Ask before edits");
   await expect(page.locator(".mode-row.active")).toContainText("current");
-  await expect(page.locator(".mode-row", { hasText: "Auto-apply" })).toContainText("6 allowed");
+  // Auto-apply maps to the bypass autonomy level, so every capability is
+  // allowed and nothing is held back for confirmation.
+  await expect(page.locator(".mode-row", { hasText: "Auto-apply" })).toContainText("9 allowed");
 });
 
 test("Privacy page states the factual data stance", async ({ page }) => {

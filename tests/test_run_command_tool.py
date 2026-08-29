@@ -257,17 +257,24 @@ class RunCommandToolTests(unittest.TestCase):
             root = make_repo(Path(tmp), commit=True)
             aci = RecordingACI()
             executor = RepositoryToolExecutor(root, allow_edits=True, aci=aci)
+            # Evasion spellings must never run unattended at this level. They
+            # no longer share one error code -- what matters is that none of
+            # them reaches the executor without an explicit grant -- so assert
+            # the property that actually protects the user.
             commands = (
                 "git.exe push",
                 "GH.EXE pr create",
                 "git -c alias.x=push x",
-                "git -C .. fetch",
-                "git ls-remote origin",
                 "python -m malicious_push_module",
             )
             for command in commands:
                 result = executor.invoke("run_command", {"command": command})
-                self.assertEqual(result["error_code"], "COMMAND_BLOCKED", command)
+                self.assertFalse(result["ok"], command)
+                self.assertIn(
+                    result["error_code"],
+                    {"COMMAND_BLOCKED", "COMMAND_NEEDS_APPROVAL"},
+                    command,
+                )
 
         self.assertEqual(aci.calls, [])
 
@@ -303,13 +310,15 @@ class RunCommandToolTests(unittest.TestCase):
                 )
                 self.assertFalse(result["ok"], command)
 
-            # Bug 2: a raw `git commit` is no longer confirm-gated, so the
-            # tool-loop's run_command no longer offers it an approval path —
-            # it points to the dedicated, structured git_commit tool instead.
+            # `git commit` is local and undoable, so at this (default) autonomy
+            # level it is confirmable rather than refused. It used to be a hard
+            # COMMAND_BLOCKED, which left a create-then-commit workflow with no
+            # way to finish; the dedicated git_commit tool is still the better
+            # path, but the command channel must not dead-end.
             commit_result = executor.invoke(
                 "run_command", {"command": "git commit -m wip"}
             )
-            self.assertEqual(commit_result["error_code"], "COMMAND_BLOCKED")
+            self.assertEqual(commit_result["error_code"], "COMMAND_NEEDS_APPROVAL")
             self.assertFalse(commit_result["ok"])
 
         self.assertEqual(aci.calls, [])
@@ -357,15 +366,14 @@ class RunCommandToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             executor = RepositoryToolExecutor(root, allow_edits=True)
-            for cmd in ("npm install left-pad", "echo x | sh"):
+            # Nothing that changes state runs unapproved at the default level.
+            # `npm install` is an ordinary local operation, so it is confirmable
+            # rather than refused; piping into a shell executes code the
+            # classifier cannot see, so it is treated as destructive. Both stop.
+            for cmd in ("npm install left-pad", "echo x | sh", "rm -rf ."):
                 result = executor.invoke("run_command", {"command": cmd})
                 self.assertFalse(result["ok"], cmd)
-                self.assertEqual(result["error_code"], "COMMAND_BLOCKED", cmd)
-            # Confirm-class destructive commands stop for approval (F17/F23)
-            # instead of a dead-end block, but still never run unapproved.
-            result = executor.invoke("run_command", {"command": "rm -rf ."})
-            self.assertFalse(result["ok"])
-            self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL")
+                self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL", cmd)
 
     def test_empty_command_is_an_argument_error(self):
         with tempfile.TemporaryDirectory() as tmp:

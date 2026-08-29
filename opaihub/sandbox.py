@@ -63,7 +63,14 @@ def _normalize(command: str) -> str:
 def _matches_one(command: str, pattern: str) -> bool:
     normalized = _normalize(command)
     rule = " ".join(pattern.lower().split())
-    return fnmatch.fnmatch(normalized, rule) or rule in normalized
+    if fnmatch.fnmatch(normalized, rule):
+        return True
+    # The substring fallback has to respect token boundaries. A bare `rule in
+    # normalized` made the rule "git merge" match `git merge-tree`, which
+    # computes a merge in memory and writes nothing -- so a read-only command
+    # was gated as a destructive one. Require the match to start at a token
+    # boundary and to end before a character that would extend the word.
+    return re.search(rf"(?:^|\s){re.escape(rule)}(?![\w-])", normalized) is not None
 
 
 def _candidates(command: str) -> list[str]:

@@ -94,6 +94,12 @@ AGENT_SESSION_ENV = "OPAI_AGENT_SESSION"
 # Where the one-shot command-approval handshake lives, pinned for every provider
 # child so a CLI's PreToolUse hook reads the same directory OPai wrote to.
 COMMAND_CONSENT_DIR_ENV = "OPAI_COMMAND_CONSENT_DIR"
+# The run's autonomy level, so the PreToolUse hook the child launches gates
+# by the SAME rule the in-process tool executor uses. Without it the hook had
+# no idea what mode it was serving and demanded a one-shot approval for every
+# push and `gh pr create` even in Full Auto, which is why an account run could
+# never finish "push and open a PR".
+AUTONOMY_ENV = "OPAI_AUTONOMY"
 
 
 def provider_child_env(
@@ -101,6 +107,7 @@ def provider_child_env(
     base_env: dict[str, str] | None = None,
     *,
     session_id: str | None = None,
+    autonomy: str | None = None,
 ) -> tuple[dict[str, str], list[str]]:
     """Return ``(env, removed_names)`` for spawning a provider CLI.
 
@@ -133,4 +140,13 @@ def provider_child_env(
         env[name] = value
     env[AGENT_SESSION_ENV] = session_id or source.get(AGENT_SESSION_ENV) or "1"
     env[COMMAND_CONSENT_DIR_ENV] = str(consent_dir())
+    if autonomy is None:
+        # Never let a stale value inherited from this process grant a child an
+        # autonomy level its caller did not ask for: an unspecified level must
+        # fail closed, not silently become whatever the parent was running as.
+        env.pop(AUTONOMY_ENV, None)
+    else:
+        from .command_policy import normalize_autonomy
+
+        env[AUTONOMY_ENV] = normalize_autonomy(autonomy)
     return env, sorted(removed)
