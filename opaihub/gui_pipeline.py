@@ -3180,7 +3180,12 @@ def _handle_gui_message(
                 if policy.mode in {
                     AgentMode.IMPLEMENT,
                     AgentMode.SHIP,
-                } and not _has_change_evidence(result):
+                } and not _has_change_evidence(result, repo_changed=_repo_changed()):
+                    # The other two call sites already pass repo_changed; this
+                    # one did not, so an account provider CLI -- which commits
+                    # through its own shell and therefore leaves no
+                    # changed_files and no OPai tool_trace entry -- was stamped
+                    # "finished with no changes" after a real, landed commit.
                     _phase_close("warning", "Finished with no changes")
                     _emit("completed", "warning", "OPai finished with no changes")
                 else:

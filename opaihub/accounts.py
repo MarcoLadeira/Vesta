@@ -2076,13 +2076,14 @@ class AccountRunner:
             if self.model:
                 cmd += ["--model", self.model]
             if selected_mode == "full-auto":
-                # Full Auto stays autonomous for ordinary commands, but every
-                # Bash call is gated by the PreToolUse hook in the generated
-                # settings file: the hook denies commands the OPai classifier
-                # marks destructive/confirm-only (gh mutations, git push,
-                # rm -rf), so those still need explicit user confirmation in
-                # the UI (F23). skip-permissions is only ever emitted together
-                # with this gate.
+                # Full Auto maps to the `bypass` autonomy level, which the
+                # child carries in OPAI_AUTONOMY so the PreToolUse hook in the
+                # generated settings file gates by the same rule the in-process
+                # executor uses. The hook previously had no mode awareness and
+                # demanded a one-shot approval for every push and gh mutation
+                # even here -- so an account run could never finish "push and
+                # open a PR". The gate is still always published alongside
+                # skip-permissions; lower modes still stop at it.
                 cmd += ["--dangerously-skip-permissions"]
                 cmd += ["--settings", str(claude_hook_settings_path())]
             elif selected_mode == "safe-auto" and edit_grant:
@@ -2192,7 +2193,9 @@ class AccountRunner:
 
         # Sanitized child env: parent AI-session variables must never steer
         # this CLI's auth or model selection (see opaihub.proc).
-        child_env, _env_removed = provider_child_env(self.account_id)
+        child_env, _env_removed = provider_child_env(
+            self.account_id, autonomy=mode or ("safe-auto" if allow_edits else "ask")
+        )
 
         if self.account_id == "codex":
             with tempfile.NamedTemporaryFile(
@@ -2467,7 +2470,9 @@ class AccountRunner:
                 }
         # Sanitized child env: parent AI-session variables must never steer
         # this CLI's auth or model selection (see opaihub.proc).
-        child_env, _env_removed = provider_child_env(self.account_id)
+        child_env, _env_removed = provider_child_env(
+            self.account_id, autonomy=mode or ("safe-auto" if allow_edits else "ask")
+        )
         try:
             proc = _popen(cmd, cwd=cwd, env=child_env)
         except OSError as exc:
