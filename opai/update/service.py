@@ -278,6 +278,76 @@ class UpdateService:
             "next_retry_at": (self._now() + timedelta(seconds=delay)).isoformat(),
         }
 
+    def _auto_fast_forward(self, behind: int) -> str | None:
+        """Fast-forward a source checkout automatically, when that is safe.
+
+        A packaged install has had automatic updates for a long time:
+        discovery, staged download, health-gated activation, rollback. A source
+        checkout had none of it. ``maintain()`` re-checked it every few hours,
+        landed in UNSUPPORTED_INSTALL each time, and told the user to run a
+        command -- which is not an automatic update, it is a recurring
+        reminder. That is what "auto-update does not work" meant for anyone
+        running OPai from source.
+
+        Safety is delegated, not re-implemented. ``apply_source`` already
+        refuses a dirty working tree unless forced, and only ever
+        fast-forwards, so a checkout carrying local commits is left alone
+        rather than rebased behind its owner's back. Calling it with
+        ``force=False`` is therefore the whole guard: an unsafe checkout gets
+        ``ok: False`` and this returns ``None``.
+
+        Two conditions are decided here. Consent: ``check_for_updates`` alone
+        is permission to *look*; ``automatic_downloads`` is the switch that
+        says "act without asking me", and it gates every other automatic path
+        in this service. And quiet: a fast-forward reinstalls the package
+        under a live process, so it waits for the same active-work boundary
+        the packaged path waits for. Refusing on busy costs nothing -- the
+        next maintenance cycle tries again, and the manual button is still
+        right there for anyone who wants it now.
+
+        Calls the adapter rather than ``apply_developer_source`` deliberately:
+        that method re-checks canonical state when it finishes, and this runs
+        inside the caller's ``operation_guard``. The guard is reentrant
+        in-process, so the re-check would not block -- it would quietly take a
+        second lease and advance the fencing token, leaving the check that is
+        still running holding a token that is no longer current. The nested
+        check would then do nothing anyway: ``_begin_check`` refuses a state
+        that is already CHECKING. The surrounding check produces the canonical
+        transition, which is what that re-check was for.
+
+        Returns the message to show, or ``None`` -- and on ``None`` the caller
+        reports the manual state exactly as before, so withholding this never
+        removes the button that was already there.
+
+        Deliberately more conservative than Claude Code's updater, which
+        replaces its own managed install and can afford to assume nothing else
+        in the directory matters. This directory is somebody's working tree.
+        """
+
+        policy = self.policy()
+        if not (policy.check_for_updates and policy.automatic_downloads):
+            return None
+        if not self.runtime_probe().safe_to_install:
+            return None
+        adapter = self.adapter
+        if not isinstance(adapter, DeveloperGitUpdateAdapter):
+            return None
+        try:
+            result = adapter.apply_source(force=False)
+        except Exception:  # noqa: BLE001 - raw git errors must not invent a state
+            # An automatic path never surfaces a new failure: the manual
+            # report the caller falls back to is accurate and still actionable.
+            return None
+        if not bool(result.get("ok")):
+            return None
+        plural = "" if behind == 1 else "s"
+        version = str(result.get("installed_version") or "").strip()
+        return (
+            f"Updated automatically: fast-forwarded {behind} commit{plural} from "
+            + (f"origin/main to {version}. " if version else "origin/main. ")
+            + "Restart OPai to use it."
+        )
+
     def _check_developer_source(
         self, checking: UpdateOperation, *, force: bool
     ) -> UpdateOperation:
@@ -311,6 +381,13 @@ class UpdateService:
             if behind == 0:
                 return checking.transition(UpdateState.UP_TO_DATE, **changes)
             plural = "" if behind == 1 else "s"
+
+            applied = self._auto_fast_forward(behind)
+            if applied is not None:
+                return checking.transition(
+                    UpdateState.COMPLETED, safe_diagnostic=applied, **changes
+                )
+
             return checking.transition(
                 UpdateState.UNSUPPORTED_INSTALL,
                 error_category="manual_update_required",

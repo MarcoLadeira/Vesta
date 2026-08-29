@@ -1426,9 +1426,16 @@
   }
 
   function autoUpdateHtml(esc, d) {
-    var policy = (d.about && d.about.update && d.about.update.policy) || {};
+    var update = (d.about && d.about.update) || {};
+    var policy = update.policy || {};
     var on = !!policy.automatic_downloads;
     var install = !!policy.automatic_install_on_quit;
+    // The same switch means something different per install type, and saying
+    // "downloads" to someone running from git would hide what it actually
+    // does to their working tree.
+    var downloadHint = (update.installed || {}).install_type === "source_checkout"
+      ? "Discovery stays on. When enabled, OPai fast-forwards this checkout to origin/main by itself — only with a clean working tree, only as a fast-forward, and never while work is running."
+      : "Discovery stays on. When enabled, signed packaged updates download and verify in the background.";
     var option = function (value, label, active, disabled) {
       return (
         '<button type="button" class="seg-btn' + (active ? " active" : "") + '"' +
@@ -1440,7 +1447,7 @@
     return (
       '<div class="appearance-row" data-update-policy="automatic_downloads">' +
       '<div class="appearance-label"><span class="k">Automatic downloads</span>' +
-      '<span class="hint">Discovery stays on. When enabled, signed packaged updates download and verify in the background.</span></div>' +
+      '<span class="hint">' + esc(downloadHint) + "</span></div>" +
       '<div class="seg" role="group" aria-label="Automatic updates">' +
       option("off", "Off", !on) +
       option("on", "On", on) +

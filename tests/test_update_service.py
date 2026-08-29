@@ -720,6 +720,266 @@ def test_developer_apply_dirty_tree_refuses_and_stays_manual(
     assert "3 commits behind origin/main" in operation.safe_diagnostic
 
 
+def _auto_source_service(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    apply_result: dict[str, object] | Exception,
+    checks: list[dict[str, object]],
+    automatic_downloads: bool = True,
+    safe_to_install: bool = True,
+) -> tuple[UpdateService, list[bool], list[bool]]:
+    """A source checkout whose git check *and* apply are stubbed.
+
+    ``checks`` is consumed one entry per check so a test can prove what the
+    state does across successive maintenance cycles; the last entry repeats.
+    """
+    import opai.updater as legacy_updater
+
+    check_forces: list[bool] = []
+    apply_forces: list[bool] = []
+    pending = list(checks)
+
+    def _check(root, branch="main", force=False):
+        check_forces.append(bool(force))
+        return dict(pending.pop(0) if len(pending) > 1 else pending[0])
+
+    def _apply(root, branch="main", force=False, **_):
+        apply_forces.append(bool(force))
+        if isinstance(apply_result, Exception):
+            raise apply_result
+        return dict(apply_result)
+
+    monkeypatch.setattr(legacy_updater, "check_for_update", _check)
+    monkeypatch.setattr(legacy_updater, "apply_update", _apply)
+    store = UpdateStore(UpdaterPaths.for_home(tmp_path))
+    store.save_policy(
+        UpdatePolicy(automatic_downloads=automatic_downloads, rollout_cohort=42)
+    )
+    service = UpdateService(
+        store=store,
+        installed=_installed(
+            install_type=InstallType.SOURCE_CHECKOUT,
+            platform="linux",
+            publisher_identity="",
+        ),
+        trust={},
+        manifest_fetcher=Fetcher(b"{}"),
+        downloader=Downloader(),
+        adapter=DeveloperGitUpdateAdapter(tmp_path),
+        runtime_probe=lambda: ActiveWorkStatus(safe_to_install),
+        now=lambda: NOW,
+    )
+    return service, check_forces, apply_forces
+
+
+AHEAD = {"checked": True, "up_to_date": False, "commits_behind": 3, "reason": None}
+CURRENT = {"checked": True, "up_to_date": True, "commits_behind": 0, "reason": None}
+APPLIED = {"ok": True, "restart_required": True, "installed_version": "0.2.1a2"}
+
+
+def test_source_checkout_updates_itself_when_automatic_downloads_are_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, apply_forces = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD]
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.COMPLETED
+    assert "fast-forwarded 3 commits" in operation.safe_diagnostic
+    assert "0.2.1a2" in operation.safe_diagnostic
+    assert "Restart OPai" in operation.safe_diagnostic
+    assert apply_forces == [False]  # an automatic update never stashes
+
+
+def test_source_checkout_auto_update_uses_singular_for_one_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, _ = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result=APPLIED,
+        checks=[{**AHEAD, "commits_behind": 1}],
+    )
+
+    operation = service.check(force=True)
+
+    assert "fast-forwarded 1 commit from" in operation.safe_diagnostic
+
+
+def test_source_checkout_auto_update_needs_the_automatic_downloads_consent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, apply_forces = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result=APPLIED,
+        checks=[AHEAD],
+        automatic_downloads=False,
+    )
+
+    operation = service.check(force=True)
+
+    assert apply_forces == []  # permission to look is not permission to act
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert "3 commits behind origin/main" in operation.safe_diagnostic
+
+
+def test_source_checkout_auto_update_waits_for_active_work_to_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A fast-forward reinstalls the package under a live process.
+
+    Doing that mid-run is the packaged path's WAITING_FOR_IDLE hazard by
+    another name, so the automatic path defers to the same probe. Deferring
+    costs nothing: the manual button is unchanged and the next cycle retries.
+    """
+    service, _, apply_forces = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result=APPLIED,
+        checks=[AHEAD],
+        safe_to_install=False,
+    )
+
+    operation = service.check(force=True)
+
+    assert apply_forces == []
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert "3 commits behind origin/main" in operation.safe_diagnostic
+
+
+def test_source_checkout_auto_update_takes_one_lease_for_the_whole_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The automatic apply runs inside the check's own lease, not a second one.
+
+    ``apply_developer_source`` re-checks canonical state when it finishes.
+    Called from inside a check, that re-check is worse than redundant: the
+    guard is reentrant in-process, so it acquires a *second* lease and bumps
+    the fencing token, leaving the outer holder acting on a token that is no
+    longer current -- exactly what fencing exists to prevent. (The nested
+    check itself then does nothing at all: ``_begin_check`` refuses a state
+    already CHECKING and the ``UpdateError`` is swallowed.) Going through the
+    adapter keeps one check to one lease.
+    """
+    service, check_forces, apply_forces = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD]
+    )
+
+    service.check(force=True)
+
+    assert check_forces == [True]
+    assert apply_forces == [False]
+    lease = json.loads(service.store.paths.lease.read_text(encoding="utf-8"))
+    assert lease["fence"] == 1
+    assert lease["released"] is True
+
+
+def test_source_checkout_auto_update_settles_up_to_date_on_the_next_cycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, apply_forces = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD, CURRENT]
+    )
+
+    assert service.check(force=True).state is UpdateState.COMPLETED
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UP_TO_DATE
+    assert apply_forces == [False]  # applied once, not once per cycle
+
+
+def test_source_checkout_auto_update_leaves_a_dirty_tree_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, apply_forces = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result={
+            "ok": False,
+            "dirty": True,
+            "error": "There are uncommitted local changes.",
+        },
+        checks=[AHEAD],
+    )
+
+    operation = service.check(force=True)
+
+    assert apply_forces == [False]  # refused rather than stashed behind the user
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert "3 commits behind origin/main" in operation.safe_diagnostic
+
+
+def test_source_checkout_auto_update_leaves_diverged_history_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, apply_forces = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result={
+            "ok": False,
+            "error": "Could not fast-forward — local history has diverged.",
+        },
+        checks=[AHEAD],
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert apply_forces == [False]  # attempted, then absorbed
+
+
+def test_source_checkout_auto_update_failure_never_invents_a_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, apply_forces = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result=OSError("git exploded"),
+        checks=[AHEAD],
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.UNSUPPORTED_INSTALL
+    assert apply_forces == [False]  # attempted, then absorbed
+    assert operation.error_category == "manual_update_required"
+    assert "git exploded" not in operation.safe_diagnostic
+
+
+def test_source_checkout_auto_update_reports_without_a_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service, _, _ = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result={"ok": True, "restart_required": True},
+        checks=[AHEAD],
+    )
+
+    operation = service.check(force=True)
+
+    assert operation.state is UpdateState.COMPLETED
+    assert "fast-forwarded 3 commits from origin/main." in operation.safe_diagnostic
+
+
+def test_maintain_advances_a_stale_source_checkout_without_a_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The whole point: a checkout left alone updates on its own timer."""
+    service, _, apply_forces = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD]
+    )
+
+    operation = service.maintain()
+
+    assert apply_forces == [False]
+    assert operation.state is UpdateState.COMPLETED
+
+
 def test_automatic_policy_downloads_and_verifies_in_background(tmp_path: Path):
     policy = UpdatePolicy(
         automatic_downloads=True,
