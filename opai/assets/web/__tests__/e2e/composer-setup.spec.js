@@ -11,16 +11,16 @@ import { openApp, openNav } from "./helpers/app.js";
 test("composer summarises the effective mode and model in one quiet line", async ({ page }) => {
   await openApp(page);
   const summary = page.locator("#composerSummary");
-  // Defaults: Safe Auto → "Ask before edits"; Auto model routes local-first.
-  await expect(summary).toContainText("Ask before edits");
+  // Defaults: safe-auto renders as Claude Code's name for that level, "Auto".
+  await expect(summary).toContainText("Auto");
   await expect(summary).toContainText("Auto");
   await expect(summary).toContainText("local");
 
   // Change the mode through its popover — no duplicate control anywhere.
   await page.locator("#modeBtn").click();
-  await page.getByRole("menuitemradio", { name: /Plan only/ }).click();
-  await expect(page.locator("#modeBtnLabel")).toHaveText("Plan only");
-  await expect(summary).toContainText("Plan only");
+  await page.getByRole("menuitemradio", { name: /^Plan/ }).click();
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Plan");
+  await expect(summary).toContainText("Plan");
   // The redesign drives the real (hidden) mode control, so the pipeline is unchanged.
   await expect(page.locator("#modeSel")).toHaveValue("plan");
 
@@ -38,28 +38,41 @@ test("composer summarises the effective mode and model in one quiet line", async
   await expect(summary).toContainText("local");
 });
 
-test("mode popover offers every autonomy level with plain-language descriptions", async ({ page }) => {
+test("the mode menu is Claude Code's, in OPai's rows", async ({ page }) => {
   await openApp(page);
   await page.locator("#modeBtn").click();
   const menu = page.locator("#modePop");
-  await expect(menu).toContainText("Run safe commands; ask before edits.");
-  await expect(menu).toContainText("Describe the changes without touching files.");
-  // Ordered strictly-to-permissively. "Approve edits" sits above "Ask before
-  // edits" because it is the stricter of the two: it asks before even the
-  // curated safe commands that "Ask before edits" runs. The menu used to list
-  // them the other way round, presenting a tightening as a step toward more
-  // autonomy.
-  //
-  // "Auto-accept edits" is the level the engine has always had and the menu
-  // could never reach — local work proceeds, shared work still asks.
+  await expect(menu.locator(".cpop-head")).toHaveText("Mode");
   await expect(menu.locator(".cpop-title")).toHaveText([
-    "Ask",
-    "Plan only",
-    "Approve edits",
-    "Ask before edits",
-    "Auto-accept edits",
-    "Auto-apply",
+    "Auto",
+    "Manual",
+    "Accept edits",
+    "Plan",
+    "Bypass permissions",
   ]);
+  await expect(menu.locator(".cpop-desc")).toHaveText([
+    "OPai handles permission decisions",
+    "Always ask before making changes",
+    "Automatically accept all file edits",
+    "Create a plan before making changes",
+    "Run everything, including pushes, without asking",
+  ]);
+  // The four graded modes are numbered; Bypass is not, and sits below a
+  // separator — it is not the next rung on the ladder.
+  await expect(menu.locator(".cpop-meta")).toHaveText(["1", "2", "3", "4"]);
+  await expect(menu.locator(".cpop-sep")).toHaveCount(1);
+});
+
+test("the number keys pick a mode, and Bypass has none", async ({ page }) => {
+  await openApp(page);
+  await page.locator("#modeBtn").click();
+  await page.locator("#modePop").press("3");
+  await expect(page.locator("#modeSel")).toHaveValue("auto-edits");
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Accept edits");
+
+  await page.locator("#modeBtn").click();
+  await page.locator("#modePop").press("5");
+  await expect(page.locator("#modeSel")).toHaveValue("auto-edits");
 });
 
 test("Attach files and Add a folder use the native picker results", async ({ page }) => {
@@ -102,10 +115,11 @@ test("edit modes are disabled when the selected CLI lacks scoped edit controls",
   await page.locator("#modeBtn").click();
   const menu = page.locator("#modePop");
   await expect(menu).toContainText("Update this provider CLI to enable scoped edits");
-  await expect(menu.locator('[data-id="ask"]')).toBeEnabled();
+  await expect(menu.locator('[data-id="ask"]')).toHaveCount(0);
   await expect(menu.locator('[data-id="plan"]')).toBeEnabled();
   await expect(menu.locator('[data-id="safe-auto"]')).toBeDisabled();
   await expect(menu.locator('[data-id="approve-edits"]')).toBeDisabled();
+  await expect(menu.locator('[data-id="auto-edits"]')).toBeDisabled();
   await expect(menu.locator('[data-id="full-auto"]')).toBeDisabled();
 });
 

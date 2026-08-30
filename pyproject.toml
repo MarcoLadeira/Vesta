@@ -27,8 +27,17 @@ opcoding = "opcoding.cli:main"
 # Windowed launcher: on Windows, pip builds a GUI (pythonw-backed) executable
 # from a gui_scripts entry point, so a Start-menu/taskbar shortcut opens the app
 # with no attached console window (#148). `opai gui` from a terminal still works.
+#
+# The name is what Task Manager shows. Launched as `pythonw -m opai gui` the
+# process is called "Python" -- pythonw.exe carries FileDescription "Python",
+# and Windows displays that, so the app appears in the process list as somebody
+# else's runtime. Running the launcher instead makes the image name the process
+# name. It cannot be plain `OPai`: Windows filenames are case-insensitive, so
+# `OPai.exe` and the `opai` console script's `opai.exe` are the same file and
+# one would overwrite the other.
 [project.gui-scripts]
 opai-gui = "opai.bootstrap:desktop_main"
+OPai-Desktop = "opai.bootstrap:desktop_main"
 
 [project.urls]
 Homepage = "https://github.com/MarcoLadeira/OPai"

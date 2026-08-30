@@ -81,7 +81,7 @@ class EffectiveModeTests(unittest.TestCase):
     def test_decision_serializes(self):
         payload = effective_mode("full-auto", {}).to_dict()
         self.assertEqual(payload["effective_mode"], "full-auto")
-        self.assertEqual(payload["effective_label"], "Full Auto")
+        self.assertEqual(payload["effective_label"], "Bypass Permissions")
         self.assertIn("reason", payload)
         self.assertIsInstance(
             AutonomyDecision("full-auto", "safe-auto", False, True, "x"),

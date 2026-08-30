@@ -36,11 +36,11 @@ test("the run-mode select offers every mode, in order, Auto-apply included", asy
   const options = await page.locator('select[data-default-pref="default_mode"] option').allTextContents();
   expect(options).toEqual([
     "Ask",
-    "Plan only",
-    "Approve edits",
-    "Ask before edits",
-    "Auto-accept edits",
-    "Auto-apply",
+    "Plan",
+    "Manual",
+    "Auto",
+    "Accept edits",
+    "Bypass permissions",
   ]);
   await expect(page.locator("#settingsPage")).toContainText("what OPai starts in, every time", seen);
 });
@@ -55,7 +55,7 @@ test("an Auto-apply default is shown as the selection it is, and stays changeabl
   const select = page.locator('select[data-default-pref="default_mode"]');
   await expect(select).toHaveValue("full-auto");
   const current = select.locator('option[value="full-auto"]');
-  await expect(current).toHaveText("Auto-apply");
+  await expect(current).toHaveText("Bypass permissions");
   await expect(current).toBeEnabled();
   expect(await page.evaluate(() => window.__mock.savedPrefs)).toEqual([]);
 });

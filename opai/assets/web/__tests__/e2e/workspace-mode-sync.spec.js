@@ -76,15 +76,15 @@ test("composer, header, and inspector follow the fresh payload after a workspace
 
   await page.evaluate(() => window.__mock.switchWorkspace("/repo/opai"));
 
-  // The stale "Auto-apply" display was the bug: everything must repaint the
+  // The stale "Bypass permissions" display was the bug: everything must repaint the
   // novice-facing Ask before edits label for the new workspace.
   await expect(page.locator("#modeSel")).toHaveValue("safe-auto");
-  await expect(page.locator("#statusLine")).toContainText("Ask before edits");
+  await expect(page.locator("#statusLine")).toContainText("Auto");
   await expect(page.locator("#statusLine")).not.toContainText("Safe Auto");
   await expect(page.locator("#statusLine")).not.toContainText("Full Auto");
   await expect(page.locator("#wsLabel")).toHaveText("opai");
   const runModeRow = page.locator(".insp-row", { hasText: "Run mode" });
-  await expect(runModeRow).toContainText("Ask before edits");
+  await expect(runModeRow).toContainText("Auto");
   // No pin ack is offered when the new workspace doesn't request Full Auto.
   await expect(page.locator(".inline-confirm")).toHaveCount(0);
 });
@@ -136,7 +136,7 @@ test("the composer never shows a mode the workspace is not actually in", async (
   await page.evaluate(() => window.__mock.switchWorkspace("/repo/opai"));
 
   await expect(page.locator("#modeSel")).toHaveValue("approve-edits");
-  await expect(page.locator("#modeBtnLabel")).toHaveText("Approve edits");
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Manual");
   await expect(page.locator(".inline-confirm")).toHaveCount(0);
 });
 

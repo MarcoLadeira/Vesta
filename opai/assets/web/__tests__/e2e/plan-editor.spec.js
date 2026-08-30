@@ -29,7 +29,7 @@ test("plan-mode answers render an editable plan checklist", async ({ page }) => 
   await expect(card).toContainText("Plan · 3 steps");
   await expect(card.locator(".plan-step")).toHaveCount(3);
   await expect(card.getByRole("button", { name: "Build this plan" })).toBeEnabled();
-  await expect(card).toContainText("Ask before edits");
+  await expect(card).toContainText("Auto");
   await expect(card).not.toContainText("Safe Auto");
 });
 

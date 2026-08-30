@@ -13,14 +13,14 @@ const uiIcon = (name, options) => window.OPaiIcons.icon(name, options);
 const PROVIDER_COLOR = { claude: "#e0937a", codex: "#6cc1e8", auto: "#98a2b0", local: "#34d399" };
 const MODE_PRESENTATION_LABELS = {
   ask: "Ask",
-  plan: "Plan only",
-  "approve-edits": "Approve edits",
-  "safe-auto": "Ask before edits",
-  "auto-edits": "Auto-accept edits",
-  "full-auto": "Auto-apply",
+  plan: "Plan",
+  "approve-edits": "Manual",
+  "safe-auto": "Auto",
+  "auto-edits": "Accept edits",
+  "full-auto": "Bypass permissions",
 };
 const modePresentationLabel = (mode) => {
-  if (!mode) return "Ask before edits";
+  if (!mode) return "Auto";
   return MODE_PRESENTATION_LABELS[mode.id] || mode.label || "Mode";
 };
 const modePresentationCopy = (value) =>
@@ -921,7 +921,7 @@ function autonomyConsequence(modeId) {
     ask: "Answers without changes",
     plan: "Plans without changes",
     "safe-auto": "Asks before edits",
-    "approve-edits": "Asks before commands",
+    "approve-edits": "Asks before everything",
     "auto-edits": "Edits apply; commands ask",
     "full-auto": "Edits and runs commands",
   }[modeId] || "Uses your selected autonomy";
@@ -2920,7 +2920,7 @@ function diffFileCardHtml(file, opts) {
 }
 
 // Everything OPai knows about a code change lives here — whether it's already
-// on disk and verified, or held (via "Ask before edits") for review before it
+// on disk and verified, or held (via "Manual") for review before it
 // can ship. Both states reuse the same evidence and row markup; only the
 // "reviewing_diff" phase gets approve/reject actions.
 function changesetCardHtml(review, phase, testsStatus, statusMap) {
@@ -3119,7 +3119,7 @@ function planCardHtml(steps) {
     ${rows}
     <div class="pc-actions">
       <button class="btn primary" data-plan="build">Build this plan</button>
-      <span class="pc-note">runs in Ask before edits — edits gated by the usual approvals</span>
+      <span class="pc-note">runs in Auto — edits gated by the usual approvals</span>
     </div></div>`;
 }
 function wirePlanCard(el, sel) {
@@ -3661,7 +3661,7 @@ function renderEditApprovalCard(el, r, sel) {
     `<div class="approval-card edit-approval" role="group" aria-label="Edit approval required">
        <div class="ap-head"><span class="ap-badge">Edits blocked</span><span class="ap-risk">One-time approval</span></div>
        <div class="ap-title">Allow OPai to edit these files once?</div>
-       <div class="ap-why">In Ask before edits, OPai asks before changing files. Commands and destructive actions stay gated.</div>
+       <div class="ap-why">In Auto, OPai asks before changing files. Commands and destructive actions stay gated.</div>
        <div class="ap-scope"><span class="k">Files</span><span class="v"><ul class="ap-files">${rows || "<li>(paths unavailable)</li>"}</ul></span></div>
        <div class="ap-actions">
          <button class="btn primary" data-ap="approve">Allow edits once</button>
