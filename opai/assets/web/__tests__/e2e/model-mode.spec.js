@@ -110,53 +110,36 @@ test("unavailable model options are disabled with their reason", async ({ page }
   await expect(option).toHaveAttribute("title", /Preview access is not enabled/);
 });
 
-test("selecting Full Auto shows a styled in-chat confirm, no native dialog (#151)", async ({ page }) => {
+test("selecting Full Auto just selects it, with no confirmation card", async ({ page }) => {
+  // It used to open an acknowledgement card, because a plain savePref for
+  // full-auto was rewritten to Safe Auto server side and the card was what
+  // pinned it instead. Nothing is rewritten now, so the card is gone -- it was
+  // firing on every launch for anyone whose chosen mode was Full Auto.
   await openApp(page);
   let dialogs = 0;
   page.on("dialog", async (dialog) => { dialogs += 1; await dialog.dismiss(); });
   await page.selectOption("#modeSel", "full-auto");
-  // The confirmation is an in-chat card, never a native window.confirm.
-  await expect(page.locator(".inline-confirm")).toBeVisible();
-  await expect(page.locator(".inline-confirm .ic-title")).toContainText("Pin Auto-apply");
-  await expect(page.locator(".inline-confirm")).not.toContainText("Full Auto");
+  await expect(page.locator(".inline-confirm")).toHaveCount(0);
   expect(dialogs).toBe(0);
-  // The warning must match bypass autonomy: remote and destructive actions do
-  // not stop for approval once Auto-apply is pinned.
-  await expect(page.locator(".inline-confirm")).toContainText("push, and merge pull requests without asking first");
-  await expect(page.locator(".inline-confirm")).toContainText("Nothing is held back for confirmation");
-  await expect(page.locator(".inline-confirm")).toContainText("force-push and deletes");
-  // Cancelling keeps the current mode and does not pin (#137).
-  await page.click('.inline-confirm [data-ic="cancel"]');
-  await expect(page.locator("#modeSel")).toHaveValue("safe-auto");
-  expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(0);
+  await expect(page.locator("#modeSel")).toHaveValue("full-auto");
 });
 
-test("confirming the Full Auto card pins it via the dedicated bridge slot (#137/#151)", async ({ page }) => {
+test("a picked mode is saved as the durable default, Full Auto included", async ({ page }) => {
+  // The reported bug: OPai forgot the chosen mode on every restart. It is
+  // persisted through the ordinary savePref path now, like any other setting,
+  // rather than through a dedicated pin slot guarded by a modal.
   await openApp(page);
-  page.on("dialog", async (dialog) => { await dialog.accept(); });
   await expect(page.locator("#modeBtnLabel")).toHaveText("Ask before edits");
   await page.selectOption("#modeSel", "full-auto");
-  await page.click('.inline-confirm [data-ic="ok"]');
-  expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(1);
-  await expect(page.locator("#modeSel")).toHaveValue("full-auto");
-  // Round 5 finding 4: pinning repainted the top bar but left the composer's own
-  // run-mode control reading "Ask" until the next message was sent. Every mode
-  // surface must agree immediately, with no send in between.
+  const saved = await page.evaluate(() =>
+    window.__mock.savedPrefs.filter((p) => p[0] === "default_mode" && p[1] === "full-auto").length
+  );
+  expect(saved).toBe(1);
+  expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(0);
+  // Round 5 finding 4: every mode surface must agree immediately, with no send
+  // in between. That still holds, and now without a card to confirm first.
   await expect(page.locator("#modeBtnLabel")).toHaveText("Auto-apply");
   await expect(page.locator("#composerSummary")).toContainText("Auto-apply");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
-  // A plain savePref for full-auto must never be used to persist it.
-  const savedFullAuto = await page.evaluate(() =>
-    window.__mock.savedPrefs.filter((p) => p[0] === "default_mode" && p[1] === "full-auto").length
-  );
-  expect(savedFullAuto).toBe(0);
 });
 
-test("the Full Auto confirm is keyboard-operable (#151)", async ({ page }) => {
-  await openApp(page);
-  await page.selectOption("#modeSel", "full-auto");
-  await expect(page.locator(".inline-confirm")).toBeVisible();
-  // Enter on the focused confirm button pins Full Auto.
-  await page.keyboard.press("Enter");
-  expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(1);
-});

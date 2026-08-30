@@ -25,16 +25,27 @@ test("defaults are editable and reflect in the composer immediately", async ({ p
   await expect(page.locator("#modeSel")).toHaveValue("approve-edits");
 });
 
-test("the run-mode select never offers Full Auto", async ({ page }) => {
+test("the run-mode select offers every mode, in order, Auto-apply included", async ({ page }) => {
+  // Full Auto used to be absent here, and shown disabled if it was already the
+  // default, because a bare savePref for it was rewritten server side — so
+  // this page would have been an alternate route around the composer's pin
+  // gate. There is no rewrite and no gate now.
   await openApp(page);
   await openNav(page, "Settings");
   await railItem(page, "models").click();
   const options = await page.locator('select[data-default-pref="default_mode"] option').allTextContents();
-  expect(options).toEqual(["Ask", "Plan only", "Ask before edits", "Approve edits"]);
-  await expect(page.locator("#settingsPage")).toContainText("Auto-apply can only be pinned from the composer", seen);
+  expect(options).toEqual([
+    "Ask",
+    "Plan only",
+    "Approve edits",
+    "Ask before edits",
+    "Auto-accept edits",
+    "Auto-apply",
+  ]);
+  await expect(page.locator("#settingsPage")).toContainText("what OPai starts in, every time", seen);
 });
 
-test("a pinned Auto-apply default is shown truthfully without making it selectable", async ({ page }) => {
+test("an Auto-apply default is shown as the selection it is, and stays changeable", async ({ page }) => {
   await openApp(page, {
     settings: { prefs: { default_model: "auto", default_mode: "full-auto" } },
   });
@@ -45,7 +56,7 @@ test("a pinned Auto-apply default is shown truthfully without making it selectab
   await expect(select).toHaveValue("full-auto");
   const current = select.locator('option[value="full-auto"]');
   await expect(current).toHaveText("Auto-apply");
-  await expect(current).toBeDisabled();
+  await expect(current).toBeEnabled();
   expect(await page.evaluate(() => window.__mock.savedPrefs)).toEqual([]);
 });
 

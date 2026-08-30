@@ -27,8 +27,8 @@ from opai.gui_modes import describe_controls, plan_mode_selection
 from opaihub.autonomy import resolve_startup_mode
 from opaihub.gui_preferences import (
     load_gui_preferences,
-    pin_full_auto,
     preference_path,
+    save_gui_preferences,
 )
 
 
@@ -114,18 +114,32 @@ class DescribeControlsTests(unittest.TestCase):
 
 
 class PlanModeSelectionTests(unittest.TestCase):
-    """F16: the classic pin flow's Qt-free decision layer."""
+    """Picking a mode persists it. All of them, with no ceremony."""
 
-    def test_unpinned_full_auto_requires_the_pin_acknowledgement(self):
-        prefs = {"default_mode": "safe-auto", "full_auto_pinned": False}
-        decision = plan_mode_selection("full-auto", prefs)
-        self.assertEqual(decision["action"], "confirm_pin")
-        self.assertTrue(decision["needs_pin_confirmation"])
-        # Declining must revert the combo to the EFFECTIVE mode — never leave
-        # it displaying an unpinned Full Auto.
-        self.assertEqual(decision["effective_mode"], "safe-auto")
+    def test_every_mode_persists_directly_including_full_auto(self):
+        """Full Auto used to return ``confirm_pin`` here.
 
-    def test_pinned_full_auto_persists_without_another_dialog(self):
+        That existed because a bare full-auto default would be rewritten to
+        Safe Auto on the way back in while the combo still showed Full Auto --
+        the F16 lie. The rewrite is gone, so the modal standing in for it is
+        gone too; it was firing on every launch for anyone who had chosen the
+        mode deliberately.
+        """
+        for mode in (
+            "ask",
+            "plan",
+            "approve-edits",
+            "safe-auto",
+            "auto-edits",
+            "full-auto",
+        ):
+            with self.subTest(mode=mode):
+                decision = plan_mode_selection(mode, {"default_mode": "safe-auto"})
+                self.assertEqual(decision["action"], "persist")
+                self.assertFalse(decision["needs_pin_confirmation"])
+                self.assertEqual(decision["effective_mode"], mode)
+
+    def test_a_legacy_pinned_preferences_file_still_persists(self):
         prefs = {
             "default_mode": "full-auto",
             "full_auto_pinned": True,
@@ -136,50 +150,43 @@ class PlanModeSelectionTests(unittest.TestCase):
         self.assertEqual(decision["effective_mode"], "full-auto")
         self.assertTrue(decision["pinned"])
 
-    def test_other_modes_persist_directly(self):
-        for mode in ("ask", "plan", "safe-auto", "approve-edits"):
-            decision = plan_mode_selection(mode, {"full_auto_pinned": False})
-            self.assertEqual(decision["action"], "persist", mode)
-            self.assertFalse(decision["needs_pin_confirmation"], mode)
-            self.assertEqual(decision["effective_mode"], mode, mode)
-
-    def test_pin_accept_flow_persists_and_effective_mode_becomes_full_auto(self):
+    def test_a_picked_mode_is_the_mode_the_next_launch_starts_in(self):
+        """End to end, on a real preferences file: the reported bug."""
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
-            decision = plan_mode_selection("full-auto", load_gui_preferences(root))
-            self.assertEqual(decision["action"], "confirm_pin")
-            # Accept: pin, then the combo syncs to the new effective mode.
-            pin_full_auto(root)
-            prefs = load_gui_preferences(root)
-            self.assertTrue(prefs["full_auto_pinned"])
-            self.assertEqual(prefs["default_mode"], "full-auto")
-            self.assertEqual(resolve_startup_mode(prefs).effective_mode, "full-auto")
+            for mode in ("full-auto", "auto-edits", "plan"):
+                with self.subTest(mode=mode):
+                    decision = plan_mode_selection(mode, load_gui_preferences(root))
+                    self.assertEqual(decision["action"], "persist")
+                    save_gui_preferences(root, {"default_mode": mode})
+                    # A fresh read is what a restart does.
+                    prefs = load_gui_preferences(root)
+                    self.assertEqual(prefs["default_mode"], mode)
+                    self.assertEqual(resolve_startup_mode(prefs).effective_mode, mode)
 
-    def test_pin_decline_flow_leaves_safe_auto_as_the_effective_mode(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = make_repo(Path(tmp))
-            # Decline: nothing is persisted; the combo reverts to the effective
-            # mode of the untouched preferences.
-            prefs = load_gui_preferences(root)
-            decision = plan_mode_selection("full-auto", prefs)
-            self.assertEqual(
-                decision["effective_mode"],
-                resolve_startup_mode(prefs).effective_mode,
-            )
-            self.assertEqual(resolve_startup_mode(prefs).effective_mode, "safe-auto")
+    def test_the_combo_can_never_display_a_mode_that_is_not_in_force(self):
+        """F16's actual invariant, which outlives the downgrade that caused it.
 
-    def test_sanitized_downgrade_never_leaves_a_lying_combo_target(self):
-        # A stale persisted full-auto default (legacy/unsafe) is downgraded on
-        # load; the combo binds to resolve_startup_mode, so it can only ever
-        # display the effective Safe Auto — the F16 desync is impossible.
+        The desync was possible because the stored mode and the effective mode
+        could differ: the combo showed Full Auto while the engine had quietly
+        resolved Safe Auto. They cannot differ now -- the combo binds to
+        resolve_startup_mode, and resolve_startup_mode returns what is stored.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             path = preference_path(root)
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({"default_mode": "full-auto"}), encoding="utf-8")
-            prefs = load_gui_preferences(root)
-            self.assertEqual(prefs["default_mode"], "safe-auto")
-            self.assertEqual(resolve_startup_mode(prefs).effective_mode, "safe-auto")
+            for mode in ("full-auto", "auto-edits", "approve-edits", "safe-auto"):
+                with self.subTest(mode=mode):
+                    path.write_text(
+                        json.dumps({"default_mode": mode}), encoding="utf-8"
+                    )
+                    prefs = load_gui_preferences(root)
+                    self.assertEqual(prefs["default_mode"], mode)
+                    self.assertEqual(
+                        resolve_startup_mode(prefs).effective_mode,
+                        prefs["default_mode"],
+                    )
 
 
 class SurfaceParityTests(unittest.TestCase):
