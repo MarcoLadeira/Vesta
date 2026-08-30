@@ -108,6 +108,45 @@ test("the streaming class (and its caret) is gone once the answer finalizes", as
   await expect(page.locator(".body.streaming")).toHaveCount(0);
 });
 
+test("a token burst is frame-batched and keeps the complete answer", async ({ page }) => {
+  const id = await sendPrompt(page);
+  const renders = await page.evaluate(async (requestId) => {
+    const before = window.__opai.state.streamRenders;
+    for (let i = 0; i < 200; i++) window.__mock.emitToken(requestId, String(i % 10));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return window.__opai.state.streamRenders - before;
+  }, id);
+  expect(renders).toBeGreaterThan(0);
+  expect(renders).toBeLessThanOrEqual(4);
+  await expect(page.locator(".body.stream")).toHaveText("0123456789".repeat(20));
+});
+
+test("stream rendering preserves a user's text selection", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await emitToken(page, id, "Keep this stable selection while more text arrives.");
+  await expect(page.locator(".body.stream")).toContainText("stable selection");
+  await page.evaluate(() => {
+    const node = document.querySelector(".body.stream p").firstChild;
+    const start = node.textContent.indexOf("stable selection");
+    const range = document.createRange();
+    range.setStart(node, start);
+    range.setEnd(node, start + "stable selection".length);
+    const selection = getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await emitToken(page, id, " Additional output.");
+  await expect.poll(() => page.evaluate(() => getSelection().toString())).toBe("stable selection");
+});
+
+test("a malformed terminal answer cannot be hidden by partial streamed text", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await emitToken(page, id, "Partial text");
+  await finishRequest(page, id, { status: "answered", answer: { unexpected: true }, receipt: {} });
+  await expect(page.locator(".error-card")).toContainText("unexpected response shape");
+  await expect(page.locator(".response-shell")).toHaveCount(0);
+});
+
 test("under reduced motion the streaming caret does not animate", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const id = await sendPrompt(page);
@@ -118,4 +157,14 @@ test("under reduced motion the streaming caret does not animate", async ({ page 
     return getComputedStyle(el, "::after").animationName;
   });
   expect(anim === "none" || anim === "" || anim == null).toBeTruthy();
+});
+
+test("the explicit motion override wins over the OS reduced-motion setting", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.evaluate(() => { document.documentElement.dataset.motion = "off"; });
+  const id = await sendPrompt(page);
+  await emitToken(page, id, "motion is explicitly enabled");
+  await expect(page.locator(".body.stream.streaming")).toBeVisible();
+  const anim = await page.evaluate(() => getComputedStyle(document.querySelector(".body.stream.streaming"), "::after").animationName);
+  expect(anim).toBe("caretBlink");
 });

@@ -59,6 +59,9 @@ const state = {
   responseDensity: "balanced",
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   expandedGroups: new Set(), stripColor: "",
+  followLatest: true,
+  tokenRenderPending: false, tokenRenderTimer: null, tokenRenderFrame: null,
+  lastStreamRenderAt: 0, streamRenderedText: "", streamRenders: 0,
   resumePending: false,
   contextHints: [],
   // Shell-style prompt history for the composer. `index` is -1 when the user
@@ -110,9 +113,67 @@ function assistantPresentationHtml(headerHtml, text, presentation, options = {})
 }
 
 function renderStreamingBody(body, text) {
+  const selected = captureSelection(body);
   body.classList.add("streaming", "response-prose");
   body.innerHTML = window.OPaiMarkdown.render(text, { streaming: true });
   enhanceCodeBlocks(body);
+  restoreSelection(body, selected);
+}
+
+function selectableTextNodes(root) {
+  const nodes = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node.parentElement && node.parentElement.closest(".code-block-head")
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  return nodes;
+}
+
+function captureSelection(root) {
+  const selection = window.getSelection && window.getSelection();
+  if (!selection || !selection.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+  const nodes = selectableTextNodes(root);
+  const offsetOf = (target, offset) => {
+    let total = 0;
+    for (const node of nodes) {
+      if (node === target) return total + Math.min(offset, node.data.length);
+      total += node.data.length;
+    }
+    return null;
+  };
+  const start = offsetOf(range.startContainer, range.startOffset);
+  const end = offsetOf(range.endContainer, range.endOffset);
+  return start == null || end == null ? null : { start, end };
+}
+
+function restoreSelection(root, snapshot) {
+  if (!snapshot) return;
+  const nodes = selectableTextNodes(root);
+  const total = nodes.reduce((sum, node) => sum + node.data.length, 0);
+  if (!nodes.length || snapshot.start > total) return;
+  const pointAt = (wanted) => {
+    let offset = Math.max(0, Math.min(wanted, total));
+    for (const node of nodes) {
+      if (offset <= node.data.length) return { node, offset };
+      offset -= node.data.length;
+    }
+    const node = nodes[nodes.length - 1];
+    return { node, offset: node.data.length };
+  };
+  const start = pointAt(snapshot.start);
+  const end = pointAt(snapshot.end);
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 // Every code block gets a copy button (#233). Idempotent so it survives the
 // per-frame re-render during streaming and the final render.
@@ -1323,6 +1384,10 @@ function clearChat() {
   const t = $("#thread");
   t.querySelectorAll(".msg").forEach((m) => m.remove());
   $("#empty").style.display = "";
+  state.followLatest = true;
+  state.tlNodes = null;
+  $("#chatScroll").scrollTop = 0;
+  updateJumpLatest();
 }
 function setResumeGate(on) {
   state.resumePending = !!on;
@@ -1819,13 +1884,10 @@ function buildResultHtml(r) {
 }
 function appendMsg(html, cls) {
   $("#empty").style.display = "none";
-  const sc = $("#chatScroll");
-  const follow = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 96;
   const d = document.createElement("div");
   d.className = "msg " + (cls || "");
   d.innerHTML = html;
-  $("#thread").appendChild(d);
-  if (follow) sc.scrollTop = sc.scrollHeight;
+  withChatScrollPreserved(() => $("#thread").appendChild(d));
   return d;
 }
 function roleHeader(label, color, opts) {
@@ -1909,6 +1971,9 @@ function send(retryOf) {
   state.store = OPaiActivity.createStore();
   state.streaming = false;
   state.streamedText = "";
+  cancelTokenRender();
+  state.streamRenderedText = "";
+  state.lastStreamRenderAt = 0;
   state.startTime = Date.now();
   buildPending(sel);
   stripReset(sel);
@@ -1954,7 +2019,10 @@ function buildPending(sel) {
   el.querySelector(".gen-stop").onclick = stop;
   el.querySelector(".gen-toggle").onclick = () => {
     const tl = el.querySelector(".timeline"), btn = el.querySelector(".gen-toggle");
-    if (tl.hasAttribute("hidden")) { tl.removeAttribute("hidden"); btn.textContent = "Hide activity"; btn.setAttribute("aria-expanded", "true"); }
+    if (tl.hasAttribute("hidden")) {
+      tl.removeAttribute("hidden"); btn.textContent = "Hide activity"; btn.setAttribute("aria-expanded", "true");
+      renderTimeline();
+    }
     else { tl.setAttribute("hidden", ""); btn.textContent = "Show activity (" + state.store.events.length + ")"; btn.setAttribute("aria-expanded", "false"); }
   };
 }
@@ -1986,9 +2054,9 @@ function timelineRows() {
 }
 // A group is auto-expanded when any child errored (surface the failure), else
 // it honors the user's toggle.
-function groupExpanded(row) {
+function groupExpanded(row, identity) {
   if (row.children.some((c) => c.status === "error")) return true;
-  return state.expandedGroups.has(row.key);
+  return state.expandedGroups.has(identity);
 }
 function buildSingleNode(event) {
   const node = document.createElement("div");
@@ -2008,8 +2076,8 @@ function groupHeaderInner(row, expanded) {
     `<span class="tl-caret">${uiIcon(expanded ? "chevronDown" : "chevronRight")}</span>` +
     `<span class="tl-t">${esc(row.label)}</span></button>`;
 }
-function reconcileGroupNode(entry, row) {
-  const expanded = groupExpanded(row);
+function reconcileGroupNode(entry, row, identity) {
+  const expanded = groupExpanded(row, identity);
   if (!entry || entry.type !== "group") {
     const node = document.createElement("div");
     node.className = "tl-row tl-group " + row.status;
@@ -2022,19 +2090,20 @@ function reconcileGroupNode(entry, row) {
     node.appendChild(kids);
     entry = { type: "group", node, header, kids, childNodes: new Map() };
     header.querySelector(".tl-group-toggle").onclick = () => {
-      if (state.expandedGroups.has(row.key)) state.expandedGroups.delete(row.key);
-      else state.expandedGroups.add(row.key);
+      if (state.expandedGroups.has(identity)) state.expandedGroups.delete(identity);
+      else state.expandedGroups.add(identity);
       renderTimeline(); // immediate, not rAF — a click deserves a live response
     };
   }
   entry.node.className = "tl-row tl-group " + row.status;
   entry.header.innerHTML = groupHeaderInner(row, expanded);
   entry.header.querySelector(".tl-group-toggle").onclick = () => {
-    if (state.expandedGroups.has(row.key)) state.expandedGroups.delete(row.key);
-    else state.expandedGroups.add(row.key);
+    if (state.expandedGroups.has(identity)) state.expandedGroups.delete(identity);
+    else state.expandedGroups.add(identity);
     renderTimeline();
   };
   if (expanded) entry.kids.removeAttribute("hidden"); else entry.kids.setAttribute("hidden", "");
+  if (!expanded) return entry;
   // Reconcile the group's children (keyed by event id within the group).
   const seenKids = new Set();
   for (const child of row.children) {
@@ -2053,8 +2122,16 @@ function reconcileGroupNode(entry, row) {
 function renderTimeline() {
   if (!state.pending) return;
   const tl = state.pending.querySelector(".timeline");
+  const btn = state.pending.querySelector(".gen-toggle");
+  if (btn && btn.getAttribute("aria-expanded") !== "true") {
+    btn.textContent = "Show activity (" + state.store.events.length + ")";
+  }
+  if (!tl || tl.hasAttribute("hidden")) {
+    return;
+  }
   const grouped = OPaiActivity.groupRows(state.store.list());
-  if (tl) {
+  const scrollSnapshot = captureChatScroll();
+  try {
     // Keyed reconcile over LOGICAL rows: singles keyed by event id, groups by
     // group key. Presentation is grouped/calm; storage keeps every raw event
     // (#231). A full innerHTML rewrite per event was O(n^2) (#228).
@@ -2066,6 +2143,7 @@ function renderTimeline() {
     const rows = state.tlNodes.rows;
     const seen = new Set();
     const order = [];
+    const groupOccurrences = new Map();
     // Honest truncation marker (#248, #400): when the store dropped the oldest
     // events to stay bounded, say so plainly — and don't promise a full record
     // the UI can't actually show (no itemized ledger view exists yet, #390).
@@ -2092,9 +2170,12 @@ function renderTimeline() {
         else updateSingleNode(entry, row.event);
         order.push(entry.node);
       } else {
-        const key = "g:" + row.key;
+        const occurrence = groupOccurrences.get(row.key) || 0;
+        groupOccurrences.set(row.key, occurrence + 1);
+        const identity = row.key + ":" + occurrence;
+        const key = "g:" + identity;
         seen.add(key);
-        const entry = reconcileGroupNode(rows.get(key), row);
+        const entry = reconcileGroupNode(rows.get(key), row, identity);
         rows.set(key, entry);
         order.push(entry.node);
       }
@@ -2105,13 +2186,22 @@ function renderTimeline() {
     // Enforce order (appendChild moves existing nodes — cheap, no HTML reparse).
     for (const node of order) tl.appendChild(node);
     state.timelineRenders++;
+  } finally {
+    restoreChatScroll(scrollSnapshot);
   }
-  const btn = state.pending.querySelector(".gen-toggle");
-  if (btn && btn.getAttribute("aria-expanded") !== "true") btn.textContent = "Show activity (" + grouped.length + ")";
 }
 function scheduleTimelineRender() {
   // Activity shares the token path's rAF cadence: a burst of events in one
   // frame costs one render instead of one render per event (#228).
+  if (!state.pending) return;
+  const timeline = state.pending.querySelector(".timeline");
+  const button = state.pending.querySelector(".gen-toggle");
+  if (button && button.getAttribute("aria-expanded") !== "true") {
+    button.textContent = "Show activity (" + state.store.events.length + ")";
+  }
+  if (!timeline || timeline.hasAttribute("hidden")) {
+    return;
+  }
   if (state.activityRenderPending) return;
   state.activityRenderPending = true;
   requestAnimationFrame(() => {
@@ -2234,14 +2324,44 @@ function onToken(json) {
   state.message = OPaiMessageState.transition(state.message, "streaming");
   if (!state.streaming) { state.streaming = true; updateGenStage(); stripStreaming(); }
   state.streamedText += d.text;
-  if (!state.tokenRenderPending) {
-    state.tokenRenderPending = true;
-    requestAnimationFrame(() => {
-      state.tokenRenderPending = false;
-      const body = state.pending && state.pending.querySelector(".body.stream");
-      if (body) { renderStreamingBody(body, state.streamedText); scrollBottom(); }
-    });
+  scheduleTokenRender();
+}
+
+function cancelTokenRender() {
+  if (state.tokenRenderTimer != null) clearTimeout(state.tokenRenderTimer);
+  if (state.tokenRenderFrame != null) cancelAnimationFrame(state.tokenRenderFrame);
+  state.tokenRenderTimer = null;
+  state.tokenRenderFrame = null;
+  state.tokenRenderPending = false;
+}
+
+function flushTokenRender() {
+  cancelTokenRender();
+  const body = state.pending && state.pending.querySelector(".body.stream");
+  if (!body || state.streamRenderedText === state.streamedText) return;
+  withChatScrollPreserved(() => renderStreamingBody(body, state.streamedText));
+  state.streamRenderedText = state.streamedText;
+  state.lastStreamRenderAt = performance.now();
+  state.streamRenders++;
+}
+
+function scheduleTokenRender() {
+  if (!state.streamRenderedText) {
+    flushTokenRender();
+    return;
   }
+  if (state.tokenRenderPending) return;
+  state.tokenRenderPending = true;
+  const elapsed = performance.now() - state.lastStreamRenderAt;
+  const delay = Math.max(0, 32 - elapsed);
+  state.tokenRenderTimer = setTimeout(() => {
+    state.tokenRenderTimer = null;
+    state.tokenRenderFrame = requestAnimationFrame(() => {
+      state.tokenRenderFrame = null;
+      state.tokenRenderPending = false;
+      flushTokenRender();
+    });
+  }, delay);
 }
 
 function startTimer(sel) {
@@ -2373,7 +2493,36 @@ function openSettingsPage(pageId = "overview") {
 
 function scrollBottom(force) {
   const sc = $("#chatScroll");
-  if (force || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 96) sc.scrollTop = sc.scrollHeight;
+  if (force) state.followLatest = true;
+  if (state.followLatest) sc.scrollTop = sc.scrollHeight;
+  updateJumpLatest();
+}
+function isNearChatBottom(sc) {
+  return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 96;
+}
+function updateJumpLatest() {
+  const sc = $("#chatScroll");
+  const jump = $("#jumpLatest");
+  if (!sc || !jump) return;
+  jump.hidden = state.followLatest || sc.scrollHeight <= sc.clientHeight + 1;
+}
+function captureChatScroll() {
+  const sc = $("#chatScroll");
+  return sc ? { top: sc.scrollTop, follow: state.followLatest } : null;
+}
+function restoreChatScroll(snapshot) {
+  if (!snapshot) return;
+  const sc = $("#chatScroll");
+  if (!sc) return;
+  if (snapshot.follow) sc.scrollTop = sc.scrollHeight;
+  else sc.scrollTop = snapshot.top;
+  updateJumpLatest();
+}
+function withChatScrollPreserved(change) {
+  const snapshot = captureChatScroll();
+  const result = change();
+  restoreChatScroll(snapshot);
+  return result;
 }
 function stripStopNote(t) { return String(t || "").replace(/\n\n_\(stopped by you\)_\s*$/, ""); }
 
@@ -2853,14 +3002,17 @@ function renderErrorCard(el, status, r, sel) {
 }
 
 function finalize(status, r) {
-  stopTimer();
-  stripFinalize(status, r); // reflect the terminal state before we rebuild the bubble
-  const el = state.pending;
-  if (!el) return;
-  state.pending = null;
-  const sel = state.lastSend || {};
-  const durMs = Date.now() - state.startTime;
-  if (status === "cancelled") {
+  flushTokenRender();
+  const scrollSnapshot = captureChatScroll();
+  try {
+    stopTimer();
+    stripFinalize(status, r); // reflect the terminal state before we rebuild the bubble
+    const el = state.pending;
+    if (!el) return;
+    state.pending = null;
+    const sel = state.lastSend || {};
+    const durMs = Date.now() - state.startTime;
+    if (status === "cancelled") {
     el.innerHTML = roleHeader("Stopped", "var(--muted)") +
       `<div class="stopped-card"><div class="sc-t">Generation stopped by you.</div>` +
       (r && r.answer && stripStopNote(r.answer).trim() ? `<div class="body">${mdToHtml(stripStopNote(r.answer))}</div>` : "") +
@@ -2870,7 +3022,7 @@ function finalize(status, r) {
     el.querySelector('[data-a="edit"]').onclick = () => { switchView("chat"); setComposerDraft(sel.text || "", { focus: true }); };
     return;
   }
-  if (!ANSWERED.includes(status)) {
+    if (!ANSWERED.includes(status)) {
     // #295 gate 3: this submission was an exact duplicate of a run already in
     // flight (a retry pressed mid-run, or a replayed send after a reconnect).
     // The message is NOT lost — the live run is answering it — so the pending
@@ -2898,13 +3050,13 @@ function finalize(status, r) {
   }
   // A malformed payload (answer that isn't a string) must never coerce into
   // "[object Object]" in the chat — treat it as a clean error (BUG-QA-003).
-  const rawAnswer = r && r.answer;
-  if (rawAnswer != null && typeof rawAnswer !== "string" && !state.streamedText) {
+    const rawAnswer = r && r.answer;
+    if (rawAnswer != null && typeof rawAnswer !== "string") {
     state.lastFailedRequestId = state.message && state.message.requestId;
     renderErrorCard(el, "empty", { answer: "The model returned an unexpected response shape." }, sel);
     return;
   }
-  const isProvider = sel.modelKind === "account" || sel.modelKind === "free";
+    const isProvider = sel.modelKind === "account" || sel.modelKind === "free";
   const label = isProvider
     ? String(sel.modelLabel).replace(" · ", " ").replace(/\s+\(free tier\)$/, "")
     : "OPai";
@@ -2948,8 +3100,11 @@ function finalize(status, r) {
   wireChangesetCard(el);
   wireStructuredEvidence(el);
   enhanceCodeBlocks(el);
-  const cvRetry = el.querySelector('.completion-verdict [data-a="retry"]');
-  if (cvRetry) cvRetry.onclick = () => retry();
+    const cvRetry = el.querySelector('.completion-verdict [data-a="retry"]');
+    if (cvRetry) cvRetry.onclick = () => retry();
+  } finally {
+    restoreChatScroll(scrollSnapshot);
+  }
 }
 
 // Diff evidence, rendered as GitHub-style numbered lines. `bounded preview`
@@ -4020,6 +4175,15 @@ function historyReset() {
 
 function wire() {
   if (isCompactShell()) $("#sidebarToggle").setAttribute("aria-expanded", "false");
+  const chatScroll = $("#chatScroll");
+  chatScroll.addEventListener("scroll", () => {
+    state.followLatest = isNearChatBottom(chatScroll);
+    updateJumpLatest();
+  }, { passive: true });
+  $("#jumpLatest").onclick = () => {
+    state.followLatest = true;
+    scrollBottom(true);
+  };
   $("#newChat").onclick = startNewChat;
   $("#newApp").onclick = startNewApp;
   $("#headerNewChat").onclick = startNewChat;

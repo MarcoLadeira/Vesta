@@ -402,6 +402,16 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 @keyframes viewIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 
 .scroll { overflow-y: auto; flex: 1; min-height: 0; }
+.jump-latest {
+  position: absolute; z-index: 8; left: 50%; bottom: calc(100% + var(--space-2)); transform: translateX(-50%);
+  min-height: var(--control-min); display: inline-flex; align-items: center; gap: var(--space-2);
+  border: 1px solid var(--border-strong); border-radius: 999px; padding: var(--space-2) var(--space-4);
+  background: var(--elevated); color: var(--ink); box-shadow: var(--shadow-md); cursor: pointer;
+  font: inherit; font-size: var(--type-label); font-weight: var(--weight-semibold);
+}
+.jump-latest:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong)); }
+.jump-latest:focus-visible { outline: none; box-shadow: var(--shadow-md), var(--focus-ring); }
+.jump-latest[hidden] { display: none; }
 .page { max-width: 930px; margin: 0 auto; padding: var(--space-8) var(--space-10) var(--space-15); width: 100%; }
 .page-title { font-size: var(--type-title); font-weight: 750; letter-spacing: -0.026em; }
 .page-sub { color: var(--muted); font-size: var(--type-label); margin-top: var(--space-1); }
@@ -507,7 +517,7 @@ kbd {
 /* Keyboard and touch users get no hover, and reduced-motion users opted out of
    things appearing and disappearing — show it outright in both cases. */
 @media (hover: none) { .msg .role .msg-copy { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .msg .role .msg-copy { opacity: 1; transition: none; } }
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion="off"]) .msg .role .msg-copy { opacity: 1; transition: none; } }
 
 .msg .role .av {
   width: 20px; height: 20px; border-radius: 7px; display: grid; place-items: center;
@@ -746,7 +756,7 @@ kbd {
 @keyframes blink { 0%, 80%, 100% { opacity: 0.25; transform: scale(0.85); } 40% { opacity: 1; transform: scale(1); } }
 
 /* ---------- composer: the command deck ---------- */
-.composer-wrap { padding: var(--space-2) var(--space-7) var(--space-6); max-width: var(--measure-composer); margin: 0 auto; width: 100%; }
+.composer-wrap { position: relative; padding: var(--space-2) var(--space-7) var(--space-6); max-width: var(--measure-composer); margin: 0 auto; width: 100%; }
 .composer {
   background: linear-gradient(180deg, var(--surface-2), var(--surface));
   border: 1px solid var(--border-strong); border-radius: var(--r-xl);
@@ -1496,7 +1506,7 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .update-progress { height: 7px; overflow: hidden; border-radius: 5px; background: var(--panel); margin: var(--space-3) 0; }
 .update-progress span { display: block; width: 0; height: 100%; background: var(--brand-gradient); }
 .update-sheet-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
-@media (prefers-reduced-motion: reduce) { .update-shell .update-dot { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion="off"]) .update-shell .update-dot { animation: none !important; } }
 html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 
 /* ---------- Credits & Balance (per-provider credit truth) ---------- */
