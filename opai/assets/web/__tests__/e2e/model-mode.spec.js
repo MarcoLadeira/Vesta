@@ -45,10 +45,10 @@ test("Safe Auto is default and Full Auto is never silently selected", async ({ p
 test("the header and composer use the same novice-facing run-mode name", async ({ page }) => {
   await openApp(page);
 
-  await expect(page.locator("#modeBtnLabel")).toHaveText("Ask before edits");
-  await expect(page.locator("#statusLine")).toContainText("Ask before edits");
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Auto");
+  await expect(page.locator("#statusLine")).toContainText("Auto");
   await expect(page.locator("#statusLine")).not.toContainText("Safe Auto");
-  await expect(page.locator(".insp-row", { hasText: "Run mode" })).toContainText("Ask before edits");
+  await expect(page.locator(".insp-row", { hasText: "Run mode" })).toContainText("Auto");
 });
 
 test("leaving Full Auto immediately updates the header as well as the composer", async ({ page }) => {
@@ -129,7 +129,7 @@ test("a picked mode is saved as the durable default, Full Auto included", async 
   // persisted through the ordinary savePref path now, like any other setting,
   // rather than through a dedicated pin slot guarded by a modal.
   await openApp(page);
-  await expect(page.locator("#modeBtnLabel")).toHaveText("Ask before edits");
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Auto");
   await page.selectOption("#modeSel", "full-auto");
   const saved = await page.evaluate(() =>
     window.__mock.savedPrefs.filter((p) => p[0] === "default_mode" && p[1] === "full-auto").length
@@ -138,8 +138,8 @@ test("a picked mode is saved as the durable default, Full Auto included", async 
   expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(0);
   // Round 5 finding 4: every mode surface must agree immediately, with no send
   // in between. That still holds, and now without a card to confirm first.
-  await expect(page.locator("#modeBtnLabel")).toHaveText("Auto-apply");
-  await expect(page.locator("#composerSummary")).toContainText("Auto-apply");
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Bypass permissions");
+  await expect(page.locator("#composerSummary")).toContainText("Bypass permissions");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
 });
 

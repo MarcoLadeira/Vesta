@@ -23,23 +23,30 @@
   var STYLES = ["toolbar", "single", "command"];
   var DEFAULT_STYLE = "toolbar";
 
+  // The menu Claude Code presents, in its order and its words, rendered with
+  // OPai's own rows. Four graded modes, numbered so they can be picked from
+  // the keyboard, and Bypass sitting apart from the ladder rather than one
+  // more step along it -- reaching it should be a decision, not a drift.
+  var MODE_MENU = [
+    { id: "safe-auto", label: "Auto", desc: "OPai handles permission decisions" },
+    { id: "approve-edits", label: "Manual", desc: "Always ask before making changes" },
+    { id: "auto-edits", label: "Accept edits", desc: "Automatically accept all file edits" },
+    { id: "plan", label: "Plan", desc: "Create a plan before making changes" },
+  ];
+  var BYPASS_MODE = {
+    id: "full-auto",
+    label: "Bypass permissions",
+    desc: "Run everything, including pushes, without asking",
+  };
+  // Descriptions for every id, menu or not: `ask` is no longer offered but a
+  // preferences file may still hold it, and a stored mode must stay nameable.
   var MODE_DESC = {
     ask: "Answer questions without changing files.",
-    plan: "Describe the changes without touching files.",
-    // Said "Apply edits" while its rule was edit: ask -- edits never applied,
-    // they asked. It is also the *strictest* working mode: it asks before even
-    // the curated safe commands safe-auto runs, which is why it sits above.
-    "approve-edits": "Ask before every edit and every command.",
-    "safe-auto": "Run safe commands; ask before edits.",
-    // Claude Code's accept-edits: local work proceeds, shared work still stops.
-    "auto-edits": "Apply edits without asking; still asks before commands.",
-    // This row sits next to the mode the user is choosing, so it names the
-    // consequence rather than softening it. It said "Pushing still asks first"
-    // long after Full Auto stopped asking (gui_permissions: push -> allow,
-    // AUTONOMY_RULES[BYPASS]: WRITE_REMOTE -> run) -- a promised confirmation
-    // that never came, in the one place someone reads before opting in.
-    // tests/test_mode_copy_drift.py now holds this line to the matrix.
-    "full-auto": "Apply changes, run commands, and push without asking.",
+    plan: "Create a plan before making changes",
+    "approve-edits": "Always ask before making changes",
+    "safe-auto": "OPai handles permission decisions",
+    "auto-edits": "Automatically accept all file edits",
+    "full-auto": "Run everything, including pushes, without asking",
   };
   // Dot colour: teal accent for calm modes, amber caution for the autonomous
   // ones, muted for plan-only. Never red — informative, not alarming.
@@ -203,25 +210,46 @@
     var selectedModel = st.model || {};
     var editsUnavailable = selectedModel.repo_editing === false;
     var pop = els.modePop;
+    var offered = {};
+    modes.forEach(function (m) { offered[m.id] = true; });
+    var editRow = function (entry, index) {
+      var editMode = entry.id !== "plan" && entry.id !== "ask";
+      return menuRow({
+        role: "menuitemradio",
+        title: entry.label,
+        desc: entry.desc,
+        active: entry.id === cur,
+        dot: dotVar(MODE_DOT[entry.id] || "accent"),
+        meta: index == null ? "" : String(index + 1),
+        disabled: editsUnavailable && editMode,
+      }).replace('class="cpop-row', 'data-id="' + esc(entry.id) + '" class="cpop-row');
+    };
+    var rows = MODE_MENU.filter(function (entry) { return offered[entry.id]; });
     pop.innerHTML =
-      '<div class="cpop-head">When OPai makes changes</div>' +
-      modes.map(function (m) {
-        var editMode = ["safe-auto", "approve-edits", "auto-edits", "full-auto"].indexOf(m.id) >= 0;
-        return menuRow({
-          role: "menuitemradio",
-          title: modeLabelOf(m),
-          desc: MODE_DESC[m.id] || "",
-          active: m.id === cur,
-          dot: dotVar(MODE_DOT[m.id] || "accent"),
-          disabled: editsUnavailable && editMode,
-        }).replace('class="cpop-row', 'data-id="' + esc(m.id) + '" class="cpop-row');
-      }).join("") +
+      '<div class="cpop-head">Mode</div>' +
+      rows.map(editRow).join("") +
+      // Bypass is deliberately below the ladder and unnumbered: it is not the
+      // next rung, it is the decision to stop being asked at all.
+      (offered[BYPASS_MODE.id]
+        ? '<div class="cpop-sep" role="separator"></div>' + editRow(BYPASS_MODE, null)
+        : "") +
       (editsUnavailable
-        ? '<p class="cpop-note cpop-note-warn">Update this provider CLI to enable scoped edits. Ask and Plan remain available.</p>'
+        ? '<p class="cpop-note cpop-note-warn">Update this provider CLI to enable scoped edits. Plan remains available.</p>'
         : "");
     pop.querySelectorAll("[data-id]").forEach(function (row) {
       row.onclick = function () { setMode(row.dataset.id); closePopovers(); };
     });
+    // 1-4 pick a graded mode while the menu is open. Bypass has no number on
+    // purpose -- a keystroke is exactly the kind of drift it should not have.
+    pop.onkeydown = function (event) {
+      var index = "1234".indexOf(event.key);
+      if (index < 0 || index >= rows.length) return;
+      var target = rows[index];
+      if (editsUnavailable && target.id !== "plan") return;
+      event.preventDefault();
+      setMode(target.id);
+      closePopovers();
+    };
   }
 
   // Local UI state for the picker (never persisted — see docs/design/

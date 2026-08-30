@@ -47,14 +47,16 @@ VALID_MODES = (
 MODE_LABELS = {
     "ask": "Ask",
     "plan": "Plan",
-    "approve-edits": "Approve Edits",
-    "safe-auto": "Safe Auto",
+    # Claude Code's names, because these are Claude Code's levels and calling
+    # the same thing by a different word is how the two drifted apart before.
+    "approve-edits": "Manual",
+    "safe-auto": "Auto",
     # Named after Claude Code's accept-edits, because it is the same thing:
     # local work proceeds, outward-facing work still asks. The autonomy level
     # it maps to has existed since command_policy was written; until now no
     # mode reached it, so the one level a user most wants was unselectable.
-    "auto-edits": "Auto-Accept Edits",
-    "full-auto": "Full Auto",
+    "auto-edits": "Accept Edits",
+    "full-auto": "Bypass Permissions",
 }
 
 # Back-compat alias for the previously-private name.

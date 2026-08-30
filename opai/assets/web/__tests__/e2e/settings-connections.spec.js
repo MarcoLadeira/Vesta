@@ -20,7 +20,7 @@ test("settings renders defaults, firewall, accounts, privacy, and version", asyn
   await openSettings(page, "providers");
   const settings = page.locator("#settingsPage");
   await expect(settings).toContainText("Default model");
-  await expect(settings).toContainText("Ask before edits");
+  await expect(settings).toContainText("Auto");
   await expect(settings).toContainText("solo-balanced");
   await expect(settings).toContainText("Claude");
   await expect(settings).toContainText("Codex");

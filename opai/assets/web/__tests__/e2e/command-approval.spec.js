@@ -27,7 +27,7 @@ test("a blocked command renders an approval card with the exact command; Approve
 
   const card = page.locator(".approval-card.command-approval");
   await expect(card).toBeVisible();
-  await expect(card.locator(".ap-why")).toContainText("Run any command is blocked in Ask before edits.");
+  await expect(card.locator(".ap-why")).toContainText("Run any command is blocked in Auto.");
   await expect(card.locator(".ap-why")).not.toContainText("Safe Auto");
   // The exact command string is shown verbatim — never paraphrased.
   await expect(card.locator("code")).toHaveText(COMMAND);

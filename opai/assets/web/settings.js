@@ -67,10 +67,10 @@
   var MODE_LABELS = {
     ask: "Ask",
     plan: "Plan",
-    "safe-auto": "Safe Auto",
-    "approve-edits": "Approve Edits",
-    "auto-edits": "Auto-Accept Edits",
-    "full-auto": "Full Auto",
+    "safe-auto": "Auto",
+    "approve-edits": "Manual",
+    "auto-edits": "Accept Edits",
+    "full-auto": "Bypass Permissions",
   };
   function modePresentationLabel(id, fallback) {
     var raw = fallback || MODE_LABELS[id] || id || "Mode";
@@ -86,6 +86,7 @@
     return String(value || "")
       .replace(/\bSafe Auto\b/g, modePresentationLabel("safe-auto"))
       .replace(/\bApprove Edits\b/g, modePresentationLabel("approve-edits"))
+      .replace(/\bAuto-Accept Edits\b/g, modePresentationLabel("auto-edits"))
       .replace(/\bFull Auto\b/g, modePresentationLabel("full-auto"));
   }
 
