@@ -311,6 +311,26 @@
       window.__mock.contextFilePicks++;
       cb(JSON.stringify({ paths: scenario.contextPickedFiles || ["index.html", "app.js"], rejected: [] }));
     },
+    attachImage: function (data, name, cb) {
+      window.__mock.attachedImages.push({ name: name, bytes: String(data || "").length });
+      var reply = scenario.attachImageReply;
+      if (reply) { cb(JSON.stringify(reply)); return; }
+      var index = window.__mock.attachedImages.length;
+      cb(JSON.stringify({
+        ok: true,
+        path: ".opaihub/attachments/shot-" + index + ".png",
+        name: name || "Pasted image.png",
+        bytes: 128,
+      }));
+    },
+    pickImages: function (cb) {
+      window.__mock.imagePicks++;
+      cb(JSON.stringify(scenario.pickedImages || {
+        ok: true,
+        images: [{ path: ".opaihub/attachments/picked.png", name: "picked.png", bytes: 64 }],
+        rejected: 0,
+      }));
+    },
     pickContextFolder: function (cb) {
       window.__mock.contextFolderPicks++;
       cb(JSON.stringify({ paths: scenario.contextPickedFolders || ["src/"], rejected: [] }));
@@ -522,6 +542,7 @@
     conversationLists: 0, openedConversations: [],
     copiedTexts: [], contextFilePicks: 0, contextFolderPicks: 0,
     fullAutoPins: 0, fullAutoUnpins: 0,
+    attachedImages: [], imagePicks: 0,
     windowMoves: 0, windowResizes: [], windowMinimizes: 0,
     windowMaximizes: 0, windowCloses: 0,
     runTools: [], appliedTools: [], externalUrls: [], savedProviderKeys: [], scaffolded: [],
