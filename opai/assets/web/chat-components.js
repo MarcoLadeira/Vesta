@@ -220,6 +220,191 @@
       (model.expanded ? "" : " hidden") + ">" + groups + "</div>";
   }
 
+  function verificationDetailsModel(result) {
+    var source = record(result);
+    var manifest = source && record(source.verification_manifest);
+    var rawChecks = manifest && Array.isArray(manifest.checks) ? manifest.checks : [];
+    var checks = [];
+    var counts = { passed: 0, failed: 0, skipped: 0, unverified: 0, total: 0 };
+    rawChecks.slice(0, 100).forEach(function (rawCheck) {
+      var check = record(rawCheck);
+      if (!check) return;
+      var status = boundedText(check.status, 64).toLowerCase() || "unknown";
+      var attempts = [];
+      if (Array.isArray(check.attempts)) {
+        check.attempts.slice(-5).forEach(function (rawAttempt, offset) {
+          var attempt = record(rawAttempt);
+          if (!attempt) return;
+          var command = Array.isArray(attempt.command)
+            ? attempt.command.slice(0, 50).map(function (part) {
+              return boundedText(part, 500);
+            }).filter(Boolean)
+            : [];
+          var commandText = command.map(function (part) {
+            return /^[A-Za-z0-9_./:\\=-]+$/.test(part) ? part : JSON.stringify(part);
+          }).join(" ");
+          var started = Date.parse(boundedText(attempt.started_at, 64));
+          var ended = Date.parse(boundedText(attempt.ended_at, 64));
+          var durationMs = Number.isFinite(started) && Number.isFinite(ended) && ended >= started
+            ? Math.min(ended - started, 86_400_000)
+            : null;
+          attempts.push({
+            index: boundedCount(attempt.index) || offset + 1,
+            status: boundedText(attempt.status, 64).toLowerCase() || status,
+            commandText: commandText,
+            durationMs: durationMs,
+            exitStatus: Number.isSafeInteger(attempt.exit_status) ? attempt.exit_status : null,
+            outputSummary: boundedText(attempt.output_summary, 2_000),
+            teardownVerified: attempt.teardown_verified === true,
+          });
+        });
+      }
+      checks.push({
+        id: boundedText(check.check_id, 120),
+        kind: boundedText(check.kind, 64) || "check",
+        requirement: boundedText(check.requirement, 500),
+        status: status,
+        flakeSuspected: check.flake_suspected === true,
+        attempts: attempts,
+      });
+      counts.total += 1;
+      if (status === "passed") counts.passed += 1;
+      else if (status === "skipped" || status === "waived") counts.skipped += 1;
+      else if (["failed", "timeout", "cancelled"].indexOf(status) >= 0) counts.failed += 1;
+      else counts.unverified += 1;
+    });
+    var issues = [];
+    if (manifest) {
+      var creationError = boundedText(manifest.creation_error, 500);
+      if (creationError) issues.push(creationError);
+      if (Array.isArray(manifest.integrity_errors)) {
+        manifest.integrity_errors.slice(0, 16).forEach(function (value) {
+          var issue = boundedText(value, 500);
+          if (issue && issues.indexOf(issue) < 0) issues.push(issue);
+        });
+      }
+    }
+    return { checks: checks, counts: counts, issues: issues };
+  }
+
+  function durationLabel(value) {
+    if (!Number.isFinite(value) || value < 0) return "";
+    if (value < 1_000) return Math.round(value) + " ms";
+    return (value / 1_000).toFixed(value < 10_000 ? 2 : 1).replace(/\.0+$/, "") + " s";
+  }
+
+  function renderVerificationDetails(result) {
+    var model = verificationDetailsModel(result);
+    if (!model.checks.length && !model.issues.length) return "";
+    var summary = [];
+    if (model.counts.passed) summary.push(model.counts.passed + " passed");
+    if (model.counts.failed) summary.push(model.counts.failed + " failed");
+    if (model.counts.skipped) summary.push(model.counts.skipped + " skipped");
+    if (model.counts.unverified) summary.push(model.counts.unverified + " not verified");
+    var issues = model.issues.map(function (issue) {
+      return '<div class="verification-issue">' + esc(issue) + "</div>";
+    }).join("");
+    var checks = model.checks.map(function (check) {
+      var attempts = check.attempts.map(function (attempt) {
+        var facts = [];
+        if (attempt.exitStatus !== null) facts.push("Exit " + attempt.exitStatus);
+        if (attempt.durationMs !== null) facts.push(durationLabel(attempt.durationMs));
+        if (attempt.teardownVerified) facts.push("Teardown verified");
+        var command = attempt.commandText
+          ? '<div class="verification-command"><div class="verification-command-head"><span>Command</span><button type="button" class="btn ghost" data-copy-command>Copy</button></div><code>' +
+            esc(attempt.commandText) + "</code></div>"
+          : "";
+        var output = attempt.outputSummary
+          ? '<details class="verification-output"><summary>Output summary</summary><pre>' +
+            esc(attempt.outputSummary) + "</pre></details>"
+          : "";
+        return '<div class="verification-attempt"><div class="verification-attempt-head"><span>Attempt ' +
+          esc(attempt.index) + '</span><span>' + esc(facts.join(" · ")) + "</span></div>" +
+          command + output + "</div>";
+      }).join("");
+      return '<details class="verification-check ' + esc(statusClass(check.status)) + '"><summary>' +
+        '<span class="verification-kind">' + esc(check.kind) + '</span><span class="verification-requirement">' +
+        esc(check.requirement || check.id || "Verification check") + '</span><span class="verification-status">' +
+        esc(check.status) + "</span></summary>" + attempts + "</details>";
+    }).join("");
+    return '<section class="verification-card" aria-label="Verification checks"><div class="verification-head"><span>Verification</span><span>' +
+      esc(summary.join(" · ") || "Not verified") + "</span></div>" + issues + checks + "</section>";
+  }
+
+  function warningModel(result, presentation) {
+    var source = record(result) || {};
+    var structured = presentationModel(presentation);
+    var items = [];
+    var seen = Object.create(null);
+    function add(severity, message) {
+      var clean = boundedText(message, 800);
+      if (!clean) return;
+      var key = clean.toLowerCase();
+      if (seen[key]) return;
+      seen[key] = true;
+      items.push({
+        severity: ["error", "warning", "info"].indexOf(severity) >= 0 ? severity : "warning",
+        message: clean,
+      });
+    }
+    if (Array.isArray(source.warnings)) {
+      source.warnings.slice(0, 32).forEach(function (raw) {
+        var warning = record(raw);
+        if (!warning) return;
+        var reason = boundedText(warning.reason, 700);
+        var term = boundedText(warning.term, 100);
+        add(boundedText(warning.severity, 32).toLowerCase(), reason + (reason && term ? " · " : "") + term);
+      });
+    }
+    var manifest = record(source.verification_manifest);
+    if (manifest && Array.isArray(manifest.integrity_errors)) {
+      manifest.integrity_errors.slice(0, 16).forEach(function (issue) {
+        add("error", issue);
+      });
+    }
+    if (structured && structured.run && structured.run.answer_conflicts === true) {
+      add("warning", "The answer conflicts with the measured run result.");
+    }
+    var workflow = record(source.workflow);
+    if (workflow) {
+      if (Array.isArray(workflow.blockers)) {
+        workflow.blockers.slice(0, 16).forEach(function (blocker) {
+          add("warning", blocker);
+        });
+      }
+      add("warning", workflow.blocker);
+      var gates = record(workflow.safety_gates);
+      if (gates && Array.isArray(gates.failed)) {
+        gates.failed.slice(0, 16).forEach(function (gate) {
+          var label = boundedText(gate, 300);
+          if (label) add("warning", "Safety gate failed: " + label);
+        });
+      }
+    }
+    var review = workflow && record(workflow.diff_review);
+    var changeSummary = review && record(review.summary);
+    if (changeSummary && changeSummary.truncated === true) {
+      add("warning", "The diff evidence is truncated.");
+    }
+    var risky = changeSummary && boundedCount(changeSummary.risky);
+    if (risky) add("warning", risky + (risky === 1 ? " risky file requires" : " risky files require") + " review.");
+    var background = record(source.background_work);
+    var unfinished = background && Array.isArray(background.unfinished) ? background.unfinished.length : 0;
+    if (unfinished) add("warning", unfinished + (unfinished === 1 ? " background command is" : " background commands are") + " still unfinished.");
+    return { items: items };
+  }
+
+  function renderWarnings(result, presentation) {
+    var model = warningModel(result, presentation);
+    if (!model.items.length) return "";
+    var rows = model.items.map(function (item) {
+      return '<div class="response-warning ' + esc(item.severity) + '"><span class="warning-title">' +
+        esc(item.severity === "error" ? "Error" : item.severity === "info" ? "Note" : "Warning") +
+        '</span><span class="warning-message">' + esc(item.message) + "</span></div>";
+    }).join("");
+    return '<section class="response-warnings" aria-label="Warnings">' + rows + "</section>";
+  }
+
   function completionVerdictModel(presentation) {
     var model = presentationModel(presentation);
     var run = model && model.run;
@@ -261,17 +446,28 @@
     var structured = presentationModel(value.presentation);
     var content = "";
     if (structured) {
+      content += String(value.proseHtml || "");
+      content += renderEvidenceBar(value.presentation);
+      content += renderVerificationDetails(value.result);
+      content += String(value.changesHtml || "");
+      content += renderWorkLog(value.presentation, { density: density }) ||
+        String(value.legacyWorkHtml || "");
+      content += String(value.supportHtml || "") + String(value.extraHtml || "");
+      content += renderWarnings(value.result, value.presentation);
+      content += String(value.warningsHtml || value.prefixHtml || "");
       content += renderCompletionVerdict(value.presentation, {
         retryable: value.retryable === true,
-      });
-      content += String(value.prefixHtml || "") + String(value.proseHtml || "");
-      content += renderEvidenceBar(value.presentation);
-      content += renderWorkLog(value.presentation, { density: density });
+      }) || String(value.legacyFinalHtml || "");
     } else {
-      content += String(value.legacyBeforeHtml || "");
-      content += String(value.prefixHtml || "") + String(value.proseHtml || "");
+      content += String(value.proseHtml || "");
+      content += renderVerificationDetails(value.result);
+      content += String(value.changesHtml || "");
+      content += String(value.legacyWorkHtml || value.legacyBeforeHtml || "");
+      content += String(value.supportHtml || "") + String(value.extraHtml || "");
+      content += renderWarnings(value.result, value.presentation);
+      content += String(value.warningsHtml || value.prefixHtml || "");
+      content += String(value.legacyFinalHtml || "");
     }
-    content += String(value.extraHtml || "");
     return renderResponseShell({
       density: density,
       headerHtml: String(value.headerHtml || ""),
@@ -308,6 +504,10 @@
     renderEvidenceBar: renderEvidenceBar,
     workLogModel: workLogModel,
     renderWorkLog: renderWorkLog,
+    verificationDetailsModel: verificationDetailsModel,
+    renderVerificationDetails: renderVerificationDetails,
+    warningModel: warningModel,
+    renderWarnings: renderWarnings,
     completionVerdictModel: completionVerdictModel,
     renderCompletionVerdict: renderCompletionVerdict,
     renderAssistantPresentation: renderAssistantPresentation,

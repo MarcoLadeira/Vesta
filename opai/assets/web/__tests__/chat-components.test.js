@@ -114,6 +114,82 @@ describe("chat presentation components", () => {
     expect(components.renderWorkLog(presentation, { density: "detailed" })).not.toContain(" hidden");
   });
 
+  it("models verification checks and command attempts only from structured fields", () => {
+    const result = {
+      verification_manifest: {
+        checks: [
+          {
+            check_id: "unit",
+            kind: "unit",
+            requirement: "Run focused tests",
+            status: "passed",
+            attempts: [{
+              index: 1,
+              status: "passed",
+              command: ["python", "-m", "pytest", "tests/unit test.py"],
+              started_at: "2026-08-30T12:00:00Z",
+              ended_at: "2026-08-30T12:00:01.250Z",
+              exit_status: 0,
+              output_summary: '<script>alert("output")</script> 999 tests passed',
+              teardown_verified: true,
+            }],
+          },
+          {
+            check_id: "lint",
+            kind: "lint",
+            requirement: "Lint changed files",
+            status: "failed",
+            attempts: [],
+          },
+        ],
+      },
+    };
+
+    const model = components.verificationDetailsModel(result);
+    expect(model.counts).toEqual({ passed: 1, failed: 1, skipped: 0, unverified: 0, total: 2 });
+    expect(model.checks[0].attempts[0]).toMatchObject({
+      commandText: 'python -m pytest "tests/unit test.py"',
+      durationMs: 1250,
+      exitStatus: 0,
+      teardownVerified: true,
+    });
+    const html = components.renderVerificationDetails(result);
+    expect(html).toContain("1 passed · 1 failed");
+    expect(html).toContain("Output summary");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("999 tests passed</span>");
+  });
+
+  it("renders deduplicated typed warnings without deriving them from prose", () => {
+    const result = {
+      answer: "WARNING: pretend prose warning",
+      warnings: [
+        { severity: "warning", reason: "Review permissions", term: "write" },
+        { severity: "warning", reason: "Review permissions", term: "write" },
+      ],
+      verification_manifest: { integrity_errors: ["Manifest digest mismatch"] },
+      workflow: {
+        diff_review: { summary: { risky: 1, truncated: true } },
+      },
+      background_work: { unfinished: [{ command: ["python", "worker.py"] }] },
+    };
+    const presentation = { schema_version: 1, run: { answer_conflicts: true } };
+
+    const model = components.warningModel(result, presentation);
+    expect(model.items.map((item) => item.message)).toEqual([
+      "Review permissions · write",
+      "Manifest digest mismatch",
+      "The answer conflicts with the measured run result.",
+      "The diff evidence is truncated.",
+      "1 risky file requires review.",
+      "1 background command is still unfinished.",
+    ]);
+    expect(JSON.stringify(model)).not.toContain("pretend prose warning");
+    const html = components.renderWarnings(result, presentation);
+    expect(html.match(/Review permissions/g)).toHaveLength(1);
+  });
+
   it("renders live and restored assistants through one structured shell", () => {
     const presentation = {
       schema_version: 1,
@@ -152,6 +228,7 @@ describe("chat presentation components", () => {
       expect(html).not.toContain("<script>");
       expect(html.indexOf('class="body"')).toBeLessThan(html.indexOf('class="evidence-bar"'));
       expect(html.indexOf('class="evidence-bar"')).toBeLessThan(html.indexOf('class="gen-toggle done"'));
+      expect(html.indexOf('class="gen-toggle done"')).toBeLessThan(html.indexOf('class="completion-verdict completed"'));
     }
     expect(restored).not.toContain('data-a="retry"');
     expect(live).not.toContain('data-a="retry"');
@@ -171,5 +248,48 @@ describe("chat presentation components", () => {
       expect(html).not.toContain("completion-verdict");
       expect(html).not.toContain("timeline done");
     }
+  });
+
+  it("composes the response in semantic reading order", () => {
+    const html = components.renderAssistantPresentation({
+      density: "balanced",
+      headerHtml: '<div class="role">OPai</div>',
+      proseHtml: '<div class="body">Outcome</div>',
+      presentation: {
+        schema_version: 1,
+        run: { state: "partial", label: "Partial" },
+        evidence: { verification: { verdict: "unverified" } },
+        activity: [{ phase: "test", status: "failed", message: "Check failed" }],
+      },
+      result: {
+        warnings: [{ severity: "warning", reason: "Review the failed check" }],
+      },
+      changesHtml: '<section class="changeset-card">Changes</section>',
+      supportHtml: '<section class="workflow-card">Workflow</section>',
+      warningsHtml: '<aside class="unverified-claim">Unverified claim</aside>',
+    });
+    const positions = [
+      'class="body"',
+      'class="evidence-bar"',
+      'class="changeset-card"',
+      'class="gen-toggle done"',
+      'class="workflow-card"',
+      'class="response-warnings"',
+      'class="unverified-claim"',
+      'class="completion-verdict partial"',
+    ].map((needle) => html.indexOf(needle));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  it("keeps measured live activity and the legacy final fallback when a projection omits them", () => {
+    const html = components.renderAssistantPresentation({
+      proseHtml: '<div class="body">Outcome</div>',
+      presentation: { schema_version: 1, evidence: { delivery: { verdict: "delivered" } } },
+      legacyWorkHtml: '<button class="gen-toggle done">Activity</button>',
+      legacyFinalHtml: '<section class="completion-verdict partial">Partial</section>',
+    });
+    expect(html).toContain('<button class="gen-toggle done">Activity</button>');
+    expect(html).toContain('<section class="completion-verdict partial">Partial</section>');
   });
 });

@@ -123,11 +123,11 @@ test("a success claim the run could not verify is labelled where it is written",
   // It names the same verdict the pill shows, so the two surfaces agree.
   await expect(banner).toContainText("Failed");
   await expect(page.locator("#ssConn")).toHaveText("Failed");
-  // And it is placed above the answer body, not buried after it.
+  // It remains adjacent to the quiet final state, after the supporting work.
   expect(await page.evaluate(() => {
     const bot = document.querySelector(".msg.bot");
     return bot.querySelector(".unverified-claim")
-      .compareDocumentPosition(bot.querySelector(".body")) & Node.DOCUMENT_POSITION_FOLLOWING;
+      .compareDocumentPosition(bot.querySelector(".completion-verdict")) & Node.DOCUMENT_POSITION_FOLLOWING;
   })).toBeTruthy();
 });
 

@@ -96,6 +96,12 @@ function assistantPresentationHtml(headerHtml, text, presentation, options = {})
     headerHtml,
     proseHtml: responseProseHtml(mdToHtml(text || "")),
     presentation,
+    result: options.result,
+    changesHtml: options.changesHtml || "",
+    supportHtml: options.supportHtml || "",
+    warningsHtml: options.warningsHtml || "",
+    legacyWorkHtml: options.legacyWorkHtml || "",
+    legacyFinalHtml: options.legacyFinalHtml || "",
     prefixHtml: options.prefixHtml || "",
     legacyBeforeHtml: options.legacyBeforeHtml || "",
     extraHtml: options.extraHtml || "",
@@ -1440,6 +1446,7 @@ function restoreSession(resume) {
         "bot",
       );
       wireActivitySummary(el);
+      wireStructuredEvidence(el);
       enhanceCodeBlocks(el);
     }
   });
@@ -1546,6 +1553,7 @@ function renderConversation(conv) {
     );
     wireAnswerCopy(el, text);
     wireActivitySummary(el);
+    wireStructuredEvidence(el);
     enhanceCodeBlocks(el);
   });
   // Say plainly that this is history. Without it, an old transcript is
@@ -1724,11 +1732,13 @@ function finalizeBuild(r) {
     r.presentation,
     {
       legacyBeforeHtml: activitySummaryHtml(),
+      result: r,
       extraHtml: buildResultHtml(r) +
         (r.receipt ? metaFooter({ receipt: r.receipt }, sel, durMs) : ""),
     },
   );
   wireActivitySummary(el);
+  wireStructuredEvidence(el);
   wireReceipt(el, sel);
   const previewBtn = el.querySelector('[data-a="preview"]');
   if (previewBtn) previewBtn.onclick = () => {
@@ -2883,25 +2893,32 @@ function finalize(status, r) {
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
   const headerHtml = roleHeader(label, color, { copy: true });
-  let extraHtml = "";
+  let changesHtml = "";
+  let supportHtml = "";
   const changed = (r && r.changed_files) || [];
-  // A changeset card (below, via workflowCardHtml) already shows every file in
-  // flow.diff_review with real diff evidence; the flat chip list is only useful
-  // as a fallback when no such evidence exists (e.g. non-edit-intent modes).
-  const flowFiles = (r && r.workflow && r.workflow.diff_review && r.workflow.diff_review.files) || [];
-  if (changed.length && !flowFiles.length) extraHtml += filesCardHtml(changed);
-  if (r && (r.workflow || r.agent_policy)) extraHtml += workflowCardHtml(r);
+  const flow = (r && r.workflow) || {};
+  const review = flow.diff_review || {};
+  const flowFiles = review.files || [];
+  if (flowFiles.length) {
+    changesHtml += changesetCardHtml(review, flow.phase, diffStatusMap(changed));
+  } else if (changed.length) {
+    changesHtml += filesCardHtml(changed);
+  }
+  if (r && (r.workflow || r.agent_policy)) supportHtml += workflowCardHtml(r);
   const planSteps = (r && r.plan && r.plan.steps) || [];
-  if (planSteps.length) extraHtml += planCardHtml(planSteps);
-  extraHtml += metaFooter(r, sel, durMs);
+  if (planSteps.length) supportHtml += planCardHtml(planSteps);
   el.innerHTML = assistantPresentationHtml(
     headerHtml,
     answer,
     r && r.presentation,
     {
-      prefixHtml: unverifiedClaimHtml(r),
-      legacyBeforeHtml: activitySummaryHtml() + completionVerdictHtml(r),
-      extraHtml,
+      result: r,
+      changesHtml,
+      supportHtml,
+      warningsHtml: unverifiedClaimHtml(r),
+      legacyWorkHtml: activitySummaryHtml(),
+      legacyFinalHtml: completionVerdictHtml(r),
+      extraHtml: metaFooter(r, sel, durMs),
       retryable: Boolean(state.lastSend),
     },
   );
@@ -2911,6 +2928,7 @@ function finalize(status, r) {
   wireReceipt(el, sel, r);
   wirePlanCard(el, sel);
   wireChangesetCard(el);
+  wireStructuredEvidence(el);
   enhanceCodeBlocks(el);
   const cvRetry = el.querySelector('.completion-verdict [data-a="retry"]');
   if (cvRetry) cvRetry.onclick = () => retry();
@@ -2938,6 +2956,7 @@ function diffHunkLinesHtml(hunk) {
 
 function diffHunksHtml(file) {
   const hunks = file.hunks || [];
+  if (!hunks.length && file.sensitive) return '<div class="diff-empty sensitive">Sensitive diff content is hidden.</div>';
   if (!hunks.length) return '<div class="diff-empty">No textual hunk available.</div>';
   return hunks.map((h) => `<div class="diff-hunk">
       <div class="diff-hunk-head">@@ -${esc(h.old_start)},${esc(h.old_count)} +${esc(h.new_start)},${esc(h.new_count)} @@${h.heading ? " " + esc(h.heading) : ""}</div>
@@ -3028,7 +3047,7 @@ function diffFileCardHtml(file, opts) {
 // on disk and verified, or held (via "Ask before edits") for review before it
 // can ship. Both states reuse the same evidence and row markup; only the
 // "reviewing_diff" phase gets approve/reject actions.
-function changesetCardHtml(review, phase, testsStatus, statusMap) {
+function changesetCardHtml(review, phase, statusMap) {
   const files = (review && review.files) || [];
   if (!files.length) return "";
   const summary = review.summary || {};
@@ -3045,17 +3064,22 @@ function changesetCardHtml(review, phase, testsStatus, statusMap) {
       </span>`
     : "";
   const reviewNote = actionable ? `<span class="cs-review-note" data-cs-review-note>${pending} of ${files.length} pending review</span>` : "";
+  const evidenceFlags = `${summary.truncated ? '<span class="cs-evidence-flag">Diff truncated</span>' : ""}` +
+    `${summary.risky ? `<span class="cs-evidence-flag">${esc(summary.risky)} risky</span>` : ""}`;
   const filesHtml = files.map((file, index) => diffFileCardHtml(file, {
-    actionable, index, open: index === 0, letter: diffFileLetter(file, statusMap),
+    actionable,
+    index,
+    open: state.responseDensity === "detailed" || (state.responseDensity === "balanced" && index === 0),
+    letter: diffFileLetter(file, statusMap),
   })).join("");
   return `<section class="changeset-card ${actionable ? "changeset-proposed" : "changeset-applied"}" aria-label="Code changes" data-diff-actionable="${actionable ? "1" : "0"}">
     <div class="cs-head">
       ${badge}
+      ${evidenceFlags}
       <span class="cs-count">${files.length} file${files.length === 1 ? "" : "s"} changed</span>
       <span class="cs-stats">+${esc(summary.additions || 0)} −${esc(summary.deletions || 0)}</span>
       ${reviewNote}
       <span class="spacer"></span>
-      <span class="cs-tests">Tests: ${esc(String(testsStatus || "not run").replaceAll("_", " "))}</span>
       ${bulk}
     </div>
     ${filesHtml}
@@ -3158,6 +3182,18 @@ function wireChangesetCard(el) {
   });
 }
 
+function wireStructuredEvidence(el) {
+  el.querySelectorAll("[data-copy-command]").forEach((button) => {
+    button.onclick = () => {
+      const command = button.closest(".verification-command");
+      const code = command && command.querySelector("code");
+      if (!code) return;
+      copyText(code.textContent);
+      toast("Command copied to clipboard");
+    };
+  });
+}
+
 function workflowCardHtml(result) {
   const flow = result.workflow || {};
   const policy = result.agent_policy || {};
@@ -3174,11 +3210,9 @@ function workflowCardHtml(result) {
   const displayedActions = verdict && verdict.nextAction
     ? [verdict.nextAction]
     : (flow.next_actions || []);
-  const blockerItems = [...(flow.blockers || [])];
-  if (flow.blocker && !blockerItems.includes(flow.blocker)) blockerItems.push(flow.blocker);
-  const blockers = blockerItems.map((item) => `<div class="wf-blocker">${esc(item)}</div>`).join("");
   const actions = displayedActions.map((item) => `<li>${esc(item)}</li>`).join("");
-  const history = (flow.history || []).slice(-5).map((item) => {
+  const hasStructuredHistory = result.presentation && Array.isArray(result.presentation.activity) && result.presentation.activity.length;
+  const history = hasStructuredHistory ? "" : (flow.history || []).slice(-5).map((item) => {
     // Do not leave a hidden contradictory "Completed" terminal state in the
     // expandable timeline when the outcome verdict is non-completed.
     const phase = outcomeOverridesRuntime && String(item.phase || "").toLowerCase() === "completed"
@@ -3192,22 +3226,16 @@ function workflowCardHtml(result) {
   ).join("");
   const provider = flow.provider || {};
   const cost = flow.cost || {};
-  const gates = flow.safety_gates || {};
-  const failedGates = gates.failed || [];
   return `<div class="workflow-card">
     <div class="wf-head"><span>${esc(mode)}</span><span>${esc(displayedPhase)}</span></div>
     ${displayedMessage ? `<div class="wf-message">${esc(displayedMessage)}</div>` : ""}
-    <div class="wf-row"><span>Tests</span><strong>${esc(pretty(flow.tests_status))}</strong></div>
     <div class="wf-row"><span>PR</span><strong>${esc(flow.pr_url || "not opened")}</strong></div>
     <div class="wf-row"><span>Merge</span><strong>${esc(pretty(flow.merge_status))}</strong></div>
     ${flow.issue_number ? `<div class="wf-row"><span>Issue</span><strong>#${esc(flow.issue_number)}</strong></div>` : ""}
     ${provider.model ? `<div class="wf-row"><span>Provider</span><strong>${esc(provider.model)}</strong></div>` : ""}
     ${cost.estimated_actual_usd != null ? `<div class="wf-row"><span>Cost</span><strong>$${esc(Number(cost.estimated_actual_usd).toFixed(4))}</strong></div>` : ""}
-    ${failedGates.length ? `<div class="wf-row"><span>Failed gates</span><strong>${esc(failedGates.join(", "))}</strong></div>` : ""}
-    ${blockers}
     ${actions ? `<div class="wf-subhead">Next actions</div><ul class="wf-actions">${actions}</ul>` : ""}
     ${history ? `<details class="wf-history"><summary>Timeline · ${(flow.history || []).length} events</summary>${history}</details>` : ""}
-    ${changesetCardHtml(flow.diff_review, flow.phase, flow.tests_status, diffStatusMap(result.changed_files))}
   </div>`;
 }
 

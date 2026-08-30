@@ -580,9 +580,48 @@ kbd {
 .evidence-value { color: var(--ink); font-variant-numeric: tabular-nums; }
 .response-density-compact .evidence-bar { gap: 3px; }
 .response-density-compact .evidence-item { padding-block: 2px; }
-/* The reply claims success the verdict could not confirm (Round 5). Sits directly
-   above the answer body so the claim and the caveat are read together — a user who
-   only skims the prose still cannot miss that OPai did not verify it. */
+.verification-card, .response-warnings {
+  margin: var(--space-3) 0; border: 1px solid var(--border);
+  border-radius: var(--radius-md); background: var(--glass); overflow: hidden;
+}
+.verification-head {
+  display: flex; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3); color: var(--ink);
+  font-size: var(--type-label); font-weight: 700;
+}
+.verification-issue, .response-warning {
+  display: flex; gap: var(--space-2); padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border); color: var(--muted); font-size: var(--type-label);
+}
+.verification-issue, .response-warning.error { color: var(--red); }
+.response-warning.warning { color: var(--amber); }
+.warning-title { min-width: 58px; font-weight: 700; }
+.warning-message { color: var(--muted); }
+.verification-check { border-top: 1px solid var(--border); }
+.verification-check > summary {
+  display: grid; grid-template-columns: minmax(72px, auto) 1fr auto;
+  gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3);
+  cursor: pointer; color: var(--muted); font-size: var(--type-label);
+}
+.verification-kind { color: var(--blue); font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace; }
+.verification-requirement { color: var(--ink); }
+.verification-status { text-transform: capitalize; }
+.verification-check.failed .verification-status,
+.verification-check.timeout .verification-status { color: var(--red); }
+.verification-check.passed .verification-status { color: var(--green); }
+.verification-attempt { padding: var(--space-2) var(--space-3) var(--space-3); border-top: 1px solid var(--border); }
+.verification-attempt-head, .verification-command-head {
+  display: flex; justify-content: space-between; gap: var(--space-2);
+  color: var(--muted); font-size: var(--type-caption);
+}
+.verification-command { margin-top: var(--space-2); }
+.verification-command code {
+  display: block; margin-top: var(--space-1); padding: var(--space-2);
+  border-radius: var(--radius-sm); background: #090b10; color: var(--ink);
+  overflow-x: auto; white-space: pre; user-select: text;
+}
+.verification-output { margin-top: var(--space-2); color: var(--muted); font-size: var(--type-caption); }
+.verification-output pre { max-height: 240px; overflow: auto; white-space: pre-wrap; color: var(--muted); }
 .unverified-claim {
   display: flex; gap: var(--space-2); align-items: flex-start;
   margin: var(--space-2) 0; padding: var(--space-2) var(--space-3);
@@ -857,6 +896,7 @@ html.activity-select-off .gen, html.activity-select-off .timeline { user-select:
   border-image: linear-gradient(180deg, rgba(52, 211, 153, 0.5), rgba(52, 211, 153, 0.06)) 1;
   padding: var(--space-1) 0 var(--space-1) var(--space-3); margin: var(--space-1) 0;
 }
+.timeline[hidden] { display: none; }
 .tl-row { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--type-caption); color: var(--muted); animation: msgIn 0.2s var(--ease); }
 .tl-ic { width: 14px; text-align: center; font-size: var(--type-caption); flex-shrink: 0; }
 .tl-row.success .tl-ic { color: var(--green); }
@@ -930,6 +970,14 @@ html.activity-select-off .gen, html.activity-select-off .timeline { user-select:
 .work-log-row.blocked .work-log-status { color: var(--amber); }
 .work-log-row.completed .work-log-status,
 .work-log-row.passed .work-log-status { color: var(--green); }
+.response-content > .completion-verdict:last-child {
+  margin-top: var(--space-3); background: transparent; box-shadow: none;
+}
+.cs-evidence-flag {
+  color: var(--amber); background: rgba(230, 177, 94, 0.12);
+  border: 1px solid rgba(230, 177, 94, 0.32); border-radius: 999px;
+  padding: 2px var(--space-2); font-size: var(--type-caption); font-weight: 700;
+}
 .code-language {
   position: absolute; top: var(--space-2); left: var(--space-3);
   color: var(--faint); font-size: var(--type-caption); line-height: 1;
