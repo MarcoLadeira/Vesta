@@ -35,6 +35,12 @@ from .storage import UpdateStore
 ManifestFetcher = Callable[[str], bytes]
 RuntimeProbe = Callable[[], ActiveWorkStatus]
 
+# When this process began, near enough. A "restart to use it" banner is only
+# meaningful while the process it is talking to is the one that was running
+# when the update landed; compared against the operation's own updated_at,
+# this is how the app knows the restart it asked for already happened.
+_PROCESS_STARTED_AT = datetime.now(timezone.utc)
+
 
 _SAFE_DIAGNOSTICS = {
     "offline": "The update service is unreachable right now.",
@@ -1038,10 +1044,54 @@ class UpdateService:
         except InterprocessLockTimeout as exc:
             raise UpdateError("operation_busy", retriable=True) from exc
 
+    def _restart_already_happened(self, operation: UpdateOperation) -> bool:
+        """Whether a COMPLETED operation is still waiting on a restart.
+
+        A source fast-forward finishes with the new code on disk and the old
+        code still loaded in memory, so it lands COMPLETED saying "restart to
+        use it". Nothing cleared that. The next check falls inside the
+        four-hour minimum interval, so ``check(force=False)`` returns the same
+        operation untouched -- and the banner asking for a restart survives
+        the restart it asked for, for up to four hours, or until someone hits
+        Check again hard enough to force a real check. That is the bug.
+
+        The test is the process itself: if this process started *after* the
+        update was recorded, the restart it asked for has happened. Packaged
+        completions are unaffected -- they carry no diagnostic, so there was
+        never a banner to clear.
+        """
+
+        if operation.state is not UpdateState.COMPLETED:
+            return False
+        if not operation.safe_diagnostic:
+            return False
+        recorded = _parse_time(operation.updated_at)
+        return recorded is not None and recorded < _PROCESS_STARTED_AT
+
     def maintain(self) -> UpdateOperation:
         """Advance periodic discovery and persisted safe-boundary work."""
 
         current = self.reconcile_native_result()
+        if self._restart_already_happened(current):
+            try:
+                with self.store.operation_guard():
+                    latest = self._current_for(current.operation_id)
+                    if self._restart_already_happened(latest):
+                        checking = self._save(latest.transition(UpdateState.CHECKING))
+                        return self._save(
+                            checking.transition(
+                                UpdateState.UP_TO_DATE,
+                                safe_diagnostic="",
+                                error_category="",
+                                progress_label="",
+                                downloaded_bytes=0,
+                                total_bytes=0,
+                            )
+                        )
+            except (InterprocessLockTimeout, UpdateError):
+                # Another surface is mid-operation; the banner is stale, not
+                # harmful, and the next maintenance cycle clears it.
+                return current
         if current.state in {UpdateState.RESTARTING, UpdateState.ROLLING_BACK}:
             deadline = _parse_time(current.health_deadline_at)
             if deadline is not None and self._now() >= deadline:

@@ -1157,6 +1157,100 @@ def test_maintain_advances_a_stale_source_checkout_without_a_prompt(
     assert operation.state is UpdateState.COMPLETED
 
 
+def test_a_restart_banner_does_not_survive_the_restart_it_asked_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The bug, reproduced end to end.
+
+    A source fast-forward lands COMPLETED saying "restart to use it". The app
+    restarts. Startup calls maintain(), which checks with force=False -- and
+    the interval gate sees a successful check from seconds ago and returns the
+    same operation untouched. So the banner asking for a restart outlives the
+    restart, for up to the whole four-hour minimum interval, until someone
+    forces a check by hand.
+    """
+    import opai.update.service as service_module
+
+    service, _, _ = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD, CURRENT]
+    )
+    applied = service.check(force=True)
+    assert applied.state is UpdateState.COMPLETED
+    assert "Restart OPai" in applied.safe_diagnostic
+
+    # The restart: a new process, started after the update was recorded.
+    monkeypatch.setattr(
+        service_module,
+        "_PROCESS_STARTED_AT",
+        datetime.now(timezone.utc) + timedelta(seconds=5),
+    )
+    restarted, _, _ = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
+    )
+
+    operation = restarted.maintain()
+
+    assert operation.state is UpdateState.UP_TO_DATE
+    assert operation.safe_diagnostic == ""
+    assert operation.progress_label == ""
+
+
+def test_a_pending_restart_banner_survives_until_the_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The other half: it must not clear itself while the old process runs.
+
+    Same process, so the restart has not happened, so the banner is still the
+    truth and maintain() must leave it exactly where it is.
+    """
+    import opai.update.service as service_module
+
+    service, _, _ = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD, CURRENT]
+    )
+    monkeypatch.setattr(
+        service_module,
+        "_PROCESS_STARTED_AT",
+        datetime.now(timezone.utc) - timedelta(minutes=5),
+    )
+    applied = service.check(force=True)
+    assert applied.state is UpdateState.COMPLETED
+
+    operation = service.maintain()
+
+    assert operation.state is UpdateState.COMPLETED
+    assert "Restart OPai" in operation.safe_diagnostic
+
+
+def test_a_packaged_completion_is_left_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A packaged COMPLETED has already restarted and passed its health check.
+
+    It carries no diagnostic, so there was never a banner to clear, and
+    clearing it would rewrite the record of a finished install.
+    """
+    import opai.update.service as service_module
+
+    service, _, _ = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
+    )
+    monkeypatch.setattr(
+        service_module,
+        "_PROCESS_STARTED_AT",
+        datetime.now(timezone.utc) + timedelta(seconds=5),
+    )
+    finished = replace(
+        service.store.load_operation(),
+        state=UpdateState.COMPLETED,
+        safe_diagnostic="",
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    service.store.save_operation(finished)
+
+    assert service._restart_already_happened(finished) is False
+
+
 def test_automatic_policy_downloads_and_verifies_in_background(tmp_path: Path):
     policy = UpdatePolicy(
         automatic_downloads=True,
