@@ -161,21 +161,20 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
             seen.add(model_id)
             consent.append(model_id)
     clean["free_consent"] = consent[:32]
-    # Full Auto pin contract (#137): the pin is real only with an
-    # acknowledgement timestamp; a persisted full-auto default that is not
-    # pinned is reset to Safe Auto so a fresh session never reopens with
-    # broader authority than the user explicitly kept.
+    # The stored mode is kept exactly as stored. It used to be rewritten here:
+    # a persisted full-auto default was reset to Safe Auto on every load and
+    # every save unless a separate pin flag and acknowledgement timestamp were
+    # both present. That is what made a deliberately chosen mode fail to
+    # survive a restart -- the rewrite happened underneath every surface, so no
+    # amount of fixing the UI could have made the choice stick. The only
+    # validation left is the one above: an id that is not a real mode falls
+    # back, because nothing can render it.
+    #
+    # The pin fields stay in the schema so an existing preferences file still
+    # round-trips, but they no longer decide anything.
     clean["full_auto_pinned"] = clean.get("full_auto_pinned") is True
     ack = clean.get("full_auto_acknowledged_at")
     clean["full_auto_acknowledged_at"] = str(ack) if isinstance(ack, str) else ""
-    pinned = clean["full_auto_pinned"] and bool(
-        clean["full_auto_acknowledged_at"].strip()
-    )
-    if not pinned:
-        clean["full_auto_pinned"] = False
-        clean["full_auto_acknowledged_at"] = ""
-        if clean.get("default_mode") == "full-auto":
-            clean["default_mode"] = DEFAULT_MODE
     clean["schema_version"] = 3
     return clean
 

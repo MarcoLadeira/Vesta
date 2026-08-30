@@ -14,14 +14,6 @@ async function trapNativeConfirm(page) {
   });
 }
 
-test("Full Auto uses the styled card, never window.confirm", async ({ page }) => {
-  await trapNativeConfirm(page);
-  await openApp(page);
-  await page.selectOption("#modeSel", "full-auto");
-  await expect(page.locator(".inline-confirm")).toBeVisible();
-  expect(await page.evaluate(() => window.__nativeConfirmCalls)).toBe(0);
-});
-
 test("account disconnect uses the styled card, never window.confirm", async ({ page }) => {
   await trapNativeConfirm(page);
   await openApp(page);
@@ -32,10 +24,12 @@ test("account disconnect uses the styled card, never window.confirm", async ({ p
 });
 
 test("the confirm card can be dismissed with Escape (#151)", async ({ page }) => {
+  // Was driven off the Full Auto pin card, which no longer exists. Account
+  // disconnect is a real remaining confirmation, so the property is unchanged.
   await openApp(page);
-  await page.selectOption("#modeSel", "full-auto");
-  await expect(page.locator(".inline-confirm")).toBeVisible();
+  await openSettings(page, "providers");
+  await page.locator('[data-disconnect-account="claude"]').click();
+  await expect(page.locator(".inline-confirm").first()).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.locator("#modeSel")).toHaveValue("safe-auto");
-  expect(await page.evaluate(() => window.__mock.fullAutoPins)).toBe(0);
+  await expect(page.locator(".inline-confirm")).toHaveCount(0);
 });

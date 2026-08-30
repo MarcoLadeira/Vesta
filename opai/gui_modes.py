@@ -299,29 +299,19 @@ def describe_controls(run_mode: str | None, focus: str | None) -> dict[str, Any]
 def plan_mode_selection(selected_mode: str, prefs: dict[str, Any]) -> dict[str, Any]:
     """Decide what picking a run mode in the composer must do (F16, #137).
 
-    Qt-free so both GUIs share one rule and the classic pin flow is testable
-    without a display. Selecting Full Auto while it is not pinned must NOT
-    persist a bare full-auto default (the save would be silently downgraded to
-    Safe Auto while the combo still shows Full Auto — the original F16 lie):
-    the caller must first run the explicit pin acknowledgement and only then
-    persist via ``opaihub.gui_preferences.pin_full_auto``. Any other selection
-    (or Full Auto while already pinned) persists directly.
+    Qt-free so both GUIs share one rule and it is testable without a display.
+
+    Every selection persists, including Full Auto. It used to demand a pin
+    acknowledgement first, because a bare full-auto default would otherwise be
+    downgraded on the way back in while the combo still showed Full Auto (the
+    original F16 lie). The downgrade is gone, so the lie it guarded against
+    cannot happen -- and the modal that stood in for it was landing on every
+    single launch for anyone whose chosen mode was Full Auto.
     """
-    from opaihub.autonomy import is_full_auto_pinned, resolve_startup_mode
+    from opaihub.autonomy import is_full_auto_pinned
 
     mode = str(selected_mode or "").strip() or "safe-auto"
     pinned = is_full_auto_pinned(prefs)
-    if mode == "full-auto" and not pinned:
-        return {
-            "action": "confirm_pin",
-            "selected_mode": mode,
-            "needs_pin_confirmation": True,
-            "pinned": False,
-            # Where the combo must revert to when the pin is declined: the
-            # effective mode for the current preferences — never the stale
-            # selection.
-            "effective_mode": resolve_startup_mode(prefs).effective_mode,
-        }
     return {
         "action": "persist",
         "selected_mode": mode,

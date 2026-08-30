@@ -63,9 +63,21 @@ export default defineConfig({
     // loads serialize on slower hosted Windows runners and causes false test
     // timeouts.  Keep the zero-dependency server, but handle each request in
     // its own thread just as the production web server would.
-    command: "python -c \"from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler; ThreadingHTTPServer(('localhost', 8099), SimpleHTTPRequestHandler).serve_forever()\"",
+    //
+    // `directory` is explicit rather than inherited from the working
+    // directory, so what is served cannot depend on where the process happened
+    // to be started.
+    command:
+      "python -c \"import functools;from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler;" +
+      "h=functools.partial(SimpleHTTPRequestHandler, directory='.');" +
+      "ThreadingHTTPServer(('localhost', 8099), h).serve_forever()\"",
     port: 8099,
-    reuseExistingServer: true,
+    // Never inherit a server this config did not start. Playwright cannot tell
+    // whether something already on the port serves the right tree, and a stale
+    // one silently turns every spec into a test of old assets: a suite that
+    // passes while proving nothing, or fails on code that is already fixed.
+    // Starting one costs about a second; that is the cheaper mistake.
+    reuseExistingServer: false,
     timeout: 20000,
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],

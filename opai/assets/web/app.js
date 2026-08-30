@@ -218,7 +218,6 @@ function boot() {
     renderResumeChoice();
     // F16: if this workspace requests Full Auto but has no pin, surface the
     // acknowledgement even though no dropdown change event fired.
-    maybeOfferFullAutoPin();
     // #246: the inspector payload is deferred at boot; fetch it now only if the
     // panel is actually visible. When hidden (the default), togglePanel loads it
     // on first open — so cold boot skips the work entirely.
@@ -252,7 +251,6 @@ function boot() {
     toast("Workspace switched");
     // F16: the new workspace may request Full Auto without a pin — the ack
     // must be offered even though no dropdown change event fired.
-    maybeOfferFullAutoPin();
   });
   if (bridge.modelsChanged) bridge.modelsChanged.connect((json) => {
     const catalog = JSON.parse(json);
@@ -841,21 +839,11 @@ function renderComposerSelects() {
     if (m.id === state.mode.id) o.selected = true; modeSel.appendChild(o);
   });
   modeSel.onchange = () => {
-    // Full Auto edits files and runs commands without asking, so it is only
-    // ever the effective mode when explicitly pinned (#137). Selecting it
-    // asks for acknowledgement, then pins via the dedicated bridge slot — a
-    // plain savePref for full-auto is deliberately downgraded server-side.
-    if (modeSel.value === "full-auto") {
-      // Revert the selector until the styled card is confirmed (#151).
-      modeSel.value = state.mode.id;
-      offerFullAutoPinAck();
-      return;
-    }
-    // Leaving Full Auto unpins it so the durable default falls back to safe.
-    if (state.mode.id === "full-auto" && bridge.unpinFullAuto) {
-      bridge.unpinFullAuto(() => { maybeOfferFullAutoPin(); });
-      state.boot.prefs.fullAutoPinned = false;
-    }
+    // A chosen mode is the mode, and it is durable. Full Auto used to be the
+    // exception: picking it opened an acknowledgement modal and pinned via a
+    // dedicated bridge slot, because a plain savePref was downgraded server
+    // side. The downgrade is gone, so a mode now persists by being picked —
+    // across restarts, reboots and workspace switches — like any other setting.
     state.mode = state.boot.modes.find((m) => m.id === modeSel.value) || state.mode;
     bridge.savePref("default_mode", state.mode.id);
     // Keep the local autonomy snapshot coherent: an explicit non-Full-Auto
@@ -864,7 +852,6 @@ function renderComposerSelects() {
     if (state.boot.autonomy) {
       state.boot.autonomy.requested_mode = state.mode.id;
       state.boot.autonomy.effective_mode = state.mode.id;
-      state.boot.autonomy.downgraded = false;
     }
     // The run mode is a local, explicit user selection. Paint it in the header
     // immediately, then let the asynchronous status refresh fill in its
@@ -1033,68 +1020,6 @@ function renderContextHints() {
   root.querySelectorAll("[data-context-index]").forEach((button) => {
     button.onclick = () => { state.contextHints.splice(Number(button.dataset.contextIndex), 1); renderContextHints(); };
   });
-}
-
-// The Full Auto acknowledgement (#137/#151), extracted so it can be offered
-// from the composer dropdown AND proactively after a boot/workspace switch —
-// the stale-dropdown bug (F16) made this ack unreachable when the select
-// already displayed Full Auto.
-function offerFullAutoPinAck() {
-  state.fullAutoAckOpen = true;
-  chatConfirm({
-    title: "Pin Auto-apply?",
-    // Auto-apply maps to bypass autonomy, so remote writes and destructive
-    // actions run without confirmation. Keep that warning explicit because
-    // the pin persists until the user unpins it.
-    body: "Auto-apply lets OPai edit files, run commands, commit, push, and merge pull requests without asking first. It stays on until you unpin it. Nothing is held back for confirmation in this mode — including force-push and deletes — so pin it only for work you want run unattended.",
-    confirmLabel: "Pin Auto-apply",
-    cancelLabel: "Keep current mode",
-    danger: true,
-  }).then((ok) => {
-    state.fullAutoAckOpen = false;
-    if (!ok) {
-      // Declined: if Full Auto was being shown optimistically (e.g. carried
-      // over from another workspace), fall back to the mode the engine
-      // actually resolved for THIS workspace and paint it honestly.
-      if (state.mode.id === "full-auto") {
-        const eff = ((state.boot && state.boot.autonomy) || {}).effective_mode || "safe-auto";
-        state.mode = (state.boot.modes || []).find((m) => m.id === eff) || state.mode;
-      }
-      renderComposerSelects(); refreshInspector(); refreshStatus();
-      return;
-    }
-    if (!bridge.pinFullAuto) return;
-    bridge.pinFullAuto((res) => {
-      try {
-        const d = JSON.parse(res);
-        state.boot.prefs.fullAutoPinned = !!d.full_auto_pinned;
-        if (state.boot.autonomy) {
-          state.boot.autonomy.effective_mode = d.effective_mode || state.boot.autonomy.effective_mode;
-          state.boot.autonomy.full_auto_pinned = !!d.full_auto_pinned;
-          state.boot.autonomy.downgraded = !d.full_auto_pinned && state.boot.autonomy.requested_mode === "full-auto";
-        }
-      } catch (e) {}
-      maybeOfferFullAutoPin();
-    });
-    state.mode = state.boot.modes.find((m) => m.id === "full-auto") || state.mode;
-    // Round 5 finding 4: setting the hidden <select> is not enough. The composer's
-    // own run-mode button reads its label from state on refresh(), so pinning left
-    // the top bar saying "Full Auto" and the composer still saying "Ask" until the
-    // next send happened to refresh it. Repaint every mode surface here, the same
-    // way the decline path above already does.
-    renderComposerSelects(); refreshInspector(); refreshStatus();
-  });
-}
-
-// Offer the pin ack whenever the CURRENT workspace requests Full Auto but has
-// no pin for it — regardless of whether a dropdown change event fired (F16).
-function maybeOfferFullAutoPin() {
-  if (state.fullAutoAckOpen) return;
-  const prefs = (state.boot && state.boot.prefs) || {};
-  const autonomy = (state.boot && state.boot.autonomy) || {};
-  if (prefs.fullAutoPinned) return;
-  if (autonomy.requested_mode !== "full-auto" && state.mode.id !== "full-auto") return;
-  offerFullAutoPinAck();
 }
 
 function setProviderDot() {

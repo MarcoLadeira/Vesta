@@ -1,4 +1,16 @@
-"""Pin-aware Full Auto autonomy (#137): one effective-mode rule everywhere."""
+"""One effective-mode rule everywhere, and a mode that stays picked (#137).
+
+Full Auto used to be conditional: honoured only while a separate pin flag and
+an acknowledgement timestamp were both present, and silently rewritten to Safe
+Auto otherwise -- in ``effective_mode``, and again in the preferences
+sanitiser on every load and every save. Two layers, both invisible to the UI,
+which is why no amount of fixing the composer made a chosen mode survive a
+restart. It also meant a modal on every launch for anyone whose chosen mode
+was Full Auto.
+
+These tests now pin the opposite contract: a valid mode is returned unchanged
+and stored unchanged, whatever it is, and only an unrecognised id falls back.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +23,6 @@ from pathlib import Path
 from opaihub.autonomy import (
     AutonomyDecision,
     effective_mode,
-    is_full_auto_pinned,
     resolve_startup_mode,
 )
 from opaihub.gui_preferences import (
@@ -26,33 +37,36 @@ from tests._helpers import make_repo
 
 
 class EffectiveModeTests(unittest.TestCase):
-    def test_unpinned_full_auto_downgrades_to_safe_auto(self):
-        decision = effective_mode("full-auto", {"full_auto_pinned": False})
-        self.assertEqual(decision.effective_mode, "safe-auto")
-        self.assertTrue(decision.downgraded)
+    def test_full_auto_is_honoured_with_no_pin_of_any_kind(self):
+        """The mode a user picked is the mode they get, with no ceremony."""
+        decision = effective_mode("full-auto", {})
+        self.assertEqual(decision.effective_mode, "full-auto")
+        self.assertFalse(decision.downgraded)
         self.assertEqual(decision.requested_mode, "full-auto")
 
-    def test_pinned_full_auto_is_honored(self):
+    def test_a_legacy_pinned_preferences_file_still_means_the_same_thing(self):
         prefs = {"full_auto_pinned": True, "full_auto_acknowledged_at": "2026-07-06"}
         decision = effective_mode("full-auto", prefs)
         self.assertEqual(decision.effective_mode, "full-auto")
         self.assertFalse(decision.downgraded)
 
-    def test_pin_flag_without_acknowledgement_is_not_pinned(self):
-        prefs = {"full_auto_pinned": True, "full_auto_acknowledged_at": ""}
-        self.assertFalse(is_full_auto_pinned(prefs))
-        self.assertEqual(effective_mode("full-auto", prefs).effective_mode, "safe-auto")
-
-    def test_string_pin_flag_never_grants_full_auto_authority(self):
-        prefs = {
-            "full_auto_pinned": "false",
-            "full_auto_acknowledged_at": "2026-07-06T00:00:00+00:00",
-        }
-        self.assertFalse(is_full_auto_pinned(prefs))
-        self.assertEqual(effective_mode("full-auto", prefs).effective_mode, "safe-auto")
+    def test_every_mode_is_honoured_from_the_stored_default_alone(self):
+        """The restart case: nothing is requested, so the default decides."""
+        for mode in (
+            "ask",
+            "plan",
+            "approve-edits",
+            "safe-auto",
+            "auto-edits",
+            "full-auto",
+        ):
+            with self.subTest(mode=mode):
+                decision = effective_mode(None, {"default_mode": mode})
+                self.assertEqual(decision.effective_mode, mode)
+                self.assertFalse(decision.downgraded)
 
     def test_other_modes_pass_through(self):
-        for mode in ("ask", "plan", "safe-auto", "approve-edits"):
+        for mode in ("ask", "plan", "safe-auto", "approve-edits", "auto-edits"):
             self.assertEqual(effective_mode(mode, {}).effective_mode, mode)
 
     def test_unknown_mode_falls_back_to_safe_auto(self):
@@ -66,8 +80,8 @@ class EffectiveModeTests(unittest.TestCase):
 
     def test_decision_serializes(self):
         payload = effective_mode("full-auto", {}).to_dict()
-        self.assertEqual(payload["effective_mode"], "safe-auto")
-        self.assertEqual(payload["effective_label"], "Safe Auto")
+        self.assertEqual(payload["effective_mode"], "full-auto")
+        self.assertEqual(payload["effective_label"], "Full Auto")
         self.assertIn("reason", payload)
         self.assertIsInstance(
             AutonomyDecision("full-auto", "safe-auto", False, True, "x"),
@@ -94,38 +108,24 @@ class PreferenceMigrationTests(unittest.TestCase):
         self.assertFalse(prefs["full_auto_pinned"])
         self.assertEqual(prefs["schema_version"], 3)
 
-    def test_persisted_full_auto_without_pin_is_reset_on_load(self):
-        # A legacy schema-2 file that persisted the unsafe default.
-        self._write_raw({"schema_version": 2, "default_mode": "full-auto"})
-        prefs = load_gui_preferences(self.root)
-        self.assertEqual(prefs["default_mode"], "safe-auto")
-        self.assertFalse(prefs["full_auto_pinned"])
+    def test_a_persisted_mode_survives_a_load_without_any_pin(self):
+        """The reported bug, at the layer that actually caused it.
 
-    def test_pin_flag_without_timestamp_is_not_trusted(self):
-        self._write_raw(
-            {
-                "default_mode": "full-auto",
-                "full_auto_pinned": True,
-                "full_auto_acknowledged_at": "",
-            }
-        )
-        prefs = load_gui_preferences(self.root)
-        self.assertEqual(prefs["default_mode"], "safe-auto")
-        self.assertFalse(prefs["full_auto_pinned"])
+        The sanitiser rewrote an unpinned full-auto default back to Safe Auto
+        on load, underneath every surface. So the app forgot a deliberate
+        choice on every launch and no UI fix could have made it stick.
+        """
+        for mode in ("full-auto", "auto-edits", "approve-edits", "plan"):
+            with self.subTest(mode=mode):
+                self._write_raw({"schema_version": 2, "default_mode": mode})
+                self.assertEqual(load_gui_preferences(self.root)["default_mode"], mode)
 
-    def test_string_pin_flag_with_timestamp_is_not_trusted(self):
-        self._write_raw(
-            {
-                "default_mode": "full-auto",
-                "full_auto_pinned": "false",
-                "full_auto_acknowledged_at": "2026-07-06T00:00:00+00:00",
-            }
-        )
-        prefs = load_gui_preferences(self.root)
-        self.assertEqual(prefs["default_mode"], "safe-auto")
-        self.assertFalse(prefs["full_auto_pinned"])
+    def test_an_unrecognised_stored_mode_still_falls_back(self):
+        """The one rewrite left, and it is not a policy judgement."""
+        self._write_raw({"schema_version": 2, "default_mode": "yolo"})
+        self.assertEqual(load_gui_preferences(self.root)["default_mode"], "safe-auto")
 
-    def test_properly_pinned_full_auto_survives_load(self):
+    def test_legacy_pin_fields_still_round_trip(self):
         self._write_raw(
             {
                 "default_mode": "full-auto",
@@ -149,9 +149,13 @@ class PreferenceMigrationTests(unittest.TestCase):
         self.assertEqual(unpinned["default_mode"], "safe-auto")
         self.assertEqual(resolve_startup_mode(unpinned).effective_mode, "safe-auto")
 
-    def test_saving_full_auto_default_without_pin_does_not_stick(self):
-        prefs = save_gui_preferences(self.root, {"default_mode": "full-auto"})
-        self.assertEqual(prefs["default_mode"], "safe-auto")
+    def test_saving_a_mode_sticks_including_full_auto(self):
+        """The other half of the same bug: the save was rewritten too."""
+        for mode in ("full-auto", "auto-edits", "ask"):
+            with self.subTest(mode=mode):
+                saved = save_gui_preferences(self.root, {"default_mode": mode})
+                self.assertEqual(saved["default_mode"], mode)
+                self.assertEqual(load_gui_preferences(self.root)["default_mode"], mode)
 
     def test_saving_preferences_uses_one_locked_atomic_transaction(self):
         path = preference_path(self.root)
@@ -177,7 +181,7 @@ class SurfaceParityTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_pipeline_downgrades_unpinned_full_auto_request(self):
+    def test_pipeline_runs_the_mode_it_was_asked_for(self):
         from opaihub.gui_pipeline import handle_gui_message
         from tests._helpers import FakeAccountRunner
 
@@ -189,25 +193,26 @@ class SurfaceParityTests(unittest.TestCase):
             account_runner=FakeAccountRunner(text="done", cost=0.01),
         )
         self.assertEqual(result["autonomy"]["requested_mode"], "full-auto")
-        self.assertEqual(result["autonomy"]["effective_mode"], "safe-auto")
-        self.assertTrue(result["autonomy"]["downgraded"])
+        self.assertEqual(result["autonomy"]["effective_mode"], "full-auto")
+        self.assertFalse(result["autonomy"]["downgraded"])
 
     def test_web_and_desktop_boot_report_the_same_effective_mode(self):
         from opai.gui_desktop import run_once
         from opai.gui_web import boot_payload
 
-        # Legacy unsafe default persisted.
+        # A bare full-auto default, with no pin and no acknowledgement: the
+        # exact file shape that used to be rewritten on the way in. Both
+        # surfaces must now boot into it, and must agree.
         save_gui_preferences(self.root, {"default_mode": "safe-auto"})
         path = preference_path(self.root)
         path.write_text(json.dumps({"default_mode": "full-auto"}), encoding="utf-8")
 
         web = boot_payload(self.root)
         desktop = run_once(self.root)
-        self.assertEqual(web["prefs"]["mode"], "safe-auto")
-        self.assertFalse(web["prefs"]["fullAutoPinned"])
-        self.assertEqual(web["autonomy"]["effective_mode"], "safe-auto")
-        self.assertEqual(desktop["mode"], "safe-auto")
-        self.assertFalse(desktop["auto_policy"]["full_auto_pinned"])
+        self.assertEqual(web["prefs"]["mode"], "full-auto")
+        self.assertEqual(web["autonomy"]["effective_mode"], "full-auto")
+        self.assertEqual(desktop["mode"], "full-auto")
+        self.assertEqual(desktop["mode"], web["prefs"]["mode"])
 
     def test_cli_pin_unpin_parity(self):
         import contextlib

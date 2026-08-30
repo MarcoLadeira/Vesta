@@ -865,22 +865,16 @@
     ) {
       modelOptions.unshift({ id: "auto", label: "OPai · Auto mode" });
     }
-    // Full Auto is deliberately absent: it can only be pinned from the
-    // composer with an explicit acknowledgement (#137); a bare savePref for it
-    // is downgraded server-side.
-    var modeOptions = ["ask", "plan", "approve-edits", "safe-auto", "auto-edits"].map(function (id) {
-      return { id: id, label: modePresentationLabel(id, MODE_LABELS[id]) };
-    });
-    // A pinned Auto-apply default must remain visible and truthful here, but
-    // disabled so this page cannot become an alternate path around the
-    // composer's acknowledgement gate.
-    if (prefs.default_mode === "full-auto") {
-      modeOptions.push({
-        id: "full-auto",
-        label: modePresentationLabel("full-auto", MODE_LABELS["full-auto"]),
-        disabled: true,
-      });
-    }
+    // Every mode is selectable here, Full Auto included. It used to be absent
+    // (and shown disabled if it was already your default) because a bare
+    // savePref for it was downgraded server side, so this page would have been
+    // an alternate route around the composer's acknowledgement gate. There is
+    // no downgrade and no gate any more: a mode persists by being picked.
+    var modeOptions = ["ask", "plan", "approve-edits", "safe-auto", "auto-edits", "full-auto"].map(
+      function (id) {
+        return { id: id, label: modePresentationLabel(id, MODE_LABELS[id]) };
+      }
+    );
     var focusOptions = (boot.taskModes || []).map(function (m) {
       return { id: m.id, label: m.label };
     });
@@ -900,7 +894,7 @@
       "default_mode",
       modeOptions,
       MODE_LABELS[prefs.default_mode] ? prefs.default_mode : "safe-auto",
-      "Auto-apply can only be pinned from the composer, with an explicit acknowledgement."
+      "Whatever you pick here is what OPai starts in, every time."
     );
     h += selectRow("Task focus", "default_task_mode", focusOptions, ctx.state.focus);
     h += selectRow("Output format", "default_output_format", formatOptions, ctx.state.format);
@@ -1238,7 +1232,7 @@
       var METER = { ask: 16, plan: 30, "approve-edits": 48, "safe-auto": 64, "auto-edits": 82, "full-auto": 100 };
       h += '<div class="set-head">Run modes</div>';
       h +=
-        '<div class="set-note">Switch modes from the composer. Auto-apply acts without asking and must be pinned there with an acknowledgement.</div>';
+        '<div class="set-note">Switch modes from the composer. Auto-apply acts without asking, and like every mode it stays selected until you change it.</div>';
       d.modePermissions.forEach(function (mode) {
         var width = METER[mode.id] || 20;
         h +=
