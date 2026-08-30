@@ -19,6 +19,7 @@ of truth for both surfaces.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import importlib.util
@@ -2474,6 +2475,66 @@ def _run_gui(
             )
             selected = [chosen] if chosen else []
             return json.dumps(context_picker_payload(self.root, selected))
+
+        @QtCore.Slot(str, str, result=str)
+        def attachImage(self, data: str, name: str) -> str:
+            """Store one pasted or dropped image and return its reference.
+
+            The bytes arrive from a web context, so nothing about them is
+            trusted here -- opaihub.attachments does the sniffing, the capping
+            and the containment. This slot only routes, and turns a rejection
+            into a message the composer can show.
+            """
+
+            from opaihub.attachments import AttachmentError, store_image
+
+            try:
+                stored = store_image(self.root, data, name=name)
+            except AttachmentError as exc:
+                return json.dumps({"ok": False, "error": str(exc)})
+            except Exception:  # noqa: BLE001 - never leak a host path or trace
+                _LOG.debug("Attachment storage failed", exc_info=True)
+                return json.dumps(
+                    {"ok": False, "error": "OPai could not save the image."}
+                )
+            return json.dumps({"ok": True, **stored.to_dict()})
+
+        @QtCore.Slot(result=str)
+        def pickImages(self) -> str:
+            """Choose images with the native picker, from anywhere on disk.
+
+            Deliberately not the context picker. That one only accepts paths
+            *inside* the workspace, which is right for source files and wrong
+            for images: a screenshot lives on the desktop, and refusing it
+            would fail the most ordinary case there is. These are copied in,
+            so the reference is workspace-relative like every other one.
+            """
+
+            from opaihub.attachments import (
+                MAX_PER_MESSAGE,
+                AttachmentError,
+                store_image,
+            )
+
+            self.window.raise_()
+            self.window.activateWindow()
+            chosen, _filter = QtWidgets.QFileDialog.getOpenFileNames(
+                self.window,
+                "Attach images",
+                str(self.root),
+                "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)",
+            )
+            images: list[dict[str, object]] = []
+            rejected = 0
+            for raw in chosen[:MAX_PER_MESSAGE]:
+                try:
+                    payload = base64.b64encode(Path(raw).read_bytes()).decode("ascii")
+                    stored = store_image(self.root, payload, name=Path(raw).name)
+                except (AttachmentError, OSError, ValueError):
+                    rejected += 1
+                    continue
+                images.append(stored.to_dict())
+            return json.dumps({"ok": True, "images": images, "rejected": rejected})
 
         @QtCore.Slot(str)
         def switchWorkspace(self, path: str) -> None:

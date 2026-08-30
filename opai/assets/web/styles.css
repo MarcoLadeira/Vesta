@@ -1982,3 +1982,33 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   .composer[data-composer-style="toolbar"] .ctool-model .chev { display: none; }
   .composer-summary { display: none; }
 }
+
+/* Image attachments: a chip that shows the picture, because a filename is not
+   what anyone recognises a screenshot by. The preview is the bytes already in
+   hand from the paste, so nothing is read back from disk to draw it. */
+.context-hint.context-image {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 4px;
+}
+.context-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+.context-image-name {
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A drop is only obvious if the target says so before the mouse is released. */
+.composer.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 3px;
+}

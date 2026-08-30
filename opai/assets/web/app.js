@@ -61,6 +61,11 @@ const state = {
   expandedGroups: new Set(), stripColor: "",
   resumePending: false,
   contextHints: [],
+  // path -> {name, thumb}. Kept beside contextHints rather than inside it
+  // so an image is still an ordinary context reference on the wire: the
+  // send path, the pipeline and every provider stay untouched. This map
+  // only decides how the chip is drawn.
+  attachments: {},
   // Shell-style prompt history for the composer. `index` is -1 when the user
   // is editing their own text; `draft` holds that text so stepping back down
   // past the newest entry restores it instead of losing it.
@@ -209,6 +214,7 @@ function boot() {
     renderStatus(b.status); renderAccount(); applyPanel();
     renderEmptyChips();
     wireUpdateSheet();
+    wireImageAttachments();
     renderUpdateBanner(b.update);
     syncBuildMode();
     // Composer Redesign: apply the saved direction (toolbar / single / command).
@@ -1014,11 +1020,120 @@ function addContextHint(value) {
 function renderContextHints() {
   const root = $("#contextHints");
   if (!root) return;
-  root.innerHTML = state.contextHints.map((path, index) =>
-    `<span class="context-hint">@${esc(path)}<button class="context-remove" type="button" aria-label="Remove ${esc(path)}" data-context-index="${index}">${uiIcon("close")}</button></span>`
-  ).join("");
+  root.innerHTML = state.contextHints.map((path, index) => {
+    const image = state.attachments[path];
+    const remove = `<button class="context-remove" type="button" aria-label="Remove ${esc(image ? image.name : path)}" data-context-index="${index}">${uiIcon("close")}</button>`;
+    if (!image) {
+      return `<span class="context-hint">@${esc(path)}${remove}</span>`;
+    }
+    // The preview is the bytes already in hand from the paste — no second
+    // read, and nothing to load from disk.
+    return (
+      `<span class="context-hint context-image" title="${esc(path)}">` +
+      `<img class="context-thumb" src="${esc(image.thumb)}" alt="" />` +
+      `<span class="context-image-name">${esc(image.name)}</span>${remove}</span>`
+    );
+  }).join("");
   root.querySelectorAll("[data-context-index]").forEach((button) => {
-    button.onclick = () => { state.contextHints.splice(Number(button.dataset.contextIndex), 1); renderContextHints(); };
+    button.onclick = () => {
+      const [path] = state.contextHints.splice(Number(button.dataset.contextIndex), 1);
+      delete state.attachments[path];
+      renderContextHints();
+    };
+  });
+}
+
+// Everything that can carry an image into the composer funnels through here:
+// a clipboard paste, a drop from the file manager, and the native picker. They
+// differ only in where the bytes come from; past this point there is one path,
+// so a fix or a limit can never apply to some of them and not the others.
+const IMAGE_ATTACH_LIMIT = 8;
+
+function attachImageBlob(file) {
+  if (!file || !bridge || !bridge.attachImage) return Promise.resolve(false);
+  if (state.contextHints.length >= IMAGE_ATTACH_LIMIT + 24) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onerror = () => { toast("That image could not be read."); resolve(false); };
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      bridge.attachImage(dataUrl, file.name || "", (raw) => {
+        let result = {};
+        try { result = JSON.parse(raw || "{}"); } catch (_e) { result = {}; }
+        if (!result.ok || !result.path) {
+          // The host decides what is and is not an image; it also writes the
+          // refusal, so the user reads one explanation rather than two.
+          toast(result.error || "That image could not be attached.");
+          resolve(false);
+          return;
+        }
+        state.attachments[result.path] = { name: result.name || "Image", thumb: dataUrl };
+        addContextHint(result.path);
+        resolve(true);
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function imagesFromTransfer(transfer) {
+  if (!transfer) return [];
+  const out = [];
+  // `items` is where a clipboard screenshot lives (it has no entry in
+  // `files` in every browser); `files` is where a dragged or copied file
+  // lives. Reading both, de-duplicated, is what makes paste and drop behave
+  // the same way for the same picture.
+  const items = transfer.items ? Array.from(transfer.items) : [];
+  items.forEach((item) => {
+    if (item.kind === "file" && String(item.type || "").startsWith("image/")) {
+      const file = item.getAsFile();
+      if (file) out.push(file);
+    }
+  });
+  const files = transfer.files ? Array.from(transfer.files) : [];
+  files.forEach((file) => {
+    if (!String(file.type || "").startsWith("image/")) return;
+    if (out.some((seen) => seen.name === file.name && seen.size === file.size)) return;
+    out.push(file);
+  });
+  return out.slice(0, IMAGE_ATTACH_LIMIT);
+}
+
+async function attachImagesFrom(transfer) {
+  const images = imagesFromTransfer(transfer);
+  if (!images.length) return false;
+  for (const file of images) await attachImageBlob(file);
+  return true;
+}
+
+function wireImageAttachments() {
+  const input = $("#input");
+  if (!input || input.dataset.imagesWired) return;
+  input.dataset.imagesWired = "1";
+  input.addEventListener("paste", (event) => {
+    // Only claim the paste when it actually carries an image. Text pasted
+    // alongside one must still land in the box, so preventDefault is not a
+    // blanket -- it applies to the image case only.
+    if (!imagesFromTransfer(event.clipboardData).length) return;
+    event.preventDefault();
+    attachImagesFrom(event.clipboardData);
+  });
+  const dropZone = $("#composer") || input;
+  ["dragenter", "dragover"].forEach((name) => {
+    dropZone.addEventListener(name, (event) => {
+      if (!Array.from((event.dataTransfer || {}).types || []).includes("Files")) return;
+      event.preventDefault();
+      dropZone.classList.add("drop-target");
+    });
+  });
+  ["dragleave", "dragend"].forEach((name) => {
+    dropZone.addEventListener(name, () => dropZone.classList.remove("drop-target"));
+  });
+  dropZone.addEventListener("drop", (event) => {
+    if (!imagesFromTransfer(event.dataTransfer).length) return;
+    event.preventDefault();
+    dropZone.classList.remove("drop-target");
+    attachImagesFrom(event.dataTransfer);
   });
 }
 
@@ -1328,6 +1443,7 @@ function renderResumedPendingAction(resume, action, messages) {
     modelLabel: action.modelLabel,
     modelProvider: provider,
     contextHints: [],
+    attachments: {},
     build: String(((resume.thread || {}).mode) || "") === "build",
   };
   // Restoring the inert selection does not grant authority. renderErrorCard's
@@ -3983,6 +4099,21 @@ if (typeof window !== "undefined") {
     pickContextFolder: (done) => {
       if (bridge && bridge.pickContextFolder) bridge.pickContextFolder(done);
       else if (done) done(JSON.stringify({ paths: [], rejected: 0 }));
+    },
+    // Images are picked with their own dialog because the context picker
+    // only accepts paths inside the workspace -- right for source files,
+    // wrong for a screenshot on the desktop. These are copied in instead.
+    pickImages: (done) => {
+      if (bridge && bridge.pickImages) bridge.pickImages(done);
+      else if (done) done(JSON.stringify({ ok: true, images: [], rejected: 0 }));
+    },
+    addImageAttachment: (image) => {
+      if (!image || !image.path) return;
+      state.attachments[image.path] = {
+        name: image.name || "Image",
+        thumb: image.thumb || "",
+      };
+      addContextHint(image.path);
     },
     notify: (message) => toast(message),
     // Composer actions deep-link to the Settings page that owns the control.

@@ -169,6 +169,7 @@
     pop.innerHTML =
       '<div class="cpop-head">Add context</div>' +
       '<button type="button" role="menuitem" class="cpop-row" data-act="file"><span class="cpop-ico">' + icon("file") + '</span><span class="cpop-body"><span class="cpop-title">Attach files…</span></span></button>' +
+      '<button type="button" role="menuitem" class="cpop-row" data-act="image"><span class="cpop-ico">' + icon("image") + '</span><span class="cpop-body"><span class="cpop-title">Attach images…</span><span class="cpop-desc">Or paste and drop them straight into the box</span></span></button>' +
       '<button type="button" role="menuitem" class="cpop-row" data-act="folder"><span class="cpop-ico">' + icon("folder") + '</span><span class="cpop-body"><span class="cpop-title">Add a folder…</span></span></button>' +
       '<button type="button" role="menuitem" class="cpop-row" data-act="repo"><span class="cpop-ico">' + icon("workspace") + '</span><span class="cpop-body"><span class="cpop-title">Use this repository</span></span><span class="cpop-meta" title="' + esc(repo) + '">' + esc(repo) + "</span></button>" +
       '<div class="cpop-sep"></div>' +
@@ -176,6 +177,7 @@
       '<p class="cpop-note">OPai links to your files — it sends their location, not their contents.</p>';
     pop.querySelector('[data-act="repo"]').onclick = function () { useRepo(); closePopovers(); };
     pop.querySelector('[data-act="file"]').onclick = function () { pickContext("file"); };
+    pop.querySelector('[data-act="image"]').onclick = function () { pickImages(); };
     pop.querySelector('[data-act="folder"]').onclick = function () { pickContext("folder"); };
     var draft = pop.querySelector("#ctxPathDraft");
     draft.onkeydown = function (e) {
@@ -186,6 +188,25 @@
       }
     };
     function focusDraft() { try { draft.focus(); } catch (_e) { /* ignore */ } }
+    function pickImages() {
+      var api = global.__opai || {};
+      if (typeof api.pickImages !== "function") { closePopovers(); return; }
+      api.pickImages(function (raw) {
+        var result = {};
+        try { result = JSON.parse(raw || "{}"); } catch (_e) { result = {}; }
+        (result.images || []).forEach(function (image) {
+          if (typeof api.addImageAttachment === "function") api.addImageAttachment(image);
+        });
+        if (result.rejected && typeof api.notify === "function") {
+          api.notify(
+            result.rejected === 1
+              ? "One file was not an image OPai can send."
+              : result.rejected + " files were not images OPai can send."
+          );
+        }
+        closePopovers();
+      });
+    }
     function pickContext(kind) {
       var api = global.__opai || {};
       var pick = kind === "file" ? api.pickContextFiles : api.pickContextFolder;
