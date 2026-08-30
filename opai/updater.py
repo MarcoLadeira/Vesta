@@ -265,6 +265,10 @@ def apply_update(
         try:
             progress(_APPLY_STAGES[index], index, len(_APPLY_STAGES))
         except Exception:  # noqa: BLE001 - telling someone must not break doing
+            # nosec B110 - deliberately swallowed and deliberately silent. This
+            # is the *reporting* path: a surface that went away mid-update must
+            # not be able to fail the update, and there is nowhere to log it to
+            # that would not be the same broken surface.
             pass
 
     root = Path(project_root)

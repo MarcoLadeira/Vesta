@@ -122,7 +122,7 @@ def safety_warnings(
     project_root: Path, message: str, *, mode: str
 ) -> list[dict[str, Any]]:
     text = " ".join(message.lower().split())
-    if mode not in {"safe-auto", "approve-edits", "ask", "plan"}:
+    if mode not in {"safe-auto", "approve-edits", "auto-edits", "ask", "plan"}:
         return []
     # A question about a risky command is not a request to run it (#142). The
     # real backstop for anything that *does* execute is the command-level gate

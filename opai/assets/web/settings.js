@@ -69,6 +69,7 @@
     plan: "Plan",
     "safe-auto": "Safe Auto",
     "approve-edits": "Approve Edits",
+    "auto-edits": "Auto-Accept Edits",
     "full-auto": "Full Auto",
   };
   function modePresentationLabel(id, fallback) {
@@ -867,7 +868,7 @@
     // Full Auto is deliberately absent: it can only be pinned from the
     // composer with an explicit acknowledgement (#137); a bare savePref for it
     // is downgraded server-side.
-    var modeOptions = ["ask", "plan", "safe-auto", "approve-edits"].map(function (id) {
+    var modeOptions = ["ask", "plan", "approve-edits", "safe-auto", "auto-edits"].map(function (id) {
       return { id: id, label: modePresentationLabel(id, MODE_LABELS[id]) };
     });
     // A pinned Auto-apply default must remain visible and truthful here, but
@@ -1234,7 +1235,7 @@
     // the same permission rules (not re-invented). The active mode is marked.
     // The meter is presentational: authority grows down the ladder.
     if ((d.modePermissions || []).length) {
-      var METER = { ask: 20, plan: 36, "safe-auto": 56, "approve-edits": 76, "full-auto": 100 };
+      var METER = { ask: 16, plan: 30, "approve-edits": 48, "safe-auto": 64, "auto-edits": 82, "full-auto": 100 };
       h += '<div class="set-head">Run modes</div>';
       h +=
         '<div class="set-note">Switch modes from the composer. Auto-apply acts without asking and must be pinned there with an acknowledgement.</div>';

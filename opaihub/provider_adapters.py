@@ -114,6 +114,7 @@ def gemini_approval_mode(mode: str) -> str:
         "ask": "plan",
         "plan": "plan",
         "approve-edits": "auto_edit",
+        "auto-edits": "auto_edit",
         "safe-auto": "auto_edit",
         "full-auto": "yolo",
     }.get(str(mode or "").lower(), "plan")

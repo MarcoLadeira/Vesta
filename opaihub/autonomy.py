@@ -16,7 +16,17 @@ from typing import Any, Mapping
 
 SAFE_MODE = "safe-auto"
 FULL_AUTO = "full-auto"
-VALID_MODES = ("ask", "plan", "safe-auto", "approve-edits", "full-auto")
+# Ordered strictly-to-permissively, and every surface renders them in this
+# order. "approve-edits" sits below "safe-auto" because it is *stricter*:
+# it asks before even the curated safe commands that safe-auto runs.
+VALID_MODES = (
+    "ask",
+    "plan",
+    "approve-edits",
+    "safe-auto",
+    "auto-edits",
+    "full-auto",
+)
 
 # The single source of truth for human-readable run-mode labels (#400). Every
 # surface — web GUI, classic GUI, pipeline, CLI — must consume these rather than
@@ -27,8 +37,13 @@ VALID_MODES = ("ask", "plan", "safe-auto", "approve-edits", "full-auto")
 MODE_LABELS = {
     "ask": "Ask",
     "plan": "Plan",
-    "safe-auto": "Safe Auto",
     "approve-edits": "Approve Edits",
+    "safe-auto": "Safe Auto",
+    # Named after Claude Code's accept-edits, because it is the same thing:
+    # local work proceeds, outward-facing work still asks. The autonomy level
+    # it maps to has existed since command_policy was written; until now no
+    # mode reached it, so the one level a user most wants was unselectable.
+    "auto-edits": "Auto-Accept Edits",
     "full-auto": "Full Auto",
 }
 
