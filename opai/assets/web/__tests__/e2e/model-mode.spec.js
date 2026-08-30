@@ -120,11 +120,11 @@ test("selecting Full Auto shows a styled in-chat confirm, no native dialog (#151
   await expect(page.locator(".inline-confirm .ic-title")).toContainText("Pin Auto-apply");
   await expect(page.locator(".inline-confirm")).not.toContainText("Full Auto");
   expect(dialogs).toBe(0);
-  // Round 5 finding 1: the copy must promise only what the gate does. Pushing
-  // asks every time; deploys and destructive commands are refused outright — the
-  // old wording lumped all three together as "still ask for confirmation".
-  await expect(page.locator(".inline-confirm")).toContainText("asks for your approval each time");
-  await expect(page.locator(".inline-confirm")).toContainText("refused");
+  // The warning must match bypass autonomy: remote and destructive actions do
+  // not stop for approval once Auto-apply is pinned.
+  await expect(page.locator(".inline-confirm")).toContainText("push, and merge pull requests without asking first");
+  await expect(page.locator(".inline-confirm")).toContainText("Nothing is held back for confirmation");
+  await expect(page.locator(".inline-confirm")).toContainText("force-push and deletes");
   // Cancelling keeps the current mode and does not pin (#137).
   await page.click('.inline-confirm [data-ic="cancel"]');
   await expect(page.locator("#modeSel")).toHaveValue("safe-auto");

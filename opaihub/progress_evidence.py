@@ -98,7 +98,12 @@ class ProgressLedger:
         ok = bool(observation.get("ok"))
         arguments = str(observation.get("arguments") or "")
         content = str(observation.get("content") or "")
-        signature = f"{tool}|{arguments}"
+        # #649 supplies a privacy-safe semantic identity when the controller
+        # knows one.  Falling back preserves compatibility for callers outside
+        # the tool loop, while equivalent wrappers (read_file/cat/Get-Content,
+        # search_code/rg, and so on) can no longer look like new progress.
+        action_fingerprint = str(observation.get("action_fingerprint") or "")
+        signature = action_fingerprint or f"{tool}|{arguments}"
 
         if not ok:
             # A *new* failure is information; the same failure again is not.
@@ -108,7 +113,9 @@ class ProgressLedger:
         else:
             # A success clears the failure streak for that exact action.
             self.failure_signatures.pop(signature, None)
-            fingerprint = observation_fingerprint(tool, arguments, content)
+            fingerprint = action_fingerprint or observation_fingerprint(
+                tool, arguments, content
+            )
             if fingerprint in self.seen_fingerprints:
                 delta = SCORE_REPEAT
             else:

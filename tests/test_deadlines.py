@@ -2,16 +2,72 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
+from opai.provider_contract import normalize_provider_error
 from opaihub.deadlines import (
     RECONCILE_BEFORE_RETRY,
     TASK_DEADLINE,
     UNKNOWN_TIMEOUT,
     DeadlineBudget,
+    DeadlineClocks,
     enrich_timeout_event,
     timeout_event,
 )
+
+
+def test_issue_683_active_account_incident_replays_as_task_deadline() -> None:
+    fixture_path = (
+        Path(__file__).parent / "fixtures" / "issue_683_active_account_deadline.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    clocks = DeadlineClocks(
+        started_at=0.0,
+        task_deadline_seconds=fixture["task_deadline_seconds"],
+        provider_idle_timeout_seconds=fixture["provider_idle_timeout_seconds"],
+    )
+
+    origin = None
+    for item in fixture["events"]:
+        at = float(item["at"])
+        if item["provider_activity"]:
+            clocks.note_provider_activity(at)
+        origin = clocks.expired_origin(at)
+        if item["kind"] != "deadline_poll":
+            assert origin is None, item
+
+    assert origin == TASK_DEADLINE
+    assert clocks.provider_responsive_at(1200.0)
+    event = timeout_event(
+        origin=origin,
+        owner="account_runner",
+        configured_seconds=clocks.task_deadline_seconds,
+        elapsed_seconds=clocks.elapsed_at(1200.0),
+        provider_responsive=clocks.provider_responsive_at(1200.0),
+        last_activity_seconds_ago=clocks.last_activity_age_at(1200.0),
+        phase="verification",
+        progress_observed=True,
+        external_effect_possible=True,
+        teardown_state="requested",
+        verification_state="incomplete",
+    )
+    assert event["timeout_origin"] == TASK_DEADLINE
+    assert event["provider_condition"] == "responsive"
+    assert event["verification_state"] == "incomplete"
+    assert event["retry_safety"] == "reconcile_before_retry"
+    error = normalize_provider_error(
+        fixture["provider"],
+        "",
+        timed_out=True,
+        timeout_origin=event["timeout_origin"],
+    )
+    assert error["code"] == "TASK_DEADLINE"
+    user_copy = f"{error['title']} {error['userMessage']}".lower()
+    assert "did not receive a response" not in user_copy
+    assert "smaller request" not in user_copy
 
 
 def _budget() -> DeadlineBudget:

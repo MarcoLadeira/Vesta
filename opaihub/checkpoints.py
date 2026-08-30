@@ -90,6 +90,7 @@ class RunCheckpoint:
     diff_summary: dict[str, Any] = field(default_factory=dict)
     completion_verdict: dict[str, Any] = field(default_factory=dict)
     recovery_actions: tuple[str, ...] = ()
+    timeout: dict[str, Any] = field(default_factory=dict)
     finalized_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -299,6 +300,136 @@ def redact_policy(policy: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _redacted_json(value: Any, *, depth: int = 0) -> Any:
+    """Return bounded JSON data suitable for durable recovery metadata."""
+
+    if depth > 4:
+        return None
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return redact(value)[:512]
+    if isinstance(value, Mapping):
+        return {
+            redact(str(key))[:128]: _redacted_json(item, depth=depth + 1)
+            for key, item in list(value.items())[:64]
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redacted_json(item, depth=depth + 1) for item in value[:64]]
+    return redact(str(value))[:512]
+
+
+_TIMEOUT_EVENT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "policy_version",
+        "timeout_id",
+        "timeout_origin",
+        "owner",
+        "configured_seconds",
+        "elapsed_seconds",
+        "provider_condition",
+        "retry_safety",
+        "deadline_budget_id",
+        "task_deadline_seconds",
+        "provider_idle_timeout_seconds",
+        "lane",
+        "last_activity_seconds_ago",
+        "phase",
+        "operation_id",
+        "route_id",
+        "teardown_state",
+        "cost_state",
+        "verification_state",
+        "progress_observed",
+        "external_effect_possible",
+        "task_id",
+        "run_id",
+        "attempt_id",
+        "step_id",
+        "checkpoint_id",
+    }
+)
+_PROGRESS_EVIDENCE_FIELDS = frozenset(
+    {
+        "score",
+        "best_score",
+        "steps_since_best",
+        "distinct_observations",
+        "repeated_failures",
+        "milestones",
+    }
+)
+
+
+def record_timeout_checkpoint(
+    project_root: Path,
+    checkpoint_id: str,
+    *,
+    stage: str,
+    timeout_event: Mapping[str, Any],
+    progress_evidence: Mapping[str, Any] | None = None,
+    verification_state: str = "incomplete",
+    partial_answer_retained: bool = False,
+    git_runner: GitRunner = subprocess.run,
+) -> RunCheckpoint:
+    """Persist deadline evidence while the run checkpoint is still pending.
+
+    ``pre_teardown`` is written before the provider process tree is terminated;
+    ``terminal`` records the observed teardown result afterward. Both are kept
+    so recovery can prove that useful work was captured before destructive
+    cleanup without confusing that early observation with final process truth.
+    """
+
+    if stage not in {"pre_teardown", "terminal"}:
+        raise ValueError(f"Unknown timeout checkpoint stage: {stage!r}")
+    root = project_root.expanduser().resolve()
+    path = _checkpoint_path(root, checkpoint_id)
+    with interprocess_transaction(path):
+        checkpoint = _load_checkpoint(path)
+        if checkpoint.completion_state != "pending":
+            return checkpoint
+        current_git, current_changed = _git_snapshot(root, run=git_runner)
+        baseline = set(checkpoint.baseline_changed_files)
+        changed_during = [item for item in current_changed if item not in baseline]
+        repository = {
+            "git": current_git,
+            "changed_files": current_changed,
+            "changed_during_run": changed_during,
+            "head_changed": bool(
+                checkpoint.git.get("head")
+                and current_git.get("head")
+                and checkpoint.git.get("head") != current_git.get("head")
+            ),
+        }
+        snapshot = {
+            "recorded_at": _now(),
+            "recorded_before_teardown": stage == "pre_teardown",
+            "timeout_event": _redacted_json(
+                {
+                    key: timeout_event[key]
+                    for key in _TIMEOUT_EVENT_FIELDS
+                    if key in timeout_event
+                }
+            ),
+            "progress_evidence": _redacted_json(
+                {
+                    key: progress_evidence[key]
+                    for key in _PROGRESS_EVIDENCE_FIELDS
+                    if progress_evidence is not None and key in progress_evidence
+                }
+            ),
+            "verification_state": redact(str(verification_state or "incomplete"))[:64],
+            "partial_answer_retained": bool(partial_answer_retained),
+            "repository": repository,
+        }
+        timeout = dict(checkpoint.timeout)
+        timeout[stage] = snapshot
+        updated = replace(checkpoint, timeout=timeout)
+        _save(root, updated)
+        return updated
+
+
 def finalize_run_checkpoint(
     project_root: Path,
     checkpoint_id: str,
@@ -393,6 +524,7 @@ def _load_checkpoint(path: Path) -> RunCheckpoint:
         diff_summary=dict(data.get("diff_summary") or {}),
         completion_verdict=dict(data.get("completion_verdict") or {}),
         recovery_actions=tuple(data.get("recovery_actions") or ()),
+        timeout=dict(data.get("timeout") or {}),
         finalized_at=str(data.get("finalized_at") or ""),
     )
 

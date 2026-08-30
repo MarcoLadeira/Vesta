@@ -52,6 +52,20 @@ class ScoringTests(unittest.TestCase):
         ledger.record(read("a.py", "alpha"))
         self.assertEqual(ledger.record(read("a.py", "beta")), SCORE_NEW_EVIDENCE)
 
+    def test_cross_tool_semantic_repeat_scores_nothing(self) -> None:
+        ledger = ProgressLedger()
+        first = read("a.py", "native output")
+        first["action_fingerprint"] = "semantic-file-read"
+        wrapper = {
+            "tool": "run_command",
+            "arguments": "cat a.py",
+            "content": "different wrapper formatting",
+            "ok": True,
+            "action_fingerprint": "semantic-file-read",
+        }
+        ledger.record(first)
+        self.assertEqual(ledger.record(wrapper), SCORE_REPEAT)
+
     def test_the_same_failure_twice_scores_negative(self) -> None:
         ledger = ProgressLedger()
         first = ledger.record(read("missing.py", "", ok=False))

@@ -19,6 +19,7 @@ from _helpers import FakeAccountRunner, make_repo
 from opai import app_state as A
 from opaihub.deadlines import TASK_DEADLINE, timeout_event
 from opaihub.gui_pipeline import handle_gui_message
+from opaihub.checkpoints import load_run_checkpoint
 from opaihub.ledger import EVENT_OPERATION_INTENT, read_events
 
 # Tokens that must never appear in a user-facing answer.
@@ -150,6 +151,114 @@ class AccountStatusContractTests(_Base):
         self.assertFalse(retry_events[0]["metadata"]["automaticRetry"])
         self.assertNotIn("did not receive a response", res["answer"].lower())
         self.assertNotIn("smaller", res["answer"].lower())
+
+    def test_account_deadline_persists_progress_before_runner_teardown(self):
+        class CheckpointingDeadlineRunner(FakeAccountRunner):
+            def complete(self, prompt, **kwargs):
+                self.calls.append({"prompt": prompt, **kwargs})
+                (kwargs["project_root"] / "retained-before-stop.py").write_text(
+                    "value = 1\n", encoding="utf-8"
+                )
+                event = timeout_event(
+                    origin=TASK_DEADLINE,
+                    owner="account_runner",
+                    configured_seconds=kwargs["timeout"],
+                    elapsed_seconds=kwargs["timeout"],
+                    provider_responsive=True,
+                    phase="complete",
+                    budget=kwargs.get("deadline_budget"),
+                    operation_id=kwargs.get("operation_id"),
+                    progress_observed=True,
+                    external_effect_possible=True,
+                    teardown_state="requested",
+                    verification_state="incomplete",
+                )
+                timeout_checkpoint = kwargs["on_timeout"](
+                    {
+                        "timeout_event": event,
+                        "progress_evidence": {
+                            "score": 12,
+                            "distinct_observations": 7,
+                        },
+                        "verification_state": "incomplete",
+                        "partial_answer_retained": True,
+                    }
+                )
+                return {
+                    "text": "partial work",
+                    "cost": 0.04,
+                    "timed_out": True,
+                    "timeout_event": {
+                        **event,
+                        "teardown_state": "terminated",
+                    },
+                    "timeout_checkpoint": timeout_checkpoint,
+                }
+
+        res = handle_gui_message(
+            self.root,
+            "implement a multi-file feature and run tests",
+            model_id="account:claude:opus",
+            mode="full-auto",
+            account_runner=CheckpointingDeadlineRunner(),
+        )
+
+        checkpoint = load_run_checkpoint(self.root, res["checkpoint_id"])
+        snapshot = checkpoint.timeout["pre_teardown"]
+        self.assertEqual(checkpoint.completion_state, "timeout")
+        self.assertEqual(snapshot["timeout_event"]["timeout_origin"], TASK_DEADLINE)
+        self.assertEqual(snapshot["progress_evidence"]["score"], 12)
+        self.assertIn(
+            "retained-before-stop.py",
+            snapshot["repository"]["changed_during_run"],
+        )
+        self.assertTrue(res["raw_result"]["timeout_checkpoint"]["persisted"])
+
+    def test_failed_pre_teardown_snapshot_never_promises_saved_continuation(self):
+        class FailedSnapshotRunner(FakeAccountRunner):
+            def complete(self, prompt, **kwargs):
+                self.calls.append({"prompt": prompt, **kwargs})
+                event = timeout_event(
+                    origin=TASK_DEADLINE,
+                    owner="account_runner",
+                    configured_seconds=kwargs["timeout"],
+                    elapsed_seconds=kwargs["timeout"],
+                    provider_responsive=True,
+                    phase="complete",
+                    budget=kwargs.get("deadline_budget"),
+                    operation_id=kwargs.get("operation_id"),
+                    progress_observed=True,
+                    external_effect_possible=True,
+                    teardown_state="terminated",
+                    verification_state="incomplete",
+                )
+                return {
+                    "text": "partial work",
+                    "cost": 0.04,
+                    "timed_out": True,
+                    "timeout_event": event,
+                    "timeout_checkpoint": {
+                        "state": "failed",
+                        "persisted": False,
+                        "recorded_before_teardown": False,
+                    },
+                }
+
+        res = handle_gui_message(
+            self.root,
+            "implement a multi-file feature and run tests",
+            model_id="account:claude:opus",
+            mode="full-auto",
+            account_runner=FailedSnapshotRunner(),
+        )
+
+        self.assertEqual(res["completion_verdict"]["reason_code"], TASK_DEADLINE)
+        self.assertIn("pre-teardown progress snapshot", res["answer"].lower())
+        self.assertNotIn("continue from the saved state", res["answer"].lower())
+        self.assertFalse(
+            res["raw_result"]["retained_progress"]["pre_teardown_snapshot"]
+        )
+        self.assertFalse(res["run_result"]["recovery"]["automatic_retry"])
 
     def test_unproven_task_deadline_teardown_never_projects_to_timeout(self):
         class UnconfirmedDeadlineRunner(FakeAccountRunner):

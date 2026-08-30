@@ -960,6 +960,7 @@ def ask(
     cancel: Any = None,
     tool_loop_policy: Any = None,
     deadline_budget: Any = None,
+    on_timeout: Any = None,
     repository_handle: Any = None,
 ) -> dict[str, Any]:
     """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', 'free:<id>', 'paid:<id>', or 'provider:model'.
@@ -999,6 +1000,7 @@ def ask(
             cancel=cancel,
             tool_loop_policy=tool_loop_policy,
             deadline_budget=deadline_budget,
+            on_timeout=on_timeout,
         )
 
     # "paid:" (#673, e.g. DeepSeek) shares the free tier's whole dispatch
@@ -1514,6 +1516,7 @@ def _ask_account(
     cancel: Any = None,
     tool_loop_policy: Any = None,
     deadline_budget: Any = None,
+    on_timeout: Any = None,
     _fallback_used: bool = False,
     _parent_operation_id: str | None = None,
 ) -> dict[str, Any]:
@@ -1582,6 +1585,7 @@ def _ask_account(
             cancel=cancel,
             tool_loop_policy=tool_loop_policy,
             deadline_budget=deadline_budget,
+            on_timeout=on_timeout,
             _fallback_used=True,
             _parent_operation_id=operation_id,
         )
@@ -1678,6 +1682,8 @@ def _ask_account(
                 optional["timeout"] = float(timeout_seconds)
             if deadline_budget is not None:
                 optional["deadline_budget"] = deadline_budget
+            if on_timeout is not None:
+                optional["on_timeout"] = on_timeout
             if edit_grant:
                 optional["edit_grant"] = True
             if want_stream:
@@ -1896,6 +1902,7 @@ def _ask_account(
                 "ledger_dispatch_recorded": dispatch_recorded,
                 "ledger_call_id": call_id if dispatch_recorded else None,
                 "cancellation": cancellation,
+                "timeout_checkpoint": result.get("timeout_checkpoint"),
                 "partial_answer": partial_answer,
                 "changed_files": (
                     _changed_since(root, before, before_identities)
@@ -1975,6 +1982,22 @@ def _ask_account(
         # call remains open for reconciliation.
         cost_record = _unresolved_paid_account_cost()
         task_deadline = is_task_deadline(timeout_info)
+        timeout_checkpoint = result.get("timeout_checkpoint")
+        timeout_checkpoint = (
+            timeout_checkpoint if isinstance(timeout_checkpoint, dict) else {}
+        )
+        pre_teardown_snapshot = bool(
+            timeout_checkpoint.get("persisted")
+            and timeout_checkpoint.get("recorded_before_teardown")
+        )
+        answer = error["userMessage"]
+        if task_deadline and not pre_teardown_snapshot:
+            answer = (
+                "OPai reached the task limit and retained the repository state, "
+                "but it could not save a pre-teardown progress snapshot. "
+                "Verification is incomplete; inspect the working tree and "
+                "timeout evidence before continuing."
+            )
         return {
             # #378/#402: a timeout is a distinct terminal cause. The typed
             # PROVIDER_TIMEOUT error and the "timeout" stop reason are what the
@@ -1986,7 +2009,7 @@ def _ask_account(
             "status": "failed",
             "provider": account_id,
             "model": getattr(run, "model", "") or account_id,
-            "answer": error["userMessage"],
+            "answer": answer,
             "partial_answer": partial_answer,
             "error": error,
             "completion_state": "timeout",
@@ -2000,10 +2023,13 @@ def _ask_account(
                 "partial_answer": bool(partial_answer),
                 "changed_files": list(changed),
                 "verification": "incomplete",
+                "pre_teardown_snapshot": pre_teardown_snapshot,
             },
             "next_actions": [
                 (
-                    "Inspect retained work and reconcile the prior operation before continuing."
+                    "Inspect the working tree and timeout evidence before continuing."
+                    if task_deadline and not pre_teardown_snapshot
+                    else "Inspect retained work and reconcile the prior operation before continuing."
                     if task_deadline
                     else "Inspect retained work, then retry or choose another provider."
                 )
@@ -2014,6 +2040,7 @@ def _ask_account(
             "ledger_dispatch_recorded": dispatch_recorded,
             "ledger_call_id": call_id if dispatch_recorded else None,
             "cancellation": result.get("cancellation"),
+            "timeout_checkpoint": timeout_checkpoint,
             "provider_invocation": invocation_info,
             # Commands this run started and never saw finish. A deadline that
             # expired with one still running is a different story from a

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "provider": "claude",
+  "task_deadline_seconds": 1200,
+  "provider_idle_timeout_seconds": 300,
+  "events": [
+    {"at": 0, "kind": "provider_connected", "provider_activity": true},
+    {"at": 95, "kind": "issue_read", "provider_activity": true},
+    {"at": 240, "kind": "file_read", "provider_activity": true},
+    {"at": 420, "kind": "file_edit", "provider_activity": true},
+    {"at": 610, "kind": "file_edit", "provider_activity": true},
+    {"at": 790, "kind": "focused_test_passed", "provider_activity": true},
+    {"at": 940, "kind": "file_edit", "provider_activity": true},
+    {"at": 1080, "kind": "verification_started", "provider_activity": true},
+    {"at": 1168, "kind": "verification_progress", "provider_activity": true},
+    {"at": 1192, "kind": "full_suite_started", "provider_activity": true},
+    {"at": 1200, "kind": "deadline_poll", "provider_activity": false}
+  ]
+}

@@ -97,6 +97,83 @@ def _replay_checkpoint_creation_in_child(
 
 
 class CheckpointContractTests(unittest.TestCase):
+    def test_timeout_snapshot_is_durable_before_terminal_finalization(self):
+        from opaihub.checkpoints import record_timeout_checkpoint
+        from opaihub.deadlines import TASK_DEADLINE, timeout_event
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), commit=True)
+            checkpoint = create_run_checkpoint(
+                root,
+                task="implement the feature and run verification",
+                task_id="task-deadline",
+                edit_capable=True,
+                mode="implement",
+                model="account:claude:sonnet",
+                read_budget=False,
+            )
+            (root / "retained.py").write_text("value = 1\n", encoding="utf-8")
+            event = timeout_event(
+                origin=TASK_DEADLINE,
+                owner="account_runner",
+                configured_seconds=1200.0,
+                elapsed_seconds=1200.0,
+                provider_responsive=True,
+                phase="stream",
+                operation_id="operation-1",
+                progress_observed=True,
+                external_effect_possible=True,
+                teardown_state="requested",
+                verification_state="incomplete",
+            )
+            event["provider_output"] = "raw source text must not be persisted"
+
+            captured = record_timeout_checkpoint(
+                root,
+                checkpoint.checkpoint_id,
+                stage="pre_teardown",
+                timeout_event=event,
+                progress_evidence={
+                    "score": 14,
+                    "distinct_observations": 9,
+                    "raw_provider_output": "raw source text must not be persisted",
+                },
+                verification_state="incomplete",
+                partial_answer_retained=True,
+            )
+
+            self.assertEqual(captured.completion_state, "pending")
+            snapshot = captured.timeout["pre_teardown"]
+            self.assertTrue(snapshot["recorded_before_teardown"])
+            self.assertEqual(snapshot["timeout_event"]["timeout_origin"], TASK_DEADLINE)
+            self.assertEqual(snapshot["verification_state"], "incomplete")
+            self.assertTrue(snapshot["partial_answer_retained"])
+            self.assertIn("retained.py", snapshot["repository"]["changed_during_run"])
+            self.assertNotIn("provider_output", snapshot["timeout_event"])
+            self.assertNotIn("raw_provider_output", snapshot["progress_evidence"])
+
+            finalized = finalize_run_checkpoint(
+                root,
+                checkpoint.checkpoint_id,
+                completion_state="timeout",
+                outcome="task_deadline",
+                changed_files=("retained.py",),
+            )
+
+            self.assertEqual(finalized.completion_state, "timeout")
+            self.assertEqual(
+                finalized.timeout["pre_teardown"]["timeout_event"]["timeout_id"],
+                event["timeout_id"],
+            )
+            raw = (
+                root
+                / ".opaihub"
+                / "agent"
+                / "checkpoints"
+                / f"{checkpoint.checkpoint_id}.json"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn("raw source text must not be persisted", raw)
+
     def test_checkpoint_records_git_mode_model_policy_and_baseline(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)

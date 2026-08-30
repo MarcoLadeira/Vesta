@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from typing import Any, Mapping
 
 SCHEMA_VERSION = 1
@@ -132,6 +133,90 @@ class DeadlineBudget:
         if include_id:
             payload["deadline_budget_id"] = self.budget_id
         return payload
+
+
+@dataclass
+class DeadlineClocks:
+    """Independent task-duration and provider-inactivity clocks."""
+
+    started_at: float
+    task_deadline_seconds: float
+    provider_idle_timeout_seconds: float | None
+    first_provider_activity_at: float | None = None
+    last_provider_activity_at: float | None = None
+
+    def __post_init__(self) -> None:
+        self.started_at = self._clock_value(self.started_at, "started_at")
+        task_deadline = _positive(self.task_deadline_seconds, "task_deadline_seconds")
+        if task_deadline is None:  # pragma: no cover - _positive raises first
+            raise ValueError("task_deadline_seconds must be greater than zero")
+        self.task_deadline_seconds = task_deadline
+        self.provider_idle_timeout_seconds = _positive(
+            self.provider_idle_timeout_seconds,
+            "provider_idle_timeout_seconds",
+            optional=True,
+        )
+
+    @staticmethod
+    def _clock_value(value: Any, field_name: str) -> float:
+        if isinstance(value, bool):
+            raise ValueError(f"{field_name} must be a finite number")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field_name} must be a finite number") from exc
+        if not math.isfinite(number):
+            raise ValueError(f"{field_name} must be a finite number")
+        return number
+
+    def note_provider_activity(self, observed_at: float) -> None:
+        observed = self._clock_value(observed_at, "observed_at")
+        if observed < self.started_at:
+            raise ValueError("provider activity time precedes the task start")
+        if self.first_provider_activity_at is None:
+            self.first_provider_activity_at = observed
+        if self.last_provider_activity_at is None:
+            self.last_provider_activity_at = observed
+        else:
+            self.last_provider_activity_at = max(
+                self.last_provider_activity_at, observed
+            )
+
+    def elapsed_at(self, observed_at: float) -> float:
+        observed = self._clock_value(observed_at, "observed_at")
+        return max(0.0, observed - self.started_at)
+
+    def last_activity_age_at(self, observed_at: float) -> float:
+        observed = self._clock_value(observed_at, "observed_at")
+        baseline = self.last_provider_activity_at
+        if baseline is None:
+            baseline = self.started_at
+        return max(0.0, observed - baseline)
+
+    def provider_responsive_at(self, observed_at: float) -> bool:
+        if self.last_provider_activity_at is None:
+            return False
+        idle = self.provider_idle_timeout_seconds
+        return idle is None or self.last_activity_age_at(observed_at) < idle
+
+    def expired_origin(
+        self,
+        observed_at: float,
+        *,
+        provider_work_in_flight: bool = False,
+    ) -> str | None:
+        """Return the clock that expired, giving the hard deadline priority."""
+
+        if self.elapsed_at(observed_at) >= self.task_deadline_seconds:
+            return TASK_DEADLINE
+        idle = self.provider_idle_timeout_seconds
+        if (
+            idle is not None
+            and not provider_work_in_flight
+            and self.last_activity_age_at(observed_at) >= idle
+        ):
+            return PROVIDER_IDLE_TIMEOUT
+        return None
 
 
 def _origin(value: Any) -> str:
