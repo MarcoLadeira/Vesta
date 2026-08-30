@@ -125,6 +125,7 @@ MODE_CAPABILITY = {
     "plan": "Lays out the steps. Nothing is changed yet.",
     "safe-auto": "Edits files after safe checks; asks before risky commands.",
     "approve-edits": "Proposes edits for your approval before writing to disk.",
+    "auto-edits": "Writes edits without asking; still asks before commands.",
     "full-auto": "Edits files and runs commands without asking. Review the diff.",
 }
 

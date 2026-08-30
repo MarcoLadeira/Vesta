@@ -15,7 +15,7 @@ quit -- a stuck window must never leave a process spinning forever.
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 - fixed argv, never a shell
 import sys
 from pathlib import Path
 

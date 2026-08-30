@@ -26,8 +26,13 @@
   var MODE_DESC = {
     ask: "Answer questions without changing files.",
     plan: "Describe the changes without touching files.",
-    "safe-auto": "Review each change before it is applied.",
-    "approve-edits": "Apply edits; ask before running commands.",
+    // Said "Apply edits" while its rule was edit: ask -- edits never applied,
+    // they asked. It is also the *strictest* working mode: it asks before even
+    // the curated safe commands safe-auto runs, which is why it sits above.
+    "approve-edits": "Ask before every edit and every command.",
+    "safe-auto": "Run safe commands; ask before edits.",
+    // Claude Code's accept-edits: local work proceeds, shared work still stops.
+    "auto-edits": "Apply edits without asking; still asks before commands.",
     // This row sits next to the mode the user is choosing, so it names the
     // consequence rather than softening it. It said "Pushing still asks first"
     // long after Full Auto stopped asking (gui_permissions: push -> allow,
@@ -38,7 +43,7 @@
   };
   // Dot colour: teal accent for calm modes, amber caution for the autonomous
   // ones, muted for plan-only. Never red — informative, not alarming.
-  var MODE_DOT = { "full-auto": "caution", "approve-edits": "caution", plan: "muted" };
+  var MODE_DOT = { "full-auto": "caution", "auto-edits": "caution", plan: "muted" };
 
   function $(sel) { return document.querySelector(sel); }
   function state() { return (global.__opai && global.__opai.state) || {}; }
@@ -201,7 +206,7 @@
     pop.innerHTML =
       '<div class="cpop-head">When OPai makes changes</div>' +
       modes.map(function (m) {
-        var editMode = ["safe-auto", "approve-edits", "full-auto"].indexOf(m.id) >= 0;
+        var editMode = ["safe-auto", "approve-edits", "auto-edits", "full-auto"].indexOf(m.id) >= 0;
         return menuRow({
           role: "menuitemradio",
           title: modeLabelOf(m),

@@ -14,8 +14,9 @@ const PROVIDER_COLOR = { claude: "#e0937a", codex: "#6cc1e8", auto: "#98a2b0", l
 const MODE_PRESENTATION_LABELS = {
   ask: "Ask",
   plan: "Plan only",
-  "safe-auto": "Ask before edits",
   "approve-edits": "Approve edits",
+  "safe-auto": "Ask before edits",
+  "auto-edits": "Auto-accept edits",
   "full-auto": "Auto-apply",
 };
 const modePresentationLabel = (mode) => {
@@ -934,6 +935,7 @@ function autonomyConsequence(modeId) {
     plan: "Plans without changes",
     "safe-auto": "Asks before edits",
     "approve-edits": "Asks before commands",
+    "auto-edits": "Edits apply; commands ask",
     "full-auto": "Edits and runs commands",
   }[modeId] || "Uses your selected autonomy";
 }

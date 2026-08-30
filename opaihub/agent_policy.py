@@ -157,7 +157,9 @@ _CONTINUATION_SIGNAL = re.compile(
 
 # Run modes that authorize editing. Ask/Plan are read-only and are never
 # widened here.
-_EDITING_RUN_MODES = frozenset({"safe-auto", "approve-edits", "full-auto"})
+_EDITING_RUN_MODES = frozenset(
+    {"safe-auto", "approve-edits", "auto-edits", "full-auto"}
+)
 
 
 def is_continuation_request(message: str) -> bool:

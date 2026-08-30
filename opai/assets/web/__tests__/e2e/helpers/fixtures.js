@@ -345,11 +345,15 @@ export function fullScenario(overrides = {}) {
       navGroups: FULL_NAV,
       models: MODELS,
       selectedModel: "auto",
+      // Mirrors opaihub.gui_preferences.MODES, which is what gui_web actually
+      // sends: ordered strictly-to-permissively, and including the
+      // auto-accept-edits level the engine has always had.
       modes: [
         { id: "ask", label: "Ask" },
         { id: "plan", label: "Plan" },
-        { id: "safe-auto", label: "Safe Auto" },
         { id: "approve-edits", label: "Approve Edits" },
+        { id: "safe-auto", label: "Safe Auto" },
+        { id: "auto-edits", label: "Auto-Accept Edits" },
         { id: "full-auto", label: "Full Auto" },
       ],
       // onboardingSeen defaults true so the existing suite behaves as returning

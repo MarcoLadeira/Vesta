@@ -10,7 +10,7 @@ from .command_runner import redact
 from .state import state_dir
 
 DEFAULT_MODE = "safe-auto"
-MODES = ["ask", "plan", "safe-auto", "approve-edits", "full-auto"]
+MODES = ["ask", "plan", "approve-edits", "safe-auto", "auto-edits", "full-auto"]
 
 DEFAULT_PREFERENCES: dict[str, Any] = {
     "schema_version": 3,

@@ -42,14 +42,22 @@ test("mode popover offers every autonomy level with plain-language descriptions"
   await openApp(page);
   await page.locator("#modeBtn").click();
   const menu = page.locator("#modePop");
-  await expect(menu).toContainText("Review each change before it is applied.");
+  await expect(menu).toContainText("Run safe commands; ask before edits.");
   await expect(menu).toContainText("Describe the changes without touching files.");
-  // All five underlying autonomy modes remain reachable (no capability dropped).
+  // Ordered strictly-to-permissively. "Approve edits" sits above "Ask before
+  // edits" because it is the stricter of the two: it asks before even the
+  // curated safe commands that "Ask before edits" runs. The menu used to list
+  // them the other way round, presenting a tightening as a step toward more
+  // autonomy.
+  //
+  // "Auto-accept edits" is the level the engine has always had and the menu
+  // could never reach — local work proceeds, shared work still asks.
   await expect(menu.locator(".cpop-title")).toHaveText([
     "Ask",
     "Plan only",
-    "Ask before edits",
     "Approve edits",
+    "Ask before edits",
+    "Auto-accept edits",
     "Auto-apply",
   ]);
 });

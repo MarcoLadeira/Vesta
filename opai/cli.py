@@ -3585,7 +3585,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--mode",
         default="ask",
-        help="ask | plan | safe-auto | approve-edits | full-auto",
+        help="ask | plan | approve-edits | safe-auto | auto-edits | full-auto",
     )
     p.add_argument(
         "--model", default=None, help="Model for the account (claude/codex/copilot)"
@@ -3741,7 +3741,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--mode",
         default=None,
-        help="Run mode with --model: ask | plan | safe-auto | approve-edits | full-auto",
+        help=(
+            "Run mode with --model: ask | plan | approve-edits | safe-auto"
+            " | auto-edits | full-auto"
+        ),
     )
     p.add_argument(
         "--allow-cloud",

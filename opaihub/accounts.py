@@ -2173,6 +2173,7 @@ class AccountRunner:
             edit_mode = selected_mode in {
                 "safe-auto",
                 "approve-edits",
+                "auto-edits",
                 "full-auto",
             }
             if edit_mode:

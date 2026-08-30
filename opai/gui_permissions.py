@@ -64,6 +64,22 @@ _MODE_RULES: dict[str, dict[str, str]] = {
         "delete": "block",
         "network": "block",
     },
+    # Claude Code's accept-edits, and the same bargain: local work proceeds,
+    # anything anyone else can see still stops. Mirrors
+    # AUTONOMY_RULES[AUTO_EDITS] -- WRITE_LOCAL run, WRITE_REMOTE ask -- and
+    # must keep mirroring it or this panel is lying again.
+    "auto-edits": {
+        "read": "allow",
+        "search": "allow",
+        "run_safe": "allow",
+        "edit": "allow",
+        "create": "allow",
+        # A command can do anything, including a push, so it is not local work.
+        "run_any": "ask",
+        "push": "ask",
+        "delete": "ask",
+        "network": "ask",
+    },
     "full-auto": {
         "read": "allow",
         "search": "allow",
