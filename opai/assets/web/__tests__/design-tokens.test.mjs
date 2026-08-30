@@ -6,7 +6,7 @@ import { lintCss } from "../../../../scripts/lint-web-design-tokens.mjs";
 
 test("web design tokens define the documented scales", async () => {
   const tokens = await readFile(new URL("../design-tokens.css", import.meta.url), "utf8");
-  for (const token of ["--type-caption", "--type-label", "--type-body", "--type-body-lg", "--type-heading", "--type-title", "--type-caption-line", "--weight-semibold", "--space-1", "--space-2", "--space-3", "--space-4", "--space-6", "--space-8", "--radius-md", "--elevation-md", "--icon-md"]) {
+  for (const token of ["--type-caption", "--type-label", "--type-body", "--type-prose", "--type-body-lg", "--type-heading", "--type-title", "--type-caption-line", "--weight-semibold", "--space-1", "--space-2", "--space-3", "--space-4", "--space-6", "--space-8", "--radius-md", "--elevation-md", "--icon-md", "--measure-prose", "--measure-response", "--measure-composer", "--surface-code", "--focus-ring", "--control-min"]) {
     assert.match(tokens, new RegExp(`${token}:`));
   }
 });

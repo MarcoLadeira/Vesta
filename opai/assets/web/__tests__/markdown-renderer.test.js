@@ -43,9 +43,25 @@ describe("OPaiMarkdown", () => {
     expect(html).toContain("<strong>evidence</strong>");
     expect(html.match(/<ul>/g)).toHaveLength(2);
     expect(html).toContain("<hr>");
-    expect(html).toContain("<table>");
+    expect(html).toContain('<div class="response-table-scroll" role="region" aria-label="Scrollable table" tabindex="0"><table>');
+    expect(html).toContain("</table></div>");
     expect(html).toContain("<th>File</th>");
     expect(html).toContain("<td>changed</td>");
+  });
+
+  it("gives every table its own keyboard-focusable horizontal scroll region", () => {
+    const html = markdown.render([
+      "| Run | Code | Result |",
+      "| --- | --- | ---: |",
+      "| A | with fix | 76 passed |",
+      "",
+      "| File | Status |",
+      "| --- | --- |",
+      "| app.js | changed |",
+    ].join("\n"));
+    expect(html.match(/class="response-table-scroll"/g)).toHaveLength(2);
+    expect(html.match(/tabindex="0"/g)).toHaveLength(2);
+    expect(html.match(/<table>/g)).toHaveLength(2);
   });
 
   it("renders inline code and fenced language metadata", () => {

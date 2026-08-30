@@ -51,6 +51,10 @@
       : ""
   );
   parser.renderer.rules.image = (tokens, index) => escapeHtml(tokens[index].content || "");
+  parser.renderer.rules.table_open = () => (
+    '<div class="response-table-scroll" role="region" aria-label="Scrollable table" tabindex="0"><table>\n'
+  );
+  parser.renderer.rules.table_close = () => "</table></div>\n";
 
   function incompleteFenceOffset(source) {
     let offset = 0;

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const DECLARATION = /\b(font-size|margin(?:-[\w-]+)?|padding(?:-[\w-]+)?|gap|row-gap|column-gap)\s*:\s*([^;}]+);/g;
-const TYPE_TOKENS = ["caption", "label", "body", "body-lg", "heading", "title", "display"];
+const TYPE_TOKENS = ["caption", "label", "body", "prose", "body-lg", "heading", "title", "display"];
 const SPACING_TOKENS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "15", "16"];
 
 const hasToken = (value, prefix, names) => names.some((name) => value.includes(`var(--${prefix}-${name})`));

@@ -117,20 +117,19 @@ function renderStreamingBody(body, text) {
 // Every code block gets a copy button (#233). Idempotent so it survives the
 // per-frame re-render during streaming and the final render.
 function enhanceCodeBlocks(root) {
-  root.querySelectorAll("pre").forEach((pre) => {
+  root.querySelectorAll(".response-prose pre").forEach((pre) => {
     if (pre.classList.contains("has-copy")) return;
     const code = pre.querySelector("code");
     if (!code) return;
     pre.classList.add("has-copy");
+    const head = document.createElement("span");
+    head.className = "code-block-head";
     const languageClass = Array.from(code.classList).find((name) => name.startsWith("language-"));
-    if (languageClass) {
-      const language = document.createElement("span");
-      language.className = "code-language";
-      language.textContent = languageClass.slice("language-".length, 48);
-      language.setAttribute("aria-hidden", "true");
-      pre.classList.add("has-language");
-      pre.appendChild(language);
-    }
+    const language = document.createElement("span");
+    language.className = "code-language";
+    language.textContent = languageClass ? languageClass.slice("language-".length, 48) : "code";
+    language.setAttribute("aria-hidden", "true");
+    head.appendChild(language);
     const btn = document.createElement("button");
     btn.className = "code-copy";
     btn.type = "button";
@@ -143,7 +142,8 @@ function enhanceCodeBlocks(root) {
       toast("Code copied");
       setTimeout(() => { if (btn.isConnected) btn.textContent = "Copy"; }, 1500);
     });
-    pre.appendChild(btn);
+    head.appendChild(btn);
+    pre.insertBefore(head, code);
   });
 }
 
@@ -151,6 +151,26 @@ function enhanceCodeBlocks(root) {
 // Appearance (#241): density scales spacing via a root class; reduced motion
 // overrides the OS media query via a root attribute ("system" removes the
 // attribute so the media query governs). Applied at boot and live on change.
+function applyResponseDensity(shell, responseDensity) {
+  shell.classList.remove("response-density-compact", "response-density-balanced", "response-density-detailed");
+  shell.classList.add(`response-density-${responseDensity}`);
+  shell.dataset.responseDensity = responseDensity;
+  const detailed = responseDensity === "detailed";
+  const compact = responseDensity === "compact";
+  shell.querySelectorAll(".verification-check").forEach((details) => { details.open = detailed; });
+  shell.querySelectorAll(".work-log-group").forEach((details) => { details.open = !compact; });
+  shell.querySelectorAll(".wf-history").forEach((details) => { details.open = detailed; });
+  shell.querySelectorAll(".changeset-card").forEach((card) => {
+    card.querySelectorAll(".diff-file2").forEach((details, index) => {
+      details.open = detailed || (!compact && index === 0);
+    });
+  });
+  const timeline = shell.querySelector(".timeline.done");
+  const toggle = shell.querySelector(".gen-toggle.done");
+  if (timeline) timeline.hidden = !detailed;
+  if (toggle) toggle.setAttribute("aria-expanded", detailed ? "true" : "false");
+}
+
 function applyAppearance(prefs) {
   const p = prefs || {};
   const root = document.documentElement;
@@ -163,9 +183,7 @@ function applyAppearance(prefs) {
   root.classList.toggle("response-density-detailed", responseDensity === "detailed");
   if (typeof document.querySelectorAll === "function") {
     document.querySelectorAll(".response-shell").forEach((shell) => {
-      shell.classList.remove("response-density-compact", "response-density-balanced", "response-density-detailed");
-      shell.classList.add(`response-density-${responseDensity}`);
-      shell.dataset.responseDensity = responseDensity;
+      applyResponseDensity(shell, responseDensity);
     });
   }
   const motion = p.reducedMotion === "on" || p.reducedMotion === "off" ? p.reducedMotion : "system";
@@ -3235,7 +3253,7 @@ function workflowCardHtml(result) {
     ${provider.model ? `<div class="wf-row"><span>Provider</span><strong>${esc(provider.model)}</strong></div>` : ""}
     ${cost.estimated_actual_usd != null ? `<div class="wf-row"><span>Cost</span><strong>$${esc(Number(cost.estimated_actual_usd).toFixed(4))}</strong></div>` : ""}
     ${actions ? `<div class="wf-subhead">Next actions</div><ul class="wf-actions">${actions}</ul>` : ""}
-    ${history ? `<details class="wf-history"><summary>Timeline · ${(flow.history || []).length} events</summary>${history}</details>` : ""}
+    ${history ? `<details class="wf-history"${state.responseDensity === "detailed" ? " open" : ""}><summary>Timeline · ${(flow.history || []).length} events</summary>${history}</details>` : ""}
   </div>`;
 }
 

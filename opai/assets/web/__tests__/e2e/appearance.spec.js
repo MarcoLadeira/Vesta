@@ -46,6 +46,48 @@ test("response density updates existing and new response shells", async ({ page 
   await expect(shell).toHaveAttribute("data-response-density", "detailed");
 });
 
+test("response density changes disclosure without discarding structured evidence", async ({ page }) => {
+  await openApp(page, { boot: { prefs: { responseDensity: "compact" } } });
+  const requestId = await sendPrompt(page, "Show density behavior");
+  await finishRequest(page, requestId, {
+    answer: "Density changes presentation only.",
+    presentation: {
+      schema_version: 1,
+      run: { state: "completed", label: "Completed" },
+      activity: [{ phase: "verify", status: "passed", message: "Checks passed" }],
+    },
+    verification_manifest: {
+      checks: [{ check_id: "unit", kind: "unit", requirement: "Run checks", status: "passed" }],
+    },
+    workflow: {
+      phase: "completed",
+      diff_review: {
+        summary: { files: 2 },
+        files: [
+          { path: "one.js", decision: "approved", hunks: [] },
+          { path: "two.js", decision: "approved", hunks: [] },
+        ],
+      },
+    },
+  });
+  const shell = page.locator(".msg .response-shell").last();
+  await expect(shell.locator(".timeline.done")).toHaveAttribute("hidden", "");
+  await expect(shell.locator(".verification-check[open]")).toHaveCount(0);
+  await expect(shell.locator(".diff-file2[open]")).toHaveCount(0);
+
+  await openAppearance(page);
+  await page.locator('[data-appearance-key="response_density"] button[data-value="detailed"]').click();
+  await expect(shell.locator(".timeline.done")).not.toHaveAttribute("hidden", "");
+  await expect(shell.locator(".verification-check[open]")).toHaveCount(1);
+  await expect(shell.locator(".diff-file2[open]")).toHaveCount(2);
+
+  await page.locator('[data-appearance-key="response_density"] button[data-value="balanced"]').click();
+  await expect(shell.locator(".timeline.done")).toHaveAttribute("hidden", "");
+  await expect(shell.locator(".verification-check[open]")).toHaveCount(0);
+  await expect(shell.locator(".diff-file2[open]")).toHaveCount(1);
+  await expect(shell.locator(".verification-card")).toContainText("1 passed");
+});
+
 test("compact density applies to the root instantly and persists the pref", async ({ page }) => {
   await openApp(page);
   await openAppearance(page);

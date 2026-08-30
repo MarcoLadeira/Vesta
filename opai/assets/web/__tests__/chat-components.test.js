@@ -161,6 +161,18 @@ describe("chat presentation components", () => {
     expect(html).not.toContain("999 tests passed</span>");
   });
 
+  it("expands structured verification only in detailed response density", () => {
+    const result = {
+      verification_manifest: {
+        checks: [{ check_id: "unit", kind: "unit", requirement: "Run checks", status: "passed" }],
+      },
+    };
+    expect(components.renderVerificationDetails(result, { density: "compact" }))
+      .toContain('<details class="verification-check passed"><summary>');
+    expect(components.renderVerificationDetails(result, { density: "detailed" }))
+      .toContain('<details class="verification-check passed" open><summary>');
+  });
+
   it("renders deduplicated typed warnings without deriving them from prose", () => {
     const result = {
       answer: "WARNING: pretend prose warning",

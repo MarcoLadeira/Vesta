@@ -293,7 +293,8 @@
     return (value / 1_000).toFixed(value < 10_000 ? 2 : 1).replace(/\.0+$/, "") + " s";
   }
 
-  function renderVerificationDetails(result) {
+  function renderVerificationDetails(result, options) {
+    var density = normalizeResponseDensity(options && options.density);
     var model = verificationDetailsModel(result);
     if (!model.checks.length && !model.issues.length) return "";
     var summary = [];
@@ -322,7 +323,8 @@
           esc(attempt.index) + '</span><span>' + esc(facts.join(" · ")) + "</span></div>" +
           command + output + "</div>";
       }).join("");
-      return '<details class="verification-check ' + esc(statusClass(check.status)) + '"><summary>' +
+      return '<details class="verification-check ' + esc(statusClass(check.status)) + '"' +
+        (density === "detailed" ? " open" : "") + '><summary>' +
         '<span class="verification-kind">' + esc(check.kind) + '</span><span class="verification-requirement">' +
         esc(check.requirement || check.id || "Verification check") + '</span><span class="verification-status">' +
         esc(check.status) + "</span></summary>" + attempts + "</details>";
@@ -448,7 +450,7 @@
     if (structured) {
       content += String(value.proseHtml || "");
       content += renderEvidenceBar(value.presentation);
-      content += renderVerificationDetails(value.result);
+      content += renderVerificationDetails(value.result, { density: density });
       content += String(value.changesHtml || "");
       content += renderWorkLog(value.presentation, { density: density }) ||
         String(value.legacyWorkHtml || "");
@@ -460,7 +462,7 @@
       }) || String(value.legacyFinalHtml || "");
     } else {
       content += String(value.proseHtml || "");
-      content += renderVerificationDetails(value.result);
+      content += renderVerificationDetails(value.result, { density: density });
       content += String(value.changesHtml || "");
       content += String(value.legacyWorkHtml || value.legacyBeforeHtml || "");
       content += String(value.supportHtml || "") + String(value.extraHtml || "");
