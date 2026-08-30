@@ -19,12 +19,14 @@ Up-arrow history reads, which is the job it was always doing.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from opai.gui_recents import (
+    CONVERSATION_SCHEMA_VERSION,
     MAX_CONVERSATIONS,
     archive_conversation,
     begin_thread_turn,
@@ -184,6 +186,82 @@ class ConversationArchiveTests(unittest.TestCase):
         self.assertEqual(len(saved), 1)
         self.assertEqual(saved[0]["message_count"], 2)
 
+    def test_archive_preserves_assistant_presentation_and_valid_changed_files(
+        self,
+    ) -> None:
+        outside = self.root.parent / "outside.py"
+        begin_thread_turn(self.root, request_id="r1", text="Change it", mode="ask")
+        finish_thread_turn(
+            self.root,
+            request_id="r1",
+            answer="Changed.",
+            status="complete",
+            task_id="r1",
+            changed_files=[
+                "src/app.py",
+                "../escape.py",
+                str(outside),
+                "src/app.py:alternate-stream",
+            ],
+            presentation={
+                "schema_version": 1,
+                "run": {"state": "completed", "label": "Completed"},
+                "changes": {
+                    "summary": {"files": 1},
+                    "files": [{"path": "src/app.py", "decision": "approved"}],
+                },
+            },
+        )
+
+        conv = load_conversation(self.root, list_conversations(self.root)[0]["id"])
+
+        self.assertEqual(conv["schema_version"], CONVERSATION_SCHEMA_VERSION)
+        self.assertEqual(conv["changed_files"], ["src/app.py"])
+        self.assertEqual(
+            conv["messages"][-1]["presentation"]["run"]["state"], "completed"
+        )
+
+    def test_legacy_v1_archive_loads_without_rewrite_and_migrates_on_archive(
+        self,
+    ) -> None:
+        folder = conversations_dir(self.root)
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / "legacy-chat.json"
+        legacy = {
+            "schema_version": 1,
+            "id": "legacy-chat",
+            "title": "Legacy chat",
+            "mode": "ask",
+            "messages": [
+                {"role": "user", "text": "old question"},
+                {
+                    "role": "assistant",
+                    "text": "old answer",
+                    "presentation": {
+                        "schema_version": 1,
+                        "run": {"state": "completed", "label": "Injected"},
+                    },
+                },
+            ],
+            "changed_files": ["src/legacy.py"],
+            "updated_at": "2026-08-01T00:00:00+00:00",
+            "updated_ts": 1.0,
+        }
+        original = json.dumps(legacy, sort_keys=True)
+        target.write_text(original, encoding="utf-8")
+
+        restored = load_conversation(self.root, "legacy-chat")
+
+        self.assertEqual(restored["schema_version"], 1)
+        self.assertEqual(restored["changed_files"], ["src/legacy.py"])
+        self.assertNotIn("presentation", restored["messages"][-1])
+        self.assertEqual(target.read_text(encoding="utf-8"), original)
+        archive_conversation(self.root, {**restored, "conversation_id": "legacy-chat"})
+        self.assertEqual(
+            json.loads(target.read_text(encoding="utf-8"))["schema_version"],
+            CONVERSATION_SCHEMA_VERSION,
+        )
+
     def test_clearing_history_removes_saved_conversations_too(self) -> None:
         # The privacy control promises to delete this workspace's history; a
         # transcript surviving "Clear history" would break that promise.
@@ -215,6 +293,23 @@ class ConversationSafetyTests(unittest.TestCase):
         folder = conversations_dir(self.root)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "broken.json").write_text("{not json", encoding="utf-8")
+        self.assertEqual(list_conversations(self.root), [])
+
+    def test_a_future_archive_is_rejected(self) -> None:
+        folder = conversations_dir(self.root)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "future.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": CONVERSATION_SCHEMA_VERSION + 1,
+                    "id": "future",
+                    "messages": [{"role": "user", "text": "future"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(load_conversation(self.root, "future"), {})
         self.assertEqual(list_conversations(self.root), [])
 
     def test_archiving_a_non_dict_is_a_no_op(self) -> None:

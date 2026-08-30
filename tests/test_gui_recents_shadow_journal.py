@@ -81,6 +81,43 @@ class _ConversationFixture(unittest.TestCase):
 
 
 class ShadowMirrorsArchivedConversationsTests(_ConversationFixture):
+    def test_shadow_and_pruning_accept_legacy_v1_but_reject_future_versions(self):
+        folder = conversations_dir(self.root)
+        folder.mkdir(parents=True, exist_ok=True)
+        legacy_target = folder / "legacy.json"
+        legacy = {
+            "schema_version": 1,
+            "id": "legacy",
+            "title": "Legacy",
+            "mode": "ask",
+            "messages": [{"role": "user", "text": "old question"}],
+            "updated_at": "2026-08-01T00:00:00+00:00",
+            "updated_ts": 1.0,
+        }
+        legacy_target.write_text(json.dumps(legacy), encoding="utf-8")
+        shadow_journal.record_snapshot(
+            legacy_target,
+            legacy,
+            is_valid_record=gui_recents._valid_conversation_record,
+        )
+        future_target = folder / "future.json"
+        future = {
+            **legacy,
+            "schema_version": gui_recents.CONVERSATION_SCHEMA_VERSION + 1,
+            "id": "future",
+        }
+        future_target.write_text(json.dumps(future), encoding="utf-8")
+
+        gui_recents._prune_conversations(self.root)
+
+        self.assertTrue(legacy_target.exists())
+        self.assertEqual(
+            conversation_shadow_projection(self.root, "legacy")["schema_version"],
+            1,
+        )
+        self.assertFalse(future_target.exists())
+        self.assertEqual(conversation_shadow_projection(self.root, "future"), {})
+
     def test_archiving_is_mirrored_and_the_shadow_agrees_with_the_file(self):
         conversation_id = self._chat("r1", "How does auth work?", "It uses OAuth.")
 

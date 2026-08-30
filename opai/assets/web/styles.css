@@ -568,6 +568,18 @@ kbd {
 .completion-verdict.partial .cv-title, .completion-verdict.blocked .cv-title, .completion-verdict.cancelled .cv-title { color: var(--amber); }
 .completion-verdict.failed, .completion-verdict.timeout { border-color: rgba(242, 118, 138, 0.42); }
 .completion-verdict.failed .cv-title, .completion-verdict.timeout .cv-title { color: var(--red); }
+.evidence-bar {
+  display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-2) 0;
+}
+.evidence-item {
+  display: inline-flex; align-items: baseline; gap: var(--space-1);
+  padding: var(--space-1) var(--space-2); border: 1px solid var(--border);
+  border-radius: 999px; background: var(--glass); font-size: var(--type-caption);
+}
+.evidence-label { color: var(--faint); }
+.evidence-value { color: var(--ink); font-variant-numeric: tabular-nums; }
+.response-density-compact .evidence-bar { gap: 3px; }
+.response-density-compact .evidence-item { padding-block: 2px; }
 /* The reply claims success the verdict could not confirm (Round 5). Sits directly
    above the answer body so the claim and the caveat are read together — a user who
    only skims the prose still cannot miss that OPai did not verify it. */
@@ -900,6 +912,24 @@ html.activity-select-off .gen, html.activity-select-off .timeline { user-select:
   font-size: var(--type-caption); padding: var(--space-1) var(--space-2); cursor: pointer;
   opacity: 0; transition: opacity 0.15s var(--ease), color 0.15s var(--ease);
 }
+.work-log-group {
+  color: var(--muted); font-size: var(--type-caption);
+}
+.work-log-group summary {
+  color: var(--ink); cursor: pointer; font-weight: 650; padding: var(--space-1) 0;
+}
+.work-log-row {
+  display: grid; grid-template-columns: minmax(72px, auto) 1fr;
+  gap: var(--space-1) var(--space-2); padding: var(--space-1) 0;
+}
+.work-log-status { color: var(--faint); text-transform: capitalize; }
+.work-log-message { color: var(--muted); }
+.work-log-next { color: var(--faint); grid-column: 2; }
+.work-log-row.failed .work-log-status,
+.work-log-row.error .work-log-status { color: var(--red); }
+.work-log-row.blocked .work-log-status { color: var(--amber); }
+.work-log-row.completed .work-log-status,
+.work-log-row.passed .work-log-status { color: var(--green); }
 .code-language {
   position: absolute; top: var(--space-2); left: var(--space-3);
   color: var(--faint); font-size: var(--type-caption); line-height: 1;

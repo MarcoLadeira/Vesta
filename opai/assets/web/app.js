@@ -90,6 +90,19 @@ function responseShellHtml(headerHtml, contentHtml) {
   });
 }
 
+function assistantPresentationHtml(headerHtml, text, presentation, options = {}) {
+  return window.OPaiChatComponents.renderAssistantPresentation({
+    density: state.responseDensity,
+    headerHtml,
+    proseHtml: responseProseHtml(mdToHtml(text || "")),
+    presentation,
+    prefixHtml: options.prefixHtml || "",
+    legacyBeforeHtml: options.legacyBeforeHtml || "",
+    extraHtml: options.extraHtml || "",
+    retryable: options.retryable === true,
+  });
+}
+
 function renderStreamingBody(body, text) {
   body.classList.add("streaming", "response-prose");
   body.innerHTML = window.OPaiMarkdown.render(text, { streaming: true });
@@ -1419,12 +1432,14 @@ function restoreSession(resume) {
       appendMsg(userMessageHtml(message.text || ""), "user");
     } else if (message.role === "assistant" && index !== pendingAssistantIndex) {
       const el = appendMsg(
-        responseShellHtml(
+        assistantPresentationHtml(
           roleHeader("OPai", "var(--accent)"),
-          responseProseHtml(mdToHtml(message.text || "")),
+          message.text || "",
+          message.presentation,
         ),
         "bot",
       );
+      wireActivitySummary(el);
       enhanceCodeBlocks(el);
     }
   });
@@ -1523,12 +1538,14 @@ function renderConversation(conv) {
       return;
     }
     const el = appendMsg(
-      responseShellHtml(
+      assistantPresentationHtml(
         roleHeader("OPai", "var(--muted)", { copy: true }),
-        responseProseHtml(mdToHtml(text)),
+        text,
+        m.presentation,
       )
     );
     wireAnswerCopy(el, text);
+    wireActivitySummary(el);
     enhanceCodeBlocks(el);
   });
   // Say plainly that this is history. Without it, an old transcript is
@@ -1701,8 +1718,16 @@ function finalizeBuild(r) {
   state.pending = null;
   const sel = state.lastSend || {};
   const durMs = Date.now() - state.startTime;
-  el.innerHTML = roleHeader("OPai Build", "var(--accent)") + activitySummaryHtml() +
-    buildResultHtml(r) + (r.receipt ? metaFooter({ receipt: r.receipt }, sel, durMs) : "");
+  el.innerHTML = assistantPresentationHtml(
+    roleHeader("OPai Build", "var(--accent)"),
+    typeof r.answer === "string" ? r.answer : "",
+    r.presentation,
+    {
+      legacyBeforeHtml: activitySummaryHtml(),
+      extraHtml: buildResultHtml(r) +
+        (r.receipt ? metaFooter({ receipt: r.receipt }, sel, durMs) : ""),
+    },
+  );
   wireActivitySummary(el);
   wireReceipt(el, sel);
   const previewBtn = el.querySelector('[data-a="preview"]');
@@ -2335,8 +2360,15 @@ function wireActivitySummary(el) {
   if (!btn) return;
   btn.onclick = () => {
     const tl = el.querySelector(".timeline.done");
-    if (tl.hasAttribute("hidden")) { tl.removeAttribute("hidden"); btn.textContent = "Hide activity"; }
-    else { tl.setAttribute("hidden", ""); btn.textContent = btn.dataset.label; }
+    if (tl.hasAttribute("hidden")) {
+      tl.removeAttribute("hidden");
+      btn.setAttribute("aria-expanded", "true");
+      btn.textContent = "Hide activity";
+    } else {
+      tl.setAttribute("hidden", "");
+      btn.setAttribute("aria-expanded", "false");
+      btn.textContent = btn.dataset.label;
+    }
   };
 }
 // The measurement badge — honest about where the money number came from
@@ -2851,19 +2883,28 @@ function finalize(status, r) {
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
   const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
   const headerHtml = roleHeader(label, color, { copy: true });
-  let html = activitySummaryHtml() + completionVerdictHtml(r) +
-    unverifiedClaimHtml(r) + responseProseHtml(mdToHtml(answer));
+  let extraHtml = "";
   const changed = (r && r.changed_files) || [];
   // A changeset card (below, via workflowCardHtml) already shows every file in
   // flow.diff_review with real diff evidence; the flat chip list is only useful
   // as a fallback when no such evidence exists (e.g. non-edit-intent modes).
   const flowFiles = (r && r.workflow && r.workflow.diff_review && r.workflow.diff_review.files) || [];
-  if (changed.length && !flowFiles.length) html += filesCardHtml(changed);
-  if (r && (r.workflow || r.agent_policy)) html += workflowCardHtml(r);
+  if (changed.length && !flowFiles.length) extraHtml += filesCardHtml(changed);
+  if (r && (r.workflow || r.agent_policy)) extraHtml += workflowCardHtml(r);
   const planSteps = (r && r.plan && r.plan.steps) || [];
-  if (planSteps.length) html += planCardHtml(planSteps);
-  html += metaFooter(r, sel, durMs);
-  el.innerHTML = responseShellHtml(headerHtml, html);
+  if (planSteps.length) extraHtml += planCardHtml(planSteps);
+  extraHtml += metaFooter(r, sel, durMs);
+  el.innerHTML = assistantPresentationHtml(
+    headerHtml,
+    answer,
+    r && r.presentation,
+    {
+      prefixHtml: unverifiedClaimHtml(r),
+      legacyBeforeHtml: activitySummaryHtml() + completionVerdictHtml(r),
+      extraHtml,
+      retryable: Boolean(state.lastSend),
+    },
+  );
   wireAnswerCopy(el, answer);
   wireActivitySummary(el);
   wireFilesCard(el);

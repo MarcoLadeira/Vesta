@@ -2,6 +2,18 @@ import { test, expect } from "@playwright/test";
 
 import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
 
+const structuredPresentation = {
+  schema_version: 1,
+  run: { state: "completed", label: "Completed", reason: "The requested change was verified." },
+  evidence: { verification: { applicable: true, verdict: "verified" } },
+  tests: { status: "passed", passed: 3, failed: 0, skipped: 0 },
+  changes: { summary: { files: 2, additions: 12, deletions: 4 } },
+  activity: [
+    { phase: "implement", status: "completed", message: "Updated two files" },
+    { phase: "test", status: "completed", message: "Focused tests passed" },
+  ],
+};
+
 /* Three things the chat surface was missing.
  *
  * 1. There was no way to copy an answer. Selecting long markdown by hand in a
@@ -82,6 +94,39 @@ test("selecting a saved chat restores the conversation, not just the question", 
   await expect(thread).toContainText("Auto scores each capable model.");
   // And it did not silently refill the composer the old way.
   await expect(page.locator("#input")).toHaveValue("");
+});
+
+test("live and archived assistants use the same structured evidence renderer", async ({ page }) => {
+  await openApp(page, {
+    conversationTranscripts: {
+      c2: {
+        id: "c2",
+        title: "How does routing work?",
+        updated_at: "2026-08-02T10:00:00+00:00",
+        messages: [
+          { role: "user", text: "Implement it", status: "complete" },
+          { role: "assistant", text: "The implementation is ready.", status: "complete", presentation: structuredPresentation },
+        ],
+      },
+    },
+  });
+  const id = await sendPrompt(page, "Implement it live");
+  await finishRequest(page, id, {
+    answer: "The implementation is ready.",
+    presentation: structuredPresentation,
+  });
+
+  const live = page.locator(".msg.bot").last();
+  const liveEvidence = await live.locator(".evidence-item").allInnerTexts();
+  const liveVerdict = await live.locator(".completion-verdict").innerText();
+  await expect(live.locator(".gen-toggle.done")).toContainText("Work log (2)");
+
+  await page.locator("#recents .recent", { hasText: "How does routing work?" }).click();
+  const archived = page.locator(".msg", { has: page.locator(".evidence-bar") }).first();
+  expect(await archived.locator(".evidence-item").allInnerTexts()).toEqual(liveEvidence);
+  expect(await archived.locator(".completion-verdict").innerText()).toBe(liveVerdict);
+  await expect(archived.locator(".gen-toggle.done")).toContainText("Work log (2)");
+  await expect(archived.locator(".body")).toContainText("The implementation is ready");
 });
 
 test("a reopened chat says it is history", async ({ page }) => {

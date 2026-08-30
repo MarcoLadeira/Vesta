@@ -30,6 +30,35 @@ test("generation shows status bar, model, timer and stop", async ({ page }) => {
   await expect(page.locator("body")).not.toHaveClass(/ai-working/);
 });
 
+test("a live final response uses its structured evidence and work log", async ({ page }) => {
+  await sendPrompt(page, "verify the change");
+  const id = await reqId(page);
+  await page.evaluate((requestId) => window.__mock.emitReply(requestId, {
+    status: "answered",
+    answer: "Verification is complete. 999 imaginary tests did not run.",
+    receipt: {},
+    presentation: {
+      schema_version: 1,
+      run: { state: "completed", label: "Completed", reason: "Structured checks passed." },
+      evidence: { verification: { applicable: true, verdict: "verified" } },
+      tests: { status: "passed", passed: 2, failed: 0, skipped: 0 },
+      activity: [
+        { phase: "test", status: "completed", message: '<script>alert("x")</script>' },
+        { phase: "test", status: "completed", message: "Two focused checks passed" },
+      ],
+    },
+  }), id);
+
+  const response = page.locator(".msg.bot").last();
+  await expect(response.locator(".completion-verdict")).toContainText("Completed");
+  await expect(response.locator(".evidence-bar")).toContainText("2 passed");
+  await expect(response.locator(".evidence-bar")).not.toContainText("999");
+  await expect(response.locator(".gen-toggle.done")).toContainText("Work log (2)");
+  await response.locator(".gen-toggle.done").click();
+  await expect(response.locator(".timeline.done")).toContainText("Two focused checks passed");
+  await expect(response.locator("script")).toHaveCount(0);
+});
+
 test("activity timeline receives events", async ({ page }) => {
   await sendPrompt(page);
   const id = await reqId(page);

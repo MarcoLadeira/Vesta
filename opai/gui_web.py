@@ -876,6 +876,350 @@ def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> No
         pass
 
 
+def _safe_result_path(value: Any) -> str:
+    raw = str(value or "").replace("\\", "/").strip()
+    raw = re.sub(r"^[MADRCU?!]{1,2}\s+", "", raw).strip()
+    if " -> " in raw:
+        raw = raw.rsplit(" -> ", 1)[-1].strip()
+    candidate = Path(raw)
+    if not raw or ":" in raw or candidate.is_absolute() or ".." in candidate.parts:
+        return ""
+    while raw.startswith("./"):
+        raw = raw[2:]
+    return raw[:500] if raw and raw != "." else ""
+
+
+def _attributed_changed_files(result: Any) -> list[str]:
+    if not isinstance(result, dict):
+        return []
+
+    def values(source: Any) -> list[str]:
+        if not isinstance(source, (list, tuple)):
+            return []
+        found: list[str] = []
+        for item in source:
+            path = _safe_result_path(
+                item.get("path") if isinstance(item, dict) else item
+            )
+            if path and path not in found:
+                found.append(path)
+        return found
+
+    status = str(result.get("status") or "").strip().lower()
+    if status == "rolled_back":
+        return []
+    if status in {"partial_rollback", "rollback_failed"}:
+        return values(result.get("remaining_changed_files"))
+
+    receipt = result.get("receipt")
+    receipt = receipt if isinstance(receipt, dict) else {}
+    workflow = result.get("workflow")
+    workflow = workflow if isinstance(workflow, dict) else {}
+    review = workflow.get("diff_review")
+    review = review if isinstance(review, dict) else {}
+    ordered: list[str] = []
+    for source in (
+        receipt.get("changed_files"),
+        review.get("files"),
+        workflow.get("changed_files"),
+        result.get("changed_files"),
+    ):
+        for path in values(source):
+            if path not in ordered:
+                ordered.append(path)
+    if not ordered:
+        ordered.extend(values(result.get("applied")))
+    return ordered
+
+
+def _manifest_check_summary(result: dict[str, Any]) -> dict[str, Any]:
+    raw = result.get("verification_manifest")
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    try:
+        from opaihub.verification_execution import verification_manifest_from_dict
+
+        manifest = verification_manifest_from_dict(raw)
+    except (KeyError, TypeError, ValueError):
+        return {}
+    statuses = [
+        str(item.status.value if item.status is not None else "missing")
+        for item in manifest.checks
+    ]
+    if not statuses:
+        return {}
+    passed = sum(status == "passed" for status in statuses)
+    skipped = sum(status in {"skipped", "waived"} for status in statuses)
+    failed = len(statuses) - passed - skipped
+    if manifest.integrity_errors:
+        status = "not_verified"
+    elif failed:
+        priority = (
+            "failed",
+            "timeout",
+            "cancelled",
+            "blocked",
+            "unavailable",
+            "artifact_lost",
+            "missing",
+        )
+        first = next((item for item in priority if item in statuses), "not_verified")
+        status = (
+            "not_verified"
+            if first in {"unavailable", "artifact_lost", "missing"}
+            else first
+        )
+    elif skipped and passed:
+        status = "partial"
+    elif skipped:
+        status = "skipped"
+    else:
+        status = "passed"
+    return {
+        "status": status,
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+    }
+
+
+def _assistant_presentation(result: Any, attributed_files: Any) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {}
+    presentation: dict[str, Any] = {"schema_version": 1}
+
+    raw_run = result.get("run_result")
+    canonical = None
+    if isinstance(raw_run, dict):
+        try:
+            from opaihub.run_result import RunResult, terminal_presentation
+
+            canonical = RunResult.from_dict(raw_run)
+            terminal = terminal_presentation(canonical.to_dict())
+        except (TypeError, ValueError):
+            canonical = None
+        else:
+            run: dict[str, Any] = {
+                "state": terminal.state,
+                "label": terminal.label,
+                "category": terminal.category,
+                "reason": terminal.reason,
+                "automatic_retry": terminal.automatic_retry,
+                "retry_reason": terminal.retry_reason,
+            }
+            supplement = result.get("completion_verdict")
+            if (
+                isinstance(supplement, dict)
+                and str(supplement.get("verdict") or "").strip().lower()
+                == terminal.state
+            ):
+                for key in ("reason_code", "next_action"):
+                    value = supplement.get(key)
+                    if isinstance(value, str) and value.strip():
+                        run[key] = value
+                if isinstance(supplement.get("answer_conflicts"), bool):
+                    run["answer_conflicts"] = supplement["answer_conflicts"]
+            presentation["run"] = run
+            evidence: dict[str, Any] = {}
+            canonical_payload = canonical.to_dict()
+            for name in ("verification", "delivery"):
+                raw_record = canonical_payload.get(name)
+                if isinstance(raw_record, dict):
+                    record = {
+                        key: raw_record[key]
+                        for key in ("applicable", "verdict")
+                        if key in raw_record
+                        and isinstance(raw_record[key], (bool, str))
+                    }
+                    if record:
+                        evidence[name] = record
+            economics = canonical_payload.get("economics")
+            if isinstance(economics, dict) and isinstance(
+                economics.get("integrity"), str
+            ):
+                evidence["economics"] = {"integrity": economics["integrity"]}
+            authority = canonical_payload.get("authority")
+            if isinstance(authority, dict) and isinstance(
+                authority.get("mutating"), bool
+            ):
+                evidence["authority"] = {"mutating": authority["mutating"]}
+            diagnostics = canonical_payload.get("diagnostics")
+            if isinstance(diagnostics, dict) and isinstance(
+                diagnostics.get("codes"), (list, tuple)
+            ):
+                codes = [
+                    str(code)
+                    for code in diagnostics["codes"]
+                    if isinstance(code, str) and code.strip()
+                ]
+                if codes:
+                    evidence["diagnostic_codes"] = codes
+            if evidence:
+                presentation["evidence"] = evidence
+
+    tests = _manifest_check_summary(result)
+    if tests:
+        presentation["tests"] = tests
+
+    paths = _attributed_changed_files({"changed_files": attributed_files})
+    workflow = result.get("workflow")
+    workflow = workflow if isinstance(workflow, dict) else {}
+    review = workflow.get("diff_review")
+    review = review if isinstance(review, dict) else {}
+    review_files = review.get("files")
+    review_files = review_files if isinstance(review_files, (list, tuple)) else ()
+    metadata: dict[str, dict[str, Any]] = {}
+    for item in review_files:
+        if not isinstance(item, dict):
+            continue
+        path = _safe_result_path(item.get("path"))
+        if path and path not in metadata:
+            metadata[path] = item
+    applied = result.get("applied")
+    applied = applied if isinstance(applied, (list, tuple)) else ()
+    for item in applied:
+        if not isinstance(item, dict):
+            continue
+        path = _safe_result_path(item.get("path"))
+        if path and path not in metadata:
+            metadata[path] = {
+                "path": path,
+                "additions": item.get("additions", item.get("added")),
+                "deletions": item.get("deletions", item.get("removed")),
+            }
+    change_files: list[dict[str, Any]] = []
+    for path in paths:
+        raw_file = metadata.get(path, {})
+        item: dict[str, Any] = {"path": path}
+        for key in (
+            "decision",
+            "additions",
+            "deletions",
+            "risky",
+            "risk_reasons",
+            "untracked",
+            "sensitive",
+        ):
+            if key in raw_file:
+                item[key] = raw_file[key]
+        change_files.append(item)
+    raw_summary = review.get("summary")
+    summary = (
+        {
+            key: raw_summary[key]
+            for key in (
+                "files",
+                "additions",
+                "deletions",
+                "pending",
+                "approved",
+                "rejected",
+                "risky",
+                "truncated",
+            )
+            if key in raw_summary
+        }
+        if isinstance(raw_summary, dict)
+        else {}
+    )
+    if paths and "files" not in summary:
+        summary["files"] = len(paths)
+    if change_files or summary:
+        changes: dict[str, Any] = {}
+        if summary:
+            changes["summary"] = summary
+        if change_files:
+            changes["files"] = change_files
+        presentation["changes"] = changes
+
+    awaiting = result.get("awaiting")
+    awaiting = awaiting if isinstance(awaiting, dict) else {}
+    status = str(result.get("status") or "").strip()
+    approval_statuses = {
+        "needs_command_approval",
+        "needs_edit_approval",
+        "needs_free_confirmation",
+        "needs_auto_confirmation",
+        "needs_limit_confirmation",
+        "needs_confirmation",
+    }
+    if awaiting or status in approval_statuses:
+        approval: dict[str, Any] = {}
+        kind = awaiting.get("kind")
+        if isinstance(kind, str) and kind.strip():
+            approval["kind"] = kind
+        state = awaiting.get("status") or status
+        if isinstance(state, str) and state.strip():
+            approval["state"] = state
+        question = awaiting.get("question")
+        if isinstance(question, str) and question.strip():
+            approval["question"] = question
+        background = awaiting.get("backgroundActive")
+        if isinstance(background, bool):
+            approval["background_active"] = background
+        command_record = result.get("command_approval")
+        command_record = command_record if isinstance(command_record, dict) else {}
+        command = result.get("command") or command_record.get("command")
+        reason = result.get("reason") or command_record.get("reason")
+        if isinstance(command, str) and command.strip():
+            approval["command"] = command
+        if isinstance(reason, str) and reason.strip():
+            approval["reason"] = reason
+        edit_record = result.get("edit_approval")
+        edit_record = edit_record if isinstance(edit_record, dict) else {}
+        edit_files = result.get("edit_files") or edit_record.get("files")
+        if isinstance(edit_files, (list, tuple)):
+            approval["files"] = list(edit_files)
+        pending = (workflow.get("safety_gates") or {}).get("pending_action")
+        pending = pending if isinstance(pending, dict) else {}
+        model_id = (
+            result.get("fallbackModelId")
+            or result.get("model_id")
+            or pending.get("model_id")
+        )
+        model_label = result.get("fallbackModelLabel") or pending.get("model_label")
+        if isinstance(model_id, str) and model_id.strip():
+            approval["model_id"] = model_id
+        if isinstance(model_label, str) and model_label.strip():
+            approval["model_label"] = model_label
+        if approval:
+            presentation["approval"] = approval
+
+    history = workflow.get("history")
+    if isinstance(history, (list, tuple)):
+        activity: list[dict[str, Any]] = []
+        for raw_item in history[-32:]:
+            if not isinstance(raw_item, dict):
+                continue
+            item: dict[str, Any] = {}
+            for key in ("phase", "status", "message"):
+                value = raw_item.get(key)
+                if isinstance(value, str) and value.strip():
+                    item[key] = value
+            next_action = raw_item.get("next_action")
+            if not next_action and isinstance(
+                raw_item.get("next_actions"), (list, tuple)
+            ):
+                next_action = next(
+                    (
+                        value
+                        for value in raw_item["next_actions"]
+                        if isinstance(value, str) and value.strip()
+                    ),
+                    "",
+                )
+            if isinstance(next_action, str) and next_action.strip():
+                item["next_action"] = next_action
+            if item:
+                activity.append(item)
+        if activity:
+            presentation["activity"] = activity
+
+    from opai.gui_recents import _clean_presentation
+
+    return _clean_presentation(presentation)
+
+
 def _persist_turn_result(
     root: Path,
     request_id: str,
@@ -889,6 +1233,8 @@ def _persist_turn_result(
     from opai.gui_recents import finish_thread_turn, thread_status_for_result
 
     status = str(result.get("status") or "failed")
+    changed_files = _attributed_changed_files(result)
+    presentation = _assistant_presentation(result, changed_files)
     if build:
         applied = [
             str(item.get("path") or "")
@@ -927,14 +1273,12 @@ def _persist_turn_result(
                 if isinstance(error, dict)
                 else str(error or "")
             ) or str(result.get("answer") or status)
-        changed_files: Any = applied
     else:
         error = result.get("error")
         answer = str(result.get("answer") or "")
         if not answer and isinstance(error, dict):
             answer = str(error.get("userMessage") or error.get("title") or "")
         answer = answer or status
-        changed_files = result.get("changed_files") or ()
 
     workflow = (
         result.get("workflow") if isinstance(result.get("workflow"), dict) else {}
@@ -963,6 +1307,7 @@ def _persist_turn_result(
             checkpoint_id=str(result.get("checkpoint_id") or ""),
             plan=plan,
             changed_files=changed_files,
+            presentation=presentation or None,
         )
     except (OSError, TypeError, ValueError):
         pass
@@ -2192,6 +2537,11 @@ def _run_gui(
                 flush_batch()
                 timer.deleteLater()
                 result = json.loads(result_json)
+                presentation = _assistant_presentation(
+                    result, _attributed_changed_files(result)
+                )
+                if presentation:
+                    result = {**result, "presentation": presentation}
                 self._session_epoch.run_if_current(
                     turn_epoch,
                     lambda: _persist_turn_result(
@@ -2290,6 +2640,11 @@ def _run_gui(
                 flush_batch()
                 timer.deleteLater()
                 result = json.loads(result_json)
+                presentation = _assistant_presentation(
+                    result, _attributed_changed_files(result)
+                )
+                if presentation:
+                    result = {**result, "presentation": presentation}
                 self._session_epoch.run_if_current(
                     turn_epoch,
                     lambda: _persist_turn_result(

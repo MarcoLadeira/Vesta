@@ -34,12 +34,19 @@ MAX_RECENTS = 12
 #: the same reason the prompt list is: this is local history the user did not
 #: ask to accumulate, and it is read on every boot.
 MAX_CONVERSATIONS = 20
-CONVERSATION_SCHEMA_VERSION = 1
+CONVERSATION_SCHEMA_VERSION = 2
 MAX_CONVERSATION_TITLE_CHARS = 120
-THREAD_SCHEMA_VERSION = 1
+THREAD_SCHEMA_VERSION = 2
+_HISTORY_SCHEMA_VERSIONS = frozenset({1, 2})
 MAX_THREAD_MESSAGES = 40
 MAX_THREAD_TEXT_CHARS = 12_000
 MAX_THREAD_TOTAL_CHARS = 64_000
+PRESENTATION_SCHEMA_VERSION = 1
+MAX_PRESENTATION_BYTES = 8 * 1024
+MAX_THREAD_PRESENTATION_BYTES = 48 * 1024
+MAX_PRESENTATION_CHANGE_FILES = 50
+MAX_PRESENTATION_ACTIVITY_ROWS = 32
+MAX_CHANGED_FILES = 200
 MAX_PLAN_STEPS = 50
 MAX_RESUME_CONTEXT_CHARS = 12_000
 
@@ -228,10 +235,320 @@ def _clean_text(value: Any, *, limit: int) -> str:
     return redact(str(value or "")).strip()[: max(0, int(limit))]
 
 
-def _clean_messages(value: Any) -> list[dict[str, str]]:
+def _truncate_utf8(value: str, limit: int) -> str:
+    encoded = str(value).encode("utf-8")
+    if len(encoded) <= max(0, int(limit)):
+        return str(value)
+    return encoded[: max(0, int(limit))].decode("utf-8", errors="ignore")
+
+
+def _clean_presentation_text(value: Any, *, limit: int) -> str:
+    return _truncate_utf8(_clean_text(value, limit=limit), limit)
+
+
+def _clean_nonnegative_int(value: Any, *, maximum: int = 1_000_000_000) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return min(value, maximum)
+
+
+def _clean_relative_path(
+    value: Any, *, workspace_root: Path | None = None, limit: int = 500
+) -> str:
+    raw = _clean_presentation_text(value, limit=limit).replace("\\", "/")
+    if not raw or "\x00" in raw or ":" in raw:
+        return ""
+    raw = re.sub(r"^[MADRCU?!]{1,2}\s+", "", raw).strip()
+    if " -> " in raw:
+        raw = raw.rsplit(" -> ", 1)[-1].strip()
+    if not raw:
+        return ""
+    candidate = Path(raw)
+    if workspace_root is None:
+        if candidate.is_absolute() or ".." in candidate.parts:
+            return ""
+        normalized = candidate.as_posix()
+        while normalized.startswith("./"):
+            normalized = normalized[2:]
+        return normalized if normalized and normalized != "." else ""
+    root = _resolved_for_containment(workspace_root)
+    try:
+        resolved = _resolved_for_containment(
+            candidate if candidate.is_absolute() else root / candidate
+        )
+        relative = resolved.relative_to(root).as_posix()
+    except (OSError, ValueError):
+        return ""
+    return relative if relative and relative != "." else ""
+
+
+def _clean_bool_field(source: dict[str, Any], key: str, target: dict[str, Any]) -> None:
+    value = source.get(key)
+    if isinstance(value, bool):
+        target[key] = value
+
+
+def _clean_string_field(
+    source: dict[str, Any], key: str, target: dict[str, Any], *, limit: int
+) -> None:
+    value = _clean_presentation_text(source.get(key), limit=limit)
+    if value:
+        target[key] = value
+
+
+def _clean_count_field(
+    source: dict[str, Any], key: str, target: dict[str, Any]
+) -> None:
+    value = _clean_nonnegative_int(source.get(key))
+    if value is not None:
+        target[key] = value
+
+
+def _presentation_bytes(value: dict[str, Any]) -> int:
+    return len(json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+
+
+def _fit_presentation(
+    value: dict[str, Any], *, maximum_bytes: int = MAX_PRESENTATION_BYTES
+) -> dict[str, Any]:
+    maximum = max(0, min(int(maximum_bytes), MAX_PRESENTATION_BYTES))
+    if maximum <= 0:
+        return {}
+    while _presentation_bytes(value) > maximum:
+        activity = value.get("activity")
+        if isinstance(activity, list) and activity:
+            activity.pop(0)
+            if not activity:
+                value.pop("activity", None)
+            continue
+        changes = value.get("changes")
+        change_files = changes.get("files") if isinstance(changes, dict) else None
+        if isinstance(change_files, list) and change_files:
+            change_files.pop()
+            summary = changes.setdefault("summary", {})
+            if isinstance(summary, dict):
+                summary["truncated"] = True
+            if not change_files:
+                changes.pop("files", None)
+            continue
+        approval = value.get("approval")
+        approval_files = approval.get("files") if isinstance(approval, dict) else None
+        if isinstance(approval_files, list) and approval_files:
+            approval_files.pop()
+            if not approval_files:
+                approval.pop("files", None)
+            continue
+        evidence = value.get("evidence")
+        codes = evidence.get("diagnostic_codes") if isinstance(evidence, dict) else None
+        if isinstance(codes, list) and codes:
+            codes.pop()
+            if not codes:
+                evidence.pop("diagnostic_codes", None)
+            continue
+        removed = False
+        for section in ("approval", "changes", "tests", "evidence"):
+            if section in value:
+                value.pop(section, None)
+                removed = True
+                break
+        if not removed:
+            return {}
+    return value
+
+
+def _clean_presentation(
+    value: Any,
+    *,
+    workspace_root: Path | None = None,
+    maximum_bytes: int = MAX_PRESENTATION_BYTES,
+) -> dict[str, Any]:
+    if (
+        not isinstance(value, dict)
+        or isinstance(value.get("schema_version"), bool)
+        or value.get("schema_version") != PRESENTATION_SCHEMA_VERSION
+    ):
+        return {}
+    out: dict[str, Any] = {"schema_version": PRESENTATION_SCHEMA_VERSION}
+
+    raw_run = value.get("run")
+    if isinstance(raw_run, dict):
+        run: dict[str, Any] = {}
+        for key, limit in (
+            ("state", 64),
+            ("label", 120),
+            ("category", 64),
+            ("reason", 800),
+            ("reason_code", 120),
+            ("next_action", 500),
+            ("retry_reason", 120),
+        ):
+            _clean_string_field(raw_run, key, run, limit=limit)
+        for key in ("automatic_retry", "answer_conflicts"):
+            _clean_bool_field(raw_run, key, run)
+        if run:
+            out["run"] = run
+
+    raw_evidence = value.get("evidence")
+    if isinstance(raw_evidence, dict):
+        evidence: dict[str, Any] = {}
+        for name in ("verification", "delivery"):
+            raw_record = raw_evidence.get(name)
+            if not isinstance(raw_record, dict):
+                continue
+            record: dict[str, Any] = {}
+            _clean_bool_field(raw_record, "applicable", record)
+            _clean_string_field(raw_record, "verdict", record, limit=64)
+            if record:
+                evidence[name] = record
+        raw_economics = raw_evidence.get("economics")
+        if isinstance(raw_economics, dict):
+            economics: dict[str, Any] = {}
+            _clean_string_field(raw_economics, "integrity", economics, limit=64)
+            if economics:
+                evidence["economics"] = economics
+        raw_authority = raw_evidence.get("authority")
+        if isinstance(raw_authority, dict):
+            authority: dict[str, Any] = {}
+            _clean_bool_field(raw_authority, "mutating", authority)
+            if authority:
+                evidence["authority"] = authority
+        raw_codes = raw_evidence.get("diagnostic_codes")
+        if isinstance(raw_codes, (list, tuple)):
+            codes: list[str] = []
+            for item in raw_codes[:64]:
+                code = _clean_presentation_text(item, limit=120)
+                if code and code not in codes:
+                    codes.append(code)
+            if codes:
+                evidence["diagnostic_codes"] = codes
+        if evidence:
+            out["evidence"] = evidence
+
+    raw_tests = value.get("tests")
+    if isinstance(raw_tests, dict):
+        tests: dict[str, Any] = {}
+        _clean_string_field(raw_tests, "status", tests, limit=64)
+        for key in ("passed", "failed", "skipped"):
+            _clean_count_field(raw_tests, key, tests)
+        if tests:
+            out["tests"] = tests
+
+    raw_changes = value.get("changes")
+    if isinstance(raw_changes, dict):
+        changes: dict[str, Any] = {}
+        raw_summary = raw_changes.get("summary")
+        summary: dict[str, Any] = {}
+        if isinstance(raw_summary, dict):
+            for key in (
+                "files",
+                "additions",
+                "deletions",
+                "pending",
+                "approved",
+                "rejected",
+                "risky",
+            ):
+                _clean_count_field(raw_summary, key, summary)
+            _clean_bool_field(raw_summary, "truncated", summary)
+        raw_files = raw_changes.get("files")
+        files: list[dict[str, Any]] = []
+        truncated_files = False
+        if isinstance(raw_files, (list, tuple)):
+            truncated_files = len(raw_files) > MAX_PRESENTATION_CHANGE_FILES
+            for raw_file in raw_files[:MAX_PRESENTATION_CHANGE_FILES]:
+                if not isinstance(raw_file, dict):
+                    continue
+                path = _clean_relative_path(
+                    raw_file.get("path"), workspace_root=workspace_root, limit=500
+                )
+                if not path:
+                    continue
+                item: dict[str, Any] = {"path": path}
+                _clean_string_field(raw_file, "decision", item, limit=32)
+                for key in ("additions", "deletions"):
+                    _clean_count_field(raw_file, key, item)
+                for key in ("risky", "untracked", "sensitive"):
+                    _clean_bool_field(raw_file, key, item)
+                raw_reasons = raw_file.get("risk_reasons")
+                if isinstance(raw_reasons, (list, tuple)):
+                    reasons = [
+                        reason
+                        for raw_reason in raw_reasons[:8]
+                        if (reason := _clean_presentation_text(raw_reason, limit=120))
+                    ]
+                    if reasons:
+                        item["risk_reasons"] = reasons
+                files.append(item)
+        if truncated_files:
+            summary["truncated"] = True
+        if summary:
+            changes["summary"] = summary
+        if files:
+            changes["files"] = files
+        if changes:
+            out["changes"] = changes
+
+    raw_approval = value.get("approval")
+    if isinstance(raw_approval, dict):
+        approval: dict[str, Any] = {}
+        for key, limit in (
+            ("kind", 64),
+            ("state", 64),
+            ("question", 500),
+            ("command", 1_000),
+            ("reason", 500),
+            ("model_id", 200),
+            ("model_label", 200),
+        ):
+            _clean_string_field(raw_approval, key, approval, limit=limit)
+        _clean_bool_field(raw_approval, "background_active", approval)
+        raw_files = raw_approval.get("files")
+        if isinstance(raw_files, (list, tuple)):
+            files: list[str] = []
+            for raw_path in raw_files[:MAX_PRESENTATION_CHANGE_FILES]:
+                path = _clean_relative_path(
+                    raw_path, workspace_root=workspace_root, limit=500
+                )
+                if path and path not in files:
+                    files.append(path)
+            if files:
+                approval["files"] = files
+        if approval:
+            out["approval"] = approval
+
+    raw_activity = value.get("activity")
+    if isinstance(raw_activity, (list, tuple)):
+        activity: list[dict[str, Any]] = []
+        for raw_item in raw_activity[-MAX_PRESENTATION_ACTIVITY_ROWS:]:
+            if not isinstance(raw_item, dict):
+                continue
+            item: dict[str, Any] = {}
+            for key, limit in (
+                ("phase", 64),
+                ("status", 64),
+                ("message", 500),
+                ("next_action", 500),
+            ):
+                _clean_string_field(raw_item, key, item, limit=limit)
+            if item:
+                activity.append(item)
+        if activity:
+            out["activity"] = activity
+
+    if len(out) == 1:
+        return {}
+    return _fit_presentation(out, maximum_bytes=maximum_bytes)
+
+
+def _clean_messages(
+    value: Any,
+    *,
+    workspace_root: Path | None = None,
+    include_presentation: bool = True,
+) -> list[dict[str, Any]]:
     if not isinstance(value, (list, tuple)):
         return []
-    candidates: list[dict[str, str]] = []
+    candidates: list[dict[str, Any]] = []
     for item in value:
         if not isinstance(item, dict):
             continue
@@ -245,25 +562,44 @@ def _clean_messages(value: Any) -> list[dict[str, str]]:
         if status not in _THREAD_STATUSES:
             status = "complete"
         timestamp = str(item.get("timestamp") or "").strip()[:64] or _now()
-        candidates.append(
-            {
-                "role": role,
-                "text": text,
-                "status": status,
-                "timestamp": timestamp,
-            }
-        )
+        candidate: dict[str, Any] = {
+            "role": role,
+            "text": text,
+            "status": status,
+            "timestamp": timestamp,
+        }
+        if include_presentation and role == "assistant":
+            presentation = _clean_presentation(
+                item.get("presentation"), workspace_root=workspace_root
+            )
+            if presentation:
+                candidate["presentation"] = presentation
+        candidates.append(candidate)
 
     # Keep the newest turns under both count and total persisted-text budgets.
-    kept: list[dict[str, str]] = []
+    kept: list[dict[str, Any]] = []
     remaining = MAX_THREAD_TOTAL_CHARS
+    presentation_remaining = MAX_THREAD_PRESENTATION_BYTES
     for item in reversed(candidates[-MAX_THREAD_MESSAGES:]):
         if remaining <= 0:
             break
         text = item["text"][:remaining]
         if not text:
             continue
-        kept.append({**item, "text": text})
+        cleaned_item = {**item, "text": text}
+        presentation = cleaned_item.get("presentation")
+        if isinstance(presentation, dict):
+            bounded = _clean_presentation(
+                presentation,
+                workspace_root=workspace_root,
+                maximum_bytes=presentation_remaining,
+            )
+            if bounded:
+                cleaned_item["presentation"] = bounded
+                presentation_remaining -= _presentation_bytes(bounded)
+            else:
+                cleaned_item.pop("presentation", None)
+        kept.append(cleaned_item)
         remaining -= len(text)
     return list(reversed(kept))
 
@@ -291,18 +627,10 @@ def _clean_changed_files(workspace_root: Path, value: Any) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
     out: list[str] = []
-    for item in value[:200]:
-        raw = _clean_text(item, limit=500).replace("\\", "/")
-        if not raw:
-            continue
-        candidate = Path(raw)
-        if candidate.is_absolute():
-            try:
-                raw = candidate.resolve().relative_to(workspace_root).as_posix()
-            except (OSError, ValueError):
-                continue
-        if raw not in out:
-            out.append(raw)
+    for item in value[:MAX_CHANGED_FILES]:
+        path = _clean_relative_path(item, workspace_root=workspace_root, limit=500)
+        if path and path not in out:
+            out.append(path)
     return out
 
 
@@ -357,7 +685,7 @@ def _thread_payload(
         # saved chat per reply, each holding the whole accumulated transcript.
         "conversation_id": _clean_id(conversation_id, limit=64),
         "mode": _clean_text(mode, limit=40) or "safe-auto",
-        "messages": _clean_messages(messages),
+        "messages": _clean_messages(messages, workspace_root=root),
         "checkpoint_id": _clean_id(checkpoint_id, limit=64),
         "plan": _clean_plan(plan),
         "changed_files": _clean_changed_files(root, changed_files),
@@ -419,15 +747,24 @@ def _load_thread_unlocked(root: Path, target: Path) -> dict[str, Any]:
         raw = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    if not isinstance(raw, dict) or raw.get("schema_version") != THREAD_SCHEMA_VERSION:
+    if (
+        not isinstance(raw, dict)
+        or isinstance(raw.get("schema_version"), bool)
+        or raw.get("schema_version") not in _HISTORY_SCHEMA_VERSIONS
+    ):
         return {}
     if not isinstance(raw.get("messages"), list):
         return {}
-    messages = _clean_messages(raw["messages"])
+    schema_version = int(raw["schema_version"])
+    messages = _clean_messages(
+        raw["messages"],
+        workspace_root=root,
+        include_presentation=schema_version >= 2,
+    )
     if not messages:
         return {}
     return {
-        "schema_version": THREAD_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "task_id": _clean_id(raw.get("task_id")),
         "conversation_id": _clean_id(raw.get("conversation_id"), limit=64),
         "mode": _clean_text(raw.get("mode"), limit=40) or "safe-auto",
@@ -502,7 +839,7 @@ def normalize_resume_execution_context(value: Any) -> dict[str, Any]:
 
     if not isinstance(value, dict):
         return {}
-    messages = _clean_messages(value.get("messages"))[-16:]
+    messages = _clean_messages(value.get("messages"), include_presentation=False)[-16:]
     if not messages:
         return {}
 
@@ -735,6 +1072,7 @@ def finish_thread_turn(
     checkpoint_id: str = "",
     plan: Any = (),
     changed_files: Any = (),
+    presentation: Any = None,
 ) -> dict[str, Any]:
     """Finalize only the active request, preventing stale replies from winning."""
 
@@ -744,14 +1082,15 @@ def finish_thread_turn(
         if not current or current.get("active_request_id") != _clean_id(request_id):
             return current
         messages = list(current.get("messages") or [])
-        messages.append(
-            {
-                "role": "assistant",
-                "text": answer or "The request ended without a response.",
-                "status": status if status in _THREAD_STATUSES else "failed",
-                "timestamp": _now(),
-            }
-        )
+        assistant_message: dict[str, Any] = {
+            "role": "assistant",
+            "text": answer or "The request ended without a response.",
+            "status": status if status in _THREAD_STATUSES else "failed",
+            "timestamp": _now(),
+        }
+        if presentation is not None:
+            assistant_message["presentation"] = presentation
+        messages.append(assistant_message)
         payload = _thread_payload(
             root,
             task_id=task_id or str(current.get("task_id") or request_id),
@@ -875,7 +1214,7 @@ def _conversation_target(workspace_root: str | Path, conversation_id: str) -> Pa
     return target
 
 
-def _conversation_title(messages: list[dict[str, str]]) -> str:
+def _conversation_title(messages: list[dict[str, Any]]) -> str:
     """Title a conversation by its first question, the way the user recalls it."""
 
     for item in messages:
@@ -887,7 +1226,7 @@ def _conversation_title(messages: list[dict[str, str]]) -> str:
 
 
 def _conversation_payload(root: Path, thread: dict[str, Any]) -> dict[str, Any]:
-    messages = _clean_messages(thread.get("messages"))
+    messages = _clean_messages(thread.get("messages"), workspace_root=root)
     return {
         "schema_version": CONVERSATION_SCHEMA_VERSION,
         "id": _clean_id(thread.get("conversation_id"), limit=64),
@@ -916,7 +1255,8 @@ def _valid_conversation_record(record: dict[str, Any]) -> bool:
     return (
         isinstance(record.get("id"), str)
         and bool(record.get("id"))
-        and record.get("schema_version") == CONVERSATION_SCHEMA_VERSION
+        and not isinstance(record.get("schema_version"), bool)
+        and record.get("schema_version") in _HISTORY_SCHEMA_VERSIONS
     )
 
 
@@ -1007,27 +1347,43 @@ def _conversation_files(workspace_root: str | Path) -> list[Path]:
         return []
 
 
-def _read_conversation(path: Path) -> dict[str, Any]:
+def _read_conversation(
+    path: Path, workspace_root: str | Path | None = None
+) -> dict[str, Any]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     if (
         not isinstance(raw, dict)
-        or raw.get("schema_version") != CONVERSATION_SCHEMA_VERSION
+        or isinstance(raw.get("schema_version"), bool)
+        or raw.get("schema_version") not in _HISTORY_SCHEMA_VERSIONS
     ):
         return {}
-    messages = _clean_messages(raw.get("messages"))
+    root = (
+        Path(workspace_root).expanduser().resolve()
+        if workspace_root is not None
+        else None
+    )
+    schema_version = int(raw["schema_version"])
+    messages = _clean_messages(
+        raw.get("messages"),
+        workspace_root=root,
+        include_presentation=schema_version >= 2,
+    )
     if not messages:
         return {}
     return {
-        "schema_version": CONVERSATION_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "id": _clean_id(raw.get("id"), limit=64),
         "title": _clean_text(raw.get("title"), limit=MAX_CONVERSATION_TITLE_CHARS)
         or _conversation_title(messages),
         "mode": _clean_text(raw.get("mode"), limit=40) or "safe-auto",
         "messages": messages,
         "plan": _clean_plan(raw.get("plan")),
+        "changed_files": _clean_changed_files(root, raw.get("changed_files"))
+        if root is not None
+        else [],
         "updated_at": str(raw.get("updated_at") or "")[:64],
         "updated_ts": float(raw.get("updated_ts") or 0.0)
         if isinstance(raw.get("updated_ts"), (int, float))
@@ -1044,7 +1400,7 @@ def list_conversations(workspace_root: str | Path) -> list[dict[str, Any]]:
 
     summaries: list[dict[str, Any]] = []
     for path in _conversation_files(workspace_root):
-        record = _read_conversation(path)
+        record = _read_conversation(path, workspace_root)
         if not record.get("id"):
             continue
         summaries.append(
@@ -1072,7 +1428,7 @@ def load_conversation(
         return {}
     if not target.exists():
         return {}
-    return _read_conversation(target)
+    return _read_conversation(target, workspace_root)
 
 
 def _prune_conversations(workspace_root: str | Path) -> None:
@@ -1080,7 +1436,7 @@ def _prune_conversations(workspace_root: str | Path) -> None:
 
     entries: list[tuple[str, Path]] = []
     for path in _conversation_files(workspace_root):
-        record = _read_conversation(path)
+        record = _read_conversation(path, workspace_root)
         if not record.get("id"):
             # Corrupt or foreign-schema: it can never be listed or opened, so
             # leaving it would only grow the folder forever.

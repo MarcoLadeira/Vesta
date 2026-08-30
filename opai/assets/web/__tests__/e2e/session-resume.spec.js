@@ -3,6 +3,27 @@ import { test, expect } from "@playwright/test";
 import { expectNoFatalErrors, openApp } from "./helpers/app.js";
 
 
+const presentation = {
+  schema_version: 1,
+  run: {
+    state: "completed",
+    label: "Completed",
+    reason: "Focused verification passed.",
+    next_action: "Run the full suite",
+  },
+  evidence: {
+    verification: { applicable: true, verdict: "verified" },
+    delivery: { applicable: true, verdict: "not_applicable" },
+  },
+  tests: { status: "passed", passed: 4, failed: 0, skipped: 1 },
+  changes: { summary: { files: 1, additions: 8, deletions: 2 } },
+  activity: [
+    { phase: "inspect", status: "completed", message: '<img src=x onerror="alert(1)">' },
+    { phase: "test", status: "completed", message: "Focused tests passed", next_action: "Run the full suite" },
+  ],
+};
+
+
 const resume = {
   available: true,
   requires_choice: true,
@@ -10,7 +31,13 @@ const resume = {
     task_id: "task-313",
     messages: [
       { role: "user", text: "Continue the index work", status: "complete", timestamp: "2026-07-13T08:00:00Z" },
-      { role: "assistant", text: "Focused tests are green. <img src=x onerror=alert(1)>", status: "complete", timestamp: "2026-07-13T08:01:00Z" },
+      {
+        role: "assistant",
+        text: "Focused tests are green. <img src=x onerror=alert(1)>",
+        status: "complete",
+        timestamp: "2026-07-13T08:01:00Z",
+        presentation,
+      },
     ],
     plan: [{ step: "Run the full suite", status: "in_progress" }],
     changed_files: ["opai/gui_web.py"],
@@ -32,6 +59,11 @@ test("startup requires an explicit resume choice before restoring safe messages"
   await expect(page.locator("#input")).toBeEnabled();
   await expect(page.locator(".msg.user")).toContainText("Continue the index work");
   await expect(page.locator(".msg.bot .body")).toContainText("Focused tests are green");
+  await expect(page.locator(".msg.bot .completion-verdict")).toContainText("Completed");
+  await expect(page.locator(".msg.bot .evidence-bar")).toContainText("4 passed");
+  await expect(page.locator(".msg.bot .gen-toggle.done")).toContainText("Work log (2)");
+  await page.locator(".msg.bot .gen-toggle.done").click();
+  await expect(page.locator(".msg.bot .timeline.done")).toContainText("Focused tests passed");
   // The restored message must not mint an <img> from its text (XSS guard). Scope
   // to message bodies so the legitimate empty-state brand mascot doesn't count.
   await expect(page.locator(".msg .body img")).toHaveCount(0);
@@ -40,6 +72,29 @@ test("startup requires an explicit resume choice before restoring safe messages"
   expect(await page.evaluate(() => window.__mock.resumedSessions)).toBe(1);
   expect(await page.evaluate(() => window.__mock.clearedSessions)).toBe(0);
   expectNoFatalErrors(diagnostics);
+});
+
+test("a legacy v1 assistant remains a prose-only inert fallback", async ({ page }) => {
+  const legacyResume = {
+    ...resume,
+    thread: {
+      ...resume.thread,
+      schema_version: 1,
+      messages: [
+        { role: "user", text: "Old question", status: "complete", timestamp: "2026-07-13T08:00:00Z" },
+        { role: "assistant", text: "999 tests passed and 42 files changed", status: "complete", timestamp: "2026-07-13T08:01:00Z" },
+      ],
+    },
+  };
+  await openApp(page, { boot: { resume: legacyResume } });
+
+  await page.getByRole("button", { name: "Resume work" }).click();
+
+  const restored = page.locator(".msg.bot").first();
+  await expect(restored.locator(".body")).toContainText("999 tests passed");
+  await expect(restored.locator(".evidence-bar")).toHaveCount(0);
+  await expect(restored.locator(".completion-verdict")).toHaveCount(0);
+  await expect(restored.locator(".timeline.done")).toHaveCount(0);
 });
 
 test("resuming a cloud-blocked turn restores the exact approval without granting it", async ({ page }) => {
