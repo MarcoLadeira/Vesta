@@ -609,7 +609,6 @@ kbd {
   font-size: var(--type-caption); font-weight: 800; box-shadow: var(--inset-hi);
 }
 .response-shell, .response-content, .response-prose { min-width: 0; width: 100%; }
-.assistant-header, .response-prose > :not(pre, .response-table-scroll) { max-width: var(--measure-prose); }
 .assistant-header { width: 100%; margin-inline: auto; }
 .response-content > * { min-width: 0; }
 .msg .body { font-size: var(--type-prose); line-height: var(--leading-relaxed); color: var(--ink); user-select: text; overflow-wrap: anywhere; }

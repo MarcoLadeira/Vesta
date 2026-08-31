@@ -103,7 +103,7 @@ test("200 percent zoom equivalent keeps the response and composer usable", async
   await expect(page.locator(".response-prose")).toBeVisible();
 });
 
-test("assistant prose and live progress use a centered lane while artifacts stay wide", async ({ page }) => {
+test("assistant responses align with the full-width work lane", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await openApp(page);
   const id = await sendPrompt(page, "Keep the response focused.");
@@ -111,41 +111,34 @@ test("assistant prose and live progress use a centered lane while artifacts stay
   await expect(page.locator(".msg.bot:last-child .stream-block > p")).toBeVisible();
 
   const liveMetrics = await page.evaluate(() => {
-    const thread = document.querySelector("#thread").getBoundingClientRect();
-    const status = document.querySelector(".msg.bot:last-child .gen-head").getBoundingClientRect();
+    const lane = document.querySelector(".msg.bot:last-child").getBoundingClientRect();
+    const header = document.querySelector(".msg.bot:last-child .assistant-header").getBoundingClientRect();
     const prose = document.querySelector(".msg.bot:last-child .stream-block > p").getBoundingClientRect();
-    return { thread, status, prose };
+    return { lane, header, prose };
   });
-  expect(liveMetrics.status.width).toBeLessThan(liveMetrics.thread.width * 0.85);
-  expect(Math.abs(
-    liveMetrics.status.x + liveMetrics.status.width / 2 -
-    (liveMetrics.thread.x + liveMetrics.thread.width / 2),
-  )).toBeLessThan(2);
-  expect(Math.abs(
-    liveMetrics.prose.x + liveMetrics.prose.width / 2 -
-    (liveMetrics.thread.x + liveMetrics.thread.width / 2),
-  )).toBeLessThan(2);
+  expect(Math.abs(liveMetrics.header.x - liveMetrics.lane.x)).toBeLessThan(2);
+  expect(Math.abs(liveMetrics.header.width - liveMetrics.lane.width)).toBeLessThan(2);
+  expect(Math.abs(liveMetrics.prose.x - liveMetrics.lane.x)).toBeLessThan(2);
+  expect(Math.abs(liveMetrics.prose.width - liveMetrics.lane.width)).toBeLessThan(2);
 
   await finishRequest(page, id, {
     answer: "# Result\n\nA concise final answer.\n\n| File | Result |\n| --- | --- |\n| src/example.ts | Passed |",
   });
   await expect(page.locator(".msg.bot:last-child .response-prose > h1")).toBeVisible();
   const finalMetrics = await page.evaluate(() => {
-    const thread = document.querySelector("#thread").getBoundingClientRect();
+    const lane = document.querySelector(".msg.bot:last-child").getBoundingClientRect();
+    const header = document.querySelector(".msg.bot:last-child .assistant-header").getBoundingClientRect();
     const heading = document.querySelector(".msg.bot:last-child .response-prose > h1").getBoundingClientRect();
     const prose = document.querySelector(".msg.bot:last-child .response-prose > p").getBoundingClientRect();
     const table = document.querySelector(".msg.bot:last-child .response-table-scroll").getBoundingClientRect();
-    return { thread, heading, prose, table };
+    return { lane, header, heading, prose, table };
   });
-  expect(finalMetrics.heading.width).toBeLessThan(finalMetrics.thread.width * 0.85);
-  expect(Math.abs(
-    finalMetrics.heading.x + finalMetrics.heading.width / 2 -
-    (finalMetrics.thread.x + finalMetrics.thread.width / 2),
-  )).toBeLessThan(2);
-  expect(finalMetrics.prose.width).toBeLessThan(finalMetrics.thread.width * 0.85);
-  expect(Math.abs(
-    finalMetrics.prose.x + finalMetrics.prose.width / 2 -
-    (finalMetrics.thread.x + finalMetrics.thread.width / 2),
-  )).toBeLessThan(2);
-  expect(finalMetrics.table.width).toBeGreaterThan(finalMetrics.prose.width + 100);
+  expect(Math.abs(finalMetrics.header.x - finalMetrics.lane.x)).toBeLessThan(2);
+  expect(Math.abs(finalMetrics.header.width - finalMetrics.lane.width)).toBeLessThan(2);
+  expect(Math.abs(finalMetrics.heading.x - finalMetrics.lane.x)).toBeLessThan(2);
+  expect(Math.abs(finalMetrics.heading.width - finalMetrics.lane.width)).toBeLessThan(2);
+  expect(Math.abs(finalMetrics.prose.x - finalMetrics.lane.x)).toBeLessThan(2);
+  expect(Math.abs(finalMetrics.prose.width - finalMetrics.lane.width)).toBeLessThan(2);
+  expect(Math.abs(finalMetrics.table.x - finalMetrics.lane.x)).toBeLessThan(2);
+  expect(Math.abs(finalMetrics.table.width - finalMetrics.lane.width)).toBeLessThan(2);
 });
