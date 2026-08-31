@@ -453,54 +453,23 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 
 /* ---------- shooting stars ----------
  *
- * Only in the unlit stage, and gone the moment the lights come up.
+ * One canvas, drawn by starfield.js. It was six absolutely-positioned elements
+ * each running its own CSS animation, which could never be *occasional*: a CSS
+ * animation either repeats on a fixed schedule or does not run, so the streaks
+ * arrived like a metronome.
  *
- * Each star is one element animating `transform` and `opacity` and nothing
- * else, so the whole field runs on the compositor and cannot cost the main
- * thread a frame while a request is being built. The durations are coprime
- * and the delays staggered, which is what makes six streaks read as a random
- * sky without a random number anywhere -- and keeps it deterministic enough
- * to screenshot.
- *
- * `animation-play-state: paused` in the lit stage rather than `display: none`:
- * a paused animation stops burning frames while leaving the element ready to
- * resume, which is what a new chat needs a moment later.
+ * Everything visual now lives in the canvas. All this rule does is place it
+ * behind the UI, keep it from ever taking a pointer event, and fade it with
+ * the stage.
  */
 .starfall {
-  position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  display: block; pointer-events: none; user-select: none; z-index: 0;
   opacity: 0; transition: opacity var(--stage-ms) var(--stage-ease);
 }
-.starfall i {
-  position: absolute; top: -10%; left: var(--x);
-  width: 2px; height: 76px; border-radius: 2px;
-  background: linear-gradient(180deg, transparent, var(--space-star, rgba(230, 241, 255, 0.95)));
-  opacity: 0;
-  transform: translate3d(0, -120px, 0) rotate(18deg);
-  animation: starfall var(--dur) linear var(--delay) infinite;
-  animation-play-state: paused;
-}
 #app[data-stage="dark"] .starfall { opacity: 1; }
-#app[data-stage="dark"] .starfall i { animation-play-state: running; }
-
-.starfall i:nth-child(1) { --x: 14%; --dur: 7.3s;  --delay: 0s; }
-.starfall i:nth-child(2) { --x: 31%; --dur: 11.1s; --delay: 2.4s; }
-.starfall i:nth-child(3) { --x: 52%; --dur: 8.9s;  --delay: 5.1s; }
-.starfall i:nth-child(4) { --x: 68%; --dur: 13.7s; --delay: 1.3s; }
-.starfall i:nth-child(5) { --x: 79%; --dur: 9.7s;  --delay: 6.8s; }
-.starfall i:nth-child(6) { --x: 91%; --dur: 12.3s; --delay: 3.9s; }
-
-@keyframes starfall {
-  /* The streak is visible for a short slice of a long cycle, so the sky is
-     mostly empty and a star is an event rather than a texture. */
-  0%    { opacity: 0; transform: translate3d(0, -120px, 0) rotate(18deg); }
-  4%    { opacity: 0.9; }
-  16%   { opacity: 0; transform: translate3d(30vh, 100vh, 0) rotate(18deg); }
-  100%  { opacity: 0; transform: translate3d(30vh, 100vh, 0) rotate(18deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .starfall i { animation: none; }
-}
+/* The workspace and everything in it stays above the sky. */
+.main > .view-wrap { position: relative; z-index: 1; }
 
 .view-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .view { position: absolute; inset: 0; display: none; flex-direction: column; min-height: 0; }
