@@ -780,8 +780,8 @@ kbd {
 .context-path { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--glass); color: var(--ink); padding: var(--space-1) var(--space-2); font: inherit; font-size: var(--type-caption); }
 .context-path:focus { border-color: rgba(52, 211, 153, 0.45); outline: 0; }
 .context-add { padding: var(--space-2) var(--space-2); cursor: pointer; white-space: nowrap; }
-.context-help, .composer-help, .composer-reason { color: var(--faint); font-size: var(--type-caption); line-height: 1.4; }
-.context-help, .composer-help { margin-top: var(--space-1); }
+.context-help, .composer-reason { color: var(--faint); font-size: var(--type-caption); line-height: 1.4; }
+.context-help { margin-top: var(--space-1); }
 .composer-reason { min-height: 0; margin-top: var(--space-2); color: var(--warn, #e9c46a); }
 .composer-reason[data-tone="hint"] { color: var(--faint); }
 .composer-reason:empty { display: none; }
@@ -1993,10 +1993,6 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 }
 
 /* Helper line, below the card. */
-.composer-help-row { display: flex; align-items: baseline; gap: var(--space-3);
-  padding: var(--space-2) var(--space-3) 0; }
-.composer-help { margin: 0; }
-.composer-summary { margin-left: auto; color: var(--faint); font-size: var(--type-caption); white-space: nowrap; }
 .composer-reason { padding: 0 var(--space-3); }
 
 /* Popovers — one open at a time; anchored to the toolbar. */
@@ -2039,13 +2035,6 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   font: inherit; font-size: var(--type-caption); font-family: ui-monospace, Menlo, monospace; }
 .cpop-note { margin: var(--space-1) var(--space-2) var(--space-2); font-size: var(--type-caption);
   line-height: 1.45; color: var(--faint); }
-.cpop-toggle { align-items: center; }
-.cpop-switch { width: 34px; height: 20px; border-radius: 999px; background: var(--border-strong);
-  flex: none; position: relative; transition: background 0.15s var(--ease); }
-.cpop-switch.on { background: var(--accent); }
-.cpop-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
-  background: #fff; transition: left 0.15s var(--ease); }
-.cpop-switch.on .cpop-knob { left: 16px; }
 .cpop-scope-label { color: var(--faint); font-size: var(--type-caption); padding: var(--space-1) var(--space-2); }
 .cpop-scope { display: flex; gap: var(--space-1); background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--r-sm); padding: var(--space-1); margin: 0 var(--space-2) var(--space-2); }
@@ -2056,19 +2045,11 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 /* Model picker redesign — Auto pinned on top, one flat list of working models. */
 .cpop-note-warn { color: var(--amber); }
 .cpop-row.active { background: color-mix(in oklab, var(--accent) 12%, transparent); }
-.cpop-auto {
-  align-items: center;
-  border: 1px solid color-mix(in oklab, var(--accent) 40%, var(--border));
-  background: color-mix(in oklab, var(--accent) 8%, transparent);
-  margin-bottom: var(--space-1);
-}
-.cpop-auto.active { background: color-mix(in oklab, var(--accent) 16%, transparent); }
-.cpop-autohead { display: flex; align-items: center; gap: var(--space-2); }
-.cpop-tag {
-  font-size: var(--type-caption); letter-spacing: 0.06em; text-transform: uppercase; font-weight: var(--weight-semibold);
-  color: var(--accent); border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
-  border-radius: 999px; padding: var(--space-1) var(--space-2); line-height: var(--type-label-line);
-}
+/* Auto is a row like the rest. The only thing marking it is the brand colour
+   on the word that used to be a pill, sitting in the slot every other row uses
+   for its provider -- so the list stays one column of names with one column of
+   context beside it, and nothing has to be scrolled past to reach a model. */
+.cpop-auto-tag { color: var(--accent); font-weight: var(--weight-medium); }
 .cpop-search { margin: var(--space-1) var(--space-2); }
 .cpop-search input {
   width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--r-sm);
@@ -2120,15 +2101,12 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .composer[data-composer-style="single"] .ctool-model,
 .composer[data-composer-style="single"] .ctool-spacer { display: none; }
 .composer[data-composer-style="single"] .composer-tokens { display: none; }
-.composer[data-composer-style="single"] ~ .composer-help-row .composer-help,
-.composer[data-composer-style="single"] ~ .composer-help-row .composer-summary { display: none; }
 
 /* ---- direction: command bar (1c) ------------------------------------ */
 /* Keyboard-first: tokens visible, mode/model/context buttons recede. */
 .composer[data-composer-style="command"] .ctool-ctx .ctool-txt,
 .composer[data-composer-style="command"] .ctool-mode .ctool-txt,
 .composer[data-composer-style="command"] .ctool-model { display: none; }
-.composer[data-composer-style="command"] ~ .composer-help-row .composer-summary { display: none; }
 
 /* ---- direction: toolbar (1b, default) shows everything (no overrides) */
 
@@ -2136,7 +2114,6 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 @media (max-width: 760px) {
   .composer[data-composer-style="toolbar"] .ctool-ctx .ctool-txt,
   .composer[data-composer-style="toolbar"] .ctool-model .chev { display: none; }
-  .composer-summary { display: none; }
 }
 
 /* Image attachments: a chip that shows the picture, because a filename is not
@@ -2145,8 +2122,8 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .context-hint.context-image {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding-left: 4px;
+  gap: var(--space-2);
+  padding-left: var(--space-1);
 }
 .context-thumb {
   width: 28px;

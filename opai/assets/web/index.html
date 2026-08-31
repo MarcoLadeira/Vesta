@@ -186,11 +186,11 @@
               </div>
             </div>
 
-            <!-- Helper line (below the card) -->
-            <div class="composer-help-row" id="composerHelpRow">
-              <div class="composer-help" id="composerHelp">Enter to send · Shift+Enter for a new line</div>
-              <div class="composer-summary" id="composerSummary" aria-label="Effective behaviour"></div>
-            </div>
+            <!-- The help row is gone. It carried a keyboard hint that is true
+                 once and noise forever, and a summary of the mode and model
+                 that the two buttons directly above it already name. What is
+                 left below the card is the reason line, which only appears
+                 when something actually blocks a send. -->
             <div class="composer-reason" id="composerReason" aria-live="polite"></div>
             <!-- #295: a message typed while a run is active is held, never
                  discarded. It sends itself when the run finishes. -->
