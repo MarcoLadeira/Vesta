@@ -763,10 +763,6 @@ kbd {
   padding: var(--space-3) var(--space-4) var(--space-3); box-shadow: var(--shadow-md), var(--inset-hi);
   transition: border-color 0.2s var(--ease), box-shadow 0.2s;
 }
-.composer:focus-within {
-  border-color: rgba(52, 211, 153, 0.5);
-  box-shadow: 0 0 0 3px var(--accent-glow), 0 10px 34px rgba(0, 0, 0, 0.45), var(--inset-hi);
-}
 .composer textarea {
   width: 100%; background: transparent; border: 0; outline: 0; resize: none; color: var(--ink);
   font-size: var(--type-body-lg); line-height: 1.5; min-height: 26px; max-height: 180px; user-select: text;
