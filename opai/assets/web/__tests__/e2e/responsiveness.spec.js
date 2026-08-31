@@ -135,6 +135,7 @@ test("assistant prose and live progress use a centered lane while artifacts stay
     const table = document.querySelector(".msg.bot:last-child .response-table-scroll").getBoundingClientRect();
     return { thread, heading, prose, table };
   });
+  expect(finalMetrics.heading.width).toBeLessThan(finalMetrics.thread.width * 0.85);
   expect(Math.abs(
     finalMetrics.heading.x + finalMetrics.heading.width / 2 -
     (finalMetrics.thread.x + finalMetrics.thread.width / 2),
