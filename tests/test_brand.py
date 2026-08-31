@@ -27,17 +27,21 @@ class BrandConstantsTests(unittest.TestCase):
 
     def test_boot_brand_shape(self):
         brand = boot_brand()
-        for key in (
-            "name",
-            "tagline",
-            "emptyTitle",
-            "emptyBody",
-            "emptyHint",
-            "composerPlaceholder",
-        ):
+        for key in ("name", "tagline", "emptyTitle", "composerPlaceholder"):
             self.assertTrue(brand.get(key), key)
         self.assertEqual(brand["name"], "OPai")
-        self.assertIn("Ctrl+K", brand["emptyHint"])
+
+    def test_the_empty_state_carries_no_second_sentence(self):
+        """The body and the keyboard hint were removed, not renamed.
+
+        Shipping them in the payload while the front end ignores them is how a
+        deleted string comes back: the next person wires up the key they find
+        rather than the screen they are looking at.
+        """
+        brand = boot_brand()
+
+        self.assertNotIn("emptyBody", brand)
+        self.assertNotIn("emptyHint", brand)
 
 
 class ProviderDisplayTests(unittest.TestCase):

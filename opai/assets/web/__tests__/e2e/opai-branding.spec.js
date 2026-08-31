@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => openApp(page));
 test("primary workspace consistently presents the OPai identity", async ({ page }) => {
   await expect(page.locator(".header-brand")).toContainText("OPai");
   await expect(page.locator("#empty h1")).toHaveText("Better. Faster. Cheaper.");
-  await expect(page.locator("#emptySub")).toContainText("Every step visible");
+  await expect(page.locator("#emptySub")).toBeHidden();
 });
 
 test("workspace tooltip retains the OPai tagline", async ({ page }) => {

@@ -17,7 +17,6 @@ that one announces itself the moment a spec disagrees with it.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from opai import brand
@@ -36,29 +35,26 @@ def test_the_headline_matches():
     assert f"<h1>{brand.EMPTY_TITLE}</h1>" in _empty_state_html()
 
 
-def test_the_body_matches():
-    html = _empty_state_html()
-    match = re.search(r'<p id="emptySub">(.*?)</p>', html, re.S)
-
-    assert match is not None, "the empty state lost its body paragraph"
-    assert match.group(1).strip() == brand.EMPTY_BODY
-
-
 def test_the_markup_was_actually_found():
-    """A slice that silently matched nothing would pass both tests above."""
+    """A slice that silently matched nothing would pass the test above."""
     html = _empty_state_html()
 
     assert "<h1>" in html and 'id="emptySub"' in html
 
 
-def test_the_empty_state_stays_short():
-    """The change this file arrived with, kept.
+def test_nothing_on_the_empty_state_only_describes():
+    """What is left is a mark, a claim, and three things you can click.
 
-    It was an eyebrow, a headline and a twenty-five word paragraph stacked
-    above the actions. Nobody reads a mechanism before they have a reason to
-    care, so what is left is a claim and its proof. This is a budget, not a
-    style rule: if the body needs to grow past a line, that is a decision
-    someone should have to make on purpose.
+    The body and the keyboard hint went because neither changed what the
+    reader does next: one described the product to someone already looking at
+    it, the other taught a shortcut for a thing they had not done yet. The
+    paragraph stays in the markup but starts empty and hidden, because it has
+    one real job left -- saying that no provider is connected, which is the
+    one sentence here that is worth a line.
     """
-    assert len(brand.EMPTY_BODY.split()) <= 10
-    assert "empty-eyebrow" not in _INDEX.read_text(encoding="utf-8")
+    html = _empty_state_html()
+
+    assert '<p id="emptySub" hidden></p>' in html
+    assert "Ctrl" not in html
+    assert not hasattr(brand, "EMPTY_BODY")
+    assert not hasattr(brand, "EMPTY_HINT")

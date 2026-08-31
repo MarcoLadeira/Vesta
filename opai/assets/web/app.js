@@ -409,8 +409,6 @@ function applyBrand(brand) {
   state.brand = brand;
   const h1 = $("#empty h1");
   if (h1 && brand.emptyTitle) h1.textContent = brand.emptyTitle;
-  const hint = $("#empty .hint");
-  if (hint && brand.emptyHint) hint.innerHTML = brand.emptyHint.replace(/Ctrl\+K/, "<kbd>Ctrl</kbd>+<kbd>K</kbd>");
   if (brand.composerPlaceholder) $("#input").placeholder = brand.composerPlaceholder;
 }
 
@@ -1450,10 +1448,15 @@ function renderEmptyChips() {
     ["Plan a safe refactor", "Plan a safe refactor of this code: concrete steps, risks, and the tests to run. Don't edit files yet."],
   ];
   const connected = state.accounts.some((a) => a.connected);
-  const brandBody = (state.brand && state.brand.emptyBody) || "";
-  $("#emptySub").textContent = connected
-    ? brandBody || "Your AI connection is ready · OPai picks the cheapest safe path."
+  // The line under the headline earns its place only when it changes what the
+  // reader does next. Describing the product to someone already looking at it
+  // does not; telling them nothing will run until a provider is connected
+  // does. So it is silent in the normal case and absent from the layout.
+  const sub = $("#emptySub");
+  sub.textContent = connected
+    ? ""
     : "Connect your Claude, Codex, or Copilot account in Settings, then just type.";
+  sub.hidden = connected;
   $("#chips").innerHTML = chips.map((c) => `<button class="chip" data-p="${esc(c[1])}">${esc(c[0])}</button>`).join("");
   $$("#chips .chip").forEach((b) => (b.onclick = () => { setComposerDraft(b.dataset.p); send(); }));
 }

@@ -42,8 +42,6 @@
       name: "OPai",
       tagline: "Every step visible. Every dollar accounted.",
       emptyTitle: "Better. Faster. Cheaper.",
-      emptyBody: "Every step visible. Every dollar accounted.",
-      emptyHint: "Press Ctrl+K for commands",
       composerPlaceholder: "Tell OPai what to build, fix, or explain…",
     },
     models: [
