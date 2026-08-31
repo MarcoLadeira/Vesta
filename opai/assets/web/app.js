@@ -1788,25 +1788,31 @@ function restoreSession(resume) {
       }
     }
   }
-  messages.forEach((message, index) => {
-    if (message.role === "user") {
-      appendMsg(userMessageHtml(message.text || ""), "user");
-    } else if (message.role === "assistant" && index !== pendingAssistantIndex) {
-      const el = appendMsg(
-        assistantPresentationHtml(
-          roleHeader("OPai", "var(--accent)"),
-          message.text || "",
-          message.presentation,
-        ),
-        "bot",
-      );
-      wireActivitySummary(el);
-      wireStructuredEvidence(el);
-      enhanceCodeBlocks(el);
-    }
+  // One arrival, not twenty. The checkpoint card is removed the instant it is
+  // clicked (#416) and the session it described appears in its place with a
+  // single fade, which is what makes continuing feel like the same workspace
+  // carrying on rather than a page being replaced.
+  withChatBatch(() => {
+    messages.forEach((message, index) => {
+      if (message.role === "user") {
+        appendMsg(userMessageHtml(message.text || ""), "user");
+      } else if (message.role === "assistant" && index !== pendingAssistantIndex) {
+        const el = appendMsg(
+          assistantPresentationHtml(
+            roleHeader("OPai", "var(--accent)"),
+            message.text || "",
+            message.presentation,
+          ),
+          "bot",
+        );
+        wireActivitySummary(el);
+        wireStructuredEvidence(el);
+        enhanceCodeBlocks(el);
+      }
+    });
+    if (pendingAction) renderResumedPendingAction(resume, pendingAction, messages);
+    appendMsg(resumeSummaryHtml(resume), "bot resume-restored");
   });
-  if (pendingAction) renderResumedPendingAction(resume, pendingAction, messages);
-  appendMsg(resumeSummaryHtml(resume), "bot resume-restored");
   if (state.boot.resume) state.boot.resume.requires_choice = false;
   setResumeGate(false);
   $("#input").focus();
@@ -1839,35 +1845,228 @@ function startFreshSession() {
   if (bridge && bridge.clearSession) bridge.clearSession(done);
   else showSessionClearFailure(clearFailure("Saved work could not be cleared."));
 }
+/* ---------- the session checkpoint ----------
+ *
+ * OPai should not ask whether you remember your last session. It has the
+ * session; it should tell you what it was.
+ *
+ * The card that used to sit here asked "Resume your previous work?" over a
+ * message count and a raw phase word, which is everything the app knew
+ * expressed as almost nothing the user could use. The four questions worth
+ * answering before anyone clicks are: what was I doing, what changed, where
+ * did we stop, and what happens if I continue. All four are already in the
+ * boot payload -- `checkpoint.changed_files`, `workflow.tests_status`,
+ * `workflow.phase`, `workflow.next_actions` -- and none of it was shown.
+ *
+ * Everything below degrades: a field that is missing produces no line, never
+ * a blank one or an invented one.
+ */
+
+// The phase vocabulary is RuntimePhase in agent_runtime.py, which is finer
+// than anyone wants to read on a card. These are the stages a person would
+// name, and every phase maps into exactly one of them.
+const RESUME_STAGES = [
+  { key: "prompt", label: "Prompt", phases: ["idle", "intent_resolved", "repo_resolved", "issue_selected", "context_gathering"] },
+  { key: "plan", label: "Plan", phases: ["planning", "awaiting_approval"] },
+  { key: "edit", label: "Edit", phases: ["implementing"] },
+  { key: "tests", label: "Tests", phases: ["testing", "repairing"] },
+  { key: "end", label: "Review", phases: ["reviewing_diff", "preparing_pr", "pr_created", "merge_check_running", "merged", "blocked", "failed", "completed"] },
+];
+
+// How the last node reads depends on how the run actually ended: a session
+// that failed and one that finished are not the same invitation.
+const RESUME_END_LABEL = {
+  failed: "Failed", blocked: "Blocked", completed: "Done", merged: "Merged",
+};
+
+function resumeStageIndex(phase) {
+  const found = RESUME_STAGES.findIndex((stage) => stage.phases.includes(phase));
+  // An unknown phase is placed at the beginning rather than guessed forward:
+  // claiming work reached "Tests" when OPai does not know is worse than
+  // claiming nothing.
+  return found < 0 ? 0 : found;
+}
+
+function resumeWhen(resume) {
+  const checkpoint = resume.checkpoint || {};
+  const messages = (resume.thread || {}).messages || [];
+  const last = messages.length ? messages[messages.length - 1] : {};
+  const raw = checkpoint.finalized_at || checkpoint.created_at
+    || (resume.workflow || {}).updated_at || last.timestamp || "";
+  const at = raw ? new Date(raw) : null;
+  if (!at || Number.isNaN(at.getTime())) return null;
+  const minutes = Math.max(0, Math.round((Date.now() - at.getTime()) / 60000));
+  const ago = minutes < 1 ? "just now"
+    : minutes < 60 ? `${minutes} min ago`
+    : minutes < 60 * 24 ? `${Math.round(minutes / 60)} hr ago`
+    : `${Math.round(minutes / 1440)} d ago`;
+  const sameDay = at.toDateString() === new Date().toDateString();
+  const clock = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return { label: `${sameDay ? "Today" : at.toLocaleDateString()} · ${clock}`, ago };
+}
+
+// What the session was about, in the user's own words: the first thing they
+// asked. Nothing else in the payload names the work.
+function resumeTitle(resume) {
+  const messages = (resume.thread || {}).messages || [];
+  const first = messages.find((m) => m && m.role === "user" && String(m.text || "").trim());
+  if (!first) return "";
+  const text = String(first.text).trim().split("\n")[0];
+  return text.length > 68 ? `${text.slice(0, 67)}…` : text;
+}
+
+function resumeChangedFiles(resume) {
+  const checkpoint = resume.checkpoint || {};
+  const workflow = resume.workflow || {};
+  const thread = resume.thread || {};
+  for (const source of [checkpoint.changed_files, workflow.changed_files, thread.changed_files]) {
+    if (Array.isArray(source) && source.length) return source;
+  }
+  return [];
+}
+
+function resumeFacts(resume) {
+  const workflow = resume.workflow || {};
+  const checkpoint = resume.checkpoint || {};
+  const facts = [];
+
+  // Three places record what changed, and which of them is populated depends
+  // on how far the run got. The checkpoint is the most authoritative when it
+  // exists; the thread is what survives when the run never reached one.
+  const files = resumeChangedFiles(resume);
+  if (files.length) {
+    const names = files.slice(0, 2).map((path) => String(path).split(/[\\/]/).pop());
+    facts.push({
+      kind: "done",
+      text: files.length <= 2
+        ? `Changed ${names.join(", ")}`
+        : `Changed ${names.join(", ")} and ${files.length - 2} more`,
+    });
+  }
+
+  const tests = String(workflow.tests_status || "not_run");
+  if (tests !== "not_run") {
+    const last = workflow.last_test || {};
+    const passed = Number(last.passed) || 0;
+    const failed = Number(last.failed) || 0;
+    const plural = (n) => `${n} test${n === 1 ? "" : "s"}`;
+    const detail = failed ? `${plural(failed)} failing`
+      : passed ? `${plural(passed)} passing`
+      : `Tests ${tests}`;
+    facts.push({ kind: tests === "passed" ? "done" : "warn", text: detail });
+  }
+
+  // The step the plan was actually on beats the first step of the plan: one is
+  // where the work stopped, the other is where it started.
+  const inProgress = ((resume.thread || {}).plan || [])
+    .find((step) => step && /progress|current|active/i.test(String(step.status || "")));
+  const next = (workflow.next_actions || [])[0]
+    || (inProgress && inProgress.step)
+    || (workflow.plan_steps || [])[0]
+    || (checkpoint.recovery_actions || [])[0]
+    || "";
+  if (next) facts.push({ kind: "next", text: String(next) });
+  return facts;
+}
+
 function renderResumeChoice() {
   const resume = (state.boot && state.boot.resume) || {};
   if (!resume.available || !resume.requires_choice) { setResumeGate(false); return; }
   setResumeGate(true);
+  const workflow = resume.workflow || {};
   const count = ((resume.thread || {}).messages || []).length;
-  const phase = (resume.workflow || {}).phase || "saved";
-  const phaseLabel = String(phase).replaceAll("_", " ");
-  // Whether the last run actually failed is worth seeing at a glance rather
-  // than reading out of the middle of a sentence. Every other phase is just
-  // where the work got to, and is shown plainly.
-  const failed = /fail|error|crash|abort/i.test(phaseLabel);
+  const phase = String(workflow.phase || "idle");
+  const here = resumeStageIndex(phase);
+  const when = resumeWhen(resume);
+  const title = resumeTitle(resume);
+  const facts = resumeFacts(resume);
+
+  const nodes = RESUME_STAGES.map((stage, index) => {
+    const state_ = index < here ? "done" : index === here ? "here" : "todo";
+    const label = index === RESUME_STAGES.length - 1
+      ? (RESUME_END_LABEL[phase] || stage.label) : stage.label;
+    return `<li class="rc-node is-${state_}"${state_ === "here" ? ' aria-current="step"' : ""}>
+        <span class="rc-dot" aria-hidden="true"></span>
+        <span class="rc-node-label">${esc(label)}</span>
+      </li>`;
+  }).join("");
+
+  const factLines = facts.map((fact) => `<li class="rc-fact is-${fact.kind}">
+      <span class="rc-fact-mark" aria-hidden="true">${uiIcon(fact.kind === "next" ? "arrowRight" : fact.kind === "warn" ? "warning" : "check")}</span>
+      <span>${esc(fact.text)}</span>
+    </li>`).join("");
+
+  // Asymmetric on purpose. Continuing is the expected thing; starting over
+  // throws the session away, and two equally weighted buttons said those were
+  // the same size of decision.
+  const terminal = here === RESUME_STAGES.length - 1;
+  const cta = terminal
+    ? "Continue where you left off"
+    : `Continue from ${esc(RESUME_STAGES[here].label)}`;
+
   const el = appendMsg(
     `<div class="resume-card" role="group" aria-label="Resume previous work">
-       <span class="rc-mark" aria-hidden="true">${uiIcon("pending")}</span>
-       <h2 class="rc-title">Resume your previous work?</h2>
-       <p class="rc-meta">
-         <span>${count} message${count === 1 ? "" : "s"}</span>
-         <span class="rc-sep" aria-hidden="true"></span>
-         <span class="rc-phase${failed ? " is-failed" : ""}">${esc(phaseLabel)}</span>
-       </p>
-       <div class="rc-actions">
-         <button class="btn primary" data-resume="resume">Resume work</button>
-         <button class="btn ghost" data-resume="fresh">Start fresh</button>
+       <p class="rc-kicker">Previous session</p>
+       ${when ? `<p class="rc-when">${esc(when.label)} · ${esc(when.ago)} · ${count} message${count === 1 ? "" : "s"}</p>`
+              : `<p class="rc-when">${count} message${count === 1 ? "" : "s"}</p>`}
+       <ol class="rc-trail" style="--rc-progress: ${(here / (RESUME_STAGES.length - 1)) * 100}%">${nodes}</ol>
+       ${title ? `<h2 class="rc-title">${esc(title)}</h2>` : ""}
+       ${factLines ? `<ul class="rc-facts">${factLines}</ul>` : ""}
+       <button class="btn primary rc-cta" data-resume="resume">
+         <span>${cta}</span>${uiIcon("arrowRight")}
+       </button>
+       <div class="rc-minor">
+         <button class="rc-link" type="button" data-resume="review">Review session</button>
+         <span class="rc-minor-sep" aria-hidden="true">·</span>
+         <button class="rc-link" type="button" data-resume="fresh">Start new</button>
        </div>
-       <p class="rc-note">Saved on this machine · nothing is restored until you choose</p>
+       <div class="rc-detail" hidden></div>
      </div>`, "bot resume-choice");
+  el.querySelector('[data-resume="review"]').onclick = (event) =>
+    toggleResumeDetail(el, resume, event.currentTarget);
   el.querySelector('[data-resume="resume"]').onclick = () => activateResumeSession(resume);
   el.querySelector('[data-resume="fresh"]').onclick = startFreshSession;
 }
+
+/**
+ * Show the saved session without committing to it.
+ *
+ * "Review" has to do something, or it is a third button that looks like a
+ * choice and is not one. It expands the transcript and the full file list in
+ * place -- read-only, gate still up, nothing activated -- which is the whole
+ * point of a review: look before deciding.
+ */
+function toggleResumeDetail(card, resume, trigger) {
+  const detail = card.querySelector(".rc-detail");
+  if (!detail) return;
+  const open = !detail.hidden;
+  if (open) {
+    detail.hidden = true;
+    detail.innerHTML = "";
+    trigger.textContent = "Review session";
+    trigger.setAttribute("aria-expanded", "false");
+    return;
+  }
+  const messages = (resume.thread || {}).messages || [];
+  const checkpoint = resume.checkpoint || {};
+  const files = resumeChangedFiles(resume);
+  const lines = messages.map((message) => {
+    const role = message && message.role === "user" ? "You" : "OPai";
+    const text = String((message && message.text) || "").trim().replace(/\s+/g, " ");
+    return `<li class="rc-turn"><span class="rc-turn-role">${role}</span>
+      <span class="rc-turn-text">${esc(text.length > 120 ? `${text.slice(0, 119)}…` : text)}</span></li>`;
+  }).join("");
+  detail.innerHTML =
+    (files.length
+      ? `<p class="rc-detail-head">Files changed</p><ul class="rc-files">${
+          files.map((path) => `<li class="mono">${esc(String(path))}</li>`).join("")}</ul>`
+      : "") +
+    (lines ? `<p class="rc-detail-head">Transcript</p><ol class="rc-turns">${lines}</ol>` : "");
+  detail.hidden = false;
+  trigger.textContent = "Hide session";
+  trigger.setAttribute("aria-expanded", "true");
+}
+
 function startNewChat() {
   if (state.busy) stop();
   startFreshSession();
