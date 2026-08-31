@@ -322,6 +322,7 @@ function boot() {
     renderEmptyChips();
     wireUpdateSheet();
     wireImageAttachments();
+    syncStage();
     renderUpdateBanner(b.update);
     syncBuildMode();
     // Composer Redesign: apply the saved direction (toolbar / single / command).
@@ -1055,6 +1056,131 @@ function selectedAccountNeedsConnection() {
 // them re-enabled Send on an empty prompt.
 const EMPTY_PROMPT_REASON = "empty-prompt";
 
+/* ---------- stages ----------
+ *
+ * A fresh chat opens in the `dark` stage: the room unlit and the composer in
+ * the middle of it, because before the first message the composer is the only
+ * thing on the screen worth putting in the middle. The first send raises the
+ * lights and flies the composer down to the position it normally occupies,
+ * and the request goes out when it lands.
+ *
+ * The composer is moved with a transform rather than by changing the layout.
+ * That matters twice: a transform is a compositor animation, so it holds its
+ * frame rate while the main thread is busy setting up a request; and the
+ * position it lands in is the position it already had, so nothing can drift
+ * out of alignment as the animation ends.
+ */
+function stageRoot() { return document.getElementById("app"); }
+
+window.addEventListener("resize", () => {
+  if (currentStage() === "dark") measureStageLift();
+});
+
+function currentStage() {
+  const root = stageRoot();
+  return (root && root.dataset.stage) || "lit";
+}
+
+// How far the composer has to rise to sit in the middle of the room. Measured
+// rather than guessed: it depends entirely on the window height, and it is
+// re-measured on resize because a window resized while dark would otherwise
+// animate from a stale position.
+function measureStageLift() {
+  const root = stageRoot();
+  const wrap = document.querySelector(".composer-wrap");
+  const main = document.querySelector(".main");
+  if (!root || !wrap || !main) return;
+  const previous = wrap.style.transition;
+  wrap.style.transition = "none";
+  const wrapBox = wrap.getBoundingClientRect();
+  const mainBox = main.getBoundingClientRect();
+  // Where the composer should sit: directly under the empty block's content,
+  // not at the geometric centre of the room.
+  //
+  // Centring it there and lifting the headline to clear it was the obvious
+  // approach and the wrong one. `.empty` is a full-height flex box that
+  // centres its own children, so translating it moves its top edge above the
+  // scroll region, which is clipped -- the mascot lost its head on a short
+  // window and kept losing it as the window grew, because the lift scales
+  // with height and the content does not.
+  //
+  // Measuring the content instead means the two can never overlap and nothing
+  // can leave the frame: whatever the empty block turns out to be, the box
+  // goes below it.
+  const anchorEl = document.querySelector("#empty .chips") || document.querySelector("#empty");
+  const anchorBox = anchorEl.getBoundingClientRect();
+  const target = Math.min(
+    anchorBox.bottom + 34,
+    mainBox.bottom - wrapBox.height,
+  );
+  // getBoundingClientRect already includes the transform, so subtract it back
+  // out to get the untransformed top; otherwise the lift compounds each time.
+  const applied = currentStage() === "dark" ? stageLiftValue(root) : 0;
+  const lift = Math.min(0, Math.round(target - (wrapBox.top - applied)));
+  root.style.setProperty("--stage-lift", `${lift}px`);
+  wrap.style.transition = previous;
+}
+
+function stageLiftValue(root) {
+  const raw = getComputedStyle(root).getPropertyValue("--stage-lift").trim();
+  const parsed = parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function setStage(stage) {
+  const root = stageRoot();
+  if (!root || root.dataset.stage === stage) return;
+  if (stage === "dark") measureStageLift();
+  root.dataset.stage = stage;
+  if (stage === "dark") requestAnimationFrame(measureStageLift);
+}
+
+// A fresh chat is dark; anything with a message in it is lit. Called wherever
+// the thread is emptied or restored so the stage can never disagree with what
+// is on screen.
+function syncStage() {
+  const thread = document.getElementById("thread");
+  const empty = thread && thread.querySelector("#empty");
+  setStage(empty && !thread.querySelector(".msg") ? "dark" : "lit");
+}
+
+/**
+ * Raise the lights, and run `resume` once the composer has landed.
+ *
+ * Returns true when it took over -- the caller must stop and let `resume`
+ * continue the work. Returns false when the room is already lit, which is
+ * every message after the first, so the common path pays nothing.
+ */
+function raiseTheLights(resume) {
+  if (currentStage() !== "dark") return false;
+  const wrap = document.querySelector(".composer-wrap");
+  setStage("lit");
+  if (!wrap || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    resume();
+    return true;
+  }
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    wrap.removeEventListener("transitionend", onEnd);
+    resume();
+  };
+  // transitionend bubbles, so this fires for descendants too -- and the Send
+  // button inside the composer has its own transform transition. Without the
+  // target check, the button's animation ended the wait after about 80ms and
+  // the request went out while the composer was still halfway down the room.
+  const onEnd = (event) => {
+    if (event.target === wrap && event.propertyName === "transform") finish();
+  };
+  wrap.addEventListener("transitionend", onEnd);
+  // transitionend does not fire if the transition never starts -- a zero
+  // lift, a hidden window, a browser that drops the frame. The request must
+  // go out regardless, so the timer is the floor, not the mechanism.
+  setTimeout(finish, 900);
+  return true;
+}
+
 function composerBlockReason() {
   if (state.resumePending) return "Choose how to continue this saved session before sending.";
   if (selectedAccountNeedsConnection()) {
@@ -1468,6 +1594,8 @@ function clearChat() {
   state.tlNodes = null;
   $("#chatScroll").scrollTop = 0;
   updateJumpLatest();
+  // Back to an empty thread means back to an unlit room.
+  syncStage();
 }
 function setResumeGate(on) {
   state.resumePending = !!on;
@@ -1965,6 +2093,9 @@ function buildResultHtml(r) {
 }
 function appendMsg(html, cls) {
   $("#empty").style.display = "none";
+  // Every path that puts a message on screen lights the room, not just send():
+  // slash commands, a restored session and a queued message all arrive here.
+  setStage("lit");
   const d = document.createElement("div");
   d.className = "msg " + (cls || "");
   d.innerHTML = html;
@@ -2011,6 +2142,11 @@ function send(retryOf) {
   if (!retryOf && composerBlockReason()) return;
   const text = retryOf ? retryOf.text : $("#input").value.trim();
   if (!text) return;
+  // First message in a fresh chat: the lights come up and the composer flies
+  // down to where it lives, and only then does the request go out. Placed
+  // after the guards above so an empty or blocked send never triggers it, and
+  // before everything below so no state is mutated twice on the way through.
+  if (raiseTheLights(() => send(retryOf))) return;
   // Slash commands run local OPai tools ("/panic", "/savings", "/connect") —
   // they must NEVER be sent to a paid model as a prompt.
   if (!retryOf && text.startsWith("/")) {

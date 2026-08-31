@@ -116,6 +116,7 @@ test("free-tier API asks for confirmation in-chat, then sends on confirm", async
   await page.fill("#input", "Explain this project");
   // No native dialog: the first send goes out immediately with allowCloud=false.
   await page.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => page.evaluate(() => window.__mock.lastRequest !== null)).toBe(true);
   const first = await page.evaluate(() => window.__mock.lastRequest);
   expect(first.allowCloud).toBe(false);
   // The pipeline asks for consent → an in-chat card with a "Send to Gemini" button.
@@ -127,9 +128,10 @@ test("free-tier API asks for confirmation in-chat, then sends on confirm", async
     });
   });
   await page.getByRole("button", { name: /Send to Gemini/i }).click();
+  await expect.poll(() => page.evaluate(() => window.__mock.lastRequest !== null)).toBe(true);
   const second = await page.evaluate(() => window.__mock.lastRequest);
   expect(second.allowCloud).toBe(true);
-  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(2);
   // Consent is persisted for next time via the bridge.
   const grants = await page.evaluate(() => window.__mock.freeConsentGrants);
   expect(grants).toEqual(["free:gemini:gemini-3.1-flash-lite"]);
@@ -140,11 +142,12 @@ test("no free-tier cloud send happens without explicit confirmation", async ({ p
   await page.selectOption("#modelSel", "free:gemini:gemini-3.1-flash-lite");
   await page.fill("#input", "Explain this project");
   await page.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => page.evaluate(() => window.__mock.lastRequest !== null)).toBe(true);
   const first = await page.evaluate(() => window.__mock.lastRequest);
   // The provider is never contacted without consent: the only send is gated.
   expect(first.allowCloud).toBe(false);
   // Without clicking the confirm button, no second (allowCloud=true) send fires.
-  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(1);
 });
 
 test("free-tier confirmation is one-time — second message goes through immediately", async ({ page }) => {
@@ -153,6 +156,9 @@ test("free-tier confirmation is one-time — second message goes through immedia
   // First message: card appears, user confirms.
   await page.fill("#input", "First message");
   await page.locator("#send").click();
+  // The first message waits for the composer to fly down from the centre, so
+  // there is no request to reply to until it lands.
+  await expect.poll(() => page.evaluate(() => window.__mock.lastRequest !== null)).toBe(true);
   await page.evaluate(() => window.__mock.emitReply(window.__mock.lastRequest.requestId, {
     status: "needs_free_confirmation", answer: "Continue?",
   }));
@@ -165,6 +171,7 @@ test("free-tier confirmation is one-time — second message goes through immedia
   // Second message: no card, allowCloud=true up front.
   await page.fill("#input", "Second message");
   await page.locator("#send").click();
+  await expect.poll(() => page.evaluate(() => window.__mock.lastRequest !== null)).toBe(true);
   const second = await page.evaluate(() => window.__mock.lastRequest);
   expect(second.text).toBe("Second message");
   expect(second.allowCloud).toBe(true);
@@ -181,6 +188,7 @@ test("free-tier consent from previous session skips the card entirely", async ({
   await page.selectOption("#modelSel", "free:gemini:gemini-3.1-flash-lite");
   await page.fill("#input", "Hello");
   await page.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => page.evaluate(() => window.__mock.lastRequest !== null)).toBe(true);
   const req = await page.evaluate(() => window.__mock.lastRequest);
   expect(req.allowCloud).toBe(true);
   // No new grant call needed — consent came from prefs.
