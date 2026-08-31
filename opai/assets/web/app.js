@@ -1887,33 +1887,39 @@ function renderConversation(conv) {
   clearChat();
   const messages = (conv && conv.messages) || [];
   $("#empty").style.display = "none";
-  messages.forEach((m) => {
-    const text = String(m.text || "");
-    if (m.role === "user") {
-      appendMsg(userMessageHtml(text), "user");
-      return;
-    }
-    const el = appendMsg(
-      assistantPresentationHtml(
-        roleHeader("OPai", "var(--muted)", { copy: true }),
-        text,
-        m.presentation,
-      )
-    );
-    wireAnswerCopy(el, text);
-    wireActivitySummary(el);
-    wireStructuredEvidence(el);
-    enhanceCodeBlocks(el);
+  // The whole transcript is one piece of work: one scroll settle, one fade,
+  // and no per-message entry animation. Rendered message by message it cost a
+  // forced layout and an animation each, which is what made opening a chat
+  // stutter rather than switch.
+  withChatBatch(() => {
+    messages.forEach((m) => {
+      const text = String(m.text || "");
+      if (m.role === "user") {
+        appendMsg(userMessageHtml(text), "user");
+        return;
+      }
+      const el = appendMsg(
+        assistantPresentationHtml(
+          roleHeader("OPai", "var(--muted)", { copy: true }),
+          text,
+          m.presentation,
+        )
+      );
+      wireAnswerCopy(el, text);
+      wireActivitySummary(el);
+      wireStructuredEvidence(el);
+      enhanceCodeBlocks(el);
+    });
+    // Say plainly that this is history. Without it, an old transcript is
+    // indistinguishable from the live thread and the next message looks like it
+    // will continue this chat when it starts a new one.
+    appendMsg(
+      `<div class="conv-note">Viewing a saved chat` +
+      (conv.updated_at ? ` from ${esc(String(conv.updated_at).slice(0, 10))}` : "") +
+      `. Sending a message starts a new chat.` +
+      ` <button class="btn ghost" type="button" data-a="new-chat">New chat</button></div>`
+    ).querySelector('[data-a="new-chat"]').onclick = () => startNewChat();
   });
-  // Say plainly that this is history. Without it, an old transcript is
-  // indistinguishable from the live thread and the next message looks like it
-  // will continue this chat when it starts a new one.
-  appendMsg(
-    `<div class="conv-note">Viewing a saved chat` +
-    (conv.updated_at ? ` from ${esc(String(conv.updated_at).slice(0, 10))}` : "") +
-    `. Sending a message starts a new chat.` +
-    ` <button class="btn ghost" type="button" data-a="new-chat">New chat</button></div>`
-  ).querySelector('[data-a="new-chat"]').onclick = () => startNewChat();
 }
 
 function refreshConversations() {
@@ -2159,7 +2165,10 @@ function appendMsg(html, cls) {
   // slash commands, a restored session and a queued message all arrive here.
   setStage("lit");
   const d = document.createElement("div");
-  d.className = "msg " + (cls || "");
+  // The suppression is marked on the element, not the thread: a class removed
+  // from the thread a frame later would let every message start its entry
+  // animation at that point instead, which is the same stutter one frame late.
+  d.className = "msg " + (cls || "") + (chatBatchDepth > 0 ? " no-entry" : "");
   d.innerHTML = html;
   withChatScrollPreserved(() => $("#thread").appendChild(d));
   return d;
@@ -2914,12 +2923,53 @@ function restoreChatScroll(snapshot) {
   else sc.scrollTop = snapshot.top;
   updateJumpLatest();
 }
+/* Restoring a saved chat appends twenty-odd messages in a row, and doing the
+ * scroll bookkeeping per message costs a forced synchronous layout each time:
+ * read scrollTop, write the DOM, read scrollHeight. That read/write/read
+ * sandwich, repeated per message, was most of the cost of opening a chat.
+ * Inside a batch the reads are skipped and the scroll is settled once at the
+ * end, from the snapshot taken before any of it. */
+let chatBatchDepth = 0;
+
 function withChatScrollPreserved(change) {
+  if (chatBatchDepth > 0) return change();
   const snapshot = captureChatScroll();
   try {
     return change();
   } finally {
     restoreChatScroll(snapshot);
+  }
+}
+
+/**
+ * Append many messages as one piece of work.
+ *
+ * Besides the scroll batching, this marks the messages so they skip the
+ * per-message entry animation: `msgIn` exists to show that a message has just
+ * arrived, and twenty-five of them running at once is not that -- it is a
+ * transcript that already existed flying apart on screen. The whole thread
+ * gets one fade instead, which the compositor can run on its own.
+ */
+function withChatBatch(change) {
+  const thread = $("#thread");
+  const snapshot = captureChatScroll();
+  chatBatchDepth += 1;
+  try {
+    return change();
+  } finally {
+    chatBatchDepth -= 1;
+    restoreChatScroll(snapshot);
+    if (thread) {
+      thread.classList.add("thread-restore");
+      // animationend bubbles, so a child's animation would end this early --
+      // the same trap the composer's transitionend fell into.
+      const done = (event) => {
+        if (event.target !== thread) return;
+        thread.removeEventListener("animationend", done);
+        thread.classList.remove("thread-restore");
+      };
+      thread.addEventListener("animationend", done);
+    }
   }
 }
 function stripStopNote(t) { return String(t || "").replace(/\n\n_\(stopped by you\)_\s*$/, ""); }

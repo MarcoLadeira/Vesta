@@ -248,3 +248,48 @@ test("clearing history keeps the current in-flight chat working", async ({ page 
   await expect(page.locator("#thread")).toContainText("Current work finished.");
   await expect(page.locator("body")).not.toHaveClass(/ai-working/);
 });
+
+test("a restored transcript arrives as one thing, not twenty-five", async ({ page }) => {
+  // Opening a saved chat used to append each message on its own: a forced
+  // synchronous layout per message (read scrollTop, write, read scrollHeight)
+  // and a `msgIn` entry animation per message, all at once. Measured on a
+  // 25-message chat that cost a 67ms frame and six frames over 32ms.
+  //
+  // `msgIn` means "this just arrived". Twenty-five of them at once says it
+  // twenty-five times about a transcript that already existed, which is the
+  // stutter. The thread fades once instead.
+  const messages = [];
+  for (let i = 0; i < 12; i += 1) {
+    messages.push({ role: "user", text: `Question ${i}`, status: "complete" });
+    messages.push({ role: "assistant", text: `Answer ${i}.`, status: "complete" });
+  }
+  await openApp(page, {
+    conversationTranscripts: {
+      c2: { id: "c2", title: "How does routing work?", updated_at: "2026-08-02", messages },
+    },
+  });
+
+  await page.locator('.recent[data-conversation-id="c2"]').click();
+  await expect(page.locator("#thread .msg").first()).toBeVisible();
+
+  const animations = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("#thread .msg"))
+      .map((el) => getComputedStyle(el).animationName));
+
+  expect(animations.length).toBeGreaterThan(20);
+  // Not one restored message animates itself in.
+  expect(new Set(animations)).toEqual(new Set(["none"]));
+});
+
+test("a live message still animates in", async ({ page }) => {
+  // The batching must not leak into normal use: a message that really has just
+  // arrived should still be seen to arrive.
+  await openApp(page);
+  await page.locator("#input").fill("hello");
+  await page.locator("#send").click();
+  await expect(page.locator("#thread .msg").first()).toBeVisible();
+
+  const name = await page.evaluate(() =>
+    getComputedStyle(document.querySelector("#thread .msg")).animationName);
+  expect(name).toBe("msgIn");
+});
