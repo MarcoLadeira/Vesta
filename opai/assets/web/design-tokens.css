@@ -43,7 +43,11 @@
   /* The horizon: regolith catching starlight, low across the bottom of the
      workspace. Two stops rather than one so the ground has a lit crest and a
      darker body, which is what makes it read as a surface and not a smudge. */
-  --lunar-crest: rgba(184, 204, 238, 0.15);
+  /* Regolith, not sky. The crest was the same blue-white as the starlight
+     washing over it, which made the ground look like more atmosphere; moon
+     dust is close to neutral grey, and desaturating it is what separates the
+     surface from the space above it. Still no warm cast. */
+  --lunar-crest: rgba(216, 219, 226, 0.17);
   --lunar-body: rgba(126, 146, 190, 0.085);
   --red: #f2768a;
   --blue: #74b6ff;
@@ -110,7 +114,12 @@
   --icon-lg: 20px;
   --measure-prose: 72ch;
   --measure-response: 1024px;
-  --measure-composer: 830px;
+  /* The composer is as wide as the text above it. It was 830px against a
+     1024px response measure, so the box you type into was visibly narrower
+     than the answers it produced -- two different column edges down the same
+     screen. Both sides use the same horizontal padding, so matching the
+     measure lines them up exactly. */
+  --measure-composer: var(--measure-response);
   --surface-code: #090b10;
   --surface-code-head: #0d1118;
   --border-code: rgba(255, 255, 255, 0.10);

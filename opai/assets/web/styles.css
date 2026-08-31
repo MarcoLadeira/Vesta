@@ -420,6 +420,11 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 
 .scroll {
   overflow-y: auto; flex: 1; min-height: 0;
+  /* The mask below costs a compositing pass per frame. Promoting the scroller
+     and stopping scroll chaining at its edges keeps that pass on the GPU
+     instead of forcing a main-thread repaint of the whole column. */
+  will-change: transform;
+  overscroll-behavior: contain;
   /* Content dissolves as it approaches the composer instead of being clipped
      by it. A mask rather than an overlay gradient: an overlay would have to
      paint the background colour over the text, which would also cover the
@@ -789,9 +794,19 @@ kbd {
      saturate() is what keeps it from going flat grey -- blurring alone washes
      colour out. The hairline top highlight is the lit edge of the glass, and
      it is what stops a translucent panel reading as a hole. */
-  background: linear-gradient(180deg, rgba(28, 38, 66, 0.55), rgba(12, 18, 36, 0.42));
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
-  backdrop-filter: blur(18px) saturate(150%);
+  background: linear-gradient(180deg, rgba(20, 28, 50, 0.44), rgba(9, 14, 28, 0.34));
+  /* 10px, not 18px. A backdrop filter re-samples everything behind it on every
+     frame the backdrop moves, and the whole thread moves while scrolling, so
+     the radius is the frame budget -- halving it is most of the fix for the
+     tearing. Dimmer too: less light through the glass is less for the blur to
+     smear, and it is what the panel wanted anyway. */
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+  /* Its own compositor layer, so scrolling the thread behind it does not
+     repaint the card itself. Deliberately `will-change` rather than a
+     translateZ hack: a transform would make this a containing block for the
+     fixed-position popovers that open out of it. */
+  will-change: backdrop-filter;
   border: 1px solid var(--border-strong); border-radius: var(--r-xl);
   padding: var(--space-3) var(--space-4) var(--space-3);
   box-shadow:
