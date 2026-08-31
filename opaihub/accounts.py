@@ -1997,6 +1997,28 @@ def _guard_int_env(name: str, default: int) -> int:
     return value if value >= 0 else default
 
 
+# How the answer should read, for every provider.
+#
+# A run that pushed a branch and opened a PR reported it like this: "I'll check
+# the current state of the branch before pushing." / "Branch is ready and
+# unpushed. Pushing now." / "Push succeeded. Creating the PR." Four sentences
+# that are all narration and no information -- the user learns what happened
+# only at the end, buried under a transcript of intentions, and every one of
+# those lines was already visible in OPai's own activity feed as it happened.
+#
+# The activity feed is the play-by-play. The reply is the conclusion. Saying so
+# is the only lever OPai has over an account CLI's prose, so it says it plainly
+# and briefly: a long style lecture spends the user's tokens on every turn.
+_RESPONSE_STYLE = (
+    "Reporting style: the user watches a live activity feed of every step, so "
+    "do not narrate what you are about to do or what just succeeded. Lead with "
+    "the outcome, then only what they need in order to decide something. State "
+    "what you could not do and why, plainly, without softening it. Prefer a "
+    "short answer; add detail only where it changes what they would do next."
+    "\n\n"
+)
+
+
 def _codex_safety_preamble() -> str:
     """The Full Auto safety gate spelled out for `codex exec` (F23, Round 2).
 
@@ -2087,6 +2109,10 @@ class AccountRunner:
         read-only modes and is redundant in Full Auto.
         """
         selected_mode = mode or ("safe-auto" if allow_edits else "ask")
+        # Every provider, one place. Prepending per-branch would mean three
+        # copies to drift, and a style rule that applied to some accounts and
+        # not others is exactly the kind of inconsistency the user notices.
+        prompt = _RESPONSE_STYLE + prompt
         if self.account_id == "claude":
             # Non-stream: `json` gives final text + real $ cost in one object.
             # Stream: `stream-json --verbose` emits JSONL events (text deltas +

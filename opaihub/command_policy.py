@@ -460,7 +460,17 @@ _BUILD_TOOLS = frozenset(
 )
 
 _DESTRUCTIVE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\brm\s+(?:-[a-z]*[rf][a-z]*\s+)+", re.I), "recursive/forced delete"),
+    # Short and long spellings both. The short-only pattern rated
+    # `rm --recursive --force build` as merely local, so at auto-edits autonomy
+    # the long form ran unprompted while `rm -rf` -- the identical operation --
+    # asked. GNU accepts both; so does this.
+    (
+        re.compile(
+            r"\brm\s+(?:-[a-z]*[rf][a-z]*|--recursive|--force|--dir)(?:\s|=|$)",
+            re.I,
+        ),
+        "recursive/forced delete",
+    ),
     (re.compile(r"\brmdir\s+/s\b", re.I), "recursive directory delete"),
     (re.compile(r"\bdel\s+/[sq]\b", re.I), "recursive delete"),
     (re.compile(r"\bremove-item\b[^\n]*-recurse", re.I), "recursive delete"),
