@@ -547,6 +547,15 @@ kbd {
 }
 
 .msg { margin: var(--space-6) 0; animation: msgIn 0.28s var(--ease); }
+/* A restored transcript is not twenty messages arriving -- it is one that
+   already existed. `msgIn` says "this just came in", and twenty-five of them
+   at once says it twenty-five times, which is the stutter you see when
+   opening a saved chat. The thread fades in once instead. */
+.msg.no-entry { animation: none; }
+#thread.thread-restore { animation: msgIn 0.26s var(--ease); }
+@media (prefers-reduced-motion: reduce) {
+  #thread.thread-restore { animation: none; }
+}
 @keyframes msgIn { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
 .msg.user { display: flex; justify-content: flex-end; width: 100%; max-width: var(--measure-prose); margin-inline: auto; }
 .msg.user .bubble {

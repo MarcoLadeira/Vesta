@@ -31,16 +31,19 @@ test("the whole group is centred, not just the box", async ({ page }) => {
   // the thing that has to match.
   await openApp(page);
 
-  const gaps = await page.evaluate(() => {
+  // Polled, not read once: the lift is measured on a rAF after load, so a bare
+  // read can catch the group partway to centre. This passed alone and failed
+  // inside a full parallel run, which is the signature of exactly that race.
+  const delta = () => page.evaluate(() => {
     const main = document.querySelector(".main").getBoundingClientRect();
     const kids = Array.from(document.querySelector("#empty").children)
       .filter((el) => el.offsetParent !== null);
     const top = Math.min(...kids.map((el) => el.getBoundingClientRect().top));
     const bottom = document.querySelector(".composer-wrap").getBoundingClientRect().bottom;
-    return { above: top - main.top, below: main.bottom - bottom };
+    return Math.abs((top - main.top) - (main.bottom - bottom));
   });
 
-  expect(Math.abs(gaps.above - gaps.below)).toBeLessThanOrEqual(2);
+  await expect.poll(delta, { timeout: 5000 }).toBeLessThanOrEqual(2);
 });
 
 test("the room is dark: no grid, no horizon", async ({ page }) => {
