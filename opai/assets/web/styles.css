@@ -580,27 +580,19 @@ kbd {
   color: var(--muted); font-size: var(--type-caption); line-height: 1.5; margin-top: var(--space-1);
 }
 
-/* ---------- the resume gate ----------
+/* ---------- the session checkpoint ----------
  *
- * This is a question the app is asking before anything can happen, not a
- * message in the thread -- so it is centred and given its own quiet panel,
- * and reads as a decision to make rather than as something that was said.
- *
- * It used to be a left-aligned block stranded at the top of an empty room,
- * led by a shouty uppercase "SAVED LOCALLY" that competed with the actual
- * question, with the message count, the run phase and a disclaimer all run
- * together into one grey sentence. The order is now the order you need it in:
- * what is being asked, what it concerns, what you can do, and only then the
- * reassurance.
+ * Not a modal asking whether you remember your last session -- a reconstruction
+ * of it. The trail across the top is the run's own phase history (RuntimePhase
+ * in agent_runtime.py, collapsed to the stages a person would name), and the
+ * line drawing itself along that trail on load is the point: OPai is showing
+ * you it still has the session, before you decide anything.
  */
-/* The gate is the only thing in the room, so it sits in the middle of it
-   rather than pinned to the top of an empty scroll region. Scoped to the
-   gated state: a real transcript must still start at the top. */
 #chatScroll.gated { display: flex; flex-direction: column; justify-content: center; }
 .msg.resume-choice { display: flex; justify-content: center; }
 .resume-card {
-  width: min(420px, 100%); text-align: center;
-  padding: var(--space-6) var(--space-5) var(--space-5);
+  width: min(430px, 100%); text-align: center;
+  padding: var(--space-5) var(--space-5) var(--space-4);
   border: 1px solid var(--border); border-radius: var(--r-lg);
   /* The same lit-edge idea as the composer: a hairline highlight along the top
      is what stops a translucent panel reading as a hole cut in the page. */
@@ -609,44 +601,140 @@ kbd {
     linear-gradient(180deg, var(--panel-2), var(--panel));
   box-shadow: var(--shadow-lg), var(--inset-hi);
 }
-.resume-card .rc-mark {
-  display: grid; place-items: center; width: 44px; height: 44px;
-  margin: 0 auto var(--space-3); border-radius: 50%;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+.resume-card .rc-kicker {
+  color: var(--accent); font-size: var(--type-caption); font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase; margin: 0;
 }
-.resume-card .rc-mark svg { width: 20px; height: 20px; }
+.resume-card .rc-when {
+  color: var(--faint); font-size: var(--type-caption); margin: var(--space-1) 0 0;
+}
+
+/* ---- the trail ---- */
+.resume-card .rc-trail {
+  position: relative; display: flex; justify-content: space-between;
+  list-style: none; margin: var(--space-5) var(--space-2) var(--space-4);
+  padding: 0 0 var(--space-4);
+}
+/* Two rails: the full track, and the travelled part drawn over it. Animating
+   the width of an overlay is one compositor-friendly property and leaves the
+   nodes alone -- the alternative, animating each node, is five animations
+   fighting for the same 300ms. */
+.resume-card .rc-trail::before,
+.resume-card .rc-trail::after {
+  content: ""; position: absolute; top: 5px; left: 0; height: 2px; border-radius: 2px;
+}
+.resume-card .rc-trail::before { right: 0; background: var(--border); }
+.resume-card .rc-trail::after {
+  width: var(--rc-progress, 0%); background: var(--accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: rcTrail 900ms var(--stage-ease) both;
+}
+@keyframes rcTrail { from { width: 0; } }
+.resume-card .rc-node {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-2); flex: 1;
+}
+.resume-card .rc-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--panel); border: 2px solid var(--border);
+  transition: background-color 200ms var(--ease), border-color 200ms var(--ease);
+}
+.resume-card .rc-node-label {
+  color: var(--faint); font-size: var(--type-caption); white-space: nowrap;
+}
+.resume-card .rc-node.is-done .rc-dot { background: var(--accent); border-color: var(--accent); }
+.resume-card .rc-node.is-done .rc-node-label { color: var(--muted); }
+/* Where the session actually stopped. The ring pulses rather than the dot, so
+   nothing on the card changes size and the layout never moves. */
+.resume-card .rc-node.is-here .rc-dot {
+  background: var(--accent); border-color: var(--accent);
+  animation: rcHere 2.4s var(--ease) infinite 900ms;
+}
+.resume-card .rc-node.is-here .rc-node-label { color: var(--ink); font-weight: 700; }
+/* "You are here", absolutely positioned and centred on its node, with the
+   space for it reserved by the trail's own padding -- so which node carries it
+   never changes the height of anything. */
+.resume-card .rc-node.is-here::after {
+  content: "you are here"; position: absolute; top: 100%; left: 50%;
+  transform: translateX(-50%); margin-top: var(--space-1);
+  color: var(--accent); font-size: var(--type-caption); letter-spacing: .04em;
+  white-space: nowrap; opacity: 0.9;
+  animation: rcHereIn 400ms var(--stage-ease) both 900ms;
+}
+@keyframes rcHereIn { from { opacity: 0; transform: translate(-50%, -3px); } }
+@keyframes rcHere {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+
+/* ---- what the session was ---- */
 .resume-card .rc-title {
-  color: var(--ink); font-size: var(--type-body-lg); font-weight: 750;
-  line-height: 1.3; margin: 0;
+  color: var(--ink); font-size: var(--type-body-lg); font-weight: 700;
+  line-height: 1.35; margin: 0;
 }
-.resume-card .rc-meta {
+.resume-card .rc-facts {
+  list-style: none; text-align: left; margin: var(--space-3) 0 0; padding: 0;
+  display: grid; gap: var(--space-2);
+}
+.resume-card .rc-fact {
+  display: grid; grid-template-columns: 16px 1fr; align-items: start; gap: var(--space-2);
+  color: var(--muted); font-size: var(--type-caption); line-height: 1.45;
+}
+.resume-card .rc-fact-mark { display: grid; place-items: center; color: var(--green); }
+.resume-card .rc-fact-mark svg { width: 14px; height: 14px; }
+.resume-card .rc-fact.is-warn .rc-fact-mark { color: var(--amber); }
+.resume-card .rc-fact.is-next { color: var(--ink); }
+.resume-card .rc-fact.is-next .rc-fact-mark { color: var(--accent); }
+
+/* ---- actions ---- */
+/* Asymmetric on purpose: continuing is the expected thing, and starting over
+   throws the session away. Two equal buttons said those were the same size of
+   decision. */
+.resume-card .rc-cta {
   display: flex; align-items: center; justify-content: center; gap: var(--space-2);
-  color: var(--muted); font-size: var(--type-caption); margin: var(--space-2) 0 0;
+  width: 100%; margin-top: var(--space-5);
 }
-.resume-card .rc-sep {
-  width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.5;
+.resume-card .rc-cta svg { width: 15px; height: 15px; }
+.resume-card .rc-minor {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  margin-top: var(--space-3);
 }
-.resume-card .rc-phase {
-  color: var(--ink); font-weight: 650;
-  padding: var(--space-1) var(--space-2); border-radius: 999px;
-  background: var(--glass-hi); border: 1px solid var(--border);
+.resume-card .rc-link {
+  background: none; border: 0; cursor: pointer; padding: 0;
+  color: var(--faint); font-size: var(--type-caption); font-family: inherit;
 }
-/* A run that did not finish is the one thing here worth colouring. */
-.resume-card .rc-phase.is-failed {
-  color: var(--red);
-  background: color-mix(in srgb, var(--red) 12%, transparent);
-  border-color: color-mix(in srgb, var(--red) 30%, transparent);
+.resume-card .rc-link:hover { color: var(--ink); }
+.resume-card .rc-link:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-sm); }
+.resume-card .rc-minor-sep { color: var(--faint); font-size: var(--type-caption); }
+
+/* ---- review, in place ---- */
+.resume-card .rc-detail {
+  text-align: left; margin-top: var(--space-4); padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  max-height: 260px; overflow-y: auto;
 }
-.resume-card .rc-actions {
-  display: flex; gap: var(--space-2); justify-content: center;
-  margin-top: var(--space-5); flex-wrap: wrap;
+.resume-card .rc-detail-head {
+  color: var(--faint); font-size: var(--type-caption); font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; margin: 0 0 var(--space-2);
 }
-.resume-card .rc-actions .btn { min-width: 132px; justify-content: center; }
-.resume-card .rc-note {
-  color: var(--faint); font-size: var(--type-caption); line-height: 1.5;
-  margin: var(--space-4) 0 0;
+.resume-card .rc-files, .resume-card .rc-turns {
+  list-style: none; margin: 0 0 var(--space-4); padding: 0;
+  display: grid; gap: var(--space-1);
+}
+.resume-card .rc-turns { margin-bottom: 0; }
+.resume-card .rc-files li {
+  color: var(--muted); font-size: var(--type-caption);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.resume-card .rc-turn {
+  display: grid; grid-template-columns: 40px 1fr; gap: var(--space-2);
+  color: var(--muted); font-size: var(--type-caption); line-height: 1.45;
+}
+.resume-card .rc-turn-role { color: var(--faint); font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  .resume-card .rc-trail::after { animation: none; }
+  .resume-card .rc-node.is-here .rc-dot { animation: none; }
 }
 .resume-card .rc-error {
   color: var(--red); background: rgba(242, 118, 138, 0.1);
