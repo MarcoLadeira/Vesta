@@ -280,3 +280,34 @@ test("failed clear history does not hide resumable work", async ({ page }) => {
   await expect(page.locator("#clearRecents")).toBeVisible();
   expect(await page.evaluate(() => window.__mock.clearedRecents)).toBe(1);
 });
+
+test("a run that did not finish is marked, and one that is mid-flight is not", async ({ page }) => {
+  // The phase used to be dropped into the middle of a grey sentence --
+  // "2 saved messages · failed. Nothing is restored until you choose." --
+  // where the one word that changes what you would decide read like filler.
+  await openApp(page, {
+    boot: { resume: { ...resume, workflow: { ...resume.workflow, phase: "failed" } } },
+  });
+  await expect(page.locator(".resume-card .rc-phase")).toHaveText("failed");
+  await expect(page.locator(".resume-card .rc-phase")).toHaveClass(/is-failed/);
+});
+
+test("a phase that is merely where the work got to is shown plainly", async ({ page }) => {
+  await openApp(page, { boot: { resume } });
+  await expect(page.locator(".resume-card .rc-phase")).toHaveText("testing");
+  await expect(page.locator(".resume-card .rc-phase")).not.toHaveClass(/is-failed/);
+});
+
+test("the centring comes off with the gate, so a restored thread starts at the top", async ({ page }) => {
+  // The gate centres the thread because the card is the only thing in it. That
+  // is exactly wrong for a real transcript, so the class has to come off when
+  // the gate does -- otherwise resuming leaves the conversation floating in
+  // the middle of the room.
+  await openApp(page, { boot: { resume } });
+  await expect(page.locator("#chatScroll")).toHaveClass(/gated/);
+
+  await page.getByRole("button", { name: "Resume work" }).click();
+
+  await expect(page.locator("#chatScroll")).not.toHaveClass(/gated/);
+  await expect(page.locator("#input")).toBeEnabled();
+});

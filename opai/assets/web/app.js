@@ -1659,6 +1659,12 @@ function setResumeGate(on) {
   const input = $("#input"), buildToggle = $("#buildToggle");
   if (input) input.disabled = !!on;
   if (buildToggle) buildToggle.disabled = !!on;
+  // While the gate is up the card is the only thing in the thread, so the
+  // thread centres it. Marked here rather than on the card because it is a
+  // property of the room, not of the card, and it has to come off again the
+  // moment the gate does -- a centred thread would fight a real transcript.
+  const scroll = $("#chatScroll");
+  if (scroll) scroll.classList.toggle("gated", !!on);
   updateComposerAvailability();
 }
 function clearFailure(message) {
@@ -1839,15 +1845,25 @@ function renderResumeChoice() {
   setResumeGate(true);
   const count = ((resume.thread || {}).messages || []).length;
   const phase = (resume.workflow || {}).phase || "saved";
+  const phaseLabel = String(phase).replaceAll("_", " ");
+  // Whether the last run actually failed is worth seeing at a glance rather
+  // than reading out of the middle of a sentence. Every other phase is just
+  // where the work got to, and is shown plainly.
+  const failed = /fail|error|crash|abort/i.test(phaseLabel);
   const el = appendMsg(
     `<div class="resume-card" role="group" aria-label="Resume previous work">
-       <div class="rc-badge">Saved locally</div>
-       <div class="rc-title">Resume your previous work?</div>
-       <div class="rc-body">${count} saved message${count === 1 ? "" : "s"} · ${esc(String(phase).replaceAll("_", " "))}. Nothing is restored until you choose.</div>
+       <span class="rc-mark" aria-hidden="true">${uiIcon("pending")}</span>
+       <h2 class="rc-title">Resume your previous work?</h2>
+       <p class="rc-meta">
+         <span>${count} message${count === 1 ? "" : "s"}</span>
+         <span class="rc-sep" aria-hidden="true"></span>
+         <span class="rc-phase${failed ? " is-failed" : ""}">${esc(phaseLabel)}</span>
+       </p>
        <div class="rc-actions">
          <button class="btn primary" data-resume="resume">Resume work</button>
          <button class="btn ghost" data-resume="fresh">Start fresh</button>
        </div>
+       <p class="rc-note">Saved on this machine · nothing is restored until you choose</p>
      </div>`, "bot resume-choice");
   el.querySelector('[data-resume="resume"]').onclick = () => activateResumeSession(resume);
   el.querySelector('[data-resume="fresh"]').onclick = startFreshSession;
