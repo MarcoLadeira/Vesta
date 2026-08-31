@@ -144,6 +144,31 @@ describe("section registry (#236)", () => {
   });
 });
 
+describe("Appearance response preferences", () => {
+  const esc = (s) =>
+    String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const ctx = { esc, state: { boot: {} } };
+  const section = () => OPaiSettings.sections.find((s) => s.id === "appearance");
+
+  it("renders a distinct Compact, Balanced, Detailed response density control", () => {
+    const html = section().render({ prefs: { response_density: "detailed" } }, ctx);
+    expect(html).toContain('data-appearance-key="response_density"');
+    expect(html).toMatch(/data-value="detailed"[^>]*aria-pressed="true"/);
+    expect(html).toContain(">Balanced<");
+  });
+
+  it("reads composer style from either persisted snake_case or boot camelCase", () => {
+    const raw = section().render({ prefs: { composer_style: "single" } }, ctx);
+    const boot = section().render({ prefs: { composerStyle: "command" } }, ctx);
+    expect(raw).toMatch(/data-value="single"[^>]*aria-pressed="true"/);
+    expect(boot).toMatch(/data-value="command"[^>]*aria-pressed="true"/);
+  });
+});
+
 describe("Credits & Balance section", () => {
   const esc = (s) =>
     String(s == null ? "" : s)

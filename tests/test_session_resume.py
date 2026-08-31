@@ -240,6 +240,222 @@ class ThreadPersistenceTests(_ThreadAPI):
             all(set(message) <= allowed for message in restored["messages"])
         )
 
+    def test_legacy_v1_thread_loads_without_eager_migration_then_writes_v2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._callable("thread_path")(root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            legacy = {
+                "schema_version": 1,
+                "task_id": "legacy-task",
+                "mode": "ask",
+                "messages": [
+                    {
+                        "role": "user",
+                        "text": "legacy question",
+                        "status": "complete",
+                        "timestamp": "2026-07-13T08:00:00+00:00",
+                    },
+                    {
+                        "role": "assistant",
+                        "text": "legacy answer",
+                        "status": "complete",
+                        "timestamp": "2026-07-13T08:01:00+00:00",
+                        "presentation": {
+                            "schema_version": 1,
+                            "run": {"state": "completed", "label": "Injected"},
+                        },
+                    },
+                ],
+            }
+            original = json.dumps(legacy, sort_keys=True)
+            path.write_text(original, encoding="utf-8")
+
+            restored = self._callable("load_thread")(root)
+
+            self.assertEqual(restored["schema_version"], 1)
+            self.assertNotIn("presentation", restored["messages"][-1])
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+            gui_recents.begin_thread_turn(
+                root, request_id="next-turn", text="continue", mode="ask"
+            )
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8"))["schema_version"], 2
+            )
+
+    def test_assistant_presentation_is_closed_redacted_bounded_and_provider_safe(self):
+        secret = "sk-history-secret-abcdefghijklmnopqrstuvwxyz"
+        presentation = {
+            "schema_version": 1,
+            "run": {
+                "state": "partial",
+                "label": "Partial",
+                "category": "warning",
+                "reason": f"Needs review token={secret}",
+                "reason_code": "verification_unverified",
+                "next_action": "Run focused tests",
+                "automatic_retry": False,
+                "retry_reason": "manual_review",
+                "answer_conflicts": False,
+                "provider_output": "must not persist",
+            },
+            "evidence": {
+                "verification": {"applicable": True, "verdict": "unverified"},
+                "delivery": {"applicable": True, "verdict": "delivered"},
+                "economics": {"integrity": "reconciled"},
+                "authority": {"mutating": True},
+                "diagnostic_codes": [f"diag-{index}" for index in range(80)],
+                "receipt": {"raw": "must not persist"},
+            },
+            "tests": {"status": "failed", "passed": 2, "failed": 1, "skipped": 0},
+            "changes": {
+                "summary": {
+                    "files": 80,
+                    "additions": 100,
+                    "deletions": 10,
+                    "pending": 80,
+                    "approved": 0,
+                    "rejected": 0,
+                    "risky": 0,
+                    "truncated": True,
+                    "hunks": "must not persist",
+                },
+                "files": [
+                    {
+                        "path": f"src/file-{index}.py",
+                        "decision": "pending",
+                        "additions": 2,
+                        "deletions": 1,
+                        "risky": False,
+                        "risk_reasons": [],
+                        "untracked": False,
+                        "sensitive": False,
+                        "hunks": [{"lines": ["private source"]}],
+                        "source": "private source",
+                    }
+                    for index in range(80)
+                ],
+            },
+            "approval": {
+                "kind": "command",
+                "state": "needs_command_approval",
+                "question": "May I run the check?",
+                "command": f"tool --token={secret}",
+                "reason": "one-time approval",
+                "files": [f"src/file-{index}.py" for index in range(80)],
+                "background_active": False,
+                "objective": "must not persist",
+            },
+            "activity": [
+                {
+                    "phase": "testing",
+                    "status": "failed" if index == 39 else "complete",
+                    "message": f"Structured step {index}",
+                    "next_action": "Review evidence",
+                    "metadata": {"output": "must not persist"},
+                }
+                for index in range(40)
+            ],
+            "tool_trace": [{"output": "private source"}],
+            "prompt": "must not persist",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._save(
+                root,
+                messages=[
+                    {
+                        "role": "user",
+                        "text": "question",
+                        "presentation": presentation,
+                    },
+                    {
+                        "role": "assistant",
+                        "text": "answer",
+                        "presentation": presentation,
+                    },
+                ],
+            )
+            restored = self._callable("load_thread")(root)
+            raw = self._callable("thread_path")(root).read_text(encoding="utf-8")
+            provider_context = gui_recents.normalize_resume_execution_context(restored)
+
+        self.assertNotIn("presentation", restored["messages"][0])
+        saved = restored["messages"][1]["presentation"]
+        self.assertEqual(saved["schema_version"], 1)
+        self.assertLessEqual(
+            len(saved.get("changes", {}).get("files", [])),
+            gui_recents.MAX_PRESENTATION_CHANGE_FILES,
+        )
+        self.assertLessEqual(
+            len(saved.get("activity", [])), gui_recents.MAX_PRESENTATION_ACTIVITY_ROWS
+        )
+        self.assertLessEqual(
+            len(json.dumps(saved, ensure_ascii=False).encode("utf-8")),
+            gui_recents.MAX_PRESENTATION_BYTES,
+        )
+        self.assertNotIn(secret, raw)
+        for forbidden in (
+            "provider_output",
+            "tool_trace",
+            '"prompt"',
+            '"objective"',
+            '"receipt"',
+            '"hunks"',
+            '"source"',
+            "private source",
+        ):
+            self.assertNotIn(forbidden, raw)
+        self.assertTrue(
+            all(
+                set(message) == {"role", "text", "status", "timestamp"}
+                for message in provider_context["messages"]
+            )
+        )
+
+    def test_invalid_or_future_presentation_is_discarded_and_total_is_byte_bounded(
+        self,
+    ):
+        valid = {
+            "schema_version": 1,
+            "run": {
+                "state": "partial",
+                "label": "Partial",
+                "reason": "x" * 500,
+            },
+            "activity": [
+                {"phase": "testing", "message": "y" * 400}
+                for _ in range(gui_recents.MAX_PRESENTATION_ACTIVITY_ROWS)
+            ],
+        }
+        messages = [
+            {
+                "role": "assistant",
+                "text": f"answer {index}",
+                "presentation": valid,
+            }
+            for index in range(gui_recents.MAX_THREAD_MESSAGES)
+        ]
+        messages.append(
+            {
+                "role": "assistant",
+                "text": "future",
+                "presentation": {"schema_version": 2, "run": {"state": "failed"}},
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._save(root, messages=messages)
+            restored = self._callable("load_thread")(root)
+
+        self.assertNotIn("presentation", restored["messages"][-1])
+        total = sum(
+            len(json.dumps(item["presentation"], ensure_ascii=False).encode("utf-8"))
+            for item in restored["messages"]
+            if "presentation" in item
+        )
+        self.assertLessEqual(total, gui_recents.MAX_THREAD_PRESENTATION_BYTES)
+
     def test_start_fresh_is_explicit_scoped_and_preserves_checkpoint_evidence(self):
         start_fresh = getattr(gui_web, "start_fresh_payload", None)
         self.assertTrue(

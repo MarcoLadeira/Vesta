@@ -21,6 +21,8 @@ from opai import gui_permissions
 from opai.gui_recents import thread_status_for_result
 from opai.gui_web import (
     WEB_DIR,
+    _assistant_presentation,
+    _attributed_changed_files,
     asset_build_identity,
     boot_payload,
     resolve_openable,
@@ -119,6 +121,260 @@ class ThreadStatusHonestyTests(unittest.TestCase):
                 m["status"] for m in thread["messages"] if m["role"] == "assistant"
             ]
             self.assertEqual(statuses, ["partial"])
+
+
+class AssistantPresentationProjectionTests(unittest.TestCase):
+    def test_changed_file_attribution_is_ordered_deduplicated_and_rollback_true(self):
+        result = {
+            "status": "answered",
+            "receipt": {"changed_files": ["b.py", "a.py", "b.py"]},
+            "workflow": {
+                "diff_review": {"files": [{"path": "a.py"}, {"path": "c.py"}]},
+                "changed_files": ["d.py", "c.py"],
+            },
+            "changed_files": ["e.py", "a.py"],
+            "applied": [{"path": "fallback.py"}],
+        }
+
+        self.assertEqual(
+            _attributed_changed_files(result),
+            ["b.py", "a.py", "c.py", "d.py", "e.py"],
+        )
+        self.assertEqual(
+            _attributed_changed_files(
+                {"changed_files": ["../escape.py", "C:drive.py", "file.py:ads"]}
+            ),
+            [],
+        )
+        self.assertEqual(
+            _attributed_changed_files(
+                {
+                    **result,
+                    "status": "partial_rollback",
+                    "remaining_changed_files": ["remaining.py", "remaining.py"],
+                }
+            ),
+            ["remaining.py"],
+        )
+        self.assertEqual(
+            _attributed_changed_files({**result, "status": "rolled_back"}), []
+        )
+        self.assertEqual(
+            _attributed_changed_files(
+                {"status": "applied", "applied": [{"path": "build.js"}]}
+            ),
+            ["build.js"],
+        )
+
+    def test_projection_keeps_only_canonical_bounded_structured_evidence(self):
+        canonical = RunResult.from_payload(
+            state="completed",
+            reason_detail="The requested explanation was delivered.",
+            final_transition_at="2026-08-30T12:00:00Z",
+            mutating=False,
+            verification={"applicable": False, "verdict": "not_applicable"},
+            delivery={
+                "applicable": True,
+                "verdict": "delivered",
+                "record_ref": {"kind": "receipt", "id": "delivery-1"},
+            },
+            economics={
+                "integrity": "reconciled",
+                "record_ref": {"kind": "receipt", "id": "economics-1"},
+            },
+            diagnostics={"record_refs": [], "codes": ["SAFE_DIAGNOSTIC"]},
+        ).to_dict()
+        result = {
+            "status": "answered",
+            "run_result": canonical,
+            "completion_verdict": {
+                "verdict": "completed",
+                "reason_code": "answer_delivered",
+                "next_action": "",
+                "answer_conflicts": False,
+                "objective": {"objective_text": "never persist"},
+                "evidence": [{"raw": "never persist"}],
+            },
+            "workflow": {
+                "phase": "completed",
+                "message": "Read-only task completed",
+                "history": [
+                    {
+                        "phase": "context_gathering",
+                        "message": "Read bounded context",
+                        "next_actions": ["Explain the result"],
+                        "metadata": {"source": "private source"},
+                    },
+                    {
+                        "phase": "completed",
+                        "message": "Read-only task completed",
+                    },
+                ],
+                "diff_review": {
+                    "summary": {
+                        "files": 1,
+                        "additions": 2,
+                        "deletions": 1,
+                        "pending": 0,
+                        "approved": 1,
+                        "rejected": 0,
+                        "risky": 0,
+                        "truncated": False,
+                    },
+                    "files": [
+                        {
+                            "path": "src/app.py",
+                            "decision": "approved",
+                            "additions": 2,
+                            "deletions": 1,
+                            "risky": False,
+                            "risk_reasons": [],
+                            "untracked": False,
+                            "sensitive": False,
+                            "hunks": [{"lines": ["private source"]}],
+                            "source": "private source",
+                        }
+                    ],
+                },
+            },
+            "tool_trace": [{"output": "private source"}],
+            "provider_output": "private source",
+        }
+
+        projected = _assistant_presentation(result, ["src/app.py"])
+        encoded = json.dumps(projected, sort_keys=True)
+
+        self.assertEqual(projected["schema_version"], 1)
+        self.assertEqual(projected["run"]["state"], "completed")
+        self.assertEqual(projected["run"]["reason_code"], "answer_delivered")
+        self.assertEqual(
+            projected["evidence"]["delivery"],
+            {"applicable": True, "verdict": "delivered"},
+        )
+        self.assertEqual(projected["changes"]["files"][0]["path"], "src/app.py")
+        self.assertEqual(
+            projected["activity"][0],
+            {
+                "phase": "context_gathering",
+                "message": "Read bounded context",
+                "next_action": "Explain the result",
+            },
+        )
+        for forbidden in (
+            "tool_trace",
+            "provider_output",
+            "objective",
+            "record_ref",
+            "hunks",
+            "source",
+            "private source",
+        ):
+            self.assertNotIn(forbidden, encoded)
+
+    def test_projection_uses_typed_inert_approval_fields(self):
+        projected = _assistant_presentation(
+            {
+                "status": "needs_command_approval",
+                "awaiting": {
+                    "kind": "approval",
+                    "status": "needs_command_approval",
+                    "question": "I need your OK to run this command.",
+                    "backgroundActive": False,
+                    "resumable": True,
+                },
+                "command": "pytest -q",
+                "reason": "confirm-class command",
+                "command_approval": {
+                    "command": "pytest -q",
+                    "reason": "confirm-class command",
+                    "authority": "must not persist",
+                },
+            },
+            [],
+        )
+
+        self.assertEqual(
+            projected["approval"],
+            {
+                "kind": "approval",
+                "state": "needs_command_approval",
+                "question": "I need your OK to run this command.",
+                "command": "pytest -q",
+                "reason": "confirm-class command",
+                "background_active": False,
+            },
+        )
+
+    def test_test_counts_come_only_from_a_valid_verification_manifest(self):
+        from datetime import datetime, timedelta, timezone
+
+        from opaihub.verification_execution import (
+            CheckRecord,
+            CheckStatus,
+            VerificationAttempt,
+            VerificationExecutionContext,
+            VerificationManifest,
+        )
+        from opaihub.verification_policy import (
+            PolicyCheck,
+            PolicySource,
+            VerificationPolicy,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            check = PolicyCheck(
+                "unit",
+                "unit",
+                "required",
+                "Run unit tests.",
+                command=("python", "-m", "pytest", "-q"),
+            )
+            policy = VerificationPolicy(
+                status="ready",
+                classification={"mode": "implement", "edit_capable": True},
+                checks=(check,),
+                sources=(PolicySource("builtin", "Test policy"),),
+            )
+            started = datetime(2026, 8, 30, tzinfo=timezone.utc)
+            attempt = VerificationAttempt(
+                check_id="unit",
+                index=1,
+                status=CheckStatus.PASSED,
+                command=("python", "-m", "pytest", "-q"),
+                working_directory=root,
+                started_at=started,
+                ended_at=started + timedelta(seconds=1),
+                exit_status=0,
+                output_summary="secret verification output",
+                environment_digest="a" * 64,
+                teardown_verified=True,
+            )
+            manifest = VerificationManifest.from_policy(
+                policy,
+                VerificationExecutionContext(
+                    task_id="task-1",
+                    run_id="run-1",
+                    worktree=root,
+                    repository_id="repo-1",
+                    head_sha="b" * 40,
+                ),
+                (CheckRecord.from_attempts(check, (attempt,)),),
+            ).to_dict()
+
+            projected = _assistant_presentation(
+                {
+                    "verification_manifest": manifest,
+                    "tests": {"status": "failed", "failed": 999},
+                },
+                [],
+            )
+
+        self.assertEqual(
+            projected["tests"],
+            {"status": "passed", "passed": 1, "failed": 0, "skipped": 0},
+        )
+        self.assertNotIn("secret verification output", json.dumps(projected))
 
 
 class ResolveOpenableTests(unittest.TestCase):
@@ -381,6 +637,8 @@ class WebAssetsTests(unittest.TestCase):
             "design-tokens-preview.html",
             "icons.js",
             "run-result.js",
+            "markdown-renderer.js",
+            "chat-components.js",
             "styles.css",
             "app.js",
         ):
@@ -392,7 +650,16 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("design-tokens.css", html)
         self.assertIn("styles.css", html)
         self.assertIn("icons.js", html)
+        self.assertIn("vendor/markdown-it-14.1.0.min.js", html)
+        self.assertIn("markdown-renderer.js", html)
+        self.assertIn("chat-components.js", html)
         self.assertIn("app.js", html)
+        self.assertLess(
+            html.index("vendor/markdown-it-14.1.0.min.js"),
+            html.index("markdown-renderer.js"),
+        )
+        self.assertLess(html.index("markdown-renderer.js"), html.index("app.js"))
+        self.assertLess(html.index("chat-components.js"), html.index("app.js"))
 
     def test_index_uses_one_unified_desktop_header(self):
         html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
@@ -751,15 +1018,25 @@ class AppearancePreferenceTests(unittest.TestCase):
             root = make_repo(Path(tmp))
             saved = save_gui_preferences(
                 root,
-                {"density": "compact", "reduced_motion": "on", "activity_copy": "off"},
+                {
+                    "density": "compact",
+                    "response_density": "detailed",
+                    "reduced_motion": "on",
+                    "activity_copy": "off",
+                    "composer_style": "command",
+                },
             )
             self.assertEqual(saved["density"], "compact")
+            self.assertEqual(saved["response_density"], "detailed")
             self.assertEqual(saved["reduced_motion"], "on")
             self.assertEqual(saved["activity_copy"], "off")
+            self.assertEqual(saved["composer_style"], "command")
             prefs = boot_payload(root)["prefs"]
             self.assertEqual(prefs["density"], "compact")
+            self.assertEqual(prefs["responseDensity"], "detailed")
             self.assertEqual(prefs["reducedMotion"], "on")
             self.assertEqual(prefs["activityCopy"], "off")
+            self.assertEqual(prefs["composerStyle"], "command")
 
     def test_invalid_appearance_values_sanitize_to_defaults(self):
         from opaihub.gui_preferences import save_gui_preferences
@@ -770,25 +1047,39 @@ class AppearancePreferenceTests(unittest.TestCase):
                 root,
                 {
                     "density": "microscopic",
+                    "response_density": "microscopic",
                     "reduced_motion": "sometimes",
                     "activity_copy": "sometimes",
+                    "composer_style": "floating",
                 },
             )
             self.assertEqual(saved["density"], "comfortable")
+            self.assertEqual(saved["response_density"], "balanced")
             self.assertEqual(saved["reduced_motion"], "system")
             self.assertEqual(saved["activity_copy"], "on")
+            self.assertEqual(saved["composer_style"], "toolbar")
             prefs = boot_payload(root)["prefs"]
             self.assertEqual(prefs["density"], "comfortable")
+            self.assertEqual(prefs["responseDensity"], "balanced")
             self.assertEqual(prefs["reducedMotion"], "system")
             self.assertEqual(prefs["activityCopy"], "on")
+            self.assertEqual(prefs["composerStyle"], "toolbar")
 
     def test_defaults_present_without_any_saved_preferences(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             prefs = boot_payload(root)["prefs"]
         self.assertEqual(prefs["density"], "comfortable")
+        self.assertEqual(prefs["responseDensity"], "balanced")
         self.assertEqual(prefs["reducedMotion"], "system")
         self.assertEqual(prefs["activityCopy"], "on")
+        self.assertEqual(prefs["composerStyle"], "toolbar")
+
+    def test_bridge_allows_response_and_composer_presentation_preferences(self):
+        from opai.gui_web import _BRIDGE_PREFERENCE_KEYS
+
+        self.assertIn("response_density", _BRIDGE_PREFERENCE_KEYS)
+        self.assertIn("composer_style", _BRIDGE_PREFERENCE_KEYS)
 
 
 @unittest.skipUnless(

@@ -31,7 +31,9 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     # OS media query ("system" defers to it, "on" force-disables animations,
     # "off" force-enables them). Applied live by the GUI, no restart.
     "density": "comfortable",
+    "response_density": "balanced",
     "reduced_motion": "system",
+    "composer_style": "toolbar",
     # Activity copy: lets a user drag-select and copy the whole AI activity
     # rail (stage line + step-by-step timeline), not just the final answer —
     # much easier to hand someone for debugging than retyping what happened.
@@ -79,7 +81,9 @@ _ALLOWED_KEYS = {
     "show_control_panel",
     "auto_tools",
     "density",
+    "response_density",
     "reduced_motion",
+    "composer_style",
     "activity_copy",
     "onboarding_seen",
     "usage_limits",
@@ -115,8 +119,12 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
         clean["default_model"] = "auto"
     if clean.get("density") not in {"comfortable", "compact"}:
         clean["density"] = "comfortable"
+    if clean.get("response_density") not in {"compact", "balanced", "detailed"}:
+        clean["response_density"] = "balanced"
     if clean.get("reduced_motion") not in {"system", "on", "off"}:
         clean["reduced_motion"] = "system"
+    if clean.get("composer_style") not in {"toolbar", "single", "command"}:
+        clean["composer_style"] = "toolbar"
     if clean.get("activity_copy") not in {"on", "off"}:
         clean["activity_copy"] = "on"
     clean["onboarding_seen"] = bool(clean.get("onboarding_seen"))

@@ -17,17 +17,21 @@ _RUNTIME_INDEX = ".runtime-index.html"
 REQUIRED_WEB_ASSETS = (
     "activity.js",
     "app.js",
+    "chat-components.js",
     "composer.js",
     "design-tokens-preview.html",
     "design-tokens.css",
     "generated-lifecycle.js",
     "icons.js",
     "index.html",
+    "markdown-renderer.js",
     "message-state.js",
     "onboarding.js",
     "run-result.js",
     "settings.js",
     "styles.css",
+    "vendor/markdown-it-14.1.0.min.js",
+    "vendor/markdown-it.LICENSE.txt",
 )
 REQUIRED_ASSETS = (
     "opai-icon.png",

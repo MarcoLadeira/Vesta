@@ -66,7 +66,7 @@ test("active repo and coding workflow status stay visible", async ({ page }) => 
   const card = page.locator(".workflow-card");
   await expect(card).toContainText("Implement");
   await expect(card).toContainText("Completed");
-  await expect(card).toContainText("reported by agent");
+  await expect(card).not.toContainText("reported by agent");
   await expect(card).toContainText("https://github.test/pr/9");
   await expect(card).toContainText("Inspect PR checks");
   await expect(card).toContainText("account:codex:gpt-5");

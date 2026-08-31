@@ -31,6 +31,7 @@
   --type-caption: 12px;
   --type-label: 13px;
   --type-body: 14px;
+  --type-prose: 15px;
   --type-body-lg: 16px;
   --type-heading: 20px;
   --type-title: 24px;
@@ -84,5 +85,13 @@
   --icon-sm: 14px;
   --icon-md: 16px;
   --icon-lg: 20px;
+  --measure-prose: 72ch;
+  --measure-response: 1024px;
+  --measure-composer: 830px;
+  --surface-code: #090b10;
+  --surface-code-head: #0d1118;
+  --border-code: rgba(255, 255, 255, 0.10);
+  --focus-ring: 0 0 0 3px rgba(52, 211, 153, 0.24);
+  --control-min: 32px;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
 }

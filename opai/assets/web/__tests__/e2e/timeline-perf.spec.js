@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
 
 
 test.beforeEach(async ({ page }) => openApp(page));
@@ -8,11 +8,11 @@ test.beforeEach(async ({ page }) => openApp(page));
 // #228: the timeline renderer is keyed and rAF-batched. A synchronous burst of
 // events must cost ~one render pass, not one full rebuild per event, and every
 // event must still land as exactly one row (the one-row-per-event contract).
-test("a 500-event burst renders in one batched pass with one row per event", async ({ page }) => {
+test("a collapsed 2000-event burst defers all row rendering until activity opens", async ({ page }) => {
   const id = await sendPrompt(page);
   const renders = await page.evaluate(async (id) => {
     const before = window.__opai.state.timelineRenders;
-    for (let i = 0; i < 500; i++) {
+    for (let i = 0; i < 2000; i++) {
       window.__mock.emitActivity(id, {
         id: "ev" + i, type: "tool_call", status: "success", title: "Step " + i, timestamp: Date.now(),
       });
@@ -21,10 +21,25 @@ test("a 500-event burst renders in one batched pass with one row per event", asy
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     return window.__opai.state.timelineRenders - before;
   }, id);
-  expect(renders).toBeGreaterThan(0);
-  expect(renders).toBeLessThanOrEqual(3);
+  expect(renders).toBe(0);
+  await expect(page.locator(".gen-toggle")).toContainText("2000");
   await page.locator(".gen-toggle").click();
-  await expect(page.locator(".timeline .tl-row")).toHaveCount(500);
+  await expect(page.locator(".timeline .tl-row")).toHaveCount(2000);
+});
+
+test("a completed collapsed activity log stays unmounted until opened", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await page.evaluate((requestId) => {
+    for (let i = 0; i < 2000; i++) {
+      window.__mock.emitActivity(requestId, {
+        id: `done-${i}`, type: "tool_call", status: "success", title: `Step ${i}`,
+      });
+    }
+  }, id);
+  await finishRequest(page, id);
+  await expect(page.locator(".timeline.done .tl-row")).toHaveCount(0);
+  await page.locator(".gen-toggle.done").click();
+  await expect(page.locator(".timeline.done .tl-row")).toHaveCount(2000);
 });
 
 // #247: an explicit wall-clock budget so the O(n^2) rewrite can never creep
@@ -34,6 +49,7 @@ test("a 500-event burst renders in one batched pass with one row per event", asy
 // innerHTML-per-event renderer blew past this by 10-100x.
 test("a 500-event turn emits and renders within the wall-clock budget", async ({ page }) => {
   const id = await sendPrompt(page);
+  await page.locator(".gen-toggle").click();
   const elapsedMs = await page.evaluate(async (id) => {
     const t0 = performance.now();
     for (let i = 0; i < 500; i++) {
@@ -45,7 +61,6 @@ test("a 500-event turn emits and renders within the wall-clock budget", async ({
     return performance.now() - t0;
   }, id);
   expect(elapsedMs).toBeLessThan(1500);
-  await page.locator(".gen-toggle").click();
   await expect(page.locator(".timeline .tl-row")).toHaveCount(500);
 });
 
@@ -65,4 +80,24 @@ test("repeated updates to one event id stay a single patched row", async ({ page
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText("chunk 249");
   await expect(rows).toHaveClass(/success/);
+});
+
+test("nonconsecutive groups with the same key remain separate runs", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await page.evaluate(async (requestId) => {
+    const groups = ["a", "a", "b", "b", "a", "a"];
+    groups.forEach((group, index) => window.__mock.emitActivity(requestId, {
+      id: `event-${index}`,
+      type: "tool_call",
+      status: "success",
+      title: `${group.toUpperCase()} step ${index}`,
+      group,
+    }));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }, id);
+  await page.locator(".gen-toggle").click();
+  await expect(page.locator(".timeline > .tl-group")).toHaveCount(3);
+  await expect(page.locator(".timeline .tl-children .tl-row")).toHaveCount(0);
+  await page.locator(".timeline > .tl-group").first().getByRole("button").click();
+  await expect(page.locator(".timeline > .tl-group").first().locator(".tl-children .tl-row")).toHaveCount(2);
 });

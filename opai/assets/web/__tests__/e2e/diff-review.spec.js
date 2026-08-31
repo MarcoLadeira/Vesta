@@ -48,7 +48,7 @@ test("a proposed changeset lists every file with approve/reject and honest clear
   await expect(card).toBeVisible();
   await expect(card.locator(".cs-badge")).toHaveText("Proposed");
   await expect(card).toContainText("2 files changed");
-  await expect(card).toContainText("Tests: passed");
+  await expect(card).not.toContainText("Tests: passed");
   await expect(card.locator("[data-cs-review-note]")).toHaveText("2 of 2 pending review");
 
   const files = card.locator(".diff-file2");

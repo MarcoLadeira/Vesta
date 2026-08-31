@@ -490,6 +490,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
             "styles.css",
             "design-tokens.css",
             "activity.js",
+            "markdown-renderer.js",
+            "chat-components.js",
             "message-state.js",
             "settings.js",
             "onboarding.js",
@@ -497,6 +499,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
             self.assertIn(f"=opai/assets/web/{asset}", joined_gui_args)
         self.assertIn("=opai/assets/fonts", joined_gui_args)
         self.assertIn("=opai/assets/web/icons", joined_gui_args)
+        self.assertIn("=opai/assets/web/vendor/markdown-it-14.1.0.min.js", joined_gui_args)
+        self.assertIn("=opai/assets/web/vendor/markdown-it.LICENSE.txt", joined_gui_args)
         self.assertIn("=opai/assets/opai-icon.png", joined_gui_args)
         self.assertIn("=opai/assets/opai-mascot.png", joined_gui_args)
         self.assertIn("=opaihub/data", joined_gui_args)

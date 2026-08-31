@@ -27,6 +27,7 @@ beforeAll(async () => {
   globalThis.window = { addEventListener: () => {}, OPaiIcons: { icon: () => "<svg/>" } };
   root = { classList: makeClassList(), dataset: {} };
   globalThis.document = { documentElement: root };
+  window.OPaiChatComponents = (await import("../chat-components.js")).default;
   await import("../app.js");
   opai = globalThis.window.__opai;
 });
@@ -58,9 +59,20 @@ describe("applyAppearance: activity copy (drag-select the AI activity rail)", ()
   });
 
   it("does not disturb density/reduced-motion applied in the same call", () => {
-    opai.applyAppearance({ density: "compact", reducedMotion: "on", activityCopy: "off" });
+    opai.applyAppearance({ density: "compact", reducedMotion: "on", activityCopy: "off", responseDensity: "detailed" });
     expect(root.classList.contains("density-compact")).toBe(true);
     expect(root.dataset.motion).toBe("on");
     expect(root.classList.contains("activity-select-off")).toBe(true);
+    expect(root.dataset.responseDensity).toBe("detailed");
+    expect(opai.state.responseDensity).toBe("detailed");
+  });
+
+  it("accepts raw saved response_density and falls back to balanced", () => {
+    opai.applyAppearance({ response_density: "compact" });
+    expect(root.dataset.responseDensity).toBe("compact");
+    expect(root.classList.contains("response-density-compact")).toBe(true);
+    opai.applyAppearance({ responseDensity: "invalid" });
+    expect(root.dataset.responseDensity).toBe("balanced");
+    expect(root.classList.contains("response-density-compact")).toBe(false);
   });
 });

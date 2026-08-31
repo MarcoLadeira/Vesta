@@ -63,6 +63,8 @@ opai = [
     "assets/web/*.js",
     "assets/web/*.css",
     "assets/web/icons/*.png",
+    "assets/web/vendor/*.js",
+    "assets/web/vendor/*.txt",
 ]
 opaihub = [
     "data/hub/**/*",

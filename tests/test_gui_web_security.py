@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GUI_WEB = ROOT / "opai" / "gui_web.py"
 INDEX_HTML = ROOT / "opai" / "assets" / "web" / "index.html"
 APP_JS = ROOT / "opai" / "assets" / "web" / "app.js"
+MARKDOWN_RENDERER_JS = ROOT / "opai" / "assets" / "web" / "markdown-renderer.js"
 
 
 class WebEngineLockdownTests(unittest.TestCase):
@@ -62,6 +63,18 @@ class WebEngineLockdownTests(unittest.TestCase):
         gui = GUI_WEB.read_text(encoding="utf-8")
         self.assertIn("def openExternal", gui)
         self.assertIn('str(url).startswith(("http://", "https://"))', gui)
+
+    def test_markdown_renderer_is_local_and_fail_closed(self):
+        html = INDEX_HTML.read_text(encoding="utf-8")
+        renderer = MARKDOWN_RENDERER_JS.read_text(encoding="utf-8")
+        self.assertIn('src="vendor/markdown-it-14.1.0.min.js"', html)
+        self.assertIn("html: false", renderer)
+        self.assertIn("linkify: false", renderer)
+        self.assertIn("maxNesting: 20", renderer)
+        self.assertIn("renderer.rules.image", renderer)
+        self.assertIn('token.attrSet("data-ext", "1")', renderer)
+        self.assertNotIn("http://cdn", html.lower())
+        self.assertNotIn("https://cdn", html.lower())
 
 
 if __name__ == "__main__":
