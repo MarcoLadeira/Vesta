@@ -567,7 +567,11 @@
     // Schema v2 batch path (#226/#230): one signal carrying an event array,
     // the wire shape the real bridge's activityBatch QTimer flush will use.
     emitActivityBatch: function (id, list) { bridge.activityBatch.emit(JSON.stringify({ requestId: id, events: list })); },
-    emitToken: function (id, t) { bridge.token.emit(JSON.stringify({ requestId: id, text: t })); },
+    emitToken: function (id, t, blockStart) {
+      const payload = { requestId: id, text: t };
+      if (blockStart) payload.blockStart = true;
+      bridge.token.emit(JSON.stringify(payload));
+    },
     emitReply: function (id, result) { bridge.replyReady.emit(JSON.stringify({ requestId: id, result: result })); },
     emitProviderLogin: function (id, result) { bridge.providerLoginReady.emit(JSON.stringify({ requestId: id, provider: result.provider, result: result })); },
   };

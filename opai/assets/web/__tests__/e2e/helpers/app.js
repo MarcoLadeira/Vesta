@@ -70,10 +70,10 @@ export async function emitActivity(page, requestId, event) {
   );
 }
 
-export async function emitToken(page, requestId, text) {
+export async function emitToken(page, requestId, text, { blockStart = false } = {}) {
   await page.evaluate(
-    ({ id, value }) => window.__mock.emitToken(id, value),
-    { id: requestId, value: text },
+    ({ id, value, startsBlock }) => window.__mock.emitToken(id, value, startsBlock),
+    { id: requestId, value: text, startsBlock: blockStart },
   );
 }
 

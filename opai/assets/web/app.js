@@ -62,7 +62,7 @@ const state = {
   expandedGroups: new Set(), stripColor: "",
   followLatest: true,
   tokenRenderPending: false, tokenRenderTimer: null, tokenRenderFrame: null,
-  lastStreamRenderAt: 0, streamRenderedText: "", streamRenders: 0,
+  lastStreamRenderAt: 0, streamRenderedText: "", streamBlocks: [""], streamRenders: 0,
   resumePending: false,
   contextHints: [],
   // path -> {name, thumb}. Kept beside contextHints rather than inside it
@@ -1828,7 +1828,7 @@ function sendBuild(value) {
   state.message = OPaiMessageState.beginRequest(requestId, {});
   state.message = OPaiMessageState.transition(state.message, "preparing");
   state.store = OPaiActivity.createStore();
-  state.streaming = false; state.streamedText = "";
+  state.streaming = false; state.streamedText = ""; state.streamBlocks = [""];
   state.startTime = Date.now();
   buildPending(sel);
   stripReset(sel);
@@ -2038,6 +2038,7 @@ function send(retryOf) {
   state.store = OPaiActivity.createStore();
   state.streaming = false;
   state.streamedText = "";
+  state.streamBlocks = [""];
   cancelTokenRender();
   state.streamRenderedText = "";
   state.lastStreamRenderAt = 0;
@@ -2081,7 +2082,15 @@ function buildPending(sel) {
        <div class="gen-reassure" aria-live="polite"></div>
        <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="false">Show activity</button>
        <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity" hidden></div>
-       <div class="body stream response-prose"></div>
+       <div class="stream-block-list">
+         <details class="stream-earlier" hidden>
+           <summary>Earlier progress (0)</summary>
+           <div class="stream-earlier-body"></div>
+         </details>
+         <div class="stream-recent">
+           <div class="body stream stream-block response-prose"></div>
+         </div>
+       </div>
      </div>`, "bot");
   state.pending = el;
   el.querySelector(".gen-stop").onclick = stop;
@@ -2393,8 +2402,44 @@ function onToken(json) {
   if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale guard
   state.message = OPaiMessageState.transition(state.message, "streaming");
   if (!state.streaming) { state.streaming = true; updateGenStage(); stripStreaming(); }
-  state.streamedText += d.text;
+  const text = String(d.text == null ? "" : d.text);
+  const activeIndex = state.streamBlocks.length - 1;
+  if (d.blockStart === true && state.streamBlocks[activeIndex]) startStreamBlock();
+  state.streamBlocks[state.streamBlocks.length - 1] += text;
+  state.streamedText += text;
   scheduleTokenRender();
+}
+
+function activeStreamBlock() {
+  return state.pending && state.pending.querySelector(".stream-recent > .stream-block:last-child");
+}
+
+function updateEarlierStreamBlocks() {
+  if (!state.pending) return;
+  const recent = state.pending.querySelector(".stream-recent");
+  const earlier = state.pending.querySelector(".stream-earlier");
+  const earlierBody = state.pending.querySelector(".stream-earlier-body");
+  if (!recent || !earlier || !earlierBody) return;
+  while (recent.children.length > 3) earlierBody.appendChild(recent.firstElementChild);
+  const count = earlierBody.children.length;
+  earlier.hidden = count === 0;
+  const summary = earlier.querySelector("summary");
+  if (summary) summary.textContent = `Earlier progress (${count})`;
+}
+
+function startStreamBlock() {
+  flushTokenRender();
+  const current = activeStreamBlock();
+  if (current) current.classList.remove("streaming");
+  const recent = state.pending && state.pending.querySelector(".stream-recent");
+  if (!recent) return;
+  const block = document.createElement("div");
+  block.className = "body stream stream-block response-prose";
+  recent.appendChild(block);
+  state.streamBlocks.push("");
+  state.streamedText += "\n\n";
+  state.streamRenderedText = "";
+  updateEarlierStreamBlocks();
 }
 
 function cancelTokenRender() {
@@ -2407,10 +2452,11 @@ function cancelTokenRender() {
 
 function flushTokenRender() {
   cancelTokenRender();
-  const body = state.pending && state.pending.querySelector(".body.stream");
-  if (!body || state.streamRenderedText === state.streamedText) return;
-  withChatScrollPreserved(() => renderStreamingBody(body, state.streamedText));
-  state.streamRenderedText = state.streamedText;
+  const body = activeStreamBlock();
+  const text = state.streamBlocks[state.streamBlocks.length - 1] || "";
+  if (!body || state.streamRenderedText === text) return;
+  withChatScrollPreserved(() => renderStreamingBody(body, text));
+  state.streamRenderedText = text;
   state.lastStreamRenderAt = performance.now();
   state.streamRenders++;
 }

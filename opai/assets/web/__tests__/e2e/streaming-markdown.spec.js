@@ -5,6 +5,35 @@ import { emitToken, finishRequest, openApp, sendPrompt } from "./helpers/app.js"
 
 test.beforeEach(async ({ page }) => openApp(page));
 
+test("provider updates render as recent blocks and fold earlier progress", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await emitToken(page, id, "First update.");
+  await emitToken(page, id, "Second update.", { blockStart: true });
+  await emitToken(page, id, "Third update.", { blockStart: true });
+  await emitToken(page, id, "Fourth update.", { blockStart: true });
+  await emitToken(page, id, "Fifth update.", { blockStart: true });
+
+  await expect(page.locator(".stream-recent > .stream-block")).toHaveCount(3);
+  await expect(page.locator(".stream-earlier summary")).toHaveText("Earlier progress (2)");
+  await expect(page.locator(".stream-recent > .stream-block").last()).toContainText("Fifth update.");
+  await expect(page.locator(".stream-earlier-body > .stream-block")).toHaveCount(2);
+  await page.locator(".stream-earlier summary").click();
+  await expect(page.locator(".stream-earlier-body")).toContainText("First update.");
+  await expect.poll(() => page.evaluate(() => window.__opai.state.streamedText)).toBe(
+    "First update.\n\nSecond update.\n\nThird update.\n\nFourth update.\n\nFifth update.",
+  );
+});
+
+test("ordinary token chunks stay in one active block", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await emitToken(page, id, "Token one ");
+  await emitToken(page, id, "and token two.");
+
+  await expect(page.locator(".stream-block")).toHaveCount(1);
+  await expect(page.locator(".stream-block")).toHaveText("Token one and token two.");
+  await expect(page.locator(".stream-earlier")).toBeHidden();
+});
+
 test("streamed markdown renders formatted blocks progressively", async ({ page }) => {
   const id = await sendPrompt(page);
   await emitToken(page, id, "# Heading\n\nSome **bold** text.");
