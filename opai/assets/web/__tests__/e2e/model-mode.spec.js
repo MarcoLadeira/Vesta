@@ -139,7 +139,6 @@ test("a picked mode is saved as the durable default, Full Auto included", async 
   // Round 5 finding 4: every mode surface must agree immediately, with no send
   // in between. That still holds, and now without a card to confirm first.
   await expect(page.locator("#modeBtnLabel")).toHaveText("Bypass permissions");
-  await expect(page.locator("#composerSummary")).toContainText("Bypass permissions");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
 });
 

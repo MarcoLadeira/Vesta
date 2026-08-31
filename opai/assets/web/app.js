@@ -1052,12 +1052,19 @@ function selectedAccountNeedsConnection() {
   return !account || !(account.connected || account.authenticated);
 }
 
+// An empty box blocks sending, but it is not worth a sentence: the disabled
+// Send button already says so, and the sentence sat under the composer
+// permanently, before the user had done anything wrong. So this reason still
+// *blocks*, it just does not *speak* -- the two were conflated, and collapsing
+// them re-enabled Send on an empty prompt.
+const EMPTY_PROMPT_REASON = "empty-prompt";
+
 function composerBlockReason() {
   if (state.resumePending) return "Choose how to continue this saved session before sending.";
   if (selectedAccountNeedsConnection()) {
     return `Connect ${state.model.provider ? providerName(state.model.provider) : "this provider"} before sending.`;
   }
-  if (!$("#input").value.trim()) return "Write a prompt before sending.";
+  if (!$("#input").value.trim()) return EMPTY_PROMPT_REASON;
   return "";
 }
 
@@ -1101,7 +1108,13 @@ function updateComposerAvailability() {
   send.disabled = Boolean(blocked);
   send.setAttribute("aria-label", (state.buildMode && state.buildApp) ? "Start build" : "Send prompt");
   if (!blocked) { reason.innerHTML = ""; delete reason.dataset.tone; send.removeAttribute("aria-describedby"); return; }
-  reason.dataset.tone = blocked === "Write a prompt before sending." ? "hint" : "warning";
+  if (blocked === EMPTY_PROMPT_REASON) {
+    reason.innerHTML = "";
+    delete reason.dataset.tone;
+    send.removeAttribute("aria-describedby");
+    return;
+  }
+  reason.dataset.tone = "warning";
   const action = !state.resumePending && selectedAccountNeedsConnection()
     ? ' <button class="reason-action" type="button">Open Settings</button>'
     : "";

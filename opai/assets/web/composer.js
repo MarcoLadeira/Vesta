@@ -388,22 +388,26 @@
       html += '<div class="cpop-note cpop-note-warn" data-credit-note>' + esc(creditNote) + "</div>";
     }
 
-    // 1. Auto card, pinned on top (never inside the scroll region).
+    // 1. Auto, first in the list and shaped like everything under it.
+    //
+    // It used to be a bordered, tinted card carrying a Recommended pill and a
+    // sentence of explanation -- roughly the height of three model rows, above
+    // a toggle, above a search box, before the first model appeared. The word
+    // "Recommended" is the whole explanation, so it takes the slot every other
+    // row uses for its provider and the rest goes.
+    //
+    // The routing toggle went with it. "Keep work on this machine" set the
+    // model to Auto when it was off and did nothing at all when it was on --
+    // clicking Auto did the same thing, one row above. A control that is a
+    // duplicate half the time and a no-op the other half is not a preference,
+    // it is furniture.
     html +=
       '<button type="button" role="menuitemradio" aria-checked="' + (autoSelected ? "true" : "false") +
-      '" data-id="auto" class="cpop-row cpop-auto' + (autoSelected ? " active" : "") + '">' +
-      '<span class="cpop-body"><span class="cpop-autohead"><span class="cpop-title">Auto</span>' +
-      '<span class="cpop-tag">Recommended</span></span>' +
-      '<span class="cpop-desc">Automatically picks the best working model for quality, reliability and cost.</span></span>' +
+      '" data-id="auto" class="cpop-row cpop-model cpop-auto' + (autoSelected ? " active" : "") + '">' +
+      '<span class="cpop-body"><span class="cpop-title">Auto</span></span>' +
+      '<span class="cpop-prov cpop-auto-tag">Recommended</span>' +
       (autoSelected ? '<span class="cpop-check">' + CHECK_SVG + "</span>" : "") +
       "</button>";
-
-    // 2. Routing preference — a toggle directly under Auto, never a model row.
-    var local = routesLocal(st.model);
-    html +=
-      '<button type="button" role="menuitemcheckbox" aria-checked="' + (local ? "true" : "false") + '" id="localToggle" class="cpop-row cpop-toggle">' +
-      '<span class="cpop-body"><span class="cpop-title">Keep work on this machine</span></span>' +
-      '<span class="cpop-switch' + (local ? " on" : "") + '"><span class="cpop-knob"></span></span></button>';
 
     // 3. Search — only once there are enough models to warrant it.
     if (showSearch) {
@@ -447,11 +451,6 @@
       if (row.disabled) return;
       row.onclick = function () { pickerQuery = ""; setModel(row.dataset.id); closePopovers(); };
     });
-    var toggle = els.modelPop.querySelector("#localToggle");
-    if (toggle) toggle.onclick = function () {
-      if (!routesLocal(state().model)) setModel("auto");
-      closePopovers();
-    };
     var search = els.modelPop.querySelector("#modelSearch");
     if (search) {
       search.oninput = function () { pickerQuery = search.value; var s = search.selectionStart; buildModelPop(); var again = els.modelPop.querySelector("#modelSearch"); if (again) { again.focus(); try { again.setSelectionRange(s, s); } catch (_e) { /* ignore */ } } };
@@ -540,14 +539,6 @@
     if (els.modelBtnLabel) els.modelBtnLabel.textContent = mdLabel;
     if (els.modelBtn) els.modelBtn.setAttribute("aria-label", "Model: " + mdLabel);
 
-    // Effective-behaviour summary: "<Mode> · <Model>" (+ " · local")
-    if (els.summary) {
-      var parts = [modeLabelOf(mode), shortModel(model)];
-      var text = parts.join(" · ");
-      if (routesLocal(model)) text += " · local";
-      els.summary.textContent = text;
-    }
-
     // Status header driven by the existing run state (no new run logic).
     if (els.status) {
       if (st.busy) {
@@ -590,14 +581,12 @@
 
   /* ---------- init ---------- */
   function cache() {
-    ["composer", "composerStatus", "composerTokens", "composerHelp", "composerSummary",
-      "ctxBtn", "moreBtn", "modeBtn", "modelBtn", "modeBtnLabel", "modelBtnLabel", "modeDot",
+    ["composer", "composerStatus", "composerTokens",       "ctxBtn", "moreBtn", "modeBtn", "modelBtn", "modeBtnLabel", "modelBtnLabel", "modeDot",
       "ctxPop", "modePop", "modelPop", "morePop", "composerDrop"].forEach(function (id) {
       els[id] = document.getElementById(id);
     });
     els.status = els.composerStatus;
     els.tokens = els.composerTokens;
-    els.summary = els.composerSummary;
   }
 
   function init() {
