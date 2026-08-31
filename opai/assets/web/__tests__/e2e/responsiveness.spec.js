@@ -108,6 +108,7 @@ test("assistant prose and live progress use a centered lane while artifacts stay
   await openApp(page);
   const id = await sendPrompt(page, "Keep the response focused.");
   await emitToken(page, id, "A concise progress update.");
+  await expect(page.locator(".msg.bot:last-child .stream-block > p")).toBeVisible();
 
   const liveMetrics = await page.evaluate(() => {
     const thread = document.querySelector("#thread").getBoundingClientRect();
@@ -128,6 +129,7 @@ test("assistant prose and live progress use a centered lane while artifacts stay
   await finishRequest(page, id, {
     answer: "# Result\n\nA concise final answer.\n\n| File | Result |\n| --- | --- |\n| src/example.ts | Passed |",
   });
+  await expect(page.locator(".msg.bot:last-child .response-prose > h1")).toBeVisible();
   const finalMetrics = await page.evaluate(() => {
     const thread = document.querySelector("#thread").getBoundingClientRect();
     const heading = document.querySelector(".msg.bot:last-child .response-prose > h1").getBoundingClientRect();
