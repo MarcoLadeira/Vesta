@@ -2,6 +2,41 @@ import { test, expect } from "@playwright/test";
 
 import { openApp, openNav } from "./helpers/app.js";
 
+test("Send is glass, and disabled is visibly not ready", async ({ page }) => {
+  // The button is made of the same material as the card rather than placed on
+  // it: a flat translucent fill, an outline that draws the shape, and no
+  // gradient. The states differ in that fill and border alone -- which is the
+  // thing to pin, because measuring them mid-transition once made ready and
+  // disabled look identical and sent me chasing a bug that was not there.
+  const settled = async () => {
+    await page.waitForTimeout(400);
+    return page.locator("#send").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        radius: style.borderRadius,
+        bg: style.backgroundColor,
+        border: style.borderColor,
+        image: style.backgroundImage,
+      };
+    });
+  };
+
+  await openApp(page);
+  const off = await settled();
+  await page.locator("#input").fill("ready now");
+  const on = await settled();
+
+  // A capsule, not a rounded rectangle.
+  expect(on.radius).toBe("999px");
+  // No gradient: the fill is one flat colour.
+  expect(on.image).toBe("none");
+  // See-through in both states, and readably different between them.
+  const alpha = (value) => Number(value.match(/([0-9.]+)\s*\)$/)[1]);
+  expect(alpha(on.bg)).toBeLessThan(0.5);
+  expect(alpha(on.bg)).toBeGreaterThan(alpha(off.bg) * 2);
+  expect(alpha(on.border)).toBeGreaterThan(alpha(off.border) * 2);
+});
+
 test("focusing the input adds no ring around the text either", async ({ page }) => {
   // #787 removed the ring on the composer card. The same ring was also being
   // drawn inside it, on the textarea, by the global :focus-visible rule --
