@@ -494,7 +494,15 @@ def _repository_layout(start: Path, *, git_run: GitRun) -> tuple[Path, Path, Pat
         start, ["rev-parse", "--show-toplevel"], git_run=git_run, required=False
     )
     if not top:
-        raise RepositoryProbeError("probe_unavailable", "Path is not a Git worktree")
+        # A distinct reason, because these are different situations and only
+        # one of them is a fault: "there is no repository here" is an ordinary
+        # workspace (a plain folder, a new project, a synced drive), while
+        # "probe_unavailable" means a repository exists and could not be read,
+        # which is an anomaly worth refusing over. Collapsing the two is what
+        # made an edit-capable run in any non-Git folder look like a safety
+        # incident and told the user to "inspect the repository" when there
+        # was none to inspect.
+        raise RepositoryProbeError("not_a_repository", "Path is not a Git worktree")
     root = Path(top).resolve(strict=True)
     with ThreadPoolExecutor(max_workers=2) as pool:
         git_dir_future = pool.submit(

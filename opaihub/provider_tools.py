@@ -206,6 +206,10 @@ class RepositoryToolExecutor:
         self._git_run = git_run or subprocess.run
         self._repository_handle: RepositoryHandle | None = repository_handle
         self._repository_safety_error = ""
+        # True when the workspace simply is not a repository -- a plain folder,
+        # a synced drive, a project not yet under version control. Distinct
+        # from a handle that could not be captured, which stays a hard failure.
+        self._repository_absent = False
         if self.allow_edits:
             self._establish_repository_handle()
         self.initial_dirty_paths = (
@@ -298,9 +302,18 @@ class RepositoryToolExecutor:
             save_repository_handle(self.repo_root, handle)
         except (RepositoryProbeError, RepositorySafetyPersistenceError) as exc:
             self._repository_handle = None
-            self._repository_safety_error = redact(str(exc))[:400]
+            # "There is no repository here" is not a safety error. Recording it
+            # as one made every write in a plain folder fail closed at the
+            # mutation gate, which is the same refusal the pipeline used to
+            # raise, one layer further down.
+            if getattr(exc, "reason", "") == "not_a_repository":
+                self._repository_absent = True
+                self._repository_safety_error = ""
+            else:
+                self._repository_safety_error = redact(str(exc))[:400]
             return
         self._repository_handle = handle
+        self._repository_absent = False
         self._repository_safety_error = ""
 
     def _refresh_repository_handle(self) -> bool:
@@ -331,6 +344,17 @@ class RepositoryToolExecutor:
         if error is not None:
             data["decision"] = error.decision.to_dict()
             message = str(error)
+        elif self._repository_absent:
+            # Say the actual thing. "Repository identity could not be
+            # established" sent the user off to inspect a repository that was
+            # never there; what they need to know is that this one operation
+            # needs version control and the folder has none.
+            data["reason"] = "not_a_repository"
+            message = (
+                f"{operation} needs a Git repository, and this workspace is a "
+                "plain folder. Run `git init` here to enable Git operations; "
+                "editing files works either way."
+            )
         else:
             data["reason"] = self._repository_safety_error or "handle_unavailable"
             message = "Repository identity could not be established or persisted"
@@ -373,6 +397,19 @@ class RepositoryToolExecutor:
     ) -> dict[str, Any] | None:
         """Fail closed immediately before every local write or Git mutation."""
 
+        if self._repository_handle is None and self._repository_absent:
+            # No repository to be stale against. A file write is still a
+            # perfectly ordinary thing to do in a folder, so it proceeds; the
+            # Git operations below genuinely have nothing to act on, and are
+            # refused with a reason that says so rather than with a repository
+            # -safety incident the user cannot act on.
+            if operation.startswith("git_"):
+                self._record_guard_decision(
+                    allowed=False, operation=operation, reason="not_a_repository"
+                )
+                return self._repository_safety_blocked(operation)
+            self._record_guard_decision(allowed=True, operation=operation)
+            return None
         if self._repository_handle is None:
             self._record_guard_decision(
                 allowed=False, operation=operation, reason="handle_unavailable"
