@@ -146,11 +146,12 @@ test("Build mode with a slash command still runs the local tool, not a build", a
   await openApp(page, BUILD_WS);
   await page.fill("#input", "/panic");
   await page.locator("#send").click();
-  const [buildCount, runTools] = await page.evaluate(() => [
-    window.__mock.buildCount, window.__mock.runTools,
-  ]);
-  expect(buildCount).toBe(0);
-  expect(runTools).toContain("panic");
+  // A slash command lights the room too -- it puts a message on screen -- so
+  // the tool runs once the composer has landed rather than on the click.
+  await expect
+    .poll(() => page.evaluate(() => window.__mock.runTools))
+    .toContain("panic");
+  expect(await page.evaluate(() => window.__mock.buildCount)).toBe(0);
 });
 
 test("switching to Chat mode sends a normal chat message", async ({ page }) => {
@@ -158,9 +159,6 @@ test("switching to Chat mode sends a normal chat message", async ({ page }) => {
   await page.locator("#buildToggle").click(); // -> Chat
   await page.fill("#input", "just explain the code");
   await page.locator("#send").click();
-  const [buildCount, sendCount] = await page.evaluate(() => [
-    window.__mock.buildCount, window.__mock.sendCount,
-  ]);
-  expect(buildCount).toBe(0);
-  expect(sendCount).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(1);
+  expect(await page.evaluate(() => window.__mock.buildCount)).toBe(0);
 });

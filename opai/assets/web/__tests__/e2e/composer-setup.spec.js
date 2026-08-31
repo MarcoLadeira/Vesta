@@ -266,6 +266,9 @@ test("context is added on demand and sent as a path-only reference", async ({ pa
   await openNav(page, "Chat");
   await expect(page.locator("#input")).toHaveValue("Explain this route");
   await page.getByRole("button", { name: "Send prompt" }).click();
+  // The first message in a fresh chat waits for the composer to fly down
+  // before the request goes out, so wait for the run to start.
+  await expect(page.locator(".gen-stop")).toBeVisible();
   expect(await page.evaluate(() => window.__mock.lastRequest.contextHints)).toEqual(["src/router.py"]);
   expect(await page.evaluate(() => window.__mock.lastRequest.text)).toBe(
     "Repository context references:\n@src/router.py\n\nExplain this route",
@@ -311,6 +314,9 @@ test("dropped files add path-only context and never read the file payload", asyn
   await expect(page.locator("#contextHints")).toContainText("@src/components/Composer.jsx");
   await page.locator("#input").fill("Review the component");
   await page.getByRole("button", { name: "Send prompt" }).click();
+  // The first message in a fresh chat waits for the composer to fly down
+  // before the request goes out, so wait for the run to start.
+  await expect(page.locator(".gen-stop")).toBeVisible();
   expect(await page.evaluate(() => window.__mock.lastRequest.contextHints)).toEqual(["src/components/Composer.jsx"]);
   expect(await page.evaluate(() => JSON.stringify(window.__mock.lastRequest))).not.toContain("private source");
 });
@@ -361,7 +367,9 @@ test("Shift+Enter adds a line while Enter sends", async ({ page }) => {
   await page.locator("#input").pressSequentially("second");
   await expect(page.locator("#input")).toHaveValue("first\nsecond");
   await page.locator("#input").press("Enter");
-  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
+  // The first message in a fresh chat waits for the composer to fly down from
+  // the centre before the request goes out, so this is a poll, not a read.
+  await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(1);
 });
 
 test("Send changes to Stop immediately and Stop cancels the active request", async ({ page }) => {

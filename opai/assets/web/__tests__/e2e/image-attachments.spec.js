@@ -64,6 +64,8 @@ test("a pasted image travels as an ordinary context reference", async ({ page })
 
   await page.fill("#input", "what is wrong here?");
   await page.click("#send");
+  // The first message waits for the composer to fly down from the centre.
+  await expect(page.locator(".gen-stop")).toBeVisible();
 
   const sent = await page.evaluate(() => window.__mock.lastRequest);
   expect(sent.contextHints).toContain(".opaihub/attachments/shot-1.png");
@@ -117,6 +119,8 @@ test("an attached image can be removed again", async ({ page }) => {
   await expect(page.locator(".context-hint.context-image")).toHaveCount(0);
   await page.fill("#input", "hello");
   await page.click("#send");
+  // The first message waits for the composer to fly down from the centre.
+  await expect(page.locator(".gen-stop")).toBeVisible();
   const sent = await page.evaluate(() => window.__mock.lastRequest);
   expect(sent.contextHints).toEqual([]);
 });

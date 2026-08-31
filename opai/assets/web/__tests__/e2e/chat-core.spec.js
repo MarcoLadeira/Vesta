@@ -79,6 +79,9 @@ test("Auto fallback names the model and only starts cloud after confirmation", a
   await openApp(page, { boot: { selectedModel: "auto" } });
   await page.fill("#input", "Explain the project");
   await page.getByRole("button", { name: "Send" }).click();
+  // The first message in a fresh chat waits for the composer to fly down
+  // before the request goes out, so wait for the run to start.
+  await expect(page.locator(".gen-stop")).toBeVisible();
   const first = await page.evaluate(() => window.__mock.lastRequest);
   await page.evaluate((id) => window.__mock.emitReply(id, {
     status: "needs_auto_confirmation",
@@ -100,6 +103,9 @@ test("Auto with no eligible provider directs model selection without retrying", 
   await openApp(page, { boot: { selectedModel: "auto" } });
   await page.fill("#input", "Explain the project");
   await page.getByRole("button", { name: "Send" }).click();
+  // The first message in a fresh chat waits for the composer to fly down
+  // before the request goes out, so wait for the run to start.
+  await expect(page.locator(".gen-stop")).toBeVisible();
   const first = await page.evaluate(() => window.__mock.lastRequest);
   await page.evaluate((id) => window.__mock.emitReply(id, {
     status: "needs_model",
@@ -118,6 +124,9 @@ test("usage limit warning resends only after explicit confirmation", async ({ pa
   await openApp(page);
   await page.fill("#input", "Continue working");
   await page.getByRole("button", { name: "Send" }).click();
+  // The first message in a fresh chat waits for the composer to fly down
+  // before the request goes out, so wait for the run to start.
+  await expect(page.locator(".gen-stop")).toBeVisible();
   const first = await page.evaluate(() => window.__mock.lastRequest);
   await page.evaluate((id) => window.__mock.emitReply(id, {
     status: "needs_limit_confirmation",
