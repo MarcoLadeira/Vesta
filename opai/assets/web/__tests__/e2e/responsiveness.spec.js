@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { finishRequest, openApp, openNav, sendPrompt } from "./helpers/app.js";
+import { emitToken, finishRequest, openApp, openNav, sendPrompt } from "./helpers/app.js";
 
 
 async function expectUsableViewport(page) {
@@ -101,4 +101,48 @@ test("200 percent zoom equivalent keeps the response and composer usable", async
   });
   await expectUsableViewport(page);
   await expect(page.locator(".response-prose")).toBeVisible();
+});
+
+test("assistant prose and live progress use a centered lane while artifacts stay wide", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openApp(page);
+  const id = await sendPrompt(page, "Keep the response focused.");
+  await emitToken(page, id, "A concise progress update.");
+
+  const liveMetrics = await page.evaluate(() => {
+    const thread = document.querySelector("#thread").getBoundingClientRect();
+    const status = document.querySelector(".msg.bot:last-child .gen-head").getBoundingClientRect();
+    const prose = document.querySelector(".msg.bot:last-child .stream-block > p").getBoundingClientRect();
+    return { thread, status, prose };
+  });
+  expect(liveMetrics.status.width).toBeLessThan(liveMetrics.thread.width * 0.85);
+  expect(Math.abs(
+    liveMetrics.status.x + liveMetrics.status.width / 2 -
+    (liveMetrics.thread.x + liveMetrics.thread.width / 2),
+  )).toBeLessThan(2);
+  expect(Math.abs(
+    liveMetrics.prose.x + liveMetrics.prose.width / 2 -
+    (liveMetrics.thread.x + liveMetrics.thread.width / 2),
+  )).toBeLessThan(2);
+
+  await finishRequest(page, id, {
+    answer: "# Result\n\nA concise final answer.\n\n| File | Result |\n| --- | --- |\n| src/example.ts | Passed |",
+  });
+  const finalMetrics = await page.evaluate(() => {
+    const thread = document.querySelector("#thread").getBoundingClientRect();
+    const heading = document.querySelector(".msg.bot:last-child .response-prose > h1").getBoundingClientRect();
+    const prose = document.querySelector(".msg.bot:last-child .response-prose > p").getBoundingClientRect();
+    const table = document.querySelector(".msg.bot:last-child .response-table-scroll").getBoundingClientRect();
+    return { thread, heading, prose, table };
+  });
+  expect(Math.abs(
+    finalMetrics.heading.x + finalMetrics.heading.width / 2 -
+    (finalMetrics.thread.x + finalMetrics.thread.width / 2),
+  )).toBeLessThan(2);
+  expect(finalMetrics.prose.width).toBeLessThan(finalMetrics.thread.width * 0.85);
+  expect(Math.abs(
+    finalMetrics.prose.x + finalMetrics.prose.width / 2 -
+    (finalMetrics.thread.x + finalMetrics.thread.width / 2),
+  )).toBeLessThan(2);
+  expect(finalMetrics.table.width).toBeGreaterThan(finalMetrics.prose.width + 100);
 });

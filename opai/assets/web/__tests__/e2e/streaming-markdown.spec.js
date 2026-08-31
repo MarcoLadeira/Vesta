@@ -137,6 +137,22 @@ test("the streaming class (and its caret) is gone once the answer finalizes", as
   await expect(page.locator(".body.streaming")).toHaveCount(0);
 });
 
+test("the live caret follows the active block's final text", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await emitToken(page, id, "Caret stays with this update.");
+  await expect(page.locator(".body.stream.streaming > :last-child")).toBeVisible();
+  const caret = await page.evaluate(() => {
+    const body = document.querySelector(".body.stream.streaming");
+    const tail = body.lastElementChild;
+    return {
+      body: getComputedStyle(body, "::after").content,
+      tail: getComputedStyle(tail, "::after").content,
+    };
+  });
+  expect(caret.body === "none" || caret.body === "normal").toBeTruthy();
+  expect(caret.tail).not.toBe("none");
+});
+
 test("a token burst is frame-batched and keeps the complete answer", async ({ page }) => {
   const id = await sendPrompt(page);
   const renders = await page.evaluate(async (requestId) => {
@@ -182,8 +198,8 @@ test("under reduced motion the streaming caret does not animate", async ({ page 
   await emitToken(page, id, "streaming under reduced motion");
   await expect(page.locator(".body.stream.streaming")).toBeVisible(); // wait for the rAF render
   const anim = await page.evaluate(() => {
-    const el = document.querySelector(".body.stream.streaming");
-    return getComputedStyle(el, "::after").animationName;
+    const tail = document.querySelector(".body.stream.streaming > :last-child");
+    return getComputedStyle(tail, "::after").animationName;
   });
   expect(anim === "none" || anim === "" || anim == null).toBeTruthy();
 });
@@ -194,6 +210,6 @@ test("the explicit motion override wins over the OS reduced-motion setting", asy
   const id = await sendPrompt(page);
   await emitToken(page, id, "motion is explicitly enabled");
   await expect(page.locator(".body.stream.streaming")).toBeVisible();
-  const anim = await page.evaluate(() => getComputedStyle(document.querySelector(".body.stream.streaming"), "::after").animationName);
+  const anim = await page.evaluate(() => getComputedStyle(document.querySelector(".body.stream.streaming > :last-child"), "::after").animationName);
   expect(anim).toBe("caretBlink");
 });
