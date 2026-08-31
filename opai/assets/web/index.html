@@ -91,6 +91,12 @@
 
     <!-- main -->
     <main class="main">
+      <!-- Shooting stars, visible only in the unlit stage. Six of them with
+           coprime durations and staggered delays, so the pattern never
+           visibly repeats without needing a random number anywhere. -->
+      <div class="starfall" id="starfall" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
       <div class="view-wrap" id="viewWrap">
         <!-- chat -->
         <section class="view active" id="view-chat">

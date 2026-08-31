@@ -17,10 +17,30 @@ test("a fresh chat opens in an unlit room with the composer in the middle", asyn
   const chips = await page.locator("#empty .chips").boundingBox();
   const composer = await page.locator(".composer-wrap").boundingBox();
   expect(composer.y).toBeGreaterThan(chips.y + chips.height);
-  // Nothing is clipped out of the frame at any height.
+  // Nothing is clipped out of the frame.
   const mark = await page.locator(".empty-mark").boundingBox();
   const main = await page.locator(".main").boundingBox();
   expect(mark.y).toBeGreaterThanOrEqual(main.y);
+});
+
+test("the whole group is centred, not just the box", async ({ page }) => {
+  // Centring the composer alone left everything sitting high: the empty block
+  // is its own full-height flex box centring its children in the region
+  // above, so the two were each centred on something different and the group
+  // was centred on nothing. The space above the mascot and below the box is
+  // the thing that has to match.
+  await openApp(page);
+
+  const gaps = await page.evaluate(() => {
+    const main = document.querySelector(".main").getBoundingClientRect();
+    const kids = Array.from(document.querySelector("#empty").children)
+      .filter((el) => el.offsetParent !== null);
+    const top = Math.min(...kids.map((el) => el.getBoundingClientRect().top));
+    const bottom = document.querySelector(".composer-wrap").getBoundingClientRect().bottom;
+    return { above: top - main.top, below: main.bottom - bottom };
+  });
+
+  expect(Math.abs(gaps.above - gaps.below)).toBeLessThanOrEqual(2);
 });
 
 test("the room is dark: no grid, no horizon", async ({ page }) => {
@@ -87,4 +107,30 @@ test("starting a new chat puts the lights back out", async ({ page }) => {
   await page.locator("#newChat").click();
 
   await expect.poll(() => stage(page)).toBe("dark");
+});
+
+test("shooting stars fall in the dark and stop once the lights are up", async ({ page }) => {
+  // They animate transform and opacity only, so the field runs on the
+  // compositor and cannot cost a frame while a request is being built. Paused
+  // rather than removed when lit: a paused animation burns nothing and is
+  // ready again the moment a new chat starts.
+  await openApp(page);
+
+  const field = page.locator("#starfall");
+  await expect(field).toHaveCSS("opacity", "1");
+  const running = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("#starfall i"))
+      .map((el) => getComputedStyle(el).animationPlayState));
+  expect(running.length).toBe(6);
+  expect(new Set(running)).toEqual(new Set(["running"]));
+
+  await page.locator("#input").fill("lights");
+  await page.locator("#send").click();
+  await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(1);
+
+  await expect(field).toHaveCSS("opacity", "0");
+  const paused = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("#starfall i"))
+      .map((el) => getComputedStyle(el).animationPlayState));
+  expect(new Set(paused)).toEqual(new Set(["paused"]));
 });

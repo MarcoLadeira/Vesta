@@ -1090,12 +1090,20 @@ function measureStageLift() {
   const wrap = document.querySelector(".composer-wrap");
   const main = document.querySelector(".main");
   if (!root || !wrap || !main) return;
+  const emptyEl = document.querySelector("#empty");
   const previous = wrap.style.transition;
+  const previousEmpty = emptyEl ? emptyEl.style.transition : "";
   wrap.style.transition = "none";
+  if (emptyEl) emptyEl.style.transition = "none";
   const wrapBox = wrap.getBoundingClientRect();
   const mainBox = main.getBoundingClientRect();
-  // Where the composer should sit: directly under the empty block's content,
-  // not at the geometric centre of the room.
+  // Centre the *group* -- mascot, headline, chips and box together -- not the
+  // composer alone.
+  //
+  // Centring only the composer left everything sitting high: the empty block
+  // is its own full-height flex box that centres its children in the region
+  // above, so the two were each centred on different things and the group as
+  // a whole was not centred on anything.
   //
   // Centring it there and lifting the headline to clear it was the obvious
   // approach and the wrong one. `.empty` is a full-height flex box that
@@ -1107,23 +1115,36 @@ function measureStageLift() {
   // Measuring the content instead means the two can never overlap and nothing
   // can leave the frame: whatever the empty block turns out to be, the box
   // goes below it.
-  const anchorEl = document.querySelector("#empty .chips") || document.querySelector("#empty");
-  const anchorBox = anchorEl.getBoundingClientRect();
-  const target = Math.min(
-    anchorBox.bottom + 34,
-    mainBox.bottom - wrapBox.height,
+  const empty = document.querySelector("#empty");
+  const children = empty ? Array.from(empty.children).filter((el) => el.offsetParent !== null) : [];
+  if (!children.length) return;
+  // getBoundingClientRect includes any transform already applied, so both
+  // measurements are taken back to their untransformed positions first --
+  // otherwise every re-measure would compound the previous one.
+  const emptyApplied = currentStage() === "dark" ? stageValue(root, "--stage-empty-lift") : 0;
+  const wrapApplied = currentStage() === "dark" ? stageValue(root, "--stage-lift") : 0;
+  const contentTop = Math.min(...children.map((el) => el.getBoundingClientRect().top)) - emptyApplied;
+  const contentBottom = Math.max(...children.map((el) => el.getBoundingClientRect().bottom)) - emptyApplied;
+  const contentHeight = contentBottom - contentTop;
+
+  const GAP = 26;
+  const groupHeight = contentHeight + GAP + wrapBox.height;
+  // Never push the group above the top of the room: on a window too short to
+  // hold it, it pins to the top and the box simply sits lower.
+  const groupTop = Math.max(mainBox.top + 12, mainBox.top + (mainBox.height - groupHeight) / 2);
+
+  root.style.setProperty("--stage-empty-lift", `${Math.round(groupTop - contentTop)}px`);
+  const composerTop = groupTop + contentHeight + GAP;
+  root.style.setProperty(
+    "--stage-lift",
+    `${Math.min(0, Math.round(composerTop - (wrapBox.top - wrapApplied)))}px`,
   );
-  // getBoundingClientRect already includes the transform, so subtract it back
-  // out to get the untransformed top; otherwise the lift compounds each time.
-  const applied = currentStage() === "dark" ? stageLiftValue(root) : 0;
-  const lift = Math.min(0, Math.round(target - (wrapBox.top - applied)));
-  root.style.setProperty("--stage-lift", `${lift}px`);
   wrap.style.transition = previous;
+  if (emptyEl) emptyEl.style.transition = previousEmpty;
 }
 
-function stageLiftValue(root) {
-  const raw = getComputedStyle(root).getPropertyValue("--stage-lift").trim();
-  const parsed = parseFloat(raw);
+function stageValue(root, name) {
+  const parsed = parseFloat(getComputedStyle(root).getPropertyValue(name).trim());
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
