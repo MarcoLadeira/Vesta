@@ -40,8 +40,18 @@ PROMISE = (
 # tool can say that the others cannot. The mechanism is still on the screen
 # -- it is the receipt, after the first run, where it means something.
 EMPTY_TITLE = "Better. Faster. Cheaper."
-EMPTY_BODY = TAGLINE
-EMPTY_HINT = "Press Ctrl+K for commands"
+
+# There is no body and no hint any more, and their absence is the point.
+#
+# The body was a second sentence describing the product to someone who is
+# looking at it. The hint taught a keyboard shortcut to someone who has not
+# yet done the thing the shortcut is for. Neither survives the question this
+# screen should be asked: does this line change what the reader does next?
+#
+# What is left is a mark, a claim, and three things you can click. The one
+# sentence that *does* change what you do next -- that no provider is
+# connected, so nothing will run -- is still shown, by the front end, only
+# when it is true.
 
 COMPOSER_PLACEHOLDER = "Tell OPai what to build, fix, or explain…"
 
@@ -109,8 +119,6 @@ def boot_brand() -> dict[str, str]:
         "name": NAME,
         "tagline": TAGLINE,
         "emptyTitle": EMPTY_TITLE,
-        "emptyBody": EMPTY_BODY,
-        "emptyHint": EMPTY_HINT,
         "composerPlaceholder": COMPOSER_PLACEHOLDER,
     }
 
