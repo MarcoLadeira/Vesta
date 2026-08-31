@@ -468,10 +468,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   animation: markRing 3.2s var(--ease) infinite;
 }
 @keyframes markRing { 0% { opacity: 0.9; transform: scale(0.92); } 70%, 100% { opacity: 0; transform: scale(1.14); } }
-.empty-eyebrow {
-  color: var(--faint); font-size: var(--type-caption); font-weight: 750; letter-spacing: 0.14em;
-  text-transform: uppercase; margin-bottom: var(--space-3);
-}
 .empty h1 {
   font-size: clamp(var(--type-title), 4.4vw, var(--type-display)); font-weight: 760; letter-spacing: -0.035em; line-height: 1.08;
   background: linear-gradient(180deg, #ffffff 20%, #aeb9c8 100%);

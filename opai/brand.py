@@ -28,13 +28,19 @@ PROMISE = (
     "it works, and hands you an honest receipt."
 )
 
-# The empty-state moment — the first thing a user reads. Ownable, cost-aware,
-# builder-first; not the generic "What do you want to build?" every tool asks.
-EMPTY_TITLE = "Build more. Burn less."
-EMPTY_BODY = (
-    "Tell OPai the goal. It plans, routes to the cheapest capable model, "
-    "shows every step, and hands you the receipt."
-)
+# The empty-state moment — the first thing a user reads.
+#
+# It used to be four blocks of text stacked above the actions: an eyebrow
+# repeating the product name, a headline, and a twenty-five word paragraph
+# explaining the mechanism. Nobody reads a mechanism before they have a
+# reason to care.
+#
+# So it is a claim and its proof. The headline says what you get; the line
+# under it says how you will know it is true, which is the one thing this
+# tool can say that the others cannot. The mechanism is still on the screen
+# -- it is the receipt, after the first run, where it means something.
+EMPTY_TITLE = "Better. Faster. Cheaper."
+EMPTY_BODY = TAGLINE
 EMPTY_HINT = "Press Ctrl+K for commands"
 
 COMPOSER_PLACEHOLDER = "Tell OPai what to build, fix, or explain…"
