@@ -113,11 +113,17 @@ test("assistant responses align with the full-width work lane", async ({ page })
   const liveMetrics = await page.evaluate(() => {
     const lane = document.querySelector(".msg.bot:last-child").getBoundingClientRect();
     const header = document.querySelector(".msg.bot:last-child .assistant-header").getBoundingClientRect();
+    const status = document.querySelector(".msg.bot:last-child .gen-head").getBoundingClientRect();
+    const activity = document.querySelector(".msg.bot:last-child .gen-toggle").getBoundingClientRect();
     const prose = document.querySelector(".msg.bot:last-child .stream-block > p").getBoundingClientRect();
-    return { lane, header, prose };
+    return { lane, header, status, activity, prose };
   });
   expect(Math.abs(liveMetrics.header.x - liveMetrics.lane.x)).toBeLessThan(2);
   expect(Math.abs(liveMetrics.header.width - liveMetrics.lane.width)).toBeLessThan(2);
+  expect(Math.abs(liveMetrics.status.x - liveMetrics.lane.x)).toBeLessThan(2);
+  expect(Math.abs(liveMetrics.status.width - liveMetrics.lane.width)).toBeLessThan(2);
+  expect(Math.abs(liveMetrics.activity.x - liveMetrics.lane.x)).toBeLessThan(2);
+  expect(Math.abs(liveMetrics.activity.width - liveMetrics.lane.width)).toBeLessThan(2);
   expect(Math.abs(liveMetrics.prose.x - liveMetrics.lane.x)).toBeLessThan(2);
   expect(Math.abs(liveMetrics.prose.width - liveMetrics.lane.width)).toBeLessThan(2);
 
