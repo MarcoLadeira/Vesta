@@ -34,6 +34,7 @@ test("a fresh profile is walked through all three steps and ends on a receipt", 
   await runFirstTask(page).click();
   // The tour got out of the way and the first task was actually sent.
   await expect(overlay(page)).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__mock.lastRequest !== null)).toBe(true);
   const req = await page.evaluate(() => window.__mock.lastRequest);
   expect(req.text).toBe("Summarize my uncommitted changes");
   // Completion renders the first savings receipt in the chat.
@@ -78,6 +79,7 @@ test("onboarding cannot force a cloud call — it sends through the normal gate"
   // The first task is sent with allowCloud=false, so the pipeline still gates
   // any paid/free-model call behind the usual confirmation — onboarding cannot
   // silently reach the cloud.
+  await expect.poll(() => page.evaluate(() => window.__mock.lastRequest !== null)).toBe(true);
   const req = await page.evaluate(() => window.__mock.lastRequest);
   expect(req.allowCloud).toBe(false);
 });

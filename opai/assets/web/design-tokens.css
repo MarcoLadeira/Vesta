@@ -47,6 +47,14 @@
      washing over it, which made the ground look like more atmosphere; moon
      dust is close to neutral grey, and desaturating it is what separates the
      surface from the space above it. Still no warm cast. */
+  /* Before the first message the room is unlit: near-black, faintly blue,
+     with no dot grid, no washes and no horizon. Everything the theme does is
+     still there -- it is just turned down, and the first send turns it up. */
+  --stage-dark: #03050c;
+  /* Long enough to read as the room lighting up rather than a jump cut, short
+     enough that it never stands between someone and their answer. */
+  --stage-ms: 620ms;
+  --stage-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --lunar-crest: rgba(216, 219, 226, 0.17);
   --lunar-body: rgba(126, 146, 190, 0.085);
   --red: #f2768a;

@@ -35,7 +35,7 @@ test("queueing never starts a second concurrent request", async ({ page }) => {
   await sendPrompt(page, "first task");
   await page.fill("#input", "second thought");
   await page.press("#input", "Enter");
-  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(1);
 });
 
 test("the queued message sends itself when the run finishes", async ({ page }) => {
@@ -47,7 +47,7 @@ test("the queued message sends itself when the run finishes", async ({ page }) =
   await finishRequest(page, id, { status: "answered", answer: "Done." });
 
   await expect(page.locator("#composerQueued")).toBeHidden();
-  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(2);
   expect(await page.evaluate(() => window.__mock.lastRequest.text)).toBe("second thought");
 });
 
@@ -69,7 +69,7 @@ test("a queued message waits while OPai is waiting on the user", async ({ page }
   });
 
   await expect(page.locator("#composerQueued")).toBeVisible();
-  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(1);
 });
 
 test("the user can remove a queued message", async ({ page }) => {
@@ -99,5 +99,5 @@ test("nothing is queued when no run is active", async ({ page }) => {
   await page.fill("#input", "just ask normally");
   await page.press("#input", "Enter");
   await expect(page.locator("#composerQueued")).toBeHidden();
-  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(1);
 });

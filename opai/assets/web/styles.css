@@ -413,6 +413,37 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
     radial-gradient(120% 92% at 72% 128%, var(--lunar-body), transparent 58%);
   pointer-events: none;
 }
+/* ---------- stages: the room before and after the first message ----------
+ *
+ * Two states on #app. `dark` is a fresh chat: the composer sits in the middle
+ * of the room like the only thing in it, and the room is unlit -- no grid, no
+ * washes, no horizon. `lit` is the app as it normally looks.
+ *
+ * The transition between them is one transform and three opacities, all of
+ * which the compositor can run without the main thread. Nothing here animates
+ * a layout property: the composer is *translated* from the centre to its real
+ * position, so the position it lands in is the position it always had, and
+ * the thread underneath never reflows mid-animation.
+ */
+.main { background-color: transparent; transition: background-color var(--stage-ms) var(--stage-ease); }
+.main::before, .main::after { opacity: 1; transition: opacity var(--stage-ms) var(--stage-ease); }
+.composer-wrap { transition: transform var(--stage-ms) var(--stage-ease); will-change: transform; }
+
+#app[data-stage="dark"] .main { background-color: var(--stage-dark); }
+#app[data-stage="dark"] .main::before,
+#app[data-stage="dark"] .main::after { opacity: 0; }
+/* --stage-lift is measured in JS: the distance from where the composer really
+   sits to the middle of the room. It has to be measured because it depends on
+   the window height, and a transform is the only way to move it there without
+   the layout -- and therefore the landing position -- changing with it. */
+#app[data-stage="dark"] .composer-wrap { transform: translateY(var(--stage-lift, 0px)); }
+/* The status strip is about a conversation that has not started. */
+#app[data-stage="dark"] .status-strip { opacity: 0; pointer-events: none; transition: opacity var(--stage-ms) var(--stage-ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  .main, .main::before, .main::after, .composer-wrap, .empty { transition: none; }
+}
+
 .view-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .view { position: absolute; inset: 0; display: none; flex-direction: column; min-height: 0; }
 .view.active { display: flex; animation: viewIn 0.24s var(--ease); }
