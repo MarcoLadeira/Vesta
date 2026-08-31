@@ -120,7 +120,7 @@
   --icon-sm: 14px;
   --icon-md: 16px;
   --icon-lg: 20px;
-  --measure-prose: 72ch;
+  --measure-prose: 42.5rem;
   --measure-response: 1024px;
   /* The composer is as wide as the text above it. It was 830px against a
      1024px response measure, so the box you type into was visibly narrower

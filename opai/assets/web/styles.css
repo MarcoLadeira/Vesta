@@ -579,7 +579,7 @@ kbd {
 
 .msg { margin: var(--space-6) 0; animation: msgIn 0.28s var(--ease); }
 @keyframes msgIn { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
-.msg.user { display: flex; justify-content: flex-end; }
+.msg.user { display: flex; justify-content: flex-end; width: 100%; max-width: var(--measure-prose); margin-inline: auto; }
 .msg.user .bubble {
   background: linear-gradient(180deg, var(--panel-2), var(--panel));
   border: 1px solid var(--border); border-radius: 16px 16px 5px 16px;
@@ -641,6 +641,7 @@ kbd {
 }
 .response-shell, .response-content, .response-prose { min-width: 0; width: 100%; }
 .assistant-header, .response-prose > :not(pre, .response-table-scroll) { max-width: var(--measure-prose); }
+.assistant-header { width: 100%; margin-inline: auto; }
 .response-content > * { min-width: 0; }
 .msg .body { font-size: var(--type-prose); line-height: var(--leading-relaxed); color: var(--ink); user-select: text; overflow-wrap: anywhere; }
 .msg .body p { margin: 0 0 var(--space-3); }
@@ -668,6 +669,8 @@ kbd {
   border-left: 3px solid var(--border-strong); color: var(--muted); background: var(--glass);
 }
 .msg .body hr { height: 1px; margin: var(--space-5) 0; border: 0; background: var(--border); }
+.msg .response-prose > :not(pre, .response-table-scroll) { width: 100%; margin-inline: auto; }
+.msg .response-prose > ul, .msg .response-prose > ol { padding-inline-start: var(--space-6); }
 .response-table-scroll {
   width: 100%; max-width: 100%; margin: 0 0 var(--space-4); overflow-x: auto;
   border: 1px solid var(--border-code); border-radius: var(--radius-md); background: var(--surface-code);
@@ -1106,6 +1109,9 @@ kbd {
 .gen, .timeline { user-select: text; }
 html.activity-select-off .gen, html.activity-select-off .timeline { user-select: none; }
 .gen { display: flex; flex-direction: column; gap: var(--space-2); }
+.gen-head, .gen-reassure, .gen-toggle, .timeline {
+  width: 100%; max-width: var(--measure-prose); margin-inline: auto;
+}
 .gen-head {
   display: flex; align-items: center; gap: var(--space-2);
   background: var(--glass); border: 1px solid var(--border); border-radius: var(--r-md);
@@ -1170,16 +1176,26 @@ html.activity-select-off .gen, html.activity-select-off .timeline { user-select:
 .tl-truncation .tl-ic { color: var(--faint); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .body.stream { white-space: pre-wrap; word-break: break-word; }
+.stream-recent, .stream-earlier-body { display: flex; flex-direction: column; gap: var(--space-4); }
+.stream-block > :last-child { margin-bottom: 0; }
+.stream-earlier {
+  width: 100%; max-width: var(--measure-prose); margin: var(--space-1) auto var(--space-3);
+  color: var(--faint); font-size: var(--type-caption);
+}
+.stream-earlier[hidden] { display: none; }
+.stream-earlier summary { width: fit-content; cursor: pointer; padding-block: var(--space-1); }
+.stream-earlier summary:hover { color: var(--ink); }
+.stream-earlier-body { margin-top: var(--space-3); color: var(--muted); }
 /* Progressive markdown streaming (#233): once mdToHtml renders block markup the
    body is no longer raw pre-wrap; a caret marks the live tail. */
 .body.stream.streaming { white-space: normal; }
-.body.stream.streaming::after {
+.body.stream.streaming > :last-child::after {
   content: "▋"; color: var(--accent); margin-left: var(--space-1);
   animation: caretBlink 1s step-end infinite;
 }
 @keyframes caretBlink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion="off"]) .body.stream.streaming::after { animation: none; }
+  :root:not([data-motion="off"]) .body.stream.streaming > :last-child::after { animation: none; }
 }
 /* Code-fence copy button (#233): revealed on hover/focus, top-right of the block. */
 .body pre { position: relative; }

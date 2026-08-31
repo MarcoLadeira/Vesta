@@ -1221,6 +1221,18 @@ def _assistant_presentation(result: Any, attributed_files: Any) -> dict[str, Any
     return _clean_presentation(presentation)
 
 
+def _stream_token_payload(
+    request_id: str,
+    chunk: str,
+    *,
+    start_block: bool = False,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"requestId": request_id, "text": chunk}
+    if start_block:
+        payload["blockStart"] = True
+    return payload
+
+
 def _persist_turn_result(
     root: Path,
     request_id: str,
@@ -2559,8 +2571,18 @@ def _run_gui(
             def emit_event(event: dict[str, Any]) -> None:
                 batcher.append(event)
 
-            def emit_text(chunk: str) -> None:
-                self.token.emit(json.dumps({"requestId": request_id, "text": chunk}))
+            def emit_text(chunk: str, start_block: bool = False) -> None:
+                self.token.emit(
+                    json.dumps(
+                        _stream_token_payload(
+                            request_id,
+                            chunk,
+                            start_block=start_block,
+                        )
+                    )
+                )
+
+            setattr(emit_text, "accepts_block_start", True)
 
             def job() -> dict[str, Any]:
                 return handle_gui_message(
@@ -2671,8 +2693,18 @@ def _run_gui(
             def emit_event(event: dict[str, Any]) -> None:
                 batcher.append(event)
 
-            def emit_text(chunk: str) -> None:
-                self.token.emit(json.dumps({"requestId": request_id, "text": chunk}))
+            def emit_text(chunk: str, start_block: bool = False) -> None:
+                self.token.emit(
+                    json.dumps(
+                        _stream_token_payload(
+                            request_id,
+                            chunk,
+                            start_block=start_block,
+                        )
+                    )
+                )
+
+            setattr(emit_text, "accepts_block_start", True)
 
             def job() -> dict[str, Any]:
                 from opaihub.build_loop import run_build_request

@@ -298,6 +298,21 @@ def _notify(listener: Callable[[Any], None] | None, payload: Any) -> None:
         listener(payload)
 
 
+def _notify_text(
+    listener: Callable[..., None] | None,
+    payload: str,
+    *,
+    start_block: bool = False,
+) -> None:
+    if listener is None:
+        return
+    with contextlib.suppress(Exception):
+        if getattr(listener, "accepts_block_start", False):
+            listener(payload, start_block)
+        else:
+            listener(payload)
+
+
 def _capture_timeout_checkpoint(
     listener: Callable[[dict[str, Any]], Any] | None,
     payload: dict[str, Any],
@@ -2588,6 +2603,10 @@ class AccountRunner:
         threading.Thread(target=_reader, args=("stderr",), daemon=True).start()
 
         text_parts: list[str] = []
+
+        def assembled_text() -> str:
+            return ("\n\n" if structured else "").join(text_parts).strip()
+
         diagnostic_parts: list[str] = []
         provider_errors: list[str] = []
         cost: float | None = None
@@ -2768,9 +2787,9 @@ class AccountRunner:
                     self.account_id == "claude" and part.get("done") and text_parts
                 ):
                     streamed_any = True
+                    start_block = bool(text_parts)
                     text_parts.append(part["text"])
-                    if on_text:
-                        _notify(on_text, part["text"])
+                    _notify_text(on_text, part["text"], start_block=start_block)
                 if part["cost"] is not None:
                     cost = part["cost"]
             else:
@@ -2783,7 +2802,7 @@ class AccountRunner:
                         )
                     streamed_any = True
                     text_parts.append(chunk)
-                    _notify(on_text, chunk)
+                    _notify_text(on_text, chunk)
 
         # Work this run started that was never observed to finish: a command the
         # provider backgrounded and never checked back on, or a tool call still
@@ -2824,14 +2843,14 @@ class AccountRunner:
                 # answer: `error` is set alongside it, so no caller can mistake
                 # a failed run for a successful one. Discarding it lost real
                 # work and made the retry pay for the same tokens twice (#295).
-                "text": "".join(text_parts).strip(),
+                "text": assembled_text(),
                 "cost": cost,
                 "error": normalized,
                 "returncode": returncode,
             }
 
         if stopped is not None:
-            partial = "".join(text_parts).strip()
+            partial = assembled_text()
             timeout_checkpoint: dict[str, Any] | None = None
             pre_teardown_event: dict[str, Any] | None = None
             if stopped in {TASK_DEADLINE, PROVIDER_IDLE_TIMEOUT}:
@@ -2994,7 +3013,7 @@ class AccountRunner:
             _terminate(proc)
             returncode = getattr(proc, "returncode", None)
 
-        text = "".join(text_parts).strip()
+        text = assembled_text()
         if self.account_id == "codex" and out_path:
             try:
                 final = Path(out_path).read_text(encoding="utf-8").strip()
@@ -3003,7 +3022,7 @@ class AccountRunner:
                 # nothing was captured — never a duplicate.
                 if final and not text and not provider_errors:
                     text = final
-                    _notify(on_text, final)
+                    _notify_text(on_text, final)
             except OSError:
                 pass
             finally:
