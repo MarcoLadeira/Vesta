@@ -28,6 +28,13 @@ def key_path(project_root: Path) -> Path:
     return state_dir(project_root) / "keys" / "team.key"
 
 
+def _read_key_file(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def resolve_key(project_root: Path, *, create: bool = False) -> tuple[str | None, str]:
     """Resolve the signing key: env var first, then a local key file.
 
@@ -37,23 +44,27 @@ def resolve_key(project_root: Path, *, create: bool = False) -> tuple[str | None
     if env:
         return env, "env"
     path = key_path(project_root.expanduser().resolve())
-    if path.exists():
-        try:
-            value = path.read_text(encoding="utf-8").strip()
-        except OSError:
-            value = ""
+    value = _read_key_file(path)
+    if value:
+        return value, "file"
+    if not create:
+        return None, "missing"
+    # #478: read-check-generate-write as one interprocess-locked transaction,
+    # so two processes racing to bootstrap the key can't each mint and publish
+    # a different secret. The write itself goes through a temp file plus
+    # atomic replace with 0o600 set before publish, so a crash mid-write can
+    # never leave a truncated key on disk -- and a truncated/empty key is what
+    # would otherwise read back as "missing" and silently rotate an existing,
+    # already-used key out from under previously signed evidence.
+    from .atomic_io import atomic_write_text, interprocess_transaction
+
+    with interprocess_transaction(path):
+        value = _read_key_file(path)
         if value:
             return value, "file"
-    if create:
         value = secrets.token_hex(32)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(value + "\n", encoding="utf-8")
-        try:
-            path.chmod(0o600)
-        except OSError:
-            pass
-        return value, "generated"
-    return None, "missing"
+        atomic_write_text(path, value + "\n", mode=0o600)
+    return value, "generated"
 
 
 def _canonical(payload: dict[str, Any]) -> bytes:

@@ -16,7 +16,14 @@ from opaihub.audit import (
 )
 from opaihub.ci_check import run_policy_check
 from opaihub.guarded import build_evidence_packet, verify_evidence_packet
-from opaihub.signing import resolve_key, sign, sign_payload, verify, verify_payload
+from opaihub.signing import (
+    key_path,
+    resolve_key,
+    sign,
+    sign_payload,
+    verify,
+    verify_payload,
+)
 from opaihub.team import team_report
 from opaihub.team_policy import (
     apply_team_policy,
@@ -58,6 +65,61 @@ class SigningTests(unittest.TestCase):
             self.assertTrue(verify(root, signed)["verified"])
             signed["n"] = 2  # tamper
             self.assertFalse(verify(root, signed)["verified"])
+
+    def test_generated_key_file_has_no_partial_write_window(self):
+        # #478: the key must land via temp-file-plus-replace, never a direct
+        # write, so a reader can never observe a truncated/empty key file.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            original_replace = os.replace
+            seen_temp_names = []
+
+            def spying_replace(src, dst):
+                seen_temp_names.append(Path(src).name)
+                return original_replace(src, dst)
+
+            with mock.patch("os.replace", side_effect=spying_replace):
+                key, source = resolve_key(root, create=True)
+            self.assertEqual(source, "generated")
+            self.assertTrue(
+                seen_temp_names, "expected a temp-file replace, not a direct write"
+            )
+            path = key_path(root)
+            self.assertEqual(path.read_text(encoding="utf-8").strip(), key)
+
+    def test_empty_key_file_is_not_treated_as_an_existing_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = key_path(root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")  # simulates a torn write
+            key, source = resolve_key(root, create=False)
+            self.assertEqual((key, source), (None, "missing"))
+
+    def test_concurrent_bootstrap_never_rotates_to_two_different_keys(self):
+        # Two callers racing to bootstrap the key on first use must agree on
+        # exactly one secret, not each mint and publish their own (#478).
+        import threading
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results: list[tuple[str | None, str]] = [None] * 8  # type: ignore[list-item]
+            barrier = threading.Barrier(len(results))
+
+            def worker(index: int) -> None:
+                barrier.wait()
+                results[index] = resolve_key(root, create=True)
+
+            threads = [
+                threading.Thread(target=worker, args=(i,)) for i in range(len(results))
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            keys = {key for key, _ in results}
+            self.assertEqual(len(keys), 1, f"expected one key, got {keys!r}")
 
 
 class AuditTrailTests(unittest.TestCase):
