@@ -2,6 +2,22 @@ import { test, expect } from "@playwright/test";
 
 import { openApp, openNav } from "./helpers/app.js";
 
+test("typing does not add a focus highlight around the composer", async ({ page }) => {
+  await openApp(page);
+  const composer = page.locator("#composer");
+  const unfocused = await composer.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderColor: style.borderColor, boxShadow: style.boxShadow };
+  });
+
+  await page.locator("#input").focus();
+
+  await expect.poll(() => composer.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderColor: style.borderColor, boxShadow: style.boxShadow };
+  })).toEqual(unfocused);
+});
+
 // The Composer Redesign keeps every capability of the old composer but changes
 // the information architecture: one quiet toolbar with mode/model popovers and
 // on-demand context, plus three switchable directions. These specs assert the
