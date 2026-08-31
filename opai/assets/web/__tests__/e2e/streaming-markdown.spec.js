@@ -34,6 +34,46 @@ test("ordinary token chunks stay in one active block", async ({ page }) => {
   await expect(page.locator(".stream-earlier")).toBeHidden();
 });
 
+test("a large provider chunk is progressively revealed with a fading tail", async ({ page }) => {
+  const id = await sendPrompt(page);
+  const text = "Smooth streaming writes each word in front of the user instead of dropping a completed paragraph into the conversation. ".repeat(4).trim();
+  const firstFrame = await page.evaluate(async ({ requestId, value }) => {
+    window.__mock.emitToken(requestId, value);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const body = document.querySelector(".body.stream");
+    const tail = body.querySelector(".stream-text-reveal");
+    return {
+      text: body.textContent,
+      animation: tail ? getComputedStyle(tail).animationName : "none",
+      opacity: tail ? Number(getComputedStyle(tail).opacity) : 1,
+    };
+  }, { requestId: id, value: text });
+
+  expect(firstFrame.text.length).toBeGreaterThan(0);
+  expect(firstFrame.text.length).toBeLessThan(text.length);
+  expect(firstFrame.animation).toBe("streamTextReveal");
+  expect(firstFrame.opacity).toBeLessThan(1);
+  await expect(page.locator(".body.stream")).toHaveText(text, { timeout: 2_000 });
+  expect(await page.evaluate(() => window.__opai.state.streamRenders)).toBeGreaterThan(1);
+});
+
+test("an immediate terminal reply lets the visible stream catch up before final presentation", async ({ page }) => {
+  const id = await sendPrompt(page);
+  const text = "The final response still arrives smoothly even when the provider returns the whole answer at once. ".repeat(5).trim();
+  const firstFrame = await page.evaluate(async ({ requestId, value }) => {
+    window.__mock.emitToken(requestId, value);
+    window.__mock.emitReply(requestId, { status: "answered", answer: value, receipt: {} });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const body = document.querySelector(".body.stream");
+    return body ? body.textContent : null;
+  }, { requestId: id, value: text });
+
+  expect(firstFrame).not.toBeNull();
+  expect(firstFrame.length).toBeLessThan(text.length);
+  await expect(page.locator(".response-shell")).toContainText(text, { timeout: 2_000 });
+  await expect(page.locator(".body.streaming")).toHaveCount(0);
+});
+
 test("streamed markdown renders formatted blocks progressively", async ({ page }) => {
   const id = await sendPrompt(page);
   await emitToken(page, id, "# Heading\n\nSome **bold** text.");
@@ -171,11 +211,31 @@ test("stream rendering preserves a user's text selection", async ({ page }) => {
   await emitToken(page, id, "Keep this stable selection while more text arrives.");
   await expect(page.locator(".body.stream")).toContainText("stable selection");
   await page.evaluate(() => {
-    const node = document.querySelector(".body.stream p").firstChild;
-    const start = node.textContent.indexOf("stable selection");
+    const root = document.querySelector(".body.stream p");
+    const target = "stable selection";
+    const nodes = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    const fullText = nodes.map((node) => node.textContent).join("");
+    const start = fullText.indexOf(target);
+    let offset = 0;
+    let startNode = null, startOffset = 0, endNode = null, endOffset = 0;
+    for (const node of nodes) {
+      const next = offset + node.textContent.length;
+      if (!startNode && start >= offset && start <= next) {
+        startNode = node;
+        startOffset = start - offset;
+      }
+      if (start + target.length >= offset && start + target.length <= next) {
+        endNode = node;
+        endOffset = start + target.length - offset;
+        break;
+      }
+      offset = next;
+    }
     const range = document.createRange();
-    range.setStart(node, start);
-    range.setEnd(node, start + "stable selection".length);
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
     const selection = getSelection();
     selection.removeAllRanges();
     selection.addRange(range);

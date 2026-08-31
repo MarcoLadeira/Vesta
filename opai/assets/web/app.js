@@ -61,8 +61,9 @@ const state = {
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   expandedGroups: new Set(), stripColor: "",
   followLatest: true,
-  tokenRenderPending: false, tokenRenderTimer: null, tokenRenderFrame: null,
+  tokenRenderPending: false, tokenRenderFrame: null, streamSettleTimer: null, streamReplyFallbackTimer: null,
   lastStreamRenderAt: 0, streamRenderedText: "", streamBlocks: [""], streamRenders: 0,
+  pendingStreamReply: null, streamFinishDeadline: 0,
   resumePending: false,
   contextHints: [],
   // path -> {name, thumb}. Kept beside contextHints rather than inside it
@@ -120,11 +121,32 @@ function assistantPresentationHtml(headerHtml, text, presentation, options = {})
   });
 }
 
-function renderStreamingBody(body, text) {
+function markStreamingReveal(body, addedCharacters) {
+  let remaining = Math.min(Math.max(0, addedCharacters), 64);
+  if (!remaining) return;
+  const nodes = selectableTextNodes(body).filter((node) => (
+    node.textContent && node.textContent.trim() && !node.parentElement.closest(".code-block-head")
+  ));
+  const node = nodes[nodes.length - 1];
+  if (!node) return;
+  const end = node.textContent.length;
+  let start = Math.max(0, end - remaining);
+  const startCode = node.textContent.charCodeAt(start);
+  if (start > 0 && startCode >= 0xdc00 && startCode <= 0xdfff) start--;
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  const reveal = document.createElement("span");
+  reveal.className = "stream-text-reveal";
+  range.surroundContents(reveal);
+}
+
+function renderStreamingBody(body, text, addedCharacters = 0) {
   const selected = captureSelection(body);
   body.classList.add("streaming", "response-prose");
   body.innerHTML = window.OPaiMarkdown.render(text, { streaming: true });
   enhanceCodeBlocks(body);
+  markStreamingReveal(body, addedCharacters);
   restoreSelection(body, selected);
 }
 
@@ -2006,6 +2028,11 @@ function sendBuild(value) {
   state.message = OPaiMessageState.transition(state.message, "preparing");
   state.store = OPaiActivity.createStore();
   state.streaming = false; state.streamedText = ""; state.streamBlocks = [""];
+  cancelTokenRender();
+  state.streamRenderedText = "";
+  state.lastStreamRenderAt = 0;
+  state.pendingStreamReply = null;
+  state.streamFinishDeadline = 0;
   state.startTime = Date.now();
   buildPending(sel);
   stripReset(sel);
@@ -2227,6 +2254,8 @@ function send(retryOf) {
   cancelTokenRender();
   state.streamRenderedText = "";
   state.lastStreamRenderAt = 0;
+  state.pendingStreamReply = null;
+  state.streamFinishDeadline = 0;
   state.startTime = Date.now();
   buildPending(sel);
   stripReset(sel);
@@ -2589,9 +2618,11 @@ function onToken(json) {
   if (!state.streaming) { state.streaming = true; updateGenStage(); stripStreaming(); }
   const text = String(d.text == null ? "" : d.text);
   const activeIndex = state.streamBlocks.length - 1;
+  const wasCaughtUp = state.streamRenderedText === state.streamBlocks[activeIndex];
   if (d.blockStart === true && state.streamBlocks[activeIndex]) startStreamBlock();
   state.streamBlocks[state.streamBlocks.length - 1] += text;
   state.streamedText += text;
+  if (wasCaughtUp && d.blockStart !== true) state.lastStreamRenderAt = performance.now();
   scheduleTokenRender();
 }
 
@@ -2624,14 +2655,24 @@ function startStreamBlock() {
   state.streamBlocks.push("");
   state.streamedText += "\n\n";
   state.streamRenderedText = "";
+  state.lastStreamRenderAt = 0;
   updateEarlierStreamBlocks();
 }
 
+function streamMotionReduced() {
+  const setting = document.documentElement.dataset.motion;
+  if (setting === "on") return true;
+  if (setting === "off") return false;
+  return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 function cancelTokenRender() {
-  if (state.tokenRenderTimer != null) clearTimeout(state.tokenRenderTimer);
   if (state.tokenRenderFrame != null) cancelAnimationFrame(state.tokenRenderFrame);
-  state.tokenRenderTimer = null;
+  if (state.streamSettleTimer != null) clearTimeout(state.streamSettleTimer);
+  if (state.streamReplyFallbackTimer != null) clearTimeout(state.streamReplyFallbackTimer);
   state.tokenRenderFrame = null;
+  state.streamSettleTimer = null;
+  state.streamReplyFallbackTimer = null;
   state.tokenRenderPending = false;
 }
 
@@ -2646,23 +2687,77 @@ function flushTokenRender() {
   state.streamRenders++;
 }
 
-function scheduleTokenRender() {
-  if (!state.streamRenderedText) {
-    flushTokenRender();
+function nextStreamRevealEnd(text, start, count) {
+  let end = Math.min(text.length, start + Math.max(1, count));
+  if (end < text.length && end > 0) {
+    const code = text.charCodeAt(end - 1);
+    if (code >= 0xd800 && code <= 0xdbff) end++;
+    const boundary = text.slice(end, Math.min(text.length, end + 12)).search(/[\s.,!?;:]/);
+    if (boundary >= 0) end += boundary + 1;
+  }
+  return Math.min(end, text.length);
+}
+
+function finishPendingStreamReply() {
+  if (!state.pendingStreamReply || state.streamSettleTimer != null) return;
+  if (state.streamReplyFallbackTimer != null) clearTimeout(state.streamReplyFallbackTimer);
+  state.streamReplyFallbackTimer = null;
+  state.streamSettleTimer = setTimeout(() => {
+    state.streamSettleTimer = null;
+    const reply = state.pendingStreamReply;
+    state.pendingStreamReply = null;
+    state.streamFinishDeadline = 0;
+    completeReply(reply);
+  }, 90);
+}
+
+function forcePendingStreamReply() {
+  state.streamReplyFallbackTimer = null;
+  if (!state.pendingStreamReply) return;
+  const reply = state.pendingStreamReply;
+  state.pendingStreamReply = null;
+  state.streamFinishDeadline = 0;
+  flushTokenRender();
+  completeReply(reply);
+}
+
+function renderTokenFrame(now) {
+  state.tokenRenderFrame = null;
+  state.tokenRenderPending = false;
+  const body = activeStreamBlock();
+  const target = state.streamBlocks[state.streamBlocks.length - 1] || "";
+  if (!body) return;
+  if (state.streamRenderedText === target) {
+    finishPendingStreamReply();
     return;
   }
+
+  const previous = state.streamRenderedText;
+  let next = target;
+  if (!streamMotionReduced()) {
+    const elapsed = state.lastStreamRenderAt ? Math.max(1, now - state.lastStreamRenderAt) : 1000 / 60;
+    const remaining = target.length - previous.length;
+    const normalRate = Math.max(90, remaining / 0.45);
+    const finishRate = state.streamFinishDeadline
+      ? remaining / Math.max(0.016, (state.streamFinishDeadline - now) / 1000)
+      : 0;
+    const count = Math.ceil(Math.max(normalRate, finishRate) * elapsed / 1000);
+    const end = nextStreamRevealEnd(target, previous.length, count);
+    next = target.slice(0, end);
+  }
+
+  withChatScrollPreserved(() => renderStreamingBody(body, next, next.length - previous.length));
+  state.streamRenderedText = next;
+  state.lastStreamRenderAt = now;
+  state.streamRenders++;
+  if (next !== target) scheduleTokenRender();
+  else finishPendingStreamReply();
+}
+
+function scheduleTokenRender() {
   if (state.tokenRenderPending) return;
   state.tokenRenderPending = true;
-  const elapsed = performance.now() - state.lastStreamRenderAt;
-  const delay = Math.max(0, 32 - elapsed);
-  state.tokenRenderTimer = setTimeout(() => {
-    state.tokenRenderTimer = null;
-    state.tokenRenderFrame = requestAnimationFrame(() => {
-      state.tokenRenderFrame = null;
-      state.tokenRenderPending = false;
-      flushTokenRender();
-    });
-  }, delay);
+  state.tokenRenderFrame = requestAnimationFrame(renderTokenFrame);
 }
 
 function startTimer(sel) {
@@ -3790,9 +3885,7 @@ function wireFilesCard(el) {
   if (of) of.onclick = () => { if (bridge.openPath) bridge.openPath(""); };
 }
 
-function onReply(json) {
-  const d = JSON.parse(json);
-  if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale reply ignored
+function completeReply(d) {
   const backendStatus = (d.result && d.result.status) || "failed";
   // #402: the completion verdict, when present, is the honest terminal truth —
   // hand it to the state machine so a partial/blocked/timeout run is not
@@ -3813,6 +3906,21 @@ function onReply(json) {
   // is re-read here rather than guessed at from the client's own state.
   refreshConversations();
   refreshStatus(); refreshInspector(); refreshWorkspaceBadge();
+}
+
+function onReply(json) {
+  const d = JSON.parse(json);
+  if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale reply ignored
+  const target = state.streamBlocks[state.streamBlocks.length - 1] || "";
+  const backendStatus = (d.result && d.result.status) || "failed";
+  if (ANSWERED.includes(backendStatus) && !streamMotionReduced() && !document.hidden && target && state.streamRenderedText !== target) {
+    state.pendingStreamReply = d;
+    state.streamFinishDeadline = performance.now() + 450;
+    state.streamReplyFallbackTimer = setTimeout(forcePendingStreamReply, 900);
+    scheduleTokenRender();
+    return;
+  }
+  completeReply(d);
 }
 
 // The header's "N uncommitted" badge came from the boot payload and was never
