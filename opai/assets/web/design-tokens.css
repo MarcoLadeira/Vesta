@@ -1,27 +1,54 @@
 /* OPai web visual contract (#388). Component CSS consumes these tokens. */
 :root {
-  /* Surfaces and semantic colour. */
-  --bg: #0a0c11;
-  --surface: #0d1016;
-  --surface-2: #11151c;
-  --panel: #151a22;
-  --panel-2: #1b212b;
-  --elevated: #222a36;
-  --glass: rgba(255, 255, 255, 0.025);
-  --glass-hi: rgba(255, 255, 255, 0.05);
-  --border: rgba(255, 255, 255, 0.06);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --ink: #eef2f8;
-  --muted: #9aa6b6;
-  --faint: #5d6878;
-  --accent: #34d399;
-  --accent-2: #2bd4bf;
-  --accent-deep: #1c9e70;
-  --accent-ink: #04241a;
-  --accent-glow: rgba(52, 211, 153, 0.20);
-  --brand-gradient: linear-gradient(135deg, #34d399, #2bd4bf);
-  --green: #34d399;
-  --amber: #e6b15e;
+  /* Surfaces and semantic colour -- moon and galaxy, no warm light.
+   *
+   * The greys were neutral with a faint warm cast. They are now tilted blue
+   * and violet: rock lit by starlight rather than by a lamp. The background
+   * drops close to black so panels read as lit ground under a dark sky, and
+   * every neutral above it -- glass, borders, ink, muted -- is mixed from a
+   * cold blue-white instead of pure white, which is what stops the surfaces
+   * looking grey-on-grey.
+   *
+   * The accent stays in the brand's family and cools from green toward the
+   * aqua/ice end, so it belongs to a cold picture without becoming a
+   * different brand.
+   *
+   * Nothing here is warm. --amber survives because it is not decoration: it
+   * is the caution colour (autonomous modes, out-of-credit notes, warnings),
+   * and a palette with no warning colour is a worse palette. It is cooled
+   * slightly toward gold so it reads as a signal rather than as firelight.
+   */
+  --bg: #04050f;
+  --surface: #070917;
+  --surface-2: #0a0e20;
+  --panel: #10162e;
+  --panel-2: #171f3c;
+  --elevated: #212a4d;
+  --glass: rgba(186, 206, 255, 0.028);
+  --glass-hi: rgba(186, 206, 255, 0.06);
+  --border: rgba(166, 190, 255, 0.075);
+  --border-strong: rgba(166, 190, 255, 0.17);
+  --ink: #e9f0fb;
+  --muted: #9fabd0;
+  --faint: #616e94;
+  --accent: #5fdcdc;
+  --accent-2: #8ea2f5;
+  --accent-deep: #2596a8;
+  --accent-ink: #04202c;
+  --accent-glow: rgba(95, 220, 220, 0.22);
+  --brand-gradient: linear-gradient(135deg, #5fdcdc, #8ea2f5);
+  --green: #5fdcdc;
+  --amber: #e4bd72;
+
+  /* The horizon: regolith catching starlight, low across the bottom of the
+     workspace. Two stops rather than one so the ground has a lit crest and a
+     darker body, which is what makes it read as a surface and not a smudge. */
+  /* Regolith, not sky. The crest was the same blue-white as the starlight
+     washing over it, which made the ground look like more atmosphere; moon
+     dust is close to neutral grey, and desaturating it is what separates the
+     surface from the space above it. Still no warm cast. */
+  --lunar-crest: rgba(216, 219, 226, 0.17);
+  --lunar-body: rgba(126, 146, 190, 0.085);
   --red: #f2768a;
   --blue: #74b6ff;
   --claude: #e0937a;
@@ -87,11 +114,16 @@
   --icon-lg: 20px;
   --measure-prose: 72ch;
   --measure-response: 1024px;
-  --measure-composer: 830px;
+  /* The composer is as wide as the text above it. It was 830px against a
+     1024px response measure, so the box you type into was visibly narrower
+     than the answers it produced -- two different column edges down the same
+     screen. Both sides use the same horizontal padding, so matching the
+     measure lines them up exactly. */
+  --measure-composer: var(--measure-response);
   --surface-code: #090b10;
   --surface-code-head: #0d1118;
   --border-code: rgba(255, 255, 255, 0.10);
-  --focus-ring: 0 0 0 3px rgba(52, 211, 153, 0.24);
+  --focus-ring: 0 0 0 3px var(--accent-glow);
   --control-min: 32px;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
 }

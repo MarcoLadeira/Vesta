@@ -409,11 +409,7 @@ function applyBrand(brand) {
   state.brand = brand;
   const h1 = $("#empty h1");
   if (h1 && brand.emptyTitle) h1.textContent = brand.emptyTitle;
-  const hint = $("#empty .hint");
-  if (hint && brand.emptyHint) hint.innerHTML = brand.emptyHint.replace(/Ctrl\+K/, "<kbd>Ctrl</kbd>+<kbd>K</kbd>");
   if (brand.composerPlaceholder) $("#input").placeholder = brand.composerPlaceholder;
-  const eyebrow = $("#emptyEyebrow");
-  if (eyebrow && brand.tagline) eyebrow.textContent = brand.name + " · " + brand.tagline;
 }
 
 // Canonical app-wide updater projection. The backend owns every transition;
@@ -1052,12 +1048,19 @@ function selectedAccountNeedsConnection() {
   return !account || !(account.connected || account.authenticated);
 }
 
+// An empty box blocks sending, but it is not worth a sentence: the disabled
+// Send button already says so, and the sentence sat under the composer
+// permanently, before the user had done anything wrong. So this reason still
+// *blocks*, it just does not *speak* -- the two were conflated, and collapsing
+// them re-enabled Send on an empty prompt.
+const EMPTY_PROMPT_REASON = "empty-prompt";
+
 function composerBlockReason() {
   if (state.resumePending) return "Choose how to continue this saved session before sending.";
   if (selectedAccountNeedsConnection()) {
     return `Connect ${state.model.provider ? providerName(state.model.provider) : "this provider"} before sending.`;
   }
-  if (!$("#input").value.trim()) return "Write a prompt before sending.";
+  if (!$("#input").value.trim()) return EMPTY_PROMPT_REASON;
   return "";
 }
 
@@ -1101,7 +1104,13 @@ function updateComposerAvailability() {
   send.disabled = Boolean(blocked);
   send.setAttribute("aria-label", (state.buildMode && state.buildApp) ? "Start build" : "Send prompt");
   if (!blocked) { reason.innerHTML = ""; delete reason.dataset.tone; send.removeAttribute("aria-describedby"); return; }
-  reason.dataset.tone = blocked === "Write a prompt before sending." ? "hint" : "warning";
+  if (blocked === EMPTY_PROMPT_REASON) {
+    reason.innerHTML = "";
+    delete reason.dataset.tone;
+    send.removeAttribute("aria-describedby");
+    return;
+  }
+  reason.dataset.tone = "warning";
   const action = !state.resumePending && selectedAccountNeedsConnection()
     ? ' <button class="reason-action" type="button">Open Settings</button>'
     : "";
@@ -1439,10 +1448,15 @@ function renderEmptyChips() {
     ["Plan a safe refactor", "Plan a safe refactor of this code: concrete steps, risks, and the tests to run. Don't edit files yet."],
   ];
   const connected = state.accounts.some((a) => a.connected);
-  const brandBody = (state.brand && state.brand.emptyBody) || "";
-  $("#emptySub").textContent = connected
-    ? brandBody || "Your AI connection is ready · OPai picks the cheapest safe path."
+  // The line under the headline earns its place only when it changes what the
+  // reader does next. Describing the product to someone already looking at it
+  // does not; telling them nothing will run until a provider is connected
+  // does. So it is silent in the normal case and absent from the layout.
+  const sub = $("#emptySub");
+  sub.textContent = connected
+    ? ""
     : "Connect your Claude, Codex, or Copilot account in Settings, then just type.";
+  sub.hidden = connected;
   $("#chips").innerHTML = chips.map((c) => `<button class="chip" data-p="${esc(c[1])}">${esc(c[0])}</button>`).join("");
   $$("#chips .chip").forEach((b) => (b.onclick = () => { setComposerDraft(b.dataset.p); send(); }));
 }

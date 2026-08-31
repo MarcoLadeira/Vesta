@@ -1754,6 +1754,29 @@ def _write_artifact_smoke_result(path: Path, payload: dict[str, Any]) -> None:
                 pass
 
 
+# Chromium ships smooth scrolling on; QtWebEngine turns it off, so a wheel
+# notch jumps the thread by a fixed number of pixels instead of animating to
+# the new position. That is the whole difference between a page that feels
+# like it is running at 40Hz and one that feels like the display's refresh
+# rate -- the frames are there either way, nothing is asked to interpolate
+# between them.
+#
+# It has to be set before QtWebEngine initialises, which is why it lives here
+# rather than beside the other QApplication attributes further down: by the
+# time an application object exists, the flags have already been read.
+# Appended rather than assigned, so anything the user already set survives.
+_SMOOTH_SCROLL_FLAG = "--enable-smooth-scrolling"
+
+
+def _enable_smooth_scrolling() -> None:
+    existing = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+    if _SMOOTH_SCROLL_FLAG in existing:
+        return
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+        f"{existing} {_SMOOTH_SCROLL_FLAG}".strip()
+    )
+
+
 def _run_gui(
     project_root: Path,
     *,
@@ -1765,6 +1788,7 @@ def _run_gui(
         raise ValueError("artifact smoke timeout must be positive")
     if not web_available():
         raise RuntimeError("QtWebEngine is not available")
+    _enable_smooth_scrolling()
     from PySide6 import QtCore, QtGui, QtWidgets
     from PySide6.QtWebChannel import QWebChannel
     from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings

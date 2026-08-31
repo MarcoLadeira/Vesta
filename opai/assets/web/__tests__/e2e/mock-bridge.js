@@ -41,9 +41,7 @@
     brand: {
       name: "OPai",
       tagline: "Every step visible. Every dollar accounted.",
-      emptyTitle: "Build more. Burn less.",
-      emptyBody: "Tell OPai the goal. It plans, routes to the cheapest capable model, shows every step, and hands you the receipt.",
-      emptyHint: "Press Ctrl+K for commands",
+      emptyTitle: "Better. Faster. Cheaper.",
       composerPlaceholder: "Tell OPai what to build, fix, or explain…",
     },
     models: [

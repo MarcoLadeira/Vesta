@@ -28,14 +28,30 @@ PROMISE = (
     "it works, and hands you an honest receipt."
 )
 
-# The empty-state moment — the first thing a user reads. Ownable, cost-aware,
-# builder-first; not the generic "What do you want to build?" every tool asks.
-EMPTY_TITLE = "Build more. Burn less."
-EMPTY_BODY = (
-    "Tell OPai the goal. It plans, routes to the cheapest capable model, "
-    "shows every step, and hands you the receipt."
-)
-EMPTY_HINT = "Press Ctrl+K for commands"
+# The empty-state moment — the first thing a user reads.
+#
+# It used to be four blocks of text stacked above the actions: an eyebrow
+# repeating the product name, a headline, and a twenty-five word paragraph
+# explaining the mechanism. Nobody reads a mechanism before they have a
+# reason to care.
+#
+# So it is a claim and its proof. The headline says what you get; the line
+# under it says how you will know it is true, which is the one thing this
+# tool can say that the others cannot. The mechanism is still on the screen
+# -- it is the receipt, after the first run, where it means something.
+EMPTY_TITLE = "Better. Faster. Cheaper."
+
+# There is no body and no hint any more, and their absence is the point.
+#
+# The body was a second sentence describing the product to someone who is
+# looking at it. The hint taught a keyboard shortcut to someone who has not
+# yet done the thing the shortcut is for. Neither survives the question this
+# screen should be asked: does this line change what the reader does next?
+#
+# What is left is a mark, a claim, and three things you can click. The one
+# sentence that *does* change what you do next -- that no provider is
+# connected, so nothing will run -- is still shown, by the front end, only
+# when it is true.
 
 COMPOSER_PLACEHOLDER = "Tell OPai what to build, fix, or explain…"
 
@@ -103,8 +119,6 @@ def boot_brand() -> dict[str, str]:
         "name": NAME,
         "tagline": TAGLINE,
         "emptyTitle": EMPTY_TITLE,
-        "emptyBody": EMPTY_BODY,
-        "emptyHint": EMPTY_HINT,
         "composerPlaceholder": COMPOSER_PLACEHOLDER,
     }
 

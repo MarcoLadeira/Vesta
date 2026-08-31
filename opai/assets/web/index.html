@@ -106,11 +106,9 @@
             <div class="thread" id="thread">
               <div class="empty" id="empty">
                 <div class="empty-mark" aria-hidden="true"><img src="../opai-mascot.png" alt="OPai" /></div>
-                <div class="empty-eyebrow" id="emptyEyebrow">OPai · Every step visible. Every dollar accounted.</div>
-                <h1>Build more. Burn less.</h1>
-                <p id="emptySub">Tell OPai the goal. It plans, routes to the cheapest capable model, shows every step, and hands you the receipt.</p>
+                <h1>Better. Faster. Cheaper.</h1>
+                <p id="emptySub" hidden></p>
                 <div class="chips" id="chips"></div>
-                <div class="hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> for commands</div>
               </div>
             </div>
           </div>
@@ -186,11 +184,11 @@
               </div>
             </div>
 
-            <!-- Helper line (below the card) -->
-            <div class="composer-help-row" id="composerHelpRow">
-              <div class="composer-help" id="composerHelp">Enter to send · Shift+Enter for a new line</div>
-              <div class="composer-summary" id="composerSummary" aria-label="Effective behaviour"></div>
-            </div>
+            <!-- The help row is gone. It carried a keyboard hint that is true
+                 once and noise forever, and a summary of the mode and model
+                 that the two buttons directly above it already name. What is
+                 left below the card is the reason line, which only appears
+                 when something actually blocks a send. -->
             <div class="composer-reason" id="composerReason" aria-live="polite"></div>
             <!-- #295: a message typed while a run is active is held, never
                  discarded. It sends itself when the run finishes. -->

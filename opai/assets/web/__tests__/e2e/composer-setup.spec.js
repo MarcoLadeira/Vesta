@@ -2,6 +2,58 @@ import { test, expect } from "@playwright/test";
 
 import { openApp, openNav } from "./helpers/app.js";
 
+test("Send is glass, and disabled is visibly not ready", async ({ page }) => {
+  // The button is made of the same material as the card rather than placed on
+  // it: a flat translucent fill, an outline that draws the shape, and no
+  // gradient. The states differ in that fill and border alone -- which is the
+  // thing to pin, because measuring them mid-transition once made ready and
+  // disabled look identical and sent me chasing a bug that was not there.
+  const settled = async () => {
+    await page.waitForTimeout(400);
+    return page.locator("#send").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        radius: style.borderRadius,
+        bg: style.backgroundColor,
+        border: style.borderColor,
+        image: style.backgroundImage,
+      };
+    });
+  };
+
+  await openApp(page);
+  const off = await settled();
+  await page.locator("#input").fill("ready now");
+  const on = await settled();
+
+  // A capsule, not a rounded rectangle.
+  expect(on.radius).toBe("999px");
+  // No gradient: the fill is one flat colour.
+  expect(on.image).toBe("none");
+  // See-through in both states, and readably different between them.
+  const alpha = (value) => Number(value.match(/([0-9.]+)\s*\)$/)[1]);
+  expect(alpha(on.bg)).toBeLessThan(0.5);
+  expect(alpha(on.bg)).toBeGreaterThan(alpha(off.bg) * 2);
+  expect(alpha(on.border)).toBeGreaterThan(alpha(off.border) * 2);
+});
+
+test("focusing the input adds no ring around the text either", async ({ page }) => {
+  // #787 removed the ring on the composer card. The same ring was also being
+  // drawn inside it, on the textarea, by the global :focus-visible rule --
+  // `outline: 0` cleared half of it and left the box-shadow, which is the
+  // glow that showed up around the placeholder.
+  await openApp(page);
+  const input = page.locator("#input");
+  await input.focus();
+  const ring = await input.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineWidth: style.outlineWidth, boxShadow: style.boxShadow };
+  });
+
+  expect(ring.boxShadow).toBe("none");
+  expect(ring.outlineWidth).toBe("0px");
+});
+
 test("typing does not add a focus highlight around the composer", async ({ page }) => {
   await openApp(page);
   const composer = page.locator("#composer");
@@ -24,19 +76,18 @@ test("typing does not add a focus highlight around the composer", async ({ page 
 // new surfaces and the behaviour that must be preserved (send gate, path-only
 // context, send↔stop) unchanged.
 
-test("composer summarises the effective mode and model in one quiet line", async ({ page }) => {
+test("the buttons are the summary; nothing restates them underneath", async ({ page }) => {
+  // There was a line under the composer reading "<Mode> · <Model> · local".
+  // Both halves were already named by the two buttons a few pixels above it,
+  // so it was a third copy of state the user could already see.
   await openApp(page);
-  const summary = page.locator("#composerSummary");
-  // Defaults: safe-auto renders as Claude Code's name for that level, "Auto".
-  await expect(summary).toContainText("Auto");
-  await expect(summary).toContainText("Auto");
-  await expect(summary).toContainText("local");
+  await expect(page.locator("#composerSummary")).toHaveCount(0);
+  await expect(page.locator("#modeBtnLabel")).toHaveText("Auto");
 
   // Change the mode through its popover — no duplicate control anywhere.
   await page.locator("#modeBtn").click();
   await page.getByRole("menuitemradio", { name: /^Plan/ }).click();
   await expect(page.locator("#modeBtnLabel")).toHaveText("Plan");
-  await expect(summary).toContainText("Plan");
   // The redesign drives the real (hidden) mode control, so the pipeline is unchanged.
   await expect(page.locator("#modeSel")).toHaveValue("plan");
 
@@ -44,14 +95,12 @@ test("composer summarises the effective mode and model in one quiet line", async
   await page.locator("#modelBtn").click();
   await page.getByRole("menuitemradio", { name: /Claude · Opus/ }).click();
   await expect(page.locator("#modelBtnLabel")).toHaveText("Claude");
-  await expect(summary).not.toContainText("local");
   await expect(page.locator("#modelSel")).toHaveValue("account:claude:opus");
 
   // A local model brings "local" back.
   await page.locator("#modelBtn").click();
   await page.getByRole("menuitemradio", { name: /Qwen 2.5 Coder/ }).click();
   await expect(page.locator("#modelBtnLabel")).toHaveText("Local");
-  await expect(summary).toContainText("local");
 });
 
 test("the mode menu is Claude Code's, in OPai's rows", async ({ page }) => {
@@ -160,9 +209,13 @@ test("model popover shows working models, balances, and explains removals", asyn
   });
   await page.locator("#modelBtn").click();
   const menu = page.locator("#modelPop");
-  // Auto stays pinned and recommended.
-  await expect(menu.getByRole("menuitemradio", { name: /Auto/ }).first()).toBeVisible();
-  await expect(menu).toContainText("Recommended");
+  // Auto stays first and still says why, but as a row like every other one:
+  // "Recommended" sits in the slot each model uses for its provider, instead
+  // of a bordered card with a pill and a sentence of explanation.
+  const auto = menu.getByRole("menuitemradio", { name: /Auto/ }).first();
+  await expect(auto).toBeVisible();
+  await expect(auto.locator(".cpop-auto-tag")).toHaveText("Recommended");
+  await expect(auto.locator(".cpop-desc")).toHaveCount(0);
   // A working model with a known balance shows the exact remaining amount.
   await expect(menu.getByRole("menuitemradio", { name: /Powerful/ })).toContainText("€85.00 left");
   // A configured-but-failing model is shown disabled with the reason.
@@ -175,8 +228,10 @@ test("model popover shows working models, balances, and explains removals", asyn
   await expect(menu.getByRole("menuitemradio", { name: /Kimi/ })).toHaveCount(0);
   await expect(menu.locator("[data-credit-note]")).toContainText("Kimi (Moonshot)");
   await expect(menu.locator("[data-credit-note]")).toContainText("out of credit");
-  // The local-first toggle is the former "routes local first" preference.
-  await expect(menu.getByRole("menuitemcheckbox", { name: /Keep work on this machine/ })).toHaveAttribute("aria-checked", "true");
+  // The "Keep work on this machine" toggle is gone. It set the model to Auto
+  // when off and did nothing when on — a duplicate of the Auto row above it
+  // half the time, and a no-op the rest.
+  await expect(menu.getByRole("menuitemcheckbox")).toHaveCount(0);
   // Provider setup lives behind one footer action, out of the selection list.
   const manageModels = menu.getByRole("menuitem", { name: "Manage models" });
   await expect(manageModels).toBeVisible();
@@ -271,25 +326,36 @@ test("disabled send explains an unconfigured account and links to Settings", asy
   await expect(page.locator("#view-settings")).toBeVisible();
 });
 
-test("empty prompts are explained instead of silently discarded", async ({ page }) => {
+test("an empty prompt blocks sending without being told off for it", async ({ page }) => {
+  // Blocking and explaining are separate. The disabled Send button already
+  // says an empty box cannot be sent; the sentence under the composer said it
+  // again, permanently, before the user had done anything. Collapsing the two
+  // is what re-enabled Send on an empty prompt while this was being written.
   await openApp(page);
   await expect(page.locator("#send")).toBeDisabled();
-  await expect(page.locator("#composerReason")).toContainText("Write a prompt before sending");
-  await expect(page.locator("#composerReason")).toHaveAttribute("data-tone", "hint");
+  await expect(page.locator("#composerReason")).toBeEmpty();
   await page.locator("#input").fill("Check the project setup");
   await expect(page.locator("#send")).toBeEnabled();
+});
+
+test("a warning that needs an action still appears", async ({ page }) => {
+  // Only the noise went. A reason the user has to act on is still shown.
+  await openApp(page, { boot: { accounts: [{ id: "claude", connected: false }] } });
+  await page.locator("#modelSel").selectOption("account:claude:opus");
+  await page.locator("#input").fill("do the thing");
+  await expect(page.locator("#composerReason")).toContainText("Connect");
+  await expect(page.locator("#composerReason")).toHaveAttribute("data-tone", "warning");
 });
 
 test("an empty prompt never offers connection settings for an already connected account", async ({ page }) => {
   await openApp(page);
   await page.locator("#modelSel").selectOption("account:claude:opus");
-  await expect(page.locator("#composerReason")).toContainText("Write a prompt before sending");
+  await expect(page.locator("#send")).toBeDisabled();
   await expect(page.getByRole("button", { name: "Open Settings" })).toHaveCount(0);
 });
 
-test("Shift+Enter adds a line while Enter sends and the hint explains both", async ({ page }) => {
+test("Shift+Enter adds a line while Enter sends", async ({ page }) => {
   await openApp(page);
-  await expect(page.locator("#composerHelp")).toContainText("Enter to send · Shift+Enter for a new line");
   await page.locator("#input").fill("first");
   await page.locator("#input").press("Shift+Enter");
   await page.locator("#input").pressSequentially("second");

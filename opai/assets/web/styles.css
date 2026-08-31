@@ -25,10 +25,12 @@ html, body { height: 100%; }
 
 body {
   font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  /* Same three washes, same places, cold hues: ice off the top right,
+     galaxy indigo down the left, and a violet rise from below. */
   background:
-    radial-gradient(1200px 640px at 82% -10%, rgba(52, 211, 153, 0.07), transparent 58%),
-    radial-gradient(1000px 560px at -8% 6%, rgba(116, 182, 255, 0.055), transparent 55%),
-    radial-gradient(900px 700px at 50% 115%, rgba(43, 212, 191, 0.045), transparent 60%),
+    radial-gradient(1200px 640px at 82% -10%, rgba(110, 220, 245, 0.10), transparent 58%),
+    radial-gradient(1000px 560px at -8% 6%, rgba(118, 132, 250, 0.09), transparent 55%),
+    radial-gradient(900px 700px at 50% 115%, rgba(158, 118, 245, 0.075), transparent 60%),
     var(--bg);
   color: var(--ink);
   font-size: var(--type-body);
@@ -392,8 +394,23 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 .main::before {
   /* subtle instrument-panel dot grid behind the workspace */
   content: ""; position: absolute; inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(178, 200, 255, 0.05) 1px, transparent 1px);
   background-size: 26px 26px;
+  pointer-events: none;
+}
+.main::after {
+  /* A low lunar horizon across the bottom of the workspace. Two wide, very
+     flat ellipses whose centres sit *below* the viewport, so only their upper
+     edges show: that curve is the tide line. They overlap off-centre, which
+     gives the crest a slight rise to the left rather than a symmetrical dome
+     -- a dome reads as a bubble, an offset pair reads as ground.
+
+     Deliberately shallow. It is contrast for the panels to sit against, not
+     scenery, so it stops well below the composer. */
+  content: ""; position: absolute; inset: auto 0 0 0; height: 42%;
+  background:
+    radial-gradient(140% 100% at 38% 122%, var(--lunar-crest), transparent 62%),
+    radial-gradient(120% 92% at 72% 128%, var(--lunar-body), transparent 58%);
   pointer-events: none;
 }
 .view-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
@@ -401,7 +418,21 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 .view.active { display: flex; animation: viewIn 0.24s var(--ease); }
 @keyframes viewIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 
-.scroll { overflow-y: auto; flex: 1; min-height: 0; }
+.scroll {
+  overflow-y: auto; flex: 1; min-height: 0;
+  /* The mask below costs a compositing pass per frame. Promoting the scroller
+     and stopping scroll chaining at its edges keeps that pass on the GPU
+     instead of forcing a main-thread repaint of the whole column. */
+  will-change: transform;
+  overscroll-behavior: contain;
+  /* Content dissolves as it approaches the composer instead of being clipped
+     by it. A mask rather than an overlay gradient: an overlay would have to
+     paint the background colour over the text, which would also cover the
+     horizon behind it. This fades the pixels themselves, so the ground still
+     shows through where the text has gone. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 72px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 72px), transparent 100%);
+}
 .jump-latest {
   position: absolute; z-index: 8; left: 50%; bottom: calc(100% + var(--space-2)); transform: translateX(-50%);
   min-height: var(--control-min); display: inline-flex; align-items: center; gap: var(--space-2);
@@ -437,10 +468,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   animation: markRing 3.2s var(--ease) infinite;
 }
 @keyframes markRing { 0% { opacity: 0.9; transform: scale(0.92); } 70%, 100% { opacity: 0; transform: scale(1.14); } }
-.empty-eyebrow {
-  color: var(--faint); font-size: var(--type-caption); font-weight: 750; letter-spacing: 0.14em;
-  text-transform: uppercase; margin-bottom: var(--space-3);
-}
 .empty h1 {
   font-size: clamp(var(--type-title), 4.4vw, var(--type-display)); font-weight: 760; letter-spacing: -0.035em; line-height: 1.08;
   background: linear-gradient(180deg, #ffffff 20%, #aeb9c8 100%);
@@ -761,11 +788,41 @@ kbd {
 /* ---------- composer: the command deck ---------- */
 .composer-wrap { position: relative; padding: var(--space-2) var(--space-7) var(--space-6); max-width: var(--measure-composer); margin: 0 auto; width: 100%; }
 .composer {
-  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  /* Liquid glass: the card is translucent and blurs what is behind it, so the
+     horizon and the dot grid bend through it instead of being covered. The
+     saturate() is what keeps it from going flat grey -- blurring alone washes
+     colour out. The hairline top highlight is the lit edge of the glass, and
+     it is what stops a translucent panel reading as a hole. */
+  background: linear-gradient(180deg, rgba(20, 28, 50, 0.44), rgba(9, 14, 28, 0.34));
+  /* 10px, not 18px. A backdrop filter re-samples everything behind it on every
+     frame the backdrop moves, and the whole thread moves while scrolling, so
+     the radius is the frame budget -- halving it is most of the fix for the
+     tearing. Dimmer too: less light through the glass is less for the blur to
+     smear, and it is what the panel wanted anyway. */
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+  /* Its own compositor layer, so scrolling the thread behind it does not
+     repaint the card itself. Deliberately `will-change` rather than a
+     translateZ hack: a transform would make this a containing block for the
+     fixed-position popovers that open out of it. */
+  will-change: backdrop-filter;
   border: 1px solid var(--border-strong); border-radius: var(--r-xl);
-  padding: var(--space-3) var(--space-4) var(--space-3); box-shadow: var(--shadow-md), var(--inset-hi);
+  padding: var(--space-3) var(--space-4) var(--space-3);
+  box-shadow:
+    var(--shadow-md),
+    inset 0 1px 0 rgba(202, 220, 255, 0.10),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22);
   transition: border-color 0.2s var(--ease), box-shadow 0.2s;
 }
+/* The global :focus-visible treatment draws a ring for keyboard users, which
+   is right for buttons and links and wrong here: the composer is already a
+   card with its own border, and the caret is the focus indicator for a text
+   box. `outline: 0` alone did not remove it -- the ring is also a box-shadow,
+   and that half survived, which is the green glow that appeared around the
+   text on focus. #787 removed the matching ring on the composer card; this is
+   the one inside it. */
+.composer textarea:focus,
+.composer textarea:focus-visible { outline: 0; box-shadow: none; }
 .composer textarea {
   width: 100%; background: transparent; border: 0; outline: 0; resize: none; color: var(--ink);
   font-size: var(--type-body-lg); line-height: 1.5; min-height: 26px; max-height: 180px; user-select: text;
@@ -783,8 +840,8 @@ kbd {
 .context-path { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--glass); color: var(--ink); padding: var(--space-1) var(--space-2); font: inherit; font-size: var(--type-caption); }
 .context-path:focus { border-color: rgba(52, 211, 153, 0.45); outline: 0; }
 .context-add { padding: var(--space-2) var(--space-2); cursor: pointer; white-space: nowrap; }
-.context-help, .composer-help, .composer-reason { color: var(--faint); font-size: var(--type-caption); line-height: 1.4; }
-.context-help, .composer-help { margin-top: var(--space-1); }
+.context-help, .composer-reason { color: var(--faint); font-size: var(--type-caption); line-height: 1.4; }
+.context-help { margin-top: var(--space-1); }
 .composer-reason { min-height: 0; margin-top: var(--space-2); color: var(--warn, #e9c46a); }
 .composer-reason[data-tone="hint"] { color: var(--faint); }
 .composer-reason:empty { display: none; }
@@ -828,17 +885,66 @@ kbd {
 }
 .select:hover { border-color: var(--border-strong); color: var(--ink); }
 .select:focus { outline: 0; border-color: rgba(52, 211, 153, 0.45); }
+/* Send: a capsule of the same glass the composer is made of.
+ *
+ * It used to be the one solid object on the card -- a brand gradient with dark
+ * text and a coloured drop shadow, sitting inside a translucent panel. Against
+ * glass that reads as a sticker, and the gradient was the loudest thing in the
+ * composer.
+ *
+ * So: no gradient. One flat colour at low opacity, an outline that draws the
+ * shape, and the label in the accent rather than knocked out of it. The blur
+ * is the same treatment as the card, so the button is made of the panel
+ * instead of placed on it, and the horizon behind actually passes through it.
+ *
+ * A capsule, not a rounded rectangle. Next to a card with a large radius, a
+ * small radius reads as a different material; a full radius reads as the same
+ * material cut to a different size. It is also the shape the arrow wants --
+ * a stadium points along its own long axis.
+ *
+ * The state changes are all in the fill and the border. There is no lift, no
+ * brightness filter and no drop shadow: a translucent object that brightens on
+ * hover looks lit, and this one is meant to look like glass catching more of
+ * what is already behind it.
+ */
 .send {
-  background: var(--brand-gradient); color: var(--accent-ink);
-  font-weight: 800; font-size: var(--type-label); border: 0; border-radius: var(--r-sm); padding: var(--space-2) var(--space-5); cursor: pointer;
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-weight: var(--weight-semibold); font-size: var(--type-label);
+  border: 1px solid color-mix(in oklab, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  padding: var(--space-2) var(--space-5); cursor: pointer;
   display: inline-flex; align-items: center; gap: var(--space-2);
-  box-shadow: 0 3px 14px var(--accent-glow), var(--inset-hi);
-  transition: transform 0.12s var(--ease), box-shadow 0.18s, filter 0.15s;
+  -webkit-backdrop-filter: blur(8px) saturate(130%);
+  backdrop-filter: blur(8px) saturate(130%);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--accent) 22%, transparent);
+  transition: background 0.16s var(--ease), border-color 0.16s var(--ease), transform 0.1s var(--ease);
 }
-.send:hover { transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-glow); filter: brightness(1.05); }
-.send:active { transform: translateY(0) scale(0.98); }
-.send.stop { background: linear-gradient(180deg, #ff7a8c, #e85f73); color: #2a0810; box-shadow: 0 3px 14px rgba(242, 118, 138, 0.25); }
-.send:disabled { cursor: not-allowed; filter: grayscale(0.5); opacity: 0.55; box-shadow: none; transform: none; }
+.send:hover {
+  background: color-mix(in oklab, var(--accent) 26%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 70%, transparent);
+}
+.send:active { transform: scale(0.98); }
+.send.stop {
+  background: color-mix(in oklab, var(--red) 16%, transparent);
+  border-color: color-mix(in oklab, var(--red) 50%, transparent);
+  color: var(--red);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--red) 22%, transparent);
+}
+.send.stop:hover {
+  background: color-mix(in oklab, var(--red) 28%, transparent);
+  border-color: color-mix(in oklab, var(--red) 72%, transparent);
+}
+/* Disabled dims the glass rather than desaturating it. `grayscale()` on a
+   translucent object greys the backdrop showing through it too, which made
+   the whole corner of the card look smudged. */
+.send:disabled {
+  cursor: not-allowed;
+  background: color-mix(in oklab, var(--accent) 4%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 15%, transparent);
+  color: var(--faint);
+  box-shadow: none; transform: none;
+}
 
 /* ---------- inspector: the control tower ---------- */
 .inspector {
@@ -1996,7 +2102,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 
 /* Send / Stop — accent identity preserved; icon via CSS so app.js can keep
    setting the text label ("Send"/"Stop"/"Build") unchanged. */
-.composer-toolbar .send { height: 34px; border-radius: var(--r-sm); padding: 0 var(--space-4); }
+.composer-toolbar .send { height: 34px; border-radius: 999px; padding: 0 var(--space-4); }
 .composer-toolbar .send::before {
   content: ""; width: 15px; height: 15px; flex: none; background: currentColor;
   -webkit-mask: no-repeat center / contain; mask: no-repeat center / contain;
@@ -2009,10 +2115,6 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 }
 
 /* Helper line, below the card. */
-.composer-help-row { display: flex; align-items: baseline; gap: var(--space-3);
-  padding: var(--space-2) var(--space-3) 0; }
-.composer-help { margin: 0; }
-.composer-summary { margin-left: auto; color: var(--faint); font-size: var(--type-caption); white-space: nowrap; }
 .composer-reason { padding: 0 var(--space-3); }
 
 /* Popovers — one open at a time; anchored to the toolbar. */
@@ -2055,13 +2157,6 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   font: inherit; font-size: var(--type-caption); font-family: ui-monospace, Menlo, monospace; }
 .cpop-note { margin: var(--space-1) var(--space-2) var(--space-2); font-size: var(--type-caption);
   line-height: 1.45; color: var(--faint); }
-.cpop-toggle { align-items: center; }
-.cpop-switch { width: 34px; height: 20px; border-radius: 999px; background: var(--border-strong);
-  flex: none; position: relative; transition: background 0.15s var(--ease); }
-.cpop-switch.on { background: var(--accent); }
-.cpop-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
-  background: #fff; transition: left 0.15s var(--ease); }
-.cpop-switch.on .cpop-knob { left: 16px; }
 .cpop-scope-label { color: var(--faint); font-size: var(--type-caption); padding: var(--space-1) var(--space-2); }
 .cpop-scope { display: flex; gap: var(--space-1); background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--r-sm); padding: var(--space-1); margin: 0 var(--space-2) var(--space-2); }
@@ -2072,19 +2167,11 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 /* Model picker redesign — Auto pinned on top, one flat list of working models. */
 .cpop-note-warn { color: var(--amber); }
 .cpop-row.active { background: color-mix(in oklab, var(--accent) 12%, transparent); }
-.cpop-auto {
-  align-items: center;
-  border: 1px solid color-mix(in oklab, var(--accent) 40%, var(--border));
-  background: color-mix(in oklab, var(--accent) 8%, transparent);
-  margin-bottom: var(--space-1);
-}
-.cpop-auto.active { background: color-mix(in oklab, var(--accent) 16%, transparent); }
-.cpop-autohead { display: flex; align-items: center; gap: var(--space-2); }
-.cpop-tag {
-  font-size: var(--type-caption); letter-spacing: 0.06em; text-transform: uppercase; font-weight: var(--weight-semibold);
-  color: var(--accent); border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
-  border-radius: 999px; padding: var(--space-1) var(--space-2); line-height: var(--type-label-line);
-}
+/* Auto is a row like the rest. The only thing marking it is the brand colour
+   on the word that used to be a pill, sitting in the slot every other row uses
+   for its provider -- so the list stays one column of names with one column of
+   context beside it, and nothing has to be scrolled past to reach a model. */
+.cpop-auto-tag { color: var(--accent); font-weight: var(--weight-medium); }
 .cpop-search { margin: var(--space-1) var(--space-2); }
 .cpop-search input {
   width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--r-sm);
@@ -2136,15 +2223,12 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .composer[data-composer-style="single"] .ctool-model,
 .composer[data-composer-style="single"] .ctool-spacer { display: none; }
 .composer[data-composer-style="single"] .composer-tokens { display: none; }
-.composer[data-composer-style="single"] ~ .composer-help-row .composer-help,
-.composer[data-composer-style="single"] ~ .composer-help-row .composer-summary { display: none; }
 
 /* ---- direction: command bar (1c) ------------------------------------ */
 /* Keyboard-first: tokens visible, mode/model/context buttons recede. */
 .composer[data-composer-style="command"] .ctool-ctx .ctool-txt,
 .composer[data-composer-style="command"] .ctool-mode .ctool-txt,
 .composer[data-composer-style="command"] .ctool-model { display: none; }
-.composer[data-composer-style="command"] ~ .composer-help-row .composer-summary { display: none; }
 
 /* ---- direction: toolbar (1b, default) shows everything (no overrides) */
 
@@ -2152,7 +2236,6 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 @media (max-width: 760px) {
   .composer[data-composer-style="toolbar"] .ctool-ctx .ctool-txt,
   .composer[data-composer-style="toolbar"] .ctool-model .chev { display: none; }
-  .composer-summary { display: none; }
 }
 
 /* Image attachments: a chip that shows the picture, because a filename is not
@@ -2161,8 +2244,8 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .context-hint.context-image {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding-left: 4px;
+  gap: var(--space-2);
+  padding-left: var(--space-1);
 }
 .context-thumb {
   width: 28px;
