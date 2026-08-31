@@ -39,6 +39,12 @@
   --brand-gradient: linear-gradient(135deg, #5fdcdc, #8ea2f5);
   --green: #5fdcdc;
   --amber: #e4bd72;
+
+  /* The horizon: regolith catching starlight, low across the bottom of the
+     workspace. Two stops rather than one so the ground has a lit crest and a
+     darker body, which is what makes it read as a surface and not a smudge. */
+  --lunar-crest: rgba(184, 204, 238, 0.15);
+  --lunar-body: rgba(126, 146, 190, 0.085);
   --red: #f2768a;
   --blue: #74b6ff;
   --claude: #e0937a;
