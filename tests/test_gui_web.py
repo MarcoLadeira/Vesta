@@ -614,6 +614,20 @@ class BootPayloadTests(unittest.TestCase):
         self.assertNotIn("sk-abcdef1234567890abcd", blob)
 
 
+class StreamTokenPayloadTests(unittest.TestCase):
+    def test_block_marker_is_present_only_for_a_new_message(self):
+        from opai.gui_web import _stream_token_payload
+
+        self.assertEqual(
+            _stream_token_payload("request-1", "hello", start_block=False),
+            {"requestId": "request-1", "text": "hello"},
+        )
+        self.assertEqual(
+            _stream_token_payload("request-1", "next", start_block=True),
+            {"requestId": "request-1", "text": "next", "blockStart": True},
+        )
+
+
 class WebAssetsTests(unittest.TestCase):
     def test_asset_fingerprint_changes_when_a_hosted_asset_changes(self):
         with tempfile.TemporaryDirectory() as tmp:

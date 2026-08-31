@@ -418,6 +418,35 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
             "The model failed before producing a response",
         )
 
+    def test_codex_completed_messages_preserve_stream_block_boundaries(self):
+        from opaihub import accounts
+        from opaihub.accounts import AccountRunner
+
+        lines = [
+            '{"type":"thread.started","thread_id":"thread_1"}\n',
+            '{"type":"item.completed","item":{"type":"agent_message",'
+            '"text":"First update."}}\n',
+            '{"type":"item.completed","item":{"type":"agent_message",'
+            '"text":"Final update."}}\n',
+            '{"type":"turn.completed"}\n',
+        ]
+        received: list[tuple[str, bool]] = []
+
+        def on_text(text: str, start_block: bool = False) -> None:
+            received.append((text, start_block))
+
+        setattr(on_text, "accepts_block_start", True)
+        proc_obj = _FakeProc(lines, returncode=0)
+        runner = AccountRunner("codex", "/bin/codex", model="gpt-5.5")
+        with mock.patch.object(accounts, "_popen", return_value=proc_obj):
+            result = runner.stream("hi", on_text=on_text)
+
+        self.assertEqual(
+            received,
+            [("First update.", False), ("Final update.", True)],
+        )
+        self.assertEqual(result["text"], "First update.\n\nFinal update.")
+
     def test_codex_failed_turn_never_streams_last_message_file(self):
         from opaihub import accounts
         from opaihub.accounts import AccountRunner
