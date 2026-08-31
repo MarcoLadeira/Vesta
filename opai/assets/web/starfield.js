@@ -43,22 +43,26 @@
     // A tiny subset breathes. Animating the whole field would mean redrawing
     // it every frame, which is exactly the cost this design exists to avoid.
     shimmerFraction: 0.12,
-    // Shooting stars.
+    // Shooting stars. Every one enters from above the top edge and falls past
+    // the view, so the whole sky moves the same way and you are watching it go
+    // by rather than watching it come at you.
     maxActive: 3,
     spawnInterval: [2.5, 7.0], // seconds
-    speed: [520, 1180], // CSS px/sec at the reference distance
-    lifetime: [0.55, 1.1], // seconds
+    // Slow enough to follow with your eye, and spread widely enough that no
+    // two crossings look like the same star replayed: the fastest is nearly
+    // three times the slowest, which is what stops the sky reading as a loop.
+    speed: [110, 300], // CSS px/sec
     trailLength: [150, 340],
     coreWidth: [1.0, 1.8],
     glowWidth: [3.5, 6],
     headRadius: [1.1, 2.2],
     maxOpacity: [0.55, 0.95],
-    // Where the travel appears to come from, as a fraction of the canvas.
-    // Slightly above centre reads as horizon rather than as a bullseye.
-    vanishingPoint: [0.5, 0.42],
-    // Stars are born a little way out, never exactly at the point: a streak
-    // that starts at zero radius has no direction to inherit and flickers.
-    birthRadius: [60, 190],
+    // Radians off straight-down. Not zero: a field of exactly parallel
+    // verticals reads as rain on a window rather than as sky.
+    tilt: [-0.3, 0.3],
+    // Extra height above the top edge, beyond the trail, so a star is already
+    // moving at full speed by the time any part of it is visible.
+    entryMargin: 40,
     maxDpr: 2,
     // A tab restored after minutes would otherwise advance every star by the
     // whole elapsed time in one step.
@@ -125,23 +129,32 @@
     function spawn() {
       const star = pool.find((s) => !s.alive);
       if (!star) return;
-      const angle = Math.random() * Math.PI * 2;
-      const radius = pick(config.birthRadius);
-      const vx = config.vanishingPoint[0] * width;
-      const vy = config.vanishingPoint[1] * height;
       star.alive = true;
-      star.age = 0;
-      star.lifetime = pick(config.lifetime);
-      star.x = vx + Math.cos(angle) * radius;
-      star.y = vy + Math.sin(angle) * radius;
+      // Straight down, tilted a little. Measured from the +x axis, so PI/2 is
+      // vertical and the tilt leans it left or right.
+      const angle = Math.PI / 2 + pick(config.tilt);
       star.dirX = Math.cos(angle);
       star.dirY = Math.sin(angle);
-      star.speed = pick(config.speed);
       star.trail = pick(config.trailLength);
+      // Born entirely out of bounds above the top edge -- trail included, so
+      // no star is ever seen to appear. A tilted one is also offset sideways
+      // by as much as it will drift, so it can enter from beyond either edge
+      // instead of only from directly above.
+      const drift = Math.abs(star.dirX) * (height + star.trail);
+      star.x = -drift + Math.random() * (width + drift * 2);
+      star.y = -(star.trail + config.entryMargin);
+      star.speed = pick(config.speed);
       star.core = pick(config.coreWidth);
       star.glow = pick(config.glowWidth);
       star.head = pick(config.headRadius);
       star.peak = pick(config.maxOpacity);
+      // The crossing is measured in distance, not seconds: with speeds this
+      // spread out, a fixed lifetime would kill a slow star in mid-air and let
+      // a fast one outlive the screen.
+      star.travelled = 0;
+      star.journey = (height + star.trail + config.entryMargin) / Math.max(0.2, star.dirY);
+      star.currentTrail = star.trail;
+      star.alpha = 0;
     }
 
     function step(dt) {
@@ -150,28 +163,21 @@
         spawn();
         nextSpawn = elapsed + pick(config.spawnInterval);
       }
-      const diagonal = Math.hypot(width, height);
       for (let i = 0; i < pool.length; i += 1) {
         const s = pool[i];
         if (!s.alive) continue;
-        s.age += dt;
-        // Perspective: the further from the vanishing point, the faster it
-        // travels and the longer it streaks. This is the whole reason it
-        // reads as forward motion rather than as drift.
-        const vx = config.vanishingPoint[0] * width;
-        const vy = config.vanishingPoint[1] * height;
-        const dist = Math.hypot(s.x - vx, s.y - vy);
-        const scale = 0.35 + Math.min(1.9, dist / (diagonal * 0.32));
-        s.x += s.dirX * s.speed * scale * dt;
-        s.y += s.dirY * s.speed * scale * dt;
-        s.currentTrail = s.trail * Math.min(1.6, scale);
-        const t = s.age / s.lifetime;
-        // In fast, out slow: a streak that fades in gradually looks like a
-        // fault in the display rather than something arriving.
-        s.alpha = t < 0.12
-          ? s.peak * (t / 0.12)
-          : s.peak * Math.max(0, 1 - (t - 0.12) / 0.88);
-        if (s.age >= s.lifetime || dist > diagonal * 0.75) s.alive = false;
+        // Constant velocity. The speed a star was given at birth is the speed
+        // it keeps: it is passing the window, not accelerating toward anyone.
+        const advance = s.speed * dt;
+        s.x += s.dirX * advance;
+        s.y += s.dirY * advance;
+        s.travelled += advance;
+        // Fade against the crossing rather than against a clock, so a slow
+        // star and a fast one are equally bright at the same point on screen.
+        const p = s.travelled / s.journey;
+        s.alpha =
+          s.peak * Math.min(1, p / 0.12) * Math.min(1, Math.max(0, (1 - p) / 0.22));
+        if (p >= 1) s.alive = false;
       }
     }
 
@@ -238,6 +244,11 @@
       setColour(value) { colour = value; buildField(); },
       setReduced(value) { reduced = value; },
       frame(dt) { step(dt); draw(); },
+      // Test seam. Where a star is born and which way it travels cannot be
+      // asserted from pixels without being flaky -- the sky is deliberately
+      // almost always empty -- and it is the part of this file most likely to
+      // be changed by eye and broken by accident.
+      __debug() { return { width, height, reduced, elapsed, nextSpawn, pool }; },
     };
   }
 
@@ -437,6 +448,7 @@
         if (active) state.loop.start(); else state.loop.stop();
       },
       get usingWorker() { return !!state.worker; },
+      get __renderer() { return state.renderer; },
     };
   }
 
