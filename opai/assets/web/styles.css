@@ -787,6 +787,7 @@ kbd {
 .context-help, .composer-help, .composer-reason { color: var(--faint); font-size: var(--type-caption); line-height: 1.4; }
 .context-help, .composer-help { margin-top: var(--space-1); }
 .composer-reason { min-height: 0; margin-top: var(--space-2); color: var(--warn, #e9c46a); }
+.composer-reason[data-tone="hint"] { color: var(--faint); }
 .composer-reason:empty { display: none; }
 
 /* #295: a message typed while a run is active is held, not discarded. Calm
@@ -1825,7 +1826,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 }
 
 /* Tablet: the inspector folds away but the nav rail stays usable. */
-@media (max-width: 980px) {
+@media (max-width: 1180px) {
   .app, .app.panel-hidden, .app.sidebar-hidden, .app.sidebar-hidden.panel-hidden {
     grid-template-columns: 224px 1fr;
   }
@@ -1917,6 +1918,11 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   .verification-head { flex-direction: column; gap: var(--space-1); }
   .warning-title { min-width: 52px; }
   .df-dir, .cs-stats { display: none; }
+  .composer[data-composer-style="toolbar"] .ctool-mode .ctool-txt,
+  .composer[data-composer-style="toolbar"] .ctool-mode .chev { display: none; }
+  .composer[data-composer-style="toolbar"] .ctool-mode { width: 34px; padding: 0; justify-content: center; }
+  .composer[data-composer-style="toolbar"] .ctool-model { padding-inline: var(--space-2); }
+  .composer-toolbar .send { padding-inline: var(--space-3); }
 }
 
 /* ---------- reduced motion ---------- */
@@ -2131,7 +2137,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 /* ---- direction: toolbar (1b, default) shows everything (no overrides) */
 
 /* Responsive: narrow composer collapses labels to icons/dots. */
-@media (max-width: 620px) {
+@media (max-width: 760px) {
   .composer[data-composer-style="toolbar"] .ctool-ctx .ctool-txt,
   .composer[data-composer-style="toolbar"] .ctool-model .chev { display: none; }
   .composer-summary { display: none; }

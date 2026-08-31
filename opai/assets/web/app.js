@@ -1080,10 +1080,11 @@ function updateComposerAvailability() {
   // availability change (typing, mode/model change, send lifecycle).
   if (window.OPaiComposer) window.OPaiComposer.refresh();
   const blocked = composerBlockReason();
-  if (state.busy) { send.disabled = false; reason.innerHTML = ""; return; }
+  if (state.busy) { send.disabled = false; reason.innerHTML = ""; delete reason.dataset.tone; return; }
   send.disabled = Boolean(blocked);
   send.setAttribute("aria-label", (state.buildMode && state.buildApp) ? "Start build" : "Send prompt");
-  if (!blocked) { reason.innerHTML = ""; send.removeAttribute("aria-describedby"); return; }
+  if (!blocked) { reason.innerHTML = ""; delete reason.dataset.tone; send.removeAttribute("aria-describedby"); return; }
+  reason.dataset.tone = blocked === "Write a prompt before sending." ? "hint" : "warning";
   const action = !state.resumePending && selectedAccountNeedsConnection()
     ? ' <button class="reason-action" type="button">Open Settings</button>'
     : "";

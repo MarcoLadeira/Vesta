@@ -12,6 +12,15 @@ async function expectUsableViewport(page) {
   await expect(page.locator("#input")).toBeVisible();
   await expect(page.locator("#send")).toBeVisible();
   await expect(page.locator("#wsSwitch")).toBeVisible();
+  const [sendBox, chatBox] = await Promise.all([
+    page.locator("#send").boundingBox(),
+    page.locator("#view-chat").boundingBox(),
+  ]);
+  expect(sendBox.x).toBeGreaterThanOrEqual(chatBox.x);
+  expect(
+    sendBox.x + sendBox.width,
+    `Send is clipped at ${page.viewportSize().width}×${page.viewportSize().height}`,
+  ).toBeLessThanOrEqual(chatBox.x + chatBox.width + 0.5);
 }
 
 for (const viewport of [
@@ -40,7 +49,7 @@ for (const viewport of [
 }
 
 test("desktop Inspector remains usable when toggled", async ({ page }) => {
-  await page.setViewportSize({ width: 1040, height: 700 });
+  await page.setViewportSize({ width: 1280, height: 800 });
   await openApp(page);
   await expect(page.locator("#inspector")).toBeVisible();
   await page.getByRole("button", { name: "Inspector" }).click();
@@ -65,6 +74,8 @@ test("agent response remains usable at target widths and layout boundaries", asy
     { width: 1920, height: 1080 },
     { width: 1440, height: 900 },
     { width: 1280, height: 800 },
+    { width: 1181, height: 800 },
+    { width: 1180, height: 800 },
     { width: 1024, height: 768 },
     { width: 981, height: 800 },
     { width: 980, height: 800 },

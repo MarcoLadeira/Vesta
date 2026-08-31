@@ -237,6 +237,7 @@ test("empty prompts are explained instead of silently discarded", async ({ page 
   await openApp(page);
   await expect(page.locator("#send")).toBeDisabled();
   await expect(page.locator("#composerReason")).toContainText("Write a prompt before sending");
+  await expect(page.locator("#composerReason")).toHaveAttribute("data-tone", "hint");
   await page.locator("#input").fill("Check the project setup");
   await expect(page.locator("#send")).toBeEnabled();
 });
