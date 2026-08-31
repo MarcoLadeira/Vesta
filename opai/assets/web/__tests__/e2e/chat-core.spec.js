@@ -49,7 +49,7 @@ test("new chat clears messages and restores the branded empty state", async ({ p
   await finishRequest(page, id);
   await page.locator("#headerNewChat").click();
   await expect(page.locator(".msg")).toHaveCount(0);
-  await expect(page.locator("#empty h1")).toHaveText("Build more. Burn less.");
+  await expect(page.locator("#empty h1")).toHaveText("Better. Faster. Cheaper.");
 });
 
 test("starter chip submits exactly one useful prompt", async ({ page }) => {

@@ -9,8 +9,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("empty state speaks OPai, not the generic prompt", async ({ page }) => {
-  await expect(page.locator("#empty h1")).toHaveText("Build more. Burn less.");
-  await expect(page.locator("#emptySub")).toContainText("hands you the receipt");
+  await expect(page.locator("#empty h1")).toHaveText("Better. Faster. Cheaper.");
+  await expect(page.locator("#emptySub")).toContainText("Every dollar accounted");
   await expect(page.locator("#empty h1")).not.toContainText("What do you want to build");
 });
 

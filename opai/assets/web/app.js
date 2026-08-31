@@ -412,8 +412,6 @@ function applyBrand(brand) {
   const hint = $("#empty .hint");
   if (hint && brand.emptyHint) hint.innerHTML = brand.emptyHint.replace(/Ctrl\+K/, "<kbd>Ctrl</kbd>+<kbd>K</kbd>");
   if (brand.composerPlaceholder) $("#input").placeholder = brand.composerPlaceholder;
-  const eyebrow = $("#emptyEyebrow");
-  if (eyebrow && brand.tagline) eyebrow.textContent = brand.name + " · " + brand.tagline;
 }
 
 // Canonical app-wide updater projection. The backend owns every transition;
