@@ -91,12 +91,9 @@
 
     <!-- main -->
     <main class="main">
-      <!-- Shooting stars, visible only in the unlit stage. Six of them with
-           coprime durations and staggered delays, so the pattern never
-           visibly repeats without needing a random number anywhere. -->
-      <div class="starfall" id="starfall" aria-hidden="true">
-        <i></i><i></i><i></i><i></i><i></i><i></i>
-      </div>
+      <!-- One canvas for the whole sky. Decorative and inert: it never takes
+           a pointer event and is hidden from assistive technology. -->
+      <canvas class="starfall" id="starfall" aria-hidden="true"></canvas>
       <div class="view-wrap" id="viewWrap">
         <!-- chat -->
         <section class="view active" id="view-chat">
@@ -258,6 +255,7 @@
   <script src="run-result.js"></script>
   <script src="message-state.js"></script>
   <script src="icons.js"></script>
+  <script src="starfield.js"></script>
   <script src="settings.js"></script>
   <script src="onboarding.js"></script>
   <script src="app.js"></script>

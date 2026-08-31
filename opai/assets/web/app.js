@@ -322,6 +322,7 @@ function boot() {
     renderEmptyChips();
     wireUpdateSheet();
     wireImageAttachments();
+    mountStarfield();
     syncStage();
     renderUpdateBanner(b.update);
     syncBuildMode();
@@ -1070,6 +1071,18 @@ const EMPTY_PROMPT_REASON = "empty-prompt";
  * position it lands in is the position it already had, so nothing can drift
  * out of alignment as the animation ends.
  */
+let starfield = null;
+
+// Mounted once. The stage owns whether the sky is *visible*; this owns whether
+// it is *running*, so a lit room costs nothing rather than merely hiding an
+// animation that is still burning frames.
+function mountStarfield() {
+  if (starfield || !global0().OPaiStarfield) return;
+  starfield = global0().OPaiStarfield.mount(document.getElementById("starfall"));
+}
+
+function global0() { return window; }
+
 function stageRoot() { return document.getElementById("app"); }
 
 window.addEventListener("resize", () => {
@@ -1154,6 +1167,7 @@ function setStage(stage) {
   if (stage === "dark") measureStageLift();
   root.dataset.stage = stage;
   if (stage === "dark") requestAnimationFrame(measureStageLift);
+  if (starfield) starfield.setActive(stage === "dark");
 }
 
 // A fresh chat is dark; anything with a message in it is lit. Called wherever

@@ -118,19 +118,45 @@ test("shooting stars fall in the dark and stop once the lights are up", async ({
 
   const field = page.locator("#starfall");
   await expect(field).toHaveCSS("opacity", "1");
-  const running = await page.evaluate(() =>
-    Array.from(document.querySelectorAll("#starfall i"))
-      .map((el) => getComputedStyle(el).animationPlayState));
-  expect(running.length).toBe(6);
-  expect(new Set(running)).toEqual(new Set(["running"]));
+
+  // The backing store must match the element. This is the one assertion that
+  // would have caught the bug that shipped invisibly: control was transferred
+  // to an offscreen canvas *before* the worker was constructed, so when the
+  // worker was refused the canvas could never get a 2D context again and sat
+  // at its default 300x150, drawing nothing, with no error anywhere.
+  const size = await page.evaluate(() => {
+    const c = document.getElementById("starfall");
+    const dpr = Math.min(window.devicePixelRatio || 1, window.OPaiStarfield.CONFIG.maxDpr);
+    return { w: c.width, h: c.height, expectedW: Math.round(c.clientWidth * dpr) };
+  });
+  expect(size.w).toBe(size.expectedW);
+  expect(size.h).toBeGreaterThan(200);
+
+  // And it must actually be animating. A hash of the pixels is the only
+  // honest check: the sky is mostly empty by design, so "a star is visible"
+  // is not something a single frame can be relied on to show.
+  const hash = () => page.evaluate(() => {
+    const c = document.getElementById("starfall");
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    // Every alpha byte, not a sample: only a handful of stars shimmer, and a
+    // sparse sample stepped straight over all of them.
+    let acc = 0;
+    for (let i = 3; i < d.length; i += 4) acc += d[i];
+    return acc;
+  });
+  const darkA = await hash();
+  await expect.poll(hash, { timeout: 2000 }).not.toBe(darkA);
 
   await page.locator("#input").fill("lights");
   await page.locator("#send").click();
   await expect.poll(() => page.evaluate(() => window.__mock.sendCount)).toBe(1);
 
   await expect(field).toHaveCSS("opacity", "0");
-  const paused = await page.evaluate(() =>
-    Array.from(document.querySelectorAll("#starfall i"))
-      .map((el) => getComputedStyle(el).animationPlayState));
-  expect(new Set(paused)).toEqual(new Set(["paused"]));
+  // Lit: the loop is cancelled, not merely hidden, so the frame stops
+  // changing. A decorative background has no business burning frames behind
+  // a conversation.
+  await page.waitForTimeout(120);
+  const litA = await hash();
+  await page.waitForTimeout(350);
+  expect(await hash()).toBe(litA);
 });
