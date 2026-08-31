@@ -25,10 +25,12 @@ html, body { height: 100%; }
 
 body {
   font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  /* Same three washes, same places, cold hues: ice off the top right,
+     galaxy indigo down the left, and a violet rise from below. */
   background:
-    radial-gradient(1200px 640px at 82% -10%, rgba(52, 211, 153, 0.07), transparent 58%),
-    radial-gradient(1000px 560px at -8% 6%, rgba(116, 182, 255, 0.055), transparent 55%),
-    radial-gradient(900px 700px at 50% 115%, rgba(43, 212, 191, 0.045), transparent 60%),
+    radial-gradient(1200px 640px at 82% -10%, rgba(110, 220, 245, 0.10), transparent 58%),
+    radial-gradient(1000px 560px at -8% 6%, rgba(118, 132, 250, 0.09), transparent 55%),
+    radial-gradient(900px 700px at 50% 115%, rgba(158, 118, 245, 0.075), transparent 60%),
     var(--bg);
   color: var(--ink);
   font-size: var(--type-body);
@@ -392,7 +394,7 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 .main::before {
   /* subtle instrument-panel dot grid behind the workspace */
   content: ""; position: absolute; inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(178, 200, 255, 0.05) 1px, transparent 1px);
   background-size: 26px 26px;
   pointer-events: none;
 }
