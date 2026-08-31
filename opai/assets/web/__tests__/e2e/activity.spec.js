@@ -17,7 +17,11 @@ const reqId = (page) => page.evaluate(() => window.__mock.reqId());
 
 test("generation shows status bar, model, timer and stop", async ({ page }) => {
   await sendPrompt(page, "hello");
-  await expect(page.locator(".gen-stage")).toBeVisible();
+  await expect(page.locator(".gen-stage")).toContainText("is preparing your response");
+  await expect(page.locator(".gen-work-surface")).toBeVisible();
+  await expect(page.locator(".gen-eyebrow")).toHaveText("Active work");
+  await expect(page.locator(".thinking")).toHaveCount(0);
+  await expect(page.locator(".gen-toggle")).toHaveText("View work log · 0");
   await expect(page.locator(".gen-time")).toHaveText(/0\d:\d\d/);
   await expect(page.locator(".gen-stop")).toBeVisible();
   await expect(page.locator("body")).toHaveClass(/ai-working/);
@@ -62,9 +66,14 @@ test("a live final response uses its structured evidence and work log", async ({
 test("activity timeline receives events", async ({ page }) => {
   await sendPrompt(page);
   const id = await reqId(page);
-  await page.evaluate((id) => window.__mock.emitActivity(id, { id: "e1", type: "file_read", status: "success", title: "Read file: app.py" }), id);
+  await page.evaluate((id) => window.__mock.emitActivity(id, {
+    id: "e1", type: "file_read", status: "success", title: "Reading project files", detail: "app.py",
+  }), id);
+  await expect(page.locator(".gen-stage")).toHaveText("Reading project files");
+  await expect(page.locator(".gen-detail")).toHaveText("app.py");
+  await expect(page.locator(".gen-toggle")).toHaveText("View work log · 1");
   await page.click(".gen-toggle");
-  await expect(page.locator(".timeline .tl-t")).toContainText("Read file: app.py");
+  await expect(page.locator(".timeline .tl-t")).toContainText("Reading project files");
 });
 
 test("real agent operations update distinct timeline rows without duplicates", async ({ page }) => {
