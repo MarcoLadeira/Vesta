@@ -91,6 +91,9 @@ describe("chat presentation components", () => {
     const html = components.renderWorkLog(presentation, { density: "balanced" });
     expect(html).toContain('class="gen-toggle done"');
     expect(html).toContain('class="timeline done"');
+    expect(html).toContain('role="log"');
+    const controlledId = html.match(/aria-controls="([^"]+)"/)[1];
+    expect(html).toContain(`id="${controlledId}"`);
     expect(html).toContain('class="work-log-group"');
     expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
     expect(html).not.toContain("<img");

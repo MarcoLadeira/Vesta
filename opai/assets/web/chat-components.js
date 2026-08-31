@@ -7,6 +7,7 @@
   "use strict";
 
   var RESPONSE_DENSITIES = ["compact", "balanced", "detailed"];
+  var workLogSequence = 0;
 
   function esc(value) {
     return String(value == null ? "" : value)
@@ -214,9 +215,10 @@
       return '<details class="work-log-group"' + open + "><summary>" +
         esc(group.phase) + " (" + group.rows.length + ")</summary>" + rows + "</details>";
     }).join("");
+    var logId = "work-log-" + (++workLogSequence);
     return '<button class="gen-toggle done" type="button" data-label="' + esc(label) +
-      '" aria-expanded="' + (model.expanded ? "true" : "false") + '">' + esc(label) +
-      '</button><div class="timeline done" aria-label="AI activity"' +
+      '" aria-controls="' + logId + '" aria-expanded="' + (model.expanded ? "true" : "false") + '">' + esc(label) +
+      '</button><div class="timeline done" id="' + logId + '" role="log" aria-label="AI activity"' +
       (model.expanded ? "" : " hidden") + ">" + groups + "</div>";
   }
 

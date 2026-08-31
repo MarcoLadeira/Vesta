@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
 
 
 test.beforeEach(async ({ page }) => openApp(page));
@@ -25,6 +25,21 @@ test("a collapsed 2000-event burst defers all row rendering until activity opens
   await expect(page.locator(".gen-toggle")).toContainText("2000");
   await page.locator(".gen-toggle").click();
   await expect(page.locator(".timeline .tl-row")).toHaveCount(2000);
+});
+
+test("a completed collapsed activity log stays unmounted until opened", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await page.evaluate((requestId) => {
+    for (let i = 0; i < 2000; i++) {
+      window.__mock.emitActivity(requestId, {
+        id: `done-${i}`, type: "tool_call", status: "success", title: `Step ${i}`,
+      });
+    }
+  }, id);
+  await finishRequest(page, id);
+  await expect(page.locator(".timeline.done .tl-row")).toHaveCount(0);
+  await page.locator(".gen-toggle.done").click();
+  await expect(page.locator(".timeline.done .tl-row")).toHaveCount(2000);
 });
 
 // #247: an explicit wall-clock budget so the O(n^2) rewrite can never creep

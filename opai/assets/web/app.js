@@ -71,6 +71,8 @@ const state = {
 };
 const providerLoginRequests = new Map();
 let doctorRefreshRequestId = null;
+let activityDisclosureSequence = 0;
+let pendingActivitySnapshot = null;
 
 /* ---------- markdown ---------- */
 function mdToHtml(src) {
@@ -2001,6 +2003,7 @@ function send(retryOf) {
 }
 
 function buildPending(sel) {
+  const activityLogId = `activity-live-${++activityDisclosureSequence}`;
   const el = appendMsg(
     roleHeader("OPai", "var(--accent)") +
     `<div class="gen">
@@ -2011,8 +2014,8 @@ function buildPending(sel) {
          <button class="gen-stop" aria-label="Stop generation">Stop</button>
        </div>
        <div class="gen-reassure" aria-live="polite"></div>
-       <button class="gen-toggle" aria-expanded="false">Show activity</button>
-       <div class="timeline" role="log" aria-label="AI activity" hidden></div>
+       <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="false">Show activity</button>
+       <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity" hidden></div>
        <div class="body stream response-prose"></div>
      </div>`, "bot");
   state.pending = el;
@@ -2027,12 +2030,12 @@ function buildPending(sel) {
   };
 }
 
-function tlRowInner(e) {
+function tlRowInner(e, startTime = state.startTime) {
   // Each row carries its real offset from the start of the run (the events
   // have true epoch timestamps). No timestamp -> no label, never invented.
   let ts = "";
-  if (typeof e.timestamp === "number" && state.startTime && e.timestamp >= state.startTime) {
-    ts = `<span class="tl-ts">+${((e.timestamp - state.startTime) / 1000).toFixed(1)}s</span>`;
+  if (typeof e.timestamp === "number" && startTime && e.timestamp >= startTime) {
+    ts = `<span class="tl-ts">+${((e.timestamp - startTime) / 1000).toFixed(1)}s</span>`;
   }
   return `<span class="tl-ic">${uiIcon(ICON[e.status] || "pending")}</span>` +
     `<span class="tl-t">${esc(e.title)}</span>${e.detail ? `<span class="tl-d">${esc(e.detail)}</span>` : ""}${ts}`;
@@ -2042,15 +2045,17 @@ function truncationRowInner(count) {
     `<span class="tl-t">${count.toLocaleString()} earlier steps hidden</span>` +
     `<span class="tl-d">dropped to stay fast</span>`;
 }
-function timelineRows() {
-  // Flat archive: every raw event, all detail visible. Used by the frozen
-  // post-completion block. Keep the cap marker when the live view freezes so
-  // dropped rows never become silent after a request completes.
-  const truncated = state.store.truncatedCount ? state.store.truncatedCount() : 0;
+function timelineRows(snapshot) {
+  const source = snapshot || {
+    events: state.store.list(),
+    startTime: state.startTime,
+    truncated: state.store.truncatedCount ? state.store.truncatedCount() : 0,
+  };
+  const truncated = source.truncated || 0;
   const marker = truncated > 0
     ? `<div class="tl-row tl-truncation">${truncationRowInner(truncated)}</div>`
     : "";
-  return marker + state.store.list().map((e) => `<div class="tl-row ${e.status}">${tlRowInner(e)}</div>`).join("");
+  return marker + source.events.map((e) => `<div class="tl-row ${e.status}">${tlRowInner(e, source.startTime)}</div>`).join("");
 }
 // A group is auto-expanded when any child errored (surface the failure), else
 // it honors the user's toggle.
@@ -2520,24 +2525,43 @@ function restoreChatScroll(snapshot) {
 }
 function withChatScrollPreserved(change) {
   const snapshot = captureChatScroll();
-  const result = change();
-  restoreChatScroll(snapshot);
-  return result;
+  try {
+    return change();
+  } finally {
+    restoreChatScroll(snapshot);
+  }
 }
 function stripStopNote(t) { return String(t || "").replace(/\n\n_\(stopped by you\)_\s*$/, ""); }
 
 function activitySummaryHtml() {
   const n = state.store ? state.store.events.length : 0;
   if (!n) return "";
-  return `<button class="gen-toggle done" data-label="Activity (${n})">Activity (${n})</button>` +
-    `<div class="timeline done" hidden>${timelineRows()}</div>`;
+  const id = `activity-log-${++activityDisclosureSequence}`;
+  pendingActivitySnapshot = {
+    id,
+    events: state.store.list().slice(),
+    startTime: state.startTime,
+    truncated: state.store.truncatedCount ? state.store.truncatedCount() : 0,
+  };
+  return `<button class="gen-toggle done" type="button" data-label="Activity (${n})" aria-controls="${id}" aria-expanded="false">Activity (${n})</button>` +
+    `<div class="timeline done" id="${id}" role="log" aria-label="AI activity" hidden></div>`;
 }
 function wireActivitySummary(el) {
   const btn = el.querySelector(".gen-toggle.done");
+  const pending = pendingActivitySnapshot;
+  pendingActivitySnapshot = null;
   if (!btn) return;
+  const controlledId = btn.getAttribute("aria-controls");
+  const tl = controlledId ? el.querySelector(`#${CSS.escape(controlledId)}`) : el.querySelector(".timeline.done");
+  const snapshot = pending && pending.id === controlledId ? pending : null;
+  let hydrated = !snapshot;
   btn.onclick = () => {
-    const tl = el.querySelector(".timeline.done");
+    if (!tl) return;
     if (tl.hasAttribute("hidden")) {
+      if (!hydrated) {
+        withChatScrollPreserved(() => { tl.innerHTML = timelineRows(snapshot); });
+        hydrated = true;
+      }
       tl.removeAttribute("hidden");
       btn.setAttribute("aria-expanded", "true");
       btn.textContent = "Hide activity";

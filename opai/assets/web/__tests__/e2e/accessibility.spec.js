@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
 
 
 test.beforeEach(async ({ page }) => openApp(page));
@@ -32,9 +32,33 @@ test("workspace menu exposes expanded state and keyboard-close behavior", async 
 
 test("activity status uses log and polite live-region semantics", async ({ page }) => {
   await sendPrompt(page);
-  await expect(page.getByRole("log", { name: "AI activity" })).toBeAttached();
+  const toggle = page.locator(".gen-toggle");
+  const controlledId = await toggle.getAttribute("aria-controls");
+  expect(controlledId).toBeTruthy();
+  await expect(page.locator(`#${controlledId}`)).toHaveAttribute("role", "log");
+  await expect(page.locator(`#${controlledId}`)).toHaveAttribute("aria-label", "AI activity");
   await expect(page.locator(".gen-reassure")).toHaveAttribute("aria-live", "polite");
   await expect(page.locator("#inspLive")).toHaveAttribute("aria-live", "polite");
+});
+
+test("completed work log disclosure stays keyboard operable and correctly controlled", async ({ page }) => {
+  const id = await sendPrompt(page);
+  await finishRequest(page, id, {
+    presentation: {
+      schema_version: 1,
+      activity: [{ phase: "test", status: "completed", message: "Focused checks passed" }],
+    },
+  });
+  const toggle = page.locator(".gen-toggle.done");
+  const controlledId = await toggle.getAttribute("aria-controls");
+  const log = page.locator(`#${controlledId}`);
+  await expect(log).toHaveAttribute("role", "log");
+  await expect(log).toBeHidden();
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(log).toBeVisible();
+  await expect(toggle).toBeFocused();
 });
 
 test("command palette is exposed as a labelled dialog", async ({ page }) => {

@@ -931,7 +931,8 @@ html.activity-select-off .gen, html.activity-select-off .timeline { user-select:
 .gen-reassure.warn { color: var(--amber); }
 .gen-switch, .gen-reassure a { color: var(--blue); cursor: pointer; text-decoration: underline; }
 .gen-toggle {
-  align-self: flex-start; background: transparent; border: 0; color: var(--faint);
+  align-self: flex-start; display: inline-flex; align-items: center; min-height: var(--control-min);
+  background: transparent; border: 0; color: var(--faint);
   font-size: var(--type-caption); cursor: pointer; padding: var(--space-1) 0; transition: color 0.15s var(--ease);
 }
 .gen-toggle:hover { color: var(--accent); }
