@@ -108,7 +108,7 @@
   --surface-code: #090b10;
   --surface-code-head: #0d1118;
   --border-code: rgba(255, 255, 255, 0.10);
-  --focus-ring: 0 0 0 3px rgba(52, 211, 153, 0.24);
+  --focus-ring: 0 0 0 3px var(--accent-glow);
   --control-min: 32px;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
 }

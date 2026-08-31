@@ -765,6 +765,15 @@ kbd {
   padding: var(--space-3) var(--space-4) var(--space-3); box-shadow: var(--shadow-md), var(--inset-hi);
   transition: border-color 0.2s var(--ease), box-shadow 0.2s;
 }
+/* The global :focus-visible treatment draws a ring for keyboard users, which
+   is right for buttons and links and wrong here: the composer is already a
+   card with its own border, and the caret is the focus indicator for a text
+   box. `outline: 0` alone did not remove it -- the ring is also a box-shadow,
+   and that half survived, which is the green glow that appeared around the
+   text on focus. #787 removed the matching ring on the composer card; this is
+   the one inside it. */
+.composer textarea:focus,
+.composer textarea:focus-visible { outline: 0; box-shadow: none; }
 .composer textarea {
   width: 100%; background: transparent; border: 0; outline: 0; resize: none; color: var(--ink);
   font-size: var(--type-body-lg); line-height: 1.5; min-height: 26px; max-height: 180px; user-select: text;

@@ -2,6 +2,23 @@ import { test, expect } from "@playwright/test";
 
 import { openApp, openNav } from "./helpers/app.js";
 
+test("focusing the input adds no ring around the text either", async ({ page }) => {
+  // #787 removed the ring on the composer card. The same ring was also being
+  // drawn inside it, on the textarea, by the global :focus-visible rule --
+  // `outline: 0` cleared half of it and left the box-shadow, which is the
+  // glow that showed up around the placeholder.
+  await openApp(page);
+  const input = page.locator("#input");
+  await input.focus();
+  const ring = await input.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineWidth: style.outlineWidth, boxShadow: style.boxShadow };
+  });
+
+  expect(ring.boxShadow).toBe("none");
+  expect(ring.outlineWidth).toBe("0px");
+});
+
 test("typing does not add a focus highlight around the composer", async ({ page }) => {
   await openApp(page);
   const composer = page.locator("#composer");
