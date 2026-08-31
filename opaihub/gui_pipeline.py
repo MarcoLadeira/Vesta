@@ -1096,12 +1096,25 @@ def _handle_gui_message(
     effective_policy: VerificationPolicy | None = None
     verification_policy_payload: dict[str, Any] = {}
     verification_policy_error = ""
-    if will_edit:
+    # A workspace with no repository in it is an ordinary workspace, not a
+    # safety failure.
+    #
+    # This used to raise, so every edit-capable turn in a plain folder -- a
+    # synced drive, a scratch directory, a project not yet under version
+    # control -- was refused with "OPai could not establish and persist a fresh
+    # repository identity ... inspect the repository and retry", about a
+    # repository that did not exist. In Bypass permissions, where every
+    # non-discovery turn is edit-capable, that refused *every* message in the
+    # folder, including ones that only asked for code to read.
+    #
+    # What is genuinely lost without a repository is staleness detection: OPai
+    # cannot tell whether a file changed under it between reading and writing,
+    # because there is no index or HEAD to compare against. That is worth
+    # saying out loud, which the warning below does. It is not worth refusing
+    # to work over.
+    repository_unavailable = not repo_context.is_git
+    if will_edit and repo_context.is_git:
         try:
-            if not repo_context.is_git:
-                raise RepositoryProbeError(
-                    "probe_unavailable", "An edit-capable run requires a Git worktree"
-                )
             task_repository_handle = capture_repository_handle(
                 repo_context.path,
                 task_id=runtime.task_id,
@@ -1111,7 +1124,12 @@ def _handle_gui_message(
             repo_context = context_from_repository_handle(task_repository_handle)
             save_active_repo(root, repo_context)
         except (RepositoryProbeError, RepositorySafetyPersistenceError) as exc:
-            repository_safety_error = safe_detail(exc)[:400]
+            # A repository that exists and cannot be read is still an anomaly,
+            # and still blocks. Only "no repository at all" proceeds.
+            if getattr(exc, "reason", "") == "not_a_repository":
+                repository_unavailable = True
+            else:
+                repository_safety_error = safe_detail(exc)[:400]
     if will_edit and not repository_safety_error:
         try:
             effective_policy = resolve_verification_policy(
@@ -1382,6 +1400,26 @@ def _handle_gui_message(
     def _decorate(payload: dict[str, Any]) -> dict[str, Any]:
         status = str(payload.get("status") or "error")
         edit_intent = policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}
+        if repository_unavailable and will_edit:
+            # Stated once per turn, as a warning rather than a refusal: the run
+            # goes ahead, and the user is told exactly which protection is not
+            # available to it and how to get it back.
+            payload = {
+                **payload,
+                "warnings": [
+                    *(payload.get("warnings") or []),
+                    {
+                        "severity": "warning",
+                        "reason": "not_a_repository",
+                        "detail": (
+                            "This workspace is a plain folder, so OPai cannot "
+                            "detect changes made underneath it while it works, "
+                            "and Git operations are unavailable. Run `git init` "
+                            "here to enable both."
+                        ),
+                    },
+                ],
+            }
         verification_manifest_payload: dict[str, Any] = {}
         if (
             status == "answered"
