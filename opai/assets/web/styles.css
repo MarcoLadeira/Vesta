@@ -1087,7 +1087,7 @@ kbd {
 html.activity-select-off .gen, html.activity-select-off .timeline { user-select: none; }
 .gen { display: flex; flex-direction: column; gap: var(--space-2); }
 .gen-head, .gen-reassure, .gen-toggle, .timeline {
-  width: 100%; max-width: var(--measure-prose); margin-inline: auto;
+  width: 100%;
 }
 .gen-head {
   display: flex; align-items: center; gap: var(--space-2);
