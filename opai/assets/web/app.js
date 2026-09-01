@@ -353,7 +353,6 @@ function boot() {
     if (window.OPaiComposer) window.OPaiComposer.applyBootStyle();
     switchView("chat");
     if (b.initialTask) setComposerDraft(b.initialTask);
-    renderResumeChoice();
     // F16: if this workspace requests Full Auto but has no pin, surface the
     // acknowledgement even though no dropdown change event fired.
     // #246: the inspector payload is deferred at boot; fetch it now only if the
@@ -648,7 +647,7 @@ function rebootFromState() {
   renderStatus(b.status); renderAccount(); renderEmptyChips();
   renderUpdateBanner(b.update);
   syncBuildMode();
-  clearChat(); switchView("chat"); renderResumeChoice();
+  clearChat(); switchView("chat");
   // The inspector payload is deferred like at boot; refresh it for the new
   // workspace when the panel is actually visible.
   if (state.panel) refreshInspector();
@@ -819,13 +818,20 @@ function renderRecents() {
     return;
   }
   rec.innerHTML = "";
-  list.forEach((conv) => {
+  list.forEach((conv, index) => {
     const title = String(conv.title || "Untitled chat");
     const b = document.createElement("button");
-    b.className = "recent";
+    // The list is newest-first (list_conversations sorts by updated_ts), so the
+    // first entry is the chat you were last in. Marking it is the whole of what
+    // the resume gate was for: say where you were, and let you go back if you
+    // want to -- without standing between you and a new chat.
+    const previous = index === 0;
+    b.className = previous ? "recent is-previous" : "recent";
     b.dataset.conversationId = conv.id;
     const turns = Number(conv.message_count) || 0;
-    b.textContent = title.length > 34 ? title.slice(0, 33) + "…" : title;
+    const label = title.length > 34 ? title.slice(0, 33) + "…" : title;
+    b.innerHTML = `<span class="recent-title">${esc(label)}</span>`
+      + (previous ? `<span class="recent-tag">Previous chat</span>` : "");
     b.title = `${title}\n${turns} message${turns === 1 ? "" : "s"}`;
     b.onclick = () => openConversation(conv.id);
     rec.appendChild(b);
@@ -1660,12 +1666,6 @@ function setResumeGate(on) {
   const input = $("#input"), buildToggle = $("#buildToggle");
   if (input) input.disabled = !!on;
   if (buildToggle) buildToggle.disabled = !!on;
-  // While the gate is up the card is the only thing in the thread, so the
-  // thread centres it. Marked here rather than on the card because it is a
-  // property of the room, not of the card, and it has to come off again the
-  // moment the gate does -- a centred thread would fight a real transcript.
-  const scroll = $("#chatScroll");
-  if (scroll) scroll.classList.toggle("gated", !!on);
   updateComposerAvailability();
 }
 function clearFailure(message) {
@@ -1685,149 +1685,19 @@ function parseClearResponse(raw) {
 // #416: drop the "Resume your previous work?" choice card from the DOM right now,
 // on click — the dismissal must not wait for the async session bridge to answer,
 // or a slow/contended clear leaves an interactive card the user clicks twice.
-function dismissResumeChoice() {
-  document.querySelectorAll(".msg.resume-choice").forEach((el) => el.remove());
-}
 function showSessionClearFailure(response) {
   if (response && response.resume) state.boot.resume = response.resume;
   const error = (response && response.error) || {};
   const action = (error.recoveryActions || [])[0] || "Try again.";
   const message = `${error.userMessage || "Saved work could not be cleared."} ${action}`;
-  // The choice was dismissed synchronously on click (#416); the clear failed, so
-  // bring it back rather than stranding the user with saved work they can't reach.
-  let card = document.querySelector(".resume-card");
-  if (!card && state.boot && state.boot.resume && state.boot.resume.requires_choice) {
-    renderResumeChoice();
-    card = document.querySelector(".resume-card");
-  }
-  let alert = card && card.querySelector("[data-clear-error]");
-  if (card && !alert) {
-    alert = document.createElement("div");
-    alert.className = "rc-error";
-    alert.setAttribute("role", "alert");
-    alert.setAttribute("data-clear-error", "");
-    card.appendChild(alert);
-  }
-  if (alert) {
-    alert.textContent = message;
-    setResumeGate(true);
-  } else {
-    appendMsg(
-      roleHeader("OPai", "var(--red)") + `<div class="body" role="alert">${esc(message)}</div>`,
-      "bot",
-    );
-    setResumeGate(false);
-  }
-}
-function resumeSummaryHtml(resume) {
-  const flow = resume.workflow || {}, checkpoint = resume.checkpoint || {};
-  const plan = ((resume.thread || {}).plan || []).map((item) => item.step).filter(Boolean);
-  const steps = plan.length ? plan : (flow.plan_steps || []);
-  const changed = (resume.thread && resume.thread.changed_files) || [];
-  const recovery = (flow.next_actions || []).length
-    ? flow.next_actions
-    : (checkpoint.recovery_actions || []);
-  return `<div class="resume-summary" role="status">
-    <div class="rs-title">Work restored</div>
-    ${checkpoint.id ? `<div class="rs-row">Checkpoint ${esc(checkpoint.id)} · ${esc(checkpoint.completion_state || "saved")}</div>` : ""}
-    ${flow.message ? `<div class="rs-row">${esc(flow.message)}</div>` : ""}
-    ${steps.length ? `<div class="rs-label">Plan</div><ul>${steps.map((step) => `<li>${esc(step)}</li>`).join("")}</ul>` : ""}
-    ${changed.length ? `<div class="rs-row">Changed files: ${esc(changed.join(", "))}</div>` : ""}
-    ${recovery.length ? `<div class="rs-row">Next: ${esc(recovery[0])}</div>` : ""}
-  </div>`;
-}
-function pendingResumeAction(resume) {
-  const gates = ((resume.workflow || {}).safety_gates || {});
-  const raw = gates.pending_action;
-  if (!raw || raw.kind !== "auto_cloud_confirmation") return null;
-  const modelId = String(raw.model_id || "");
-  const modelLabel = String(raw.model_label || "");
-  if (!/^(free|account):/.test(modelId) || !modelLabel) return null;
-  return { kind: raw.kind, modelId, modelLabel };
-}
-function renderResumedPendingAction(resume, action, messages) {
-  const lastUser = [...messages].reverse().find((item) => item.role === "user");
-  const lastAssistant = [...messages].reverse().find((item) => item.role === "assistant");
-  if (!lastUser) return false;
-  const flow = resume.workflow || {};
-  const provider = action.modelId.split(":")[1] || "";
-  const sel = {
-    text: String(lastUser.text || ""),
-    model: action.modelId,
-    mode: String((flow.provider || {}).run_mode || state.mode.id),
-    focus: state.focus,
-    format: state.format,
-    modelKind: action.modelId.startsWith("free:") ? "free" : "account",
-    modelLabel: action.modelLabel,
-    modelProvider: provider,
-    contextHints: [],
-    attachments: {},
-    build: String(((resume.thread || {}).mode) || "") === "build",
-  };
-  // Restoring the inert selection does not grant authority. renderErrorCard's
-  // named Confirm button is still the only path that adds allowCloud: true.
-  state.lastSend = sel;
-  const el = appendMsg("", "bot resumed-approval");
-  renderErrorCard(el, "needs_auto_confirmation", {
-    answer: String((lastAssistant && lastAssistant.text) || "Confirm the named cloud model to continue."),
-    fallbackModelId: action.modelId,
-    fallbackModelLabel: action.modelLabel,
-    cloudStarted: false,
-  }, sel);
-  return true;
-}
-function restoreSession(resume) {
-  clearChat();
-  const messages = ((resume.thread || {}).messages || []);
-  const pendingAction = pendingResumeAction(resume);
-  let pendingAssistantIndex = -1;
-  if (pendingAction) {
-    for (let index = messages.length - 1; index >= 0; index--) {
-      if (messages[index].role === "assistant") {
-        pendingAssistantIndex = index;
-        break;
-      }
-    }
-  }
-  // One arrival, not twenty. The checkpoint card is removed the instant it is
-  // clicked (#416) and the session it described appears in its place with a
-  // single fade, which is what makes continuing feel like the same workspace
-  // carrying on rather than a page being replaced.
-  withChatBatch(() => {
-    messages.forEach((message, index) => {
-      if (message.role === "user") {
-        appendMsg(userMessageHtml(message.text || ""), "user");
-      } else if (message.role === "assistant" && index !== pendingAssistantIndex) {
-        const el = appendMsg(
-          assistantPresentationHtml(
-            roleHeader("OPai", "var(--accent)"),
-            message.text || "",
-            message.presentation,
-          ),
-          "bot",
-        );
-        wireActivitySummary(el);
-        wireStructuredEvidence(el);
-        enhanceCodeBlocks(el);
-      }
-    });
-    if (pendingAction) renderResumedPendingAction(resume, pendingAction, messages);
-    appendMsg(resumeSummaryHtml(resume), "bot resume-restored");
-  });
-  if (state.boot.resume) state.boot.resume.requires_choice = false;
+  // Say it in the thread and release the composer. There is no choice card to
+  // bring back any more, and a composer left disabled with nothing on screen
+  // explaining why is the worst of both.
+  appendMsg(
+    roleHeader("OPai", "var(--red)") + `<div class="body" role="alert">${esc(message)}</div>`,
+    "bot",
+  );
   setResumeGate(false);
-  $("#input").focus();
-}
-function activateResumeSession(resume) {
-  setResumeGate(true);
-  if (!bridge || !bridge.resumeSession) return;
-  dismissResumeChoice();  // #416: dismiss on click; re-surface if activation fails
-  bridge.resumeSession((raw) => {
-    let activated = false;
-    try { activated = !!JSON.parse(raw || "{}").activated; } catch (_e) { activated = false; }
-    if (activated) restoreSession(resume);
-    else renderResumeChoice();
-  });
 }
 function startFreshSession() {
   const done = (raw) => {
@@ -1842,232 +1712,9 @@ function startFreshSession() {
     $("#input").focus();
   };
   setResumeGate(true);
-  dismissResumeChoice();  // #416: remove the card now, not on the bridge callback
   if (bridge && bridge.clearSession) bridge.clearSession(done);
   else showSessionClearFailure(clearFailure("Saved work could not be cleared."));
 }
-/* ---------- the session checkpoint ----------
- *
- * OPai should not ask whether you remember your last session. It has the
- * session; it should tell you what it was.
- *
- * The card that used to sit here asked "Resume your previous work?" over a
- * message count and a raw phase word, which is everything the app knew
- * expressed as almost nothing the user could use. The four questions worth
- * answering before anyone clicks are: what was I doing, what changed, where
- * did we stop, and what happens if I continue. All four are already in the
- * boot payload -- `checkpoint.changed_files`, `workflow.tests_status`,
- * `workflow.phase`, `workflow.next_actions` -- and none of it was shown.
- *
- * Everything below degrades: a field that is missing produces no line, never
- * a blank one or an invented one.
- */
-
-// The phase vocabulary is RuntimePhase in agent_runtime.py, which is finer
-// than anyone wants to read on a card. These are the stages a person would
-// name, and every phase maps into exactly one of them.
-const RESUME_STAGES = [
-  { key: "prompt", label: "Prompt", phases: ["idle", "intent_resolved", "repo_resolved", "issue_selected", "context_gathering"] },
-  { key: "plan", label: "Plan", phases: ["planning", "awaiting_approval"] },
-  { key: "edit", label: "Edit", phases: ["implementing"] },
-  { key: "tests", label: "Tests", phases: ["testing", "repairing"] },
-  { key: "end", label: "Review", phases: ["reviewing_diff", "preparing_pr", "pr_created", "merge_check_running", "merged", "blocked", "failed", "completed"] },
-];
-
-// How the last node reads depends on how the run actually ended: a session
-// that failed and one that finished are not the same invitation.
-const RESUME_END_LABEL = {
-  failed: "Failed", blocked: "Blocked", completed: "Done", merged: "Merged",
-};
-
-function resumeStageIndex(phase) {
-  const found = RESUME_STAGES.findIndex((stage) => stage.phases.includes(phase));
-  // An unknown phase is placed at the beginning rather than guessed forward:
-  // claiming work reached "Tests" when OPai does not know is worse than
-  // claiming nothing.
-  return found < 0 ? 0 : found;
-}
-
-function resumeWhen(resume) {
-  const checkpoint = resume.checkpoint || {};
-  const messages = (resume.thread || {}).messages || [];
-  const last = messages.length ? messages[messages.length - 1] : {};
-  const raw = checkpoint.finalized_at || checkpoint.created_at
-    || (resume.workflow || {}).updated_at || last.timestamp || "";
-  const at = raw ? new Date(raw) : null;
-  if (!at || Number.isNaN(at.getTime())) return null;
-  const minutes = Math.max(0, Math.round((Date.now() - at.getTime()) / 60000));
-  const ago = minutes < 1 ? "just now"
-    : minutes < 60 ? `${minutes} min ago`
-    : minutes < 60 * 24 ? `${Math.round(minutes / 60)} hr ago`
-    : `${Math.round(minutes / 1440)} d ago`;
-  const sameDay = at.toDateString() === new Date().toDateString();
-  const clock = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return { label: `${sameDay ? "Today" : at.toLocaleDateString()} · ${clock}`, ago };
-}
-
-// What the session was about, in the user's own words: the first thing they
-// asked. Nothing else in the payload names the work.
-function resumeTitle(resume) {
-  const messages = (resume.thread || {}).messages || [];
-  const first = messages.find((m) => m && m.role === "user" && String(m.text || "").trim());
-  if (!first) return "";
-  const text = String(first.text).trim().split("\n")[0];
-  return text.length > 68 ? `${text.slice(0, 67)}…` : text;
-}
-
-function resumeChangedFiles(resume) {
-  const checkpoint = resume.checkpoint || {};
-  const workflow = resume.workflow || {};
-  const thread = resume.thread || {};
-  for (const source of [checkpoint.changed_files, workflow.changed_files, thread.changed_files]) {
-    if (Array.isArray(source) && source.length) return source;
-  }
-  return [];
-}
-
-function resumeFacts(resume) {
-  const workflow = resume.workflow || {};
-  const checkpoint = resume.checkpoint || {};
-  const facts = [];
-
-  // Three places record what changed, and which of them is populated depends
-  // on how far the run got. The checkpoint is the most authoritative when it
-  // exists; the thread is what survives when the run never reached one.
-  const files = resumeChangedFiles(resume);
-  if (files.length) {
-    const names = files.slice(0, 2).map((path) => String(path).split(/[\\/]/).pop());
-    facts.push({
-      kind: "done",
-      text: files.length <= 2
-        ? `Changed ${names.join(", ")}`
-        : `Changed ${names.join(", ")} and ${files.length - 2} more`,
-    });
-  }
-
-  const tests = String(workflow.tests_status || "not_run");
-  if (tests !== "not_run") {
-    const last = workflow.last_test || {};
-    const passed = Number(last.passed) || 0;
-    const failed = Number(last.failed) || 0;
-    const plural = (n) => `${n} test${n === 1 ? "" : "s"}`;
-    const detail = failed ? `${plural(failed)} failing`
-      : passed ? `${plural(passed)} passing`
-      : `Tests ${tests}`;
-    facts.push({ kind: tests === "passed" ? "done" : "warn", text: detail });
-  }
-
-  // The step the plan was actually on beats the first step of the plan: one is
-  // where the work stopped, the other is where it started.
-  const inProgress = ((resume.thread || {}).plan || [])
-    .find((step) => step && /progress|current|active/i.test(String(step.status || "")));
-  const next = (workflow.next_actions || [])[0]
-    || (inProgress && inProgress.step)
-    || (workflow.plan_steps || [])[0]
-    || (checkpoint.recovery_actions || [])[0]
-    || "";
-  if (next) facts.push({ kind: "next", text: String(next) });
-  return facts;
-}
-
-function renderResumeChoice() {
-  const resume = (state.boot && state.boot.resume) || {};
-  if (!resume.available || !resume.requires_choice) { setResumeGate(false); return; }
-  setResumeGate(true);
-  const workflow = resume.workflow || {};
-  const count = ((resume.thread || {}).messages || []).length;
-  const phase = String(workflow.phase || "idle");
-  const here = resumeStageIndex(phase);
-  const when = resumeWhen(resume);
-  const title = resumeTitle(resume);
-  const facts = resumeFacts(resume);
-
-  const nodes = RESUME_STAGES.map((stage, index) => {
-    const state_ = index < here ? "done" : index === here ? "here" : "todo";
-    const label = index === RESUME_STAGES.length - 1
-      ? (RESUME_END_LABEL[phase] || stage.label) : stage.label;
-    return `<li class="rc-node is-${state_}"${state_ === "here" ? ' aria-current="step"' : ""}>
-        <span class="rc-dot" aria-hidden="true"></span>
-        <span class="rc-node-label">${esc(label)}</span>
-      </li>`;
-  }).join("");
-
-  const factLines = facts.map((fact) => `<li class="rc-fact is-${fact.kind}">
-      <span class="rc-fact-mark" aria-hidden="true">${uiIcon(fact.kind === "next" ? "arrowRight" : fact.kind === "warn" ? "warning" : "check")}</span>
-      <span>${esc(fact.text)}</span>
-    </li>`).join("");
-
-  // Asymmetric on purpose. Continuing is the expected thing; starting over
-  // throws the session away, and two equally weighted buttons said those were
-  // the same size of decision.
-  const terminal = here === RESUME_STAGES.length - 1;
-  const cta = terminal
-    ? "Continue where you left off"
-    : `Continue from ${esc(RESUME_STAGES[here].label)}`;
-
-  const el = appendMsg(
-    `<div class="resume-card" role="group" aria-label="Resume previous work">
-       <p class="rc-kicker">Previous session</p>
-       ${when ? `<p class="rc-when">${esc(when.label)} · ${esc(when.ago)} · ${count} message${count === 1 ? "" : "s"}</p>`
-              : `<p class="rc-when">${count} message${count === 1 ? "" : "s"}</p>`}
-       <ol class="rc-trail" style="--rc-progress: ${(here / (RESUME_STAGES.length - 1)) * 100}%">${nodes}</ol>
-       ${title ? `<h2 class="rc-title">${esc(title)}</h2>` : ""}
-       ${factLines ? `<ul class="rc-facts">${factLines}</ul>` : ""}
-       <button class="btn primary rc-cta" data-resume="resume">
-         <span>${cta}</span>${uiIcon("arrowRight")}
-       </button>
-       <div class="rc-minor">
-         <button class="rc-link" type="button" data-resume="review">Review session</button>
-         <span class="rc-minor-sep" aria-hidden="true">·</span>
-         <button class="rc-link" type="button" data-resume="fresh">Start new</button>
-       </div>
-       <div class="rc-detail" hidden></div>
-     </div>`, "bot resume-choice");
-  el.querySelector('[data-resume="review"]').onclick = (event) =>
-    toggleResumeDetail(el, resume, event.currentTarget);
-  el.querySelector('[data-resume="resume"]').onclick = () => activateResumeSession(resume);
-  el.querySelector('[data-resume="fresh"]').onclick = startFreshSession;
-}
-
-/**
- * Show the saved session without committing to it.
- *
- * "Review" has to do something, or it is a third button that looks like a
- * choice and is not one. It expands the transcript and the full file list in
- * place -- read-only, gate still up, nothing activated -- which is the whole
- * point of a review: look before deciding.
- */
-function toggleResumeDetail(card, resume, trigger) {
-  const detail = card.querySelector(".rc-detail");
-  if (!detail) return;
-  const open = !detail.hidden;
-  if (open) {
-    detail.hidden = true;
-    detail.innerHTML = "";
-    trigger.textContent = "Review session";
-    trigger.setAttribute("aria-expanded", "false");
-    return;
-  }
-  const messages = (resume.thread || {}).messages || [];
-  const checkpoint = resume.checkpoint || {};
-  const files = resumeChangedFiles(resume);
-  const lines = messages.map((message) => {
-    const role = message && message.role === "user" ? "You" : "OPai";
-    const text = String((message && message.text) || "").trim().replace(/\s+/g, " ");
-    return `<li class="rc-turn"><span class="rc-turn-role">${role}</span>
-      <span class="rc-turn-text">${esc(text.length > 120 ? `${text.slice(0, 119)}…` : text)}</span></li>`;
-  }).join("");
-  detail.innerHTML =
-    (files.length
-      ? `<p class="rc-detail-head">Files changed</p><ul class="rc-files">${
-          files.map((path) => `<li class="mono">${esc(String(path))}</li>`).join("")}</ul>`
-      : "") +
-    (lines ? `<p class="rc-detail-head">Transcript</p><ol class="rc-turns">${lines}</ol>` : "");
-  detail.hidden = false;
-  trigger.textContent = "Hide session";
-  trigger.setAttribute("aria-expanded", "true");
-}
-
 function startNewChat() {
   if (state.busy) stop();
   startFreshSession();
