@@ -2623,7 +2623,7 @@ function renderTokenFrame(now) {
   if (!streamMotionReduced()) {
     const elapsed = state.lastStreamRenderAt ? Math.max(1, now - state.lastStreamRenderAt) : 1000 / 60;
     const remaining = target.length - previous.length;
-    const normalRate = Math.max(90, remaining / 0.45);
+    const normalRate = state.streamFinishDeadline ? 90 : Math.max(90, remaining / 0.45);
     const finishRate = state.streamFinishDeadline
       ? remaining / Math.max(0.016, (state.streamFinishDeadline - now) / 1000)
       : 0;
@@ -3847,12 +3847,27 @@ function completeReply(d) {
 function onReply(json) {
   const d = JSON.parse(json);
   if (!OPaiMessageState.canApply(state.message, d.requestId)) return; // stale reply ignored
-  const target = state.streamBlocks[state.streamBlocks.length - 1] || "";
   const backendStatus = (d.result && d.result.status) || "failed";
-  if (ANSWERED.includes(backendStatus) && !streamMotionReduced() && !document.hidden && target && state.streamRenderedText !== target) {
+  const answer = d.result && typeof d.result.answer === "string" ? d.result.answer : "";
+  const canReveal = ANSWERED.includes(backendStatus) && !streamMotionReduced() && !document.hidden;
+  if (canReveal && !state.streamedText && answer.trim().length >= 120) {
+    state.message = OPaiMessageState.transition(state.message, "streaming");
+    state.streaming = true;
+    state.streamBlocks[state.streamBlocks.length - 1] = answer;
+    state.streamedText = answer;
+    updateGenStage();
+    stripStreaming();
+  }
+  const target = state.streamBlocks[state.streamBlocks.length - 1] || "";
+  if (canReveal && target && state.streamRenderedText !== target) {
+    const remaining = target.length - state.streamRenderedText.length;
+    const wholeAnswerBacklog = target.length >= 120 && remaining / target.length >= 0.8;
+    const revealMs = wholeAnswerBacklog
+      ? Math.min(3200, Math.max(700, target.length / 220 * 1000))
+      : 450;
     state.pendingStreamReply = d;
-    state.streamFinishDeadline = performance.now() + 450;
-    state.streamReplyFallbackTimer = setTimeout(forcePendingStreamReply, 900);
+    state.streamFinishDeadline = performance.now() + revealMs;
+    state.streamReplyFallbackTimer = setTimeout(forcePendingStreamReply, revealMs + 700);
     scheduleTokenRender();
     return;
   }

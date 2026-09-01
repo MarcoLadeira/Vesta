@@ -70,8 +70,25 @@ test("an immediate terminal reply lets the visible stream catch up before final 
 
   expect(firstFrame).not.toBeNull();
   expect(firstFrame.length).toBeLessThan(text.length);
-  await expect(page.locator(".response-shell")).toContainText(text, { timeout: 2_000 });
+  await expect(page.locator(".response-shell")).toContainText(text, { timeout: 4_000 });
   await expect(page.locator(".body.streaming")).toHaveCount(0);
+});
+
+test("a long final reply without token events is progressively revealed", async ({ page }) => {
+  const id = await sendPrompt(page);
+  const text = "OPai keeps the conversation moving by writing a long response into view instead of making the full paragraph suddenly appear. ".repeat(5).trim();
+  const firstFrame = await page.evaluate(async ({ requestId, value }) => {
+    window.__mock.emitReply(requestId, { status: "answered", answer: value, receipt: {} });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const body = document.querySelector(".body.stream");
+    return body ? body.textContent : null;
+  }, { requestId: id, value: text });
+
+  expect(firstFrame).not.toBeNull();
+  expect(firstFrame.length).toBeGreaterThan(0);
+  expect(firstFrame.length).toBeLessThan(text.length);
+  await expect(page.locator(".response-shell")).toContainText(text, { timeout: 5_000 });
+  expect(await page.evaluate(() => window.__opai.state.streamRenders)).toBeGreaterThan(2);
 });
 
 test("streamed markdown renders formatted blocks progressively", async ({ page }) => {

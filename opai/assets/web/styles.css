@@ -600,7 +600,7 @@ kbd {
   #thread.thread-restore { animation: none; }
 }
 @keyframes msgIn { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
-.msg.user { display: flex; justify-content: flex-end; width: 100%; max-width: var(--measure-prose); margin-inline: auto; }
+.msg.user { display: flex; justify-content: flex-end; width: 100%; }
 .msg.user .bubble {
   background: linear-gradient(180deg, var(--panel-2), var(--panel));
   border: 1px solid var(--border); border-radius: 16px 16px 5px 16px;
@@ -1106,25 +1106,23 @@ kbd {
 html.activity-select-off .gen, html.activity-select-off .timeline { user-select: none; }
 .gen { display: flex; flex-direction: column; gap: var(--space-2); }
 .gen-work-surface {
-  display: flex; flex-direction: column; gap: var(--space-2); width: 100%; min-height: 132px;
-  padding: var(--space-4) var(--space-5); background: linear-gradient(135deg, var(--glass-hi), var(--glass));
-  border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--inset-hi);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  gap: var(--space-1) var(--space-2); width: 100%; min-height: 0;
+  padding: var(--space-2) var(--space-3); background: var(--glass);
+  border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--inset-hi);
 }
 .gen-head, .gen-reassure, .gen-toggle, .timeline {
   width: 100%;
 }
 .gen-head {
-  display: flex; align-items: center; gap: var(--space-2);
+  display: flex; grid-column: 2; grid-row: 1; align-items: center; gap: var(--space-2); width: auto;
 }
-.gen-eyebrow {
-  color: var(--accent); font-size: var(--type-caption); font-weight: 750;
-  letter-spacing: 0.08em; text-transform: uppercase;
-}
+.gen-eyebrow { display: none; }
 .gen-focus {
-  display: flex; flex: 1; flex-direction: column; justify-content: center; gap: var(--space-1);
-  min-height: 56px; padding: var(--space-1) 0;
+  display: flex; grid-column: 1; grid-row: 1; flex-direction: column; justify-content: center; gap: var(--space-1);
+  min-height: 0; min-width: 0; padding: 0;
 }
-.gen-stage { color: var(--ink); font-size: clamp(1.05rem, 1.5vw, 1.25rem); font-weight: 650; line-height: 1.35; }
+.gen-stage { color: var(--ink); font-size: var(--type-label); font-weight: 650; line-height: 1.35; }
 .gen-detail { color: var(--muted); font-size: var(--type-body); overflow-wrap: anywhere; }
 .gen-time { color: var(--muted); font-size: var(--type-caption); font-variant-numeric: tabular-nums; margin-left: auto; }
 .gen-stop {
@@ -1138,22 +1136,13 @@ html.activity-select-off .gen, html.activity-select-off .timeline { user-select:
 .gen-reassure.warn { color: var(--amber); }
 .gen-switch, .gen-reassure a { color: var(--blue); cursor: pointer; text-decoration: underline; }
 .gen-toggle {
-  align-self: flex-start; display: inline-flex; align-items: center; min-height: var(--control-min);
+  align-self: flex-start; display: inline-flex; align-items: center; min-height: 0;
   background: transparent; border: 0; color: var(--muted);
-  font-size: var(--type-caption); font-weight: 650; cursor: pointer; padding: var(--space-1) 0; transition: color 0.15s var(--ease);
+  font-size: var(--type-caption); font-weight: 650; cursor: pointer; padding: 0; transition: color 0.15s var(--ease);
 }
 .gen-toggle:hover { color: var(--accent); }
-.gen.is-streaming .gen-work-surface {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
-  min-height: 0; padding: var(--space-2) var(--space-3);
-}
-.gen.is-streaming .gen-head { grid-column: 2; grid-row: 1; width: auto; }
-.gen.is-streaming .gen-eyebrow { display: none; }
-.gen.is-streaming .gen-focus { grid-column: 1; grid-row: 1; min-height: 0; padding: 0; }
-.gen.is-streaming .gen-stage { font-size: var(--type-label); }
+.gen-reassure, .gen-toggle, .timeline { grid-column: 1 / -1; }
 .gen.is-streaming .gen-detail { display: none; }
-.gen.is-streaming .gen-reassure, .gen.is-streaming .gen-toggle, .gen.is-streaming .timeline { grid-column: 1 / -1; }
-.gen.is-streaming .gen-toggle { min-height: 0; padding: 0; }
 .timeline {
   display: flex; flex-direction: column; gap: var(--space-1); position: relative;
   border-left: 2px solid transparent;

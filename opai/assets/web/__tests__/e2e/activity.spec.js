@@ -15,11 +15,13 @@ async function sendPrompt(page, text) {
 }
 const reqId = (page) => page.evaluate(() => window.__mock.reqId());
 
-test("generation shows status bar, model, timer and stop", async ({ page }) => {
+test("generation shows a compact status row, model, timer and stop", async ({ page }) => {
   await sendPrompt(page, "hello");
   await expect(page.locator(".gen-stage")).toContainText("is preparing your response");
   await expect(page.locator(".gen-work-surface")).toBeVisible();
-  await expect(page.locator(".gen-eyebrow")).toHaveText("Active work");
+  await expect(page.locator(".gen-eyebrow")).toBeHidden();
+  const surface = await page.locator(".gen-work-surface").boundingBox();
+  expect(surface.height).toBeLessThanOrEqual(80);
   await expect(page.locator(".thinking")).toHaveCount(0);
   await expect(page.locator(".gen-toggle")).toHaveText("View work log · 0");
   await expect(page.locator(".gen-time")).toHaveText(/0\d:\d\d/);
