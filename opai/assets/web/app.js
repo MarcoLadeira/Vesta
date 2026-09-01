@@ -35,7 +35,6 @@ if (typeof window !== "undefined") {
 
 const PALETTE = [
   { id: "new_chat", label: "New chat", hint: "Ctrl+N" },
-  { id: "new_app", label: "New app (free scaffold)", hint: "" },
   { id: "focus_input", label: "Focus prompt", hint: "Ctrl+L" },
   { id: "stop", label: "Stop generation", hint: "Esc" },
   { id: "prompts", label: "Open prompt library", hint: "Ctrl+P" },
@@ -4409,7 +4408,6 @@ function runCommand(id) {
   $("#palette").classList.remove("open");
   switch (id) {
     case "new_chat": startNewChat(); break;
-    case "new_app": startNewApp(); break;
     case "focus_input": switchView("chat"); $("#input").focus(); break;
     case "stop": stop(); break;
     case "prompts": switchView("prompts"); break;
