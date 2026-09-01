@@ -26,11 +26,11 @@
       return { stage: "Streaming response", reassurance: "", suggestFaster: false, severity: "running" };
     }
     if (elapsedS < TAKING_LONGER_S) {
-      return { stage: "Waiting for " + short, reassurance: "", suggestFaster: false, severity: "running" };
+      return { stage: short + " is preparing your response", reassurance: "", suggestFaster: false, severity: "running" };
     }
     if (elapsedS < STILL_WORKING_S) {
       return {
-        stage: "Waiting for " + short,
+        stage: short + " is preparing your response",
         reassurance: short + " is taking longer than usual — complex prompts can take a while.",
         suggestFaster: true,
         severity: "warning",

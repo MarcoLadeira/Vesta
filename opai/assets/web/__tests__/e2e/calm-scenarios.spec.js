@@ -94,6 +94,7 @@ test("Codex started/completed pairs land as one finished row per item", async ({
 test("a batched turn ingests every event and coalesces the same as per-event", async ({ page }) => {
   const id = await sendPrompt(page);
   const events = await emitScenarioBatch(page, id, claudeTurnEvents(id, { chunks: 200 }));
+  await expect(page.locator(".gen-stage")).toHaveText("Response received");
   await page.locator(".gen-toggle").click();
   // Same grouped shape as the per-event path: 2 tool groups + 1 stream single.
   await expect(page.locator(".timeline > .tl-group")).toHaveCount(2);
@@ -142,15 +143,15 @@ test("late events from a superseded request are dropped by the stale guard", asy
   await expect(page.locator(".msg.bot").last()).toContainText("second answer");
 });
 
-test("a local no-stream turn shows the honest spinner, never fake progress", async ({ page }) => {
+test("a local no-stream turn shows its latest real activity, never fake progress", async ({ page }) => {
   const id = await sendPrompt(page);
   // Only preamble activity arrives — no stream events, no tokens.
   await emitScenario(page, id, [{
     id: `${id}:phase`, type: "request_sending", status: "running",
     title: "Running OPai locally", requestId: id,
   }]);
-  await expect(page.locator(".gen-stage")).toContainText(/Waiting for/);
-  await expect(page.locator(".thinking")).toBeVisible();
+  await expect(page.locator(".gen-stage")).toHaveText("Running OPai locally");
+  await expect(page.locator(".thinking")).toHaveCount(0);
   await expect(page.locator(".gen-stage")).not.toContainText("Streaming");
   await finishRequest(page, id, { answer: "local answer" });
   await expect(page.locator(".msg.bot").last()).toContainText("local answer");

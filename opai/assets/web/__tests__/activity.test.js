@@ -19,7 +19,7 @@ describe("stageMessage (slow-model thresholds)", () => {
   it("is calm early, escalates after the threshold", () => {
     const early = stageMessage(1, { modelLabel: "Claude · Opus" });
     expect(early.suggestFaster).toBe(false);
-    expect(early.stage).toContain("Waiting");
+    expect(early.stage).toBe("Claude is preparing your response");
 
     const mid = stageMessage(TAKING_LONGER_S + 1, { modelLabel: "Claude · Opus" });
     expect(mid.suggestFaster).toBe(true);

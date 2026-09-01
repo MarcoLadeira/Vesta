@@ -59,6 +59,7 @@ const state = {
   accounts: [], panel: true, message: null, lastFailedRequestId: null,
   responseDensity: "balanced",
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
+  latestActivity: null,
   expandedGroups: new Set(), stripColor: "",
   followLatest: true,
   tokenRenderPending: false, tokenRenderFrame: null, streamSettleTimer: null, streamReplyFallbackTimer: null,
@@ -2508,18 +2509,25 @@ function send(retryOf) {
 
 function buildPending(sel) {
   const activityLogId = `activity-live-${++activityDisclosureSequence}`;
+  const initialStage = OPaiActivity.stageMessage(0, { modelLabel: sel.modelLabel || sel.model }).stage;
+  state.latestActivity = null;
   const el = appendMsg(
     roleHeader("OPai", "var(--accent)") +
     `<div class="gen">
-       <div class="gen-head">
-         <span class="thinking"><i></i><i></i><i></i></span>
-         <span class="gen-stage">Preparing request…</span>
-         <span class="gen-time" aria-live="off">00:00</span>
-         <button class="gen-stop" aria-label="Stop generation">Stop</button>
+       <div class="gen-work-surface">
+         <div class="gen-head">
+           <span class="gen-eyebrow">Active work</span>
+           <span class="gen-time" aria-live="off">00:00</span>
+           <button class="gen-stop" aria-label="Stop generation">Stop</button>
+         </div>
+         <div class="gen-focus" aria-live="polite">
+           <span class="gen-stage">${esc(initialStage)}</span>
+           <span class="gen-detail" hidden></span>
+         </div>
+         <div class="gen-reassure" aria-live="polite"></div>
+         <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="false">View work log · 0</button>
+         <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity" hidden></div>
        </div>
-       <div class="gen-reassure" aria-live="polite"></div>
-       <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="false">Show activity</button>
-       <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity" hidden></div>
        <div class="stream-block-list">
          <details class="stream-earlier" hidden>
            <summary>Earlier progress (0)</summary>
@@ -2535,10 +2543,10 @@ function buildPending(sel) {
   el.querySelector(".gen-toggle").onclick = () => {
     const tl = el.querySelector(".timeline"), btn = el.querySelector(".gen-toggle");
     if (tl.hasAttribute("hidden")) {
-      tl.removeAttribute("hidden"); btn.textContent = "Hide activity"; btn.setAttribute("aria-expanded", "true");
+      tl.removeAttribute("hidden"); btn.textContent = "Hide work log"; btn.setAttribute("aria-expanded", "true");
       renderTimeline();
     }
-    else { tl.setAttribute("hidden", ""); btn.textContent = "Show activity (" + state.store.events.length + ")"; btn.setAttribute("aria-expanded", "false"); }
+    else { tl.setAttribute("hidden", ""); btn.textContent = "View work log · " + state.store.events.length; btn.setAttribute("aria-expanded", "false"); }
   };
 }
 
@@ -2641,7 +2649,7 @@ function renderTimeline() {
   const tl = state.pending.querySelector(".timeline");
   const btn = state.pending.querySelector(".gen-toggle");
   if (btn && btn.getAttribute("aria-expanded") !== "true") {
-    btn.textContent = "Show activity (" + state.store.events.length + ")";
+    btn.textContent = "View work log · " + state.store.events.length;
   }
   if (!tl || tl.hasAttribute("hidden")) {
     return;
@@ -2714,7 +2722,7 @@ function scheduleTimelineRender() {
   const timeline = state.pending.querySelector(".timeline");
   const button = state.pending.querySelector(".gen-toggle");
   if (button && button.getAttribute("aria-expanded") !== "true") {
-    button.textContent = "Show activity (" + state.store.events.length + ")";
+    button.textContent = "View work log · " + state.store.events.length;
   }
   if (!timeline || timeline.hasAttribute("hidden")) {
     return;
@@ -2810,11 +2818,16 @@ const ACTIVITY_STATE_BY_TYPE = {
   // #402: the pipeline's evidence check before a terminal verdict.
   verifying: "verifying",
 };
-function applyActivityState(event) {
+function applyActivityState(event, deferLiveUpdate = false) {
   const next = ACTIVITY_STATE_BY_TYPE[event.type];
   if (next) state.message = OPaiMessageState.transition(state.message, next);
   if ((event.channel || "feed") === "status") { applyStatusEvent(event); return; }
-  updateInspectorLive(event && event.title);
+  const title = String((event && event.title) || "").trim();
+  if (title) {
+    state.latestActivity = { title, detail: String(event.detail || "").trim() };
+    if (!deferLiveUpdate) updateGenStage();
+  }
+  if (!deferLiveUpdate) updateInspectorLive(title);
 }
 function onActivity(json) {
   const d = JSON.parse(json);
@@ -2832,7 +2845,9 @@ function onActivityBatch(json) {
   const events = d.events || [];
   if (!events.length) return;
   state.store.ingestBatch(events);
-  events.forEach(applyActivityState);
+  events.forEach((event) => applyActivityState(event, true));
+  updateGenStage();
+  updateInspectorLive(state.latestActivity && state.latestActivity.title);
   scheduleTimelineRender();
 }
 function onToken(json) {
@@ -2996,9 +3011,18 @@ function updateGenStage(sel) {
   const elapsedMs = Date.now() - state.startTime;
   const sm = OPaiActivity.stageMessage(elapsedMs / 1000, { streaming: state.streaming, modelLabel: sel.modelLabel || sel.model });
   const stEl = state.pending.querySelector(".gen-stage");
+  const detailEl = state.pending.querySelector(".gen-detail");
   const tEl = state.pending.querySelector(".gen-time");
   const rEl = state.pending.querySelector(".gen-reassure");
-  if (stEl) stEl.textContent = sm.stage;
+  const genEl = state.pending.querySelector(".gen");
+  const latest = !state.streaming && state.latestActivity;
+  const displayedStage = latest ? latest.title : sm.stage;
+  if (genEl) genEl.classList.toggle("is-streaming", Boolean(state.streaming));
+  if (stEl) stEl.textContent = displayedStage;
+  if (detailEl) {
+    detailEl.textContent = latest ? latest.detail : "";
+    detailEl.hidden = !detailEl.textContent;
+  }
   if (tEl) tEl.textContent = OPaiActivity.formatElapsed(elapsedMs);
   stripElapsed(elapsedMs);
   if (rEl) {
@@ -3007,7 +3031,7 @@ function updateGenStage(sel) {
     const sw = rEl.querySelector(".gen-switch");
     if (sw) sw.onclick = () => openModelPicker();
   }
-  updateInspectorLive(sm.stage);
+  updateInspectorLive(displayedStage);
 }
 
 // #380 / #295 invariant 9: pressing Stop is a *request*. The backend sets a
