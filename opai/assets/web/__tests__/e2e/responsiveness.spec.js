@@ -103,25 +103,29 @@ test("200 percent zoom equivalent keeps the response and composer usable", async
   await expect(page.locator(".response-prose")).toBeVisible();
 });
 
-test("assistant responses align with the full-width work lane", async ({ page }) => {
+test("conversation messages align with the full-width work lane", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await openApp(page);
   const id = await sendPrompt(page, "Keep the response focused.");
-  const conversationMetrics = await page.evaluate(() => {
-    const lane = document.querySelector(".msg.bot:last-child").getBoundingClientRect();
-    const userMessage = Array.from(document.querySelectorAll(".msg.user")).at(-1);
-    const user = userMessage.getBoundingClientRect();
-    const bubble = userMessage.querySelector(".bubble").getBoundingClientRect();
-    const composer = document.querySelector("#composer").getBoundingClientRect();
-    return { lane, user, bubble, composer };
-  });
-  expect(Math.abs(conversationMetrics.user.x - conversationMetrics.lane.x)).toBeLessThan(2);
-  expect(Math.abs(conversationMetrics.user.width - conversationMetrics.lane.width)).toBeLessThan(2);
-  expect(Math.abs(
-    conversationMetrics.bubble.x + conversationMetrics.bubble.width
-      - conversationMetrics.composer.x - conversationMetrics.composer.width,
-  )).toBeLessThan(2);
+  for (const width of [1600, 1180, 768, 700, 431, 430, 375]) {
+    await page.setViewportSize({ width, height: width <= 430 ? 700 : 1000 });
+    const conversationMetrics = await page.evaluate(() => {
+      const lane = document.querySelector(".msg.bot:last-child").getBoundingClientRect();
+      const userMessage = Array.from(document.querySelectorAll(".msg.user")).at(-1);
+      const user = userMessage.getBoundingClientRect();
+      const bubble = userMessage.querySelector(".bubble").getBoundingClientRect();
+      const composer = document.querySelector("#composer").getBoundingClientRect();
+      return { lane, user, bubble, composer };
+    });
+    expect(Math.abs(conversationMetrics.user.x - conversationMetrics.lane.x)).toBeLessThan(2);
+    expect(Math.abs(conversationMetrics.user.width - conversationMetrics.lane.width)).toBeLessThan(2);
+    expect(Math.abs(
+      conversationMetrics.bubble.x + conversationMetrics.bubble.width
+        - conversationMetrics.composer.x - conversationMetrics.composer.width,
+    )).toBeLessThan(2);
+  }
 
+  await page.setViewportSize({ width: 1600, height: 1000 });
   await emitToken(page, id, "A concise progress update.");
   await expect(page.locator(".msg.bot:last-child .stream-block > p")).toBeVisible();
 

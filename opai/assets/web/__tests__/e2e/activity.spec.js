@@ -21,7 +21,9 @@ test("generation shows a compact status row, model, timer and stop", async ({ pa
   await expect(page.locator(".gen-work-surface")).toBeVisible();
   await expect(page.locator(".gen-eyebrow")).toBeHidden();
   const surface = await page.locator(".gen-work-surface").boundingBox();
+  const workLog = await page.locator(".gen-toggle").boundingBox();
   expect(surface.height).toBeLessThanOrEqual(80);
+  expect(workLog.height).toBeGreaterThanOrEqual(32);
   await expect(page.locator(".thinking")).toHaveCount(0);
   await expect(page.locator(".gen-toggle")).toHaveText("View work log · 0");
   await expect(page.locator(".gen-time")).toHaveText(/0\d:\d\d/);

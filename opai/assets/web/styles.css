@@ -1136,7 +1136,7 @@ html.activity-select-off .gen, html.activity-select-off .timeline { user-select:
 .gen-reassure.warn { color: var(--amber); }
 .gen-switch, .gen-reassure a { color: var(--blue); cursor: pointer; text-decoration: underline; }
 .gen-toggle {
-  align-self: flex-start; display: inline-flex; align-items: center; min-height: 0;
+  align-self: flex-start; display: inline-flex; align-items: center; min-height: var(--control-min);
   background: transparent; border: 0; color: var(--muted);
   font-size: var(--type-caption); font-weight: 650; cursor: pointer; padding: 0; transition: color 0.15s var(--ease);
 }
@@ -1496,7 +1496,7 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 }
 
 /* Density (#241): compact tightens the highest-traffic surfaces. */
-.density-compact .thread { padding: var(--space-4) var(--space-5) var(--space-2); }
+.density-compact .thread { padding-block: var(--space-4) var(--space-2); }
 .density-compact .msg { margin: var(--space-3) 0; }
 .density-compact .nav-item { padding: var(--space-1) var(--space-2); }
 .density-compact .set-row { padding: var(--space-1) 0; }
@@ -2060,7 +2060,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   .app-header { gap: var(--space-2); }
   .ws-switch { max-width: 31vw; }
   .page { padding: var(--space-6) var(--space-4) var(--space-12); }
-  .thread { padding: var(--space-5) var(--space-4) var(--space-2); }
+  .thread { padding: var(--space-5) var(--space-3) var(--space-2); }
   .composer-wrap { padding: var(--space-2) var(--space-3) var(--space-4); }
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .msg.user .bubble { max-width: 90%; }
@@ -2114,7 +2114,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   .kpis { grid-template-columns: 1fr; }
   .chips { gap: var(--space-2); }
   .empty { padding: 0 var(--space-4); }
-  .thread { padding: var(--space-4) var(--space-3) var(--space-2); }
+  .thread { padding: var(--space-4) var(--space-2) var(--space-2); }
   .composer-wrap { padding: var(--space-2) var(--space-2) var(--space-3); }
   .msg { margin-block: var(--space-4); }
   .msg.user .bubble { max-width: min(92%, var(--measure-prose)); }
