@@ -662,6 +662,33 @@ class UpdateService:
             )
             if result.get("local_changes_restored"):
                 message += " Local changes were stashed and restored."
+            # Make the outcome a state, not just a sentence.
+            #
+            # The re-check above has just concluded the checkout is up to date,
+            # which is true and useless: UP_TO_DATE is not a state any banner
+            # renders, so the update UI vanished the moment the apply
+            # succeeded, and the only word about the pending restart was a
+            # transient toast -- which by construction has no button on it.
+            # Reported as three separate bugs: the banner "went away", it
+            # "told me to restart", and it "didn't give me the option to".
+            #
+            # COMPLETED is the state that says installed-but-not-yet-running,
+            # and it is where the surface offers Restart now.
+            try:
+                with self.store.operation_guard():
+                    current = self.store.load_operation()
+                    checking = self._save(current.transition(UpdateState.CHECKING))
+                    self._save(
+                        checking.transition(
+                            UpdateState.COMPLETED,
+                            safe_diagnostic=message,
+                            error_category="",
+                            progress_label="",
+                        )
+                    )
+            except (InterprocessLockTimeout, UpdateError):
+                # The state is cosmetic here; the update itself already landed.
+                pass
         else:
             message = str(result.get("error") or "The update could not be applied.")
         result["message"] = message

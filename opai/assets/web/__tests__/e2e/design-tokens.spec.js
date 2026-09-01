@@ -4,11 +4,13 @@ import { openApp, openNav } from "./helpers/app.js";
 
 test("chrome uses accessible SVG icons rather than emoji glyphs", async ({ page }) => {
   await openApp(page);
-  await expect(page.locator("#newApp .ui-icon")).toBeVisible();
+  // #newApp carried this assertion until the button was removed; #newChat is
+  // the same shape and is the one that is actually still on screen.
+  await expect(page.locator("#newChat .ui-icon")).toBeVisible();
   await expect(page.locator("#buildToggle .ui-icon")).toBeAttached();
-  await expect(page.locator("#newApp")).not.toContainText("✦");
+  await expect(page.locator("#newChat")).not.toContainText("✦");
   await expect(page.locator("#buildToggle")).not.toContainText("✦");
-  await expect(page.locator("#newApp .ui-icon")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator("#newChat .ui-icon")).toHaveAttribute("aria-hidden", "true");
 });
 
 for (const [density, prefs] of Object.entries({

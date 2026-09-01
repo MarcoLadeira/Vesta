@@ -559,13 +559,19 @@ function formatUpdateBytes(value) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function updateActionButton(label, action, primary) {
+function updateActionButton(label, action, primary, status) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = primary ? "btn primary" : "btn ghost";
   button.textContent = label;
   button.dataset.updateAction = action;
-  button.onclick = () => runUpdateAction(action, button);
+  const busy = state.updateBusy;
+  if (busy && busy.status === status && busy.action === action) {
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.textContent = "Working…";
+  }
+  button.onclick = () => runUpdateAction(action, button, status);
   return button;
 }
 
@@ -607,11 +613,25 @@ function renderUpdateActions(status, operation) {
       list.splice(1, 0, ["Update anyway (stash & restore)", "developer_apply_force", false]);
     }
   }
-  list.forEach((item) => host.appendChild(updateActionButton(item[0], item[1], item[2])));
+  list.forEach((item) => host.appendChild(updateActionButton(item[0], item[1], item[2], status)));
 }
 
-function runUpdateAction(action, button) {
+function runUpdateAction(action, button, status) {
   if (!bridge || !bridge.updateAction) return;
+  // Remember what is in flight, and in which state it was started.
+  //
+  // Disabling the button alone was not enough: renderUpdateActions rebuilds
+  // every button from scratch (`host.replaceChildren()`) each time the banner
+  // re-renders, and the banner re-renders whenever the operation changes --
+  // which it does repeatedly during an apply. So the disabled button was
+  // replaced by a fresh enabled one within a couple of seconds, and a
+  // fast-forward that takes a git fetch, a merge and a pip reinstall looked
+  // like a button that did nothing. Hence twenty clicks.
+  //
+  // Keyed on the status so it clears itself: once the operation moves to a
+  // different state the work is over and the buttons come back on their own,
+  // with no timer and nothing to leak.
+  state.updateBusy = { action, status };
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   bridge.updateAction(action);
@@ -1814,75 +1834,6 @@ function refreshConversations() {
   });
 }
 
-/* ---------- OPai Build: New app (#276) ----------
-   Describe an app; the runnable skeleton is scaffolded deterministically for
-   zero tokens, then features are built with cheap targeted prompts. */
-function startNewApp() {
-  switchView("chat");
-  const existing = $("#newAppCard");
-  if (existing) { existing.querySelector("input").focus(); return; }
-  const el = appendMsg(
-    roleHeader("OPai Build", "var(--accent)") +
-    `<div class="new-app-card" id="newAppCard" role="group" aria-label="New app">
-       <div class="nac-t">Create a new app — the runnable skeleton is scaffolded for free (0 tokens).</div>
-       <input class="nac-input" type="text" placeholder="e.g. a todo app with dark mode" aria-label="App description">
-       <div class="nac-actions">
-         <button class="btn primary" data-a="create">Create app</button>
-         <button class="btn ghost" data-a="cancel">Cancel</button>
-       </div>
-       <div class="nac-note" aria-live="polite"></div>
-     </div>`, "bot");
-  const card = el.querySelector(".new-app-card");
-  const input = card.querySelector("input");
-  const note = card.querySelector(".nac-note");
-  const create = () => {
-    const description = input.value.trim();
-    if (!description) { note.textContent = "Describe the app you want to create."; return; }
-    if (!bridge.scaffoldApp) { note.textContent = "App scaffolding is unavailable in this build."; return; }
-    card.querySelector('[data-a="create"]').disabled = true;
-    note.textContent = "Scaffolding…";
-    bridge.scaffoldApp(JSON.stringify({ description }), (json) => {
-      let result = {};
-      try { result = JSON.parse(json); } catch (_e) { /* keep {} */ }
-      if (!result.ok) {
-        card.querySelector('[data-a="create"]').disabled = false;
-        note.textContent = result.error || "Could not scaffold the app.";
-        return;
-      }
-      renderNewAppSuccess(el, result);
-    });
-  };
-  card.querySelector('[data-a="create"]').onclick = create;
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); create(); } });
-  card.querySelector('[data-a="cancel"]').onclick = () => {
-    el.remove();
-    if (!$("#thread .msg")) {
-      $("#empty").style.display = "";
-      renderEmptyChips();
-    }
-  };
-  input.focus();
-  scrollBottom(true);
-}
-
-function renderNewAppSuccess(el, result) {
-  const tokens = Number(result.boilerplate_tokens_avoided || 0).toLocaleString();
-  el.innerHTML = roleHeader("OPai Build", "var(--accent)") +
-    `<div class="new-app-card done" role="group" aria-label="App created">
-       <div class="nac-t">${uiIcon("check")} ${esc(result.name)} is ready — ${(result.files || []).length} files scaffolded for free (~${esc(tokens)} tokens never spent).</div>
-       <div class="nac-sub">${esc(result.root)}</div>
-       <div class="nac-actions">
-         <button class="btn primary" data-a="open">Open app workspace</button>
-         <button class="btn ghost" data-a="preview">Copy preview command</button>
-       </div>
-       <div class="nac-note">Open the workspace, then describe features in chat — every edit is a cheap targeted diff.</div>
-     </div>`;
-  el.querySelector('[data-a="open"]').onclick = () => bridge.switchWorkspace(result.root);
-  el.querySelector('[data-a="preview"]').onclick = () => {
-    copyText(`cd ${result.root} && ${result.preview_cmd || "python -m http.server 8000"}`);
-    toast("Preview command copied");
-  };
-}
 
 /* Build mode turn (#276): a chat message edits the workspace app with one
    cheap, verified targeted diff. Reuses the whole activity/timeline/status
@@ -4581,7 +4532,6 @@ function wire() {
     scrollBottom(true);
   };
   $("#newChat").onclick = startNewChat;
-  $("#newApp").onclick = startNewApp;
   $("#headerNewChat").onclick = startNewChat;
   $("#footSettings").onclick = () => switchView("settings");
   $("#headerSettings").onclick = () => switchView("settings");

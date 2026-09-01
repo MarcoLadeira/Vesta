@@ -671,7 +671,18 @@ def test_developer_apply_success_reports_restart_and_refreshes_state(
     assert result["ok"] is True
     assert result["message"] == "Updated to 0.2.1a2 — restart OPai to use it."
     operation = service.store.load_operation()
-    assert operation.state is UpdateState.UP_TO_DATE
+    # This asserted UP_TO_DATE, which pinned the bug rather than the behaviour.
+    # The re-check after an apply is right -- the checkout *is* up to date --
+    # but UP_TO_DATE is not a state any banner renders, so the update UI
+    # vanished the instant the apply succeeded and the only word about the
+    # pending restart was a transient toast with no button on it. Reported from
+    # the app as three separate faults: it "went away", it "told me to restart",
+    # and it "didn't give me the option to".
+    #
+    # COMPLETED is the state that means installed-but-not-yet-running, and it
+    # is the one the surface offers Restart now from.
+    assert operation.state is UpdateState.COMPLETED
+    assert operation.safe_diagnostic == "Updated to 0.2.1a2 — restart OPai to use it."
 
 
 def test_developer_apply_with_restored_changes_says_so(
