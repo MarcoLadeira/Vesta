@@ -53,8 +53,12 @@ test("an unverified run renders a partial verdict instead of success", async ({ 
     },
   });
 
-  await expect(page.locator(".completion-verdict.partial")).toContainText("Partial");
-  await expect(page.locator(".completion-verdict")).toContainText("no changed-file or diff evidence");
+  // The verdict is the turn summary's row now. "Partial" is spelled out there
+  // as the checkable thing it means, and the reason is in the ticket behind it.
+  await expect(page.locator(".turn-summary")).toHaveClass(/is-partial/);
+  await expect(page.locator(".ts-verdict")).toHaveText("No changes made");
+  await openTurnDetails(page);
+  await expect(page.locator(".ts-detail")).toContainText("no changed-file or diff evidence");
   await expect(page.locator("#ssConn")).toHaveText("Partial");
   await expect(page.locator(".msg.bot")).not.toContainText("✓ Completed");
   // Round 5 finding 2: an honest partial is amber, not the same red as a hard
@@ -97,11 +101,17 @@ test("workflow summary uses the authoritative verdict instead of a stale complet
   await expect(summary.locator(".ts-verdict")).toHaveText("No changes made");
   await expect(summary).toHaveClass(/is-partial/);
 
+  // The reason and the next action are the summary's own now -- stated once,
+  // regardless of whether this turn has a workflow card at all. The card was
+  // repeating both, which is how one turn managed to print the same sentence
+  // three times.
+  await summary.locator(".ts-verdict").click();
+  await expect(summary.locator(".ts-reason")).toHaveText("OPai could not verify the requested objective.");
+  await expect(summary.locator(".ts-next")).toContainText("Check the remote branch, then retry verification.");
+
   const workflow = page.locator(".workflow-card");
   await expect(workflow.locator(".wf-head")).not.toContainText("Completed");
-  await expect(workflow.locator(".wf-message")).toHaveText("OPai could not verify the requested objective.");
-  await expect(workflow.locator(".wf-actions")).toContainText("Check the remote branch, then retry verification.");
-  await summary.locator(".ts-row").click();
+  await expect(workflow.locator(".wf-message")).toHaveCount(0);
   await workflow.locator(".wf-history summary").click();
   await expect(workflow.locator(".wf-history")).toContainText("Partial");
   await expect(workflow.locator(".wf-history")).not.toContainText("Read-only task completed");
@@ -133,10 +143,13 @@ test("a success claim the run could not verify is labelled where it is written",
   await expect(banner).toContainText("Failed");
   await expect(page.locator("#ssConn")).toHaveText("Failed");
   // It remains adjacent to the quiet final state, after the supporting work.
+  // The banner stays ahead of the summary that holds the run's record: a
+  // contradiction with the answer belongs beside the answer, not behind a
+  // disclosure.
   expect(await page.evaluate(() => {
     const bot = document.querySelector(".msg.bot");
     return bot.querySelector(".unverified-claim")
-      .compareDocumentPosition(bot.querySelector(".completion-verdict")) & Node.DOCUMENT_POSITION_FOLLOWING;
+      .compareDocumentPosition(bot.querySelector(".turn-summary")) & Node.DOCUMENT_POSITION_FOLLOWING;
   })).toBeTruthy();
 });
 
@@ -154,9 +167,13 @@ test("answer delivery is not labelled independently verified", async ({ page }) 
     },
   });
 
-  await expect(page.locator(".completion-verdict")).toContainText("Response received");
-  await expect(page.locator(".completion-verdict")).not.toContainText("Completed");
-  await expect(page.locator(".completion-verdict")).toContainText("not independently verified");
+  // A plain answer verified nothing about its own content, so the row must say
+  // "Response received" and never "Done" -- the summary's friendlier
+  // vocabulary does not get to overclaim what the run established.
+  await expect(page.locator(".ts-verdict")).toHaveText("Response received");
+  await expect(page.locator(".ts-row")).not.toContainText("Done");
+  await openTurnDetails(page);
+  await expect(page.locator(".ts-detail")).toContainText("not independently verified");
   await expect(page.locator("#ssConn")).toHaveText("Response received");
 });
 
