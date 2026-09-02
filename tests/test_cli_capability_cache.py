@@ -10,6 +10,7 @@ happened to probe — the definition of "sometimes it works, sometimes it doesn'
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,10 +36,12 @@ class CliProbePersistenceTests(unittest.TestCase):
         self.account = {"id": "codex", "cli_path": str(self.cli)}
         accounts._CLI_VERSION_CACHE.clear()
         accounts._CLI_CAPABILITY_CACHE.clear()
+        accounts._CODEX_MODEL_CACHE.clear()
 
     def tearDown(self) -> None:
         accounts._CLI_VERSION_CACHE.clear()
         accounts._CLI_CAPABILITY_CACHE.clear()
+        accounts._CODEX_MODEL_CACHE.clear()
         self._tmp.cleanup()
 
     def test_a_probed_version_is_readable_after_the_caches_are_cleared(self) -> None:
@@ -96,6 +99,66 @@ class CliProbePersistenceTests(unittest.TestCase):
         accounts._write_cli_probe(missing, "version", "whatever", home=self.home)
         self.assertIsNone(accounts._read_cli_probe(missing, "version", home=self.home))
 
+    def test_forced_version_probe_replaces_a_stale_in_process_value(self) -> None:
+        accounts._CLI_VERSION_CACHE[str(self.cli)] = "codex-cli 0.128.0"
+        calls: list[list[str]] = []
+
+        def hidden_run(argv, **_kwargs):
+            calls.append(argv)
+            return _Result("codex-cli 0.151.0")
+
+        with mock.patch.object(accounts, "_hidden_run", side_effect=hidden_run):
+            version = accounts._account_cli_version(
+                self.account, home=self.home, force=True
+            )
+
+        self.assertEqual(version, "codex-cli 0.151.0")
+        self.assertEqual(calls, [[str(self.cli), "--version"]])
+        self.assertEqual(
+            accounts._CLI_VERSION_CACHE[str(self.cli)], "codex-cli 0.151.0"
+        )
+
+    def test_codex_catalog_keeps_only_cli_visible_models(self) -> None:
+        payload = json.dumps(
+            {
+                "models": [
+                    {
+                        "slug": "gpt-5.6-sol",
+                        "display_name": "GPT-5.6-Sol",
+                        "visibility": "list",
+                    },
+                    {
+                        "slug": "gpt-5.6-terra",
+                        "display_name": "GPT-5.6-Terra",
+                        "visibility": "list",
+                    },
+                    {
+                        "slug": "gpt-5.6-luna",
+                        "display_name": "GPT-5.6-Luna",
+                        "visibility": "list",
+                    },
+                    {
+                        "slug": "daybreak-red",
+                        "display_name": "Daybreak Red",
+                        "visibility": "hide",
+                    },
+                ]
+            }
+        )
+
+        models = accounts._codex_cli_models(
+            self.account, run=lambda _argv: _Result(payload), home=self.home
+        )
+
+        self.assertEqual(
+            models,
+            [
+                ("gpt-5.6-sol", "GPT-5.6 Sol", "best"),
+                ("gpt-5.6-terra", "GPT-5.6 Terra", "balanced"),
+                ("gpt-5.6-luna", "GPT-5.6 Luna", "fast"),
+            ],
+        )
+
 
 class NoBlockingProbeTests(unittest.TestCase):
     """Enumeration must never launch a provider CLI.
@@ -113,10 +176,12 @@ class NoBlockingProbeTests(unittest.TestCase):
     def setUp(self) -> None:
         accounts._CLI_VERSION_CACHE.clear()
         accounts._CLI_CAPABILITY_CACHE.clear()
+        accounts._CODEX_MODEL_CACHE.clear()
 
     def tearDown(self) -> None:
         accounts._CLI_VERSION_CACHE.clear()
         accounts._CLI_CAPABILITY_CACHE.clear()
+        accounts._CODEX_MODEL_CACHE.clear()
 
     def test_enumeration_with_a_cold_cache_never_probes(self) -> None:
         detected = [
@@ -192,6 +257,28 @@ class ColdStartHonestyTests(unittest.TestCase):
         for option in options:
             self.assertTrue(option["available"])
             self.assertTrue(option["repo_editing"])
+
+    def test_a_chatgpt_codex_account_lists_its_discovered_models(self) -> None:
+        options = accounts._account_options(
+            {"id": "codex", "label": "Codex", "vendor": "OpenAI"},
+            connected=True,
+            account_type="chatgpt",
+            cli_version="codex-cli 0.151.0",
+            codex_models=[
+                ("gpt-5.6-sol", "GPT-5.6 Sol", "best"),
+                ("gpt-5.6-terra", "GPT-5.6 Terra", "balanced"),
+                ("gpt-5.6-luna", "GPT-5.6 Luna", "fast"),
+            ],
+        )
+
+        self.assertEqual(
+            [option["id"] for option in options],
+            [
+                "account:codex:gpt-5.6-sol",
+                "account:codex:gpt-5.6-terra",
+                "account:codex:gpt-5.6-luna",
+            ],
+        )
 
     def test_copilot_without_scoped_tools_is_marked_write_incapable(self) -> None:
         options = accounts._account_options(

@@ -44,6 +44,34 @@ test("the Providers page opens with an honest health summary that tracks live ch
   await expect(summary).toHaveClass(/warn/);
 });
 
+test("background Codex discovery clears a stale degraded connection card", async ({ page }) => {
+  await openApp(page, {
+    deferDiscovery: true,
+    settings: {
+      connectionDoctor: [
+        {
+          providerId: "codex",
+          displayName: "Codex",
+          health: "degraded",
+          authStatus: "misconfigured",
+          cliInstalled: true,
+          safeDiagnostic: "The installed CLI is too old.",
+        },
+      ],
+    },
+    discoveredModels: [
+      { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing" },
+    ],
+    discoveredConnections: [
+      { providerId: "codex", authStatus: "connected", safeDiagnostic: "Connected." },
+    ],
+  });
+  await openSettings(page, "providers");
+  await expect(page.locator('[data-doctor-provider="codex"] [data-doctor-health]')).toHaveText("Degraded");
+  await page.evaluate(() => window.__mock.emitDiscoveredModels());
+  await expect(page.locator('[data-doctor-provider="codex"] [data-doctor-health]')).toHaveText("Verified");
+});
+
 test("test connection on a connected account reports the live truth, not the cached label", async ({ page }) => {
   // Reproduces the reported bug: OPai's on-disk "connected" state can be stale
   // (an OAuth session that died since detection). Clicking Test connection
@@ -64,8 +92,10 @@ test("test connection on a connected account reports the live truth, not the cac
 test("test connection on a genuinely healthy account confirms connected", async ({ page }) => {
   await openApp(page, { providerTestResponses: { claude: { authStatus: "connected" } } });
   await openSettings(page, "providers");
+  const discoveries = await page.evaluate(() => window.__mock.modelDiscoveries);
   await page.locator('[data-test-account="claude"]').click();
   await expect(page.locator('[data-account-status="claude"]')).toHaveText("Connected");
+  await expect.poll(() => page.evaluate(() => window.__mock.modelDiscoveries)).toBeGreaterThan(discoveries);
 });
 
 test("disconnect asks with a styled inline confirm, then signs out and updates the row", async ({ page }) => {
@@ -84,6 +114,37 @@ test("disconnect asks with a styled inline confirm, then signs out and updates t
   );
   // Nothing left to disconnect or test once signed out.
   await expect(page.locator('[data-disconnect-account="claude"]')).toBeDisabled();
+  await expect.poll(() => page.evaluate(() => window.__mock.modelDiscoveries)).toBeGreaterThan(1);
+});
+
+test("successful Codex sign-in refreshes the model catalog", async ({ page }) => {
+  await openApp(page, {
+    settings: { accounts: DISCONNECTED_ACCOUNTS },
+    discoveredAccounts: DISCONNECTED_ACCOUNTS.map((account) =>
+      account.id === "codex"
+        ? { ...account, connected: true, authenticated: true }
+        : account
+    ),
+    discoveredModels: [
+      { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing" },
+      {
+        id: "account:codex:gpt-5.6-sol",
+        label: "Codex · GPT-5.6 Sol",
+        provider: "codex",
+        kind: "account",
+        group: "codex",
+      },
+    ],
+    loginResponses: {
+      codex: { provider: "codex", signedIn: true, authStatus: "connected" },
+    },
+  });
+  await openSettings(page, "providers");
+  const discoveries = await page.evaluate(() => window.__mock.modelDiscoveries);
+  await page.locator('[data-login-account="codex"]').click();
+  await expect.poll(() => page.evaluate(() => window.__mock.modelDiscoveries)).toBeGreaterThan(discoveries);
+  await expect(page.locator('#modelSel option[value="account:codex:gpt-5.6-sol"]')).toHaveText("Codex · GPT-5.6 Sol");
+  await expect(page.locator("#acct")).toContainText("Codex");
 });
 
 test("cancelling the disconnect confirmation leaves the account untouched", async ({ page }) => {

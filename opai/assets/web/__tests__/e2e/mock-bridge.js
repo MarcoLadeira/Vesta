@@ -225,8 +225,13 @@
     },
     refreshModels: function (cb) { cb(JSON.stringify({ models: boot.models })); },
     discoverModels: function () {
+      window.__mock.modelDiscoveries++;
       if (scenario.discoveredModels && !scenario.deferDiscovery) setTimeout(function () {
-        bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels }));
+        bridge.modelsChanged.emit(JSON.stringify({
+          models: scenario.discoveredModels,
+          accounts: scenario.discoveredAccounts || boot.accounts,
+          connections: scenario.discoveredConnections || boot.connections,
+        }));
       }, scenario.discoveryDelayMs || 0);
     },
     repairCodexConfig: function (cb) {
@@ -550,9 +555,14 @@
     dashboardRequests: [], settingsRequests: [], statusRequests: [],
     workspaceRequests: [], inspectorRequests: [],
     updateChecks: [], updateActions: [], updatePolicies: [], interactiveMarks: 0, usageRefreshes: 0,
+    modelDiscoveries: 0,
     workspaceStateCalls: 0,
     emitDiscoveredModels: function () {
-      bridge.modelsChanged.emit(JSON.stringify({ models: scenario.discoveredModels || [] }));
+      bridge.modelsChanged.emit(JSON.stringify({
+        models: scenario.discoveredModels || [],
+        accounts: scenario.discoveredAccounts || boot.accounts,
+        connections: scenario.discoveredConnections || boot.connections,
+      }));
     },
     // Drive a workspace switch through the same slot the UI uses; the mock
     // emits workspaceChanged with the (possibly scenario-overridden) payload.
