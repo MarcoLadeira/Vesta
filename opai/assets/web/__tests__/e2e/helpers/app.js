@@ -61,6 +61,10 @@ export async function finishRequest(page, requestId, result = {}) {
     ({ id, value }) => window.__mock.emitReply(id, value),
     { id: requestId, value: payload },
   );
+  await page.waitForFunction(
+    (id) => window.__opai?.state?.currentRequest !== id,
+    requestId,
+  );
 }
 
 export async function emitActivity(page, requestId, event) {

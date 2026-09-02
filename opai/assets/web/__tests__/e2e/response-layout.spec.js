@@ -17,7 +17,7 @@ const answer = [
   "```",
 ].join("\n");
 
-test("prose stays readable while tables and code use the wider engineering canvas", async ({ page }) => {
+test("assistant content aligns across the wider engineering canvas", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await openApp(page);
   const requestId = await sendPrompt(page, "Inspect a long parser result with code and a table");
@@ -40,9 +40,9 @@ test("prose stays readable while tables and code use the wider engineering canva
       codeLineHeight: codeStyle.lineHeight,
     };
   });
-  expect(metrics.paragraphWidth).toBeLessThanOrEqual(760);
-  expect(metrics.tableWidth).toBeGreaterThan(metrics.paragraphWidth + 80);
-  expect(metrics.codeWidth).toBeGreaterThan(metrics.paragraphWidth + 80);
+  expect(metrics.paragraphWidth).toBeGreaterThan(840);
+  expect(Math.abs(metrics.tableWidth - metrics.paragraphWidth)).toBeLessThanOrEqual(2);
+  expect(Math.abs(metrics.codeWidth - metrics.paragraphWidth)).toBeLessThanOrEqual(2);
   expect(metrics.proseFontSize).toBe("15px");
   expect(parseFloat(metrics.proseLineHeight)).toBeGreaterThanOrEqual(23);
   expect(metrics.codeFontSize).toBe("13px");

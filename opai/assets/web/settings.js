@@ -1676,10 +1676,11 @@
       return !!html;
     });
 
-    // Each pane carries its own hero title (Settings redesign), so the shared
-    // header is just the global search.
-    var header =
-      '<div class="settings-toolbar"><input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false"><span class="settings-noresults" id="settingsNoResults" hidden>No settings match your search.</span></div>';
+    // Search belongs to the navigation pane: it filters the same registry that
+    // renders the rail, so navigation and discovery remain one app surface.
+    var sidebarHeader =
+      '<div class="settings-sidebar-head"><div class="settings-sidebar-title">Settings</div>' +
+      '<div class="settings-toolbar"><input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false"></div></div>';
 
     var panesHtml = present
       .map(function (section) {
@@ -1713,6 +1714,8 @@
             groupLabel +
             '<button class="settings-rail-item" type="button" data-rail-target="' +
             esc(section.id) +
+            '" aria-controls="set-sec-' +
+            esc(section.id) +
             '"><span class="settings-rail-icon" aria-hidden="true">' +
             (ICONS[section.id] || "") +
             '</span><span class="settings-rail-label">' +
@@ -1725,9 +1728,12 @@
 
     page.innerHTML =
       '<div class="settings-layout">' +
+      '<aside class="settings-sidebar">' +
+      sidebarHeader +
       rail +
+      "</aside>" +
       '<div class="settings-content" id="settingsContent">' +
-      header +
+      '<span class="settings-noresults" id="settingsNoResults" hidden>No settings match your search.</span>' +
       panesHtml +
       "</div></div>";
 
@@ -1793,7 +1799,7 @@
       });
     }
 
-    var search = content.querySelector("#settingsSearch");
+    var search = layout.querySelector("#settingsSearch");
     railItems.forEach(function (link) {
       link.onclick = function () {
         if (search && search.value) {
@@ -1801,6 +1807,8 @@
           applySearch("");
         }
         activate(link.dataset.railTarget);
+        var scroller = page.closest(".scroll");
+        if (scroller) scroller.scrollTop = 0;
       };
     });
 

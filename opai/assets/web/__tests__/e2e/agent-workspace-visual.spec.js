@@ -85,6 +85,10 @@ for (const scenario of [
     await finishRequest(page, id, completedWorkspace());
     const response = page.locator(".msg.bot").last();
     await response.locator(".meta").evaluateAll((elements) => elements.forEach((element) => element.remove()));
+    await response.locator(".rc-bits").evaluate((element) => {
+      element.textContent = element.textContent.replace(/\d{2}:\d{2}/, "00:00");
+    });
+    await page.locator("#ssTime").evaluate((element) => { element.textContent = "00:00"; });
     if (scenario.density === "balanced") {
       await page.locator("#chatScroll").evaluate((element) => { element.scrollTop = 0; });
     }
