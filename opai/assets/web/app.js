@@ -109,7 +109,12 @@ function assistantPresentationHtml(headerHtml, text, presentation, options = {})
     proseHtml: responseProseHtml(mdToHtml(text || "")),
     presentation,
     result: options.result,
+    verdict: options.verdict,
+    costUsd: options.costUsd,
+    elapsed: options.elapsed,
+    changedFiles: options.changedFiles,
     changesHtml: options.changesHtml || "",
+    outsideHtml: options.outsideHtml || "",
     supportHtml: options.supportHtml || "",
     warningsHtml: options.warningsHtml || "",
     legacyWorkHtml: options.legacyWorkHtml || "",
@@ -1949,8 +1954,8 @@ function finalizeBuild(r) {
     {
       legacyBeforeHtml: activitySummaryHtml(),
       result: r,
-      extraHtml: buildResultHtml(r) +
-        (r.receipt ? metaFooter({ receipt: r.receipt }, sel, durMs) : ""),
+      outsideHtml: buildResultHtml(r),
+      extraHtml: r.receipt ? metaFooter({ receipt: r.receipt }, sel, durMs) : "",
     },
   );
   wireActivitySummary(el);
@@ -3276,7 +3281,17 @@ function renderErrorCard(el, status, r, sel) {
     toast(`Continuing with ${state.model.label}`);
     sendSelection(payload);
   };
-  const retryButton = el.querySelector('[data-a="retry"]'); if (retryButton) retryButton.onclick = () => retry();
+  const retryButton = el.querySelector('[data-a="retry"]');
+  if (retryButton) {
+    retryButton.onclick = (event) => {
+      // Retry sits inside the turn summary's <summary>, where a click would
+      // otherwise reach the disclosure and expand the diagnostics on its way
+      // to retrying -- so the one action that matters would also dump the
+      // whole panel open.
+      if (retryButton.dataset.stopToggle) event.preventDefault();
+      retry();
+    };
+  }
   const signIn = el.querySelector('[data-a="signin"]'); if (signIn) signIn.onclick = () => {
     const retryPayload = state.lastSend ? { ...state.lastSend } : (sel ? { ...sel } : null);
     startGuidedProviderLogin(loginProvider, { button: signIn, retryPayload, retryRequestId: state.lastFailedRequestId });
@@ -3429,7 +3444,8 @@ function finalize(status, r) {
   }
   if (r && (r.workflow || r.agent_policy)) supportHtml += workflowCardHtml(r);
   const planSteps = (r && r.plan && r.plan.steps) || [];
-  if (planSteps.length) supportHtml += planCardHtml(planSteps);
+  let outsideHtml = "";
+  if (planSteps.length) outsideHtml += planCardHtml(planSteps);
   el.innerHTML = assistantPresentationHtml(
     headerHtml,
     answer,
@@ -3438,10 +3454,18 @@ function finalize(status, r) {
       result: r,
       changesHtml,
       supportHtml,
+      outsideHtml,
       warningsHtml: unverifiedClaimHtml(r),
       legacyWorkHtml: activitySummaryHtml(),
       legacyFinalHtml: completionVerdictHtml(r),
       extraHtml: metaFooter(r, sel, durMs),
+      // The summary line's own facts. Cost and elapsed are not in the
+      // presentation payload -- they live on the receipt and the call site --
+      // so they are handed over rather than dug for.
+      verdict: completionVerdict(r),
+      costUsd: Number(((r && r.receipt) || {}).estimated_actual_usd) || 0,
+      elapsed: OPaiActivity.formatElapsed(durMs),
+      changedFiles: ((r && r.changed_files) || []).length,
       retryable: Boolean(state.lastSend),
     },
   );
@@ -3453,8 +3477,18 @@ function finalize(status, r) {
   wireChangesetCard(el);
   wireStructuredEvidence(el);
   enhanceCodeBlocks(el);
-    const cvRetry = el.querySelector('.completion-verdict [data-a="retry"]');
-    if (cvRetry) cvRetry.onclick = () => retry();
+    // Retry moved from the completion-verdict card onto the turn summary's
+    // row when that card was folded into it. Wiring it by the old selector
+    // alone left the button rendered and dead.
+    const cvRetry = el.querySelector('.turn-summary [data-a="retry"], .completion-verdict [data-a="retry"]');
+    if (cvRetry) {
+      cvRetry.onclick = (event) => {
+        // Inside <summary>, a click would toggle the disclosure on its way to
+        // the handler, so retrying would also dump the diagnostics open.
+        if (cvRetry.dataset.stopToggle) event.preventDefault();
+        retry();
+      };
+    }
   } finally {
     restoreChatScroll(scrollSnapshot);
   }
@@ -3752,8 +3786,12 @@ function workflowCardHtml(result) {
   ).join("");
   const provider = flow.provider || {};
   const cost = flow.cost || {};
+  // The verdict is the turn summary's first word now, so this stops repeating
+  // it. It used to render its own phase here, which is how the detail could
+  // read "Completed" under a summary that said "No changes made" -- the same
+  // duplication that had one turn announcing its outcome three times.
   return `<div class="workflow-card">
-    <div class="wf-head"><span>${esc(mode)}</span><span>${esc(displayedPhase)}</span></div>
+    <div class="wf-head"><span>${esc(mode)}</span></div>
     ${displayedMessage ? `<div class="wf-message">${esc(displayedMessage)}</div>` : ""}
     <div class="wf-row"><span>PR</span><strong>${esc(flow.pr_url || "not opened")}</strong></div>
     <div class="wf-row"><span>Merge</span><strong>${esc(pretty(flow.merge_status))}</strong></div>

@@ -704,6 +704,60 @@ kbd {
 .completion-verdict.partial .cv-title, .completion-verdict.blocked .cv-title, .completion-verdict.cancelled .cv-title { color: var(--amber); }
 .completion-verdict.failed, .completion-verdict.timeout { border-color: rgba(242, 118, 138, 0.42); }
 .completion-verdict.failed .cv-title, .completion-verdict.timeout .cv-title { color: var(--red); }
+/* ---------- the turn summary ----------
+ *
+ * One row under the answer, and every diagnostic behind it. A <details>, so
+ * the disclosure is the browser's -- keyboard, screen readers and
+ * find-in-page all work without a line of JavaScript.
+ *
+ * The row reads as a sentence, not a table: a status dot, one word for the
+ * verdict, then whichever facts this turn actually has. A read-only answer
+ * shows "Answered · $0.0021" and stops, which is the point -- the stack this
+ * replaces rendered every column whether or not it had anything in it.
+ */
+.turn-summary { margin: var(--space-4) 0 0; }
+.turn-summary > .ts-row {
+  display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--glass); cursor: pointer; list-style: none;
+  font-size: var(--type-caption); color: var(--muted);
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.turn-summary > .ts-row::-webkit-details-marker { display: none; }
+.turn-summary > .ts-row:hover { background: var(--glass-hi); border-color: var(--border-strong); }
+.turn-summary > .ts-row:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.turn-summary .ts-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--muted);
+}
+.turn-summary .ts-verdict { color: var(--ink); font-weight: 650; flex-shrink: 0; }
+.turn-summary .ts-facts { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-summary .ts-more { flex-shrink: 0; color: var(--faint); }
+.turn-summary .ts-more::after { content: " ›"; }
+.turn-summary[open] .ts-more::after { content: " ⌄"; }
+.turn-summary .ts-retry {
+  flex-shrink: 0; background: none; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
+  color: var(--ink); font-size: var(--type-caption);
+}
+.turn-summary .ts-retry:hover { border-color: var(--accent); color: var(--accent); }
+
+/* The verdict is the dot's colour, so the row carries the outcome before a
+   single word of it is read. */
+.turn-summary.is-completed .ts-dot { background: var(--green); }
+.turn-summary.is-partial .ts-dot,
+.turn-summary.is-needs_attention .ts-dot,
+.turn-summary.is-blocked .ts-dot { background: var(--amber); }
+.turn-summary.is-failed .ts-dot,
+.turn-summary.is-timeout .ts-dot { background: var(--red); }
+.turn-summary.is-answered .ts-dot { background: var(--accent); }
+
+.turn-summary .ts-detail { margin-top: var(--space-3); }
+/* Nested blocks keep their own styling; they simply stop being the first
+   thing anyone sees. The first needs no second top margin. */
+.turn-summary .ts-detail > *:first-child { margin-top: 0; }
+
 .evidence-bar {
   display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-2) 0;
 }

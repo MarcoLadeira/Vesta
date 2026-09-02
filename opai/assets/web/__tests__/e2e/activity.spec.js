@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { openTurnDetails } from "./helpers/app.js";
+
 const MOCK = "opai/assets/web/__tests__/e2e/mock-bridge.js";
 
 test.beforeEach(async ({ page }) => {
@@ -58,7 +60,11 @@ test("a live final response uses its structured evidence and work log", async ({
   }), id);
 
   const response = page.locator(".msg.bot").last();
-  await expect(response.locator(".completion-verdict")).toContainText("Completed");
+  // The verdict is the turn summary's own row now, and the evidence sits
+  // behind it. The claim under test is unchanged: the response reports the
+  // structured evidence it was given, and never the 999 it invented in prose.
+  await expect(response.locator(".ts-verdict")).toContainText("Done");
+  await openTurnDetails(page, response);
   await expect(response.locator(".evidence-bar")).toContainText("2 passed");
   await expect(response.locator(".evidence-bar")).not.toContainText("999");
   await expect(response.locator(".gen-toggle.done")).toContainText("Work log (2)");
@@ -250,6 +256,8 @@ test("the receipt strip copies a plaintext receipt on click", async ({ page }) =
     status: "answered", answer: "done",
     receipt: { estimated_actual_usd: 0.0123 },
   }), id);
+  // The cost receipt is a record of the run, so it lives behind the summary.
+  await openTurnDetails(page);
   const strip = page.locator(".footer-note");
   await expect(strip).toBeVisible();
   await expect(strip).toHaveAttribute("aria-label", "Copy receipt");
