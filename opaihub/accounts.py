@@ -63,6 +63,7 @@ _CONNECTION_HISTORY_LIMIT = 64
 _ACCOUNT_TYPE_HISTORY_TTL_MS = int(_CONNECTION_CACHE_TTL * 1000)
 _CLI_VERSION_CACHE: dict[str, str] = {}
 _CLI_CAPABILITY_CACHE: dict[str, bool] = {}
+_CODEX_MODEL_CACHE: dict[str, list[tuple[str, str, str]]] = {}
 _CODEX_CURRENT_DEFAULT_MIN_VERSION = (0, 143, 0)
 
 # What a provider CLI can do is a property of the *machine*, not of one OPai
@@ -689,7 +690,9 @@ def test_account_connection(
     if returncode == 0 and not status_failed:
         account_type = _account_type_from_status(account_id, detail)
         if account_id == "codex":
-            cli_version = _account_cli_version(account, run=run)
+            cli_version = _account_cli_version(
+                account, run=run, home=home, force=force
+            )
             if not _codex_cli_supports_current_default(cli_version):
                 error = normalize_provider_error(
                     account_id,
@@ -878,11 +881,12 @@ def _account_cli_version(
     *,
     run: Callable[[list[str]], Any] | None = None,
     home: Path | None = None,
+    force: bool = False,
 ) -> str:
     cli_path = str(account.get("cli_path") or "")
     if not cli_path:
         return ""
-    if run is None:
+    if run is None and not force:
         if cli_path in _CLI_VERSION_CACHE:
             return _CLI_VERSION_CACHE[cli_path]
         stored = _read_cli_probe(cli_path, "version", home=home)
@@ -905,6 +909,100 @@ def _account_cli_version(
         _CLI_VERSION_CACHE[cli_path] = version
         _write_cli_probe(cli_path, "version", version, home=home)
     return version
+
+
+def _codex_model_capability(model_id: str) -> str:
+    lowered = model_id.lower()
+    if lowered.endswith("-luna") or "mini" in lowered:
+        return "fast"
+    if lowered.endswith("-sol"):
+        return "best"
+    return "balanced"
+
+
+def _valid_codex_models(value: Any) -> list[tuple[str, str, str]]:
+    if not isinstance(value, list):
+        return []
+    models: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, (list, tuple)) or len(item) != 3:
+            continue
+        model_id, label, capability = (str(part or "").strip() for part in item)
+        if (
+            not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", model_id)
+            or not label
+            or capability not in {"fast", "balanced", "best", "preview"}
+            or model_id in seen
+        ):
+            continue
+        seen.add(model_id)
+        models.append((model_id, label[:160], capability))
+    return models
+
+
+def _cached_codex_models(
+    cli_path: str, *, home: Path | None = None
+) -> list[tuple[str, str, str]]:
+    cached = _CODEX_MODEL_CACHE.get(cli_path)
+    if cached is not None:
+        return list(cached)
+    stored = _valid_codex_models(_read_cli_probe(cli_path, "models", home=home))
+    if stored:
+        _CODEX_MODEL_CACHE[cli_path] = stored
+    return list(stored)
+
+
+def _codex_cli_models(
+    account: dict[str, Any],
+    *,
+    run: Callable[[list[str]], Any] | None = None,
+    home: Path | None = None,
+    force: bool = False,
+) -> list[tuple[str, str, str]]:
+    cli_path = str(account.get("cli_path") or "")
+    if not cli_path:
+        return []
+    fallback = _cached_codex_models(cli_path, home=home) if run is None else []
+    if run is None and fallback and not force:
+        return fallback
+    child_env, _removed = provider_child_env("codex")
+    execute = run or (
+        lambda argv: _hidden_run(argv, cwd=None, timeout=2.0, env=child_env)
+    )
+    try:
+        result = execute([cli_path, "debug", "models"])
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    if int(getattr(result, "returncode", 0) or 0) != 0:
+        return fallback
+    try:
+        payload = json.loads(str(getattr(result, "stdout", "") or ""))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return fallback
+    raw_models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(raw_models, list):
+        return fallback
+    discovered: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for item in raw_models:
+        if not isinstance(item, dict) or item.get("visibility") != "list":
+            continue
+        model_id = str(item.get("slug") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", model_id) or model_id in seen:
+            continue
+        raw_label = str(item.get("display_name") or model_id).strip()[:160]
+        label = re.sub(
+            r"(?<=\d)-(Sol|Terra|Luna)\b", r" \1", raw_label, flags=re.IGNORECASE
+        )
+        seen.add(model_id)
+        discovered.append((model_id, label, _codex_model_capability(model_id)))
+    if not discovered:
+        return fallback
+    if run is None:
+        _CODEX_MODEL_CACHE[cli_path] = discovered
+        _write_cli_probe(cli_path, "models", discovered, home=home)
+    return discovered
 
 
 def _semantic_version(raw: str) -> tuple[int, int, int] | None:
@@ -1033,7 +1131,7 @@ def provider_connection_doctor(
             "credentialSourceLabel": "Subscription sign-in",
             "cliInstalled": cli_installed,
             "cliVersion": (
-                _account_cli_version(account, run=version_run)
+                _account_cli_version(account, run=version_run, home=home, force=True)
                 if include_cli_versions
                 else ""
             ),
@@ -1576,6 +1674,7 @@ def _account_options(
     account_type: str | None = None,
     cli_version: str = "",
     copilot_scoped_editing: bool | None = None,
+    codex_models: list[tuple[str, str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     from opai.provider_contract import provider_display_name
 
@@ -1609,7 +1708,11 @@ def _account_options(
                 "(npm install -g @openai/codex)."
             )
         normalized_account_type = str(account_type or "").lower()
-        if account_type is not None and normalized_account_type != "api_key":
+        if (
+            not codex_models
+            and account_type is not None
+            and normalized_account_type != "api_key"
+        ):
             return [
                 {
                     "id": "account:codex",
@@ -1636,10 +1739,15 @@ def _account_options(
                     "cli_version": cli_version,
                 }
             ]
+        model_options = codex_models if codex_models else CODEX_MODELS
         return [
             {
                 "id": f"account:codex:{model_id}",
-                "label": provider_display_name("codex", model_id),
+                "label": (
+                    f"Codex · {label}"
+                    if codex_models
+                    else provider_display_name("codex", model_id)
+                ),
                 "advanced_label": provider_display_name("codex", label, advanced=True),
                 "provider": "codex",
                 "model": model_id,
@@ -1654,7 +1762,7 @@ def _account_options(
                 "repo_editing": codex_compatible,
                 "cli_version": cli_version,
             }
-            for model_id, label, speed in CODEX_MODELS
+            for model_id, label, speed in model_options
         ]
     if account["id"] == "copilot":
         return [
@@ -1727,6 +1835,7 @@ def account_models(
         )
         cli_version = ""
         copilot_scoped_editing: bool | None = None
+        codex_models: list[tuple[str, str, str]] | None = None
         cli_path = str(account.get("cli_path") or "")
         # Enumeration must never launch a provider CLI. A subprocess here blocks
         # whatever is enumerating — the settings page, the model picker — for up
@@ -1744,13 +1853,16 @@ def account_models(
         # doctor), and those persist the verdict for everyone else to read.
         if account["id"] == "codex":
             if inspect_cli_capabilities:
-                cli_version = _account_cli_version(account, home=home)
+                cli_version = _account_cli_version(account, home=home, force=True)
+                if connected:
+                    codex_models = _codex_cli_models(account, home=home, force=True)
             elif cli_path:
                 cached = _CLI_VERSION_CACHE.get(cli_path)
                 if cached is None:
                     stored = _read_cli_probe(cli_path, "version", home=home)
                     cached = stored if isinstance(stored, str) else ""
                 cli_version = cached
+                codex_models = _cached_codex_models(cli_path, home=home)
         if account["id"] == "copilot":
             if inspect_cli_capabilities:
                 copilot_scoped_editing = _copilot_supports_scoped_permissions(
@@ -1768,6 +1880,7 @@ def account_models(
                 account_type=account_type,
                 cli_version=cli_version,
                 copilot_scoped_editing=copilot_scoped_editing,
+                codex_models=codex_models,
             )
         )
     return options

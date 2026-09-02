@@ -67,7 +67,7 @@ class ResolveAndDisplayTests(unittest.TestCase):
         self.assertEqual(reg.resolve_id("claude", "sonnet-5"), "claude-sonnet-5")
         self.assertEqual(reg.resolve_id("claude", "fable"), "claude-fable-5")
         self.assertEqual(reg.resolve_id("claude", "claude-sonnet-5"), "claude-sonnet-5")
-        self.assertEqual(reg.resolve_id("codex", "gpt-5.6"), "gpt-5.6")
+        self.assertEqual(reg.resolve_id("codex", "gpt-5.6"), "gpt-5.6-sol")
         self.assertEqual(reg.display_map("codex")["gpt-5.3-codex-spark"], "Spark")
         self.assertEqual(
             reg.display_map("copilot")["claude-sonnet-4.6"], "Claude Sonnet"
@@ -105,7 +105,7 @@ class ValidationTests(unittest.TestCase):
         # Proven Sonnet 4.6 is the balanced default; the Claude 5 family is
         # opt-in so an unavailable new model never breaks the default (#307).
         self.assertEqual(reg.default_model("claude").id, "sonnet")
-        self.assertEqual(reg.default_model("codex").id, "gpt-5.4")
+        self.assertEqual(reg.default_model("codex").id, "gpt-5.6-terra")
         self.assertEqual(reg.default_model("copilot").id, "claude-sonnet-4.6")
 
     def test_catalog_is_plain_serializable_data(self):

@@ -390,7 +390,31 @@ function boot() {
   });
   if (bridge.modelsChanged) bridge.modelsChanged.connect((json) => {
     const catalog = JSON.parse(json);
-    if (catalog.models) { state.boot.models = catalog.models; renderComposerSelects(); }
+    if (Array.isArray(catalog.accounts)) {
+      state.boot.accounts = catalog.accounts;
+      state.accounts = catalog.accounts;
+      renderAccount();
+    }
+    if (Array.isArray(catalog.connections)) {
+      state.boot.connections = catalog.connections;
+      catalog.connections.forEach((connection) => {
+        updateDoctorCard(connection.providerId || connection.provider, connection);
+      });
+    }
+    if (Array.isArray(catalog.models)) {
+      state.boot.models = catalog.models;
+      const selected = catalog.models.find((model) => model.id === state.model.id);
+      if (selected) state.model = { ...selected, advancedLabel: selected.advanced_label };
+      else {
+        const fallback = catalog.models.find((model) => model.id === "auto") || catalog.models[0];
+        if (fallback) {
+          state.model = { ...fallback, advancedLabel: fallback.advanced_label };
+          bridge.savePref("default_model", fallback.id);
+        }
+      }
+      renderComposerSelects();
+      refreshStatus();
+    }
   });
   if (bridge.providerLoginReady) bridge.providerLoginReady.connect(onProviderLoginReady);
   if (bridge.connectionDoctorReady) bridge.connectionDoctorReady.connect(onConnectionDoctorReady);
@@ -3110,6 +3134,12 @@ function startGuidedProviderLogin(provider, { button = null, retryPayload = null
   }
 }
 
+function refreshConnectedModels() {
+  if (bridge && bridge.discoverModels) {
+    try { bridge.discoverModels(); } catch (_e) { return; }
+  }
+}
+
 function onProviderLoginReady(json) {
   let envelope = {};
   try { envelope = JSON.parse(json || "{}"); } catch (_e) { return; }
@@ -3123,6 +3153,7 @@ function onProviderLoginReady(json) {
   }
   updateDoctorCard(pending.provider, result);
   if (!result.signedIn) { toast(result.message || "Sign-in was not verified"); return; }
+  refreshConnectedModels();
   toast(result.message || `${providerName(pending.provider)} sign-in verified`);
   if (pending.retryPayload && !state.busy && (!pending.retryRequestId || (state.message && state.message.requestId === pending.retryRequestId))) sendSelection(pending.retryPayload);
 }
@@ -3270,6 +3301,7 @@ function renderErrorCard(el, status, r, sel) {
     bridge.testProvider(provider, (json2) => {
       let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
       reconnect.disabled = false; reconnect.textContent = "Test connection";
+      refreshConnectedModels();
       if (result.authStatus === "connected") { toast("Connection verified — Retry should work now"); return; }
       const hint = result.loginHint ? " " + result.loginHint : "";
       toast((result.safeDiagnostic || "Still not connected.") + hint);
@@ -3282,6 +3314,7 @@ function renderErrorCard(el, status, r, sel) {
     bridge.disconnectAccount(provider, (json2) => {
       let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
       disconnect.disabled = false; disconnect.textContent = "Disconnect account";
+      if (result.disconnected) refreshConnectedModels();
       toast(result.message || (result.disconnected ? "Signed out." : "Could not sign out."));
     });
   };
@@ -4044,6 +4077,7 @@ function settingsCtx(d) {
     d, bridge, state, esc, toast, inlineConfirm, switchView,
     refresh: renderSettings, updateDoctorCard, providerName,
     startGuidedProviderLogin, connectionHealthLabel, authStatusLabel,
+    refreshConnectedModels,
     renderComposerSelects,
     applyAppearance, applyDefaults, applyClearedHistory,
     replayTour: () => { if (window.OPaiOnboarding) window.OPaiOnboarding.replay(onboardingCtx()); },

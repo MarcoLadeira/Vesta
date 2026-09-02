@@ -692,7 +692,10 @@ def run_local_benchmark(project_root: Path) -> dict[str, Any]:
 # Chat surface: model picker, ask, and the tool dispatcher (powers the GUI)
 # --------------------------------------------------------------------------- #
 def available_models(
-    project_root: Path, *, discover_local: bool = True
+    project_root: Path,
+    *,
+    discover_local: bool = True,
+    discover_accounts: bool = False,
 ) -> dict[str, Any]:
     """Pickable models: connected accounts → free API → Auto → local.
 
@@ -708,13 +711,21 @@ def available_models(
         list_connected_accounts,
         provider_contract_payload,
         provider_connection_doctor,
+        test_account_connection,
     )
     from opaihub.provider_catalog import CATALOG_VERSION, PROTOCOL_VERSION, provider_ids
     from opaihub.free_models import list_free_models
     from opaihub.local_runner import cached_local_models, list_local_models
 
     detected_accounts = list_connected_accounts()
-    connections = [connection_for_account(account) for account in detected_accounts]
+    connections = [
+        test_account_connection("codex", force=True)
+        if discover_accounts
+        and account.get("id") == "codex"
+        and account.get("cli_present")
+        else connection_for_account(account)
+        for account in detected_accounts
+    ]
     # Use only local connection history here: it records a recent safe auth
     # check (including a known failure) without adding a CLI/provider probe to
     # model-picker enumeration.
@@ -731,15 +742,13 @@ def available_models(
         provider: str(health.get("accountType") or "unknown")
         for provider, health in account_health.items()
     }
-    accounts = account_models(
-        accounts=detected_accounts,
-        account_types=account_types,
-    )
     account_catalog = account_models(
         include_unavailable=True,
         accounts=detected_accounts,
         account_types=account_types,
+        inspect_cli_capabilities=discover_accounts,
     )
+    accounts = [option for option in account_catalog if option.get("connected")]
     unavailable_account_statuses = {
         "misconfigured",
         "provider_unavailable",

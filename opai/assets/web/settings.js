@@ -1986,6 +1986,7 @@
           status.textContent = result.connected
             ? "Connection verified"
             : detail || "Connection failed";
+          ctx.refreshConnectedModels();
         });
       };
     });
@@ -2004,6 +2005,7 @@
           button.disabled = false;
           button.textContent = "Test " + ctx.providerName(id);
           ctx.updateDoctorCard(id, result);
+          ctx.refreshConnectedModels();
           toast(
             result.connected
               ? "Connection verified"
@@ -2039,6 +2041,7 @@
           // in a vocabulary nothing else used.
           if (status) status.textContent = authStatusLabel(result.authStatus);
           ctx.updateDoctorCard(id, result);
+          ctx.refreshConnectedModels();
           if (live) {
             toast("Connection verified");
             return;
@@ -2083,6 +2086,7 @@
                   (result.disconnected ? "Signed out." : "Could not sign out.")
               );
               if (result.disconnected) {
+                ctx.refreshConnectedModels();
                 var status = q('[data-account-status="' + id + '"]');
                 var dot = q('[data-account-row="' + id + '"] .prov-dot');
                 if (status)

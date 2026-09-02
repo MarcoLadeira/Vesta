@@ -2762,7 +2762,11 @@ def _run_gui(
         def discoverModels(self) -> None:
             """Discover loopback models off the GUI thread and publish the catalog."""
 
-            worker = Worker(lambda: A.available_models(self.root, discover_local=True))
+            worker = Worker(
+                lambda: A.available_models(
+                    self.root, discover_local=True, discover_accounts=True
+                )
+            )
 
             def _done(result_json: str) -> None:
                 self.modelsChanged.emit(result_json)
