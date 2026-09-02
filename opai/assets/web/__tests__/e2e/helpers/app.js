@@ -190,3 +190,26 @@ export async function expectNoRawProviderIds(page) {
   const thread = await page.locator("#thread").innerText();
   expect(thread).not.toMatch(/account:(claude|codex|copilot):|anthropic\.messages\.create/);
 }
+
+/**
+ * Expand a turn's diagnostics.
+ *
+ * Everything describing a run -- evidence, verification, changes, the work
+ * log, the workflow card, the cost receipt -- now sits behind the one-line
+ * turn summary. Tests that assert on any of it have to open the disclosure
+ * first, exactly as a reader would.
+ *
+ * Idempotent, and a no-op on turns that have no diagnostics to show, so it can
+ * be called unconditionally before reaching into a response.
+ */
+export async function openTurnDetails(page, scope) {
+  const root = scope || page;
+  const summaries = root.locator(".turn-summary:not([open]) > .ts-row");
+  const count = await summaries.count();
+  for (let index = 0; index < count; index += 1) {
+    // Click the verdict, never the row's centre: Retry lives in the middle of
+    // the row on a failed turn, and clicking it would retry the request rather
+    // than open the panel.
+    await summaries.nth(index).locator(".ts-verdict").click();
+  }
+}

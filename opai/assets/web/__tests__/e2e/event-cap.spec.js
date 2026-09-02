@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, openTurnDetails, sendPrompt } from "./helpers/app.js";
 
 
 test.beforeEach(async ({ page }) => openApp(page));
@@ -66,6 +66,7 @@ test("a completed capped turn keeps its honest truncation marker", async ({ page
 
   await finishRequest(page, id);
   const completed = page.locator(".msg.bot").last();
+  await openTurnDetails(page, completed);
   await completed.locator(".gen-toggle.done").click();
 
   const marker = completed.locator(".timeline.done .tl-truncation");

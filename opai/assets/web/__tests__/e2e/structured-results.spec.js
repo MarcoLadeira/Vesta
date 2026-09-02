@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, openTurnDetails, sendPrompt } from "./helpers/app.js";
 
 test("structured evidence, changes, warnings, and final state keep one honest reading order", async ({ page }) => {
   await openApp(page, { boot: { prefs: { responseDensity: "balanced" } } });
@@ -71,6 +71,9 @@ test("structured evidence, changes, warnings, and final state keep one honest re
   });
 
   const response = page.locator(".msg.bot").last();
+  // The run's evidence lives behind the turn summary now; open it before
+  // reading any of it.
+  await openTurnDetails(page, response);
   await expect(response.locator(".verification-card")).toContainText("1 passed");
   await response.locator(".verification-check > summary").click();
   await expect(response.locator(".verification-command code")).toHaveText('python -m pytest "tests/test parser.py"');
@@ -94,20 +97,31 @@ test("structured evidence, changes, warnings, and final state keep one honest re
   await expect(response.locator(".response-warnings .warning-message").filter({ hasText: "Review permissions" })).toHaveCount(1);
   await expect(response.locator(".response-warnings")).toContainText("background command is still unfinished");
 
+  // The reading order still has to be one honest sequence, but the sequence
+  // itself changed: the answer, then anything that contradicts it, then what
+  // actually changed on disk, and only then the summary that holds the record
+  // of the run. Everything from the evidence bar down is inside that summary,
+  // which is why it now comes last rather than being stacked under the answer.
   const order = await response.evaluate((element) => {
     const selectors = [
       ".response-prose",
+      ".changeset-card",
+      ".turn-summary",
       ".evidence-bar",
       ".verification-card",
-      ".changeset-card",
       ".gen-toggle.done",
       ".workflow-card",
       ".response-warnings",
-      ".completion-verdict",
     ];
     return selectors.map((selector) => Array.from(element.querySelectorAll("*")).indexOf(element.querySelector(selector)));
   });
   expect(order.every((position) => position >= 0)).toBe(true);
   expect(order).toEqual([...order].sort((a, b) => a - b));
-  await expect(response.locator(".response-content > .completion-verdict:last-child")).toContainText("Partial");
+
+  // The verdict is stated once, on the summary row, and nowhere else. Saying
+  // it three times -- as a card, as the workflow card's heading and as the
+  // receipt's prefix -- is what made a finished turn unreadable.
+  await expect(response.locator(".ts-verdict")).toHaveText("No changes made");
+  await expect(response.locator(".completion-verdict")).toHaveCount(0);
+  await expect(response.locator(".workflow-card .wf-head")).not.toContainText("Partial");
 });

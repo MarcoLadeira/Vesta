@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { emitActivity, finishRequest, openApp, sendPrompt } from "./helpers/app.js";
+import { emitActivity, finishRequest, openApp, openTurnDetails, sendPrompt } from "./helpers/app.js";
 
 
 test.beforeEach(async ({ page }) => openApp(page));
@@ -26,6 +26,7 @@ test("success can show completed only after the provider answers", async ({ page
   const id = await sendPrompt(page);
   await emitActivity(page, id, { id: "done", type: "status", status: "success", title: "Completed" });
   await finishRequest(page, id, { answer: "done" });
+  await openTurnDetails(page);
   await page.locator(".gen-toggle.done").click();
   await expect(page.locator(".timeline.done")).toContainText("Completed");
 });
@@ -88,11 +89,19 @@ test("workflow summary uses the authoritative verdict instead of a stale complet
     },
   });
 
+  // The invariant is unchanged; the surface that carries it moved. The turn
+  // summary owns the verdict now, and the workflow card stopped printing a
+  // phase of its own -- which is a stronger fix than making the card echo the
+  // verdict, because a card with no phase in it cannot contradict anything.
+  const summary = page.locator(".turn-summary");
+  await expect(summary.locator(".ts-verdict")).toHaveText("No changes made");
+  await expect(summary).toHaveClass(/is-partial/);
+
   const workflow = page.locator(".workflow-card");
-  await expect(workflow.locator(".wf-head")).toContainText("Partial");
   await expect(workflow.locator(".wf-head")).not.toContainText("Completed");
   await expect(workflow.locator(".wf-message")).toHaveText("OPai could not verify the requested objective.");
   await expect(workflow.locator(".wf-actions")).toContainText("Check the remote branch, then retry verification.");
+  await summary.locator(".ts-row").click();
   await workflow.locator(".wf-history summary").click();
   await expect(workflow.locator(".wf-history")).toContainText("Partial");
   await expect(workflow.locator(".wf-history")).not.toContainText("Read-only task completed");
