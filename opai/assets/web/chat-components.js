@@ -149,7 +149,9 @@
     var items = model.items.map(function (item) {
       return '<span class="evidence-item evidence-' + esc(item.key) + '">' +
         '<span class="evidence-label">' + esc(item.label) + '</span>' +
-        '<span class="evidence-value">' + esc(item.value) + "</span></span>";
+        // Field values arrive as identifiers ("not_applicable"); the chip is
+        // read by a person, not matched by a parser.
+        '<span class="evidence-value">' + esc(item.value.replace(/_/g, " ")) + "</span></span>";
     }).join("");
     return '<section class="evidence-bar" aria-label="Run evidence">' + items + "</section>";
   }
@@ -520,9 +522,17 @@
     var state = verdict ? boundedText(verdict.state || verdict.verdict, 64).toLowerCase() : "";
     return {
       state: state || "answered",
-      label: state ? (VERDICT_WORDS[state] || boundedText(verdict.label, 120) || state) : "Answered",
+      label: state
+        ? (boundedText(verdict.displayLabel, 120) ||
+           VERDICT_WORDS[state] || boundedText(verdict.label, 120) || state)
+        : "Answered",
       reason: verdict ? boundedText(verdict.reason, 800) : "",
-      nextAction: verdict ? boundedText(verdict.nextAction || verdict.next_action, 500) : "",
+      // A next action can come from the verdict or from the workflow, and a
+      // turn may carry one without the other. Reading only the verdict's lost
+      // "Inspect PR checks" on every workflow-only turn -- the same way the
+      // reason vanished when the verdict card was folded away.
+      nextAction: (verdict && boundedText(verdict.nextAction || verdict.next_action, 500)) ||
+        boundedText(extra.nextAction, 500),
       facts: facts,
       retryable: extra.retryable === true &&
         ["failed", "partial", "timeout"].indexOf(state) >= 0,
@@ -542,6 +552,18 @@
     var retry = model.retryable
       ? '<button class="ts-retry" type="button" data-a="retry" data-stop-toggle="1">Retry</button>'
       : "";
+    // The reason and the next action are the summary's own, not a card's.
+    //
+    // They used to live on the completion-verdict card, and folding that card
+    // away took them with it -- on a turn with no workflow card to fall back
+    // to, "no changed-file or diff evidence verifies the requested edit"
+    // simply vanished. Owning them here means they appear exactly once and
+    // always, whatever else the turn happens to carry.
+    var headline = "";
+    if (model.reason) headline += '<p class="ts-reason">' + esc(model.reason) + "</p>";
+    if (model.nextAction) {
+      headline += '<p class="ts-next"><span>Next</span> ' + esc(model.nextAction) + "</p>";
+    }
     return '<details class="turn-summary is-' + esc(model.state) + '">' +
       '<summary class="ts-row">' +
       '<span class="ts-dot" aria-hidden="true"></span>' +
@@ -549,7 +571,7 @@
       facts + retry +
       '<span class="ts-more" aria-hidden="true">Details</span>' +
       "</summary>" +
-      '<div class="ts-detail">' + detail + "</div>" +
+      '<div class="ts-detail">' + headline + detail + "</div>" +
       "</details>";
   }
 
@@ -584,13 +606,16 @@
         String(value.legacyWorkHtml || "");
       detail += String(value.supportHtml || "") + String(value.extraHtml || "");
       detail += renderWarnings(value.result, value.presentation);
-      detail += String(value.legacyFinalHtml || "");
     } else {
       detail += renderVerificationDetails(value.result, { density: density });
       detail += String(value.legacyWorkHtml || value.legacyBeforeHtml || "");
       detail += String(value.supportHtml || "") + String(value.extraHtml || "");
+      // The verdict card is gone from here too. Folding the structured one
+      // into the summary row while leaving the legacy one inside the panel is
+      // how the same sentence still managed to appear three times: as the
+      // workflow card's message, as the cost strip's prefix, and as its own
+      // card -- with its next action repeated under both.
       detail += renderWarnings(value.result, value.presentation);
-      detail += String(value.legacyFinalHtml || "");
     }
     // One thing does not go behind the disclosure. An unverified-claim banner
     // says the answer just above it disagrees with the measured result -- it is
@@ -602,6 +627,7 @@
     content += String(value.outsideHtml || "");
     content += renderTurnSummary(value.presentation, detail, {
       verdict: value.verdict,
+      nextAction: value.nextAction,
       costUsd: value.costUsd,
       elapsed: value.elapsed,
       changedFiles: value.changedFiles,

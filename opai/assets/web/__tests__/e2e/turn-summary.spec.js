@@ -110,3 +110,54 @@ test("a completed turn offers no retry", async ({ page }) => {
   });
   await expect(page.locator(".ts-retry")).toHaveCount(0);
 });
+
+test("the panel states each fact once", async ({ page }) => {
+  // The first version of this collapse nested the old blocks unchanged, so
+  // expanding it produced the stack it replaced: the same sentence three
+  // times (the workflow card's message, the cost strip's prefix, and its own
+  // verdict card) and the next action twice.
+  await openApp(page);
+  const id = await sendPrompt(page, "Explain the budget guard");
+  await finishRequest(page, id, {
+    answer: "The budget guard stops a run before it spends past the daily cap.",
+    receipt: { estimated_actual_usd: 0.0407, confidence: "actual" },
+    completion_verdict: {
+      verdict: "completed",
+      reason_code: "answer_delivered",
+      reason: "Provider returned a complete response; its content was not independently verified.",
+      next_action: "Review the response and its cited evidence.",
+      evidence: [],
+    },
+    agent_policy: { mode: "explain", label: "Explain" },
+    workflow: { mode: "explain", phase: "completed", provider: { model: "account:claude:haiku" } },
+  });
+
+  await openTurnDetails(page);
+  const panel = (await page.locator(".ts-detail").innerText()).replace(/\s+/g, " ");
+  expect(panel.split("not independently verified").length - 1).toBe(1);
+  expect(panel.split("Review the response and its cited evidence").length - 1).toBe(1);
+
+  // And the row must not overclaim: a plain answer verified nothing about its
+  // own content, so it reads "Response received", never "Done".
+  await expect(page.locator(".ts-verdict")).toHaveText("Response received");
+});
+
+test("rows that say nothing happened are not rendered", async ({ page }) => {
+  // An Explain run printed "PR: not opened" and "Merge: —" -- two rows stating
+  // that things which were never going to happen did not happen -- plus a Cost
+  // the row and the receipt strip were both already showing.
+  await openApp(page);
+  const id = await sendPrompt(page, "Explain it");
+  await finishRequest(page, id, {
+    answer: "Here is the explanation.",
+    receipt: { estimated_actual_usd: 0.0407, confidence: "actual" },
+    agent_policy: { mode: "explain", label: "Explain" },
+    workflow: { mode: "explain", phase: "completed", merge_status: "not_requested", pr_url: "" },
+  });
+
+  await openTurnDetails(page);
+  const card = page.locator(".workflow-card");
+  await expect(card).not.toContainText("not opened");
+  await expect(card).not.toContainText("Merge");
+  await expect(card).not.toContainText("Cost");
+});

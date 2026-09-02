@@ -753,7 +753,35 @@ kbd {
 .turn-summary.is-timeout .ts-dot { background: var(--red); }
 .turn-summary.is-answered .ts-dot { background: var(--accent); }
 
-.turn-summary .ts-detail { margin-top: var(--space-3); }
+/* One ticket, not a stack of cards.
+ *
+ * Nesting the old blocks unchanged left the panel looking like the thing it
+ * replaced: five bordered boxes, each with its own background and heading. The
+ * panel itself is the card now, and everything inside it is rows of one --
+ * inner borders, backgrounds and radii are stripped so the seams disappear. */
+.turn-summary .ts-detail {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--glass); padding: var(--space-4);
+  display: grid; gap: var(--space-3);
+}
+.turn-summary .ts-detail > * { margin: 0; }
+.turn-summary .ts-reason { color: var(--ink); font-size: var(--type-caption); line-height: 1.5; }
+.turn-summary .ts-next {
+  color: var(--muted); font-size: var(--type-caption); line-height: 1.5;
+  margin-top: var(--space-2);
+}
+.turn-summary .ts-next > span { color: var(--accent); font-weight: 650; }
+.turn-summary .ts-detail .workflow-card,
+.turn-summary .ts-detail .receipt-card,
+.turn-summary .ts-detail .verification-card,
+.turn-summary .ts-detail .response-warnings {
+  border: 0; background: none; padding: 0; margin: 0; box-shadow: none;
+}
+/* The seam between the ticket's sections is a hairline, not a second box. */
+.turn-summary .ts-detail > * + * {
+  border-top: 1px solid var(--border); padding-top: var(--space-3);
+}
 /* Nested blocks keep their own styling; they simply stop being the first
    thing anyone sees. The first needs no second top margin. */
 .turn-summary .ts-detail > *:first-child { margin-top: 0; }

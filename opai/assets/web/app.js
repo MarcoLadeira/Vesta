@@ -110,6 +110,7 @@ function assistantPresentationHtml(headerHtml, text, presentation, options = {})
     presentation,
     result: options.result,
     verdict: options.verdict,
+    nextAction: options.nextAction,
     costUsd: options.costUsd,
     elapsed: options.elapsed,
     changedFiles: options.changedFiles,
@@ -2945,6 +2946,33 @@ function completionVerdictHtml(r) {
 // returned, even when OPai could not verify the user's objective. Rendering a
 // runtime phase as the final status reintroduced the Round 6 contradiction:
 // "Partial" above "Implement · Completed" below.
+/**
+ * The verdict as the summary row should say it.
+ *
+ * Two labelling systems meet here. `completionVerdictLabel` is reason-code
+ * aware -- a plain chat answer is "Response received", never "Completed",
+ * because the run verified nothing about the content and saying otherwise
+ * overclaims. The summary row's own vocabulary is friendlier for the generic
+ * cases ("No changes made" rather than "Partial").
+ *
+ * So the specific label wins when it is actually specific, and the friendly
+ * one is used when it is not. Getting this backwards printed "Done" over a
+ * turn the system had carefully declined to call completed.
+ */
+function summaryVerdict(r) {
+  const item = completionVerdict(r);
+  if (!item) return null;
+  const specific = completionVerdictLabel(item);
+  const generic = verdictLabel(item.verdict);
+  return {
+    state: item.verdict,
+    label: item.label,
+    displayLabel: specific !== generic ? specific : "",
+    reason: item.reason,
+    nextAction: item.nextAction,
+  };
+}
+
 function completionVerdictLabel(item) {
   if (item && item.canonical) return item.label;
   return item && item.reasonCode === "answer_delivered"
@@ -2971,12 +2999,18 @@ function metaFooter(r, sel, durMs) {
   const badge = receiptBadge(rc);
   // Cost/savings line — the SAME honest text the flat footer used, so the
   // money-truth contract holds: a paid call shows spend and never "saved".
-  const bits = [sel.modelLabel || "OPai", OPaiActivity.formatElapsed(durMs)];
+  const elapsed = OPaiActivity.formatElapsed(durMs);
+  const bits = [sel.modelLabel || "OPai"];
+  // Same rule as the summary row: a turn that finished inside the clock's
+  // resolution has no duration worth printing.
+  if (elapsed && !/^0+[:0]*$/.test(String(elapsed).replace(/[^0-9:]/g, ""))) bits.push(elapsed);
   if (+rc.estimated_actual_usd) bits.push("$" + (+rc.estimated_actual_usd).toFixed(4) + " spent");
   if (+rc.estimated_savings_usd) bits.push("$" + (+rc.estimated_savings_usd).toFixed(4) + " saved");
   if (rc.paid_call_avoided) bits.push("paid call avoided");
-  const verdict = completionVerdict(r);
-  if (verdict) bits.unshift(`${verdict.verdict}: ${verdict.reason}`);
+  // No verdict prefix here: the summary row states it, and the ticket's message
+  // carries it in full. This strip is about where the money figure came from,
+  // and it was repeating the whole sentence a third time.
+
   return `<div class="receipt-card">` +
     `<div class="footer-note" role="button" tabindex="0" title="Copy this receipt" aria-label="Copy receipt">` +
       `<span class="rc-badge rc-${badge.cls}" title="${esc(badge.title)}">${esc(badge.label)}</span>` +
@@ -3462,7 +3496,8 @@ function finalize(status, r) {
       // The summary line's own facts. Cost and elapsed are not in the
       // presentation payload -- they live on the receipt and the call site --
       // so they are handed over rather than dug for.
-      verdict: completionVerdict(r),
+      verdict: summaryVerdict(r),
+      nextAction: (((r && r.workflow) || {}).next_actions || [])[0] || "",
       costUsd: Number(((r && r.receipt) || {}).estimated_actual_usd) || 0,
       elapsed: OPaiActivity.formatElapsed(durMs),
       changedFiles: ((r && r.changed_files) || []).length,
@@ -3785,20 +3820,24 @@ function workflowCardHtml(result) {
   }
   ).join("");
   const provider = flow.provider || {};
-  const cost = flow.cost || {};
+  // PR, Merge and Cost used to render unconditionally. On an Explain run that
+  // meant "PR: not opened" and "Merge: —" -- two rows stating that things
+  // which were never going to happen did not happen -- and a Cost that the
+  // summary row and the receipt strip were already showing. A row earns its
+  // place by carrying something that happened.
   // The verdict is the turn summary's first word now, so this stops repeating
   // it. It used to render its own phase here, which is how the detail could
   // read "Completed" under a summary that said "No changes made" -- the same
   // duplication that had one turn announcing its outcome three times.
   return `<div class="workflow-card">
     <div class="wf-head"><span>${esc(mode)}</span></div>
-    ${displayedMessage ? `<div class="wf-message">${esc(displayedMessage)}</div>` : ""}
-    <div class="wf-row"><span>PR</span><strong>${esc(flow.pr_url || "not opened")}</strong></div>
-    <div class="wf-row"><span>Merge</span><strong>${esc(pretty(flow.merge_status))}</strong></div>
+
+    ${flow.pr_url ? `<div class="wf-row"><span>PR</span><strong>${esc(flow.pr_url)}</strong></div>` : ""}
+    ${flow.merge_status && flow.merge_status !== "not_requested" ? `<div class="wf-row"><span>Merge</span><strong>${esc(pretty(flow.merge_status))}</strong></div>` : ""}
     ${flow.issue_number ? `<div class="wf-row"><span>Issue</span><strong>#${esc(flow.issue_number)}</strong></div>` : ""}
     ${provider.model ? `<div class="wf-row"><span>Provider</span><strong>${esc(provider.model)}</strong></div>` : ""}
-    ${cost.estimated_actual_usd != null ? `<div class="wf-row"><span>Cost</span><strong>$${esc(Number(cost.estimated_actual_usd).toFixed(4))}</strong></div>` : ""}
-    ${actions ? `<div class="wf-subhead">Next actions</div><ul class="wf-actions">${actions}</ul>` : ""}
+
+
     ${history ? `<details class="wf-history"${state.responseDensity === "detailed" ? " open" : ""}><summary>Timeline · ${(flow.history || []).length} events</summary>${history}</details>` : ""}
   </div>`;
 }
