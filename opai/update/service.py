@@ -26,6 +26,7 @@ from .errors import UpdateError
 from .manifest import ManifestError, verify_manifest
 from .relaunch import relaunch_command, schedule_relaunch
 from .models import (
+    UpdateTrigger,
     InstallType,
     InstalledBuild,
     UpdateCandidate,
@@ -67,6 +68,12 @@ def _diagnostic(category: str) -> str:
         category, "The update operation could not be completed safely."
     )
 
+
+_MANUAL_FAILURE_MESSAGES = {
+    "operation_busy": "Another update operation is running. Try again in a moment.",
+    "policy_blocked": "Updates for this installation are managed elsewhere.",
+    "operation_not_downloadable": "OPai could not start this update.",
+}
 
 _UNSUPPORTED_INSTALL_DIAGNOSTIC = (
     "This installation is not transactionally replaceable; use a "
@@ -118,6 +125,17 @@ def _parse_time(value: str) -> datetime | None:
     except ValueError:
         return None
     return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+
+
+def _resolve_trigger(value: object) -> UpdateTrigger | None:
+    """Best-effort trigger, because callers pass strings and enums alike."""
+
+    if isinstance(value, UpdateTrigger):
+        return value
+    try:
+        return UpdateTrigger(str(value))
+    except ValueError:
+        return None
 
 
 def _jittered_check_interval(policy: UpdatePolicy) -> float:
@@ -557,6 +575,14 @@ class UpdateService:
         allow_automatic_download: bool = False,
         trigger: str = "",
     ) -> UpdateOperation:
+        # The obligation travels with the reason. `force` stays for callers
+        # that predate the trigger, but a trigger that requires remote evidence
+        # can no longer be satisfied by a cached answer just because somebody
+        # forgot the boolean.
+        resolved = _resolve_trigger(trigger)
+        if resolved is not None and resolved.remote_required:
+            force = True
+        trigger = resolved.value if resolved is not None else str(trigger or "")
         policy = self.policy()
         current = self.store.load_operation()
         checked = _parse_time(current.last_successful_check_at)
@@ -1579,6 +1605,49 @@ class UpdateService:
                 )
         except InterprocessLockTimeout as exc:
             raise UpdateError("operation_busy", retriable=True) from exc
+
+    def check_now(self) -> dict[str, object]:
+        """The manual path: remote evidence, or an explicit reason there is none.
+
+        `check()` already raises honestly when it cannot run, but every caller
+        was free to swallow that and re-read `status()` -- which the desktop
+        surface did, so a user could press Check for updates, have nothing
+        happen at all, and be shown the previous "up to date" with no way to
+        tell the difference. That is the one thing an update surface must never
+        do, because the updater is how fixes arrive.
+
+        The outcome is returned rather than persisted: it belongs to the click,
+        not to the installation.
+        """
+
+        try:
+            operation = self.check(
+                trigger=UpdateTrigger.MANUAL, allow_automatic_download=True
+            )
+        except UpdateError as exc:
+            return {
+                "ok": False,
+                "reason": exc.category,
+                "message": _MANUAL_FAILURE_MESSAGES.get(
+                    exc.category, "OPai could not check for updates just now."
+                ),
+            }
+        if operation.result_from_cache:
+            # Belt and braces: a manual check answered from cache would be a
+            # contract violation, and silence is how it would go unnoticed.
+            return {
+                "ok": False,
+                "reason": "cached_result",
+                "message": "OPai could not confirm this with the update source.",
+            }
+        if operation.state is UpdateState.UNAVAILABLE:
+            return {
+                "ok": False,
+                "reason": operation.error_category or "unavailable",
+                "message": operation.safe_diagnostic
+                or "OPai couldn't reach the update source.",
+            }
+        return {"ok": True, "reason": "", "message": "", "state": operation.state.value}
 
     def status(self) -> dict[str, object]:
         return {

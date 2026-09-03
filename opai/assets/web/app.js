@@ -493,6 +493,11 @@ function renderUpdateBanner(update) {
   // still open to read it — silence would look like a button that did nothing.
   const restartReply = state.update.restart;
   if (restartReply && restartReply.message) toast(String(restartReply.message));
+  // A manual check that could not run says so. Without this the click is
+  // answered by whatever the banner already said, which for an "up to date"
+  // installation is indistinguishable from a successful check.
+  const manualReply = state.update.manual_check;
+  if (manualReply && manualReply.message) toast(String(manualReply.message));
   const states = {
     available: ["Update available", "A signed OPai update is ready to download.", "accent"],
     downloading: ["Downloading update", "You can keep working while OPai downloads.", "accent"],
