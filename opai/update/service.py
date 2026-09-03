@@ -1095,10 +1095,64 @@ class UpdateService:
         recorded = _parse_time(operation.updated_at)
         return recorded is not None and recorded < _PROCESS_STARTED_AT
 
+    _STALE_PROCESS_DIAGNOSTIC = (
+        "OPai was updated on disk. Restart to use the new version."
+    )
+
+    def _running_build_is_stale(self) -> bool:
+        """Whether the files on disk moved on from what this process loaded."""
+
+        try:
+            from pathlib import Path as _Path
+
+            import opai
+            from .running_build import running_build_is_stale
+
+            return running_build_is_stale(_Path(opai.__file__).parent / "assets")
+        except Exception:  # noqa: BLE001 - a staleness hint may never break maintenance
+            return False
+
     def maintain(self) -> UpdateOperation:
         """Advance periodic discovery and persisted safe-boundary work."""
 
         current = self.reconcile_native_result()
+        # The disk moved on without us.
+        #
+        # `check()` asks whether the *checkout* is behind its remote, and after
+        # an update it correctly says no -- while the window in front of the
+        # user still runs whatever it loaded at launch. Nothing compared those
+        # two, so a session could sit for hours showing a UI several merges old
+        # with every surface agreeing there was nothing to update.
+        #
+        # COMPLETED is the honest state for that: installed, not yet running.
+        # It is also where the surface offers Restart now.
+        if (
+            current.state
+            not in {
+                UpdateState.COMPLETED,
+                UpdateState.RESTARTING,
+                UpdateState.HEALTH_CHECKING,
+                UpdateState.ROLLING_BACK,
+                UpdateState.DOWNLOADING,
+                UpdateState.VERIFYING,
+                UpdateState.INSTALLING,
+            }
+            and self._running_build_is_stale()
+        ):
+            try:
+                with self.store.operation_guard():
+                    latest = self._current_for(current.operation_id)
+                    checking = self._save(latest.transition(UpdateState.CHECKING))
+                    return self._save(
+                        checking.transition(
+                            UpdateState.COMPLETED,
+                            safe_diagnostic=self._STALE_PROCESS_DIAGNOSTIC,
+                            error_category="",
+                            progress_label="",
+                        )
+                    )
+            except (InterprocessLockTimeout, UpdateError):
+                return current
         if self._restart_already_happened(current):
             try:
                 with self.store.operation_guard():
