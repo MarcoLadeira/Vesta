@@ -170,9 +170,7 @@ class UpdateService:
 
         if policy.cadence_policy_version >= CADENCE_POLICY_VERSION:
             return policy
-        changes: dict[str, object] = {
-            "cadence_policy_version": CADENCE_POLICY_VERSION
-        }
+        changes: dict[str, object] = {"cadence_policy_version": CADENCE_POLICY_VERSION}
         if policy.minimum_check_interval_seconds == LEGACY_INTERVAL_SECONDS:
             target = discovery_interval_seconds(
                 self.installed.install_type, policy.channel
@@ -304,6 +302,7 @@ class UpdateService:
             return current.transition(
                 UpdateState.CHECKING,
                 last_check_at=self._now().isoformat(),
+                result_from_cache=False,
                 error_category="",
                 safe_diagnostic="",
                 candidate={},
@@ -436,7 +435,14 @@ class UpdateService:
             result: dict[str, object] = {"checked": False, "reason": "offline"}
         else:
             try:
-                result = adapter.check_source(force=force)
+                # Always forced. Two freshness layers guarded this path -- the
+                # policy interval here and check_for_update's own one-hour TTL
+                # underneath -- so a check the policy had just decided was due
+                # could still be answered from an hour-old git result, while
+                # the operation recorded a successful remote check that never
+                # happened. Cadence is the policy's decision; by the time
+                # control reaches here it has been made.
+                result = adapter.check_source(force=True)
             except Exception:  # noqa: BLE001 - raw git errors normalize to safe state
                 result = {"checked": False, "reason": "offline"}
         if bool(result.get("checked")):
@@ -445,6 +451,8 @@ class UpdateService:
             changes = {
                 "candidate": {},
                 "last_successful_check_at": self._now().isoformat(),
+                "remote_checked_at": self._now().isoformat(),
+                "result_from_cache": False,
                 "retry_count": 0,
                 "next_retry_at": "",
             }
@@ -478,6 +486,8 @@ class UpdateService:
                 error_category="manual_update_required",
                 safe_diagnostic=_UNSUPPORTED_INSTALL_DIAGNOSTIC,
                 last_successful_check_at=self._now().isoformat(),
+                remote_checked_at=self._now().isoformat(),
+                result_from_cache=False,
                 retry_count=0,
                 next_retry_at="",
             )
@@ -489,12 +499,21 @@ class UpdateService:
         )
 
     def check(
-        self, *, force: bool = False, allow_automatic_download: bool = False
+        self,
+        *,
+        force: bool = False,
+        allow_automatic_download: bool = False,
+        trigger: str = "",
     ) -> UpdateOperation:
         policy = self.policy()
         current = self.store.load_operation()
         checked = _parse_time(current.last_successful_check_at)
         retry_at = _parse_time(current.next_retry_at)
+        interval = _jittered_check_interval(policy)
+        now = self._now()
+        eligible_at = (
+            (checked + timedelta(seconds=interval)).isoformat() if checked else ""
+        )
         if not force and (
             (
                 current.state is UpdateState.UNAVAILABLE
@@ -504,11 +523,29 @@ class UpdateService:
             or (
                 current.state is not UpdateState.UNAVAILABLE
                 and checked is not None
-                and (self._now() - checked).total_seconds()
-                < _jittered_check_interval(policy)
+                and (self._now() - checked).total_seconds() < interval
             )
         ):
-            return current
+            # A tick that is answered from the persisted operation is not a
+            # remote check, and must never be recorded as one. Only the
+            # attempt and the cache flag move here -- `remote_checked_at` and
+            # `last_successful_check_at` are left exactly where the last real
+            # contact with the update source put them.
+            try:
+                with self.store.operation_guard():
+                    latest = self._current_for(current.operation_id)
+                    return self._save(
+                        replace(
+                            latest,
+                            last_check_at=now.isoformat(),
+                            result_from_cache=True,
+                            next_check_eligible_at=eligible_at,
+                            last_trigger=trigger or latest.last_trigger,
+                            updated_at=now.isoformat(),
+                        )
+                    )
+            except (InterprocessLockTimeout, UpdateError):
+                return current
         try:
             with self.store.operation_guard():
                 policy = self.policy()
@@ -535,6 +572,8 @@ class UpdateService:
                             error_category="manual_update_required",
                             safe_diagnostic=_UNSUPPORTED_INSTALL_DIAGNOSTIC,
                             last_successful_check_at=self._now().isoformat(),
+                            remote_checked_at=self._now().isoformat(),
+                            result_from_cache=False,
                             retry_count=0,
                             next_retry_at="",
                         )
@@ -587,6 +626,8 @@ class UpdateService:
                 changes = {
                     "highest_metadata_version": durable_version,
                     "last_successful_check_at": self._now().isoformat(),
+                    "remote_checked_at": self._now().isoformat(),
+                    "result_from_cache": False,
                     "retry_count": 0,
                     "next_retry_at": "",
                 }
