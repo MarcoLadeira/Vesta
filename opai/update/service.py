@@ -25,6 +25,11 @@ from .download import DownloadError, SecureDownloader
 from .errors import UpdateError
 from .manifest import ManifestError, verify_manifest
 from .relaunch import relaunch_command, schedule_relaunch
+from .ownership import (
+    describe_ownership,
+    running_identity,
+    safe_launcher_identity,
+)
 from .models import (
     UpdateTrigger,
     InstallType,
@@ -1680,11 +1685,34 @@ class UpdateService:
             source = "origin/main"
         elif policy.owner is not UpdateOwner.OPAI:
             source = f"managed by {policy.owner.value}"
+        ownership = describe_ownership(
+            self.installed.install_type, management_source=policy.management_source
+        )
+        running = running_identity()
+        # Running and disk identity are separate facts. `installed.version`
+        # comes from release-identity.json when that file exists, which an
+        # update rewrites -- so it can report the new version while this
+        # process is still the old build. Reported apart, and the disk one only
+        # when it actually differs, so no surface can claim a version is
+        # installed while the code answering the question is not it.
+        disk_version = str(self.installed.version)
+        disk_build = str(self.installed.build_id)
+        stale_process = bool(
+            running["version"] and disk_version and running["version"] != disk_version
+        )
         return {
             "install_type": self.installed.install_type.value,
             "channel": policy.channel,
             "update_owner": policy.owner.value,
             "update_source": source,
+            "running_version": running["version"],
+            "running_build_id": running["build_id"],
+            "disk_version": disk_version if stale_process else "",
+            "disk_build_id": disk_build if stale_process else "",
+            "running_build_is_stale": stale_process,
+            "launcher": safe_launcher_identity(),
+            "ownership": ownership.to_dict(),
+            "self_updatable": ownership.self_updatable,
             "cadence_seconds": int(policy.minimum_check_interval_seconds),
             "cadence_reason": cadence_reason(
                 self.installed.install_type, policy.channel
