@@ -78,15 +78,15 @@ class UpdateScheduler:
     def interval_seconds(self) -> int:
         """This installation's discovery cadence, floored."""
 
+        # Asked of the service, not computed here: the service gates `check()`
+        # on the jittered interval, and a scheduler with its own arithmetic
+        # would refuse ticks the service would have allowed, or the reverse.
         policy = self._service.policy()
-        configured = int(policy.minimum_check_interval_seconds)
+        configured = int(self._service.effective_check_interval_seconds())
         cadence = discovery_interval_seconds(
             self._service.installed.install_type, policy.channel
         )
-        # The persisted policy wins -- a user who set an interval keeps it --
-        # but the cadence table is the default and the floor is absolute.
-        chosen = configured or cadence
-        return max(MINIMUM_INTERVAL_SECONDS, chosen)
+        return max(MINIMUM_INTERVAL_SECONDS, configured or cadence)
 
     def decide(self, operation: UpdateOperation) -> Decision:
         """Whether this tick should check, and why. Pure: no I/O, no clock skew."""
@@ -113,13 +113,24 @@ class UpdateScheduler:
                     True, TRIGGER_RESUME, force=True, detail=f"{int(gap)}s gap"
                 )
 
-        if operation.state in _OFFLINE_STATES and self._network_available:
-            retry_at = _parse(operation.next_retry_at)
-            if retry_at is None or now >= retry_at:
-                # The last attempt could not reach the source. Retry on the
-                # backoff the service already computed, not on our own.
-                return Decision(True, TRIGGER_NETWORK_RESTORED, force=True)
+        # Backoff first, and for every state.
+        #
+        # A failed check leaves `last_successful_check_at` empty, and the
+        # periodic branch below treats "never succeeded" as "due now" -- so
+        # without this an installation that cannot reach its update source
+        # retries on every single heartbeat. That is the tight loop this
+        # scheduler exists to prevent, and it is only visible once a test
+        # actually fails a check rather than mocking a success.
+        retry_at = _parse(operation.next_retry_at)
+        if retry_at is not None and now < retry_at:
             return Decision(False)
+
+        if operation.state in _OFFLINE_STATES:
+            if not self._network_available:
+                return Decision(False)
+            # The backoff above has already elapsed, so this is the moment the
+            # service itself nominated for the next attempt.
+            return Decision(True, TRIGGER_NETWORK_RESTORED, force=True)
 
         checked = _parse(operation.last_successful_check_at)
         if checked is None:
@@ -168,7 +179,17 @@ class UpdateScheduler:
             with self._service.store.operation_guard():
                 latest = self._service.store.load_operation()
                 return self._service._save(
-                    replace(latest, scheduler_tick_at=stamp, updated_at=stamp)
+                    replace(
+                        latest,
+                        scheduler_tick_at=stamp,
+                        # A wake that declines to check leaves a cached result
+                        # on screen just as surely as a freshness gate does.
+                        # There are two ways not to check and both have to say
+                        # so, or the flag means "the service declined" rather
+                        # than "what you are looking at is not fresh".
+                        result_from_cache=True,
+                        updated_at=stamp,
+                    )
                 )
         except (InterprocessLockTimeout, UpdateError, OSError):
             return operation

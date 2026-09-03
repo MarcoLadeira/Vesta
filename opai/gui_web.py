@@ -1863,6 +1863,10 @@ def _run_gui(
             from opai.update.factory import create_update_service
 
             self._update_service = create_update_service(workspaces=[self.root])
+            # The scheduler, not the browser, decides when discovery runs.
+            from opai.update.scheduler import UpdateScheduler
+
+            self._update_scheduler = UpdateScheduler(self._update_service)
             self._update_started = False
             self._update_maintenance_running = False
 
@@ -2148,6 +2152,15 @@ def _run_gui(
                     self._update_service.maintain()
                 except Exception:  # noqa: BLE001 - persisted safe state is authoritative
                     _LOG.debug("Periodic updater maintenance failed", exc_info=True)
+                try:
+                    # The heartbeat is the only thing the front end still
+                    # contributes: it says "time passed", and every decision
+                    # about whether that means anything -- cadence, freshness,
+                    # startup, resume, backoff -- is made here, off the UI
+                    # thread, by the scheduler.
+                    self._update_scheduler.tick()
+                except Exception:  # noqa: BLE001 - discovery may never break maintenance
+                    _LOG.debug("Update scheduler tick failed", exc_info=True)
                 return self._update_service.status()
 
             worker = Worker(maintain)
