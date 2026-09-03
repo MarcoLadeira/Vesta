@@ -130,8 +130,8 @@ def test_a_cached_tick_never_moves_the_remote_clock(tmp_path: Path):
         (InstallType.SOURCE_CHECKOUT, "stable", 10 * 60),
         (InstallType.SOURCE_CHECKOUT, "alpha", 10 * 60),
         (InstallType.PORTABLE, "alpha", 15 * 60),
-        (InstallType.PORTABLE, "beta", 45 * 60),
-        (InstallType.PORTABLE, "stable", 4 * 60 * 60),
+        (InstallType.PORTABLE, "beta", 30 * 60),
+        (InstallType.PORTABLE, "stable", 60 * 60),
     ],
 )
 def test_cadence_is_a_property_of_what_the_install_tracks(
@@ -179,8 +179,10 @@ def test_a_packaged_stable_install_stays_quiet(tmp_path: Path):
         tmp_path, policy=UpdatePolicy(rollout_cohort=42)
     )
     scheduler.tick()
-    _advance(scheduler, clock, 60 * 60)
-    assert len(fetcher.calls) == 1, "stable must not poll hourly"
+    # Stable is hourly now rather than four-hourly (#832), so "quiet" is
+    # measured well inside that window: half an hour must not refetch.
+    _advance(scheduler, clock, 30 * 60)
+    assert len(fetcher.calls) == 1, "stable must not poll every half hour"
 
 
 # --------------------------------------------------------------------------
@@ -442,3 +444,126 @@ def test_a_failing_check_does_not_retry_on_every_heartbeat(tmp_path: Path):
     # heartbeats rather than one per heartbeat.
     assert retries <= 10, "offline retries must follow backoff, not the heartbeat"
     assert retries < ticks / 10
+
+
+# --------------------------------------------------------------------------
+# Policy provenance and jitter identity (#832 scope items 4-6).
+# --------------------------------------------------------------------------
+
+
+def test_an_interval_the_user_chose_survives_even_at_the_legacy_value(tmp_path: Path):
+    # The defect this fixes was mine. Migration inferred "the user did not
+    # choose this" from the value being numerically equal to the historic
+    # default, so anyone who had deliberately selected exactly four hours was
+    # silently moved to ten minutes.
+    service, _, _, _ = _service(
+        tmp_path,
+        policy=UpdatePolicy(
+            rollout_cohort=42,
+            minimum_check_interval_seconds=LEGACY_INTERVAL_SECONDS,
+            cadence_source="user",
+        ),
+        installed=_installed(install_type=InstallType.SOURCE_CHECKOUT),
+    )
+
+    policy = service.policy()
+
+    assert policy.minimum_check_interval_seconds == LEGACY_INTERVAL_SECONDS
+    assert policy.cadence_source == "user"
+
+
+def test_a_managed_interval_is_never_migrated(tmp_path: Path):
+    service, _, _, _ = _service(
+        tmp_path,
+        policy=UpdatePolicy(
+            rollout_cohort=42,
+            minimum_check_interval_seconds=LEGACY_INTERVAL_SECONDS,
+            cadence_source="managed",
+        ),
+        installed=_installed(install_type=InstallType.SOURCE_CHECKOUT),
+    )
+    assert service.policy().minimum_check_interval_seconds == LEGACY_INTERVAL_SECONDS
+
+
+def test_a_legacy_policy_without_provenance_is_still_migrated_once(tmp_path: Path):
+    # Policies written before provenance existed carry none, and the numeric
+    # heuristic is the only signal available for them. It runs once, and the
+    # result is recorded as "migrated" so it never runs again.
+    service, _, _, _ = _service(
+        tmp_path,
+        policy=UpdatePolicy(
+            rollout_cohort=42,
+            minimum_check_interval_seconds=LEGACY_INTERVAL_SECONDS,
+        ),
+        installed=_installed(install_type=InstallType.SOURCE_CHECKOUT),
+    )
+
+    policy = service.policy()
+
+    assert policy.minimum_check_interval_seconds == 10 * 60
+    assert policy.cadence_source == "migrated"
+
+
+def test_choosing_an_interval_records_that_the_user_chose_it(tmp_path: Path):
+    service, _, _, _ = _service(tmp_path, policy=UpdatePolicy(rollout_cohort=42))
+
+    service.set_policy(minimum_check_interval_seconds=90 * 60)
+
+    policy = service.policy()
+    assert policy.cadence_source == "user"
+    assert policy.minimum_check_interval_seconds == 90 * 60
+
+
+def test_polling_jitter_does_not_read_rollout_eligibility(tmp_path: Path):
+    # Two questions, two seeds. Sharing one meant moving an installation
+    # between staged-rollout buckets silently changed how often it polled, and
+    # tuning the poll spread would have moved installations between buckets.
+    from opai.update.service import _jittered_check_interval
+
+    base = dict(minimum_check_interval_seconds=3600, poll_jitter_seed=7)
+    same_seed_different_cohorts = {
+        int(_jittered_check_interval(UpdatePolicy(rollout_cohort=c, **base)))
+        for c in (0, 42, 99)
+    }
+    assert len(same_seed_different_cohorts) == 1, "cohort must not move the interval"
+
+    different_seeds = {
+        int(
+            _jittered_check_interval(
+                UpdatePolicy(
+                    rollout_cohort=42,
+                    minimum_check_interval_seconds=3600,
+                    poll_jitter_seed=seed,
+                )
+            )
+        )
+        for seed in range(0, 100, 7)
+    }
+    assert len(different_seeds) > 1, "the seed must actually spread load"
+
+
+def test_a_policy_without_a_seed_gets_one_without_changing_its_spread(tmp_path: Path):
+    # Falling back to the cohort keeps an upgrading installation's spread
+    # stable; the store then gives it a seed of its own.
+    from opai.update.service import _jittered_check_interval
+
+    legacy = UpdatePolicy(rollout_cohort=42, minimum_check_interval_seconds=3600)
+    assert legacy.poll_jitter_seed == -1
+    before = int(_jittered_check_interval(legacy))
+
+    service, _, _, _ = _service(tmp_path, policy=legacy)
+    policy = service.policy()
+
+    assert policy.poll_jitter_seed >= 0, "a seed of its own, persisted"
+    assert before == int(
+        _jittered_check_interval(
+            UpdatePolicy(rollout_cohort=42, minimum_check_interval_seconds=3600)
+        )
+    )
+
+
+def test_stable_no_longer_waits_four_hours(tmp_path: Path):
+    # A stable user could be four hours behind a fix that had already shipped,
+    # through the very channel those fixes arrive on.
+    assert discovery_interval_seconds(InstallType.PORTABLE, "stable") == 60 * 60
+    assert discovery_interval_seconds(InstallType.PORTABLE, "beta") == 30 * 60

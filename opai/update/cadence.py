@@ -36,10 +36,15 @@ _BY_CHANNEL_SECONDS = {
     # Internal builds move constantly and their users are the people who need
     # to be on the newest one.
     "alpha": 15 * 60,
-    "beta": 45 * 60,
-    # A stable release lands every few weeks. Four hours costs nothing and
-    # keeps the update source quiet.
-    "stable": 4 * 60 * 60,
+    "beta": 30 * 60,
+    # An hour, not four.
+    #
+    # Four hours was defensible when the alternative was hammering a feed, but
+    # it means a stable user can be that far behind a fix that has already
+    # shipped -- and the updater is the channel those fixes arrive through.
+    # With conditional requests and per-installation jitter the extra polling
+    # is cheap; being four hours stale is not. (#832 scope item 4.)
+    "stable": 60 * 60,
 }
 
 # A floor the rest of the system can rely on: no cadence may ask the update
