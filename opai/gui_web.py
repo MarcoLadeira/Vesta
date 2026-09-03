@@ -673,6 +673,21 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     from opaihub.autonomy import MODE_LABELS, resolve_startup_mode
 
     _STARTUP.mark("boot:start")
+    # Record the build this process is running, before anything can change it.
+    # The baseline has to be the code actually loaded: capturing it later --
+    # lazily, on the first comparison -- would fingerprint whatever happens to
+    # be on disk by then and conclude, permanently and wrongly, that this
+    # process is current.
+    try:
+        from pathlib import Path as _Path
+
+        import opai as _opai
+
+        from opai.update.running_build import prime as _prime_running_build
+
+        _prime_running_build(_Path(_opai.__file__).parent / "assets")
+    except Exception:  # noqa: BLE001 - a staleness hint may never break boot
+        pass
     root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
     # Central autonomy decision (#137): boot into the effective mode, which is
