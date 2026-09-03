@@ -14,6 +14,11 @@ from opaihub.atomic_io import InterprocessLockTimeout
 from packaging.version import InvalidVersion, Version
 
 from .adapters import DeveloperGitUpdateAdapter, UpdateAdapter
+from .cadence import (
+    CADENCE_POLICY_VERSION,
+    LEGACY_INTERVAL_SECONDS,
+    discovery_interval_seconds,
+)
 from .download import DownloadError, SecureDownloader
 from .errors import UpdateError
 from .manifest import ManifestError, verify_manifest
@@ -145,7 +150,40 @@ class UpdateService:
         self._restart_available: bool | None = None
 
     def policy(self) -> UpdatePolicy:
-        return self.store.load_policy()
+        return self._migrate_cadence(self.store.load_policy())
+
+    def _migrate_cadence(self, policy: UpdatePolicy) -> UpdatePolicy:
+        """Adopt this installation's cadence, once, without silencing the user.
+
+        Changing a dataclass default does nothing to an installation that has
+        already run: the interval is persisted in policy.json, and every
+        machine that has ever started OPai has 14400 written into it. Without
+        this, new installs would discover updates every ten minutes, existing
+        ones would keep waiting four hours, and the difference would be
+        invisible to every test that starts from a fresh temp directory --
+        which is all of them.
+
+        Only an *untouched* legacy interval is migrated. A user who has chosen
+        their own interval keeps it, and the version stamp is written either
+        way so the question is asked exactly once.
+        """
+
+        if policy.cadence_policy_version >= CADENCE_POLICY_VERSION:
+            return policy
+        changes: dict[str, object] = {
+            "cadence_policy_version": CADENCE_POLICY_VERSION
+        }
+        if policy.minimum_check_interval_seconds == LEGACY_INTERVAL_SECONDS:
+            target = discovery_interval_seconds(
+                self.installed.install_type, policy.channel
+            )
+            if target != policy.minimum_check_interval_seconds:
+                changes["minimum_check_interval_seconds"] = target
+        try:
+            return self.store.update_policy(**changes)
+        except (OSError, UpdateError, ValueError):
+            # A policy that cannot be rewritten is still a usable policy.
+            return policy
 
     def set_policy(self, **changes: object) -> UpdatePolicy:
         allowed = {

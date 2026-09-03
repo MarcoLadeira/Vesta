@@ -185,6 +185,11 @@ class UpdatePolicy:
     last_user_decision_at: str = ""
     rollout_cohort: int = -1
     legacy_auto_update_migrated: bool = False
+    # Which revision of the cadence table this policy was written under. A
+    # persisted policy predating the table carries 0, which is what lets the
+    # store migrate an untouched legacy interval exactly once without ever
+    # overwriting an interval the user chose for themselves.
+    cadence_policy_version: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "owner", UpdateOwner(self.owner))
