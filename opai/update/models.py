@@ -190,6 +190,22 @@ class UpdatePolicy:
     # store migrate an untouched legacy interval exactly once without ever
     # overwriting an interval the user chose for themselves.
     cadence_policy_version: int = 0
+    # Where the check interval came from. Provenance, not arithmetic: the
+    # migration used to infer "the user did not choose this" from the value
+    # being numerically equal to the historic default, which silently
+    # overwrote anyone who had deliberately chosen exactly four hours.
+    #
+    # "" is a policy written before provenance existed and is the only case
+    # still decided by that heuristic -- once, because migration stamps the
+    # version. Everything written since says so outright.
+    cadence_source: str = ""
+    # Polling jitter is not rollout eligibility.
+    #
+    # Both used to read `rollout_cohort`, so changing which staged-rollout
+    # bucket an installation is in silently changed how often it polled, and
+    # tuning the poll spread would have moved installations between release
+    # buckets. They answer different questions and now have different seeds.
+    poll_jitter_seed: int = -1
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "owner", UpdateOwner(self.owner))
@@ -202,6 +218,10 @@ class UpdatePolicy:
             raise ValueError("update check interval is too small")
         if self.rollout_cohort not in {-1, *range(100)}:
             raise ValueError("rollout cohort must be between 0 and 99")
+        if self.poll_jitter_seed not in {-1, *range(100)}:
+            raise ValueError("poll jitter seed must be between 0 and 99")
+        if self.cadence_source not in {"", "default", "user", "managed", "migrated"}:
+            raise ValueError("unsupported cadence source")
         if self.maximum_deferral_hours is not None and self.maximum_deferral_hours < 0:
             raise ValueError("maximum deferral must not be negative")
         if self.owner is not UpdateOwner.OPAI:
