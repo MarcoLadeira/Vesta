@@ -453,25 +453,15 @@ function boot() {
       }
     });
   }, 2000);
-  // Ask the question, rather than only reading the last answer.
-  //
-  // Everything above reports update state; none of it discovers any. Boot
-  // reads the stored operation without touching the network, and the loop's
-  // `maintain()` reconciles and advances persisted work but performs no check.
-  // The only call that actually looked was a button in Settings, so a source
-  // checkout could sit any number of commits behind origin/main while the app
-  // cheerfully repeated whatever it last cached -- and restarting could not
-  // help, because boot is exactly the path that does not look.
-  //
-  // Forced at startup: for a source checkout the check is a one-branch `git
-  // fetch`, and "did anything land while I was away" is the question a restart
-  // is implicitly asking. The periodic one is unforced, so the service's own
-  // minimum interval still decides whether it does any work; this only means
-  // the question gets asked at all.
-  if (bridge.checkForUpdates) {
-    setTimeout(() => bridge.checkForUpdates(true), 3000);
-    setInterval(() => bridge.checkForUpdates(false), 15 * 60 * 1000);
-  }
+  // Update scheduling used to live here: a forced check three seconds after
+  // boot, then an ordinary one every fifteen minutes. That put updater policy
+  // in the one place that cannot know the install type, the channel, the retry
+  // state, or whether another window is already doing it -- and because an
+  // ordinary check inside the freshness window returns the persisted answer,
+  // roughly fifteen of every sixteen of those ticks reached nothing at all.
+  // Nothing here any more. The scheduler runs in the backend, off the UI
+  // thread, and the 2s status poll above is the only contribution from this
+  // side: it says "time passed", and UpdateScheduler decides what that means.
 }
 
 // One brand voice, one source: copy comes from opai/brand.py via the boot

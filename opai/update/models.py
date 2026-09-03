@@ -185,6 +185,11 @@ class UpdatePolicy:
     last_user_decision_at: str = ""
     rollout_cohort: int = -1
     legacy_auto_update_migrated: bool = False
+    # Which revision of the cadence table this policy was written under. A
+    # persisted policy predating the table carries 0, which is what lets the
+    # store migrate an untouched legacy interval exactly once without ever
+    # overwriting an interval the user chose for themselves.
+    cadence_policy_version: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "owner", UpdateOwner(self.owner))
@@ -348,6 +353,22 @@ class UpdateOperation:
     correlation_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     last_check_at: str = ""
     last_successful_check_at: str = ""
+    # Four different events used to share two timestamps, which is how the UI
+    # could say "checked just now" about a three-hour-old cached answer. They
+    # are distinct facts and are recorded as such:
+    #
+    #   scheduler_tick_at   the scheduler woke up and considered checking
+    #   last_check_at       a check was attempted (may be answered from cache)
+    #   remote_checked_at   the update source was actually contacted
+    #   last_successful_check_at   ...and answered
+    #
+    # `result_from_cache` says whether the state currently on screen came from
+    # the last of those or merely the second.
+    scheduler_tick_at: str = ""
+    remote_checked_at: str = ""
+    result_from_cache: bool = False
+    next_check_eligible_at: str = ""
+    last_trigger: str = ""
     highest_metadata_version: int = 0
     last_known_good: Mapping[str, Any] = field(default_factory=dict)
     quarantined_versions: tuple[str, ...] = ()

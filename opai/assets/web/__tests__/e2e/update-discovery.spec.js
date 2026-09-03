@@ -2,51 +2,60 @@ import { test, expect } from "@playwright/test";
 import { openApp } from "./helpers/app.js";
 
 /**
- * OPai has to look, not just report.
+ * The front end does not schedule updates.
  *
- * Everything about updates in the shell reports state: boot reads the stored
- * operation "without touching the network", and the 2s loop calls `maintain()`,
- * which reconciles and advances persisted work but performs no discovery
- * (verified directly against the service: `maintain()` left
- * `last_successful_check_at` untouched).
+ * It used to: a forced check three seconds after boot, then an ordinary one
+ * every fifteen minutes. That put updater policy in the one place that cannot
+ * know the install type, the channel, the retry state, or whether another
+ * window is already doing it -- and because an ordinary check inside the
+ * freshness window returns the persisted answer, roughly fifteen of every
+ * sixteen of those ticks reached nothing at all. Measured against the real
+ * service: eighteen ticks produced two remote calls.
  *
- * The only call that actually looked was a button in Settings. So a source
- * checkout could sit any number of commits behind origin/main and the app
- * would keep repeating its last cached answer -- and restarting could not fix
- * it, because boot is precisely the path that does not look.
- *
- * The detection itself was never broken: pointed at a checkout three commits
- * back, `check_for_update` returned `commits_behind` correctly. It was simply
- * never invoked.
+ * `UpdateScheduler` owns that decision now, in the backend, off the UI thread.
+ * What is left on this side is a status poll and one explicit user action, and
+ * these tests pin exactly that boundary.
  */
-test("startup asks whether anything landed, instead of only reading the last answer", async ({ page }) => {
+
+test("the front end schedules nothing", async ({ page }) => {
   await openApp(page);
 
-  // Forced: a restart is implicitly asking "did anything land while I was
-  // away", and an unforced check would be swallowed by the service's four-hour
-  // minimum interval.
-  await expect.poll(() => page.evaluate(() => window.__mock.updateChecks), { timeout: 8000 })
-    .toEqual([true]);
+  // Long enough that the old three-second startup timer would have fired.
+  await page.waitForTimeout(4500);
+
+  expect(await page.evaluate(() => window.__mock.updateChecks)).toEqual([]);
 });
 
-test("an update found at startup reaches the banner", async ({ page }) => {
+test("an update the backend reports reaches the banner, visibly", async ({
+  page,
+}) => {
+  // Asserted on visibility, never on text. Every banner state's copy is static
+  // markup inside a hidden #updateShell, so `toContainText("Update available")`
+  // passes on a boot that discovered nothing -- an earlier version of this test
+  // did exactly that, and passed with the startup check deleted.
   await openApp(page, {
-    updateCheckResponse: {
-      schema_version: 1,
-      operation: {
-        state: "available",
-        candidate: { version: "0.3.0" },
-        safe_diagnostic: "",
+    boot: {
+      update: {
+        schema_version: 1,
+        operation: {
+          state: "available",
+          candidate: { version: "0.3.0" },
+          safe_diagnostic: "",
+        },
+        policy: {},
       },
-      policy: {},
     },
   });
 
-  // Assert the shell becomes *visible*, not that the text is present: every
-  // banner state's copy is static markup inside a hidden #updateShell, so
-  // `toContainText("Update available")` passes on a fresh boot that never
-  // checked anything. This test passed with the startup check deleted until
-  // that was noticed.
-  await expect(page.locator("#updateShell")).toBeVisible({ timeout: 8000 });
+  await expect(page.locator("#updateShell")).toBeVisible();
   await expect(page.locator("#updateBanner")).toContainText("Update available");
+});
+
+test("a quiet updater keeps the banner out of the way", async ({ page }) => {
+  // The counterpart to the test above: `up_to_date` is not in the banner's
+  // state map, so the shell stays hidden. Without this, "visible" proves
+  // nothing -- a shell that is always visible would satisfy it too.
+  await openApp(page);
+
+  await expect(page.locator("#updateShell")).toBeHidden();
 });
