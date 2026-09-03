@@ -38,6 +38,7 @@ from opai.update.models import (  # noqa: E402
     InstallType,
     UpdatePolicy,
     UpdateState,
+    UpdateTrigger,
 )
 from opai.update.scheduler import (  # noqa: E402
     TRIGGER_NETWORK_RESTORED,
@@ -567,3 +568,82 @@ def test_stable_no_longer_waits_four_hours(tmp_path: Path):
     # through the very channel those fixes arrive on.
     assert discovery_interval_seconds(InstallType.PORTABLE, "stable") == 60 * 60
     assert discovery_interval_seconds(InstallType.PORTABLE, "beta") == 30 * 60
+
+
+# --------------------------------------------------------------------------
+# Manual is a promise, not a boolean (#832 scope item 2).
+# --------------------------------------------------------------------------
+
+
+def test_a_manual_check_that_cannot_run_says_so(tmp_path: Path):
+    # The forbidden case, reproduced before it was fixed: the desktop surface
+    # swallowed every failure into a debug log and returned the previous
+    # status, so pressing Check for updates on an "up to date" installation and
+    # having nothing happen at all looked exactly like success.
+    import dataclasses
+
+    from opai.update.errors import UpdateError
+
+    service, _, _, _ = _service(tmp_path, policy=UpdatePolicy(rollout_cohort=42))
+    service.check(force=True)
+    with service.store.operation_guard():
+        operation = service.store.load_operation()
+        service._save(dataclasses.replace(operation, state=UpdateState.UP_TO_DATE))
+
+    def busy(**_kwargs):
+        raise UpdateError("operation_busy", retriable=True)
+
+    service.check = busy
+    outcome = service.check_now()
+
+    assert outcome["ok"] is False
+    assert outcome["reason"] == "operation_busy"
+    assert outcome["message"], "a refusal the user can read"
+
+
+def test_a_manual_check_that_cannot_reach_the_source_is_not_success(tmp_path: Path):
+    service, _, _, _ = _service(
+        tmp_path,
+        policy=UpdatePolicy(rollout_cohort=42),
+        fetch_error=OSError("unreachable"),
+    )
+
+    outcome = service.check_now()
+
+    assert outcome["ok"] is False
+    assert outcome["message"]
+
+
+def test_a_manual_check_that_reached_the_source_reports_success(tmp_path: Path):
+    service, fetcher, _, _ = _service(tmp_path, policy=UpdatePolicy(rollout_cohort=42))
+
+    outcome = service.check_now()
+
+    assert outcome["ok"] is True
+    assert len(fetcher.calls) == 1
+
+
+def test_a_trigger_that_requires_remote_evidence_cannot_be_served_from_cache(
+    tmp_path: Path,
+):
+    # The obligation travels with the reason. `force` remains for callers that
+    # predate the trigger, but a caller who passes MANUAL and forgets the
+    # boolean must still reach the update source.
+    service, fetcher, _, _ = _service(tmp_path, policy=UpdatePolicy(rollout_cohort=42))
+    service.check(trigger=UpdateTrigger.PERIODIC)
+    assert len(fetcher.calls) == 1
+
+    service.check(trigger=UpdateTrigger.PERIODIC)  # inside the window
+    assert len(fetcher.calls) == 1, "a periodic tick may be answered from cache"
+
+    service.check(trigger=UpdateTrigger.MANUAL)  # no force= passed
+    assert len(fetcher.calls) == 2, "manual must reach the source regardless"
+
+
+def test_every_trigger_but_periodic_requires_remote_evidence(tmp_path: Path):
+    # Startup, resume and network-restoration all ask questions a cached answer
+    # cannot honestly answer.
+    assert UpdateTrigger.PERIODIC.remote_required is False
+    for trigger in UpdateTrigger:
+        if trigger is not UpdateTrigger.PERIODIC:
+            assert trigger.remote_required is True, trigger

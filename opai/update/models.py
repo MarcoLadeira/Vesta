@@ -165,6 +165,39 @@ def can_transition(current: UpdateState, target: UpdateState) -> bool:
     return target in _TRANSITIONS.get(UpdateState(current), frozenset())
 
 
+class UpdateTrigger(str, Enum):
+    """Why a check is happening, and what that obliges it to do.
+
+    `force=True` was doing this job as a bare convention, threaded through
+    call sites that each had to remember what it meant. It meant two different
+    things depending on who passed it -- "the user asked" and "the schedule
+    says so" -- and only one of those is a promise to the user that the update
+    source was actually contacted.
+
+    A trigger says which it is, so the obligation travels with the reason
+    rather than with a boolean somebody has to remember to set.
+    """
+
+    STARTUP = "startup"
+    PERIODIC = "periodic"
+    RESUME = "resume"
+    NETWORK_RESTORED = "network_restored"
+    MANUAL = "manual"
+    RETRY = "retry"
+
+    @property
+    def remote_required(self) -> bool:
+        """Whether this trigger may be satisfied by a cached answer.
+
+        Periodic ticks may: that is the whole point of a cadence. Everything
+        else is asking a question a cached answer cannot honestly answer --
+        "did anything land while I was closed", "has the machine been asleep",
+        "is the network back", "the user pressed the button".
+        """
+
+        return self is not UpdateTrigger.PERIODIC
+
+
 @dataclass(frozen=True)
 class UpdatePolicy:
     schema_version: int = UPDATE_SCHEMA_VERSION

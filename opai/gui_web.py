@@ -2178,13 +2178,30 @@ def _run_gui(
         @QtCore.Slot(bool)
         def checkForUpdates(self, force: bool) -> None:
             def check() -> dict[str, object]:
+                # A manual check reports its own outcome. This used to swallow
+                # every failure into a debug log and return the previous
+                # status, so a user could press Check for updates, have nothing
+                # happen, and be shown the old "up to date" with no way to tell
+                # -- the one thing an update surface must never do.
+                outcome: dict[str, object] | None = None
                 try:
-                    self._update_service.check(
-                        force=bool(force), allow_automatic_download=True
-                    )
+                    if bool(force):
+                        outcome = self._update_service.check_now()
+                    else:
+                        self._update_service.check(allow_automatic_download=True)
                 except Exception:  # noqa: BLE001 - state/error contract is persisted
                     _LOG.debug("Updater discovery failed", exc_info=True)
-                return self._update_service.status()
+                    outcome = {
+                        "ok": False,
+                        "reason": "check_failed",
+                        "message": "OPai could not check for updates just now.",
+                    }
+                status = self._update_service.status()
+                if outcome is not None and not outcome.get("ok"):
+                    # One-shot, alongside the status rather than persisted into
+                    # it: the failure belongs to the click, not the install.
+                    status["manual_check"] = outcome
+                return status
 
             self._start_update_worker(check)
 
