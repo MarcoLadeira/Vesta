@@ -141,3 +141,83 @@ class StatusRenderingTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class UserFacingCopyTests(unittest.TestCase):
+    """What a person is told, and what they are deliberately not told."""
+
+    def _payload(self, state, **discovery):
+        return {
+            "operation": {"state": state, "safe_diagnostic": ""},
+            "discovery": {"ownership": {}, **discovery},
+        }
+
+    def test_a_source_checkout_behind_its_remote_just_says_update_available(
+        self,
+    ) -> None:
+        # The internal diagnostic for this state reads "This source checkout is
+        # 4 commits behind origin/main; update with the explicit developer
+        # update command." Calling it "Manual update required" told someone
+        # with a working Update button that they had to act by hand.
+        from opai.update.report import user_facing
+
+        copy = user_facing(
+            self._payload("unsupported_install", ownership={"self_updatable": True})
+        )
+
+        self.assertEqual(copy["title"], "Update available")
+        self.assertNotIn("origin/main", copy["message"])
+        self.assertNotIn("commits", copy["message"])
+
+    def test_an_installation_opai_cannot_update_names_no_command(self) -> None:
+        from opai.update.report import user_facing
+
+        copy = user_facing(
+            self._payload("unsupported_install", ownership={"self_updatable": False})
+        )
+
+        self.assertIn("outside OPai", copy["message"])
+        for term in ("pipx", "brew", "pip install", "`"):
+            self.assertNotIn(term, copy["message"])
+
+    def test_no_user_facing_copy_mentions_timing_or_internals(self) -> None:
+        # The structural guard. Every state, checked against the vocabulary
+        # that belongs in `opai update doctor` rather than in front of someone
+        # who wants the new version.
+        from opai.update.report import _USER_MESSAGES, _USER_TITLES, user_facing
+
+        banned = (
+            "transactionally",
+            "origin/main",
+            "commits",
+            "cached",
+            "min ago",
+            "hr ago",
+            "remote",
+            "pipx",
+            "brew",
+            "checkout",
+            "artifact",
+            "sha256",
+        )
+        for state in set(_USER_MESSAGES) | set(_USER_TITLES):
+            copy = user_facing(self._payload(state))
+            text = f"{copy['title']} {copy['message']}".casefold()
+            for term in banned:
+                self.assertNotIn(term, text, f"{state} says {term!r}")
+
+    def test_the_surface_payload_carries_no_diagnostics(self) -> None:
+        # Not "the UI stopped rendering it" -- the data is not sent. A surface
+        # cannot leak a field it never receives, which is a stronger guarantee
+        # than remembering not to display one.
+        import tempfile
+        from pathlib import Path
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_update_service import _service  # noqa: PLC0415
+
+        service, _, _, _ = _service(Path(tempfile.mkdtemp()))
+        summary = service.discovery_diagnostics()["summary"]
+
+        self.assertEqual(set(summary), {"title", "message"})

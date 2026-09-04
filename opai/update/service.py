@@ -25,7 +25,7 @@ from .download import DownloadError, SecureDownloader
 from .errors import UpdateError
 from .manifest import ManifestError, verify_manifest
 from .relaunch import relaunch_command, schedule_relaunch
-from .report import freshness_phrase
+from .report import user_facing
 from .ownership import (
     describe_ownership,
     running_identity,
@@ -1745,10 +1745,12 @@ class UpdateService:
         # means. A JavaScript copy of that rule would be a second
         # interpretation layer, and the two would drift the first time either
         # was touched -- which is the failure this whole epic is about.
-        diagnostics["summary"] = {
-            "freshness": freshness_phrase(diagnostics),
-            "remediation": ("" if ownership.self_updatable else ownership.remediation),
-        }
+        # What the surface may say. Timings, cache provenance and commands are
+        # not in here on purpose -- they are diagnostics, and they belong to
+        # `opai update doctor`, not to someone who just wants the new version.
+        diagnostics["summary"] = user_facing(
+            {"operation": operation.to_public_dict(), "discovery": diagnostics}
+        )
         return diagnostics
 
     def doctor(self) -> dict[str, object]:

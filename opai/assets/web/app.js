@@ -568,11 +568,18 @@ function renderUpdateBanner(update) {
   const config = states[status];
   shell.dataset.state = status;
   shell.dataset.tone = config[2];
-  $("#updateBannerText").textContent = config[0];
+  // Plain copy, from the backend. The internal diagnostic -- "cannot update
+  // transactionally", "4 commits behind origin/main" -- is true, useful in
+  // `opai update doctor`, and not what someone wanting the new version needs
+  // to read.
+  const summary = ((state.update || {}).discovery || {}).summary || {};
+  const title = String(summary.title || config[0]);
+  const message = String(summary.message || config[1]);
+  $("#updateBannerText").textContent = title;
   $("#updateSheetTitle").textContent = candidate.version
-    ? `${config[0]} · OPai ${candidate.version}`
-    : config[0];
-  $("#updateSheetDescription").textContent = config[1];
+    ? `${title} · OPai ${candidate.version}`
+    : title;
+  $("#updateSheetDescription").textContent = message;
   const meta = $("#updateSheetMeta");
   meta.replaceChildren();
   const metadata = [
@@ -599,25 +606,6 @@ function renderUpdateBanner(update) {
   if (total > 0) progress.setAttribute("aria-valuenow", String(percent));
   else progress.removeAttribute("aria-valuenow");
   progress.querySelector("span").style.width = `${percent}%`;
-  // Freshness and ownership, rendered by the backend and only displayed here.
-  //
-  // Whether a result is cached, and how long ago the update source was really
-  // contacted, is decided once -- in report.py, alongside the CLI's copy of
-  // the same sentence. Re-deriving it from timestamps in JavaScript would be a
-  // second interpretation layer, and the two would disagree the first time
-  // either moved.
-  const discovery = (state.update && state.update.discovery) || {};
-  const summary = discovery.summary || {};
-  const freshness = $("#updateSheetFreshness");
-  if (freshness) {
-    freshness.textContent = String(summary.freshness || "");
-    freshness.hidden = !summary.freshness;
-  }
-  const remediation = $("#updateSheetRemediation");
-  if (remediation) {
-    remediation.textContent = String(summary.remediation || "");
-    remediation.hidden = !summary.remediation;
-  }
   const notes = $("#updateReleaseNotes");
   notes.textContent = candidate.release_notes || "";
   notes.hidden = !candidate.release_notes;
