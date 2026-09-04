@@ -57,13 +57,16 @@ _CONNECTION_CACHE_LOCK = threading.RLock()
 _CONNECTION_CACHE_TTL = 300.0
 _CONNECTION_HISTORY: dict[tuple[str, str], dict[str, Any]] = {}
 _CONNECTION_HISTORY_LIMIT = 64
+_CONNECTION_HISTORY_TTL_SECONDS = 6 * 3600.0
 # Capability classifications come from an auth-status check.  They must not
 # outlive the check indefinitely because a user can switch Codex sign-in modes
 # without removing the local auth artifact.
 _ACCOUNT_TYPE_HISTORY_TTL_MS = int(_CONNECTION_CACHE_TTL * 1000)
 _CLI_VERSION_CACHE: dict[str, str] = {}
+_CLI_VERSION_FINGERPRINT_CACHE: dict[str, str] = {}
 _CLI_CAPABILITY_CACHE: dict[str, bool] = {}
 _CODEX_MODEL_CACHE: dict[str, list[tuple[str, str, str]]] = {}
+_CODEX_MODEL_FINGERPRINT_CACHE: dict[str, str] = {}
 _CODEX_CURRENT_DEFAULT_MIN_VERSION = (0, 143, 0)
 
 # What a provider CLI can do is a property of the *machine*, not of one OPai
@@ -95,6 +98,145 @@ _LOGIN_ARGV: dict[str, list[str]] = {
 
 def _connection_key(account_id: str, home: Path | None = None) -> tuple[str, str]:
     return account_id, str((home or Path.home()).expanduser().resolve())
+
+
+def _connection_history_path(home: Path | None = None) -> Path:
+    """The user-wide, workspace-independent local verification store."""
+
+    return (home or Path.home()).expanduser() / ".opai" / "connection_history.json"
+
+
+def _safe_auth_evidence(account_id: str, home: Path) -> dict[str, list[str]]:
+    """Return only presence/metadata evidence; never read authentication data."""
+
+    spec = next((item for item in ACCOUNT_SPECS if item["id"] == account_id), {})
+    files: list[str] = []
+    for rel in spec.get("auth_files", []):
+        path = home / str(rel)
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        files.append(f"{rel}:{int(stat.st_size)}:{int(stat.st_mtime_ns)}")
+    env = [
+        str(name)
+        for name in spec.get("auth_env", [])
+        if os.environ.get(str(name))
+    ]
+    return {"files": sorted(files), "environment": sorted(env)}
+
+
+def _safe_selected_cli_path(value: Any) -> str:
+    try:
+        path = Path(str(value or "")).expanduser()
+    except (TypeError, ValueError):
+        return ""
+    return str(path.resolve()) if path.is_absolute() else ""
+
+
+def _durable_connection_summary(result: dict[str, Any]) -> dict[str, Any] | None:
+    """Select the bounded, non-secret facts suitable for cross-process reuse."""
+
+    cli_path = _safe_selected_cli_path(result.get("_selectedCliPath"))
+    fingerprint = str(result.get("_cliFingerprint") or "")[:160]
+    evidence = result.get("_authEvidence")
+    if not cli_path or not fingerprint or not isinstance(evidence, dict):
+        return None
+    auth_status = str(result.get("authStatus") or "unknown")
+    if auth_status not in {
+        "connected",
+        "unknown",
+        "not_configured",
+        "misconfigured",
+        "provider_unavailable",
+        "invalid",
+        "expired",
+        "disconnected",
+    }:
+        return None
+    checked_at = result.get("lastCheckedAt")
+    try:
+        checked_at = int(checked_at)
+    except (TypeError, ValueError):
+        return None
+    return {
+        "providerId": str(result.get("providerId") or "")[:80],
+        "authStatus": auth_status,
+        "accountType": str(result.get("accountType") or "unknown")[:40],
+        "lastCheckedAt": checked_at,
+        "lastErrorCode": str(result.get("lastErrorCode") or "")[:80],
+        "safeDiagnostic": (
+            "Sign-in verified locally; provider acceptance is confirmed by each request."
+            if auth_status == "connected"
+            else ""
+        ),
+        "selectedCliPath": cli_path,
+        "cliFingerprint": fingerprint,
+        "authEvidence": {
+            "files": [str(item)[:240] for item in evidence.get("files", [])][:16],
+            "environment": [
+                str(item)[:120] for item in evidence.get("environment", [])
+            ][:16],
+        },
+    }
+
+
+def _write_durable_connection_history(
+    result: dict[str, Any], *, home: Path | None = None
+) -> None:
+    summary = _durable_connection_summary(result)
+    if summary is None or not summary["providerId"]:
+        return
+    path = _connection_history_path(home)
+    try:
+        with interprocess_transaction(path, timeout_seconds=1.0):
+            try:
+                store = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, ValueError):
+                store = {}
+            if not isinstance(store, dict):
+                store = {}
+            entries = store.get("connections")
+            if not isinstance(entries, dict):
+                entries = {}
+            entries[summary["providerId"]] = summary
+            store = {"version": 1, "connections": entries}
+            atomic_write_text(
+                path,
+                json.dumps(store, sort_keys=True, indent=2) + "\n",
+                mode=0o600,
+            )
+    except (OSError, InterprocessLockTimeout):
+        return
+
+
+def _durable_connection_history(
+    account_id: str, current: dict[str, Any], *, home: Path | None = None
+) -> dict[str, Any]:
+    """Load a verified state only while its executable and auth evidence agree."""
+
+    try:
+        store = json.loads(_connection_history_path(home).read_text(encoding="utf-8"))
+        history = store.get("connections", {}).get(account_id)
+    except (OSError, json.JSONDecodeError, ValueError, AttributeError):
+        return {}
+    if not isinstance(history, dict):
+        return {}
+    try:
+        fresh = (int(time.time() * 1000) - int(history["lastCheckedAt"])) <= int(
+            _CONNECTION_HISTORY_TTL_SECONDS * 1000
+        )
+    except (KeyError, TypeError, ValueError):
+        fresh = False
+    if not fresh:
+        return {}
+    if (
+        history.get("selectedCliPath") != current.get("_selectedCliPath")
+        or history.get("cliFingerprint") != current.get("_cliFingerprint")
+        or history.get("authEvidence") != current.get("_authEvidence")
+    ):
+        return {}
+    return dict(history)
 
 
 def _safe_connection_summary(result: dict[str, Any]) -> dict[str, Any]:
@@ -133,15 +275,36 @@ def _safe_connection_summary(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _remember_connection(
-    account_id: str, result: dict[str, Any], *, home: Path | None = None
+def _result_with_local_evidence(
+    result: dict[str, Any], account: dict[str, Any] | None
 ) -> dict[str, Any]:
+    """Attach private evidence only while writing the local durable record."""
+
+    if account is None:
+        return dict(result)
+    return {
+        **result,
+        "_selectedCliPath": str(account.get("_selectedCliPath") or ""),
+        "_cliFingerprint": str(account.get("_cliFingerprint") or ""),
+        "_authEvidence": dict(account.get("_authEvidence") or {}),
+    }
+
+
+def _remember_connection(
+    account_id: str,
+    result: dict[str, Any],
+    *,
+    home: Path | None = None,
+    account: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    durable_result = _result_with_local_evidence(result, account)
     with _CONNECTION_CACHE_LOCK:
         key = _connection_key(account_id, home)
         _CONNECTION_HISTORY.pop(key, None)
-        _CONNECTION_HISTORY[key] = _safe_connection_summary(result)
+        _CONNECTION_HISTORY[key] = _safe_connection_summary(durable_result)
         while len(_CONNECTION_HISTORY) > _CONNECTION_HISTORY_LIMIT:
             _CONNECTION_HISTORY.pop(next(iter(_CONNECTION_HISTORY)))
+    _write_durable_connection_history(durable_result, home=home)
     return result
 
 
@@ -441,6 +604,98 @@ def _which(name: str) -> str | None:
     return shutil.which(name)
 
 
+def _existing_cli_path(value: str | Path) -> str | None:
+    """Canonicalize an installed executable without starting it."""
+
+    try:
+        path = Path(value).expanduser()
+        if path.is_file():
+            return str(path.resolve())
+    except OSError:
+        pass
+    return None
+
+
+def _codex_cli_candidates(home: Path | None = None) -> list[str]:
+    """List plausible installed Codex CLIs deterministically, without probes."""
+
+    user_home = (home or Path.home()).expanduser()
+    raw: list[str] = []
+    first = _which("codex")
+    if first:
+        raw.append(first)
+    extensions = [""]
+    for extension in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";"):
+        extension = extension.lower().strip()
+        if extension and extension not in extensions:
+            extensions.append(extension)
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if not directory:
+            continue
+        for extension in extensions:
+            raw.append(str(Path(directory) / f"codex{extension}"))
+    appdata = Path(os.environ.get("APPDATA") or user_home / "AppData/Roaming")
+    localappdata = Path(
+        os.environ.get("LOCALAPPDATA") or user_home / "AppData/Local"
+    )
+    raw.extend(
+        str(path)
+        for path in (
+            appdata / "npm" / "codex.cmd",
+            localappdata / "npm" / "codex.cmd",
+            user_home / ".npm-global" / "bin" / "codex.cmd",
+            user_home / ".local" / "bin" / "codex",
+            user_home / ".codex" / "bin" / "codex",
+        )
+    )
+    desktop_bin = localappdata / "OpenAI" / "Codex" / "bin"
+    raw.append(str(desktop_bin / "codex.exe"))
+    try:
+        builds = sorted(desktop_bin.iterdir(), key=lambda path: path.name)[-64:]
+    except OSError:
+        builds = []
+    raw.extend(str(build / "codex.exe") for build in builds if build.is_dir())
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        canonical = _existing_cli_path(item)
+        # Keep the PATH result for compatibility with injected test runners;
+        # every discovered fallback must be an executable that exists locally.
+        if canonical is None and item != first:
+            continue
+        # The injected runner seam historically accepts a synthetic PATH
+        # result (for example `/bin/codex` on Windows) that cannot be stat'd
+        # here. Keep that one first-path value for compatibility; durable
+        # selection still requires an absolute, fingerprinted real file.
+        canonical = canonical or (
+            str(item) if item == first else _safe_selected_cli_path(item)
+        )
+        key = canonical.casefold()
+        if canonical and key not in seen:
+            seen.add(key)
+            candidates.append(canonical)
+    return candidates
+
+
+def _preferred_codex_cli_path(home: Path | None = None) -> str | None:
+    """Use a still-identical verified selection, otherwise the catalog order."""
+
+    candidates = _codex_cli_candidates(home)
+    try:
+        store = json.loads(_connection_history_path(home).read_text(encoding="utf-8"))
+        stored = store.get("connections", {}).get("codex", {})
+    except (OSError, json.JSONDecodeError, ValueError, AttributeError):
+        stored = {}
+    preferred = str(stored.get("selectedCliPath") or "")
+    if (
+        preferred
+        and preferred in candidates
+        and stored.get("cliFingerprint") == _cli_fingerprint(preferred)
+    ):
+        return preferred
+    return candidates[0] if candidates else None
+
+
 def list_connected_accounts(home: Path | None = None) -> list[dict[str, Any]]:
     """Detect which AI accounts are connected via their installed CLIs.
 
@@ -450,7 +705,11 @@ def list_connected_accounts(home: Path | None = None) -> list[dict[str, Any]]:
     user_home = (home or Path.home()).expanduser()
     accounts: list[dict[str, Any]] = []
     for spec in ACCOUNT_SPECS:
-        cli_path = _which(spec["cli"])
+        cli_path = (
+            _preferred_codex_cli_path(user_home)
+            if spec["id"] == "codex"
+            else _which(spec["cli"])
+        )
         authed = any((user_home / rel).exists() for rel in spec["auth_files"])
         if not authed:
             authed = any(os.environ.get(name) for name in spec.get("auth_env", []))
@@ -465,6 +724,11 @@ def list_connected_accounts(home: Path | None = None) -> list[dict[str, Any]]:
                 "authenticated": authed,
                 "connected": bool(cli_path and authed),
                 "login_hint": spec["login_hint"],
+                # Private local evidence used only to validate durable history.
+                # It is deliberately omitted from doctor/model payloads.
+                "_selectedCliPath": _safe_selected_cli_path(cli_path),
+                "_cliFingerprint": _cli_fingerprint(str(cli_path or "")),
+                "_authEvidence": _safe_auth_evidence(spec["id"], user_home),
             }
         )
     return accounts
@@ -569,11 +833,22 @@ def invalidate_connection_cache(
 
 
 def account_connections(home: Path | None = None) -> list[dict[str, Any]]:
-    """Return detected connection state without contacting any provider."""
+    """Return durable merged state without contacting a provider CLI."""
 
-    return [
-        connection_for_account(account) for account in list_connected_accounts(home)
-    ]
+    connections: list[dict[str, Any]] = []
+    for account in list_connected_accounts(home):
+        current = _result_with_local_evidence(connection_for_account(account), account)
+        provider = str(account.get("id") or "")
+        with _CONNECTION_CACHE_LOCK:
+            history = dict(_CONNECTION_HISTORY.get(_connection_key(provider, home)) or {})
+        if not history:
+            history = _durable_connection_history(provider, current, home=home)
+        merged = _with_connection_history(current, history)
+        # The durable record intentionally contains a local absolute path and
+        # authentication-artifact metadata so it can validate itself.  Neither
+        # belongs in a renderer-facing connection payload.
+        connections.append(_safe_connection_summary(merged))
+    return connections
 
 
 def _account_type_from_status(account_id: str, detail: str) -> str:
@@ -618,14 +893,14 @@ def test_account_connection(
     )
     detected = connection_for_account(account)
     if detected["authStatus"] in {"not_configured", "misconfigured"}:
-        return _remember_connection(account_id, detected, home=home)
+        return _remember_connection(account_id, detected, home=home, account=account)
     checked_at = int(time.time() * 1000)
     if account_id == "copilot":
         detected["lastCheckedAt"] = checked_at
         detected["safeDiagnostic"] = (
             "Account sign-in was detected; this CLI exposes no safe status command."
         )
-        return _remember_connection(account_id, detected, home=home)
+        return _remember_connection(account_id, detected, home=home, account=account)
     commands = {
         "claude": [account.get("cli_path") or "claude", "auth", "status"],
         "codex": [account.get("cli_path") or "codex", "login", "status"],
@@ -634,7 +909,7 @@ def test_account_connection(
     if command is None:
         detected["lastCheckedAt"] = checked_at
         detected["safeDiagnostic"] = "No safe status command is available."
-        return _remember_connection(account_id, detected, home=home)
+        return _remember_connection(account_id, detected, home=home, account=account)
 
     # The status probe must run in a SANITIZED environment: inherited parent
     # AI-session variables (CLAUDE_CODE_*, stale ANTHROPIC_/OPENAI_ overrides)
@@ -644,8 +919,56 @@ def test_account_connection(
     execute = run or (
         lambda argv: _hidden_run(argv, cwd=None, timeout=15.0, env=child_env)
     )
+    preprobed: Any | None = None
+    selected_cli_version = ""
+    if account_id == "codex" and force:
+        ranked: list[tuple[int, int, dict[str, Any], Any, str]] = []
+        for index, cli_path in enumerate(_codex_cli_candidates(home)):
+            candidate = {
+                **account,
+                "cli_path": cli_path,
+                "cli_present": True,
+                "connected": bool(account.get("authenticated")),
+                "_selectedCliPath": _safe_selected_cli_path(cli_path),
+                "_cliFingerprint": _cli_fingerprint(cli_path),
+            }
+            try:
+                candidate_proc = execute([cli_path, "login", "status"])
+            except (OSError, subprocess.SubprocessError):
+                continue
+            candidate_returncode = int(
+                getattr(candidate_proc, "returncode", 0) or 0
+            )
+            candidate_detail = "\n".join(
+                part.strip()
+                for part in (
+                    str(getattr(candidate_proc, "stderr", "") or ""),
+                    str(getattr(candidate_proc, "stdout", "") or ""),
+                )
+                if part.strip()
+            )
+            candidate_error = normalize_provider_error(
+                "codex", candidate_detail, returncode=candidate_returncode
+            )
+            authenticated_candidate = candidate_returncode == 0 and (
+                candidate_error["code"] in {"UNKNOWN", "NO_RESPONSE"}
+            )
+            version = _account_cli_version(
+                candidate, run=run, home=home, force=True
+            )
+            current_candidate = _codex_cli_supports_current_default(version)
+            rank = (2 if authenticated_candidate else 0) + (
+                1 if current_candidate else 0
+            )
+            ranked.append((rank, -index, candidate, candidate_proc, version))
+        if ranked:
+            _rank, _order, account, preprobed, selected_cli_version = max(
+                ranked, key=lambda item: item[:2]
+            )
+            detected = connection_for_account(account)
+            command = [str(account.get("cli_path") or "codex"), "login", "status"]
     try:
-        proc = execute(command)
+        proc = preprobed if preprobed is not None else execute(command)
     except (OSError, subprocess.SubprocessError) as exc:
         error = normalize_provider_error(account_id, str(exc))
         return _remember_connection(
@@ -658,6 +981,7 @@ def test_account_connection(
                 env_overrides_removed=env_removed,
             ),
             home=home,
+            account=account,
         )
     returncode = int(getattr(proc, "returncode", 0) or 0)
     detail = "\n".join(
@@ -690,30 +1014,12 @@ def test_account_connection(
     if returncode == 0 and not status_failed:
         account_type = _account_type_from_status(account_id, detail)
         if account_id == "codex":
-            cli_version = _account_cli_version(
-                account, run=run, home=home, force=force
-            )
-            if not _codex_cli_supports_current_default(cli_version):
-                error = normalize_provider_error(
-                    account_id,
-                    (
-                        f"Codex CLI {cli_version} requires an update. "
-                        "The current account-default model requires a newer version "
-                        "of the Codex CLI."
-                    ),
-                )
-                return _remember_connection(
-                    account_id,
-                    connection_for_account(
-                        account,
-                        auth_status="misconfigured",
-                        last_checked_at=checked_at,
-                        error=error,
-                        env_overrides_removed=env_removed,
-                        account_type=account_type,
-                    ),
-                    home=home,
-                )
+            # Authentication and capability are distinct local facts.  A CLI
+            # that has a verified sign-in remains connected even when its
+            # version cannot run OPai's current default model; the model
+            # picker carries that compatibility restriction separately.
+            if not selected_cli_version:
+                _account_cli_version(account, run=run, home=home, force=force)
         result = connection_for_account(
             account,
             auth_status="connected",
@@ -724,7 +1030,7 @@ def test_account_connection(
         if run is None:
             with _CONNECTION_CACHE_LOCK:
                 _CONNECTION_CACHE[cache_key] = (time.monotonic(), dict(result))
-        return _remember_connection(account_id, result, home=home)
+        return _remember_connection(account_id, result, home=home, account=account)
     error = status_error
     status = error["authStatus"]
     if status == "unknown":
@@ -739,6 +1045,7 @@ def test_account_connection(
             env_overrides_removed=env_removed,
         ),
         home=home,
+        account=account,
     )
 
 
@@ -887,11 +1194,19 @@ def _account_cli_version(
     if not cli_path:
         return ""
     if run is None and not force:
-        if cli_path in _CLI_VERSION_CACHE:
+        fingerprint = _cli_fingerprint(cli_path)
+        if (
+            cli_path in _CLI_VERSION_CACHE
+            and fingerprint
+            and _CLI_VERSION_FINGERPRINT_CACHE.get(cli_path) == fingerprint
+        ):
             return _CLI_VERSION_CACHE[cli_path]
+        _CLI_VERSION_CACHE.pop(cli_path, None)
+        _CLI_VERSION_FINGERPRINT_CACHE.pop(cli_path, None)
         stored = _read_cli_probe(cli_path, "version", home=home)
         if isinstance(stored, str):
             _CLI_VERSION_CACHE[cli_path] = stored
+            _CLI_VERSION_FINGERPRINT_CACHE[cli_path] = fingerprint
             return stored
     child_env, _removed = provider_child_env(str(account.get("id") or ""))
     execute = run or (
@@ -907,6 +1222,7 @@ def _account_cli_version(
     version = redact(raw).strip().splitlines()[0][:160] if raw.strip() else ""
     if run is None:
         _CLI_VERSION_CACHE[cli_path] = version
+        _CLI_VERSION_FINGERPRINT_CACHE[cli_path] = _cli_fingerprint(cli_path)
         _write_cli_probe(cli_path, "version", version, home=home)
     return version
 
@@ -944,12 +1260,16 @@ def _valid_codex_models(value: Any) -> list[tuple[str, str, str]]:
 def _cached_codex_models(
     cli_path: str, *, home: Path | None = None
 ) -> list[tuple[str, str, str]]:
+    fingerprint = _cli_fingerprint(cli_path)
     cached = _CODEX_MODEL_CACHE.get(cli_path)
-    if cached is not None:
+    if cached is not None and _CODEX_MODEL_FINGERPRINT_CACHE.get(cli_path) == fingerprint:
         return list(cached)
+    _CODEX_MODEL_CACHE.pop(cli_path, None)
+    _CODEX_MODEL_FINGERPRINT_CACHE.pop(cli_path, None)
     stored = _valid_codex_models(_read_cli_probe(cli_path, "models", home=home))
     if stored:
         _CODEX_MODEL_CACHE[cli_path] = stored
+        _CODEX_MODEL_FINGERPRINT_CACHE[cli_path] = fingerprint
     return list(stored)
 
 
@@ -1001,6 +1321,7 @@ def _codex_cli_models(
         return fallback
     if run is None:
         _CODEX_MODEL_CACHE[cli_path] = discovered
+        _CODEX_MODEL_FINGERPRINT_CACHE[cli_path] = _cli_fingerprint(cli_path)
         _write_cli_probe(cli_path, "models", discovered, home=home)
     return discovered
 
@@ -1097,12 +1418,16 @@ def provider_connection_doctor(
     entries: list[dict[str, Any]] = []
     for account in detected_accounts:
         provider = str(account.get("id") or "")
-        connection = by_provider.get(provider, connection_for_account(account))
+        connection = _result_with_local_evidence(
+            by_provider.get(provider, connection_for_account(account)), account
+        )
         if use_history:
             with _CONNECTION_CACHE_LOCK:
                 history = dict(
                     _CONNECTION_HISTORY.get(_connection_key(provider, home)) or {}
                 )
+            if not history:
+                history = _durable_connection_history(provider, connection, home=home)
             connection = _with_connection_history(connection, history)
         error = connection.get("error")
         recovery = (

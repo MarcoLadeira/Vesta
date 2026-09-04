@@ -37,11 +37,13 @@ class CliProbePersistenceTests(unittest.TestCase):
         accounts._CLI_VERSION_CACHE.clear()
         accounts._CLI_CAPABILITY_CACHE.clear()
         accounts._CODEX_MODEL_CACHE.clear()
+        accounts._CODEX_MODEL_FINGERPRINT_CACHE.clear()
 
     def tearDown(self) -> None:
         accounts._CLI_VERSION_CACHE.clear()
         accounts._CLI_CAPABILITY_CACHE.clear()
         accounts._CODEX_MODEL_CACHE.clear()
+        accounts._CODEX_MODEL_FINGERPRINT_CACHE.clear()
         self._tmp.cleanup()
 
     def test_a_probed_version_is_readable_after_the_caches_are_cleared(self) -> None:
@@ -118,6 +120,28 @@ class CliProbePersistenceTests(unittest.TestCase):
             accounts._CLI_VERSION_CACHE[str(self.cli)], "codex-cli 0.151.0"
         )
 
+    def test_replaced_cli_invalidates_an_in_process_version_cache(self) -> None:
+        calls: list[list[str]] = []
+
+        def hidden_run(argv, **_kwargs):
+            calls.append(argv)
+            return _Result(
+                "codex-cli 0.128.0" if len(calls) == 1 else "codex-cli 0.153.0"
+            )
+
+        with mock.patch.object(accounts, "_hidden_run", side_effect=hidden_run):
+            self.assertEqual(
+                accounts._account_cli_version(self.account, home=self.home),
+                "codex-cli 0.128.0",
+            )
+            self.cli.write_text("replacement binary", encoding="utf-8")
+            self.assertEqual(
+                accounts._account_cli_version(self.account, home=self.home),
+                "codex-cli 0.153.0",
+            )
+
+        self.assertEqual(calls, [[str(self.cli), "--version"], [str(self.cli), "--version"]])
+
     def test_codex_catalog_keeps_only_cli_visible_models(self) -> None:
         payload = json.dumps(
             {
@@ -159,6 +183,44 @@ class CliProbePersistenceTests(unittest.TestCase):
             ],
         )
 
+    def test_replaced_cli_invalidates_in_process_model_cache(self) -> None:
+        payloads = iter(
+            [
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "gpt-old",
+                                "display_name": "GPT Old",
+                                "visibility": "list",
+                            }
+                        ]
+                    }
+                ),
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "slug": "gpt-new",
+                                "display_name": "GPT New",
+                                "visibility": "list",
+                            }
+                        ]
+                    }
+                ),
+            ]
+        )
+
+        with mock.patch.object(
+            accounts, "_hidden_run", side_effect=lambda *_a, **_k: _Result(next(payloads))
+        ):
+            first = accounts._codex_cli_models(self.account, home=self.home)
+            self.cli.write_text("replacement binary", encoding="utf-8")
+            second = accounts._codex_cli_models(self.account, home=self.home)
+
+        self.assertEqual([item[0] for item in first], ["gpt-old"])
+        self.assertEqual([item[0] for item in second], ["gpt-new"])
+
 
 class NoBlockingProbeTests(unittest.TestCase):
     """Enumeration must never launch a provider CLI.
@@ -177,11 +239,13 @@ class NoBlockingProbeTests(unittest.TestCase):
         accounts._CLI_VERSION_CACHE.clear()
         accounts._CLI_CAPABILITY_CACHE.clear()
         accounts._CODEX_MODEL_CACHE.clear()
+        accounts._CODEX_MODEL_FINGERPRINT_CACHE.clear()
 
     def tearDown(self) -> None:
         accounts._CLI_VERSION_CACHE.clear()
         accounts._CLI_CAPABILITY_CACHE.clear()
         accounts._CODEX_MODEL_CACHE.clear()
+        accounts._CODEX_MODEL_FINGERPRINT_CACHE.clear()
 
     def test_enumeration_with_a_cold_cache_never_probes(self) -> None:
         detected = [
