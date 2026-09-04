@@ -100,6 +100,89 @@ def freshness_phrase(discovery: dict, *, now: datetime | None = None) -> str:
     return "not yet checked remotely"
 
 
+# What a person is told. Deliberately short, and deliberately not the same
+# vocabulary as the diagnostics above.
+#
+# The update surface had grown a developer's vocabulary: "cannot update
+# transactionally", "cached result - remote checked 47 min ago", "4 commits
+# behind origin/main", a shell command in backticks. All of that is true and
+# none of it is the user's problem. They need to know whether there is an
+# update, and what to press.
+#
+# Timings, cache provenance, install types, sources and commands stay in
+# `opai update doctor`, which is where someone debugging the updater looks.
+_USER_MESSAGES = {
+    "available": "A new version of OPai is ready.",
+    "downloading": "Downloading the update.",
+    "verifying": "Checking the update.",
+    "ready_to_install": "Restart OPai to finish updating.",
+    "completed": "Restart OPai to finish updating.",
+    "install_on_quit": "OPai will finish updating when you close it.",
+    "waiting_for_idle": "OPai will update when the current work finishes.",
+    "deferred": "The update is ready when you are.",
+    "unavailable": "OPai couldn't check for updates. It will try again.",
+    "failed_retriable": "The update didn't finish. OPai will try again.",
+    "failed_terminal": "The update couldn't be verified, so it wasn't installed.",
+    "policy_blocked": "Updates are managed outside OPai.",
+    "rollback_pending": "OPai is restoring the previous version.",
+    "rolled_back": "OPai went back to the previous version.",
+    "needs_attention": "The update needs your attention.",
+    "up_to_date": "",
+    "checking": "",
+    "idle": "",
+}
+
+_USER_TITLES = {
+    "available": "Update available",
+    "downloading": "Updating OPai",
+    "verifying": "Updating OPai",
+    "ready_to_install": "Update ready",
+    "completed": "Update ready",
+    "install_on_quit": "Update ready",
+    "waiting_for_idle": "Update ready",
+    "deferred": "Update available",
+    "unavailable": "Couldn't check for updates",
+    "failed_retriable": "Update didn't finish",
+    "failed_terminal": "Update blocked",
+    "policy_blocked": "Managed elsewhere",
+    "rollback_pending": "Restoring previous version",
+    "rolled_back": "Restored previous version",
+    "needs_attention": "Update needs attention",
+    "up_to_date": "You're on the latest version",
+    "checking": "Checking for updates",
+    "idle": "",
+}
+
+
+def user_facing(payload: dict) -> dict:
+    """Title and one sentence, in the user's language. No detail.
+
+    `unsupported_install` is the state a source checkout reaches when it is
+    behind its remote, and calling that "Manual update required" told someone
+    with a working Update button that they had to do something by hand. What it
+    means to them is simply that an update is available -- unless OPai genuinely
+    cannot install it, which is a different sentence.
+    """
+
+    operation = dict(payload.get("operation") or {})
+    discovery = dict(payload.get("discovery") or {})
+    ownership = dict(discovery.get("ownership") or {})
+    state = str(operation.get("state") or "idle")
+
+    if state == "unsupported_install":
+        if ownership.get("self_updatable") is False:
+            return {
+                "title": "Managed elsewhere",
+                "message": "Updates for this installation are handled outside OPai.",
+            }
+        return {"title": "Update available", "message": _USER_MESSAGES["available"]}
+
+    return {
+        "title": _USER_TITLES.get(state, ""),
+        "message": _USER_MESSAGES.get(state, ""),
+    }
+
+
 def render_status_lines(
     payload: dict, *, verbose: bool = False, now: datetime | None = None
 ) -> list[str]:

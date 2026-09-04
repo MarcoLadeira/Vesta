@@ -1466,28 +1466,16 @@
     // does on the persistent control: an install another tool owns must not be
     // offered a button that would act on it.
     var applyAllowed = devCheckout && discovery.self_updatable !== false;
-    // The cadence sentence used to be hard-coded as "every four hours", which
-    // stopped being true the moment cadence became per-installation. It is
-    // read from the policy now, so the card cannot contradict the scheduler.
-    var cadence = discovery.cadence_reason
-      ? "Checked automatically · " + discovery.cadence_reason
-      : "";
+
     return (
       '<div class="update-card ' + (state === "available" || state === "ready_to_install" ? "available" : "unknown") + '" data-update-status="' + esc(state) + '">' +
       '<div class="update-head"><span class="update-dot"></span><span class="update-title">' +
-      esc(labels[state] || "Update status") +
+      esc(summary.title || labels[state] || "Update status") +
       "</span></div>" +
-      '<div class="update-desc">' + esc(description || cadence) + "</div>" +
-      // Freshness, rendered by the backend so this card and the CLI say the
-      // same sentence. This is the one line that tells a quiet installation
-      // whether "you're on the latest version" was established just now or
-      // read from something hours old.
-      (summary.freshness
-        ? '<div class="update-freshness">' + esc(summary.freshness) + "</div>"
-        : "") +
-      (summary.remediation
-        ? '<div class="update-remediation">' + esc(summary.remediation) + "</div>"
-        : "") +
+      // One plain sentence, from the backend. No timings, no cache provenance,
+      // no shell commands: those are diagnostics and live in
+      // `opai update doctor`.
+      '<div class="update-desc">' + esc(summary.message || description) + "</div>" +
       '<div class="actions"><button class="btn ghost" id="settingsCheckUpdate">Check now</button>' +
       (state === "unsupported_install" && applyAllowed
         ? ' <button class="btn ghost" id="settingsApplyUpdate">Update now</button>'

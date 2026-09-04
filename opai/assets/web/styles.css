@@ -1787,25 +1787,6 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 /* Freshness sits directly under the description, quiet by default: routine
    state should not become chrome noise, but "cached result - remote checked
    47 min ago" is the one line that says whether to trust what is above it. */
-.update-freshness {
-  color: var(--faint); font-size: var(--type-caption); margin-top: var(--space-2);
-}
-.update-remediation {
-  color: var(--ink); font-size: var(--type-caption); line-height: 1.5;
-  margin-top: var(--space-2); padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--glass);
-}
-.update-sheet-freshness {
-  color: var(--faint); font-size: var(--type-caption); margin: var(--space-2) 0 0;
-}
-.update-sheet-remediation {
-  color: var(--ink); font-size: var(--type-caption); line-height: 1.5;
-  margin: var(--space-2) 0 0;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border); border-radius: var(--r-sm);
-  background: var(--glass);
-}
-
 .update-sheet-meta { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); font-size: var(--type-caption); }
 .update-sheet-meta dt { color: var(--faint); }
 .update-sheet-meta dd { color: var(--ink); margin: 0; overflow-wrap: anywhere; }
