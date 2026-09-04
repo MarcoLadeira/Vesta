@@ -165,6 +165,39 @@ def can_transition(current: UpdateState, target: UpdateState) -> bool:
     return target in _TRANSITIONS.get(UpdateState(current), frozenset())
 
 
+class UpdateTrigger(str, Enum):
+    """Why a check is happening, and what that obliges it to do.
+
+    `force=True` was doing this job as a bare convention, threaded through
+    call sites that each had to remember what it meant. It meant two different
+    things depending on who passed it -- "the user asked" and "the schedule
+    says so" -- and only one of those is a promise to the user that the update
+    source was actually contacted.
+
+    A trigger says which it is, so the obligation travels with the reason
+    rather than with a boolean somebody has to remember to set.
+    """
+
+    STARTUP = "startup"
+    PERIODIC = "periodic"
+    RESUME = "resume"
+    NETWORK_RESTORED = "network_restored"
+    MANUAL = "manual"
+    RETRY = "retry"
+
+    @property
+    def remote_required(self) -> bool:
+        """Whether this trigger may be satisfied by a cached answer.
+
+        Periodic ticks may: that is the whole point of a cadence. Everything
+        else is asking a question a cached answer cannot honestly answer --
+        "did anything land while I was closed", "has the machine been asleep",
+        "is the network back", "the user pressed the button".
+        """
+
+        return self is not UpdateTrigger.PERIODIC
+
+
 @dataclass(frozen=True)
 class UpdatePolicy:
     schema_version: int = UPDATE_SCHEMA_VERSION
@@ -190,6 +223,22 @@ class UpdatePolicy:
     # store migrate an untouched legacy interval exactly once without ever
     # overwriting an interval the user chose for themselves.
     cadence_policy_version: int = 0
+    # Where the check interval came from. Provenance, not arithmetic: the
+    # migration used to infer "the user did not choose this" from the value
+    # being numerically equal to the historic default, which silently
+    # overwrote anyone who had deliberately chosen exactly four hours.
+    #
+    # "" is a policy written before provenance existed and is the only case
+    # still decided by that heuristic -- once, because migration stamps the
+    # version. Everything written since says so outright.
+    cadence_source: str = ""
+    # Polling jitter is not rollout eligibility.
+    #
+    # Both used to read `rollout_cohort`, so changing which staged-rollout
+    # bucket an installation is in silently changed how often it polled, and
+    # tuning the poll spread would have moved installations between release
+    # buckets. They answer different questions and now have different seeds.
+    poll_jitter_seed: int = -1
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "owner", UpdateOwner(self.owner))
@@ -202,6 +251,10 @@ class UpdatePolicy:
             raise ValueError("update check interval is too small")
         if self.rollout_cohort not in {-1, *range(100)}:
             raise ValueError("rollout cohort must be between 0 and 99")
+        if self.poll_jitter_seed not in {-1, *range(100)}:
+            raise ValueError("poll jitter seed must be between 0 and 99")
+        if self.cadence_source not in {"", "default", "user", "managed", "migrated"}:
+            raise ValueError("unsupported cadence source")
         if self.maximum_deferral_hours is not None and self.maximum_deferral_hours < 0:
             raise ValueError("maximum deferral must not be negative")
         if self.owner is not UpdateOwner.OPAI:
