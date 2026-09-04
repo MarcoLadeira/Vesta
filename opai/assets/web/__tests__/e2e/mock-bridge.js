@@ -53,6 +53,8 @@
     navGroups: [{ group: "Control", items: [{ id: "home", label: "Home" }, { id: "agents", label: "Agents" }] }], taskModes: [{ id: "general", label: "General" }], outputFormats: [{ id: "normal", label: "Normal" }],
     prefs: { model: "account:claude:opus", mode: "ask", focus: "general", format: "normal", showPanel: true, onboardingSeen: true },
     accounts: [{ id: "claude", label: "Claude", connected: true }],
+    connections: [],
+    modelOverrides: { global: true, path: "~/.opai/models.json", providers: {}, hidden: {}, errors: [] },
     status: { on: true, line: "OPai · Ask · $0.00 today · $0.00 saved" },
     inspector: { rows: [], budget: { pct: 0, text: "$0.00 today" }, permissions: [], privacy: [] },
     defaultView: "chat", initialTask: "", tools: [],
@@ -223,7 +225,52 @@
       var usage = scenario.refreshedUsage || (settings && settings.providerUsage) || [];
       cb(JSON.stringify({ ok: true, usage: usage }));
     },
-    refreshModels: function (cb) { cb(JSON.stringify({ models: boot.models })); },
+    refreshModels: function (cb) {
+      cb(JSON.stringify({
+        models: boot.models,
+        accounts: boot.accounts,
+        connections: boot.connections || [],
+        modelOverrides: boot.modelOverrides,
+      }));
+    },
+    saveModelOverrides: function (payload, cb) {
+      var parsed = {};
+      try { parsed = JSON.parse(payload); } catch (_e) {
+        cb(JSON.stringify({ ok: false, error: "Invalid model picker data." }));
+        return;
+      }
+      window.__mock.savedModelOverrides.push(parsed);
+      var providers = {};
+      var hidden = {};
+      Object.keys(parsed.providers || {}).forEach(function (provider) {
+        var block = parsed.providers[provider] || {};
+        providers[provider] = { models: (block.models || []).map(function (entry) { return Object.assign({}, entry); }) };
+        if ((block.hide || []).length) hidden[provider] = block.hide.slice();
+      });
+      var report = { global: true, path: "~/.opai/models.json", providers: providers, hidden: hidden, errors: [] };
+      var baseModels = (boot.models || []).filter(function (model) { return !model.__mockCustom; });
+      var models = baseModels.slice();
+      Object.keys(providers).forEach(function (provider) {
+        var template = baseModels.find(function (model) { return model.provider === provider && model.kind === "account"; });
+        if (!template) return;
+        providers[provider].models.forEach(function (entry) {
+          if (models.some(function (model) { return model.provider === provider && model.model === entry.id; })) return;
+          models.push(Object.assign({}, template, {
+            id: "account:" + provider + ":" + entry.id,
+            model: entry.id,
+            label: provider.charAt(0).toUpperCase() + provider.slice(1) + " · " + (entry.display || entry.id),
+            __mockCustom: true,
+          }));
+        });
+      });
+      boot.models = models;
+      boot.modelOverrides = report;
+      settings.modelOverrides = report;
+      var catalog = { models: models, accounts: boot.accounts, connections: boot.connections || [], modelOverrides: report };
+      setTimeout(function () {
+        cb(JSON.stringify({ ok: true, modelOverrides: report, catalog: catalog }));
+      }, 0);
+    },
     discoverModels: function () {
       window.__mock.modelDiscoveries++;
       if (scenario.discoveredModels && !scenario.deferDiscovery) setTimeout(function () {
@@ -555,7 +602,7 @@
     dashboardRequests: [], settingsRequests: [], statusRequests: [],
     workspaceRequests: [], inspectorRequests: [],
     updateChecks: [], updateActions: [], updatePolicies: [], interactiveMarks: 0, usageRefreshes: 0,
-    modelDiscoveries: 0,
+    modelDiscoveries: 0, savedModelOverrides: [],
     workspaceStateCalls: 0,
     emitDiscoveredModels: function () {
       bridge.modelsChanged.emit(JSON.stringify({

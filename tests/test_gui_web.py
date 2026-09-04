@@ -703,6 +703,90 @@ class WebAssetsTests(unittest.TestCase):
 
 
 class SettingsPayloadTests(unittest.TestCase):
+    def test_custom_account_models_are_projected_into_the_live_catalog(self):
+        from opai.gui_web import _models
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            overrides = Path(tmp) / "models.json"
+            overrides.write_text(
+                json.dumps(
+                    {
+                        "providers": {
+                            "codex": {
+                                "models": [
+                                    {
+                                        "id": "gpt-custom",
+                                        "display": "My GPT",
+                                        "capability": "best",
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            base = {
+                "models": [
+                    {
+                        "id": "account:codex:gpt-default",
+                        "model": "gpt-default",
+                        "label": "Codex · Default",
+                        "provider": "codex",
+                        "kind": "account",
+                        "group": "codex",
+                    }
+                ],
+                "accounts": [],
+                "connections": [],
+            }
+            with (
+                mock.patch.dict("os.environ", {"OPAI_MODEL_OVERRIDES": str(overrides)}),
+                mock.patch("opai.gui_web.A.available_models", return_value=base),
+            ):
+                payload = _models(root, discover_local=False)
+
+        custom = next(
+            model
+            for model in payload["models"]
+            if model["id"] == "account:codex:gpt-custom"
+        )
+        self.assertEqual(custom["label"], "Codex · My GPT")
+        self.assertEqual(custom["badge"], "best")
+
+    def test_settings_exposes_the_global_model_override_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            overrides = Path(tmp) / "models.json"
+            overrides.write_text(
+                json.dumps(
+                    {
+                        "providers": {
+                            "codex": {
+                                "models": [
+                                    {"id": "gpt-custom", "display": "My GPT", "capability": "best"}
+                                ],
+                                "hide": ["gpt-old"],
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.dict("os.environ", {"OPAI_MODEL_OVERRIDES": str(overrides)}),
+                mock.patch("opai.gui_web._cached_update_check", return_value={}),
+            ):
+                payload = settings_payload(root)
+
+        self.assertEqual(payload["modelOverrides"]["path"], "~/.opai/models.json")
+        self.assertEqual(
+            payload["modelOverrides"]["providers"]["codex"]["models"][0]["id"],
+            "gpt-custom",
+        )
+        self.assertEqual(payload["modelOverrides"]["hidden"]["codex"], ["gpt-old"])
+
     def test_about_exposes_the_same_asset_build_identity_as_boot(self):
         from opai.compatibility import runtime_compatibility_payload
 

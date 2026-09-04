@@ -856,7 +856,10 @@
     // Offer exactly what the composer offers (boot.models), so the Default
     // model picker and the composer selector can never disagree (#238).
     var modelSource = boot.models && boot.models.length ? boot.models : d.models;
-    var modelOptions = (modelSource || []).map(function (m) {
+    var modelOverrides = d.modelOverrides || { global: true, path: "~/.opai/models.json", providers: {}, hidden: {}, errors: [] };
+    var modelOptions = (modelSource || []).filter(function (m) {
+      return !ctx.isModelVisible || ctx.isModelVisible(m, modelOverrides);
+    }).map(function (m) {
       return { id: m.id, label: m.label || m.id };
     });
     if (
@@ -900,6 +903,39 @@
     h += selectRow("Task focus", "default_task_mode", focusOptions, ctx.state.focus);
     h += selectRow("Output format", "default_output_format", formatOptions, ctx.state.format);
     h += '<div class="set-note">Changes apply to the composer immediately and persist for this workspace.</div>';
+    h += '<div class="set-head">Your model picker</div>';
+    h += '<div class="set-note">Global · ' + esc(modelOverrides.path || "~/.opai/models.json") + '. Show or hide models everywhere. Availability stays separate: unavailable models keep their reason.</div>';
+    if ((modelOverrides.errors || []).length) {
+      h += '<div class="set-note" role="alert">' + esc(modelOverrides.errors.join(" ")) + "</div>";
+    }
+    h += '<div data-model-override-error class="set-note" hidden></div>';
+    var pickableModels = (modelSource || []).filter(function (m) {
+      return m && m.kind !== "auto" && m.group !== "routing";
+    });
+    pickableModels.forEach(function (m) {
+      var provider = String(m.provider || "").toLowerCase();
+      var rawId = String(m.model || String(m.id || "").split(":").pop() || "");
+      var visible = !ctx.isModelVisible || ctx.isModelVisible(m, modelOverrides);
+      var unavailable = m.available === false
+        ? (m.disabled_reason || "Unavailable")
+        : (m.healthy === false ? (m.health_reason || "Currently unavailable") : "");
+      h += '<label class="set-row"><span class="default-label"><span class="k">' + esc(m.label || m.id) + '</span>' +
+        (unavailable ? '<span class="hint">' + esc(unavailable) + "</span>" : "") +
+        '</span><input type="checkbox" data-model-visibility="' + esc(m.id) + '" data-model-provider="' + esc(provider) + '" data-model-override-id="' + esc(rawId) + '" aria-label="Show ' + esc(m.label || m.id) + '"' + (visible ? " checked" : "") + "></label>";
+    });
+    var providerNames = [];
+    pickableModels.forEach(function (m) {
+      var provider = String(m.provider || "").toLowerCase();
+      if (m.kind === "account" && provider && providerNames.indexOf(provider) < 0) providerNames.push(provider);
+    });
+    h += '<div class="set-row"><span class="default-label"><span class="k">Add a custom model</span><span class="hint">Use a provider already available to this OPai install.</span></span></div>';
+    h += '<div class="set-row"><select data-custom-provider aria-label="Custom model provider">' + providerNames.map(function (provider) { return '<option value="' + esc(provider) + '">' + esc(provider) + "</option>"; }).join("") + '</select><input data-custom-model aria-label="Custom model ID" placeholder="Model ID"><input data-custom-label aria-label="Custom model label" placeholder="Label"><select data-custom-capability aria-label="Custom model capability"><option value="balanced">Balanced</option><option value="fast">Fast</option><option value="best">Best</option></select><button type="button" class="btn" data-add-custom-model>Add model</button></div>';
+    Object.keys(modelOverrides.providers || {}).sort().forEach(function (provider) {
+      ((modelOverrides.providers[provider] || {}).models || []).forEach(function (entry) {
+        h += '<div class="set-row"><span class="k">' + esc(provider + " · " + (entry.display || entry.id)) + '</span><button type="button" class="btn" data-remove-custom-provider="' + esc(provider) + '" data-remove-custom-id="' + esc(entry.id) + '">Remove</button></div>';
+      });
+    });
+    h += '<button type="button" class="btn" data-reset-model-overrides>Reset model picker</button>';
     h += '<div class="set-head">Local-first routing</div>';
     var order = d.firewall && d.firewall.local_first;
     if (order) {
@@ -1847,6 +1883,7 @@
   // ---- wiring (exact handlers moved from app.js), scoped to `page` -------- //
   function wire(page, ctx) {
     var bridge = ctx.bridge;
+    var d = ctx.d || {};
     var esc = ctx.esc;
     var toast = ctx.toast;
     var state = ctx.state;
@@ -1906,10 +1943,7 @@
           if (result.configured && bridge.refreshModels)
             bridge.refreshModels(function (modelsJson) {
               var refreshed = JSON.parse(modelsJson);
-              if (refreshed.models) {
-                state.boot.models = refreshed.models;
-                ctx.renderComposerSelects();
-              }
+              if (ctx.applyModelCatalog) ctx.applyModelCatalog(refreshed);
             });
         });
       };
@@ -2381,6 +2415,90 @@
         if (ctx.applyDefaults) ctx.applyDefaults(select.dataset.defaultPref, select.value);
       };
     });
+    // The override document is deliberately replaced as one validated payload.
+    // Merging a handful of DOM changes into an old browser snapshot would make
+    // global settings race across workspaces.
+    function pickerPayload() {
+      var report = d.modelOverrides || {};
+      var payload = { providers: {} };
+      Object.keys(report.providers || {}).forEach(function (provider) {
+        payload.providers[provider] = {
+          models: ((report.providers[provider] || {}).models || []).map(function (entry) {
+            return Object.assign({}, entry);
+          }),
+        };
+      });
+      Object.keys(report.hidden || {}).forEach(function (provider) {
+        if (!payload.providers[provider]) payload.providers[provider] = {};
+        payload.providers[provider].hide = (report.hidden[provider] || []).slice();
+      });
+      return payload;
+    }
+    function savePicker(payload) {
+      var error = q("[data-model-override-error]");
+      if (!bridge.saveModelOverrides) {
+        if (error) { error.textContent = "Model picker editing is unavailable in this build."; error.hidden = false; }
+        return;
+      }
+      bridge.saveModelOverrides(JSON.stringify(payload), function (json2) {
+        var result = {};
+        try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
+        if (!result.ok) {
+          if (error) { error.textContent = result.error || "Could not save the model picker."; error.hidden = false; }
+          return;
+        }
+        if (error) error.hidden = true;
+        if (ctx.applyModelCatalog && result.catalog) ctx.applyModelCatalog(result.catalog);
+        toast("Global model picker saved");
+      });
+    }
+    page.querySelectorAll("[data-model-visibility]").forEach(function (toggle) {
+      toggle.onchange = function () {
+        var payload = pickerPayload();
+        var provider = toggle.dataset.modelProvider;
+        var modelId = toggle.dataset.modelOverrideId;
+        if (!payload.providers[provider]) payload.providers[provider] = {};
+        var hidden = payload.providers[provider].hide || [];
+        var index = hidden.map(function (id) { return String(id).toLowerCase(); }).indexOf(String(modelId).toLowerCase());
+        if (toggle.checked && index >= 0) hidden.splice(index, 1);
+        if (!toggle.checked && index < 0) hidden.push(modelId);
+        if (hidden.length) payload.providers[provider].hide = hidden;
+        else delete payload.providers[provider].hide;
+        savePicker(payload);
+      };
+    });
+    var addCustom = q("[data-add-custom-model]");
+    if (addCustom) addCustom.onclick = function () {
+      var provider = q("[data-custom-provider]").value;
+      var id = q("[data-custom-model]").value.trim();
+      var label = q("[data-custom-label]").value.trim();
+      var capability = q("[data-custom-capability]").value;
+      if (!provider || !id || !label) {
+        var error = q("[data-model-override-error]");
+        if (error) { error.textContent = "Provider, model ID, and label are required."; error.hidden = false; }
+        return;
+      }
+      var payload = pickerPayload();
+      if (!payload.providers[provider]) payload.providers[provider] = {};
+      var models = payload.providers[provider].models || [];
+      models.push({ id: id, display: label, capability: capability });
+      payload.providers[provider].models = models;
+      savePicker(payload);
+    };
+    page.querySelectorAll("[data-remove-custom-id]").forEach(function (button) {
+      button.onclick = function () {
+        var payload = pickerPayload();
+        var provider = button.dataset.removeCustomProvider;
+        var block = payload.providers[provider] || {};
+        block.models = (block.models || []).filter(function (entry) {
+          return entry.id !== button.dataset.removeCustomId;
+        });
+        payload.providers[provider] = block;
+        savePicker(payload);
+      };
+    });
+    var resetPicker = q("[data-reset-model-overrides]");
+    if (resetPicker) resetPicker.onclick = function () { savePicker({ providers: {} }); };
     // Appearance (#241): persist via savePref and apply to the root instantly.
     page.querySelectorAll("[data-appearance-key]").forEach(function (segment) {
       var key = segment.dataset.appearanceKey;

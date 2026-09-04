@@ -26,6 +26,8 @@ from opai.model_overrides import (
     MAX_MODELS_PER_PROVIDER,
     apply_overrides,
     load_overrides,
+    overrides_report_payload,
+    save_override_payload,
     save_overrides,
 )
 from opai.model_registry import ModelSpec
@@ -193,6 +195,62 @@ class ValidationTests(_Temp):
 
 
 class SaveTests(_Temp):
+    def test_full_payload_round_trips_and_exposes_a_safe_global_report(self) -> None:
+        # A global picker editor replaces the complete document, rather than
+        # merging browser state into whatever a second workspace last wrote.
+        save_override_payload(
+            {
+                "providers": {
+                    "codex": {
+                        "models": [
+                            {
+                                "id": "gpt-custom",
+                                "display": "My GPT",
+                                "capability": "best",
+                            }
+                        ],
+                        "hide": ["gpt-old"],
+                    }
+                }
+            },
+            path=self.path,
+        )
+
+        report = overrides_report_payload(load_overrides(self.path))
+        self.assertTrue(report["global"])
+        self.assertEqual(report["path"], "~/.opai/models.json")
+        self.assertEqual(report["providers"]["codex"]["models"][0]["id"], "gpt-custom")
+        self.assertEqual(report["hidden"]["codex"], ["gpt-old"])
+
+    def test_unsafe_full_payload_is_refused_without_replacing_existing_file(self) -> None:
+        save_override_payload(
+            {"providers": {"codex": {"models": [{"id": "keep", "capability": "best"}]}}},
+            path=self.path,
+        )
+        previous = self.path.read_text(encoding="utf-8")
+
+        with self.assertRaises(ValueError):
+            save_override_payload(
+                {"providers": {"codex\nunsafe": {"models": []}}}, path=self.path
+            )
+
+        self.assertEqual(self.path.read_text(encoding="utf-8"), previous)
+
+    def test_custom_ids_are_limited_to_account_cli_providers(self) -> None:
+        with self.assertRaises(ValueError):
+            save_override_payload(
+                {"providers": {"gemini": {"models": [{"id": "made-up"}]}}},
+                path=self.path,
+            )
+        save_override_payload(
+            {"providers": {"gemini": {"hide": ["gemini-old"]}}},
+            path=self.path,
+        )
+        self.assertEqual(
+            overrides_report_payload(load_overrides(self.path))["hidden"]["gemini"],
+            ["gemini-old"],
+        )
+
     def test_saving_then_loading_round_trips(self) -> None:
         save_overrides(
             {

@@ -25,6 +25,63 @@ test("defaults are editable and reflect in the composer immediately", async ({ p
   await expect(page.locator("#modeSel")).toHaveValue("approve-edits");
 });
 
+test("the global model picker manages hidden and custom models without showing hidden choices", async ({ page }) => {
+  const modelOverrides = {
+    global: true,
+    path: "~/.opai/models.json",
+    providers: { codex: { models: [{ id: "gpt-custom", display: "My GPT", capability: "best", full: "My GPT", aliases: [] }] } },
+    hidden: { claude: ["opus"] },
+    errors: [],
+  };
+  await openApp(page, {
+    boot: {
+      modelOverrides,
+      models: [
+        { id: "account:claude:opus", model: "opus", label: "Claude · Opus 4.8", kind: "account", provider: "claude" },
+        { id: "account:codex:gpt-5.6-sol", model: "gpt-5.6-sol", label: "Codex · GPT-5.6 Sol", kind: "account", provider: "codex" },
+        { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing" },
+      ],
+    },
+    settings: {
+      modelOverrides,
+    },
+  });
+  await openNav(page, "Settings");
+  await railItem(page, "models").click();
+
+  await expect(page.getByText("Your model picker", { exact: true })).toBeVisible();
+  await expect(page.getByText("Global · ~/.opai/models.json")).toBeVisible();
+  const hidden = page.locator('[data-model-visibility="account:claude:opus"]');
+  await expect(hidden).not.toBeChecked();
+  await expect(page.locator('#modelSel option[value="account:claude:opus"]')).toHaveCount(0);
+
+  await page.locator('[data-custom-provider]').selectOption("codex");
+  await page.locator('[data-custom-model]').fill("gpt-new");
+  await page.locator('[data-custom-label]').fill("My new GPT");
+  const addButton = page.getByRole("button", { name: "Add model" });
+  await expect(addButton).toBeEnabled();
+  expect(await addButton.evaluate((button) => typeof button.onclick)).toBe("function");
+  await addButton.click();
+  await expect.poll(() => page.evaluate(() => window.__mock.savedModelOverrides.length)).toBe(1);
+  expect(await page.evaluate(() => window.__mock.savedModelOverrides)).toContainEqual({
+    providers: {
+      codex: {
+        models: [
+          { id: "gpt-custom", display: "My GPT", capability: "best", full: "My GPT", aliases: [] },
+          { id: "gpt-new", display: "My new GPT", capability: "balanced" },
+        ],
+      },
+      claude: { hide: ["opus"] },
+    },
+  });
+  await openNav(page, "Chat");
+  await page.locator("#modelBtn").click();
+  const customModel = page.locator('#modelPop [data-id="account:codex:gpt-new"]');
+  await expect(customModel).toBeVisible();
+  await customModel.click();
+  await expect(page.locator("#modelSel")).toHaveValue("account:codex:gpt-new");
+});
+
 test("the run-mode select offers every mode, in order, Auto-apply included", async ({ page }) => {
   // Full Auto used to be absent here, and shown disabled if it was already the
   // default, because a bare savePref for it was rewritten server side — so

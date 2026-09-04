@@ -24,11 +24,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from opai.model_registry import CAPABILITIES, ModelSpec
+from opai.model_registry import (
+    ACCOUNT_PROVIDERS,
+    CAPABILITIES,
+    FREE_PROVIDERS,
+    PAID_DIRECT_PROVIDERS,
+    ModelSpec,
+)
+from opaihub.atomic_io import atomic_write_text, interprocess_transaction
 from opaihub.boundary_errors import safe_detail
 
 #: Bounds. This file is read on every model lookup; it is a convenience list,
@@ -38,6 +47,25 @@ MAX_ID_CHARS = 120
 MAX_LABEL_CHARS = 80
 
 SCHEMA_VERSION = 1
+
+_PROVIDER_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,39}$")
+_PICKER_PROVIDERS = frozenset(
+    ACCOUNT_PROVIDERS + FREE_PROVIDERS + PAID_DIRECT_PROVIDERS
+)
+
+
+def _safe_text(value: Any, *, limit: int, field: str) -> str:
+    """Accept only bounded, single-line strings from the web bridge."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    clean = value.strip()
+    if not clean:
+        raise ValueError(f"{field} is required")
+    if len(clean) > limit:
+        raise ValueError(f"{field} exceeds the {limit} character limit")
+    if any(ord(char) < 32 or ord(char) == 127 for char in clean):
+        raise ValueError(f"{field} must not contain control characters")
+    return clean
 
 
 def overrides_path() -> Path:
@@ -285,16 +313,134 @@ def save_overrides(
     for provider, hidden in (hide or {}).items():
         payload["providers"].setdefault(provider, {})["hide"] = hidden
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(".json.tmp")
-    temporary.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
-    # Validate what was actually written, not what we meant to write.
-    check = load_overrides(temporary)
-    if not check.ok:
-        temporary.unlink(missing_ok=True)
-        raise ValueError("; ".join(check.errors))
-    temporary.replace(target)
+    serialized = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    with interprocess_transaction(target, timeout_seconds=5.0):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=target.parent,
+                prefix=f".{target.name}.",
+                suffix=".validate",
+                delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(serialized)
+            check = load_overrides(temporary)
+            if not check.ok:
+                raise ValueError("; ".join(check.errors))
+            atomic_write_text(target, serialized, mode=0o600)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
     clear_cache()
     return target
+
+
+def save_override_payload(payload: Any, *, path: Path | None = None) -> Path:
+    """Validate and replace the complete picker-editor document.
+
+    This is intentionally stricter than the permissive file reader: the UI is
+    an editor, not an import tool, so malformed browser data must never replace
+    the user's last known-good global configuration.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("model overrides must be a JSON object")
+    if set(payload) - {"schema_version", "providers"}:
+        raise ValueError("model overrides contain unsupported fields")
+    version = payload.get("schema_version", SCHEMA_VERSION)
+    if version != SCHEMA_VERSION:
+        raise ValueError(f"unsupported schema version: {version!r}")
+    raw_providers = payload.get("providers")
+    if not isinstance(raw_providers, dict):
+        raise ValueError("'providers' must be an object")
+
+    providers: dict[str, list[dict[str, Any]]] = {}
+    hidden: dict[str, list[str]] = {}
+    for raw_provider, block in raw_providers.items():
+        provider = _safe_text(raw_provider, limit=40, field="provider").lower()
+        if not _PROVIDER_RE.fullmatch(provider):
+            raise ValueError(f"provider {provider!r} contains unsafe characters")
+        if provider not in _PICKER_PROVIDERS:
+            raise ValueError(f"provider {provider!r} is not supported by this OPai install")
+        if not isinstance(block, dict) or set(block) - {"models", "hide"}:
+            raise ValueError(f"{provider}: expected models and/or hide")
+        entries = block.get("models", [])
+        if not isinstance(entries, list):
+            raise ValueError(f"{provider}: 'models' must be a list")
+        if entries and provider not in ACCOUNT_PROVIDERS:
+            raise ValueError(
+                f"{provider}: custom model IDs are supported only for account CLIs"
+            )
+        if len(entries) > MAX_MODELS_PER_PROVIDER:
+            raise ValueError(f"{provider}: too many models")
+        cleaned_entries: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict) or set(entry) - {
+                "id", "display", "full", "capability", "aliases"
+            }:
+                raise ValueError(f"{provider}[{index}]: unsupported model fields")
+            model_id = _safe_text(entry.get("id"), limit=MAX_ID_CHARS, field="model id")
+            key = model_id.lower()
+            if key in seen:
+                raise ValueError(f"{provider}: duplicate model id {model_id!r}")
+            seen.add(key)
+            cleaned: dict[str, Any] = {"id": model_id}
+            for field, limit in (("display", MAX_LABEL_CHARS), ("full", MAX_LABEL_CHARS)):
+                if field in entry:
+                    cleaned[field] = _safe_text(entry[field], limit=limit, field=field)
+            capability = entry.get("capability", "balanced")
+            if not isinstance(capability, str) or capability.lower() not in CAPABILITIES:
+                raise ValueError(f"{provider}[{index}]: invalid capability")
+            cleaned["capability"] = capability.lower()
+            aliases = entry.get("aliases", [])
+            if not isinstance(aliases, list):
+                raise ValueError(f"{provider}[{index}]: 'aliases' must be a list")
+            if aliases:
+                cleaned["aliases"] = [
+                    _safe_text(alias, limit=MAX_ID_CHARS, field="alias") for alias in aliases
+                ]
+            cleaned_entries.append(cleaned)
+        raw_hidden = block.get("hide", [])
+        if not isinstance(raw_hidden, list):
+            raise ValueError(f"{provider}: 'hide' must be a list")
+        providers[provider] = cleaned_entries
+        if raw_hidden:
+            hidden[provider] = [
+                _safe_text(model_id, limit=MAX_ID_CHARS, field="hidden model id")
+                for model_id in raw_hidden
+            ]
+    return save_overrides(providers, hide=hidden, path=path)
+
+
+def overrides_report_payload(report: OverrideReport | None = None) -> dict[str, Any]:
+    """Return the secret-free, user-facing representation of global overrides."""
+    resolved = report or load_overrides()
+    return {
+        "global": True,
+        # Never reveal the account's home directory to the renderer or logs.
+        "path": "~/.opai/models.json",
+        "providers": {
+            provider: {
+                "models": [
+                    {
+                        "id": spec.id,
+                        "display": spec.display,
+                        "full": spec.full,
+                        "capability": spec.capability,
+                        "aliases": list(spec.aliases),
+                    }
+                    for spec in specs
+                ]
+            }
+            for provider, specs in sorted(resolved.models.items())
+        },
+        "hidden": {
+            provider: sorted(model_ids)
+            for provider, model_ids in sorted(resolved.hidden.items())
+        },
+        "errors": list(resolved.errors),
+    }
