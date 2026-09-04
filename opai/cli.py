@@ -1109,6 +1109,28 @@ def cmd_support_bundle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _emit_update(payload: dict, args: argparse.Namespace) -> None:
+    """Print the canonical payload, as JSON or as sentences.
+
+    `--json` was declared on every update subcommand and read by none of them,
+    so the flag promised a choice and the command always printed JSON. A wall
+    of JSON cannot answer "why did it not notice the update?" for a person,
+    which is the question these surfaces exist for.
+
+    The human rendering is a formatter over the same payload -- it recomputes
+    nothing, so the two outputs cannot disagree.
+    """
+
+    from opai.update.report import render_status_lines
+
+    if bool(getattr(args, "json", False)):
+        print_json(payload)
+        return
+    verbose = str(getattr(args, "update_command", "") or "") == "doctor"
+    for line in render_status_lines(payload, verbose=verbose):
+        print(line)
+
+
 def cmd_update(args: argparse.Namespace) -> int:
     """Operate the canonical updater used by the desktop and doctor."""
     from opai.update.errors import UpdateError
@@ -1174,9 +1196,9 @@ def cmd_update(args: argparse.Namespace) -> int:
             "retriable": exc.retriable,
             "status": service.status(),
         }
-        print_json(payload)
+        _emit_update(payload, args)
         return 2
-    print_json(payload)
+    _emit_update(payload, args)
     state = str(payload.get("operation", {}).get("state", ""))
     if command == "check" and state == UpdateState.AVAILABLE.value:
         return 3

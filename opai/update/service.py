@@ -1709,7 +1709,7 @@ class UpdateService:
             "running_build_id": running["build_id"],
             "disk_version": disk_version if stale_process else "",
             "disk_build_id": disk_build if stale_process else "",
-            "running_build_is_stale": stale_process,
+            "version_differs_from_disk": stale_process,
             "launcher": safe_launcher_identity(),
             "ownership": ownership.to_dict(),
             "self_updatable": ownership.self_updatable,
