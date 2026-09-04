@@ -369,15 +369,54 @@ def clear_overview_cache() -> None:
 # --------------------------------------------------------------------------- #
 # Bridge payload builders (pure-ish; reuse the Qt-free data layer)
 # --------------------------------------------------------------------------- #
-def _models(root: Path, *, discover_local: bool = True) -> dict[str, Any]:
-    data = A.available_models(root, discover_local=discover_local)
+def _models(
+    root: Path, *, discover_local: bool = True, discover_accounts: bool = False
+) -> dict[str, Any]:
+    data = A.available_models(
+        root, discover_local=discover_local, discover_accounts=discover_accounts
+    )
+    from opai.model_overrides import load_overrides, overrides_report_payload
+    from opai.model_registry import ACCOUNT_PROVIDERS
+
+    override_report = load_overrides()
     models = []
     for opt in data["models"]:
         models.append({**opt, "badge": model_badge(opt)})
+    # Account model tuples are initialized when the connector module imports,
+    # but the global picker file can change while this GUI stays open. Project
+    # custom entries over an existing provider option so they are immediately
+    # usable without a restart (the runner already accepts an explicit model).
+    for provider, specs in override_report.models.items():
+        if provider not in ACCOUNT_PROVIDERS:
+            continue
+        template = next(
+            (item for item in models if item.get("provider") == provider), None
+        )
+        if template is None:
+            continue
+        for spec in specs:
+            if any(
+                item.get("provider") == provider and item.get("model") == spec.id
+                for item in models
+            ):
+                continue
+            custom = dict(template)
+            custom.update(
+                {
+                    "id": f"account:{provider}:{spec.id}",
+                    "label": f"{provider.title()} · {spec.display}",
+                    "advanced_label": spec.full,
+                    "model": spec.id,
+                    "speed": spec.capability,
+                    "badge": spec.capability,
+                }
+            )
+            models.append(custom)
     return {
         "models": models,
         "accounts": data.get("accounts", []),
         "connections": data.get("connections", []),
+        "modelOverrides": overrides_report_payload(override_report),
         **{
             key: data[key]
             for key in (
@@ -773,6 +812,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "controls": describe_controls(mode, focus),
         "accounts": models["accounts"],
         "connections": models["connections"],
+        "modelOverrides": models["modelOverrides"],
         **{
             key: models[key]
             for key in (
@@ -1523,6 +1563,9 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "accounts": models["accounts"],
         "connections": models["connections"],
         "models": models["models"],
+        # User model picker edits are global (not workspace preferences). The
+        # path is deliberately home-redacted by the report builder.
+        "modelOverrides": models["modelOverrides"],
         "usage": build_usage_snapshots(
             root,
             models["models"],
@@ -2375,7 +2418,28 @@ def _run_gui(
 
         @QtCore.Slot(result=str)
         def refreshModels(self) -> str:
-            return json.dumps(A.available_models(self.root, discover_local=True))
+            return json.dumps(_models(self.root, discover_local=True))
+
+        @QtCore.Slot(str, result=str)
+        def saveModelOverrides(self, payload_json: str) -> str:
+            """Atomically replace the user's global picker configuration."""
+            from opai.model_overrides import save_override_payload
+
+            try:
+                payload = json.loads(payload_json)
+                save_override_payload(payload)
+            except (TypeError, ValueError) as exc:
+                # The last valid file remains untouched; do not emit a catalog
+                # change for rejected browser data.
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
+            catalog = _models(self.root, discover_local=True)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "modelOverrides": catalog["modelOverrides"],
+                    "catalog": catalog,
+                }
+            )
 
         @QtCore.Slot(str, str, str, result=str)
         def setProviderBalance(self, provider: str, amount: str, currency: str) -> str:
@@ -2807,11 +2871,12 @@ def _run_gui(
         def discoverModels(self) -> None:
             """Discover loopback models off the GUI thread and publish the catalog."""
 
-            worker = Worker(
-                lambda: A.available_models(
+            def discover() -> dict[str, Any]:
+                return _models(
                     self.root, discover_local=True, discover_accounts=True
                 )
-            )
+
+            worker = Worker(discover)
 
             def _done(result_json: str) -> None:
                 self.modelsChanged.emit(result_json)

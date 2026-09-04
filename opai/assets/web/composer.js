@@ -98,6 +98,15 @@
   function setModel(id) {
     var sel = $("#modelSel");
     if (!sel) return;
+    if (!Array.prototype.some.call(sel.options, function (option) { return option.value === id; })) {
+      var model = (boot().models || []).find(function (item) { return item.id === id; });
+      if (model) {
+        var option = document.createElement("option");
+        option.value = model.id;
+        option.textContent = model.label || model.id;
+        sel.appendChild(option);
+      }
+    }
     sel.value = id;
     sel.dispatchEvent(new Event("change", { bubbles: true }));
     refresh();
@@ -288,7 +297,8 @@
   // disabled* with a reason, so it is never silently missing.
   function pickerModels() {
     return (boot().models || []).filter(function (m) {
-      return m && m.kind !== "auto" && m.group !== "routing";
+      return m && m.kind !== "auto" && m.group !== "routing" &&
+        (!global.OPaiModelVisibility || global.OPaiModelVisibility(m));
     });
   }
   function isConfigured(m) { return m.available !== false; }

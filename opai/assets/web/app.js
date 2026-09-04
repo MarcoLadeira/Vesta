@@ -333,10 +333,61 @@ function applyBootSelection(b) {
   if (md) state.mode = md;
 }
 
+// Global picker overrides are keyed by provider model IDs, while the UI's
+// account entries carry a routing ID such as `account:claude:opus`. Keep that
+// translation in one predicate so native selects, the redesigned composer and
+// Settings defaults cannot drift apart.
+function modelOverrideId(model) {
+  if (!model) return "";
+  if (model.model) return String(model.model).toLowerCase();
+  const id = String(model.id || "");
+  const parts = id.split(":");
+  return String(parts[parts.length - 1] || id).toLowerCase();
+}
+function isModelVisible(model, overrides) {
+  if (!model || model.kind === "auto") return true;
+  const report = overrides || state.modelOverrides || (state.boot && state.boot.modelOverrides) || {};
+  const hidden = (report.hidden && report.hidden[String(model.provider || "").toLowerCase()]) || [];
+  const modelId = modelOverrideId(model);
+  return !hidden.some((id) => String(id).toLowerCase() === modelId || String(id).toLowerCase() === String(model.id || "").toLowerCase());
+}
+window.OPaiModelVisibility = isModelVisible;
+
+function applyModelCatalog(catalog) {
+  if (!catalog || typeof catalog !== "object") return;
+  if (Array.isArray(catalog.accounts)) {
+    state.boot.accounts = catalog.accounts;
+    state.accounts = catalog.accounts;
+    renderAccount();
+  }
+  if (Array.isArray(catalog.connections)) {
+    state.boot.connections = catalog.connections;
+    catalog.connections.forEach((connection) => {
+      updateDoctorCard(connection.providerId || connection.provider, connection);
+    });
+  }
+  if (catalog.modelOverrides && typeof catalog.modelOverrides === "object") {
+    state.modelOverrides = catalog.modelOverrides;
+    state.boot.modelOverrides = catalog.modelOverrides;
+  }
+  if (!Array.isArray(catalog.models)) return;
+  state.boot.models = catalog.models;
+  const selected = catalog.models.find((model) => model.id === state.model.id && isModelVisible(model));
+  if (selected) state.model = { ...selected, advancedLabel: selected.advanced_label };
+  else {
+    const fallback = catalog.models.find((model) => model.id === "auto") || catalog.models.find((model) => isModelVisible(model));
+    if (fallback) {
+      state.model = { ...fallback, advancedLabel: fallback.advanced_label };
+      bridge.savePref("default_model", fallback.id);
+    }
+  }
+}
+
 function boot() {
   bridge.boot((json) => {
     state.boot = JSON.parse(json);
     const b = state.boot;
+    state.modelOverrides = b.modelOverrides || {};
     state.accounts = b.accounts || [];
     applyBootSelection(b);
     // One-time consent per free-tier model id: after the first "Send to X"
@@ -395,32 +446,9 @@ function boot() {
     // must be offered even though no dropdown change event fired.
   });
   if (bridge.modelsChanged) bridge.modelsChanged.connect((json) => {
-    const catalog = JSON.parse(json);
-    if (Array.isArray(catalog.accounts)) {
-      state.boot.accounts = catalog.accounts;
-      state.accounts = catalog.accounts;
-      renderAccount();
-    }
-    if (Array.isArray(catalog.connections)) {
-      state.boot.connections = catalog.connections;
-      catalog.connections.forEach((connection) => {
-        updateDoctorCard(connection.providerId || connection.provider, connection);
-      });
-    }
-    if (Array.isArray(catalog.models)) {
-      state.boot.models = catalog.models;
-      const selected = catalog.models.find((model) => model.id === state.model.id);
-      if (selected) state.model = { ...selected, advancedLabel: selected.advanced_label };
-      else {
-        const fallback = catalog.models.find((model) => model.id === "auto") || catalog.models[0];
-        if (fallback) {
-          state.model = { ...fallback, advancedLabel: fallback.advanced_label };
-          bridge.savePref("default_model", fallback.id);
-        }
-      }
-      renderComposerSelects();
-      refreshStatus();
-    }
+    let catalog = {};
+    try { catalog = JSON.parse(json); } catch (_e) { return; }
+    applyModelCatalog(catalog);
   });
   if (bridge.providerLoginReady) bridge.providerLoginReady.connect(onProviderLoginReady);
   if (bridge.connectionDoctorReady) bridge.connectionDoctorReady.connect(onConnectionDoctorReady);
@@ -1035,34 +1063,7 @@ function toggleWsMenu() {
 }
 
 /* ---------- composer selects ---------- */
-function renderComposerSelects() {
-  const modeSel = $("#modeSel"); modeSel.innerHTML = "";
-  (state.boot.modes || []).forEach((m) => {
-    const o = document.createElement("option"); o.value = m.id; o.textContent = m.label;
-    if (m.id === state.mode.id) o.selected = true; modeSel.appendChild(o);
-  });
-  modeSel.onchange = () => {
-    // A chosen mode is the mode, and it is durable. Full Auto used to be the
-    // exception: picking it opened an acknowledgement modal and pinned via a
-    // dedicated bridge slot, because a plain savePref was downgraded server
-    // side. The downgrade is gone, so a mode now persists by being picked —
-    // across restarts, reboots and workspace switches — like any other setting.
-    state.mode = state.boot.modes.find((m) => m.id === modeSel.value) || state.mode;
-    bridge.savePref("default_mode", state.mode.id);
-    // Keep the local autonomy snapshot coherent: an explicit non-Full-Auto
-    // choice becomes the requested mode for this workspace, so the pin ack is
-    // not re-offered for a mode the user just deliberately left.
-    if (state.boot.autonomy) {
-      state.boot.autonomy.requested_mode = state.mode.id;
-      state.boot.autonomy.effective_mode = state.mode.id;
-    }
-    // The run mode is a local, explicit user selection. Paint it in the header
-    // immediately, then let the asynchronous status refresh fill in its
-    // independently computed spend and savings values. This avoids showing the
-    // previous (potentially more permissive) mode while that refresh is in flight.
-    renderStatus({ line: $("#statusLine").textContent });
-    renderComposerContext(); refreshInspector(); refreshStatus();
-  };
+function renderModelSelect(syncContext = true) {
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
   // Group models by their group field into optgroup sections
   const PICKER_GROUPS = [
@@ -1077,7 +1078,7 @@ function renderComposerSelects() {
   // Out-of-credit models are removed from selection entirely (the redesigned
   // picker popover shows the explanation). If the current selection just ran
   // out of credit, fall back to Auto — never leave a dead model selected.
-  const selectable = allModels.filter((m) => !m.out_of_credit);
+  const selectable = allModels.filter((m) => !m.out_of_credit && isModelVisible(m));
   const currentEntry = allModels.find((m) => m.id === state.model.id);
   if (currentEntry && currentEntry.out_of_credit) {
     state.model = { id: "auto", label: "OPai · Auto mode", kind: "auto", provider: "" };
@@ -1115,8 +1116,41 @@ function renderComposerSelects() {
     if (m) state.model = { ...m, advancedLabel: m.advanced_label };
     setProviderDot(); renderComposerContext(); bridge.savePref("default_model", state.model.id); refreshInspector(); refreshStatus();
   };
-  setProviderDot();
-  renderComposerContext();
+  if (syncContext) {
+    setProviderDot();
+    renderComposerContext();
+  }
+}
+
+function renderComposerSelects() {
+  const modeSel = $("#modeSel"); modeSel.innerHTML = "";
+  (state.boot.modes || []).forEach((m) => {
+    const o = document.createElement("option"); o.value = m.id; o.textContent = m.label;
+    if (m.id === state.mode.id) o.selected = true; modeSel.appendChild(o);
+  });
+  modeSel.onchange = () => {
+    // A chosen mode is the mode, and it is durable. Full Auto used to be the
+    // exception: picking it opened an acknowledgement modal and pinned via a
+    // dedicated bridge slot, because a plain savePref was downgraded server
+    // side. The downgrade is gone, so a mode now persists by being picked —
+    // across restarts, reboots and workspace switches — like any other setting.
+    state.mode = state.boot.modes.find((m) => m.id === modeSel.value) || state.mode;
+    bridge.savePref("default_mode", state.mode.id);
+    // Keep the local autonomy snapshot coherent: an explicit non-Full-Auto
+    // choice becomes the requested mode for this workspace, so the pin ack is
+    // not re-offered for a mode the user just deliberately left.
+    if (state.boot.autonomy) {
+      state.boot.autonomy.requested_mode = state.mode.id;
+      state.boot.autonomy.effective_mode = state.mode.id;
+    }
+    // The run mode is a local, explicit user selection. Paint it in the header
+    // immediately, then let the asynchronous status refresh fill in its
+    // independently computed spend and savings values. This avoids showing the
+    // previous (potentially more permissive) mode while that refresh is in flight.
+    renderStatus({ line: $("#statusLine").textContent });
+    renderComposerContext(); refreshInspector(); refreshStatus();
+  };
+  renderModelSelect();
 }
 
 function autonomyConsequence(modeId) {
@@ -4151,6 +4185,7 @@ function settingsCtx(d) {
     startGuidedProviderLogin, connectionHealthLabel, authStatusLabel,
     refreshConnectedModels,
     renderComposerSelects,
+    isModelVisible, applyModelCatalog,
     applyAppearance, applyDefaults, applyClearedHistory,
     replayTour: () => { if (window.OPaiOnboarding) window.OPaiOnboarding.replay(onboardingCtx()); },
     startDoctorRefresh() {

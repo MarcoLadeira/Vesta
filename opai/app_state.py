@@ -738,6 +738,29 @@ def available_models(
             include_history=True,
         )
     }
+    for index, connection in enumerate(connections):
+        health = account_health.get(str(connection.get("providerId") or ""))
+        if not health:
+            continue
+        merged = dict(connection)
+        for key in (
+            "displayName",
+            "authStatus",
+            "credentialSource",
+            "accountType",
+            "lastCheckedAt",
+            "lastError",
+            "lastErrorCode",
+            "safeDiagnostic",
+            "detected",
+            "loginHint",
+            "envOverridesRemoved",
+        ):
+            if key in health:
+                merged[key] = health[key]
+        if "cliInstalled" in health:
+            merged["cliPresent"] = bool(health["cliInstalled"])
+        connections[index] = merged
     account_types = {
         provider: str(health.get("accountType") or "unknown")
         for provider, health in account_health.items()
