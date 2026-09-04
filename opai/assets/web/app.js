@@ -2234,8 +2234,8 @@ function buildPending(sel) {
            <span class="gen-detail" hidden></span>
          </div>
          <div class="gen-reassure" aria-live="polite"></div>
-         <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="false">View work log · 0</button>
-         <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity" hidden></div>
+         <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="true">Hide work log</button>
+         <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity"></div>
        </div>
        <div class="stream-block-list">
          <details class="stream-earlier" hidden>
