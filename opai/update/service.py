@@ -25,6 +25,7 @@ from .download import DownloadError, SecureDownloader
 from .errors import UpdateError
 from .manifest import ManifestError, verify_manifest
 from .relaunch import relaunch_command, schedule_relaunch
+from .report import freshness_phrase
 from .ownership import (
     describe_ownership,
     running_identity,
@@ -1700,7 +1701,7 @@ class UpdateService:
         stale_process = bool(
             running["version"] and disk_version and running["version"] != disk_version
         )
-        return {
+        diagnostics: dict[str, object] = {
             "install_type": self.installed.install_type.value,
             "channel": policy.channel,
             "update_owner": policy.owner.value,
@@ -1737,6 +1738,18 @@ class UpdateService:
             "restart_required": operation.state is UpdateState.COMPLETED,
             "restart_available": self.restart_available(),
         }
+        # Rendered here, not in the browser.
+        #
+        # The desktop needs the same sentence the CLI prints, and there must be
+        # exactly one place that decides what "checked remotely 2 min ago"
+        # means. A JavaScript copy of that rule would be a second
+        # interpretation layer, and the two would drift the first time either
+        # was touched -- which is the failure this whole epic is about.
+        diagnostics["summary"] = {
+            "freshness": freshness_phrase(diagnostics),
+            "remediation": ("" if ownership.self_updatable else ownership.remediation),
+        }
+        return diagnostics
 
     def doctor(self) -> dict[str, object]:
         operation = self.store.load_operation()

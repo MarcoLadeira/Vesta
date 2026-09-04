@@ -599,6 +599,25 @@ function renderUpdateBanner(update) {
   if (total > 0) progress.setAttribute("aria-valuenow", String(percent));
   else progress.removeAttribute("aria-valuenow");
   progress.querySelector("span").style.width = `${percent}%`;
+  // Freshness and ownership, rendered by the backend and only displayed here.
+  //
+  // Whether a result is cached, and how long ago the update source was really
+  // contacted, is decided once -- in report.py, alongside the CLI's copy of
+  // the same sentence. Re-deriving it from timestamps in JavaScript would be a
+  // second interpretation layer, and the two would disagree the first time
+  // either moved.
+  const discovery = (state.update && state.update.discovery) || {};
+  const summary = discovery.summary || {};
+  const freshness = $("#updateSheetFreshness");
+  if (freshness) {
+    freshness.textContent = String(summary.freshness || "");
+    freshness.hidden = !summary.freshness;
+  }
+  const remediation = $("#updateSheetRemediation");
+  if (remediation) {
+    remediation.textContent = String(summary.remediation || "");
+    remediation.hidden = !summary.remediation;
+  }
   const notes = $("#updateReleaseNotes");
   notes.textContent = candidate.release_notes || "";
   notes.hidden = !candidate.release_notes;
@@ -655,16 +674,31 @@ function renderUpdateActions(status, operation) {
   }
   // A source checkout updates by fast-forwarding from origin/main, not by
   // downloading a package: offer the deliberate developer apply instead.
+  // Ownership decides, not install type alone.
+  //
+  // A pipx or Homebrew installation can report an install type that looks
+  // self-updatable while another tool actually owns it, and offering "Update
+  // now" there invites the updater to act on an installation it does not own.
+  // The backend's `self_updatable` is the authority; the button is only drawn
+  // when it agrees.
+  const ownership = ((state.update || {}).discovery || {});
   if (status === "unsupported_install"
     && state.update && state.update.installed
     && state.update.installed.install_type === "source_checkout") {
-    list.push(["Update now", "developer_apply", true], ["Check again", "check", false]);
-    const apply = state.update.developer_apply;
-    if (apply && apply.dirty) {
-      // The plain apply refused on uncommitted changes; the explicit second
-      // step stashes them and restores them after the fast-forward.
-      list.splice(1, 0, ["Update anyway (stash & restore)", "developer_apply_force", false]);
+    // Checking again is always safe and always useful, whoever owns the
+    // installation -- only *applying* is gated. Removing both left an
+    // externally-owned install with no action at all, which is less honest
+    // than the button it replaced.
+    if (ownership.self_updatable !== false) {
+      list.push(["Update now", "developer_apply", true]);
+      const apply = state.update.developer_apply;
+      if (apply && apply.dirty) {
+        // The plain apply refused on uncommitted changes; the explicit second
+        // step stashes them and restores them after the fast-forward.
+        list.push(["Update anyway (stash & restore)", "developer_apply_force", false]);
+      }
     }
+    list.push(["Check again", "check", false]);
   }
   list.forEach((item) => host.appendChild(updateActionButton(item[0], item[1], item[2], status)));
 }
