@@ -14,6 +14,7 @@ from typing import Any
 from opai.release_identity import surface_identity_payload
 
 from . import command_consent
+from .execution_scope import assignment_scope, assignment_cost_events, financial_root
 from .agent_policy import (
     AgentMode,
     build_capability_contract,
@@ -842,6 +843,9 @@ def _handle_gui_message(
     allow_edits_once: bool = False,
     allowEditsOnce: bool = False,
     defer_checkpoint_finalization: bool = False,
+    task_id: str | None = None,
+    run_id: str | None = None,
+    authority_root: Path | None = None,
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -871,7 +875,7 @@ def _handle_gui_message(
     # status channel for the status strip (docs/AI_ACTIVITY_UX.md).
     from opai.activity import derived_id, new_id
 
-    turn_id = new_id()
+    turn_id = run_id or new_id()
     _phase_id = derived_id(turn_id, "phase")
     _phase_state = {"open": False, "etype": "request_prepare"}
     # Admission (#295 gate 3): prove this request enters the runtime once.
@@ -992,7 +996,7 @@ def _handle_gui_message(
     command_consent.begin_turn(command_grant)
     # One-shot edit grant from an edit-approval re-send (F26).
     edit_grant = bool(allow_edits_once or allowEditsOnce)
-    prefs = load_gui_preferences(root)
+    prefs = load_gui_preferences(financial_root(root))
     selected_model = model_id or prefs.get("default_model") or "auto"
     # Whether OPai is choosing the model (Auto mode). Set before any _decorate
     # call so the terminal recorder can always read it. The capability/cost/
@@ -1055,7 +1059,7 @@ def _handle_gui_message(
     repo_context = resolve_repo_context(root)
     save_active_repo(root, repo_context)
     previous_workflow = load_workflow_state(root)
-    runtime = AgentRuntime(root, task=message)
+    runtime = AgentRuntime(root, task=message, task_id=task_id)
     # #613 Stage 3: mirror this run's admission into the transactional journal.
     #
     # Placed here rather than beside the #295 admission gate above because that
@@ -1074,15 +1078,19 @@ def _handle_gui_message(
     with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
         from .journal_runtime import record_admission
 
-        _journal_fence = record_admission(
-            root,
-            task_id=runtime.task_id,
-            run_id=turn_id,
-            task=message,
-            now=_iso_now(),
-            surface="gui",
-            mode=mode,
-            model=model_id,
+        _journal_fence = (
+            None
+            if authority_root is not None
+            else record_admission(
+                root,
+                task_id=runtime.task_id,
+                run_id=turn_id,
+                task=message,
+                now=_iso_now(),
+                surface="gui",
+                mode=mode,
+                model=model_id,
+            )
         )
         if _journal_fence is not None:
             # Published rather than returned: this function has many exits and
@@ -2010,7 +2018,9 @@ def _handle_gui_message(
                 _failed_provider = _ar2.provider_of(selected_model)
                 fallback_offer = _ar2.best_alternative(
                     root,
-                    _app_state.available_models(root, discover_local=False),
+                    _app_state.available_models(
+                        financial_root(root), discover_local=False
+                    ),
                     exclude_providers={_failed_provider} if _failed_provider else set(),
                     exclude_ids={selected_model},
                     needs_edit=will_edit,
@@ -2180,7 +2190,9 @@ def _handle_gui_message(
 
         from . import auto_router
 
-        _catalog = _app_state.available_models(root, discover_local=False)
+        _catalog = _app_state.available_models(
+            financial_root(root), discover_local=False
+        )
         _auto_labels = {
             str(item.get("id") or ""): str(item.get("label") or item.get("id") or "")
             for item in (_catalog.get("models") or [])
@@ -2420,7 +2432,7 @@ def _handle_gui_message(
 
             blockers = _ar3.routing_blockers(
                 root,
-                _app_state.available_models(root, discover_local=False),
+                _app_state.available_models(financial_root(root), discover_local=False),
                 needs_edit=will_edit,
             )
         if not blockers:
@@ -2770,7 +2782,7 @@ def _handle_gui_message(
                     model=selected_model,
                 )
                 record_workflow_cost(
-                    root, runtime.task_id, free_telemetry, task=message
+                    financial_root(root), runtime.task_id, free_telemetry, task=message
                 )
                 _journal_cost(
                     root,
@@ -3099,7 +3111,9 @@ def _handle_gui_message(
             account_telemetry = normalize_account_result(
                 provider, result, model=selected_model
             )
-            record_workflow_cost(root, runtime.task_id, account_telemetry, task=message)
+            record_workflow_cost(
+                financial_root(root), runtime.task_id, account_telemetry, task=message
+            )
             _journal_cost(
                 root,
                 account_telemetry,
@@ -3394,7 +3408,26 @@ def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
     token = _JOURNAL_RUN.set(None)
     root = Path(args[0] if args else kwargs["project_root"])
     try:
-        result = _handle_gui_message(*args, **kwargs)
+        authority = kwargs.get("authority_root")
+        scope = (
+            assignment_scope(
+                root,
+                authority,
+                task_id=kwargs.get("task_id"),
+                run_id=kwargs.get("run_id"),
+            )
+            if authority is not None
+            else contextlib.nullcontext()
+        )
+        with scope:
+            result = _handle_gui_message(*args, **kwargs)
+            if authority is not None:
+                result = {
+                    **result,
+                    "objective_cost_events": assignment_cost_events(
+                        authority, kwargs["run_id"]
+                    ),
+                }
     except BaseException as exc:  # noqa: BLE001 - re-raised immediately below
         _record_turn_ending(root, "failed", type(exc).__name__)
         raise

@@ -29,6 +29,7 @@ from .ledger import (
 )
 from .policy import evaluate_action, resolve_policy
 from .state import state_dir
+from .execution_scope import financial_root
 
 # The numeric spend ceilings a budget can carry.
 _CAP_KEYS = ("daily_usd_limit", "monthly_usd_limit", "per_task_hard_limit_usd")
@@ -402,7 +403,7 @@ def budget_gate(
     destructive: bool = False,
 ) -> dict[str, Any]:
     """Decide whether the next route is allowed. Fail-closed (#50)."""
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     caps = load_budget(root)
     cost_model = load_cost_model(root)
     is_local = is_local_tier(tier, cost_model)
