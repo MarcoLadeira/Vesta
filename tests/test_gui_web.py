@@ -513,6 +513,40 @@ class BootPayloadTests(unittest.TestCase):
             self.assertEqual(controls["agent_mode_preview"], "implement")
             self.assertFalse(controls["read_only"])
 
+    def test_a_first_run_boots_with_the_inspector_hidden(self):
+        """The boot payload must not ask for an inspector nobody requested.
+
+        Honest scope: this passed before the fix too. ``load_gui_preferences``
+        always merges ``DEFAULT_PREFERENCES``, so the ``.get(..., True)``
+        fallback that used to sit here never actually fired -- it was a latent
+        disagreement with the documented default, not the cause of SMOKE-UX-001.
+        That cause was in the front end (``app.js`` state and ``index.html``),
+        where the shell painted the panel open before any preference was known.
+        This pins the payload half so the two cannot drift apart later.
+        """
+        from opaihub.gui_preferences import save_gui_preferences
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self.assertFalse(boot_payload(root)["prefs"]["showPanel"])
+
+            # ...and an explicit choice is still honoured in both directions.
+            save_gui_preferences(root, {"show_control_panel": True})
+            self.assertTrue(boot_payload(root)["prefs"]["showPanel"])
+            save_gui_preferences(root, {"show_control_panel": False})
+            self.assertFalse(boot_payload(root)["prefs"]["showPanel"])
+
+    def test_the_stored_default_and_the_payload_fallback_agree(self):
+        # The bug was a disagreement between these two, so assert them together.
+        from opaihub.gui_preferences import DEFAULT_PREFERENCES
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self.assertEqual(
+                bool(DEFAULT_PREFERENCES["show_control_panel"]),
+                bool(boot_payload(root)["prefs"]["showPanel"]),
+            )
+
     def test_inspector_shows_live_agent_mode_preview_beside_last_run(self):
         # F21: the persisted "Agent mode" row is the last completed run; the
         # new "Agent mode (next run)" row + payload field are computed live
@@ -765,7 +799,11 @@ class SettingsPayloadTests(unittest.TestCase):
                         "providers": {
                             "codex": {
                                 "models": [
-                                    {"id": "gpt-custom", "display": "My GPT", "capability": "best"}
+                                    {
+                                        "id": "gpt-custom",
+                                        "display": "My GPT",
+                                        "capability": "best",
+                                    }
                                 ],
                                 "hide": ["gpt-old"],
                             }

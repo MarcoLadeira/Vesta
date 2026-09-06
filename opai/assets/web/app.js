@@ -55,7 +55,11 @@ const state = {
   model: { id: "auto", label: "Auto", kind: "auto" },
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
-  accounts: [], panel: true, message: null, lastFailedRequestId: null,
+  // Hidden until the boot payload (or the user) says otherwise, matching
+  // gui_preferences' documented default. Starting true meant the shell
+  // painted an empty inspector before any preference was known -- and, with
+  // no bridge attached, kept it open forever.
+  accounts: [], panel: false, message: null, lastFailedRequestId: null,
   responseDensity: "balanced",
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   latestActivity: null,
@@ -324,7 +328,10 @@ function onboardingCtx() {
 // identically at first boot and after every workspace switch, so the composer,
 // inspector, and header can never disagree (F16/F4).
 function applyBootSelection(b) {
-  state.panel = b.prefs.showPanel !== false;
+  // Explicit opt-in: an absent preference means hidden, matching the
+  // stored default. `!== false` treated undefined as "show", which is how
+  // a first run ended up with an empty inspector open.
+  state.panel = b.prefs.showPanel === true;
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];

@@ -505,7 +505,9 @@ def _run_gui(
             self._install_shortcuts()
             self._refresh_inspector()
             self._highlight_nav(self._current_view)
-            if not self._preferences.get("show_control_panel", True):
+            # Same default as gui_preferences and the web shell: hidden until the
+            # user asks for it.
+            if not self._preferences.get("show_control_panel", False):
                 self.control_panel.hide()
 
         # -- sidebar --------------------------------------------------------- #

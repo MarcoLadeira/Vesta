@@ -784,7 +784,12 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             "mode": mode,
             "focus": focus,
             "format": fmt,
-            "showPanel": bool(prefs.get("show_control_panel", True)),
+            # Default False, matching gui_preferences.DEFAULT_PREFERENCES. A True
+            # fallback here overrode that whenever the preference had not been
+            # written yet -- i.e. for every first-time user -- so a brand new,
+            # empty chat opened with an empty inspector taking the right third
+            # of the window.
+            "showPanel": bool(prefs.get("show_control_panel", False)),
             # Appearance (#241): applied to the document root at boot.
             "density": str(prefs.get("density") or "comfortable"),
             "responseDensity": str(prefs.get("response_density") or "balanced"),
@@ -2872,9 +2877,7 @@ def _run_gui(
             """Discover loopback models off the GUI thread and publish the catalog."""
 
             def discover() -> dict[str, Any]:
-                return _models(
-                    self.root, discover_local=True, discover_accounts=True
-                )
+                return _models(self.root, discover_local=True, discover_accounts=True)
 
             worker = Worker(discover)
 
