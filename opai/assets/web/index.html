@@ -13,7 +13,7 @@
   <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </head>
 <body>
-  <div class="app" id="app">
+  <div class="app panel-hidden" id="app">
     <header class="app-header" id="appHeader">
       <div class="header-leading">
         <button class="topbar-icon sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar" aria-expanded="true" title="Toggle sidebar">
@@ -48,7 +48,7 @@
         <button class="topbar-icon" id="headerSettings" aria-label="Settings" title="Settings">
           <span class="tb-icon" data-icon="settings" aria-hidden="true"></span>
         </button>
-        <button class="topbar-icon inspector-toggle on" id="panelToggle" aria-label="Inspector" aria-pressed="true" title="Inspector">
+        <button class="topbar-icon inspector-toggle" id="panelToggle" aria-label="Inspector" aria-pressed="false" title="Inspector">
           <span class="tb-icon" data-icon="panel" aria-hidden="true"></span>
         </button>
         <div class="window-controls" id="windowControls" aria-label="Window controls">

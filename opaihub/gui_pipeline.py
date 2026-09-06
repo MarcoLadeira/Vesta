@@ -993,6 +993,9 @@ def _handle_gui_message(
     # One-shot edit grant from an edit-approval re-send (F26).
     edit_grant = bool(allow_edits_once or allowEditsOnce)
     prefs = load_gui_preferences(root)
+    # Bypass Permissions is a switch, not a mode: it composes with whichever
+    # mode is selected so turning it off returns the user to that mode.
+    bypass_permissions = prefs.get("bypass_permissions") is True
     selected_model = model_id or prefs.get("default_model") or "auto"
     # Whether OPai is choosing the model (Auto mode). Set before any _decorate
     # call so the terminal recorder can always read it. The capability/cost/
@@ -1032,9 +1035,14 @@ def _handle_gui_message(
         return result_meets_objective(turn_objective, result_payload)
 
     if policy.mode in {AgentMode.IMPLEMENT, AgentMode.SHIP}:
+        # Every edit-capable mode survives an implement turn. auto-edits and
+        # approve-edits were missing, so picking Accept Edits and asking for a
+        # change silently demoted the run to Safe Auto -- the mode the user
+        # chose was not the mode that ran.
         selected_mode = (
             requested_run_mode
-            if requested_run_mode in {"safe-auto", "full-auto"}
+            if requested_run_mode
+            in {"safe-auto", "approve-edits", "auto-edits", "full-auto"}
             else "safe-auto"
         )
     elif requested_run_mode == "plan":
@@ -2659,6 +2667,7 @@ def _handle_gui_message(
                 tool_loop_policy=_contract_tool_loop_policy(),
                 deadline_budget=_contract_deadline_budget(),
                 repository_handle=task_repository_handle,
+                bypass_permissions=bypass_permissions,
             )
             if result.get("status") == "cancelled":
                 _phase_close("cancelled", "Stopped by you")
@@ -2961,6 +2970,7 @@ def _handle_gui_message(
                 tool_loop_policy=_contract_tool_loop_policy(),
                 deadline_budget=_contract_deadline_budget(),
                 on_timeout=_persist_account_timeout,
+                bypass_permissions=bypass_permissions,
             )
             if result.get("status") == "cancelled":
                 _emit("cancelled", "cancelled", "Stopped by you")

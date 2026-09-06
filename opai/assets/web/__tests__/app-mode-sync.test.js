@@ -64,7 +64,12 @@ describe("applyBootSelection (F16/F4: payload selection is authoritative)", () =
     expect(opai.state.mode).toEqual({ id: "ask", label: "Ask" });
     expect(opai.state.focus).toBe("general");
     expect(opai.state.format).toBe("normal");
-    expect(opai.state.panel).toBe(true);
+    // SMOKE-UX-001: a sparse payload means "no stored preference", and the
+    // documented default (gui_preferences.show_control_panel) is hidden -- a
+    // first-time user should get a clean chat, not an empty inspector holding
+    // the right third of the window. This asserted true, which is precisely
+    // the behaviour that was reported.
+    expect(opai.state.panel).toBe(false);
   });
 });
 

@@ -399,6 +399,8 @@ def _call_tool_loop(
     return plan.invoke(task, compiled)
 
 
+
+
 def run_explicit_model(
     project_root: Path,
     task: str,
@@ -418,6 +420,7 @@ def run_explicit_model(
     repository_handle: Any = None,
     provider_id: str | None = None,
     deadline_budget: Any = None,
+    bypass_permissions: bool = False,
 ) -> dict[str, Any]:
     """Run an explicitly selected model without Auto routing or prose caching.
 
@@ -435,6 +438,8 @@ def run_explicit_model(
     truth (F8): the result's ``completion_state`` is derived from what actually
     happened — never pre-seeded as "completed".
     """
+
+    from .command_policy import resolve_autonomy
 
     root = project_root.expanduser().resolve()
     use_tools = allow_edits if tool_calling_enabled is None else tool_calling_enabled
@@ -482,9 +487,11 @@ def run_explicit_model(
                 repository_handle=repository_handle,
                 provider_id=provider_id,
                 deadline_budget=deadline_budget,
-                # The run mode IS the autonomy level; command_policy maps the
-                # legacy spellings onto its canonical levels.
-                autonomy=mode,
+                # The run mode plus the orthogonal Bypass Permissions switch.
+                # Bypass composes with whichever mode is selected rather than
+                # replacing it, so "Plan, with permissions bypassed" is a thing
+                # the engine can express.
+                autonomy=resolve_autonomy(mode, bypass_permissions=bypass_permissions),
             )
             # A runner accepting provider_id is one that self-records per-turn
             # ledger entries (opaihub/local_runner.py); a runner without it
