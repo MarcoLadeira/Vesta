@@ -91,9 +91,16 @@ AUTONOMY_RULES: dict[str, dict[Capability, str]] = {
         Capability.WRITE_REMOTE: ASK,
         Capability.DESTRUCTIVE: ASK,
     },
+    # Claude Code's accept-edits, and exactly its bargain: *file edits* stop
+    # asking, commands do not. A command is not an edit -- `git commit`, `npm
+    # install` and a test runner can each do far more than the edit tools can --
+    # so this row is identical to NORMAL, and the whole difference between the
+    # two modes lives in the edit capability, which is not a command at all.
+    # It also has to keep matching gui_permissions._MODE_RULES["auto-edits"]
+    # ("run_any": "ask") or the permissions panel is lying about this mode.
     AUTO_EDITS: {
         Capability.READ: RUN,
-        Capability.WRITE_LOCAL: RUN,
+        Capability.WRITE_LOCAL: ASK,
         Capability.WRITE_REMOTE: ASK,
         Capability.DESTRUCTIVE: ASK,
     },
