@@ -536,6 +536,39 @@ class BootPayloadTests(unittest.TestCase):
             save_gui_preferences(root, {"show_control_panel": False})
             self.assertFalse(boot_payload(root)["prefs"]["showPanel"])
 
+    def test_bypass_is_a_switch_that_leaves_the_mode_intact(self):
+        """Toggling Bypass must not cost the user the mode they were in.
+
+        As a sixth entry in the mode list, turning bypass on discarded the
+        selected mode and turning it off could not give it back. As a switch it
+        composes: the mode persists underneath and reappears when it is off.
+        """
+        from opaihub.command_policy import resolve_autonomy
+        from opaihub.gui_preferences import load_gui_preferences, save_gui_preferences
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            save_gui_preferences(root, {"default_mode": "auto-edits"})
+
+            def effective():
+                prefs = load_gui_preferences(root)
+                return prefs["default_mode"], resolve_autonomy(
+                    prefs["default_mode"],
+                    bypass_permissions=prefs["bypass_permissions"],
+                )
+
+            self.assertEqual(effective(), ("auto-edits", "auto-edits"))
+            save_gui_preferences(root, {"bypass_permissions": True})
+            self.assertEqual(effective(), ("auto-edits", "bypass"))
+            save_gui_preferences(root, {"bypass_permissions": False})
+            self.assertEqual(effective(), ("auto-edits", "auto-edits"))
+
+    def test_the_bypass_switch_is_persistable_from_the_bridge(self):
+        # A switch the front end cannot save is not a switch.
+        from opai.gui_web import _BRIDGE_PREFERENCE_KEYS
+
+        self.assertIn("bypass_permissions", _BRIDGE_PREFERENCE_KEYS)
+
     def test_the_stored_default_and_the_payload_fallback_agree(self):
         # The bug was a disagreement between these two, so assert them together.
         from opaihub.gui_preferences import DEFAULT_PREFERENCES

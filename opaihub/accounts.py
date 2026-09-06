@@ -47,6 +47,7 @@ from .atomic_io import (
     interprocess_transaction,
 )
 from .command_runner import redact
+from .command_policy import resolve_autonomy
 from .proc import provider_child_env
 from .progress_evidence import ProgressLedger
 from .process_tree import adopt, isolated_group_kwargs, terminate_tree
@@ -2695,6 +2696,9 @@ class AccountRunner:
         operation_id: str | None = None,
         deadline_budget: DeadlineBudget | None = None,
         on_timeout: Callable[[dict[str, Any]], Any] | None = None,
+        # Bypass Permissions is a switch that composes with the mode,
+        # not a mode of its own (see command_policy.resolve_autonomy).
+        bypass_permissions: bool = False,
     ) -> dict[str, Any]:
         """Run the task; return ``{"text", "cost", "timed_out"?}``.
 
@@ -2709,7 +2713,11 @@ class AccountRunner:
         # Sanitized child env: parent AI-session variables must never steer
         # this CLI's auth or model selection (see opaihub.proc).
         child_env, _env_removed = provider_child_env(
-            self.account_id, autonomy=mode or ("safe-auto" if allow_edits else "ask")
+            self.account_id,
+            autonomy=resolve_autonomy(
+                mode or ("safe-auto" if allow_edits else "ask"),
+                bypass_permissions=bypass_permissions,
+            ),
         )
 
         if self.account_id == "codex":
@@ -2942,6 +2950,9 @@ class AccountRunner:
         operation_id: str | None = None,
         deadline_budget: DeadlineBudget | None = None,
         on_timeout: Callable[[dict[str, Any]], Any] | None = None,
+        # Bypass Permissions is a switch that composes with the mode,
+        # not a mode of its own (see command_policy.resolve_autonomy).
+        bypass_permissions: bool = False,
     ) -> dict[str, Any]:
         """Run the task with a killable subprocess, emitting live activity.
 
@@ -3011,7 +3022,11 @@ class AccountRunner:
         # Sanitized child env: parent AI-session variables must never steer
         # this CLI's auth or model selection (see opaihub.proc).
         child_env, _env_removed = provider_child_env(
-            self.account_id, autonomy=mode or ("safe-auto" if allow_edits else "ask")
+            self.account_id,
+            autonomy=resolve_autonomy(
+                mode or ("safe-auto" if allow_edits else "ask"),
+                bypass_permissions=bypass_permissions,
+            ),
         )
         try:
             proc = _popen(cmd, cwd=cwd, env=child_env)

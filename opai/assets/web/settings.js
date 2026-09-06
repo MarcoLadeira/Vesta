@@ -1248,6 +1248,27 @@
       "</div></div>" +
       (active ? '<div class="mode-hero-summary">' + esc(active.summary) + "</div>" : "") +
       "</div>";
+    // Bypass Permissions is a switch, not a mode -- the same shape as Claude
+    // Code's --dangerously-skip-permissions. It sits above the per-mode rows
+    // because it overrides all of them, and it composes with whichever mode is
+    // selected instead of replacing it, so turning it off returns the user to
+    // the mode they were already working in.
+    var bypassOn = d.prefs.bypass_permissions === true;
+    h += '<div class="set-head">Bypass permissions</div>';
+    h +=
+      '<label class="set-row set-row-toggle"><span class="k">Skip every confirmation' +
+      '<span class="set-note">Applies on top of your current mode (' +
+      esc(activeMode) +
+      '), so edits, commands, pushes and merges all run unattended. ' +
+      "Turn it off to return to that mode's own rules.</span></span>" +
+      '<input type="checkbox" id="setBypassPermissions" aria-label="Bypass permissions"' +
+      (bypassOn ? " checked" : "") +
+      "></label>";
+    if (bypassOn) {
+      h +=
+        '<div class="set-note set-warn">Bypass is on: nothing will stop for your approval, ' +
+        "including force-push and deletes.</div>";
+    }
     h += '<div class="set-head">Tool permissions · ' + esc(activeMode) + "</div>";
     h +=
       '<div class="set-note">What OPai may do this turn under your current run mode. Allow = does it without asking; Ask = pauses for your OK; Blocked = refused.</div>';
@@ -2418,6 +2439,23 @@
             });
           });
       };
+    // Bypass Permissions: a switch layered over the current mode, persisted
+    // like any other preference. Re-render so the warning line and the mode
+    // rows below reflect the new authority immediately rather than after a
+    // navigation -- a permissions panel that lags is a panel that lies.
+    var bypassToggle = page.querySelector("#setBypassPermissions");
+    if (bypassToggle) {
+      bypassToggle.onchange = function () {
+        var on = bypassToggle.checked === true;
+        bridge.savePref("bypass_permissions", on ? "true" : "false");
+        if (ctx.applyDefaults) ctx.applyDefaults("bypass_permissions", on);
+        toast(
+          on
+            ? "Bypass permissions on — nothing will ask for approval."
+            : "Bypass permissions off — your mode's rules apply again."
+        );
+      };
+    }
     // Editable defaults (#238): persist and reflect in the composer instantly.
     page.querySelectorAll("[data-default-pref]").forEach(function (select) {
       select.onchange = function () {

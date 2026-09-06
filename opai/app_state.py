@@ -995,6 +995,10 @@ def ask(
     deadline_budget: Any = None,
     on_timeout: Any = None,
     repository_handle: Any = None,
+    # Bypass Permissions composes with the mode instead of replacing it, so
+    # "Accept Edits, with permissions bypassed" is expressible and switching it
+    # off returns the user to the mode they were already in.
+    bypass_permissions: bool = False,
 ) -> dict[str, Any]:
     """Run a coding task. ``model_choice`` is 'auto', 'account:<id>', 'free:<id>', 'paid:<id>', or 'provider:model'.
 
@@ -1034,6 +1038,7 @@ def ask(
             tool_loop_policy=tool_loop_policy,
             deadline_budget=deadline_budget,
             on_timeout=on_timeout,
+            bypass_permissions=bypass_permissions,
         )
 
     # "paid:" (#673, e.g. DeepSeek) shares the free tier's whole dispatch
@@ -1058,6 +1063,7 @@ def ask(
             tool_loop_policy=tool_loop_policy,
             deadline_budget=deadline_budget,
             repository_handle=repository_handle,
+            bypass_permissions=bypass_permissions,
         )
 
     from opaihub.ask import run_ask
@@ -1097,6 +1103,7 @@ def _ask_direct_api_model(
     tool_loop_policy: Any = None,
     deadline_budget: Any = None,
     repository_handle: Any = None,
+    bypass_permissions: bool = False,
 ) -> dict[str, Any]:
     """Run a task through a direct public-API model — free tier (Gemini, Groq,
     Mistral) or paid per-token tier (DeepSeek, #673).
@@ -1180,6 +1187,7 @@ def _ask_direct_api_model(
         allow_command=allow_command,
         provider_id=(spec or {}).get("provider"),
         mode=mode or ("safe-auto" if allow_edits else "ask"),
+        bypass_permissions=bypass_permissions,
         record=record_route,
         cancel=cancel,
         on_text=None if allow_edits else on_text,
@@ -1550,6 +1558,7 @@ def _ask_account(
     tool_loop_policy: Any = None,
     deadline_budget: Any = None,
     on_timeout: Any = None,
+    bypass_permissions: bool = False,
     _fallback_used: bool = False,
     _parent_operation_id: str | None = None,
 ) -> dict[str, Any]:
@@ -1619,6 +1628,7 @@ def _ask_account(
             tool_loop_policy=tool_loop_policy,
             deadline_budget=deadline_budget,
             on_timeout=on_timeout,
+            bypass_permissions=bypass_permissions,
             _fallback_used=True,
             _parent_operation_id=operation_id,
         )
@@ -1710,6 +1720,10 @@ def _ask_account(
             optional: dict[str, Any] = {
                 "mode": mode,
                 "operation_id": stable_operation_id,
+                # Composes with the mode rather than replacing it. Threaded as
+                # optional so a runner that predates the switch simply never
+                # receives it, exactly like edit_grant below.
+                "bypass_permissions": bypass_permissions,
             }
             if timeout_seconds is not None:
                 optional["timeout"] = float(timeout_seconds)

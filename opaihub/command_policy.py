@@ -804,6 +804,29 @@ def normalize_autonomy(value: str | None) -> str:
     return legacy.get(text, DEFAULT_AUTONOMY)
 
 
+def resolve_autonomy(
+    mode: str | None,
+    *,
+    bypass_permissions: bool = False,
+) -> str:
+    """Compose the selected run mode with the orthogonal bypass switch.
+
+    Bypass is a *switch*, not a mode -- the same shape as Claude Code's
+    ``--dangerously-skip-permissions``. It used to be a sixth entry in the mode
+    list, so turning it on discarded whichever mode you were working in and
+    turning it off could not give that mode back. Composing them means "Plan,
+    with permissions bypassed" is expressible, and the switch is one click away
+    from off without losing your place.
+
+    The legacy ``full-auto`` mode id still resolves to BYPASS, so stored
+    preferences and older callers keep meaning what they meant.
+    """
+
+    if bypass_permissions:
+        return BYPASS
+    return normalize_autonomy(mode)
+
+
 def decide_command(
     raw: str | Iterable[str],
     *,

@@ -77,6 +77,10 @@ _BRIDGE_PREFERENCE_KEYS = frozenset(
         "default_task_mode",
         "default_output_format",
         "show_control_panel",
+        # Bypass Permissions is a switch layered over the selected mode, so it
+        # persists like any other preference rather than through the Full Auto
+        # pin slot below (that slot exists for a mode; this is not one).
+        "bypass_permissions",
         "density",
         "response_density",
         "reduced_motion",

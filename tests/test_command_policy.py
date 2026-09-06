@@ -360,3 +360,69 @@ class ClaudeCodeModeParityTests(unittest.TestCase):
         for command in ("git commit -m x", "git push", "npm run build"):
             with self.subTest(command=command):
                 self.assertEqual(decide_command(command, autonomy="plan").action, BLOCK)
+
+
+class BypassIsASwitchNotAModeTests(unittest.TestCase):
+    """Bypass composes with the selected mode, the way Claude Code's flag does.
+
+    It used to be a sixth entry in the mode list, so turning it on discarded
+    whichever mode you were working in and turning it off could not give that
+    mode back. As a switch, "Plan, with permissions bypassed" is expressible
+    and the mode survives the toggle.
+    """
+
+    MODES = ("plan", "ask", "approve-edits", "safe-auto", "auto-edits")
+
+    def test_the_switch_grants_full_authority_from_any_mode(self) -> None:
+        from opaihub.command_policy import resolve_autonomy
+
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                self.assertEqual(
+                    resolve_autonomy(mode, bypass_permissions=True), BYPASS
+                )
+
+    def test_switching_it_off_returns_the_mode_you_were_in(self) -> None:
+        from opaihub.command_policy import resolve_autonomy
+
+        expected = {
+            "plan": PLAN,
+            "ask": PLAN,
+            "approve-edits": NORMAL,
+            "safe-auto": NORMAL,
+            "auto-edits": AUTO_EDITS,
+        }
+        for mode, level in expected.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(resolve_autonomy(mode), level)
+                # ...and the round trip is lossless.
+                resolve_autonomy(mode, bypass_permissions=True)
+                self.assertEqual(resolve_autonomy(mode), level)
+
+    def test_the_legacy_full_auto_mode_id_still_means_bypass(self) -> None:
+        from opaihub.command_policy import resolve_autonomy
+
+        self.assertEqual(resolve_autonomy("full-auto"), BYPASS)
+        self.assertEqual(resolve_autonomy("full-auto", bypass_permissions=True), BYPASS)
+
+    def test_the_switch_actually_changes_what_runs(self) -> None:
+        from opaihub.command_policy import resolve_autonomy
+
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                guarded = decide_command(
+                    "git push", autonomy=resolve_autonomy(mode)
+                ).action
+                self.assertIn(guarded, {ASK, BLOCK})
+                self.assertEqual(
+                    decide_command(
+                        "git push",
+                        autonomy=resolve_autonomy(mode, bypass_permissions=True),
+                    ).action,
+                    RUN,
+                )
+
+    def test_the_preference_defaults_off(self) -> None:
+        from opaihub.gui_preferences import DEFAULT_PREFERENCES
+
+        self.assertIs(DEFAULT_PREFERENCES["bypass_permissions"], False)
