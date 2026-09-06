@@ -107,24 +107,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   background: linear-gradient(180deg, transparent, rgba(52, 211, 153, 0.14) 30%, transparent 80%);
   pointer-events: none;
 }
-/* New chat is the sidebar's primary action, but it is not the point of the
-   screen -- the conversation is. A full-width brand gradient at weight 800 with
-   a coloured glow made it the loudest thing in the app and left every real nav
-   row looking secondary to a button you press once. It now reads as a control:
-   a quiet surface, one hairline border, aligned to the nav rows it sits above,
-   with the accent kept for the icon so the affordance survives the calm. */
-.new-chat {
-  display: flex; align-items: center; gap: var(--space-2); justify-content: flex-start;
-  background: var(--glass); color: var(--ink);
-  font-weight: var(--weight-semibold); font-size: var(--type-label);
-  border: 1px solid var(--border); border-radius: var(--r-sm);
-  padding: var(--space-2) var(--space-3); cursor: pointer;
-  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
-}
-.new-chat [data-icon] { color: var(--accent); display: inline-flex; }
-.new-chat:hover { background: var(--glass-hi); border-color: var(--border-strong); }
-.new-chat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.new-chat:active { background: var(--glass-hi); }
 /* OPai Build entry (#276): quieter sibling of New chat. */
 
 /* Build mode (#276): composer toggle + result card. */
@@ -324,15 +306,9 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   white-space: nowrap;
 }
 .topbar-action:hover { background: var(--glass-hi); border-color: var(--border-strong); }
-/* New chat lives in the sidebar, where chat apps put it. The header copy is the
-   fallback for when the sidebar is collapsed away -- showing both put the same
-   action on screen twice, competing with each other for the same click. */
-.app:not(.sidebar-hidden) #headerNewChat { display: none; }
-/* On the compact shell the sidebar is a drawer, so the header button is the
-   only always-reachable New chat and must come back. */
-@media (max-width: 700px) {
-  .app:not(.sidebar-hidden) #headerNewChat { display: inline-flex; }
-}
+/* New chat lives in the header now, beside the other window-level actions.
+   The sidebar is the chat list: a button to start a new one is a global action,
+   not a row in the list of chats you already have. */
 .action-icon { color: var(--accent); font-size: var(--type-heading); font-weight: 500; line-height: 1; }
 .menu-lines { width: 15px; height: 14px; display: flex; flex-direction: column; justify-content: space-between; }
 .menu-lines i { display: block; height: 1.5px; border-radius: 2px; background: currentColor; }
