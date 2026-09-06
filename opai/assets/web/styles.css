@@ -75,7 +75,14 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 /* When the grid column collapses to 0, the sidebar's own padding (24px) and
    right border (1px) still can't shrink below themselves under border-box, so
    it would leave a ~25px sliver. Zero them out so it hides completely. */
-.app.sidebar-hidden .sidebar { padding: 0; border-right-width: 0; }
+/* Children do not shrink with the column, so the active row's accent bar (and
+   anything else drawn at the very left) escaped as a stray sliver over the
+   thread. Clipping the collapsed rail is what actually hides it. */
+.app.sidebar-hidden .sidebar {
+  padding: 0;
+  border-right-width: 0;
+  overflow: hidden;
+}
 
 /* ---------- sidebar: the left rail ---------- */
 .sidebar {
@@ -317,6 +324,15 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   white-space: nowrap;
 }
 .topbar-action:hover { background: var(--glass-hi); border-color: var(--border-strong); }
+/* New chat lives in the sidebar, where chat apps put it. The header copy is the
+   fallback for when the sidebar is collapsed away -- showing both put the same
+   action on screen twice, competing with each other for the same click. */
+.app:not(.sidebar-hidden) #headerNewChat { display: none; }
+/* On the compact shell the sidebar is a drawer, so the header button is the
+   only always-reachable New chat and must come back. */
+@media (max-width: 700px) {
+  .app:not(.sidebar-hidden) #headerNewChat { display: inline-flex; }
+}
 .action-icon { color: var(--accent); font-size: var(--type-heading); font-weight: 500; line-height: 1; }
 .menu-lines { width: 15px; height: 14px; display: flex; flex-direction: column; justify-content: space-between; }
 .menu-lines i { display: block; height: 1.5px; border-radius: 2px; background: currentColor; }
