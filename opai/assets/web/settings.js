@@ -1312,6 +1312,60 @@
     return h;
   }
 
+  // Prompt Library and the seven Insights dashboards used to sit in the
+  // sidebar, above the user's own chat history. They are places you visit
+  // occasionally, not while you work, so they live here now -- still one click
+  // away, and still routable from the command palette and deep links.
+  function toolsHtml(d, ctx) {
+    var esc = ctx.esc;
+    var h = heroHtml(
+      esc,
+      "Tools & Insights",
+      "The prompt library and the data-backed views, kept out of the sidebar so the chat list stays yours.",
+      []
+    );
+    var groups = [
+      {
+        head: "Library",
+        items: [
+          { go: "prompts", title: "Prompt Library", sub: "Saved prompts you can reuse and edit" },
+        ],
+      },
+      {
+        head: "Insights",
+        items: [
+          { go: "home", title: "Money Saved", sub: "What local-first routing has avoided spending" },
+          { go: "firewall", title: "Cost Firewall", sub: "Caps, spend and what stopped a run" },
+          { go: "context", title: "Context Waste", sub: "Tokens sent that did not need sending" },
+          { go: "benchmark", title: "Benchmark", sub: "How the models compare on your work" },
+          { go: "agents", title: "Agents", sub: "Background runs and their outcomes" },
+          { go: "proof", title: "Proof Bundle", sub: "Evidence you can hand to someone else" },
+          { go: "workflows", title: "Workflows", sub: "Repeatable multi-step tasks" },
+        ],
+      },
+    ];
+    groups.forEach(function (group) {
+      h += '<div class="set-head">' + esc(group.head) + "</div>";
+      h +=
+        '<div class="quick-grid">' +
+        group.items
+          .map(function (tile) {
+            return (
+              '<button class="quick-tile" type="button" data-go-view="' +
+              esc(tile.go) +
+              '"><span class="quick-body"><span class="quick-title">' +
+              esc(tile.title) +
+              '</span><span class="quick-sub">' +
+              esc(tile.sub) +
+              "</span></span></button>"
+            );
+          })
+          .join("") +
+        "</div>";
+    });
+    return h;
+  }
+
   function privacyHtml(d, ctx) {
     var esc = ctx.esc;
     var privacy = d.privacy || {};
@@ -1687,6 +1741,13 @@
       render: permissionsHtml,
     },
     {
+      id: "tools",
+      title: "Tools & Insights",
+      group: "System",
+      keywords: "prompt library insights money saved firewall context benchmark agents proof workflows dashboard",
+      render: toolsHtml,
+    },
+    {
       id: "privacy",
       title: "Privacy & Data",
       group: "System",
@@ -1894,6 +1955,14 @@
         activate(button.dataset.goPage);
         var scroller = page.closest(".scroll");
         if (scroller) scroller.scrollTop = 0;
+      });
+    });
+
+    // Tools & Insights leaves Settings entirely: these are top-level views, not
+    // settings panes, so they navigate the app rather than the rail.
+    content.querySelectorAll("[data-go-view]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        if (typeof ctx.switchView === "function") ctx.switchView(button.dataset.goView);
       });
     });
 

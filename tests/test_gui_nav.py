@@ -28,21 +28,26 @@ class NavModelTests(unittest.TestCase):
             self.assertIn(needed, nav_ids())
 
     def test_groups_are_simple_by_default(self):
-        # ChatGPT-simple top level: an unlabeled workspace pair, then ONE
-        # folded Insights group. Settings is hidden from the list (it lives as
-        # the fixed footer control) but stays routable via find_nav.
+        # The sidebar is the conversation and the user's own history: one
+        # unlabeled group holding Chat, and nothing else. Prompt Library and the
+        # seven Insights dashboards moved to Settings -> Tools & Insights, and
+        # Settings itself is the fixed footer control. All of them stay routable
+        # through find_nav, so the palette and deep links are unaffected.
         from opai.gui_nav import group_collapsed
 
         groups = nav_groups()
-        names = [g for g, _items in groups]
-        self.assertEqual(names, ["", "Insights"])
+        self.assertEqual([g for g, _items in groups], [""])
         self.assertFalse(group_collapsed(""))
-        self.assertTrue(group_collapsed("Insights"))
-        # Visible items cover everything except hidden ones (settings).
+
         flat = [item["id"] for _g, items in groups for item in items]
-        self.assertNotIn("settings", flat)
-        self.assertEqual(sorted(flat + ["settings"]), sorted(nav_ids()))
-        self.assertIsNotNone(find_nav("settings"))
+        self.assertEqual(flat, ["chat"])
+
+        hidden = {"settings", "prompts", "home", "firewall", "context",
+                  "benchmark", "agents", "proof", "workflows"}
+        self.assertEqual(sorted(flat + list(hidden)), sorted(nav_ids()))
+        for item_id in hidden:
+            with self.subTest(item=item_id):
+                self.assertIsNotNone(find_nav(item_id))
 
     def test_dashboard_sections_are_real_view_model_sections(self):
         known = {key for key, _label in SECTIONS}

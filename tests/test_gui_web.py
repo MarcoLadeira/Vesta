@@ -447,14 +447,13 @@ class BootPayloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             payload = self._boot(root)
-        # Simple top level (unlabeled) + one folded Insights group.
-        self.assertEqual(
-            [g["group"] for g in payload["navGroups"]],
-            ["", "Insights"],
-        )
+        # One unlabeled group holding Chat. Prompt Library and the Insights
+        # dashboards render in Settings -> Tools & Insights instead of above
+        # the user's own chat history.
+        self.assertEqual([g["group"] for g in payload["navGroups"]], [""])
         by_name = {g["group"]: g for g in payload["navGroups"]}
         self.assertFalse(by_name[""].get("collapsed"))
-        self.assertTrue(by_name["Insights"]["collapsed"])
+        self.assertEqual([i["id"] for i in by_name[""]["items"]], ["chat"])
 
     def test_models_carry_badges_and_auto_present(self):
         with tempfile.TemporaryDirectory() as tmp:
