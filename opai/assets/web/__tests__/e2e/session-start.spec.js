@@ -123,7 +123,7 @@ test("opening the previous chat from the sidebar restores it as a transcript", a
 test("New chat clears only through the session bridge", async ({ page }) => {
   await openApp(page, { boot: { resume } });
 
-  await page.locator("#newChat").click();
+  await page.locator("#headerNewChat").click();
 
   await expect(page.locator("#empty")).toBeVisible();
   await expect(page.locator("#input")).toBeEnabled();
@@ -146,7 +146,7 @@ test("a failed clear says so and leaves the composer usable", async ({ page }) =
     },
   });
 
-  await page.locator("#newChat").click();
+  await page.locator("#headerNewChat").click();
 
   await expect(page.getByRole("alert")).toContainText("could not clear");
   await expect(page.locator("#input")).toBeEnabled();

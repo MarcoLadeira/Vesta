@@ -13,7 +13,8 @@ test("renders one OPai app header without browser toolbar controls", async ({ pa
 
   await expect(page.getByRole("button", { name: "Toggle sidebar" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Switch project folder" })).toBeVisible();
-  await expect(page.locator("#newChat")).toBeVisible();
+  // The sidebar copy is gone: New chat is a header action, offered once.
+  await expect(page.locator("#newChat")).toHaveCount(0);
   await expect(page.locator("#headerNewChat")).toBeVisible();
   await expect(page.locator("#footSettings")).toBeVisible();
   await expect(page.locator("#headerSettings")).toBeVisible();

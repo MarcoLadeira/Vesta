@@ -28,24 +28,19 @@ class NavModelTests(unittest.TestCase):
             self.assertIn(needed, nav_ids())
 
     def test_groups_are_simple_by_default(self):
-        # The sidebar is the conversation and the user's own history: one
-        # unlabeled group holding Chat, and nothing else. Prompt Library and the
-        # seven Insights dashboards moved to Settings -> Tools & Insights, and
-        # Settings itself is the fixed footer control. All of them stay routable
-        # through find_nav, so the palette and deep links are unaffected.
-        from opai.gui_nav import group_collapsed
-
+        # The sidebar is the user's own chat list and nothing else: no nav rows
+        # at all. A "Chat" row above your chats is a link to where you already
+        # are; New chat is a header action, and any recent chat returns you.
+        # Prompt Library and the Insights dashboards live in Settings ->
+        # Tools & Insights. Every one of them stays routable through find_nav,
+        # so the command palette and deep links are unaffected.
         groups = nav_groups()
-        self.assertEqual([g for g, _items in groups], [""])
-        self.assertFalse(group_collapsed(""))
+        self.assertEqual(groups, [])
 
-        flat = [item["id"] for _g, items in groups for item in items]
-        self.assertEqual(flat, ["chat"])
-
-        hidden = {"settings", "prompts", "home", "firewall", "context",
-                  "benchmark", "agents", "proof", "workflows"}
-        self.assertEqual(sorted(flat + list(hidden)), sorted(nav_ids()))
-        for item_id in hidden:
+        routable = {"chat", "settings", "prompts", "home", "firewall", "context",
+                    "benchmark", "agents", "proof", "workflows"}
+        self.assertEqual(sorted(routable), sorted(nav_ids()))
+        for item_id in sorted(routable):
             with self.subTest(item=item_id):
                 self.assertIsNotNone(find_nav(item_id))
 

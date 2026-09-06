@@ -4703,7 +4703,10 @@ function wire() {
     state.followLatest = true;
     scrollBottom(true);
   };
-  $("#newChat").onclick = startNewChat;
+  // New chat is a header action now; the sidebar is purely the chat list.
+  // Guarded because the sidebar button no longer exists in the markup.
+  const sidebarNewChat = $("#newChat");
+  if (sidebarNewChat) sidebarNewChat.onclick = startNewChat;
   $("#headerNewChat").onclick = startNewChat;
   $("#footSettings").onclick = () => switchView("settings");
   $("#headerSettings").onclick = () => switchView("settings");

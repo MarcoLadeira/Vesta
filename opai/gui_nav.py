@@ -22,7 +22,10 @@ from typing import Any
 # section). ``hidden`` items are routable (find_nav/palette) but not rendered
 # in the nav list.
 NAV_ITEMS: list[dict[str, Any]] = [
-    {"id": "chat", "label": "Chat", "group": "", "kind": "view"},
+    # The sidebar is the chat list. A "Chat" row above your own chats is a
+    # link to where you already are, so it is unlisted -- New chat lives in the
+    # header, and any recent chat returns you here. Still routable.
+    {"id": "chat", "label": "Chat", "group": "", "kind": "view", "hidden": True},
     # Moved off the sidebar and into Settings -> Tools & insights. The sidebar
     # is for the conversation and the chats you have had; a library you open
     # occasionally and seven dashboards do not belong above your own history.
