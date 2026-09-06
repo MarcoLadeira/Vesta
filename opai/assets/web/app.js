@@ -59,7 +59,7 @@ const state = {
   // gui_preferences' documented default. Starting true meant the shell
   // painted an empty inspector before any preference was known -- and, with
   // no bridge attached, kept it open forever.
-  accounts: [], panel: false, message: null, lastFailedRequestId: null,
+  accounts: [], panel: false, bypassPermissions: false, message: null, lastFailedRequestId: null,
   responseDensity: "balanced",
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   latestActivity: null,
@@ -332,6 +332,8 @@ function applyBootSelection(b) {
   // stored default. `!== false` treated undefined as "show", which is how
   // a first run ended up with an empty inspector open.
   state.panel = b.prefs.showPanel === true;
+  // Authority layered over the mode, not a mode of its own.
+  state.bypassPermissions = b.prefs.bypassPermissions === true;
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
@@ -4805,6 +4807,14 @@ if (typeof window !== "undefined") {
     applyAppearance: (p) => applyAppearance(p),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).
     runCommand: (id) => runCommand(id),
+    // The composer's Bypass switch persists through here rather than reaching
+    // for the raw bridge, matching every other composer action on this surface.
+    setBypassPermissions: (on) => {
+      state.bypassPermissions = on === true;
+      bridge.savePref("bypass_permissions", on ? "true" : "false");
+      refreshInspector();
+      refreshStatus();
+    },
     // Context picker actions stay native so Chromium never receives arbitrary
     // host paths. The bridge returns only workspace-relative paths.
     pickContextFiles: (done) => {

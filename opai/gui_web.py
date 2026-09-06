@@ -572,7 +572,9 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         prefs = {}
     data["permissions"] = permissions_for(
-        run_mode, safe_auto=(prefs or {}).get("safe_auto")
+        run_mode,
+        safe_auto=(prefs or {}).get("safe_auto"),
+        bypass_permissions=(prefs or {}).get("bypass_permissions") is True,
     )
     workflow = load_workflow_state(root)
     # F21: the persisted "Agent mode" row is the *last completed* run and goes
@@ -794,6 +796,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             # empty chat opened with an empty inspector taking the right third
             # of the window.
             "showPanel": bool(prefs.get("show_control_panel", False)),
+            # Bypass is a switch layered over the mode, so the composer needs
+            # it separately from the selected mode id.
+            "bypassPermissions": bool(prefs.get("bypass_permissions", False)),
             # Appearance (#241): applied to the document root at boot.
             "density": str(prefs.get("density") or "comfortable"),
             "responseDensity": str(prefs.get("response_density") or "balanced"),
@@ -1543,6 +1548,7 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "permissions": permissions_for(
             str(prefs.get("default_mode") or "safe-auto"),
             safe_auto=prefs.get("safe_auto"),
+            bypass_permissions=prefs.get("bypass_permissions") is True,
         ),
         # Per-mode comparison (#239): what each run mode allows, derived from the
         # same permission rules — not re-invented copy. Highlighted against the

@@ -2294,6 +2294,31 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 #ctxPop { left: var(--space-1); }
 #morePop { left: var(--space-1); }
 #modePop, #modelPop { right: 48px; }
+/* The mode menu is a fixed, known list -- four graded modes plus the Bypass
+   switch -- so it should never scroll. At 288px the longest description wrapped
+   to a second line, which both pushed the menu past its max-height and made one
+   row taller than the rest. Sized to fit every description on one line, with the
+   scroll removed so the whole menu is visible at once and evenly spaced. */
+#modePop {
+  width: 356px;
+  max-height: none;
+  overflow: visible;
+}
+#modePop .cpop-row {
+  align-items: center;
+  min-height: 46px;
+}
+/* The dot is nudged down for the default top-aligned rows; these are centred,
+   so that nudge would push it off the row's optical centre. */
+#modePop .cpop-dot { margin-top: 0; }
+/* Keep the number, the check and the row's right edge on one rhythm so the
+   column reads as a column rather than four separately-placed glyphs. */
+#modePop .cpop-meta { margin-left: auto; }
+#modePop .cpop-check { margin-left: var(--space-2); }
+#modePop .cpop-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The switch reads as a switch: it keeps the caution dot and sits visually
+   apart from the graded rows above it. */
+#modePop .cpop-row-switch { margin-top: var(--space-1); }
 .cpop-head, .cpop-group { font-size: var(--type-caption); letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--faint); font-weight: var(--weight-semibold); padding: var(--space-2) var(--space-2) var(--space-1); }
 .cpop-group { padding-top: var(--space-2); }
