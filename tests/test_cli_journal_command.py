@@ -20,6 +20,7 @@ import io
 import json
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -413,14 +414,53 @@ class PendingTests(_JournalCommandFixture):
         self.assertEqual(code, 0)
         self.assertIn("github.pr", output)
 
-    def test_the_output_refuses_to_call_a_run_dead(self):
-        """The honesty the underlying report is built on, carried to the surface."""
+    def test_the_output_says_who_owns_each_unfinished_run(self):
+        """#818: this used to print "this record cannot tell those apart".
+
+        It could not, because the lease recorded ``owner="gui"`` -- a category
+        with no process behind it. Now that the lease names a process, the
+        surface says which OPai holds the run instead of apologising for not
+        knowing.
+        """
 
         self._unfinished_run()
 
         _, output = self._run("pending")
 
-        self.assertIn("cannot tell those apart", output)
+        self.assertIn("This OPai is working on it now.", output)
+        self.assertNotIn("cannot tell those apart", output)
+
+    def test_the_output_still_refuses_to_call_an_unverifiable_owner_dead(self):
+        """The refusal that survives.
+
+        A pid that is still in use may have been reused by something
+        unrelated, so an unverified owner must not be presented as finished or
+        as abandoned -- and the closing caveat must appear for exactly that
+        case, not as boilerplate on every run.
+        """
+
+        from opaihub import journal_liveness
+
+        self._unfinished_run()
+
+        with mock.patch.object(
+            journal_liveness,
+            "owner_liveness",
+            return_value=journal_liveness.OWNER_UNVERIFIED,
+        ):
+            _, output = self._run("pending")
+
+        self.assertIn("Another OPai may still be working on it.", output)
+        self.assertIn("cannot verify", output)
+
+    def test_the_caveat_is_absent_when_every_owner_is_resolved(self):
+        """Printed only when it is true, so it keeps meaning something."""
+
+        self._unfinished_run()
+
+        _, output = self._run("pending")
+
+        self.assertNotIn("cannot verify", output)
 
     def test_pending_json_is_parseable(self):
         self._unfinished_run()

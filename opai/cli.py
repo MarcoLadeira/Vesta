@@ -727,6 +727,12 @@ def cmd_journal(args: argparse.Namespace) -> int:
         print(f"  unfinished:     {unterminated}", end="")
         held = migration.get("unterminated_runs_holding_a_lease", 0)
         print(f" ({held} still holding a lease)" if unterminated else "")
+        # Narrower than "unfinished" on purpose: only runs whose owning process
+        # is provably gone. Everything else is either being worked on or cannot
+        # be judged, and neither is something to hand a user as a chore.
+        abandoned = migration.get("unterminated_runs_abandoned", 0)
+        if abandoned:
+            print(f"  abandoned:      {abandoned} (owning process is gone)")
         print(f"  backups:        {backup.get('backups', 0)}", end="")
         print(f" (latest {backup['latest']})" if backup.get("latest") else "")
         return 0
@@ -754,7 +760,7 @@ def cmd_journal(args: argparse.Namespace) -> int:
         return 0
 
     if action == "pending":
-        from opaihub import journal_operations, journal_runtime
+        from opaihub import journal_liveness, journal_operations, journal_runtime
 
         runs = journal_runtime.unterminated_runs(root)
         operations = journal_operations.unreconciled_operations(root)
@@ -770,18 +776,30 @@ def cmd_journal(args: argparse.Namespace) -> int:
                 f"run {entry['run_id']}  attempt {entry['attempt']}  "
                 f"{entry['observed_state']}  {held}  since {entry['created_at']}"
             )
+            # #818: the lease now names a process, so this line can say who has
+            # it rather than leaving the reader to go and find out.
+            print(f"    {journal_liveness.describe(entry['owner_liveness'])}")
         for entry in operations:
             print(
                 f"operation {entry['operation_key']}  {entry['kind']}  "
                 f"since {entry['created_at']}"
             )
-        # Reported, never concluded: a lease is released by a terminal record,
-        # not by a process exiting, so a held lease means "running now" and
-        # "died without saying so" equally. Only the caller can tell.
-        print(
-            "\nA held lease means the run is either still going or was abandoned "
-            "by a process that died; this record cannot tell those apart."
-        )
+        # Still reported rather than concluded, but the reporting is no longer
+        # empty. A pid that is gone is conclusive; a pid that is running is not,
+        # because pids get reused -- so only the first is offered as a fact, and
+        # the closing line is printed only when there is genuinely nothing more
+        # to say.
+        unresolved = [
+            entry
+            for entry in runs
+            if entry["owner_liveness"] not in journal_liveness.ACTIONABLE
+        ]
+        if unresolved:
+            print(
+                f"\n{len(unresolved)} run(s) have an owner OPai cannot verify. "
+                "A process id that is still in use may belong to something else "
+                "entirely, so OPai will not call that work finished or abandoned."
+            )
         return 0
 
     if action == "compact":
@@ -949,6 +967,7 @@ def _journal_migration(root: Path) -> dict[str, object]:
         pending = journal_runtime.unterminated_summary(root)
         facts["unterminated_runs"] = int(pending.get("unterminated", 0))
         facts["unterminated_runs_holding_a_lease"] = int(pending.get("lease_held", 0))
+        facts["unterminated_runs_abandoned"] = int(pending.get("abandoned", 0))
 
         from opaihub import journal_background, journal_retirement
 
