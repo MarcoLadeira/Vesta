@@ -33,7 +33,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_runtime
+import sqlite3
+
+from opaihub import (
+    journal_liveness,
+    journal_runtime,
+    journal_store,
+    owner_lease,
+)
 from opaihub.journal_runtime import (
     EVENT_FINISHED,
     record_admission,
@@ -204,16 +211,22 @@ class ARunAbandonedByADeadProcessIsVisibleTests(_PendingFixture):
 
 
 class ItReportsRatherThanConcludesTests(_PendingFixture):
-    """The distinction this module refuses to invent.
+    """What it now answers, and what it still refuses to.
 
-    A run that is genuinely running and one abandoned mid-flight are
-    indistinguishable in this database, because a lease is released by a
-    terminal record rather than by a process exiting. Both must therefore look
-    identical here -- if they ever stop looking identical, something has
-    started guessing.
+    Until #818 a run being worked on and a run abandoned mid-flight were the
+    same row, because ``lease_held`` was the only signal and a lease is
+    released by a terminal record rather than by a process exiting. The test
+    that stood here asserted that indistinguishability as though it were a
+    virtue. It was a limitation: the lease recorded ``owner="gui"``, a
+    category, so there was no process to go and ask about.
+
+    The refusal that *is* a virtue survives, and is pinned below -- a running
+    pid is never rounded up to "this work is alive", because pids get reused.
     """
 
-    def test_a_live_run_and_an_abandoned_one_are_indistinguishable(self):
+    def test_a_live_run_and_an_abandoned_one_are_told_apart(self):
+        """The case #613 opens with, produced by a real process death."""
+
         self._admit("live")
         script = (
             "import sys; sys.path.insert(0, r'{cwd}')\n"
@@ -229,7 +242,38 @@ class ItReportsRatherThanConcludesTests(_PendingFixture):
         rows = {entry["run_id"]: entry for entry in unterminated_runs(self.root)}
 
         self.assertEqual(set(rows), {"live", "orphan"})
-        self.assertEqual(rows["live"]["lease_held"], rows["orphan"]["lease_held"])
+        # Both still hold their lease. That has not changed, and it was never
+        # the signal -- the owner is.
+        self.assertTrue(rows["live"]["lease_held"])
+        self.assertTrue(rows["orphan"]["lease_held"])
+        self.assertEqual(rows["live"]["owner_liveness"], journal_liveness.OWNED_HERE)
+        self.assertNotEqual(
+            rows["orphan"]["owner_liveness"],
+            journal_liveness.OWNED_HERE,
+            "a dead process's run must never read as work this process is doing",
+        )
+
+    def test_our_own_lease_is_proved_by_identity_not_by_the_process_table(self):
+        """Asserted against a probe that says everything is dead, so the
+        machine's actual pid table cannot make this pass by accident."""
+
+        self._admit("live")
+
+        rows = unterminated_runs(self.root, is_pid_running=lambda pid: False)
+
+        self.assertEqual(rows[0]["owner_liveness"], journal_liveness.OWNED_HERE)
+
+    def test_a_running_pid_is_reported_unverified_rather_than_alive(self):
+        self._admit("live")
+        store = open_store(self.root)
+        try:
+            store.execute("UPDATE leases SET owner_boot = 'somebody-else'")
+        finally:
+            store.close()
+
+        rows = unterminated_runs(self.root, is_pid_running=lambda pid: True)
+
+        self.assertEqual(rows[0]["owner_liveness"], journal_liveness.OWNER_UNVERIFIED)
 
     def test_no_entry_claims_a_run_is_dead(self):
         """No field here asserts something the database cannot know."""
@@ -240,6 +284,134 @@ class ItReportsRatherThanConcludesTests(_PendingFixture):
 
         for forbidden in ("orphaned", "dead", "abandoned", "stale", "crashed"):
             self.assertNotIn(forbidden, entry)
+
+    def test_the_verdict_is_always_one_of_the_closed_vocabulary(self):
+        self._admit("live")
+
+        entry = unterminated_runs(self.root)[0]
+
+        self.assertIn(entry["owner_liveness"], journal_liveness.VERDICTS)
+
+
+class ALeaseNamesTheProcessBehindItTests(_PendingFixture):
+    """#818: ``owner`` is a category; these are an identity."""
+
+    def test_admission_records_this_process(self):
+        self._admit("live")
+
+        entry = unterminated_runs(self.root)[0]
+
+        self.assertEqual(entry["owner_pid"], os.getpid())
+        self.assertEqual(entry["owner_boot"], owner_lease.boot_id())
+
+    def test_the_surface_label_is_unchanged_by_the_addition(self):
+        """Every existing reader of ``owner`` must see exactly what it saw."""
+
+        self._admit("live")
+
+        self.assertEqual(unterminated_runs(self.root)[0]["lease_owner"], "gui")
+
+    def test_two_processes_no_longer_record_the_same_owner(self):
+        """The reproduction that motivated this, inverted."""
+
+        self._admit("mine")
+        script = (
+            "import sys; sys.path.insert(0, r'{cwd}')\n"
+            "from opaihub.journal_runtime import record_admission\n"
+            "record_admission(r'{root}', task_id='task-a', run_id='theirs',"
+            " task='x', now='{now}')\n"
+            "import os; os._exit(9)\n"
+        ).format(cwd=os.getcwd(), root=self.root, now=NOW)
+        subprocess.run(  # nosec B603 - fixed argv, throwaway project
+            [sys.executable, "-c", script], capture_output=True, check=False
+        )
+
+        rows = {entry["run_id"]: entry for entry in unterminated_runs(self.root)}
+
+        self.assertNotEqual(rows["mine"]["owner_pid"], rows["theirs"]["owner_pid"])
+        self.assertNotEqual(rows["mine"]["owner_boot"], rows["theirs"]["owner_boot"])
+
+
+class AJournalWrittenBeforeThisMigrationStillReadsTests(_PendingFixture):
+    """The migration requirement: existing state is an input, not a casualty."""
+
+    def _make_v1_journal(self) -> None:
+        """A journal exactly as OPai wrote it before the identity columns."""
+
+        path = journal_path(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(path, isolation_level=None)
+        try:
+            connection.row_factory = sqlite3.Row
+            for statement in journal_store._MIGRATION_1:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_meta(key, value) VALUES ('schema_version', '1')"
+            )
+            connection.execute(
+                "INSERT INTO tasks(task_id, origin_surface, origin_session,"
+                " created_at, requested_outcome, schema_version, updated_at)"
+                " VALUES ('t', 'gui', '', ?, 'old work', 1, ?)",
+                (NOW, NOW),
+            )
+            connection.execute(
+                "INSERT INTO runs(run_id, task_id, attempt, desired_state,"
+                " observed_state, route, model, created_at, updated_at)"
+                " VALUES ('old', 't', 1, 'running', 'queued', '', '', ?, ?)",
+                (NOW, NOW),
+            )
+            connection.execute(
+                "INSERT INTO leases(run_id, owner, fence, acquired_at, heartbeat_at)"
+                " VALUES ('old', 'gui', 1, ?, ?)",
+                (NOW, NOW),
+            )
+        finally:
+            connection.close()
+
+    def test_a_v1_journal_is_migrated_rather_than_rejected(self):
+        self._make_v1_journal()
+
+        store = open_store(self.root)
+        try:
+            version = journal_store._stored_version(store)
+        finally:
+            store.close()
+
+        self.assertEqual(version, journal_store.SCHEMA_VERSION)
+
+    def test_a_lease_from_before_the_columns_reads_as_unknown(self):
+        """Not "gone". Nobody recorded a process, so nobody can say."""
+
+        self._make_v1_journal()
+
+        entry = unterminated_runs(self.root)[0]
+
+        self.assertEqual(entry["run_id"], "old")
+        self.assertIsNone(entry["owner_pid"])
+        self.assertEqual(entry["owner_liveness"], journal_liveness.OWNER_UNKNOWN)
+
+    def test_an_old_run_is_never_counted_as_abandoned(self):
+        """A migration that made every historical run look recoverable would
+        greet the user with a pile of imaginary work to clean up."""
+
+        self._make_v1_journal()
+
+        summary = unterminated_summary(self.root)
+
+        self.assertEqual(summary["unterminated"], 1)
+        self.assertEqual(summary["abandoned"], 0)
+        self.assertEqual(summary["by_owner"][journal_liveness.OWNER_UNKNOWN], 1)
+
+    def test_a_new_run_in_a_migrated_journal_records_its_process(self):
+        """The columns are usable after the migration, not merely present."""
+
+        self._make_v1_journal()
+        self._admit("fresh")
+
+        rows = {entry["run_id"]: entry for entry in unterminated_runs(self.root)}
+
+        self.assertEqual(rows["fresh"]["owner_pid"], os.getpid())
+        self.assertIsNone(rows["old"]["owner_pid"])
 
 
 class TheSummaryCountsWithoutJudgingTests(_PendingFixture):

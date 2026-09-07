@@ -58,7 +58,7 @@ from .state import state_dir
 #: Bumped whenever :data:`_MIGRATIONS` grows. A database reporting a higher
 #: version than this was written by a newer OPai and is *incompatible* -- a
 #: state the caller must be able to tell apart from corruption.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: Typed integrity outcomes (functional requirement 7).
 INTEGRITY_COMPLETE = "complete"
@@ -283,7 +283,30 @@ _MIGRATION_1 = (
     """,
 )
 
-_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = ((1, _MIGRATION_1),)
+# v2 gives a lease an owner that names a *process*, not a category (#818).
+#
+# ``owner`` has always held the surface -- "gui", "cli" -- which is a useful
+# label and a useless identity: every OPai process on the machine writes the
+# same one. ``unterminated_runs`` documented that a caller could look at
+# whether the owning process still exists, and then handed it the string
+# "gui". These two columns are what that sentence needs to be true.
+#
+# Added rather than repurposed. ``owner`` keeps its meaning, so every existing
+# reader keeps working and no migration has to guess what an old value meant.
+#
+# Nullable on purpose: rows written before this migration have no process
+# behind them to name, and inventing one would manufacture exactly the
+# confident-but-baseless answer this journal exists to prevent. A NULL here
+# reads as "unknown", which is the truth about a pre-migration row.
+_MIGRATION_2: tuple[str, ...] = (
+    "ALTER TABLE leases ADD COLUMN owner_pid INTEGER",
+    "ALTER TABLE leases ADD COLUMN owner_boot TEXT",
+)
+
+_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
+    (1, _MIGRATION_1),
+    (2, _MIGRATION_2),
+)
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -781,12 +804,25 @@ def _assert_fence(
 
 
 def acquire_lease(
-    connection: sqlite3.Connection, *, run_id: str, owner: str, now: str
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    owner: str,
+    now: str,
+    owner_pid: int | None = None,
+    owner_boot: str = "",
 ) -> int:
     """Take (or take over) a run's lease and return the new fencing token.
 
     The token strictly increases on every acquisition, including takeover, so
     a previous holder's token can never be mistaken for the current one.
+
+    ``owner`` is the surface -- a category. ``owner_pid`` and ``owner_boot``
+    name the process behind it, which is what a later caller needs to ask
+    whether the work is still being tended. The store records them; it does
+    not interpret them, and in particular it never decides from them that a
+    run is dead. Both default to absent, because a caller that cannot honestly
+    name its process must be able to say so.
     """
 
     with _transaction(connection):
@@ -796,19 +832,47 @@ def acquire_lease(
         fence = (int(row["fence"]) + 1) if row is not None else 1
         connection.execute(
             "INSERT INTO leases(run_id, owner, fence, acquired_at, heartbeat_at,"
-            " expires_at, released_at) VALUES (?, ?, ?, ?, ?, NULL, NULL) "
+            " expires_at, released_at, owner_pid, owner_boot)"
+            " VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?) "
             "ON CONFLICT(run_id) DO UPDATE SET"
             " owner = excluded.owner, fence = excluded.fence,"
             " acquired_at = excluded.acquired_at,"
             " heartbeat_at = excluded.heartbeat_at,"
+            " owner_pid = excluded.owner_pid,"
+            " owner_boot = excluded.owner_boot,"
             " expires_at = NULL, released_at = NULL",
-            (run_id, owner, fence, now, now),
+            (
+                run_id,
+                owner,
+                fence,
+                now,
+                now,
+                _positive_pid(owner_pid),
+                str(owner_boot or ""),
+            ),
         )
         connection.execute(
             "UPDATE runs SET lease_fence = ?, updated_at = ? WHERE run_id = ?",
             (fence, now, run_id),
         )
         return fence
+
+
+def _positive_pid(value: object) -> int | None:
+    """A usable process id, or ``None``.
+
+    Zero and negatives are not process ids on any platform OPai runs on, and
+    storing one would let a liveness probe ask a meaningless question and get
+    a meaningful-looking answer. Absent is the honest record.
+    """
+
+    try:
+        pid = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError is an ArithmeticError, not a ValueError: int(inf)
+        # raises it and would escape this guard entirely.
+        return None
+    return pid if pid > 0 else None
 
 
 def release_lease(

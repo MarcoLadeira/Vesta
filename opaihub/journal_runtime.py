@@ -35,12 +35,13 @@ and guarantee the drift Stage 4 is meant to detect.
 from __future__ import annotations
 
 import contextlib
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
-from . import journal_store
+from . import call_reconciliation, journal_liveness, journal_store, owner_lease
 from .journal_store import (
     JournalStoreError,
     StaleWriterError,
@@ -257,7 +258,19 @@ def _admit_on(
             " ON CONFLICT(run_id) DO NOTHING",
             (run_id, task_id, resolved_attempt, route, model, now, now),
         )
-    fence = acquire_lease(store, run_id=run_id, owner=surface, now=now)
+    fence = acquire_lease(
+        store,
+        run_id=run_id,
+        owner=surface,
+        now=now,
+        # The surface says "gui"; this says which gui. Reusing owner_lease's
+        # boot id rather than minting a second one is deliberate: the two
+        # authorities #818 has to reconcile now name the same process with the
+        # same identifier, so a later comparison between them is a comparison
+        # and not a translation.
+        owner_pid=os.getpid(),
+        owner_boot=owner_lease.boot_id(),
+    )
     append_event(
         store,
         event_type=EVENT_ADMITTED,
@@ -654,7 +667,12 @@ def record_verification(
     )
 
 
-def unterminated_runs(root: Path, *, limit: int = 100) -> list[dict[str, Any]]:
+def unterminated_runs(
+    root: Path,
+    *,
+    limit: int = 100,
+    is_pid_running: Callable[[int], bool | None] = call_reconciliation.pid_is_running,
+) -> list[dict[str, Any]]:
     """Runs this installation admitted and never recorded an ending for.
 
     #613 opens by describing this exact state:
@@ -670,14 +688,22 @@ def unterminated_runs(root: Path, *, limit: int = 100) -> list[dict[str, Any]]:
 
     **It reports rather than concludes.** An unterminated run with a lease
     still held is either running right now or was abandoned by a process that
-    died before releasing it, and nothing in this database can tell those
-    apart: a lease is released by ``record_terminal``, not by a process
-    exiting. So each row carries the owner and the heartbeat and lets the
-    caller decide, because the caller can look at whether that process still
-    exists and this module cannot.
+    died before releasing it: a lease is released by ``record_terminal``, not
+    by a process exiting.
 
-    Inventing the distinction here is precisely the failure this issue exists
-    to remove -- a plausible answer with nothing behind it.
+    This used to be unanswerable, and said so -- each row carried "the owner",
+    which was the string ``"gui"``, and told the caller to go and check whether
+    that process still existed. It could not. #818 gives the lease a real
+    process identity, so ``owner_liveness`` can now answer, in the closed
+    vocabulary ``journal_liveness`` owns.
+
+    What has not changed is the refusal. A pid that is not running is
+    conclusive; a pid that is running is not, because pids get reused, and that
+    case reports ``owner_unverified`` rather than being rounded up to "alive".
+    A lease written before the identity columns existed reports ``unknown``.
+    Inventing the distinction where the evidence does not reach is still the
+    failure this issue exists to remove -- a plausible answer with nothing
+    behind it.
     """
 
     if not journal_store.journal_path(root).exists():
@@ -690,7 +716,8 @@ def unterminated_runs(root: Path, *, limit: int = 100) -> list[dict[str, Any]]:
                 "SELECT r.run_id, r.task_id, r.attempt, r.observed_state,"
                 " r.created_at, r.updated_at,"
                 " l.owner AS lease_owner, l.heartbeat_at AS lease_heartbeat_at,"
-                " l.released_at AS lease_released_at"
+                " l.released_at AS lease_released_at,"
+                " l.owner_pid, l.owner_boot"
                 " FROM runs r LEFT JOIN leases l ON l.run_id = r.run_id"
                 " WHERE r.terminal_verdict IS NULL OR r.terminal_verdict = ''"
                 " ORDER BY r.created_at LIMIT ?",
@@ -702,24 +729,53 @@ def unterminated_runs(root: Path, *, limit: int = 100) -> list[dict[str, Any]]:
     for row in rows:
         entry = dict(row)
         # Named for what it is: somebody still holds the lease. Whether that
-        # somebody is alive is a question for a caller with a process table.
+        # somebody is alive is a separate question, answered below.
         entry["lease_held"] = bool(
             entry.get("lease_owner") and not entry.get("lease_released_at")
+        )
+        # #818: the caller no longer has to go and find the process itself.
+        # The lease names one, so the question can be asked here -- and the
+        # vocabulary keeps its refusals: `unknown` for a pre-migration lease
+        # with no pid, `owner_unverified` for a pid that exists but cannot be
+        # proved to be the same process. Neither is upgraded into "alive".
+        entry["owner_liveness"] = journal_liveness.owner_liveness(
+            entry, is_pid_running=is_pid_running
         )
         pending.append(entry)
     return pending
 
 
-def unterminated_summary(root: Path) -> dict[str, Any]:
-    """Counts for doctor, without a verdict attached to them."""
+def unterminated_summary(
+    root: Path,
+    *,
+    is_pid_running: Callable[[int], bool | None] = call_reconciliation.pid_is_running,
+) -> dict[str, Any]:
+    """Counts for doctor, and now a breakdown by who still owns the work.
 
-    facts: dict[str, Any] = {"available": False, "unterminated": 0, "lease_held": 0}
+    ``abandoned`` is the count a recovery pass can act on: runs whose owning
+    process is provably gone. It is deliberately narrower than "not owned
+    here" -- an unverified owner is excluded, because offering to recover work
+    another OPai is doing is the mistake this whole mechanism is built to
+    avoid.
+    """
+
+    facts: dict[str, Any] = {
+        "available": False,
+        "unterminated": 0,
+        "lease_held": 0,
+        "abandoned": 0,
+        "by_owner": {verdict: 0 for verdict in journal_liveness.VERDICTS},
+    }
     if not journal_store.journal_path(root).exists():
         return facts
-    pending = unterminated_runs(root, limit=10_000)
+    pending = unterminated_runs(root, limit=10_000, is_pid_running=is_pid_running)
     facts["available"] = True
     facts["unterminated"] = len(pending)
     facts["lease_held"] = sum(1 for entry in pending if entry["lease_held"])
+    for entry in pending:
+        verdict = str(entry.get("owner_liveness") or journal_liveness.OWNER_UNKNOWN)
+        facts["by_owner"][verdict] = facts["by_owner"].get(verdict, 0) + 1
+    facts["abandoned"] = facts["by_owner"][journal_liveness.OWNER_GONE]
     return facts
 
 
