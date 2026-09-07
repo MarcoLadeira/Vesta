@@ -246,6 +246,101 @@ writes them.
 Four `model_call_paid` operations have been sitting in `executing` since
 2026-09-01 -- claimed, never reconciled.
 
+
+## The migration cannot progress, and the reason is an identity mismatch
+
+The most important thing measured in this work, and the one that changes what
+#818 should do next.
+
+Stage 7's gate reports `blocked` on `nothing_compared`, explained as "too few
+runs exist in both records". Against this checkout's real journal:
+
+```
+journal runs by origin surface:   gui  27
+legacy corpus (background runs):  0     (the directory does not exist)
+runs in both:                     0
+```
+
+`journal_background.legacy_runs` is the only legacy corpus OPai assembles, and
+it reads `.opaihub/agent/background/runs/`. This installation has never run
+`opai automation`, so that directory has never existed. Meanwhile every run in
+the journal came from the GUI.
+
+**The comparator is comparing an empty set against 27 runs it can never
+validate.** Not a shortage of data: a population mismatch. On any installation
+that does not use background automation -- the normal desktop case -- Stages 4,
+5 and 7 are unreachable by construction, and therefore so is AC9 ("legacy
+runtime files are migration inputs/projections only").
+
+#613's own closing note recorded the same shape of problem, and pointed at
+`background_runs` as the fix because it is "durable, enumerable, and keyed by
+run id". It is. It is also empty.
+
+### Why the GUI population has no counterpart
+
+`gui_pipeline` admits each turn with `task_id=runtime.task_id`,
+`run_id=turn_id`. `gui_recents` archives conversations under a separate
+`conversation_id`, and says why it has to:
+
+> Identifies the *conversation* this thread is, stable across its turns and
+> replaced when a new chat starts. `task_id` cannot do this job: it falls back
+> to the per-turn request id.
+
+Measured: **13 conversations, 27 journal tasks, zero shared identifiers.**
+`tasks.origin_session` -- the column that could hold the cross-reference -- is
+`''` for all 27 rows, because `record_admission` is never passed a session.
+
+### What that does to the canonical record
+
+```
+runs per task:   1 run(s): 27 task(s)
+attempt numbers: [1]
+```
+
+Twenty-seven tasks, twenty-seven runs, every attempt 1. The epic's required
+architecture asks a canonical record to reconstruct "run/attempt lineage";
+there is none, because a fresh task identity is minted per turn. `_admit_on`
+carefully derives `attempt` as `MAX(attempt) + 1` per task -- machinery that
+cannot fire, because no two runs ever share a task.
+
+And the product principle is inverted. "One request → one task identity" is
+satisfied trivially; what actually happens is one *conversation* producing N
+task identities.
+
+### The decision this leaves
+
+Making the journal's task identity the conversation would give a multi-turn
+chat one task and N runs, make `attempt` meaningful, and give the GUI
+population a legacy counterpart -- unblocking the whole migration. It also
+redefines what `attempt` means: turns in a conversation are not retries of one
+objective, and calling them attempts is a semantic choice, not a refactor.
+
+That is a maintainer's decision rather than an agent's, so this branch does not
+take it. What it does instead is stop the gate from misdescribing the
+situation: `RetirementReport` now carries `populations`, and an empty corpus
+beside a populated journal is reported as "different populations ... cannot be
+satisfied by waiting" rather than as a shortage of runs.
+
+## A defect this PR introduced, and how it was caught
+
+The spend-completeness change first shipped using `spend_completeness.complete`
+to qualify the header's "today" figure. Opening the running app showed:
+
+```
+Codex · Auto · at least $0.00 today · $0.00 saved
+```
+
+on a day with no model calls at all -- because `complete` is all-time and four
+operations from 2026-09-01 were still open. A hedge that can never clear is one
+nobody reads, which is the same conclusion `budget.py` had already reached for
+the budget *gate*: "a permanent prompt is not a safety feature -- it trains
+people to click through."
+
+`budget_status` now publishes `complete_today` and the surfaces use it. Worth
+recording because no test would have found it: every test of that surface was
+correct, and the payload it was given was correct. Only the running application
+had the combination of facts that made it wrong.
+
 ## Status
 
 | Migration step (per #818) | State |
