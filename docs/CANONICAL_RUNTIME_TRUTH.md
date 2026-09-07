@@ -169,6 +169,83 @@ its own reproduction.
 migration owner, so Stage 1's ratchet was red on `main`. Triaged as
 `NOT_RUNTIME_STATE` in this branch.
 
+
+## The pattern, stated once
+
+Three separate criteria in #818 turned out to be the same defect wearing
+different clothes. In each, a surface answered a question it had no evidence
+for, in the confident direction:
+
+| criterion | the question | the answer it gave with no evidence |
+| --- | --- | --- |
+| owned work is still alive | who holds this run? | `"gui"` -- a category, for every process |
+| terminal states are earned | did this run die? | "the owning session ended" (it had not) |
+| unknown cost is not zero | what did today cost? | `$0.00` |
+| approvals are consumed once | may I run this? | yes, to all eight racers |
+
+None of these were reported as unknowns. Each was a plausible answer with
+nothing behind it, which is the failure the epic names in its own words.
+
+## Also measured, not fixed here
+
+### The `approvals` table has no writer
+
+`journal_store` defines it well -- fingerprint, `run_id`, `operation_key`,
+nonce, `expires_at`, `consumed_at`, `revoked_at`. Exactly the shape #818 asks
+for: "operation-bound, run-bound, expiring and atomically consumed".
+
+Nothing writes to it. Across the whole repository the only code that touches
+`approvals` is `journal_backup` (which backs it up and restores it) and its
+tests. The real approval authority is `opaihub/command_consent.py`, a
+file-based handshake in a shared temp directory.
+
+That makes three modules now where the kernel has the machinery and nothing
+uses it -- `journal_reader`, the lease identity columns before this PR, and
+this. The pattern is worth naming: #613 built a kernel and then did not make
+anything depend on it, so its correctness has never been load-bearing.
+
+### An approval is not bound to the work it was given for
+
+`consent_dir()` is a fixed per-user temp location shared by every OPai process
+on the machine, and the grant record is `{"command": ...}`. No run, no
+operation, no workspace. Reproduced:
+
+```
+window A: user approved 'git push' for their private repo
+window B: consume_grant('git push') -> True
+*** window B pushed on an approval the user gave to window A ***
+```
+
+The atomic-consumption half is fixed in this PR. This half is not. The fix is
+to record the workspace on the grant and require the consumer to match it,
+which means the pipeline and a provider CLI's hook subprocess agreeing on a
+normalised root across a process boundary. If they disagree, the approval card
+silently stops working -- so this needs the real hook path exercised
+end-to-end, which is its own change.
+
+### Cost has two operation identities, and the priced one is not the paid one
+
+In this checkout's journal:
+
+```
+model.call         observed     21     <- carries every cost event
+model_call_paid    executing     4     <- carries none
+model_call_paid    reconciled   21     <- carries none
+```
+
+All 25 `model_call_paid` operations have no cost event. The 21 cost rows are
+keyed `<digest>:account` against the `model.call` operations. Two operation
+identities for the same underlying call, and the money is attached to only one
+of them -- so `cost_events` joined to the operations that represent *paid work*
+yields nothing.
+
+Every one of the 21 is `measurement_kind = "estimated"`. There is not a single
+`actual`. The schema supports `actual`, `derived` and `unavailable`; nothing
+writes them.
+
+Four `model_call_paid` operations have been sitting in `executing` since
+2026-09-01 -- claimed, never reconciled.
+
 ## Status
 
 | Migration step (per #818) | State |
