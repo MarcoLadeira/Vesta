@@ -115,6 +115,41 @@ def _thread_target(workspace_root: str | Path) -> tuple[Path, Path]:
     return root, state_dir(root) / "gui" / "thread.json"
 
 
+def current_conversation_id(workspace_root: str | Path) -> str:
+    """Which conversation this workspace is in, or ``""``.
+
+    Read **without** taking the thread lock, deliberately. The caller is the
+    journal mirror on the admission path, which runs before a turn does any
+    work; taking a cross-process lock there would put a lock acquisition in
+    front of every message for the sake of one identifier, and a mirror must
+    never be able to slow -- let alone deadlock -- the thing it mirrors.
+
+    Safe here specifically because ``_write_thread_payload`` replaces the file
+    by renaming a same-directory temporary over it. A concurrent write is a
+    rename, so a reader sees either the whole previous document or the whole
+    next one, never a torn mix.
+
+    The answer is current rather than one turn behind, which is the part worth
+    checking before trusting it: ``gui_web`` calls ``_persist_turn_start``
+    before it calls the pipeline, and :func:`begin_thread_turn` *mints* the
+    conversation id when the thread has none. So the first turn of a new chat
+    already has its own identity here, rather than inheriting the previous
+    conversation's.
+
+    Never raises: an absent, unreadable or malformed thread simply has no
+    conversation to name.
+    """
+
+    try:
+        _root, target = _thread_target(workspace_root)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return _clean_id(payload.get("conversation_id"), limit=64)
+
+
 def thread_path(workspace_root: str | Path) -> Path:
     """The resumable thread belongs to this repository, never global state."""
 

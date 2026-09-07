@@ -461,5 +461,78 @@ class ReportingNeverBecomesTheProblemTests(_PendingFixture):
         self.assertEqual(summary["unterminated"], 0)
 
 
+class ATaskNamesTheConversationItCameFromTests(_PendingFixture):
+    """#818: the cross-reference the migration has no way to build without.
+
+    Measured on a real checkout: 13 saved conversations, 27 journal tasks, zero
+    shared identifiers. `gui_pipeline` admits with `runtime.task_id`, which
+    `gui_recents` documents as falling back to the per-turn request id, while
+    conversations are keyed by a stable `conversation_id`. `origin_session` --
+    the column that could join them -- was `''` for every row, because
+    `record_admission` was never passed a session.
+    """
+
+    def _session_of(self, task_id: str) -> str:
+        store = open_store(self.root)
+        try:
+            row = store.execute(
+                "SELECT origin_session FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        finally:
+            store.close()
+        return "" if row is None else str(row["origin_session"] or "")
+
+    def test_a_session_given_at_admission_is_stored(self):
+        record_admission(
+            self.root,
+            task_id="task-a",
+            run_id="r1",
+            task="a task",
+            now=NOW,
+            session="conv-1234",
+        )
+
+        self.assertEqual(self._session_of("task-a"), "conv-1234")
+
+    def test_two_turns_of_one_conversation_share_it(self):
+        """The join key: different tasks, same conversation."""
+
+        for index, task in enumerate(("task-a", "task-b")):
+            record_admission(
+                self.root,
+                task_id=task,
+                run_id=f"r{index}",
+                task="a task",
+                now=NOW,
+                session="conv-1234",
+            )
+
+        self.assertEqual(self._session_of("task-a"), self._session_of("task-b"))
+
+    def test_the_gui_pipeline_actually_passes_one(self):
+        """A static ratchet, because the alternative is a real turn.
+
+        Testing `record_admission(session=...)` proves the store keeps a
+        session; it says nothing about whether the one caller that has a
+        conversation to name still hands it over. Deleting that argument left
+        every other test here green, which is exactly the shape of gap #613
+        kept hitting -- correct machinery nobody reaches.
+        """
+
+        source = (
+            Path(__file__).resolve().parent.parent / "opaihub" / "gui_pipeline.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("from opai.gui_recents import current_conversation_id", source)
+        self.assertIn("session=current_conversation_id(root)", source)
+
+    def test_no_session_is_stored_as_empty_rather_than_invented(self):
+        record_admission(
+            self.root, task_id="task-a", run_id="r1", task="a task", now=NOW
+        )
+
+        self.assertEqual(self._session_of("task-a"), "")
+
+
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()

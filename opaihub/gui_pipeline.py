@@ -1082,6 +1082,18 @@ def _handle_gui_message(
     with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
         from .journal_runtime import record_admission
 
+        # #818: which conversation this turn belongs to. `runtime.task_id`
+        # cannot answer that -- `gui_recents` documents it as falling back to
+        # the per-turn request id, which is why a 13-conversation history
+        # produced 27 journal tasks with nothing joining them. Recorded in
+        # `origin_session`, a column that existed and was never filled, so the
+        # journal and the saved conversations finally share an identifier.
+        #
+        # Deliberately not used as `task_id`: turns in a conversation are not
+        # retries of one objective, and making them attempts of one task would
+        # redefine `attempt` rather than record a fact.
+        from opai.gui_recents import current_conversation_id
+
         _journal_fence = record_admission(
             root,
             task_id=runtime.task_id,
@@ -1089,6 +1101,7 @@ def _handle_gui_message(
             task=message,
             now=_iso_now(),
             surface="gui",
+            session=current_conversation_id(root),
             mode=mode,
             model=model_id,
         )

@@ -1486,9 +1486,7 @@ def _run_gui(
                     self.mode.currentText(),
                     ins["budget"]["spent_today"],
                     saved=sav["estimated_savings_usd"],
-                    spend_complete=bool(
-                        ins["budget"].get("spend_complete", True)
-                    ),
+                    spend_complete=bool(ins["budget"].get("spend_complete", True)),
                 )
             )
             connected = [a["label"] for a in self._accounts if a["connected"]]

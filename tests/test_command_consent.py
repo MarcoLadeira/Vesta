@@ -173,7 +173,6 @@ class UnwritableStoreTests(_IsolatedConsent):
             self.assertIsNone(command_consent.take_pending())
 
 
-
 class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
     """The "once" this module's own docstring promises, which was not true.
 
@@ -297,6 +296,7 @@ class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
 
         self.assertFalse(command_consent.consume_grant("git push"))
         self.assertEqual([p.name for p in self.dir.glob("*.claim")], [])
+
 
 if __name__ == "__main__":
     unittest.main()

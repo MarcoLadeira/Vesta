@@ -405,9 +405,7 @@ def budget_status(
             # surface showing a figure labelled "today" must qualify it with
             # this rather than with `complete`, which answers the same question
             # about all of history.
-            "complete_today": not (
-                unpriced_day or abandoned_day or unresolved_today
-            ),
+            "complete_today": not (unpriced_day or abandoned_day or unresolved_today),
         },
         "remaining": {
             "today_usd": remaining(caps.get("daily_usd_limit"), spent_day),

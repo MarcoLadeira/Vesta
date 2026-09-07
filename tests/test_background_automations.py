@@ -770,7 +770,6 @@ class RunListingTests(unittest.TestCase):
             self.assertIsInstance(list_runs(root)[0], AutomationRun)
 
 
-
 class RecoveryLeavesLiveWorkAloneTests(unittest.TestCase):
     """#818: a terminal verdict must never land on work that is still running.
 
@@ -870,9 +869,7 @@ class RecoveryLeavesLiveWorkAloneTests(unittest.TestCase):
             run = self._running_run(root)
             store = open_store(root)
             try:
-                store.execute(
-                    "UPDATE leases SET owner_pid = NULL, owner_boot = ''"
-                )
+                store.execute("UPDATE leases SET owner_pid = NULL, owner_boot = ''")
                 held = store.execute(
                     "SELECT COUNT(*) FROM leases WHERE run_id = ?", (run.run_id,)
                 ).fetchone()[0]
@@ -906,6 +903,7 @@ class RecoveryLeavesLiveWorkAloneTests(unittest.TestCase):
             journal_path(root).write_bytes(b"not a database")
 
             self.assertEqual(runs_owned_by_a_live_process(root), frozenset())
+
 
 if __name__ == "__main__":
     unittest.main()

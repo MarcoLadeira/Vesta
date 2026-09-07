@@ -201,7 +201,6 @@ class NoFalsePositiveTests(unittest.TestCase):
         self.assertTrue(_lower_bound_reasons(gate))
 
 
-
 class TodaysFigureIsQualifiedByTodaysFactsTests(unittest.TestCase):
     """#818: a hedge that can never clear is one nobody reads.
 
@@ -223,12 +222,8 @@ class TodaysFigureIsQualifiedByTodaysFactsTests(unittest.TestCase):
             set_budget(root, daily_usd=5.0)
             _record_lost_call(root)
             # Age it out of "today" without touching anything else.
-            with mock.patch(
-                "opaihub.budget.datetime"
-            ) as clock:
-                clock.now.return_value = datetime(
-                    2099, 1, 1, tzinfo=timezone.utc
-                )
+            with mock.patch("opaihub.budget.datetime") as clock:
+                clock.now.return_value = datetime(2099, 1, 1, tzinfo=timezone.utc)
                 completeness = budget_status(root)["spend_completeness"]
 
         self.assertEqual(completeness["unresolved_calls_today"], 0)
@@ -268,6 +263,7 @@ class TodaysFigureIsQualifiedByTodaysFactsTests(unittest.TestCase):
 
         self.assertEqual(completeness["unpriced_calls_today"], 1)
         self.assertFalse(completeness["complete_today"])
+
 
 if __name__ == "__main__":
     unittest.main()

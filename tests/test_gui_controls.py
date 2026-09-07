@@ -20,7 +20,6 @@ from opai.gui_controls import (
     UNKNOWN_SPEND,
     _spend_phrase,
     header_status,
-    session_inspector,
     model_badge,
     privacy_badges,
     session_inspector,
@@ -161,7 +160,7 @@ class UnknownSpendIsNotZeroTests(unittest.TestCase):
         self.assertEqual(_spend_phrase("0.5"), "$0.50 today")
 
     def test_the_inspector_does_not_show_a_cap_it_cannot_measure_against(self):
-        """"cost unknown / $5.00 today" invites the reader to fill in the blank."""
+        """ "cost unknown / $5.00 today" invites the reader to fill in the blank."""
 
         budget = _inspector_budget({"spent_today": None, "daily_limit": 5.0})
 
@@ -217,7 +216,7 @@ class APartialTotalIsNotShownAsACompleteOneTests(unittest.TestCase):
         self.assertIn("at least $0.00 today", line)
 
     def test_an_unreadable_spend_is_still_unknown_not_a_lower_bound(self):
-        """"at least cost unknown" would be nonsense."""
+        """ "at least cost unknown" would be nonsense."""
 
         line = header_status("Sonnet", "Ask", None, spend_complete=False)
 

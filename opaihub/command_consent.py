@@ -312,7 +312,9 @@ def consume_grant(command: str) -> bool:
         # No grant, or another gate claimed it first. Both are "no".
         return False
     payload = _read_path(claim)
-    if payload is not None and grant_permits(str(payload.get("command") or ""), command):
+    if payload is not None and grant_permits(
+        str(payload.get("command") or ""), command
+    ):
         _discard_path(claim)
         return True
     if payload is not None:

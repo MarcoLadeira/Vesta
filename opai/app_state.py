@@ -318,9 +318,7 @@ def inspector_state(project_root: Path, *, mode: str = "safe-auto") -> dict[str,
             "text": budget_text,
             "panic": bool(budget.get("panic")),
             "spend_complete": complete,
-            "unpriced_calls_today": int(
-                completeness.get("unpriced_calls_today") or 0
-            ),
+            "unpriced_calls_today": int(completeness.get("unpriced_calls_today") or 0),
             "abandoned_calls_today": int(
                 completeness.get("abandoned_calls_today") or 0
             ),

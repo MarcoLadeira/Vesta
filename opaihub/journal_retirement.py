@@ -123,17 +123,50 @@ def _journal_runs_by_surface(project_root: Path) -> dict[str, int]:
         connection.close()
 
 
+def _tasks_with_an_origin_session(project_root: Path) -> tuple[int, int]:
+    """(tasks naming a session, tasks in total).
+
+    ``origin_session`` is what lets a journal task be matched to the record the
+    surface kept for it. Reported rather than assumed: a build that does not
+    populate it produces zero here, which is the honest reading of "no corpus
+    can be built for this population".
+    """
+
+    try:
+        connection = journal_store.open_store(project_root)
+    except Exception:  # noqa: BLE001 - a report must not raise
+        return (0, 0)
+    try:
+        row = connection.execute(
+            "SELECT COUNT(*) AS total,"
+            " SUM(CASE WHEN COALESCE(origin_session, '') <> '' THEN 1 ELSE 0 END)"
+            " AS linked FROM tasks"
+        ).fetchone()
+        return (int(row["linked"] or 0), int(row["total"] or 0))
+    except Exception:  # noqa: BLE001
+        return (0, 0)
+    finally:
+        connection.close()
+
+
 def _populations(
     project_root: Path, legacy_runs: Mapping[str, Mapping[str, Any]], overlap: int
 ) -> dict[str, Any]:
     """The two records' sizes and shapes, so a block can explain itself."""
 
     by_surface = _journal_runs_by_surface(project_root)
+    linked, total = _tasks_with_an_origin_session(project_root)
     return {
         "journal_runs": sum(by_surface.values()),
         "journal_runs_by_surface": by_surface,
         "legacy_corpus_runs": len(legacy_runs),
         "runs_in_both": overlap,
+        # How many tasks name the session they came from. A GUI corpus can
+        # only ever be built for these, so this is the ceiling on any future
+        # comparison for that population -- and it was zero until #818 started
+        # recording it.
+        "tasks_with_a_session": linked,
+        "tasks": total,
     }
 
 

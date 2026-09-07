@@ -40,7 +40,7 @@ from opaihub.journal_retirement import (
     assess,
     legacy_writes_required,
 )
-from opaihub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
+from opaihub.journal_runtime import EVENT_FINISHED, record_terminal
 from opaihub.journal_store import journal_path
 
 NOW = "2026-08-25T12:00:00+00:00"
@@ -279,7 +279,6 @@ class LegacyWritesRequiredTests(_RetirementFixture):
         )
 
 
-
 class ABlockedMigrationExplainsItselfTests(unittest.TestCase):
     """#818: "nothing compared" can mean two very different things.
 
@@ -349,12 +348,44 @@ class ABlockedMigrationExplainsItselfTests(unittest.TestCase):
 
         self.assertNotIn("different populations", report.detail)
 
+    def test_the_report_counts_tasks_that_name_their_conversation(self):
+        """The ceiling on any future GUI comparison, and zero until #818."""
+
+        record_admission(
+            self.root,
+            task_id="linked",
+            run_id="r1",
+            task="x",
+            now="2026-09-07T12:00:00+00:00",
+            session="conv-1",
+        )
+        record_admission(
+            self.root,
+            task_id="unlinked",
+            run_id="r2",
+            task="x",
+            now="2026-09-07T12:00:00+00:00",
+        )
+
+        populations = journal_retirement.assess(self.root, {}).populations
+
+        self.assertEqual(populations["tasks"], 2)
+        self.assertEqual(populations["tasks_with_a_session"], 1)
+
+    def test_no_task_names_a_conversation_when_none_was_given(self):
+        self._admit("r1")
+
+        populations = journal_retirement.assess(self.root, {}).populations
+
+        self.assertEqual(populations["tasks_with_a_session"], 0)
+
     def test_the_populations_survive_serialisation(self):
         self._admit("r1")
 
         payload = journal_retirement.assess(self.root, {}).to_dict()
 
         self.assertEqual(payload["populations"]["journal_runs"], 1)
+
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()

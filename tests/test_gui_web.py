@@ -1296,7 +1296,6 @@ class RuntimeIndexUrlTests(unittest.TestCase):
             self.assertEqual(Path(url.toLocalFile()).name, "index.html")
 
 
-
 class AnUnreadableLedgerIsNotZeroSpendTests(unittest.TestCase):
     """#818: "unknown cost is never represented as zero".
 
@@ -1334,14 +1333,17 @@ class AnUnreadableLedgerIsNotZeroSpendTests(unittest.TestCase):
 
         from opai import gui_web
 
-        with mock.patch.object(
-            gui_web,
-            "cached_overview",
-            return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
-        ), mock.patch.object(
-            gui_web.A,
-            "inspector_state",
-            return_value={"budget": {"spent_today": 0.0}},
+        with (
+            mock.patch.object(
+                gui_web,
+                "cached_overview",
+                return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
+            ),
+            mock.patch.object(
+                gui_web.A,
+                "inspector_state",
+                return_value={"budget": {"spent_today": 0.0}},
+            ),
         ):
             status = gui_web._status(Path("."), "Sonnet", "Ask")
 
@@ -1361,16 +1363,17 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
     def test_a_partial_total_survives_the_whole_chain(self):
         from opai import gui_web
 
-        with mock.patch.object(
-            gui_web,
-            "cached_overview",
-            return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
-        ), mock.patch.object(
-            gui_web.A,
-            "inspector_state",
-            return_value={
-                "budget": {"spent_today": 2.5, "spend_complete": False}
-            },
+        with (
+            mock.patch.object(
+                gui_web,
+                "cached_overview",
+                return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
+            ),
+            mock.patch.object(
+                gui_web.A,
+                "inspector_state",
+                return_value={"budget": {"spent_today": 2.5, "spend_complete": False}},
+            ),
         ):
             status = gui_web._status(Path("."), "Sonnet", "Ask")
 
@@ -1379,14 +1382,17 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
     def test_a_complete_total_is_not_hedged(self):
         from opai import gui_web
 
-        with mock.patch.object(
-            gui_web,
-            "cached_overview",
-            return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
-        ), mock.patch.object(
-            gui_web.A,
-            "inspector_state",
-            return_value={"budget": {"spent_today": 2.5, "spend_complete": True}},
+        with (
+            mock.patch.object(
+                gui_web,
+                "cached_overview",
+                return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
+            ),
+            mock.patch.object(
+                gui_web.A,
+                "inspector_state",
+                return_value={"budget": {"spent_today": 2.5, "spend_complete": True}},
+            ),
         ):
             status = gui_web._status(Path("."), "Sonnet", "Ask")
 
@@ -1416,9 +1422,10 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
         import opaihub.budget
         from opai.app_state import inspector_state
 
-        with mock.patch.object(
-            opaihub.budget, "budget_status", return_value=status
-        ), tempfile.TemporaryDirectory() as tmp:
+        with (
+            mock.patch.object(opaihub.budget, "budget_status", return_value=status),
+            tempfile.TemporaryDirectory() as tmp,
+        ):
             return inspector_state(Path(tmp))["budget"]
 
     def _ledger(
@@ -1483,9 +1490,7 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
         every other test in this file, because a fresh project's ledger is
         complete anyway and the assertions only checked that keys existed."""
 
-        budget = self._inspector_with_ledger(
-            self._ledger(complete=False, unpriced=3)
-        )
+        budget = self._inspector_with_ledger(self._ledger(complete=False, unpriced=3))
 
         self.assertFalse(budget["spend_complete"])
         self.assertEqual(budget["unpriced_calls_today"], 3)
@@ -1504,6 +1509,7 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
 
         self.assertEqual(budget["text"], "at least $2.50 / $10.00 today")
         self.assertEqual(budget["abandoned_calls_today"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
