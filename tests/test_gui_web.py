@@ -1296,5 +1296,57 @@ class RuntimeIndexUrlTests(unittest.TestCase):
             self.assertEqual(Path(url.toLocalFile()).name, "index.html")
 
 
+
+class AnUnreadableLedgerIsNotZeroSpendTests(unittest.TestCase):
+    """#818: "unknown cost is never represented as zero".
+
+    ``gui_web._status`` wraps the whole ledger read in a bare ``except`` and
+    used to substitute ``0.0``. Every way that read can fail -- a corrupt
+    ledger, a permissions error, a partially-written overview cache -- landed
+    on the same confident "$0.00 today" in the header, which is the most
+    reassuring possible way to be wrong about money.
+    """
+
+    def _status_with_a_broken_ledger(self):
+        from opai import gui_web
+
+        with mock.patch.object(
+            gui_web, "cached_overview", side_effect=OSError("ledger unreadable")
+        ):
+            return gui_web._status(Path("."), "Sonnet", "Ask")
+
+    def test_a_failed_read_reports_no_number_rather_than_zero(self):
+        status = self._status_with_a_broken_ledger()
+
+        self.assertIsNone(status["spent"])
+        self.assertIsNone(status["saved"])
+
+    def test_the_header_line_says_so_instead_of_showing_zero_dollars(self):
+        from opai.gui_controls import UNKNOWN_SPEND
+
+        line = self._status_with_a_broken_ledger()["line"]
+
+        self.assertIn(UNKNOWN_SPEND, line)
+        self.assertNotIn("$0.00", line)
+
+    def test_a_working_ledger_is_unaffected(self):
+        """The guard must not make a real zero unreportable."""
+
+        from opai import gui_web
+
+        with mock.patch.object(
+            gui_web,
+            "cached_overview",
+            return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
+        ), mock.patch.object(
+            gui_web.A,
+            "inspector_state",
+            return_value={"budget": {"spent_today": 0.0}},
+        ):
+            status = gui_web._status(Path("."), "Sonnet", "Ask")
+
+        self.assertEqual(status["spent"], 0.0)
+        self.assertIn("$0.00 today", status["line"])
+
 if __name__ == "__main__":
     unittest.main()

@@ -175,6 +175,35 @@ def model_badge(option: dict[str, Any]) -> str:
 
 # --------------------------------------------------------------------------- #
 # Header status strip
+#: What a surface says when it could not find out what today cost. Deliberately
+#: words rather than a placeholder glyph: "$-- today" reads as a rendering bug,
+#: and a user who thinks the number is broken is no better informed than one
+#: who thinks it is zero.
+UNKNOWN_SPEND = "cost unknown"
+
+
+def _spend_phrase(value: object) -> str:
+    """``"$0.04 today"``, or :data:`UNKNOWN_SPEND` when there is no number.
+
+    ``None`` is the caller's way of saying "the ledger did not answer", and is
+    the only reason this is not simply ``float(value or 0)``. A genuine zero --
+    a day with no spend -- still reads ``$0.00 today``, because that is a fact
+    and a useful one.
+    """
+
+    if value is None:
+        return UNKNOWN_SPEND
+    try:
+        amount = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return UNKNOWN_SPEND
+    if amount != amount or amount in (float("inf"), float("-inf")):
+        # NaN reaches here from a ledger that divided by zero somewhere.
+        # "$nan today" is not an improvement on a lie.
+        return UNKNOWN_SPEND
+    return f"${amount:.2f} today"
+
+
 # --------------------------------------------------------------------------- #
 def header_status(
     model_label: str,
@@ -185,12 +214,17 @@ def header_status(
     """One calm line: which model, which mode, what it has cost today.
 
     Gives the user constant visibility of the AI's state without a control pane.
+
+    A spend OPai could not read is **not** rendered as ``$0.00``. #818: "unknown
+    cost is never represented as zero". This is the line a user glances at to
+    decide whether today has been expensive, and ``gui_web._status`` substitutes
+    a zero whenever the ledger read raises -- so a corrupt or unreadable ledger
+    produced a confident "you have spent nothing", which is the most reassuring
+    possible way to be wrong. Zero and unknown are different facts and now read
+    differently.
     """
     short = str(model_label or "Auto").split(" · ")[0].split(" (")[0].strip()
-    try:
-        spent = f"${float(spent_today):.2f} today"
-    except (TypeError, ValueError):
-        spent = "$0.00 today"
+    spent = _spend_phrase(spent_today)
     bits = [short, str(mode_label or "Ask"), spent]
     if saved is not None:
         try:
@@ -339,13 +373,18 @@ def session_inspector(
     budget = ins.get("budget") or {}
     workspace = ins.get("workspace") or {}
     task = task_summary or {}
-    spent = _f2(budget.get("spent_today"))
+    raw_spent = budget.get("spent_today")
     limit = budget.get("daily_limit")
     pct = int(budget.get("pct") or 0)
-    if isinstance(limit, (int, float)) and limit > 0:
-        budget_text = f"${spent:.2f} / ${float(limit):.2f} today"
+    spend_text = _spend_phrase(raw_spent)
+    if spend_text == UNKNOWN_SPEND:
+        # No number to put against a cap, so the cap is not mentioned either.
+        # "cost unknown / $5.00 today" invites the reader to fill in the blank.
+        budget_text = UNKNOWN_SPEND
+    elif isinstance(limit, (int, float)) and limit > 0:
+        budget_text = f"${_f2(raw_spent):.2f} / ${float(limit):.2f} today"
     else:
-        budget_text = f"${spent:.2f} today · no cap"
+        budget_text = f"{spend_text} · no cap"
     rows = [
         {"label": "Model", "value": str(model_label or "Auto").split(" · ")[0]},
         {"label": "Run mode", "value": str(run_mode_label or "Ask")},
