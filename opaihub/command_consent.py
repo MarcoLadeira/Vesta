@@ -169,20 +169,30 @@ def _path(name: str) -> Path:
 def _read(name: str) -> dict[str, Any] | None:
     """Load a record, treating unreadable, malformed, and expired ones as absent."""
 
-    target = _path(name)
+    return _read_path(_path(name))
+
+
+def _read_path(target: Path) -> dict[str, Any] | None:
+    """The same, for a record already claimed under a temporary name.
+
+    Split out so :func:`consume_grant` can validate the grant it has already
+    won without a second lookup by name -- by then the name no longer refers
+    to it, which is the point.
+    """
+
     try:
         payload = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     if not isinstance(payload, dict):
-        _discard(name)
+        _discard_path(target)
         return None
     try:
         created = float(payload.get("created_at") or 0)
     except (TypeError, ValueError):
         created = 0.0
     if created <= 0 or (time.time() - created) > CONSENT_TTL_SECONDS:
-        _discard(name)
+        _discard_path(target)
         return None
     return payload
 
@@ -207,8 +217,12 @@ def _write(name: str, payload: dict[str, Any], *, exclusive: bool = False) -> bo
 
 
 def _discard(name: str) -> None:
+    _discard_path(_path(name))
+
+
+def _discard_path(target: Path) -> None:
     try:
-        _path(name).unlink()
+        target.unlink()
     except OSError:
         pass
 
@@ -267,15 +281,49 @@ def grant_permits(grant: str, command: str) -> bool:
 
 
 def consume_grant(command: str) -> bool:
-    """Spend the one-shot grant on ``command``. False leaves it untouched."""
+    """Spend the one-shot grant on ``command``. False leaves it untouched.
 
-    payload = _read(_GRANT_NAME)
-    if payload is None:
+    **Exactly once, across processes.** This used to read the file, check it,
+    and then unlink it, with nothing holding those three steps together. Eight
+    gates racing for one grant were all told yes -- measured, not theorised --
+    which makes "Approve once" a promise OPai could not keep. A model that
+    emits the same gated command several times in a turn is the ordinary way
+    to reach that, not an exotic one.
+
+    The claim is a rename. Whoever renames the grant out of the way owns it;
+    everybody else gets ``FileNotFoundError`` and is told no. Rename is the
+    right primitive here rather than a lock file: it needs no cleanup after a
+    crash, and this module is deliberately dependency-free because a provider
+    CLI's hook subprocess imports it on every tool call.
+
+    A grant that does not permit ``command`` is put back, because it was
+    issued for a command the model has not tried yet. Losing it would mean the
+    user's approval quietly evaporating the moment the model attempted
+    something else first -- and the window where it is briefly absent can only
+    make a concurrent gate say no, which is the safe direction.
+    """
+
+    grant = _path(_GRANT_NAME)
+    claim = _path(f"{_GRANT_NAME}.{os.getpid()}.{time.time_ns():x}.claim")
+    try:
+        claim.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(grant, claim)
+    except OSError:
+        # No grant, or another gate claimed it first. Both are "no".
         return False
-    if not grant_permits(str(payload.get("command") or ""), command):
-        return False
-    _discard(_GRANT_NAME)
-    return True
+    payload = _read_path(claim)
+    if payload is not None and grant_permits(str(payload.get("command") or ""), command):
+        _discard_path(claim)
+        return True
+    if payload is not None:
+        # Not ours to spend. Return it for the command it was actually for.
+        try:
+            os.replace(claim, grant)
+            return False
+        except OSError:
+            pass
+    _discard_path(claim)
+    return False
 
 
 def record_pending(command: str, reason: str) -> bool:

@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
+import threading
 import tempfile
 import time
 import unittest
@@ -169,6 +172,131 @@ class UnwritableStoreTests(_IsolatedConsent):
             self.assertFalse(command_consent.consume_grant("git push"))
             self.assertIsNone(command_consent.take_pending())
 
+
+
+class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
+    """The "once" this module's own docstring promises, which was not true.
+
+    `consume_grant` read the grant file, checked it, then unlinked it, with
+    nothing holding those three steps together. Measured before the fix: eight
+    gates racing for one grant were **all eight** told yes. A model that emits
+    the same gated command more than once in a turn is the ordinary way to
+    reach that, not an exotic one -- so "Approve once" authorised as many
+    pushes as the model cared to attempt.
+    """
+
+    def test_racing_gates_do_not_all_get_the_same_grant(self):
+        command_consent.begin_turn("git push")
+        results = []
+        start = threading.Barrier(8)
+
+        def gate():
+            start.wait(timeout=30)
+            results.append(command_consent.consume_grant("git push"))
+
+        threads = [threading.Thread(target=gate) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        self.assertEqual(len(results), 8)
+        self.assertEqual(
+            results.count(True),
+            1,
+            "one approval must authorise exactly one command",
+        )
+
+    def test_racing_processes_do_not_all_get_the_same_grant(self):
+        """Threads share an interpreter; the gates that matter do not.
+
+        The real racers are a provider CLI's hook subprocess and OPai's own
+        tool executor, so the claim has to hold at the operating system level.
+        """
+
+        command_consent.begin_turn("git push")
+        script = (
+            "import sys; sys.path.insert(0, r'{cwd}')\n"
+            "from opaihub import command_consent\n"
+            "print('YES' if command_consent.consume_grant('git push') else 'NO')\n"
+        ).format(cwd=os.getcwd())
+        children = [
+            subprocess.Popen(  # nosec B603 - fixed argv
+                [sys.executable, "-c", script],
+                stdout=subprocess.PIPE,
+                text=True,
+                env={**os.environ, "OPAI_COMMAND_CONSENT_DIR": str(self.dir)},
+            )
+            for _ in range(6)
+        ]
+        answers = [child.communicate(timeout=60)[0].strip() for child in children]
+
+        self.assertEqual(answers.count("YES"), 1, answers)
+
+    def test_a_second_attempt_is_refused(self):
+        command_consent.begin_turn("git push")
+
+        self.assertTrue(command_consent.consume_grant("git push"))
+        self.assertFalse(command_consent.consume_grant("git push"))
+
+    def test_a_grant_for_another_command_is_not_destroyed_by_the_attempt(self):
+        """The user approved a push; the model tried something else first.
+
+        Claiming by rename means a failed check has already taken the file, so
+        it has to be put back -- otherwise the approval evaporates the moment
+        the model reaches for a different command, and the user is asked again
+        for something they already allowed.
+        """
+
+        command_consent.begin_turn("git push")
+
+        self.assertFalse(command_consent.consume_grant("gh pr create"))
+        self.assertEqual(command_consent.granted_command(), "git push")
+        self.assertTrue(command_consent.consume_grant("git push"))
+
+    def test_no_claim_files_are_left_behind(self):
+        command_consent.begin_turn("git push")
+        command_consent.consume_grant("gh pr create")
+        command_consent.consume_grant("git push")
+
+        leftovers = [path.name for path in self.dir.glob("*.claim")]
+
+        self.assertEqual(leftovers, [])
+
+    def test_consuming_when_nothing_was_granted_is_simply_no(self):
+        self.assertFalse(command_consent.consume_grant("git push"))
+        self.assertEqual([p.name for p in self.dir.glob("*.claim")], [])
+
+    def test_an_unreadable_grant_is_refused_and_not_left_lying_around(self):
+        """The claim is taken before the payload can be checked.
+
+        So a grant that turns out to be corrupt or expired has already been
+        renamed by the time it is rejected, and the only thing that can clean
+        it up is this path. A sabotage removing that cleanup survived every
+        other test here, because they all reach either the success branch or
+        the put-back branch.
+        """
+
+        command_consent.begin_turn("git push")
+        (self.dir / command_consent._GRANT_NAME).write_text(
+            "{not json", encoding="utf-8"
+        )
+
+        self.assertFalse(command_consent.consume_grant("git push"))
+        self.assertEqual([p.name for p in self.dir.glob("*.claim")], [])
+
+    def test_an_expired_grant_is_refused_and_not_left_lying_around(self):
+        command_consent.begin_turn("git push")
+        stale = json.dumps(
+            {
+                "command": "git push",
+                "created_at": time.time() - command_consent.CONSENT_TTL_SECONDS - 60,
+            }
+        )
+        (self.dir / command_consent._GRANT_NAME).write_text(stale, encoding="utf-8")
+
+        self.assertFalse(command_consent.consume_grant("git push"))
+        self.assertEqual([p.name for p in self.dir.glob("*.claim")], [])
 
 if __name__ == "__main__":
     unittest.main()
