@@ -215,6 +215,14 @@ NOT_RUNTIME_STATE = {
     "opai/updater.py",
     "opaihub/accounts.py",
     "opaihub/app_scaffold.py",
+    # Bytes a person pasted or dropped into the composer, written to disk so a
+    # prompt has a path to point at. Not runtime truth: no replay reconstructs
+    # a clipboard, and nothing about a run's verdict, cost or approval depends
+    # on it. Not a projection either -- it cannot be rebuilt from anything, so
+    # it sits here for the same reason `opcoding/memory.py` does. Losing it
+    # would be bad and would still not make OPai lie about what happened, which
+    # is the line these three classes actually draw.
+    "opaihub/attachments.py",
     "opaihub/benchmark.py",
     "opaihub/build_loop.py",
     "opaihub/context_engine.py",
