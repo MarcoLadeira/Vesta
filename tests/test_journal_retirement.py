@@ -20,10 +20,13 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+
 from pathlib import Path
 from unittest import mock
 
 from opaihub import idempotency, journal_retirement
+from opaihub.journal_runtime import record_admission
+from opaihub.journal_store import open_store
 from opaihub.journal_retirement import (
     BLOCK_INTEGRITY,
     BLOCK_LEGACY_READS,
@@ -275,6 +278,83 @@ class LegacyWritesRequiredTests(_RetirementFixture):
             "the gate must re-close when the conditions that opened it change",
         )
 
+
+
+class ABlockedMigrationExplainsItselfTests(unittest.TestCase):
+    """#818: "nothing compared" can mean two very different things.
+
+    It reads as "not enough runs yet" -- a matter of time. It can equally mean
+    the two records describe populations that never overlap, which no amount of
+    waiting fixes. Measured on a real desktop checkout: the journal held 27
+    runs, all from the GUI, while the only legacy corpus OPai assembles is
+    background automation runs -- a directory that did not exist. The gate was
+    permanently blocked and said only "too few runs exist in both records".
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def _admit(self, run_id: str, *, surface: str = "gui") -> None:
+        record_admission(
+            self.root,
+            task_id=f"task-{run_id}",
+            run_id=run_id,
+            task="a task",
+            now="2026-09-07T12:00:00+00:00",
+            surface=surface,
+        )
+
+    def test_an_empty_corpus_beside_a_populated_journal_says_so(self):
+        self._admit("r1")
+        self._admit("r2")
+
+        report = journal_retirement.assess(self.root, {})
+
+        self.assertIn(journal_retirement.BLOCK_NO_COMPARISON, report.blockers)
+        self.assertIn("different populations", report.detail)
+        self.assertIn("cannot be satisfied by waiting", report.detail)
+
+    def test_the_report_names_which_surfaces_the_journal_holds(self):
+        self._admit("r1", surface="gui")
+        self._admit("r2", surface="background")
+
+        report = journal_retirement.assess(self.root, {})
+
+        self.assertEqual(
+            report.populations["journal_runs_by_surface"], {"gui": 1, "background": 1}
+        )
+        self.assertEqual(report.populations["legacy_corpus_runs"], 0)
+        self.assertEqual(report.populations["runs_in_both"], 0)
+
+    def test_a_populated_corpus_is_not_described_as_a_population_mismatch(self):
+        """With runs on both sides, "too few" really is a matter of time."""
+
+        self._admit("r1")
+
+        report = journal_retirement.assess(
+            self.root, {"r1": {"terminal_verdict": "", "created_at": ""}}
+        )
+
+        self.assertIn(journal_retirement.BLOCK_NO_COMPARISON, report.blockers)
+        self.assertNotIn("different populations", report.detail)
+
+    def test_an_empty_journal_is_not_described_as_a_mismatch_either(self):
+        """Nothing on either side is a new project, not a broken migration."""
+
+        open_store(self.root).close()  # creates the journal, admits nothing
+
+        report = journal_retirement.assess(self.root, {})
+
+        self.assertNotIn("different populations", report.detail)
+
+    def test_the_populations_survive_serialisation(self):
+        self._admit("r1")
+
+        payload = journal_retirement.assess(self.root, {}).to_dict()
+
+        self.assertEqual(payload["populations"]["journal_runs"], 1)
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
