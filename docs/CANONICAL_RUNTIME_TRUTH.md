@@ -101,6 +101,74 @@ criterion from unprovable into provable, and items 1 and 3 both depend on it:
 a canonical read path is not worth switching to while the canonical record
 cannot say whether the work it describes is still alive.
 
+
+## Shipped: a lease that names its owner
+
+Schema v2 adds `owner_pid` and `owner_boot` to `leases`. `journal_liveness`
+turns them into a verdict from a closed vocabulary:
+
+| verdict | means | evidence |
+| --- | --- | --- |
+| `owned_here` | this OPai is working on it | pid **and** boot id are ours |
+| `owner_gone` | the owner is not running | the pid is not in the process table |
+| `owner_unverified` | something with that pid exists | a pid, and pids get reused |
+| `unknown` | nobody can say | no pid recorded, or the platform declined |
+
+The asymmetry is the design. Pid reuse can make a dead process look alive; it
+cannot make a live one look dead. So `owner_gone` is safe to state and
+"running" is not, which is why there is no `owner_alive`.
+
+`owner_unverified` is deliberately excluded from `ACTIONABLE`. Acting on it
+would mean cancelling or reclaiming work another OPai is doing.
+
+### Evidence
+
+Against real processes, not mocks -- a child admits a run and is killed with
+`os._exit(9)`:
+
+```
+r-alive    owner=gui   pid=24516    -> owned_here
+r-dead     owner=gui   pid=22652    -> owner_gone
+```
+
+Against this checkout's own live journal, migrated on a copy:
+
+```
+live journal, before: {tasks: 27, runs: 27, events: 76, operations: 46,
+                       cost_events: 21, leases: 27}
+after migration:      {tasks: 27, runs: 27, events: 76, operations: 46,
+                       cost_events: 21, leases: 27}
+schema_version: 2      integrity: complete      rows lost: none
+```
+
+Every pre-existing lease reads `unknown`, never `abandoned`. A migration that
+made historical runs look recoverable would greet a user with a pile of
+imaginary work, and there is a test pinning that it does not.
+
+### What is deliberately still missing
+
+`owner_unverified` can be collapsed to a definite answer by recording the
+owning process's **creation time** alongside its pid: a pid whose start time
+differs from the recorded one is conclusively a reused pid. That needs a
+per-platform probe (`GetProcessTimes`, `/proc/<pid>/stat`, `sysctl`) and is
+worth doing separately rather than smuggling into this change.
+
+There is still no heartbeat. `heartbeat_at` is stamped at acquisition and at
+release and by nothing in between, so it cannot yet distinguish a process that
+is alive but wedged from one that is alive and working.
+
+## Found while measuring, not fixed here
+
+This checkout's journal holds **four unreconciled `model_call_paid` operations**
+from 2026-09-01. Paid calls that were begun and never reconciled, which is the
+territory of the epic's *"unknown cost is never represented as zero"*. Recorded
+here rather than acted on: it is a different acceptance criterion and deserves
+its own reproduction.
+
+`opaihub/attachments.py` had been writing durably since 2026-08-30 without a
+migration owner, so Stage 1's ratchet was red on `main`. Triaged as
+`NOT_RUNTIME_STATE` in this branch.
+
 ## Status
 
 | Migration step (per #818) | State |
