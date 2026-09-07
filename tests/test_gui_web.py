@@ -1348,5 +1348,119 @@ class AnUnreadableLedgerIsNotZeroSpendTests(unittest.TestCase):
         self.assertEqual(status["spent"], 0.0)
         self.assertIn("$0.00 today", status["line"])
 
+
+class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase):
+    """`inspector_state` must not drop what `budget_status` measured.
+
+    The chain is `budget_status` -> `app_state.inspector_state` ->
+    `gui_web._status` -> `header_status`. The judgement was computed at one end
+    and thrown away at the second link, which is why every surface after it
+    presented a lower bound as a complete figure.
+    """
+
+    def test_a_partial_total_survives_the_whole_chain(self):
+        from opai import gui_web
+
+        with mock.patch.object(
+            gui_web,
+            "cached_overview",
+            return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
+        ), mock.patch.object(
+            gui_web.A,
+            "inspector_state",
+            return_value={
+                "budget": {"spent_today": 2.5, "spend_complete": False}
+            },
+        ):
+            status = gui_web._status(Path("."), "Sonnet", "Ask")
+
+        self.assertIn("at least $2.50 today", status["line"])
+
+    def test_a_complete_total_is_not_hedged(self):
+        from opai import gui_web
+
+        with mock.patch.object(
+            gui_web,
+            "cached_overview",
+            return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
+        ), mock.patch.object(
+            gui_web.A,
+            "inspector_state",
+            return_value={"budget": {"spent_today": 2.5, "spend_complete": True}},
+        ):
+            status = gui_web._status(Path("."), "Sonnet", "Ask")
+
+        self.assertIn("$2.50 today", status["line"])
+        self.assertNotIn("at least", status["line"])
+
+    def test_inspector_state_publishes_what_the_ledger_measured(self):
+        """Read against a real project rather than a mock, so a renamed key in
+        `budget_status` breaks this instead of passing silently."""
+
+        from opai.app_state import inspector_state
+
+        with tempfile.TemporaryDirectory() as tmp:
+            budget = inspector_state(Path(tmp))["budget"]
+
+        self.assertIn("spend_complete", budget)
+        self.assertIn("unpriced_calls_today", budget)
+        self.assertIn("abandoned_calls_today", budget)
+
+    def _inspector_with_ledger(self, status):
+        """`inspector_state` against a ledger that reports what we say.
+
+        `budget_status` is imported inside the function, so the patch has to
+        land on `opaihub.budget`, not on a name bound in `app_state`.
+        """
+
+        import opaihub.budget
+        from opai.app_state import inspector_state
+
+        with mock.patch.object(
+            opaihub.budget, "budget_status", return_value=status
+        ), tempfile.TemporaryDirectory() as tmp:
+            return inspector_state(Path(tmp))["budget"]
+
+    def _ledger(self, *, complete, unpriced=0, abandoned=0, spent=2.5, cap=None):
+        return {
+            "caps": {"daily_usd_limit": cap},
+            "spent": {"today_usd": spent},
+            "panic": False,
+            "spend_completeness": {
+                "complete": complete,
+                "unpriced_calls_today": unpriced,
+                "abandoned_calls_today": abandoned,
+                "unaccounted_calls": 0,
+            },
+        }
+
+    def test_a_ledger_that_says_partial_is_carried_not_discarded(self):
+        """The link that was dropping it. Two sabotages -- hardcoding
+        `complete = True` here, and publishing `True` downstream -- survived
+        every other test in this file, because a fresh project's ledger is
+        complete anyway and the assertions only checked that keys existed."""
+
+        budget = self._inspector_with_ledger(
+            self._ledger(complete=False, unpriced=3)
+        )
+
+        self.assertFalse(budget["spend_complete"])
+        self.assertEqual(budget["unpriced_calls_today"], 3)
+        self.assertIn("at least $2.50", budget["text"])
+
+    def test_a_ledger_that_says_complete_is_not_hedged(self):
+        budget = self._inspector_with_ledger(self._ledger(complete=True))
+
+        self.assertTrue(budget["spend_complete"])
+        self.assertNotIn("at least", budget["text"])
+
+    def test_a_partial_total_is_marked_against_a_cap_too(self):
+        budget = self._inspector_with_ledger(
+            self._ledger(complete=False, abandoned=2, cap=10.0)
+        )
+
+        self.assertEqual(budget["text"], "at least $2.50 / $10.00 today")
+        self.assertEqual(budget["abandoned_calls_today"], 2)
+
 if __name__ == "__main__":
     unittest.main()

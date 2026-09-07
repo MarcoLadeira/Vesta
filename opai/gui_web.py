@@ -440,6 +440,7 @@ def _status(root: Path, model_label: str, mode_label: str) -> dict[str, Any]:
         spent = ins["budget"]["spent_today"]
         saved = o["savings"]["estimated_savings_usd"]
         on = bool(o.get("on"))
+        complete = bool(ins["budget"].get("spend_complete", True))
     except Exception:  # noqa: BLE001
         # #818: `None`, not `0.0`. This handler catches every way the ledger
         # can fail to answer, and answering "$0.00 today" to "I could not
@@ -447,9 +448,12 @@ def _status(root: Path, model_label: str, mode_label: str) -> dict[str, Any]:
         # `on` stays False because that one really is a different fact:
         # nothing is running if we cannot see that anything is.
         spent, saved, on = None, None, False
+        complete = True
     return {
         "on": on,
-        "line": header_status(model_label, mode_label, spent, saved=saved),
+        "line": header_status(
+            model_label, mode_label, spent, saved=saved, spend_complete=complete
+        ),
         "spent": spent,
         "saved": saved,
     }

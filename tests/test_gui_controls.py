@@ -180,6 +180,70 @@ class UnknownSpendIsNotZeroTests(unittest.TestCase):
         self.assertNotIn("$", budget["text"])
 
 
+class APartialTotalIsNotShownAsACompleteOneTests(unittest.TestCase):
+    """#818, and the other half of "unknown cost is never represented as zero".
+
+    ``budget_status`` already measures whether today's total is the whole
+    story -- calls with no known price, calls dispatched that never reported
+    an outcome -- and says in its own notes that such a total is "a lower
+    bound, not a complete figure". ``app_state.inspector_state`` took the
+    number and dropped that judgement, so every GUI surface downstream showed
+    a lower bound as if it were the whole figure.
+    """
+
+    def test_a_partial_total_says_at_least(self):
+        line = header_status("Sonnet", "Ask", 1.23, spend_complete=False)
+
+        self.assertIn("at least $1.23 today", line)
+
+    def test_a_complete_total_says_nothing_extra(self):
+        line = header_status("Sonnet", "Ask", 1.23, spend_complete=True)
+
+        self.assertIn("$1.23 today", line)
+        self.assertNotIn("at least", line)
+
+    def test_completeness_defaults_to_saying_nothing_extra(self):
+        """Callers that have not been taught about this must not start
+        hedging every figure."""
+
+        self.assertNotIn("at least", header_status("Sonnet", "Ask", 1.23))
+
+    def test_a_partial_zero_is_still_marked(self):
+        """The dangerous one. Nothing priced yet, and calls outstanding: the
+        figure is $0.00 and is emphatically not the whole story."""
+
+        line = header_status("Sonnet", "Ask", 0.0, spend_complete=False)
+
+        self.assertIn("at least $0.00 today", line)
+
+    def test_an_unreadable_spend_is_still_unknown_not_a_lower_bound(self):
+        """"at least cost unknown" would be nonsense."""
+
+        line = header_status("Sonnet", "Ask", None, spend_complete=False)
+
+        self.assertIn(UNKNOWN_SPEND, line)
+        self.assertNotIn("at least", line)
+
+    def test_the_inspector_marks_a_partial_total_against_its_cap(self):
+        budget = _inspector_budget(
+            {"spent_today": 1.25, "daily_limit": 5.0, "spend_complete": False}
+        )
+
+        self.assertEqual(budget["text"], "at least $1.25 / $5.00 today")
+
+    def test_the_inspector_marks_a_partial_total_with_no_cap(self):
+        budget = _inspector_budget({"spent_today": 1.25, "spend_complete": False})
+
+        self.assertIn("at least $1.25 today", budget["text"])
+
+    def test_the_inspector_leaves_a_complete_total_alone(self):
+        budget = _inspector_budget(
+            {"spent_today": 1.25, "daily_limit": 5.0, "spend_complete": True}
+        )
+
+        self.assertEqual(budget["text"], "$1.25 / $5.00 today")
+
+
 def _inspector_budget(budget):
     return session_inspector(
         model_label="Sonnet",

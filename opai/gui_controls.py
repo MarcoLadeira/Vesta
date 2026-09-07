@@ -182,13 +182,18 @@ def model_badge(option: dict[str, Any]) -> str:
 UNKNOWN_SPEND = "cost unknown"
 
 
-def _spend_phrase(value: object) -> str:
+def _spend_phrase(value: object, *, complete: bool = True) -> str:
     """``"$0.04 today"``, or :data:`UNKNOWN_SPEND` when there is no number.
 
     ``None`` is the caller's way of saying "the ledger did not answer", and is
     the only reason this is not simply ``float(value or 0)``. A genuine zero --
     a day with no spend -- still reads ``$0.00 today``, because that is a fact
     and a useful one.
+
+    ``complete=False`` means the ledger measured a total it knows is partial:
+    calls with no known price, or calls dispatched that never reported an
+    outcome. It reads "at least $1.23 today". Words rather than a ``+`` sign --
+    a symbol the reader has to decode is not honesty, and this is about money.
     """
 
     if value is None:
@@ -201,7 +206,7 @@ def _spend_phrase(value: object) -> str:
         # NaN reaches here from a ledger that divided by zero somewhere.
         # "$nan today" is not an improvement on a lie.
         return UNKNOWN_SPEND
-    return f"${amount:.2f} today"
+    return f"{'' if complete else 'at least '}${amount:.2f} today"
 
 
 # --------------------------------------------------------------------------- #
@@ -210,6 +215,8 @@ def header_status(
     mode_label: str,
     spent_today: float,
     saved: float | None = None,
+    *,
+    spend_complete: bool = True,
 ) -> str:
     """One calm line: which model, which mode, what it has cost today.
 
@@ -224,7 +231,7 @@ def header_status(
     differently.
     """
     short = str(model_label or "Auto").split(" · ")[0].split(" (")[0].strip()
-    spent = _spend_phrase(spent_today)
+    spent = _spend_phrase(spent_today, complete=spend_complete)
     bits = [short, str(mode_label or "Ask"), spent]
     if saved is not None:
         try:
@@ -376,13 +383,15 @@ def session_inspector(
     raw_spent = budget.get("spent_today")
     limit = budget.get("daily_limit")
     pct = int(budget.get("pct") or 0)
-    spend_text = _spend_phrase(raw_spent)
+    complete = bool(budget.get("spend_complete", True))
+    spend_text = _spend_phrase(raw_spent, complete=complete)
     if spend_text == UNKNOWN_SPEND:
         # No number to put against a cap, so the cap is not mentioned either.
         # "cost unknown / $5.00 today" invites the reader to fill in the blank.
         budget_text = UNKNOWN_SPEND
     elif isinstance(limit, (int, float)) and limit > 0:
-        budget_text = f"${_f2(raw_spent):.2f} / ${float(limit):.2f} today"
+        prefix = "" if complete else "at least "
+        budget_text = f"{prefix}${_f2(raw_spent):.2f} / ${float(limit):.2f} today"
     else:
         budget_text = f"{spend_text} · no cap"
     rows = [
