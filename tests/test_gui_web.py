@@ -1421,18 +1421,61 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
         ), tempfile.TemporaryDirectory() as tmp:
             return inspector_state(Path(tmp))["budget"]
 
-    def _ledger(self, *, complete, unpriced=0, abandoned=0, spent=2.5, cap=None):
+    def _ledger(
+        self,
+        *,
+        complete,
+        complete_today=None,
+        unpriced=0,
+        abandoned=0,
+        spent=2.5,
+        cap=None,
+    ):
+        completeness = {
+            "complete": complete,
+            "unpriced_calls_today": unpriced,
+            "abandoned_calls_today": abandoned,
+            "unaccounted_calls": 0,
+        }
+        if complete_today is not None:
+            completeness["complete_today"] = complete_today
         return {
             "caps": {"daily_usd_limit": cap},
             "spent": {"today_usd": spent},
             "panic": False,
-            "spend_completeness": {
-                "complete": complete,
-                "unpriced_calls_today": unpriced,
-                "abandoned_calls_today": abandoned,
-                "unaccounted_calls": 0,
-            },
+            "spend_completeness": completeness,
         }
+
+    def test_todays_figure_is_qualified_by_todays_facts_not_all_time(self):
+        """#818. `complete` is deliberately all-time, so one unreconciled call
+        from three weeks ago would hedge today's number forever -- and a hedge
+        that can never clear is one nobody reads. Observed in the running app:
+        "at least $0.00 today" on a day with no calls at all."""
+
+        budget = self._inspector_with_ledger(
+            self._ledger(complete=False, complete_today=True)
+        )
+
+        self.assertTrue(budget["spend_complete"])
+        self.assertNotIn("at least", budget["text"])
+
+    def test_a_day_that_is_itself_incomplete_is_still_marked(self):
+        """The narrowing must not switch the warning off altogether."""
+
+        budget = self._inspector_with_ledger(
+            self._ledger(complete=False, complete_today=False)
+        )
+
+        self.assertFalse(budget["spend_complete"])
+        self.assertIn("at least", budget["text"])
+
+    def test_a_ledger_without_the_narrower_key_falls_back(self):
+        """An older ledger payload must not start reporting every day as
+        complete just because it cannot answer the narrower question."""
+
+        budget = self._inspector_with_ledger(self._ledger(complete=False))
+
+        self.assertFalse(budget["spend_complete"])
 
     def test_a_ledger_that_says_partial_is_carried_not_discarded(self):
         """The link that was dropping it. Two sabotages -- hardcoding

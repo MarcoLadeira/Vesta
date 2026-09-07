@@ -42,7 +42,9 @@ import unittest
 import unittest.mock as mock
 from pathlib import Path
 
-from opaihub.budget import budget_gate, set_budget
+from datetime import datetime, timezone
+
+from opaihub.budget import budget_gate, budget_status, set_budget
 from opaihub.cost_model import DEFAULT_COST_MODEL
 from opaihub.ledger import record_model_call, record_model_call_started
 
@@ -198,6 +200,74 @@ class NoFalsePositiveTests(unittest.TestCase):
             )
         self.assertTrue(_lower_bound_reasons(gate))
 
+
+
+class TodaysFigureIsQualifiedByTodaysFactsTests(unittest.TestCase):
+    """#818: a hedge that can never clear is one nobody reads.
+
+    `spend_completeness.complete` is deliberately all-time -- `#685` says an
+    unaccounted call "still appears here -- permanently" -- which is right for
+    the reconciliation report and wrong for qualifying a number labelled
+    "today". This module's own header already reached that conclusion for the
+    *gate*: "gating on them would make one crashed run require confirmation for
+    every paid route forever ... A permanent prompt is not a safety feature."
+
+    The same trap caught the header line. Observed in the running app: "at
+    least $0.00 today" on a day with no calls at all, because four operations
+    from a fortnight earlier were still open. `complete_today` is the narrower
+    answer surfaces should use.
+    """
+
+    def test_an_old_unaccounted_call_does_not_hedge_todays_figure(self):
+        with _Project() as root:
+            set_budget(root, daily_usd=5.0)
+            _record_lost_call(root)
+            # Age it out of "today" without touching anything else.
+            with mock.patch(
+                "opaihub.budget.datetime"
+            ) as clock:
+                clock.now.return_value = datetime(
+                    2099, 1, 1, tzinfo=timezone.utc
+                )
+                completeness = budget_status(root)["spend_completeness"]
+
+        self.assertEqual(completeness["unresolved_calls_today"], 0)
+        self.assertTrue(
+            completeness["complete_today"],
+            "an old open call must not make today's number a lower bound",
+        )
+        self.assertFalse(
+            completeness["complete"],
+            "the all-time fact is still true and still reported",
+        )
+
+    def test_a_call_dispatched_today_and_still_open_does_hedge_it(self):
+        with _Project() as root:
+            set_budget(root, daily_usd=5.0)
+            _record_lost_call(root)
+            completeness = budget_status(root)["spend_completeness"]
+
+        self.assertEqual(completeness["unresolved_calls_today"], 1)
+        self.assertFalse(completeness["complete_today"])
+
+    def test_a_clean_day_is_complete(self):
+        with _Project() as root:
+            set_budget(root, daily_usd=5.0)
+            completeness = budget_status(root)["spend_completeness"]
+
+        self.assertTrue(completeness["complete_today"])
+        self.assertTrue(completeness["complete"])
+
+    def test_an_unpriced_call_today_still_hedges_it(self):
+        """The narrowing must not drop the reason it was built for."""
+
+        with _Project(cost_model=PARTIAL_COST_MODEL) as root:
+            set_budget(root, daily_usd=5.0)
+            _record_unpriced_call(root)
+            completeness = budget_status(root)["spend_completeness"]
+
+        self.assertEqual(completeness["unpriced_calls_today"], 1)
+        self.assertFalse(completeness["complete_today"])
 
 if __name__ == "__main__":
     unittest.main()

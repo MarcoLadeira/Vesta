@@ -290,7 +290,16 @@ def inspector_state(project_root: Path, *, mode: str = "safe-auto") -> dict[str,
     # judgement, so every GUI surface downstream presented a lower bound as if
     # it were complete. The ledger's own verdict travels with the number now.
     completeness = budget.get("spend_completeness") or {}
-    complete = bool(completeness.get("complete", True))
+    # `complete_today`, not `complete`. The number beside it is labelled
+    # "today", and `complete` answers the same question about all of history --
+    # so one unreconciled call from three weeks ago hedges today's figure
+    # forever, and a hedge that can never clear is one nobody reads. Seen in
+    # the running app: "at least $0.00 today" on a day with no calls at all,
+    # because four operations from a fortnight earlier were still open.
+    # Falls back for a ledger that has not been taught the narrower key.
+    complete = bool(
+        completeness.get("complete_today", completeness.get("complete", True))
+    )
     prefix = "" if complete else "at least "
     if isinstance(daily, (int, float)) and daily > 0:
         pct = max(0, min(100, int(round(100 * spent / daily))))

@@ -336,6 +336,21 @@ def budget_status(
     # retirable but not yet retired is counted here as unaccounted rather than
     # being written away behind a status read (#685).
     reconciliation = cost_reconciliation(root, events=ledger_events)
+    # `unaccounted_calls` is deliberately all-time (#685: "still appears here
+    # -- permanently"), which is right for the reconciliation report and wrong
+    # for qualifying a figure labelled "today". A call dispatched three weeks
+    # ago and never closed does not make *today's* total a lower bound, and a
+    # hedge that can never clear is one nobody reads.
+    #
+    # Counted by dispatch date, and only the still-open ones: a call abandoned
+    # today is already `abandoned_day`, so including it here would count the
+    # same hole twice.
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    unresolved_today = sum(
+        1
+        for item in reconciliation.get("unresolved", []) or []
+        if str(item.get("started_at") or "").startswith(today_iso)
+    )
 
     def remaining(limit: Any, spent: float) -> Any:
         return round(float(limit) - spent, 6) if limit is not None else None
@@ -383,6 +398,16 @@ def budget_status(
             # only *gating* uses the self-clearing daily window.
             "abandoned_calls_today": abandoned_day,
             "abandoned_calls_month": abandoned_month,
+            # Dispatched today, no outcome yet. Distinct from `abandoned`,
+            # which has been swept; this one is still in flight.
+            "unresolved_calls_today": unresolved_today,
+            # Whether *today's* number specifically is the whole story. A
+            # surface showing a figure labelled "today" must qualify it with
+            # this rather than with `complete`, which answers the same question
+            # about all of history.
+            "complete_today": not (
+                unpriced_day or abandoned_day or unresolved_today
+            ),
         },
         "remaining": {
             "today_usd": remaining(caps.get("daily_usd_limit"), spent_day),
