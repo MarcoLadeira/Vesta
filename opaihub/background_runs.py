@@ -1061,6 +1061,33 @@ class BackgroundRunner:
         return finished
 
 
+def runs_owned_by_a_live_process(project_root: Path) -> frozenset[str]:
+    """Run ids the canonical journal says somebody may still be working on.
+
+    #818. ``active_run_ids`` can only ever name runs *this* process started,
+    so a run being executed by a different, live OPai is invisible to it --
+    and ``opaihub/cli.py`` passes nothing at all. The journal knows better,
+    because a lease now records the process that took it.
+
+    A run this cannot speak for -- absent from the journal, no process
+    recorded, an unreadable store -- is simply not in the set. That is not the
+    same as saying it is dead; it means recovery falls back to the judgement
+    it made before, which is the only answer that does not strand every
+    pre-#818 run in ``running`` forever.
+    """
+
+    try:
+        from . import journal_liveness, journal_runtime
+
+        return frozenset(
+            str(entry.get("run_id") or "")
+            for entry in journal_runtime.unterminated_runs(project_root, limit=10_000)
+            if journal_liveness.may_be_alive(entry)
+        ) - {""}
+    except Exception:  # noqa: BLE001 - recovery runs when things are already wrong
+        return frozenset()
+
+
 def recover_interrupted_runs(
     project_root: Path, *, active_run_ids: tuple[str, ...] = ()
 ) -> list[AutomationRun]:
@@ -1081,11 +1108,25 @@ def recover_interrupted_runs(
     NEEDS_ATTENTION with "cancellation_unconfirmed" instead, carrying
     whatever teardown evidence was durably recorded before the crash, so
     recovery never claims a stop nobody observed.
+
+    **It will not reconcile a run somebody is still running.** A terminal
+    verdict written onto live work is not a recovery, it is a false record,
+    and the message this used to write -- "the owning session ended before it
+    finished" -- was simply untrue when the owning session was still there.
+    Runs whose owner the journal says may be alive are left exactly as they
+    are; ``opai journal pending`` reports them, and they recover on a later
+    sweep once their owner is genuinely gone.
     """
 
     recovered = []
+    # #818: reproduced before this line existed -- a second OPai running
+    # `automation recover` wrote "failed: the owning session ended before it
+    # finished" onto a run whose owning process was demonstrably still alive.
+    # `active_run_ids` could not have caught it: it names only this process's
+    # own work, and the CLI passes none.
+    owned_elsewhere = runs_owned_by_a_live_process(project_root)
     for run in list_runs(project_root, status="running"):
-        if run.run_id in active_run_ids:
+        if run.run_id in active_run_ids or run.run_id in owned_elsewhere:
             continue
         if _is_terminal_run(run):
             continue

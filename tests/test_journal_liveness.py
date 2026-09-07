@@ -29,6 +29,7 @@ from opaihub.journal_liveness import (
     OWNER_UNKNOWN,
     OWNER_UNVERIFIED,
     VERDICTS,
+    may_be_alive,
     owner_liveness,
 )
 
@@ -153,6 +154,73 @@ class WhatItRefusesToAnswerTests(unittest.TestCase):
                         is_pid_running=lambda pid: True,
                     ),
                     OWNER_UNKNOWN,
+                )
+
+
+class MayBeAliveAnswersTheRecoveryQuestionTests(unittest.TestCase):
+    """The predicate a recovery pass uses, which is not simply "not gone".
+
+    A recovery pass is about to write a terminal verdict. The asymmetry it
+    needs is different from `owner_liveness`'s: failing to reconcile a dead
+    run is a nuisance, and reconciling a live one is a false record.
+    """
+
+    def test_a_lease_with_no_process_recorded_is_not_alive(self):
+        """Absence of evidence, not evidence of life.
+
+        Every lease written before #818 looks like this. Counting them as
+        possibly-alive would strand every pre-migration run in `running`
+        forever -- the ghost state the recovery sweep exists to clear.
+        """
+
+        self.assertFalse(may_be_alive(_lease()))
+        self.assertFalse(may_be_alive(_lease(owner_boot=FOREIGN_BOOT)))
+        self.assertFalse(may_be_alive(_lease(owner_pid=0)))
+
+    def test_a_process_that_is_gone_is_not_alive(self):
+        self.assertFalse(
+            may_be_alive(
+                _lease(owner_pid=4242, owner_boot=FOREIGN_BOOT),
+                is_pid_running=lambda pid: False,
+            )
+        )
+
+    def test_a_process_that_is_running_may_be_alive(self):
+        self.assertTrue(
+            may_be_alive(
+                _lease(owner_pid=4242, owner_boot=FOREIGN_BOOT),
+                is_pid_running=lambda pid: True,
+            )
+        )
+
+    def test_our_own_work_may_be_alive(self):
+        self.assertTrue(
+            may_be_alive(
+                _lease(owner_pid=os.getpid(), owner_boot=owner_lease.boot_id())
+            )
+        )
+
+    def test_a_platform_that_will_not_say_counts_as_possibly_alive(self):
+        """A recorded owner OPai cannot read about is not a licence to
+        declare it dead -- unlike a lease with no owner at all."""
+
+        self.assertTrue(
+            may_be_alive(
+                _lease(owner_pid=4242, owner_boot=FOREIGN_BOOT),
+                is_pid_running=lambda pid: None,
+            )
+        )
+
+    def test_only_a_proven_death_makes_it_false(self):
+        """Stated as the invariant, so a future edit has to break it visibly."""
+
+        for answer in (True, None):
+            with self.subTest(is_pid_running=answer):
+                self.assertTrue(
+                    may_be_alive(
+                        _lease(owner_pid=4242, owner_boot=FOREIGN_BOOT),
+                        is_pid_running=lambda pid, a=answer: a,
+                    )
                 )
 
 

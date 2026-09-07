@@ -344,6 +344,7 @@ def cmd_automation(args: argparse.Namespace) -> int:
         pipeline_executor,
         read_notifications,
         recover_interrupted_runs,
+        runs_owned_by_a_live_process,
         request_cancel,
         schedule_automation,
         tick_automations,
@@ -387,7 +388,18 @@ def cmd_automation(args: argparse.Namespace) -> int:
         elif args.automation_command == "schedules":
             print_json(list_automation_schedules(root))
         elif args.automation_command == "recover":
-            print_json([run.to_dict() for run in recover_interrupted_runs(root)])
+            # Both halves, because a sweep that reconciles nothing is
+            # ambiguous otherwise: "everything was already fine" and "somebody
+            # else is still working on all of it" look identical from an empty
+            # list, and they call for opposite reactions.
+            deferred = sorted(runs_owned_by_a_live_process(root))
+            recovered = [run.to_dict() for run in recover_interrupted_runs(root)]
+            print_json(
+                {
+                    "recovered": recovered,
+                    "left_to_their_owner": deferred,
+                }
+            )
     except (ValueError, FileExistsError, FileNotFoundError, RuntimeError) as exc:
         print_json({"status": "error", "message": safe_detail(exc)})
         return 2

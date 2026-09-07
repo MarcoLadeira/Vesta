@@ -102,6 +102,44 @@ def owner_liveness(
     return OWNER_UNKNOWN
 
 
+def may_be_alive(
+    lease: Mapping[str, Any],
+    *,
+    is_pid_running: Callable[[int], bool | None] = pid_is_running,
+    this_pid: int | None = None,
+    this_boot: str = "",
+) -> bool:
+    """True when something might still be tending this run.
+
+    The question a recovery pass actually has, and deliberately *not* the same
+    as ``owner_liveness(...) != OWNER_GONE``.
+
+    A lease with no process recorded is absence of evidence, not evidence of
+    life. Treating it as "might be alive" would freeze recovery for every run
+    admitted before the identity columns existed -- they would sit in
+    ``running`` forever with no way out, which is the ghost state #613 opened
+    by describing. Those fall through to whatever the caller did before.
+
+    A lease that *does* name a process is different. Anything short of
+    "that process is gone" leaves open the possibility that work is still
+    running, including the case where the platform declined to answer. The
+    asymmetry is deliberate: failing to recover a dead run is a nuisance, and
+    writing a terminal verdict onto a live one is a lie.
+    """
+
+    if _as_pid(lease.get("owner_pid")) is None:
+        return False
+    return (
+        owner_liveness(
+            lease,
+            is_pid_running=is_pid_running,
+            this_pid=this_pid,
+            this_boot=this_boot,
+        )
+        != OWNER_GONE
+    )
+
+
 def describe(verdict: str) -> str:
     """A sentence for a person, matching the verdict exactly.
 
@@ -146,5 +184,6 @@ __all__: Sequence[str] = (
     "OWNER_UNVERIFIED",
     "VERDICTS",
     "describe",
+    "may_be_alive",
     "owner_liveness",
 )
