@@ -19,11 +19,93 @@ is intended.
 Every claim here is either a file/line reference or a reproduction. A section
 with neither is a plan, and is labelled as one.
 
+
+## Inventory: where the authority actually sits
+
+Measured on `main` at `287dbfb`, by reading the code rather than the design.
+
+### 1. The canonical read path is imported by nothing
+
+`opaihub/journal_reader.py` is Stage 5 -- "GUI, CLI and receipts stop reading
+files and start reading journal projections". Across `opaihub/` and `opai/`,
+its only importer is `opaihub/journal_retirement.py`, which is itself reached
+only by `opai/cli.py`'s doctor command. No GUI read path, no CLI read path and
+no receipt reaches it.
+
+So the epic's *"GUI, CLI and background projections are generated from the same
+canonical state"* is not partly true. It is not true at all: the machinery to
+make it true exists and is wired to nothing.
+
+### 2. The canonical lease cannot name its owner
+
+`opaihub/journal_runtime.py:260`:
+
+```python
+fence = acquire_lease(store, run_id=run_id, owner=surface, now=now)
+```
+
+`surface` is a category -- `"gui"`, `"cli"` -- not an identity. Every run
+admitted by every OPai process on the machine records the same owner.
+
+`heartbeat_at` is worse than coarse; it is inert. Its only writers are
+`acquire_lease` (`journal_store.py:798`) and `release_lease`
+(`journal_store.py:821`). Nothing restamps it while a run is in progress, so
+its value is always the moment the run started.
+
+`unterminated_runs` (`journal_runtime.py:657`) is explicit about needing what
+neither field provides:
+
+> each row carries the owner and the heartbeat and lets the caller decide,
+> because the caller can look at whether that process still exists and this
+> module cannot.
+
+The caller cannot. Reproduced, admitting two runs as two different processes
+would:
+
+```
+run_id     lease_owner  lease_held  lease_heartbeat_at
+r-alive    gui          True        2026-09-07T10:00:00+00:00
+r-dead     gui          True        2026-09-07T10:00:01+00:00
+
+distinct owners recorded: {'gui'}
+can a caller name the process that holds either lease? False
+```
+
+A run being tended right now and a run whose process was killed are the same
+row. This is the epic's *"`cancelled` is impossible while owned controllable
+work is still alive"* and *"restart rehydrates one honest actionable state"*,
+and both currently rest on fields that cannot carry the answer.
+
+### 3. Two lease authorities, and the legacy one is the capable one
+
+| | `opaihub/owner_lease.py` | `journal_store.leases` |
+| --- | --- | --- |
+| substrate | JSON file per resource | the canonical journal |
+| owner identity | pid + per-process boot id | a surface string |
+| heartbeat | restamped by `renew()` | stamped once, at acquisition |
+| liveness verdict | `describe()`, closed vocabulary | none available |
+| fencing token | yes | yes |
+
+The kernel #818 wants to be authoritative is the one that cannot answer "is
+this still running?". The file it is meant to replace can.
+
+`owner_lease.py` also states the rule the journal has to inherit: liveness is
+decided by heartbeat, never by pid, because operating systems reuse pids. The
+pid and boot id are still worth recording, for the narrower job they do
+honestly -- recognising this process's own work.
+
+### What this PR takes
+
+Item 2, and only item 2. It is the smallest change that turns an acceptance
+criterion from unprovable into provable, and items 1 and 3 both depend on it:
+a canonical read path is not worth switching to while the canonical record
+cannot say whether the work it describes is still alive.
+
 ## Status
 
 | Migration step (per #818) | State |
 | --- | --- |
-| 1. Inventory every authoritative writer/reader | in progress |
+| 1. Inventory every authoritative writer/reader | measured, above |
 | 2. Parity assertions, legacy vs canonical | not started |
 | 3. Cut over one local-provider path | not started |
 | 4. Cut over one account-provider path | not started |
