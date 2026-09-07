@@ -58,7 +58,7 @@ from .state import state_dir
 #: Bumped whenever :data:`_MIGRATIONS` grows. A database reporting a higher
 #: version than this was written by a newer OPai and is *incompatible* -- a
 #: state the caller must be able to tell apart from corruption.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: Typed integrity outcomes (functional requirement 7).
 INTEGRITY_COMPLETE = "complete"
@@ -283,7 +283,43 @@ _MIGRATION_1 = (
     """,
 )
 
-_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = ((1, _MIGRATION_1),)
+_MIGRATION_2 = (
+    """CREATE TABLE IF NOT EXISTS agent_objectives (
+        objective_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(task_id),
+        run_id TEXT NOT NULL UNIQUE REFERENCES runs(run_id),
+        status TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS objective_assignments (
+        assignment_id TEXT PRIMARY KEY,
+        objective_id TEXT NOT NULL REFERENCES agent_objectives(objective_id),
+        task_id TEXT NOT NULL REFERENCES tasks(task_id),
+        run_id TEXT NOT NULL UNIQUE REFERENCES runs(run_id),
+        status TEXT NOT NULL,
+        owner TEXT NOT NULL DEFAULT '',
+        fence INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT,
+        position INTEGER NOT NULL,
+        payload TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS assignments_by_objective ON objective_assignments(objective_id, position)",
+    """CREATE TABLE IF NOT EXISTS objective_cost_events (
+        operation_key TEXT PRIMARY KEY REFERENCES operations(operation_key),
+        objective_id TEXT NOT NULL REFERENCES agent_objectives(objective_id),
+        assignment_id TEXT REFERENCES objective_assignments(assignment_id),
+        amount_usd TEXT,
+        measurement_kind TEXT NOT NULL,
+        recorded_at TEXT NOT NULL
+    )""",
+)
+
+_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
+    (1, _MIGRATION_1),
+    (2, _MIGRATION_2),
+)
 
 
 def _connect(path: Path) -> sqlite3.Connection:
