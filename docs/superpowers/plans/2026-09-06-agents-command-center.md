@@ -17,14 +17,19 @@ Architecture: extend the existing SQLite runtime journal with objective and assi
 - Reconcile actual changes in an integration worktree, detect conflicts and require integrated verification before completion. Do not mutate the user's checkout during reconciliation.
 - Restart reads the journal and reconciles interrupted ownership without replaying provider operations.
 
-## Delivery sequence
+## Implementation delivered
 
-- [ ] Journal contracts and deterministic plan validation, with dependency, scope, budget and transactional-admission tests.
-- [ ] Isolated execution, independent routing, bounded context, cancellation, crash recovery, costs and integration verification, tested with deterministic local workers and real temporary Git repositories.
-- [ ] Picker switch, desktop bridge and Agents workspace, with state rehydration and controls tests.
-- [ ] CLI inspection/control of the same canonical service, without a second state machine.
-- [ ] Sequential versus concurrent benchmark for six issue-required workload classes; record time, cost, conflicts, verification and intervention. Clearly distinguish deterministic qualification from provider-backed outcome evidence.
-- [ ] Independent review, targeted regressions, Python/web required checks and updated PR evidence.
+- Transactional journal ownership, deterministic plans, dependencies, conservative scope admission, reservations and exact cost evidence.
+- Isolated process workers, independent routing, host capacity, cancellation, retained worktrees and integrated verification against the original repository policy.
+- Mode-picker toggle, persisted preference, desktop bridge and objective workspace with live revisions, controls, observed routes and integration evidence.
+- CLI creation, execution, inspection and controls using the same service, plus the packaged internal worker entry point.
+- Deterministic benchmark harness for all six issue workload classes. It measures orchestration only; it does not establish provider quality or competitive speed.
+
+## Remaining qualification and recovery boundary
+
+Testing, lint, benchmarks and independent review are deferred at the user's explicit request on 2026-09-08. Existing test changes were written before that instruction; subsequent implementation changes are untested. Keep PR #842 draft and #821 open.
+
+Expired owners are fenced and surfaced as needing attention. Their capacity remains reserved until termination is established; automatic orphan release and provider-operation replay are deliberately unavailable. Recovery of retained work needs a proven-termination path before that part of the epic is complete.
 
 ## Validation and delivery constraints
 

@@ -264,6 +264,7 @@ class ObjectiveExecutor:
         self._cancels: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
         self._observed_costs = {}
+        self._ledger_cursor = {}
 
     def _emit(self, objective_id: str):
         snapshot = self.store.snapshot(objective_id)
@@ -407,22 +408,50 @@ class ObjectiveExecutor:
 
     def _sync_costs(self, objective):
         from .execution_scope import assignment_cost_events
-        from .ledger import read_events
+        from .ledger import ledger_path
 
-        events = read_events(self.root)
-        runs = [(row["run_id"], row["assignment_id"]) for row in objective["assignments"]]
-        runs.append((objective["run_id"] + "-plan", None))
+        path = ledger_path(self.root)
+        try:
+            handle = path.open("rb")
+        except FileNotFoundError:
+            return
+        oid = objective["objective_id"]
+        runs = {row["run_id"]: row["assignment_id"] for row in objective["assignments"]}
+        runs[objective["run_id"] + "-plan"] = None
+        identity, offset, anchor = self._ledger_cursor.get(oid, (None, 0, b""))
         changed = False
-        for run_id, assignment_id in runs:
-            for event in assignment_cost_events(self.root, run_id, events=events):
-                identity = (event["amount_usd"], event["measurement_kind"])
-                key = event["operation_key"]
-                if self._observed_costs.get(key) != identity:
-                    self.store.record_cost(objective["objective_id"], assignment_id, key, *identity)
-                    self._observed_costs[key] = identity
-                    changed = True
+        with handle:
+            info = os.fstat(handle.fileno())
+            current_identity = (info.st_dev, info.st_ino)
+            handle.seek(max(0, offset - len(anchor)))
+            if identity != current_identity or offset > info.st_size or handle.read(len(anchor)) != anchor:
+                offset = 0
+            handle.seek(offset)
+            while handle.tell() < info.st_size:
+                raw = handle.readline(1_000_001)
+                if len(raw) > 1_000_000:
+                    raise ValueError("Ledger record exceeds the objective evidence limit")
+                if not raw.endswith(b"\n"):
+                    break
+                try:
+                    row = json.loads(raw)
+                except (ValueError, UnicodeDecodeError):
+                    row = None
+                if isinstance(row, dict) and row.get("assignment_run_id") in runs:
+                    run_id = row["assignment_run_id"]
+                    for event in assignment_cost_events(self.root, run_id, events=[row]):
+                        evidence = (event["amount_usd"], event["measurement_kind"])
+                        key = event["operation_key"]
+                        if self._observed_costs.get(key) != evidence:
+                            self.store.record_cost(oid, runs[run_id], key, *evidence)
+                            self._observed_costs[key] = evidence
+                            changed = True
+                offset = handle.tell()
+            handle.seek(max(0, offset - 256))
+            anchor = handle.read(min(offset, 256))
+            self._ledger_cursor[oid] = (current_identity, offset, anchor)
         if changed:
-            self._emit(objective["objective_id"])
+            self._emit(oid)
 
     def _finalize_costs(self, objective_id, assignment, result):
         try:
