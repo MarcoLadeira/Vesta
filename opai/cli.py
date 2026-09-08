@@ -727,10 +727,36 @@ def cmd_objectives(args: argparse.Namespace) -> int:
                 print(
                     f"{item.get('objective_id', '')}  {item.get('status', 'unknown')}  {item.get('objective', '')}"
                 )
+                cost = item.get("cost_usd", "0")
+                coverage = "complete" if item.get("cost_complete") else "incomplete"
+                budget = item.get("budget_usd")
+                print(f"  Cost: ${cost} ({coverage}); budget: {'unset' if budget is None else '$' + budget}")
                 for assignment in item.get("assignments", []):
                     print(
                         f"  {assignment['assignment_id']}  {assignment['status']}  {assignment.get('title', '')}"
                     )
+                    route = assignment.get("observed_model") or assignment.get("model") or "auto"
+                    print(f"    Model: {route}; cost: ${assignment.get('cost_usd', '0')}")
+                    if assignment.get("blocked_reason"):
+                        print(f"    {assignment['blocked_reason']}")
+                if action != "list":
+                    integration = item.get("integration") or {}
+                    evidence = integration.get("result") or {}
+                    for label, value in (
+                        ("Integration", evidence.get("summary") or evidence.get("error")),
+                        ("Commit", evidence.get("head_sha")),
+                        ("Branch", integration.get("branch")),
+                        ("Worktree", integration.get("worktree")),
+                    ):
+                        if value:
+                            print(f"  {label}: {value}")
+        executed = action in {"run", "resume", "reconcile", "verify"} or (
+            action == "create" and args.start_objective
+        )
+        if executed and (result.get("objective") or {}).get("status") in {
+            "failed", "needs-attention", "cancelled", "blocked",
+        }:
+            return 1
         return 0
     except Exception as exc:  # noqa: BLE001
         print(

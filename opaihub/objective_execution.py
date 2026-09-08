@@ -263,7 +263,6 @@ class ObjectiveExecutor:
         )
         self._cancels: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
-        self._threads: dict[str, threading.Thread] = {}
         self._observed_costs = {}
 
     def _emit(self, objective_id: str):
@@ -304,6 +303,8 @@ class ObjectiveExecutor:
     ):
         packet = {
             "objective_id": objective["objective_id"],
+            "owner": self.owner,
+            "fence": assignment["fence"],
             "assignment": assignment,
             "authority_root": str(self.root),
             "worktree": str(path),
@@ -450,6 +451,7 @@ class ObjectiveExecutor:
             "objective": "Plan the objective",
             "task_id": objective["task_id"],
             "run_id": objective["run_id"] + "-plan",
+            "fence": reservation["fence"],
         }
         result, lease, invoked = {}, None, False
         status, rows, detail = "needs-attention", None, {}
@@ -488,17 +490,6 @@ class ObjectiveExecutor:
             result=detail,
         )
         return self._emit(objective_id)
-
-    def start(self, objective_id: str):
-        with self._lock:
-            thread = self._threads.get(objective_id)
-            if thread is None or not thread.is_alive():
-                thread = threading.Thread(
-                    target=self.run, args=(objective_id,), daemon=True
-                )
-                self._threads[objective_id] = thread
-                thread.start()
-        return self.store.snapshot(objective_id)
 
     def control(self, objective_id: str, action: str, assignment_id=None, value=None):
         if action in {"reconcile", "verify"}:
@@ -901,17 +892,29 @@ class ObjectiveExecutor:
             result = {"error": safe_detail(exc, limit=500)}
         if cancel.is_set():
             status = "cancelled"
-        self.store.finish_integration(
-            objective_id,
-            self.owner,
-            admission["fence"],
-            status=status,
-            worktree=lease.path if lease else "",
-            branch=lease.branch if lease else "",
-            verification=verification,
-            result=result,
-            conflicts=conflicts,
-        )
-        if lease:
-            self.worktrees.release(lease.lease_id, owner=self.owner)
+        evidence = {
+            "worktree": lease.path if lease else "",
+            "branch": lease.branch if lease else "",
+            "verification": verification,
+            "result": result,
+            "conflicts": conflicts,
+        }
+        try:
+            try:
+                self.store.finish_integration(
+                    objective_id, self.owner, admission["fence"],
+                    status=status, **evidence,
+                )
+            except ValueError as exc:
+                if status != "completed":
+                    raise
+                result["error"] = safe_detail(exc, limit=500)
+                result["summary"] = "Integration evidence could not establish completion."
+                self.store.finish_integration(
+                    objective_id, self.owner, admission["fence"],
+                    status="needs-attention", **evidence,
+                )
+        finally:
+            if lease:
+                self.worktrees.release(lease.lease_id, owner=self.owner)
         return self._emit(objective_id)
